@@ -323,6 +323,12 @@ def write_page(truths: list[dict], out_dir: Path, frozen_set_id: str) -> None:
 def build_kit(
     frozen_dir: Path, out_dir: Path, clips: str = "all", scale: int = 1280
 ) -> dict:
+    revision = subprocess.run(
+        ["git", "-C", str(Path(__file__).resolve().parent), "rev-parse", "HEAD"],
+        capture_output=True,
+        text=True,
+    )
+    commit = revision.stdout.strip() if revision.returncode == 0 else None
     if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
         raise RuntimeError("ffmpeg and ffprobe must be on PATH")
     manifest = json.loads((frozen_dir / "manifest.json").read_text())
@@ -361,6 +367,7 @@ def build_kit(
     write_page(truths, out_dir, manifest["frozen_set_id"])
     report = {
         "state": "rendered",
+        "commit": commit,
         "scale": scale,
         "frozen_set_id": manifest["frozen_set_id"],
         "clips": results,

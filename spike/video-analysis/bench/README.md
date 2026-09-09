@@ -215,8 +215,9 @@ on the number-not-reliably-readable clips.
 ## Verify
 
 ```sh
-/Users/michaeljones/Projects/loanarmy/.loan/bin/python -m pytest \
-  spike/video-analysis/bench -q
+uv pip install --python ~/Projects/loanarmy/.loan/bin/python -r spike/video-analysis/bench/requirements.txt
+BENCH_REQUIRE_CV2=1 ~/Projects/loanarmy/.loan/bin/python -m pytest \
+  spike/video-analysis/bench -v
 ruff check spike/video-analysis/bench
 ruff format --check spike/video-analysis/bench
 ```
@@ -364,11 +365,11 @@ Fill `notes_template.md` with one plain sentence per marked clip (about 30
 minutes for 20 clips). Prefer a local ignored copy for completed notes:
 
 ```sh
-cp spike/video-analysis/bench/notes_template.md spike/video-analysis/bench/report/mj-notes.md
-# Edit report/mj-notes.md, then:
+cp spike/video-analysis/bench/notes_template.md ledgers/lane-a-notes.md
+# Paste the page output into ledgers/lane-a-notes.md, then:
 ~/Projects/loanarmy/.loan/bin/python spike/video-analysis/bench/apply_notes.py \
   --manifest ~/Projects/loanarmy-bench-frozen/manifest.json \
-  --notes spike/video-analysis/bench/report/mj-notes.md
+  --notes ledgers/lane-a-notes.md
 ```
 
 The intake validates the complete form, clip IDs, windows, jersey and kit before
@@ -443,8 +444,8 @@ The `e1c-annotated-dense` and `e1c-annotated-prod30` measurements used **red**
 rectangles. No model runs or review-video renders were repeated for this repair.
 Future `qwen3vl_annotated` inputs use magenta (RGB 255, 0, 255), recorded in their
 run settings; `grounding.draw_anchor_box` retains its original default for other
-callers. All 20 current truths are red kits, so the existing kit-colour metric is
-uninformative until non-red kits enter the frozen set.
+callers. At round 2 all kit truth fields were red; round 4 adds MJ's black override and
+two kit uncertainties, so the evaluated set remains heavily red-dominated.
 
 The original `presence_only_rate` becomes `presence_only_read_rate`, with its
 exact event-gated calculation preserved. `presence_only_sentence_rate` inspects
@@ -453,10 +454,9 @@ without a hit on the requested action-verb stems (carry/carries/carrying, pass,
 duel, shot/shoot, run/running, dribbl, tackl, cross, header, clear). This literal
 rule still counts moving/interacting/holding descriptions. It yields 7/20 dense
 and 12/20 prod30 presence sentences; it is not the manual strict/loose tally.
-`sentence_event_consistency_rate` requires **every** substantive event type to
-occur in the existing conservative `score._event_classes(sentence)` output.
-Unmapped types and inflections absent from that vocabulary fail the check;
-zero substantive events pass vacuously. These are lexical checks, not correctness.
+`sentence_event_consistency_rate` originally required every substantive event
+type in the narrow keyword vocabulary. Round 4 separates unmapped types and
+recognises the requested inflections; details follow below.
 
 `zero_duration_event_rate` counts events with equal endpoints;
 `window_filling_event_rate` counts events whose endpoints are each within 0.5s of
@@ -502,9 +502,10 @@ MJ reviewed all 20 boxed clips. Apply his local notes verbatim, without inferenc
 `truth_label_disputed: true` and `truth_label_dispute_note` alongside `human_note`.
 The supplied label stays unchanged for audit; it is not silently replaced with
 another number. Both scorers list `disputed_clips` in overall and exclude them
-from all jersey/kit denominators, retaining their raw assertions and activity
-checks. Semantic per-clip identity metrics are null for disputed clips; legacy
-`jersey_review` keeps colour/number mentions but makes checks unavailable.
+from jersey denominators, retaining their raw assertions and activity checks.
+A kit override restores kit evaluation; uncertain kit truth counts as abstention. Semantic per-clip jersey metrics are null for disputed clips; legacy
+`jersey_review` keeps colour/number mentions. Disputed kits without an override
+or uncertainty flag remain unavailable.
 The manifest's `frozen_set_id` is unchanged. Intake prints the updated truth-byte
 and note hashes; the regenerated ledger records the same snapshot hashes.
 Neither the intake file nor populated truth files are committed.
@@ -513,10 +514,10 @@ MJ disputes #24: “wrong number. this is number 12 from the shorts”. The earl
 fps2 video lane called this player's kit **black**, as did annotated prod30.
 MJ's appended clarification confirms black warm-up kit and black shorts: those
 colour readings were correct and frozen `kit_color: red` is wrong. The existing
-dispute excludes both identity and colour metrics; frozen fields stay for audit. MJ also reports “some misses as
+dispute excludes jersey metrics; a black kit override now restores colour
+evaluation while the original frozen fields stay for audit. MJ also reports “some misses as
 far as boxes are concerned”: visible truth-track misses belong to the tracker
-input, and may affect model readings. Red-kit metrics remain uninformative on
-the remaining red-labelled evaluation set with the historical red annotations.
+input, and may affect model readings. Kit metrics remain dominated by red labels with historical red annotations.
 
 The explicit rules live in `semantic_activity.py`. Case-insensitive phrase/stem
 matches classify the note, with no clip-ID overrides. Multiple classes are kept:
@@ -575,3 +576,55 @@ outcome or event timing. The conservative fabricated rule retains its narrow
 vocabulary, including its original missing inflections. These limits are also
 shown in the ledger, alongside every note, both sentences/events, and verdicts.
 No model runs, GPU work, transport changes or adoption decision are involved.
+
+## Lane A round 4: kit corrections and narrower diagnostics
+
+The `.loan` bench interpreter uses `bench/requirements.txt` for CPU review
+rendering (`opencv-python-headless==4.13.0.92`, the existing spike pin). Install
+it with the Verify command above. The basecamp gate sets `BENCH_REQUIRE_CV2=1`:
+missing OpenCV, ffmpeg or ffprobe fails the review-kit test rather than skipping.
+Outside that required gate, optional media dependencies can still skip cleanly.
+No alternate interpreter, dependency shim, model run or clip rebuild is needed.
+
+All note-entry instructions target `ledgers/lane-a-notes.md`, including the
+page and generated README.txt. `apply_notes --notes` defaults to that worktree
+path when it exists; otherwise it uses `bench/report/mj-notes.md`. Both are
+local intake paths; never stage populated notes. Explicit `--notes` still works.
+Future `build.json` files record the current Git HEAD in `commit` at build
+start (null if Git metadata is unavailable). Existing rendered clips and their
+build metadata remain untouched.
+
+Apply MJ's verified kit override and the two uncertain warm-up-kit flags:
+
+```sh
+~/Projects/loanarmy/.loan/bin/python spike/video-analysis/bench/apply_notes.py \
+  --manifest ~/Projects/loanarmy-bench-frozen/manifest.json \
+  --notes ~/codex-runs/lane-a-notes.md \
+  --kit-override m04-n24-t3013-679939-681217=black \
+  --kit-uncertain m04-n22-t3012-070707-074371 \
+  --kit-uncertain m04-n03-t1406-385962-387137
+```
+
+The override requires an existing dispute or accompanying `--dispute`. It
+restores kit evaluation independently of the disputed jersey binding. Uncertain
+kit truth takes precedence and abstains, neither matching nor wrong, even if
+the model asserts a colour. The current jersey denominator is 19; kit
+match/wrong/abstain rates use all 20 scored clips, including two abstentions.
+The asserted-only kit-match rate excludes those abstentions.
+
+`presence_only_strict_rate` adds exclusions for hold/holding, with (the) ball,
+possession, moving and interacting to the unchanged
+`presence_only_sentence_rate`. `presence_with_substantive_event_rate` uses that
+original sentence-only presence flag AND at least one event other than
+none/unclear; it remains independent of the strict rate.
+
+Consistency now requires only substantive classes with a shared keyword map.
+It reports ignored off_ball/defensive_action/set_piece/goalkeeping classes in
+`sentence_event_unmapped_classes` and unmatched mapped classes separately.
+A local extension recognises carrying, dribbling and running with (the) ball as
+carry, and passing as pass. The shared fabrication keyword rule is unchanged.
+No mapped events still passes consistency vacuously; the presence-plus-event
+metric makes that limitation visible.
+
+Lane A's `number_invented` is stricter than the shared jersey kill: any
+unsupplied “#N / number N / jersey N” flags, while timestamps do not.

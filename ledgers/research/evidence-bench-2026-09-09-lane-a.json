@@ -3,7 +3,7 @@
   "state": "measured",
   "honest_limit": "Human notes enable deterministic activity and event-class checks. These measure coarse correctness against MJ's observations, not timing/outcome accuracy or exhaustive semantic correctness.",
   "frozen_set_id": "1f68e2755002b3598c763532e95c212de9261ffa638c2943ad3769a1be77503f",
-  "truth_set_sha256_after_notes": "626117f1f3685d27693b1c0cd4e8762f3a3632f8702547f425a4169f5bb79887",
+  "truth_set_sha256_after_notes": "b0701190324ab2527d400b2b176da67291a5efffc11fd314068b343e9f74e8ed",
   "human_notes_sha256": "5944679d0b576bfd8790d9d1206def9485f7618b0c6d53d4c7593c266d51d59f",
   "sentence_selection": "First five scored clips in manifest order, verbatim; no quality selection.",
   "lanes": {
@@ -52,13 +52,13 @@
         "timeout_s": 120.0
       },
       "report": {
-        "truth_set_sha256_after_notes": "626117f1f3685d27693b1c0cd4e8762f3a3632f8702547f425a4169f5bb79887",
+        "truth_set_sha256_after_notes": "b0701190324ab2527d400b2b176da67291a5efffc11fd314068b343e9f74e8ed",
         "human_notes_sha256": "5944679d0b576bfd8790d9d1206def9485f7618b0c6d53d4c7593c266d51d59f",
-        "schema_version": "film-room-semantic-report-v3",
+        "schema_version": "film-room-semantic-report-v4",
         "generated_at": "2026-09-09T08:07:07.715288+00:00",
         "adapter": "qwen3vl_annotated",
         "honest_limit": "Human notes enable deterministic activity and event-class checks. These measure coarse correctness against MJ's observations, not timing/outcome accuracy or exhaustive semantic correctness.",
-        "denominators": "Honesty rates and events/clip: scored clips. Jersey/kit rates exclude disputed truth labels; their per-clip metrics are null. Activity subset rates use classified notes only; agreement excludes unclassified notes. On-ball recall requires at least one exact event-class match per on-ball note, without credit for unmatched receive/header/turn/loss classes. Sentence verdicts count all scored clips, including undetermined notes. Valid attempt rate and wall/clip: all attempts. Kit match excludes abstentions from the asserted-only rate; match/abstain/wrong rates use all scored clips. Time/clip means all event times pass (vacuously true with no events); event-time rate counts events. Fabricated rate: noted scored clips only. Presence-only read retains the original event-gated narrow regex; sentence-only presence ignores events and excludes the specified action-verb stems. Consistency requires every substantive event class in score._event_classes(sentence); unmatched/unmapped classes fail, and no substantive events pass vacuously. Zero-duration and window-filling rates count events, not clips. Events/sent-frame uses all frames of scored clips. Thinking rate counts recorded true flags across all attempts, including failures.",
+        "denominators": "Honesty rates and events/clip: scored clips. Jersey rates exclude disputed labels. Kit rates include verified colour overrides and count uncertain kit truth as abstention; disputed kits without an override or uncertainty flag remain excluded. Lane A number_invented is stricter than the shared jersey kill: any unsupplied #N / number N / jersey N flags, while timestamps do not. Activity subset rates use classified notes only; agreement excludes unclassified notes. On-ball recall requires at least one exact event-class match per on-ball note, without credit for unmatched receive/header/turn/loss classes. Sentence verdicts count all scored clips, including undetermined notes. Valid attempt rate and wall/clip: all attempts. Kit match excludes abstentions from the asserted-only rate; match/abstain/wrong rates use kit-eligible scored clips. Time/clip means all event times pass (vacuously true with no events); event-time rate counts events. Fabricated rate: noted scored clips only. Presence-only read retains the original event-gated narrow regex; sentence-only presence ignores events and excludes the specified action-verb stems. Strict presence additionally excludes hold/holding, with (the) ball, possession, moving and interacting. Presence-with-substantive-event uses the original sentence-only presence flag and any event except none/unclear. Consistency requires only event classes with an existing keyword map, adds carrying/passing/dribbling/running-with-ball inflections locally, and records ignored unmapped classes separately; no mapped events pass vacuously. Zero-duration and window-filling rates count events, not clips. Events/sent-frame uses all frames of scored clips. Thinking rate counts recorded true flags across all attempts, including failures.",
         "overall": {
           "attempted_clips": 20,
           "scored_clips": 20,
@@ -67,24 +67,27 @@
           "empty_rate": 0.0,
           "presence_only_read_rate": 0.0,
           "presence_only_sentence_rate": 0.35,
-          "sentence_event_consistency_rate": 0.1,
+          "presence_only_strict_rate": 0.15,
+          "presence_with_substantive_event_rate": 0.35,
+          "sentence_event_consistency_rate": 0.55,
           "supplied_number_asserted_as_kit_detail_rate": 0.0526,
           "number_invented_rate": 0.0,
-          "kit_color_match_rate": 1.0,
-          "kit_color_abstain_rate": 0.0,
-          "kit_color_wrong_rate": 0.0,
+          "kit_color_match_rate": 0.85,
+          "kit_color_abstain_rate": 0.1,
+          "kit_color_wrong_rate": 0.05,
           "time_in_window_rate": 1.0,
           "disputed_clips": [
             "m04-n24-t3013-679939-681217"
           ],
           "identity_evaluated_clips": 19,
+          "kit_evaluated_clips": 20,
           "from_thinking_rate": 1.0,
           "zero_duration_event_rate": 0.0,
           "window_filling_event_rate": 0.0652,
           "events_per_sent_frame": 0.1933,
           "high_confidence_completed_from_one_frame_count": 0,
           "valid_attempt_rate": 1.0,
-          "kit_color_match_when_asserted_rate": 1.0,
+          "kit_color_match_when_asserted_rate": 0.9444,
           "time_in_window_event_rate": 1.0,
           "fabricated_rate": 0.95,
           "human_noted_scored_clips": 20,
@@ -115,6 +118,7 @@
             "error": null,
             "from_thinking": true,
             "truth_label_disputed": false,
+            "kit_metrics_eligible": true,
             "human_note": "playing right-side center back in a three at the back system. close to the touchline.",
             "semantic": {
               "events": [
@@ -162,10 +166,13 @@
               "kit_color_wrong": false,
               "presence_only_read": false,
               "presence_only_sentence": false,
+              "presence_only_strict": false,
+              "presence_with_substantive_event": false,
               "sentence_event_consistency": false,
               "sentence_event_unmatched_classes": [
                 "duel"
               ],
+              "sentence_event_unmapped_classes": [],
               "supplied_number_asserted_as_kit_detail": false,
               "zero_duration_events": [
                 false,
@@ -217,6 +224,7 @@
             "error": null,
             "from_thinking": true,
             "truth_label_disputed": false,
+            "kit_metrics_eligible": true,
             "human_note": "either playing left-sided center back or left wing. nice move to win his challenge and passes it along to winger",
             "semantic": {
               "events": [
@@ -255,11 +263,14 @@
               "kit_color_wrong": false,
               "presence_only_read": false,
               "presence_only_sentence": true,
+              "presence_only_strict": true,
+              "presence_with_substantive_event": true,
               "sentence_event_consistency": false,
               "sentence_event_unmatched_classes": [
                 "carry",
                 "pass"
               ],
+              "sentence_event_unmapped_classes": [],
               "supplied_number_asserted_as_kit_detail": false,
               "zero_duration_events": [
                 false,
@@ -311,6 +322,7 @@
             "error": null,
             "from_thinking": true,
             "truth_label_disputed": false,
+            "kit_metrics_eligible": true,
             "human_note": "putting on their warmup kit. and walks to sideline",
             "semantic": {
               "events": [
@@ -344,13 +356,16 @@
               ],
               "time_in_window": true,
               "number_invented": false,
-              "kit_color_match": true,
-              "kit_color_abstain": false,
+              "kit_color_match": null,
+              "kit_color_abstain": true,
               "kit_color_wrong": false,
               "presence_only_read": false,
               "presence_only_sentence": false,
+              "presence_only_strict": false,
+              "presence_with_substantive_event": false,
               "sentence_event_consistency": true,
               "sentence_event_unmatched_classes": [],
+              "sentence_event_unmapped_classes": [],
               "supplied_number_asserted_as_kit_detail": false,
               "zero_duration_events": [
                 false,
@@ -398,6 +413,7 @@
             "error": null,
             "from_thinking": true,
             "truth_label_disputed": false,
+            "kit_metrics_eligible": true,
             "human_note": "playing up top. just walks around and waits until the keeper boots it to halfway line and then receives and does a half turn.",
             "semantic": {
               "events": [
@@ -436,9 +452,13 @@
               "kit_color_wrong": false,
               "presence_only_read": false,
               "presence_only_sentence": true,
+              "presence_only_strict": false,
+              "presence_with_substantive_event": true,
               "sentence_event_consistency": false,
               "sentence_event_unmatched_classes": [
-                "carry",
+                "carry"
+              ],
+              "sentence_event_unmapped_classes": [
                 "off_ball"
               ],
               "supplied_number_asserted_as_kit_detail": false,
@@ -493,6 +513,7 @@
             "error": null,
             "from_thinking": true,
             "truth_label_disputed": false,
+            "kit_metrics_eligible": true,
             "human_note": "a bit of running. ball doesn't come and waits for opposite team to throw in",
             "semantic": {
               "events": [
@@ -531,10 +552,11 @@
               "kit_color_wrong": false,
               "presence_only_read": false,
               "presence_only_sentence": false,
-              "sentence_event_consistency": false,
-              "sentence_event_unmatched_classes": [
-                "carry"
-              ],
+              "presence_only_strict": false,
+              "presence_with_substantive_event": false,
+              "sentence_event_consistency": true,
+              "sentence_event_unmatched_classes": [],
+              "sentence_event_unmapped_classes": [],
               "supplied_number_asserted_as_kit_detail": false,
               "zero_duration_events": [
                 false,
@@ -582,6 +604,7 @@
             "error": null,
             "from_thinking": true,
             "truth_label_disputed": false,
+            "kit_metrics_eligible": true,
             "human_note": "seems to be playing defense. tracked back.",
             "semantic": {
               "events": [
@@ -620,9 +643,11 @@
               "kit_color_wrong": false,
               "presence_only_read": false,
               "presence_only_sentence": false,
-              "sentence_event_consistency": false,
-              "sentence_event_unmatched_classes": [
-                "carry",
+              "presence_only_strict": false,
+              "presence_with_substantive_event": false,
+              "sentence_event_consistency": true,
+              "sentence_event_unmatched_classes": [],
+              "sentence_event_unmapped_classes": [
                 "off_ball"
               ],
               "supplied_number_asserted_as_kit_detail": false,
@@ -670,6 +695,7 @@
             "error": null,
             "from_thinking": true,
             "truth_label_disputed": false,
+            "kit_metrics_eligible": true,
             "human_note": "on the sideline",
             "semantic": {
               "events": [
@@ -708,8 +734,11 @@
               "kit_color_wrong": false,
               "presence_only_read": false,
               "presence_only_sentence": false,
-              "sentence_event_consistency": false,
-              "sentence_event_unmatched_classes": [
+              "presence_only_strict": false,
+              "presence_with_substantive_event": false,
+              "sentence_event_consistency": true,
+              "sentence_event_unmatched_classes": [],
+              "sentence_event_unmapped_classes": [
                 "off_ball"
               ],
               "supplied_number_asserted_as_kit_detail": false,
@@ -755,6 +784,7 @@
             "error": null,
             "from_thinking": true,
             "truth_label_disputed": false,
+            "kit_metrics_eligible": true,
             "human_note": "tracked back for defense and then went forward when team recovered.",
             "semantic": {
               "events": [
@@ -793,9 +823,13 @@
               "kit_color_wrong": false,
               "presence_only_read": false,
               "presence_only_sentence": true,
+              "presence_only_strict": false,
+              "presence_with_substantive_event": true,
               "sentence_event_consistency": false,
               "sentence_event_unmatched_classes": [
-                "carry",
+                "carry"
+              ],
+              "sentence_event_unmapped_classes": [
                 "off_ball"
               ],
               "supplied_number_asserted_as_kit_detail": false,
@@ -843,6 +877,7 @@
             "error": null,
             "from_thinking": true,
             "truth_label_disputed": false,
+            "kit_metrics_eligible": true,
             "human_note": "stretching on sidelines",
             "semantic": {
               "events": [
@@ -881,9 +916,13 @@
               "kit_color_wrong": false,
               "presence_only_read": false,
               "presence_only_sentence": true,
+              "presence_only_strict": false,
+              "presence_with_substantive_event": true,
               "sentence_event_consistency": false,
               "sentence_event_unmatched_classes": [
-                "carry",
+                "carry"
+              ],
+              "sentence_event_unmapped_classes": [
                 "off_ball"
               ],
               "supplied_number_asserted_as_kit_detail": true,
@@ -931,6 +970,7 @@
             "error": null,
             "from_thinking": true,
             "truth_label_disputed": false,
+            "kit_metrics_eligible": true,
             "human_note": "just walking around.",
             "semantic": {
               "events": [
@@ -978,8 +1018,11 @@
               "kit_color_wrong": false,
               "presence_only_read": false,
               "presence_only_sentence": false,
+              "presence_only_strict": false,
+              "presence_with_substantive_event": false,
               "sentence_event_consistency": true,
               "sentence_event_unmatched_classes": [],
+              "sentence_event_unmapped_classes": [],
               "supplied_number_asserted_as_kit_detail": false,
               "zero_duration_events": [
                 false,
@@ -1029,6 +1072,7 @@
             "error": null,
             "from_thinking": true,
             "truth_label_disputed": false,
+            "kit_metrics_eligible": true,
             "human_note": "intercepts a ball but passes to opposite team",
             "semantic": {
               "events": [
@@ -1067,9 +1111,11 @@
               "kit_color_wrong": false,
               "presence_only_read": false,
               "presence_only_sentence": false,
-              "sentence_event_consistency": false,
-              "sentence_event_unmatched_classes": [
-                "carry",
+              "presence_only_strict": false,
+              "presence_with_substantive_event": false,
+              "sentence_event_consistency": true,
+              "sentence_event_unmatched_classes": [],
+              "sentence_event_unmapped_classes": [
                 "off_ball"
               ],
               "supplied_number_asserted_as_kit_detail": false,
@@ -1120,6 +1166,7 @@
             "error": null,
             "from_thinking": true,
             "truth_label_disputed": false,
+            "kit_metrics_eligible": true,
             "human_note": "walking off the field.",
             "semantic": {
               "events": [
@@ -1167,9 +1214,13 @@
               "kit_color_wrong": false,
               "presence_only_read": false,
               "presence_only_sentence": true,
+              "presence_only_strict": true,
+              "presence_with_substantive_event": true,
               "sentence_event_consistency": false,
               "sentence_event_unmatched_classes": [
-                "carry",
+                "carry"
+              ],
+              "sentence_event_unmapped_classes": [
                 "off_ball"
               ],
               "supplied_number_asserted_as_kit_detail": false,
@@ -1220,6 +1271,7 @@
             "error": null,
             "from_thinking": true,
             "truth_label_disputed": false,
+            "kit_metrics_eligible": true,
             "human_note": "multiple challenges for the ball",
             "semantic": {
               "events": [
@@ -1267,10 +1319,11 @@
               "kit_color_wrong": false,
               "presence_only_read": false,
               "presence_only_sentence": false,
-              "sentence_event_consistency": false,
-              "sentence_event_unmatched_classes": [
-                "carry"
-              ],
+              "presence_only_strict": false,
+              "presence_with_substantive_event": false,
+              "sentence_event_consistency": true,
+              "sentence_event_unmatched_classes": [],
+              "sentence_event_unmapped_classes": [],
               "supplied_number_asserted_as_kit_detail": false,
               "zero_duration_events": [
                 false,
@@ -1320,6 +1373,7 @@
             "error": null,
             "from_thinking": true,
             "truth_label_disputed": false,
+            "kit_metrics_eligible": true,
             "human_note": "heads the ball off defender for a throw-in. and goes forward when team recovers the ball.",
             "semantic": {
               "events": [
@@ -1367,10 +1421,11 @@
               "kit_color_wrong": false,
               "presence_only_read": false,
               "presence_only_sentence": false,
-              "sentence_event_consistency": false,
-              "sentence_event_unmatched_classes": [
-                "carry"
-              ],
+              "presence_only_strict": false,
+              "presence_with_substantive_event": false,
+              "sentence_event_consistency": true,
+              "sentence_event_unmatched_classes": [],
+              "sentence_event_unmapped_classes": [],
               "supplied_number_asserted_as_kit_detail": false,
               "zero_duration_events": [
                 false,
@@ -1422,6 +1477,7 @@
             "error": null,
             "from_thinking": true,
             "truth_label_disputed": false,
+            "kit_metrics_eligible": true,
             "human_note": "walking back on defense as play is on the opposite side. stays wide.",
             "semantic": {
               "events": [
@@ -1469,11 +1525,13 @@
               "kit_color_wrong": false,
               "presence_only_read": false,
               "presence_only_sentence": false,
+              "presence_only_strict": false,
+              "presence_with_substantive_event": false,
               "sentence_event_consistency": false,
               "sentence_event_unmatched_classes": [
-                "carry",
-                "pass"
+                "carry"
               ],
+              "sentence_event_unmapped_classes": [],
               "supplied_number_asserted_as_kit_detail": false,
               "zero_duration_events": [
                 false,
@@ -1523,6 +1581,7 @@
             "error": null,
             "from_thinking": true,
             "truth_label_disputed": false,
+            "kit_metrics_eligible": true,
             "human_note": "receives ball in midfield. playing as false 9 or 10 spot. loses the ball",
             "semantic": {
               "events": [
@@ -1561,11 +1620,11 @@
               "kit_color_wrong": false,
               "presence_only_read": false,
               "presence_only_sentence": false,
-              "sentence_event_consistency": false,
-              "sentence_event_unmatched_classes": [
-                "carry",
-                "pass"
-              ],
+              "presence_only_strict": false,
+              "presence_with_substantive_event": false,
+              "sentence_event_consistency": true,
+              "sentence_event_unmatched_classes": [],
+              "sentence_event_unmapped_classes": [],
               "supplied_number_asserted_as_kit_detail": false,
               "zero_duration_events": [
                 false,
@@ -1619,6 +1678,7 @@
             "error": null,
             "from_thinking": true,
             "truth_label_disputed": false,
+            "kit_metrics_eligible": true,
             "human_note": "warming up sideline. grabs hamstring",
             "semantic": {
               "events": [
@@ -1657,9 +1717,13 @@
               "kit_color_wrong": false,
               "presence_only_read": false,
               "presence_only_sentence": true,
+              "presence_only_strict": true,
+              "presence_with_substantive_event": true,
               "sentence_event_consistency": false,
               "sentence_event_unmatched_classes": [
-                "carry",
+                "carry"
+              ],
+              "sentence_event_unmapped_classes": [
                 "off_ball"
               ],
               "supplied_number_asserted_as_kit_detail": false,
@@ -1707,6 +1771,7 @@
             "error": null,
             "from_thinking": true,
             "truth_label_disputed": false,
+            "kit_metrics_eligible": true,
             "human_note": "walking off field in warmup suit. misses header",
             "semantic": {
               "events": [
@@ -1740,16 +1805,16 @@
               ],
               "time_in_window": true,
               "number_invented": false,
-              "kit_color_match": true,
-              "kit_color_abstain": false,
+              "kit_color_match": null,
+              "kit_color_abstain": true,
               "kit_color_wrong": false,
               "presence_only_read": false,
               "presence_only_sentence": false,
-              "sentence_event_consistency": false,
-              "sentence_event_unmatched_classes": [
-                "carry",
-                "pass"
-              ],
+              "presence_only_strict": false,
+              "presence_with_substantive_event": false,
+              "sentence_event_consistency": true,
+              "sentence_event_unmatched_classes": [],
+              "sentence_event_unmapped_classes": [],
               "supplied_number_asserted_as_kit_detail": false,
               "zero_duration_events": [
                 false,
@@ -1797,6 +1862,7 @@
             "error": null,
             "from_thinking": true,
             "truth_label_disputed": true,
+            "kit_metrics_eligible": true,
             "human_note": "wrong number. this is number 12 from the shorts",
             "semantic": {
               "events": [
@@ -1830,13 +1896,16 @@
               ],
               "time_in_window": true,
               "number_invented": null,
-              "kit_color_match": null,
-              "kit_color_abstain": null,
-              "kit_color_wrong": null,
+              "kit_color_match": false,
+              "kit_color_abstain": false,
+              "kit_color_wrong": true,
               "presence_only_read": false,
               "presence_only_sentence": false,
-              "sentence_event_consistency": false,
-              "sentence_event_unmatched_classes": [
+              "presence_only_strict": false,
+              "presence_with_substantive_event": false,
+              "sentence_event_consistency": true,
+              "sentence_event_unmatched_classes": [],
+              "sentence_event_unmapped_classes": [
                 "off_ball"
               ],
               "supplied_number_asserted_as_kit_detail": null,
@@ -1882,6 +1951,7 @@
             "error": null,
             "from_thinking": true,
             "truth_label_disputed": false,
+            "kit_metrics_eligible": true,
             "human_note": "coming off the pitch.",
             "semantic": {
               "events": [
@@ -1920,9 +1990,13 @@
               "kit_color_wrong": false,
               "presence_only_read": false,
               "presence_only_sentence": true,
+              "presence_only_strict": false,
+              "presence_with_substantive_event": true,
               "sentence_event_consistency": false,
               "sentence_event_unmatched_classes": [
-                "carry",
+                "carry"
+              ],
+              "sentence_event_unmapped_classes": [
                 "off_ball"
               ],
               "supplied_number_asserted_as_kit_detail": false,
@@ -8165,13 +8239,13 @@
         "timeout_s": 120.0
       },
       "report": {
-        "truth_set_sha256_after_notes": "626117f1f3685d27693b1c0cd4e8762f3a3632f8702547f425a4169f5bb79887",
+        "truth_set_sha256_after_notes": "b0701190324ab2527d400b2b176da67291a5efffc11fd314068b343e9f74e8ed",
         "human_notes_sha256": "5944679d0b576bfd8790d9d1206def9485f7618b0c6d53d4c7593c266d51d59f",
-        "schema_version": "film-room-semantic-report-v3",
+        "schema_version": "film-room-semantic-report-v4",
         "generated_at": "2026-09-09T08:10:40.717723+00:00",
         "adapter": "qwen3vl_annotated",
         "honest_limit": "Human notes enable deterministic activity and event-class checks. These measure coarse correctness against MJ's observations, not timing/outcome accuracy or exhaustive semantic correctness.",
-        "denominators": "Honesty rates and events/clip: scored clips. Jersey/kit rates exclude disputed truth labels; their per-clip metrics are null. Activity subset rates use classified notes only; agreement excludes unclassified notes. On-ball recall requires at least one exact event-class match per on-ball note, without credit for unmatched receive/header/turn/loss classes. Sentence verdicts count all scored clips, including undetermined notes. Valid attempt rate and wall/clip: all attempts. Kit match excludes abstentions from the asserted-only rate; match/abstain/wrong rates use all scored clips. Time/clip means all event times pass (vacuously true with no events); event-time rate counts events. Fabricated rate: noted scored clips only. Presence-only read retains the original event-gated narrow regex; sentence-only presence ignores events and excludes the specified action-verb stems. Consistency requires every substantive event class in score._event_classes(sentence); unmatched/unmapped classes fail, and no substantive events pass vacuously. Zero-duration and window-filling rates count events, not clips. Events/sent-frame uses all frames of scored clips. Thinking rate counts recorded true flags across all attempts, including failures.",
+        "denominators": "Honesty rates and events/clip: scored clips. Jersey rates exclude disputed labels. Kit rates include verified colour overrides and count uncertain kit truth as abstention; disputed kits without an override or uncertainty flag remain excluded. Lane A number_invented is stricter than the shared jersey kill: any unsupplied #N / number N / jersey N flags, while timestamps do not. Activity subset rates use classified notes only; agreement excludes unclassified notes. On-ball recall requires at least one exact event-class match per on-ball note, without credit for unmatched receive/header/turn/loss classes. Sentence verdicts count all scored clips, including undetermined notes. Valid attempt rate and wall/clip: all attempts. Kit match excludes abstentions from the asserted-only rate; match/abstain/wrong rates use kit-eligible scored clips. Time/clip means all event times pass (vacuously true with no events); event-time rate counts events. Fabricated rate: noted scored clips only. Presence-only read retains the original event-gated narrow regex; sentence-only presence ignores events and excludes the specified action-verb stems. Strict presence additionally excludes hold/holding, with (the) ball, possession, moving and interacting. Presence-with-substantive-event uses the original sentence-only presence flag and any event except none/unclear. Consistency requires only event classes with an existing keyword map, adds carrying/passing/dribbling/running-with-ball inflections locally, and records ignored unmapped classes separately; no mapped events pass vacuously. Zero-duration and window-filling rates count events, not clips. Events/sent-frame uses all frames of scored clips. Thinking rate counts recorded true flags across all attempts, including failures.",
         "overall": {
           "attempted_clips": 20,
           "scored_clips": 20,
@@ -8180,24 +8254,27 @@
           "empty_rate": 0.0,
           "presence_only_read_rate": 0.0,
           "presence_only_sentence_rate": 0.6,
-          "sentence_event_consistency_rate": 0.05,
+          "presence_only_strict_rate": 0.4,
+          "presence_with_substantive_event_rate": 0.6,
+          "sentence_event_consistency_rate": 0.45,
           "supplied_number_asserted_as_kit_detail_rate": 0.1579,
           "number_invented_rate": 0.0,
-          "kit_color_match_rate": 0.9474,
-          "kit_color_abstain_rate": 0.0,
-          "kit_color_wrong_rate": 0.0526,
+          "kit_color_match_rate": 0.85,
+          "kit_color_abstain_rate": 0.1,
+          "kit_color_wrong_rate": 0.05,
           "time_in_window_rate": 1.0,
           "disputed_clips": [
             "m04-n24-t3013-679939-681217"
           ],
           "identity_evaluated_clips": 19,
+          "kit_evaluated_clips": 20,
           "from_thinking_rate": 1.0,
           "zero_duration_event_rate": 0.3143,
           "window_filling_event_rate": 0.5714,
           "events_per_sent_frame": 1.2069,
           "high_confidence_completed_from_one_frame_count": 12,
           "valid_attempt_rate": 1.0,
-          "kit_color_match_when_asserted_rate": 0.9474,
+          "kit_color_match_when_asserted_rate": 0.9444,
           "time_in_window_event_rate": 1.0,
           "fabricated_rate": 0.85,
           "human_noted_scored_clips": 20,
@@ -8228,6 +8305,7 @@
             "error": null,
             "from_thinking": true,
             "truth_label_disputed": false,
+            "kit_metrics_eligible": true,
             "human_note": "playing right-side center back in a three at the back system. close to the touchline.",
             "semantic": {
               "events": [
@@ -8266,8 +8344,11 @@
               "kit_color_wrong": false,
               "presence_only_read": false,
               "presence_only_sentence": false,
+              "presence_only_strict": false,
+              "presence_with_substantive_event": false,
               "sentence_event_consistency": true,
               "sentence_event_unmatched_classes": [],
+              "sentence_event_unmapped_classes": [],
               "supplied_number_asserted_as_kit_detail": false,
               "zero_duration_events": [
                 false,
@@ -8315,6 +8396,7 @@
             "error": null,
             "from_thinking": true,
             "truth_label_disputed": false,
+            "kit_metrics_eligible": true,
             "human_note": "either playing left-sided center back or left wing. nice move to win his challenge and passes it along to winger",
             "semantic": {
               "events": [
@@ -8353,10 +8435,13 @@
               "kit_color_wrong": false,
               "presence_only_read": false,
               "presence_only_sentence": true,
+              "presence_only_strict": true,
+              "presence_with_substantive_event": true,
               "sentence_event_consistency": false,
               "sentence_event_unmatched_classes": [
                 "carry"
               ],
+              "sentence_event_unmapped_classes": [],
               "supplied_number_asserted_as_kit_detail": false,
               "zero_duration_events": [
                 false,
@@ -8406,6 +8491,7 @@
             "error": null,
             "from_thinking": true,
             "truth_label_disputed": false,
+            "kit_metrics_eligible": true,
             "human_note": "putting on their warmup kit. and walks to sideline",
             "semantic": {
               "events": [
@@ -8430,13 +8516,16 @@
               ],
               "time_in_window": true,
               "number_invented": false,
-              "kit_color_match": true,
-              "kit_color_abstain": false,
+              "kit_color_match": null,
+              "kit_color_abstain": true,
               "kit_color_wrong": false,
               "presence_only_read": false,
               "presence_only_sentence": true,
-              "sentence_event_consistency": false,
-              "sentence_event_unmatched_classes": [
+              "presence_only_strict": true,
+              "presence_with_substantive_event": true,
+              "sentence_event_consistency": true,
+              "sentence_event_unmatched_classes": [],
+              "sentence_event_unmapped_classes": [
                 "off_ball"
               ],
               "supplied_number_asserted_as_kit_detail": true,
@@ -8478,6 +8567,7 @@
             "error": null,
             "from_thinking": true,
             "truth_label_disputed": false,
+            "kit_metrics_eligible": true,
             "human_note": "playing up top. just walks around and waits until the keeper boots it to halfway line and then receives and does a half turn.",
             "semantic": {
               "events": [
@@ -8516,10 +8606,11 @@
               "kit_color_wrong": false,
               "presence_only_read": false,
               "presence_only_sentence": false,
-              "sentence_event_consistency": false,
-              "sentence_event_unmatched_classes": [
-                "carry"
-              ],
+              "presence_only_strict": false,
+              "presence_with_substantive_event": false,
+              "sentence_event_consistency": true,
+              "sentence_event_unmatched_classes": [],
+              "sentence_event_unmapped_classes": [],
               "supplied_number_asserted_as_kit_detail": false,
               "zero_duration_events": [
                 false,
@@ -8574,6 +8665,7 @@
             "error": null,
             "from_thinking": true,
             "truth_label_disputed": false,
+            "kit_metrics_eligible": true,
             "human_note": "a bit of running. ball doesn't come and waits for opposite team to throw in",
             "semantic": {
               "events": [
@@ -8612,10 +8704,13 @@
               "kit_color_wrong": false,
               "presence_only_read": false,
               "presence_only_sentence": false,
+              "presence_only_strict": false,
+              "presence_with_substantive_event": false,
               "sentence_event_consistency": false,
               "sentence_event_unmatched_classes": [
                 "carry"
               ],
+              "sentence_event_unmapped_classes": [],
               "supplied_number_asserted_as_kit_detail": false,
               "zero_duration_events": [
                 true,
@@ -8662,6 +8757,7 @@
             "error": null,
             "from_thinking": true,
             "truth_label_disputed": false,
+            "kit_metrics_eligible": true,
             "human_note": "seems to be playing defense. tracked back.",
             "semantic": {
               "events": [
@@ -8700,9 +8796,13 @@
               "kit_color_wrong": false,
               "presence_only_read": false,
               "presence_only_sentence": true,
+              "presence_only_strict": true,
+              "presence_with_substantive_event": true,
               "sentence_event_consistency": false,
               "sentence_event_unmatched_classes": [
-                "carry",
+                "carry"
+              ],
+              "sentence_event_unmapped_classes": [
                 "off_ball"
               ],
               "supplied_number_asserted_as_kit_detail": false,
@@ -8750,6 +8850,7 @@
             "error": null,
             "from_thinking": true,
             "truth_label_disputed": false,
+            "kit_metrics_eligible": true,
             "human_note": "on the sideline",
             "semantic": {
               "events": [
@@ -8779,10 +8880,13 @@
               "kit_color_wrong": false,
               "presence_only_read": false,
               "presence_only_sentence": true,
+              "presence_only_strict": false,
+              "presence_with_substantive_event": true,
               "sentence_event_consistency": false,
               "sentence_event_unmatched_classes": [
                 "carry"
               ],
+              "sentence_event_unmapped_classes": [],
               "supplied_number_asserted_as_kit_detail": false,
               "zero_duration_events": [
                 true
@@ -8827,6 +8931,7 @@
             "error": null,
             "from_thinking": true,
             "truth_label_disputed": false,
+            "kit_metrics_eligible": true,
             "human_note": "tracked back for defense and then went forward when team recovered.",
             "semantic": {
               "events": [
@@ -8856,10 +8961,11 @@
               "kit_color_wrong": false,
               "presence_only_read": false,
               "presence_only_sentence": false,
-              "sentence_event_consistency": false,
-              "sentence_event_unmatched_classes": [
-                "carry"
-              ],
+              "presence_only_strict": false,
+              "presence_with_substantive_event": false,
+              "sentence_event_consistency": true,
+              "sentence_event_unmatched_classes": [],
+              "sentence_event_unmapped_classes": [],
               "supplied_number_asserted_as_kit_detail": false,
               "zero_duration_events": [
                 false
@@ -8903,6 +9009,7 @@
             "error": null,
             "from_thinking": true,
             "truth_label_disputed": false,
+            "kit_metrics_eligible": true,
             "human_note": "stretching on sidelines",
             "semantic": {
               "events": [
@@ -8932,8 +9039,11 @@
               "kit_color_wrong": false,
               "presence_only_read": false,
               "presence_only_sentence": true,
-              "sentence_event_consistency": false,
-              "sentence_event_unmatched_classes": [
+              "presence_only_strict": true,
+              "presence_with_substantive_event": true,
+              "sentence_event_consistency": true,
+              "sentence_event_unmatched_classes": [],
+              "sentence_event_unmapped_classes": [
                 "off_ball"
               ],
               "supplied_number_asserted_as_kit_detail": true,
@@ -8975,6 +9085,7 @@
             "error": null,
             "from_thinking": true,
             "truth_label_disputed": false,
+            "kit_metrics_eligible": true,
             "human_note": "just walking around.",
             "semantic": {
               "events": [
@@ -9013,9 +9124,13 @@
               "kit_color_wrong": true,
               "presence_only_read": false,
               "presence_only_sentence": true,
+              "presence_only_strict": true,
+              "presence_with_substantive_event": true,
               "sentence_event_consistency": false,
               "sentence_event_unmatched_classes": [
-                "carry",
+                "carry"
+              ],
+              "sentence_event_unmapped_classes": [
                 "off_ball"
               ],
               "supplied_number_asserted_as_kit_detail": false,
@@ -9063,6 +9178,7 @@
             "error": null,
             "from_thinking": true,
             "truth_label_disputed": false,
+            "kit_metrics_eligible": true,
             "human_note": "intercepts a ball but passes to opposite team",
             "semantic": {
               "events": [
@@ -9101,11 +9217,13 @@
               "kit_color_wrong": false,
               "presence_only_read": false,
               "presence_only_sentence": false,
+              "presence_only_strict": false,
+              "presence_with_substantive_event": false,
               "sentence_event_consistency": false,
               "sentence_event_unmatched_classes": [
-                "carry",
                 "duel"
               ],
+              "sentence_event_unmapped_classes": [],
               "supplied_number_asserted_as_kit_detail": false,
               "zero_duration_events": [
                 false,
@@ -9156,6 +9274,7 @@
             "error": null,
             "from_thinking": true,
             "truth_label_disputed": false,
+            "kit_metrics_eligible": true,
             "human_note": "walking off the field.",
             "semantic": {
               "events": [
@@ -9194,9 +9313,13 @@
               "kit_color_wrong": false,
               "presence_only_read": false,
               "presence_only_sentence": true,
+              "presence_only_strict": false,
+              "presence_with_substantive_event": true,
               "sentence_event_consistency": false,
               "sentence_event_unmatched_classes": [
-                "carry",
+                "carry"
+              ],
+              "sentence_event_unmapped_classes": [
                 "off_ball"
               ],
               "supplied_number_asserted_as_kit_detail": false,
@@ -9244,6 +9367,7 @@
             "error": null,
             "from_thinking": true,
             "truth_label_disputed": false,
+            "kit_metrics_eligible": true,
             "human_note": "multiple challenges for the ball",
             "semantic": {
               "events": [
@@ -9282,10 +9406,11 @@
               "kit_color_wrong": false,
               "presence_only_read": false,
               "presence_only_sentence": false,
-              "sentence_event_consistency": false,
-              "sentence_event_unmatched_classes": [
-                "carry"
-              ],
+              "presence_only_strict": false,
+              "presence_with_substantive_event": false,
+              "sentence_event_consistency": true,
+              "sentence_event_unmatched_classes": [],
+              "sentence_event_unmapped_classes": [],
               "supplied_number_asserted_as_kit_detail": false,
               "zero_duration_events": [
                 false,
@@ -9333,6 +9458,7 @@
             "error": null,
             "from_thinking": true,
             "truth_label_disputed": false,
+            "kit_metrics_eligible": true,
             "human_note": "heads the ball off defender for a throw-in. and goes forward when team recovers the ball.",
             "semantic": {
               "events": [
@@ -9371,10 +9497,11 @@
               "kit_color_wrong": false,
               "presence_only_read": false,
               "presence_only_sentence": false,
-              "sentence_event_consistency": false,
-              "sentence_event_unmatched_classes": [
-                "carry"
-              ],
+              "presence_only_strict": false,
+              "presence_with_substantive_event": false,
+              "sentence_event_consistency": true,
+              "sentence_event_unmatched_classes": [],
+              "sentence_event_unmapped_classes": [],
               "supplied_number_asserted_as_kit_detail": false,
               "zero_duration_events": [
                 false,
@@ -9424,6 +9551,7 @@
             "error": null,
             "from_thinking": true,
             "truth_label_disputed": false,
+            "kit_metrics_eligible": true,
             "human_note": "walking back on defense as play is on the opposite side. stays wide.",
             "semantic": {
               "events": [
@@ -9462,9 +9590,13 @@
               "kit_color_wrong": false,
               "presence_only_read": false,
               "presence_only_sentence": true,
+              "presence_only_strict": false,
+              "presence_with_substantive_event": true,
               "sentence_event_consistency": false,
               "sentence_event_unmatched_classes": [
-                "carry",
+                "carry"
+              ],
+              "sentence_event_unmapped_classes": [
                 "off_ball"
               ],
               "supplied_number_asserted_as_kit_detail": false,
@@ -9512,6 +9644,7 @@
             "error": null,
             "from_thinking": true,
             "truth_label_disputed": false,
+            "kit_metrics_eligible": true,
             "human_note": "receives ball in midfield. playing as false 9 or 10 spot. loses the ball",
             "semantic": {
               "events": [
@@ -9550,9 +9683,13 @@
               "kit_color_wrong": false,
               "presence_only_read": false,
               "presence_only_sentence": true,
+              "presence_only_strict": true,
+              "presence_with_substantive_event": true,
               "sentence_event_consistency": false,
               "sentence_event_unmatched_classes": [
-                "carry",
+                "carry"
+              ],
+              "sentence_event_unmapped_classes": [
                 "off_ball"
               ],
               "supplied_number_asserted_as_kit_detail": false,
@@ -9606,6 +9743,7 @@
             "error": null,
             "from_thinking": true,
             "truth_label_disputed": false,
+            "kit_metrics_eligible": true,
             "human_note": "warming up sideline. grabs hamstring",
             "semantic": {
               "events": [
@@ -9635,8 +9773,11 @@
               "kit_color_wrong": false,
               "presence_only_read": false,
               "presence_only_sentence": true,
-              "sentence_event_consistency": false,
-              "sentence_event_unmatched_classes": [
+              "presence_only_strict": true,
+              "presence_with_substantive_event": true,
+              "sentence_event_consistency": true,
+              "sentence_event_unmatched_classes": [],
+              "sentence_event_unmapped_classes": [
                 "off_ball"
               ],
               "supplied_number_asserted_as_kit_detail": true,
@@ -9678,6 +9819,7 @@
             "error": null,
             "from_thinking": true,
             "truth_label_disputed": false,
+            "kit_metrics_eligible": true,
             "human_note": "walking off field in warmup suit. misses header",
             "semantic": {
               "events": [
@@ -9711,14 +9853,18 @@
               ],
               "time_in_window": true,
               "number_invented": false,
-              "kit_color_match": true,
-              "kit_color_abstain": false,
+              "kit_color_match": null,
+              "kit_color_abstain": true,
               "kit_color_wrong": false,
               "presence_only_read": false,
               "presence_only_sentence": true,
+              "presence_only_strict": false,
+              "presence_with_substantive_event": true,
               "sentence_event_consistency": false,
               "sentence_event_unmatched_classes": [
-                "carry",
+                "carry"
+              ],
+              "sentence_event_unmapped_classes": [
                 "off_ball"
               ],
               "supplied_number_asserted_as_kit_detail": false,
@@ -9766,6 +9912,7 @@
             "error": null,
             "from_thinking": true,
             "truth_label_disputed": true,
+            "kit_metrics_eligible": true,
             "human_note": "wrong number. this is number 12 from the shorts",
             "semantic": {
               "events": [
@@ -9799,15 +9946,16 @@
               ],
               "time_in_window": true,
               "number_invented": null,
-              "kit_color_match": null,
-              "kit_color_abstain": null,
-              "kit_color_wrong": null,
+              "kit_color_match": true,
+              "kit_color_abstain": false,
+              "kit_color_wrong": false,
               "presence_only_read": false,
               "presence_only_sentence": false,
-              "sentence_event_consistency": false,
-              "sentence_event_unmatched_classes": [
-                "carry"
-              ],
+              "presence_only_strict": false,
+              "presence_with_substantive_event": false,
+              "sentence_event_consistency": true,
+              "sentence_event_unmatched_classes": [],
+              "sentence_event_unmapped_classes": [],
               "supplied_number_asserted_as_kit_detail": null,
               "zero_duration_events": [
                 false,
@@ -9852,6 +10000,7 @@
             "error": null,
             "from_thinking": true,
             "truth_label_disputed": false,
+            "kit_metrics_eligible": true,
             "human_note": "coming off the pitch.",
             "semantic": {
               "events": [
@@ -9890,9 +10039,13 @@
               "kit_color_wrong": false,
               "presence_only_read": false,
               "presence_only_sentence": true,
+              "presence_only_strict": true,
+              "presence_with_substantive_event": true,
               "sentence_event_consistency": false,
               "sentence_event_unmatched_classes": [
-                "carry",
+                "carry"
+              ],
+              "sentence_event_unmapped_classes": [
                 "off_ball"
               ],
               "supplied_number_asserted_as_kit_detail": false,
@@ -11939,13 +12092,13 @@
     "The original fabricated_rate now evaluates all 20 notes, including the disputed identity-only note; absence of an event keyword is not proof the event never occurred. Activity checks separately grade only notes with an activity classification.",
     "Sequential single passes, without repeats or confidence intervals. Wall time includes extraction/drawing and all failed attempts; Ollama may reuse a warm model. Temporary frame paths record provenance but images are removed after each call.",
     "Uniform target samples falling in tracking gaps snap to the nearest recorded track timestamp within 0.5s, remaining distinct and chronological; target_t and sampling_shift_s record every adjustment. Larger gaps fail before inference. Geometry is never extrapolated across gaps.",
-    "All 20 frozen kit fields say red and both measured runs used red rectangles. MJ confirms n24 is actually black; that disputed clip is excluded. Kit-colour matching remains uninformative until the evaluated set includes verified non-red kits. Future lane-A model inputs use magenta; these saved outputs were not rerun.",
+    "All 20 frozen kit fields say red and both measured runs used red rectangles. MJ confirms n24 is actually black; its verified black override is now used. The evaluated set has just one verified non-red kit and remains dominated by red, with two uncertain warm-up kits counted as abstentions. Future lane-A model inputs use magenta; these saved outputs were not rerun.",
     "Every lane-A response (40/40) was read from Ollama's thinking field despite think=false. Schema-valid parsing is established; the format grammar's effect on that field is unverified. The transport is unchanged.",
-    "Sentence-only presence applies the specified verb-stem exclusion literally: moving, interacting and holding are not excluded. Consistency uses the unchanged conservative score._event_classes vocabulary, so carrying/passing inflections and unmapped broad types may remain unmatched; these are lexical diagnostics, not semantic accuracy.",
+    "Sentence-only presence applies the specified verb-stem exclusion literally: moving, interacting and holding are not excluded. The added strict rate excludes hold/holding, with (the) ball, possession, moving and interacting. Consistency adds carrying/passing/dribbling/running-with-ball inflections and excludes unmapped event classes from its requirement; ignored classes remain visible in JSON. Presence-with-substantive-event uses the original sentence-only flag. These are lexical diagnostics, not semantic accuracy.",
     "Truth and note hashes describe the current rescoring snapshot across all manifest truth files. Historical run.json files retain their original launch metadata; absent inference-time hashes are not retroactively asserted.",
     "No adoption recommendation; MJ owns that decision.",
     "MJ reports 'some misses as far as boxes are concerned': truth box_track has visible tracker misses. These are geometry/input errors, not model errors, and may affect semantic reads.",
-    "m04-n24-t3013-679939-681217 has a disputed truth label: MJ wrote 'wrong number. this is number 12 from the shorts'. The frozen #24 binding is not corrected by inference; this clip remains visible but is excluded from both scorers' jersey/kit denominators. MJ's appended clarification confirms BLACK warm-up kit and black shorts: the earlier fps2 video lane and annotated prod30 read black correctly, while frozen kit_color red is wrong. The frozen label/colour fields are retained for audit and excluded from metrics.",
+    "m04-n24-t3013-679939-681217 has a disputed truth label: MJ wrote 'wrong number. this is number 12 from the shorts'. The frozen #24 binding is not corrected by inference; this clip remains visible and excluded from jersey denominators, while kit metrics use kit_color_truth_override black. MJ's appended clarification confirms BLACK warm-up kit and black shorts: the earlier fps2 video lane and annotated prod30 read black correctly, while frozen kit_color red is wrong. The original label/colour fields are retained for audit. m04-n22-t3012-070707-074371 and m04-n03-t1406-385962-387137 have kit_color_uncertain true: their kit metrics abstain, neither matching nor wrong.",
     "Activity agreement is coarse compatibility: all on-ball notes can agree with any on-ball model activity even when event recall fails. A mixed idle/on-ball note is eligible for both subset rates; the idle rate is not itself proof of fabrication on that mixed clip. Header/receive/turn/loss remain distinct note classes absent from ACTION_TYPES, so generic carry earns no event recall credit. Outcomes and event timing are not graded against the notes.",
     "Sentence verdicts are lexical class overlap, not full entailment: agree requires a shared activity/action class and no detected incompatible assertion; disagree requires an incompatible class/context; otherwise undetermined. They do not validate every detail or robustly resolve negation, actor attribution or temporal order."
   ]

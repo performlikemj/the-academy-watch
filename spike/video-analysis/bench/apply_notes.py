@@ -12,8 +12,10 @@ from pathlib import Path
 
 try:
     from .provenance import load_truth_snapshot
+    from .semantic_contract import KIT_COLORS
 except ImportError:  # pragma: no cover
     from provenance import load_truth_snapshot
+    from semantic_contract import KIT_COLORS
 
 LINE = re.compile(
     r"^- `(?P<id>[^`]+)` \| window: (?P<start>[\d.]+)–(?P<end>[\d.]+) s \| jersey: #(?P<jersey>\d+) \| kit: (?P<kit>[^|]+) \| note:(?P<note>.*)$"
@@ -73,13 +75,35 @@ def require_local_untracked(path: Path) -> None:
 
 
 def apply_notes(
-    notes_path: Path, manifest_path: Path, *, disputes: tuple[str, ...] = ()
+    notes_path: Path,
+    manifest_path: Path,
+    *,
+    disputes: tuple[str, ...] = (),
+    kit_overrides: dict[str, str] | None = None,
+    kit_uncertain: tuple[str, ...] = (),
 ) -> int:
     truths = {
         truth["clip_id"]: (path, truth) for path, truth in load_truths(manifest_path)
     }
     if set(disputes) - truths.keys():
         raise ValueError("unknown disputed clip ID")
+    kit_overrides = kit_overrides or {}
+    if (kit_overrides.keys() | set(kit_uncertain)) - truths.keys():
+        raise ValueError("unknown kit correction clip ID")
+    if any(
+        color not in KIT_COLORS or color == "unclear"
+        for color in kit_overrides.values()
+    ):
+        raise ValueError(
+            "kit override must be a known colour; use --kit-uncertain for uncertainty"
+        )
+    if kit_overrides.keys() & set(kit_uncertain):
+        raise ValueError("kit cannot be both overridden and uncertain in one intake")
+    if any(
+        not truths[cid][1].get("truth_label_disputed") and cid not in disputes
+        for cid in kit_overrides
+    ):
+        raise ValueError("kit override requires a disputed truth")
     updates, seen = [], set()
     for line in notes_path.read_text().splitlines():
         if not line.startswith("- `"):
@@ -105,11 +129,18 @@ def apply_notes(
         note = row["note"].strip()
         if cid in disputes and not note:
             raise ValueError("disputed truth requires a nonblank human note")
-        if note:
+        if note or cid in kit_overrides or cid in kit_uncertain:
             require_local_untracked(path)
-            update = {**truth, "human_note": note}
+            update = {**truth, **({"human_note": note} if note else {})}
             if cid in disputes:
                 update.update(truth_label_disputed=True, truth_label_dispute_note=note)
+            if cid in kit_overrides:
+                update.update(
+                    kit_color_truth_override=kit_overrides[cid],
+                    kit_color_uncertain=False,
+                )
+            if cid in kit_uncertain:
+                update["kit_color_uncertain"] = True
             updates.append((path, update))
     if seen != set(truths):
         raise ValueError("notes must contain exactly one line per manifest clip")
@@ -127,13 +158,26 @@ def apply_notes(
     return len(updates)
 
 
+def default_notes_path() -> Path:
+    ledger = Path(__file__).resolve().parents[3] / "ledgers/lane-a-notes.md"
+    return (
+        ledger
+        if ledger.is_file()
+        else Path(__file__).with_name("report") / "mj-notes.md"
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--dispute", action="append", default=[], metavar="CLIP_ID")
     parser.add_argument(
-        "--notes", type=Path, default=Path(__file__).with_name("notes_template.md")
+        "--kit-override", action="append", default=[], metavar="CLIP_ID=COLOR"
     )
+    parser.add_argument(
+        "--kit-uncertain", action="append", default=[], metavar="CLIP_ID"
+    )
+    parser.add_argument("--notes", type=Path, default=default_notes_path())
     parser.add_argument(
         "--generate",
         action="store_true",
@@ -145,7 +189,19 @@ def main(argv: list[str] | None = None) -> int:
             handle.write(template([truth for _, truth in load_truths(args.manifest)]))
         print(f"Wrote {args.notes}")
     else:
-        count = apply_notes(args.notes, args.manifest, disputes=tuple(args.dispute))
+        overrides = {}
+        for entry in args.kit_override:
+            cid, separator, color = entry.partition("=")
+            if not separator or cid in overrides:
+                parser.error("kit overrides must be unique CLIP_ID=COLOR pairs")
+            overrides[cid] = color
+        count = apply_notes(
+            args.notes,
+            args.manifest,
+            disputes=tuple(args.dispute),
+            kit_overrides=overrides,
+            kit_uncertain=tuple(args.kit_uncertain),
+        )
         print(f"Applied {count} human notes")
         _, hashes = load_truth_snapshot(args.manifest)
         print(json.dumps(hashes, sort_keys=True))

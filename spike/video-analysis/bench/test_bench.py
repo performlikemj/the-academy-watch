@@ -2047,11 +2047,17 @@ def test_unsupplied_kit_number_still_triggers_jersey_kill(text):
 
 def test_review_kit_renders_every_frame_and_offline_note_template(tmp_path):
     import html
+    import os
     import shutil
     import subprocess
 
-    cv2 = pytest.importorskip("cv2")
+    if os.environ.get("BENCH_REQUIRE_CV2") == "1":
+        import cv2
+    else:
+        cv2 = pytest.importorskip("cv2")
     if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
+        if os.environ.get("BENCH_REQUIRE_CV2") == "1":
+            pytest.fail("required review kit gate needs ffmpeg and ffprobe")
         pytest.skip("review kit needs ffmpeg and ffprobe")
     from apply_notes import template
     from review_kit import build_kit, probe_video
@@ -2104,6 +2110,13 @@ def test_review_kit_renders_every_frame_and_offline_note_template(tmp_path):
     )
     out = tmp_path / "review"
     report = build_kit(frozen, out, clips="marked", scale=64)
+    assert (
+        report["commit"]
+        == subprocess.check_output(
+            ["git", "-C", str(Path(__file__).resolve().parent), "rev-parse", "HEAD"],
+            text=True,
+        ).strip()
+    )
     output = out / "clips/marked.mp4"
     assert output.is_file()
     assert (

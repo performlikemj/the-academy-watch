@@ -12,14 +12,16 @@ from pydantic import ValidationError
 try:
     from .compare_runs import jersey_review
     from .contract import BOX_T_SPAN_TOLERANCE_S
-    from .score import _event_classes, fabricated_event_classes
+    from .score import EVENT_KEYWORDS, _event_classes, fabricated_event_classes
+    from .identity_truth import kit_truth
     from .provenance import thinking_rate
     from .semantic_contract import SemanticRead, parse_read
     from .semantic_activity import activity_metrics
 except ImportError:  # pragma: no cover
     from compare_runs import jersey_review
     from contract import BOX_T_SPAN_TOLERANCE_S
-    from score import _event_classes, fabricated_event_classes
+    from score import EVENT_KEYWORDS, _event_classes, fabricated_event_classes
+    from identity_truth import kit_truth
     from provenance import thinking_rate
     from semantic_contract import SemanticRead, parse_read
     from semantic_activity import activity_metrics
@@ -36,11 +38,20 @@ ACTION_VERB_PATTERN = re.compile(
     r"\b(?:carry|carries|carrying|pass|duel|shot|shoot|run|running|dribbl|tackl|cross|header|clear)",
     re.I,
 )
+STRICT_PRESENCE_EXCLUSIONS = re.compile(
+    r"\b(?:hold|holding|with (?:the )?ball|possession|moving|interacting)\b", re.I
+)
+CONSISTENCY_INFLECTIONS = {
+    "carry": re.compile(r"\b(?:carrying|dribbling|running with (?:the )?ball)\b", re.I),
+    "pass": re.compile(r"\bpassing\b", re.I),
+}
 RATE_KEYS = (
     "valid",
     "empty",
     "presence_only_read",
     "presence_only_sentence",
+    "presence_only_strict",
+    "presence_with_substantive_event",
     "sentence_event_consistency",
     "supplied_number_asserted_as_kit_detail",
     "number_invented",
@@ -52,6 +63,8 @@ RATE_KEYS = (
 IDENTITY_KEYS = {
     "number_invented",
     "supplied_number_asserted_as_kit_detail",
+}
+KIT_KEYS = {
     "kit_color_match",
     "kit_color_abstain",
     "kit_color_wrong",
@@ -70,7 +83,8 @@ def score_read(read: SemanticRead, truth: dict, *, sent_frame_count: int = 0) ->
         for event in read.events
     ]
     jersey = jersey_review({"claims": [{"claim": read.sentence}]}, truth)
-    color = truth.get("kit_color")
+    kit = kit_truth(truth)
+    color = kit["color"]
     kit_match = (
         None
         if color is None or read.kit_color_seen == "unclear"
@@ -84,6 +98,15 @@ def score_read(read: SemanticRead, truth: dict, *, sent_frame_count: int = 0) ->
     )
     substantive = {event.event_type for event in read.events} - {"none", "unclear"}
     sentence_classes = _event_classes(read.sentence)
+    sentence_classes.update(
+        cls
+        for cls, pattern in CONSISTENCY_INFLECTIONS.items()
+        if pattern.search(read.sentence)
+    )
+    mapped_events = substantive & EVENT_KEYWORDS.keys()
+    presence_sentence = bool(PRESENCE_PATTERN.search(read.sentence)) and not bool(
+        ACTION_VERB_PATTERN.search(read.sentence)
+    )
     zero_duration = [event.t0 == event.t1 for event in read.events]
     window_filling = [
         abs(event.t0 - start) <= tolerance and abs(event.t1 - end) <= tolerance
@@ -97,14 +120,17 @@ def score_read(read: SemanticRead, truth: dict, *, sent_frame_count: int = 0) ->
         # Semantic reads forbid any unsupplied number, including bare #N labels.
         "number_invented": bool(jersey["unsupplied_numbers"]),
         "kit_color_match": kit_match,
-        "kit_color_abstain": read.kit_color_seen == "unclear",
+        "kit_color_abstain": kit["uncertain"] or read.kit_color_seen == "unclear",
         "kit_color_wrong": kit_match is False,
         "presence_only_read": not substantive
         and bool(LEGACY_PRESENCE_PATTERN.search(read.sentence)),
-        "presence_only_sentence": bool(PRESENCE_PATTERN.search(read.sentence))
-        and not bool(ACTION_VERB_PATTERN.search(read.sentence)),
-        "sentence_event_consistency": substantive <= sentence_classes,
-        "sentence_event_unmatched_classes": sorted(substantive - sentence_classes),
+        "presence_only_sentence": presence_sentence,
+        "presence_only_strict": presence_sentence
+        and not bool(STRICT_PRESENCE_EXCLUSIONS.search(read.sentence)),
+        "presence_with_substantive_event": presence_sentence and bool(substantive),
+        "sentence_event_consistency": mapped_events <= sentence_classes,
+        "sentence_event_unmatched_classes": sorted(mapped_events - sentence_classes),
+        "sentence_event_unmapped_classes": sorted(substantive - mapped_events),
         "supplied_number_asserted_as_kit_detail": jersey[
             "supplied_number_asserted_as_kit_detail"
         ],
@@ -128,6 +154,8 @@ def score_read(read: SemanticRead, truth: dict, *, sent_frame_count: int = 0) ->
     }
     if truth.get("truth_label_disputed"):
         metrics.update({key: None for key in IDENTITY_KEYS})
+    if not kit["eligible"]:
+        metrics.update({key: None for key in KIT_KEYS})
     return metrics
 
 
@@ -140,6 +168,7 @@ def score_clip(result: dict, truth: dict) -> dict:
         "error": result.get("error"),
         "from_thinking": bool(result.get("from_thinking", False)),
         "truth_label_disputed": bool(truth.get("truth_label_disputed")),
+        "kit_metrics_eligible": kit_truth(truth)["eligible"],
         "human_note": truth.get("human_note"),
     }
     try:
@@ -186,6 +215,7 @@ def score_run(
                     for c in clips
                     if c["status"] == "scored"
                     and (key not in IDENTITY_KEYS or not c["truth_label_disputed"])
+                    and (key not in KIT_KEYS or c["kit_metrics_eligible"])
                 ]
             )
             for key in RATE_KEYS
@@ -193,6 +223,9 @@ def score_run(
         "disputed_clips": [c["clip_id"] for c in clips if c["truth_label_disputed"]],
         "identity_evaluated_clips": sum(
             c["status"] == "scored" and not c["truth_label_disputed"] for c in clips
+        ),
+        "kit_evaluated_clips": sum(
+            c["status"] == "scored" and c["kit_metrics_eligible"] for c in clips
         ),
         "from_thinking_rate": thinking_rate(results),
         "zero_duration_event_rate": rate(
@@ -258,13 +291,13 @@ def score_run(
     has_notes = any(truth.get("human_note") is not None for truth in truths.values())
     return {
         **(truth_provenance or {}),
-        "schema_version": "film-room-semantic-report-v3",
+        "schema_version": "film-room-semantic-report-v4",
         "generated_at": datetime.now(UTC).isoformat(),
         "adapter": adapter,
         "honest_limit": "Human notes enable deterministic activity and event-class checks. These measure coarse correctness against MJ's observations, not timing/outcome accuracy or exhaustive semantic correctness."
         if has_notes
         else HONEST_LIMIT,
-        "denominators": "Honesty rates and events/clip: scored clips. Jersey/kit rates exclude disputed truth labels; their per-clip metrics are null. Activity subset rates use classified notes only; agreement excludes unclassified notes. On-ball recall requires at least one exact event-class match per on-ball note, without credit for unmatched receive/header/turn/loss classes. Sentence verdicts count all scored clips, including undetermined notes. Valid attempt rate and wall/clip: all attempts. Kit match excludes abstentions from the asserted-only rate; match/abstain/wrong rates use all scored clips. Time/clip means all event times pass (vacuously true with no events); event-time rate counts events. Fabricated rate: noted scored clips only. Presence-only read retains the original event-gated narrow regex; sentence-only presence ignores events and excludes the specified action-verb stems. Consistency requires every substantive event class in score._event_classes(sentence); unmatched/unmapped classes fail, and no substantive events pass vacuously. Zero-duration and window-filling rates count events, not clips. Events/sent-frame uses all frames of scored clips. Thinking rate counts recorded true flags across all attempts, including failures.",
+        "denominators": "Honesty rates and events/clip: scored clips. Jersey rates exclude disputed labels. Kit rates include verified colour overrides and count uncertain kit truth as abstention; disputed kits without an override or uncertainty flag remain excluded. Lane A number_invented is stricter than the shared jersey kill: any unsupplied #N / number N / jersey N flags, while timestamps do not. Activity subset rates use classified notes only; agreement excludes unclassified notes. On-ball recall requires at least one exact event-class match per on-ball note, without credit for unmatched receive/header/turn/loss classes. Sentence verdicts count all scored clips, including undetermined notes. Valid attempt rate and wall/clip: all attempts. Kit match excludes abstentions from the asserted-only rate; match/abstain/wrong rates use kit-eligible scored clips. Time/clip means all event times pass (vacuously true with no events); event-time rate counts events. Fabricated rate: noted scored clips only. Presence-only read retains the original event-gated narrow regex; sentence-only presence ignores events and excludes the specified action-verb stems. Strict presence additionally excludes hold/holding, with (the) ball, possession, moving and interacting. Presence-with-substantive-event uses the original sentence-only presence flag and any event except none/unclear. Consistency requires only event classes with an existing keyword map, adds carrying/passing/dribbling/running-with-ball inflections locally, and records ignored unmapped classes separately; no mapped events pass vacuously. Zero-duration and window-filling rates count events, not clips. Events/sent-frame uses all frames of scored clips. Thinking rate counts recorded true flags across all attempts, including failures.",
         "overall": overall,
         "clips": clips,
     }

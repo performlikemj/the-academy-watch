@@ -466,11 +466,22 @@ def score_run(
     for key in (
         "invented_jersey_number_kill",
         "supplied_number_asserted_as_kit_detail",
-        "kit_colour_mismatch",
     ):
         metrics[f"{key}_rate"] = _rate(
             sum(r[key] is True for r in identity), len(identity)
         )
+    kit_reviews = [
+        c["jersey_review"]
+        for c in scored_clips
+        if c["jersey_review"]["kit_colour_mismatch"] is not None
+    ]
+    metrics["kit_evaluated_clips"] = len(kit_reviews)
+    metrics["kit_colour_mismatch_rate"] = _rate(
+        sum(r["kit_colour_mismatch"] is True for r in kit_reviews), len(kit_reviews)
+    )
+    metrics["kit_colour_abstain_rate"] = _rate(
+        sum(r.get("kit_color_uncertain") is True for r in kit_reviews), len(kit_reviews)
+    )
     anchor_modes = {
         clip["anchor_mode"] for clip in clips if clip.get("anchor_mode") is not None
     }

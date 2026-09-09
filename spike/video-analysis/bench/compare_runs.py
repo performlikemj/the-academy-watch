@@ -18,8 +18,10 @@ HEADLINE = (
 VERDICT = "no clear winner on the headline (unboxed grounding is 0 in every lane); frames on cost"
 try:
     from .provenance import load_truth_snapshot, thinking_rate
+    from .identity_truth import kit_truth
 except ImportError:  # pragma: no cover
     from provenance import load_truth_snapshot, thinking_rate
+    from identity_truth import kit_truth
 
 COLORS = "red|blue|black|white|yellow|green|orange|purple|pink|grey|gray"
 
@@ -51,7 +53,8 @@ def claim_text(claim: dict) -> str:
 def jersey_review(raw: dict, truth: dict) -> dict:
     disputed = bool(truth.get("truth_label_disputed"))
     supplied = None if disputed else truth.get("jersey_number")
-    color = None if disputed else truth.get("kit_color")
+    kit = kit_truth(truth)
+    color = kit["color"]
     claims = []
     malformed_text_count = 0
     for claim in raw_claims(raw):
@@ -109,11 +112,13 @@ def jersey_review(raw: dict, truth: dict) -> dict:
                 "jersey_mentions": mentions,
                 "kit_colours_mentioned": colors,
                 "kit_colour_check": (
-                    "unconfirmed: vague clothing description"
+                    "abstain: uncertain kit truth"
+                    if kit["uncertain"]
+                    else "unconfirmed: vague clothing description"
                     if vague_colors
                     else "not mentioned"
                 )
-                if not colors
+                if not colors or kit["uncertain"]
                 else (
                     "truth unavailable"
                     if color is None
@@ -164,8 +169,16 @@ def jersey_review(raw: dict, truth: dict) -> dict:
             excluded_truth_kit_colour=truth.get("kit_color"),
             supplied_number_asserted_as_kit_detail=None,
             invented_jersey_number_kill=None,
-            kit_colour_mismatch=None,
         )
+        if not kit["eligible"]:
+            result["kit_colour_mismatch"] = None
+    if truth.get("kit_color_truth_override"):
+        result["kit_color_truth_override"] = truth["kit_color_truth_override"]
+        result["kit_truth_correction_note"] = (
+            f"MJ corrected the frozen kit colour to {color}; kit reads of {color} were correct. Jersey binding remains disputed."
+        )
+    if kit["uncertain"]:
+        result["kit_color_uncertain"] = True
     return result
 
 
@@ -223,7 +236,7 @@ def experiment_caveats(lanes: dict, reviews: dict) -> list[str]:
         "Ollama GGUF Q4_K_M and MLX's separately converted 4-bit weights, preprocessing, repetition handling and JSON enforcement differ. MLX uses prompt-only JSON instructions and the same strict parser; invalid responses remain failed.",
         "MLX starts a fresh worker/model per clip; Ollama reuses a model server and the 5s smoke warmed one prompt. Sequential single passes have no repeated trials or machine-workload isolation; prod30 ran later after the GPU gate opened.",
         "Rates exclude failed clips; wall and sent-frame means include every attempt. Hollow/malformed=0 among scored claims does not erase failed outputs. Full metrics, available token counts, failures and claim-level jersey/colour review are in JSON.",
-        "Shared anchor lookup fails for m04-n02-t3005-474114-478131 before inference; historical E1 instead counted it unsupported. Frozen truth is unchanged and no human_note is populated, so action semantics are ungraded.",
+        "Shared anchor lookup fails for m04-n02-t3005-474114-478131 before inference; historical E1 instead counted it unsupported. Historical run inputs had no human_note, so their saved action-semantic metrics are ungraded; this comparison refreshes identity/kit review without re-scoring those metrics.",
         "",  # Filled from the complete claim-text review below.
         "Historical MLX runs used ignored report/.worker-deps via PYTHONPATH (preserved in their original run metadata); Jinja2 3.1.6/MarkupSafe 3.0.3 are now installed in the MLX venv. Earlier failed smokes were missing Jinja2 and fenced JSON; no video rerun was requested for this repair.",
     ]

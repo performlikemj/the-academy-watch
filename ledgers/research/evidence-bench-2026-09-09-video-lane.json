@@ -1,6 +1,6 @@
 {
-  "truth_set_sha256_after_notes": "c5d09d12aef8254227be840a12ce3055a0a4f78f47831a428d90ef9c991f6e91",
-  "human_notes_sha256": "37dad17e173ca7000467e237b32b58d040a26dca668e9845d2dd672ce0e92d41",
+  "truth_set_sha256_after_notes": "b0701190324ab2527d400b2b176da67291a5efffc11fd314068b343e9f74e8ed",
+  "human_notes_sha256": "5944679d0b576bfd8790d9d1206def9485f7618b0c6d53d4c7593c266d51d59f",
   "experiment": "E1b — Qwen3-VL native-video versus sampled-frame grounded-claim bench",
   "date": "2026-09-09",
   "frozen_set": "20 evaluation-only clips (frozen_set_id 1f68e2755002b3598c763532e95c212de9261ffa638c2943ad3769a1be77503f)",
@@ -2320,7 +2320,7 @@
       "m04-n03-t1406-385962-387137": {
         "adapter_error": null,
         "supplied_jersey_number": 3,
-        "truth_kit_colour": "red",
+        "truth_kit_colour": null,
         "claims": [
           {
             "claim": "The player wearing red jersey number 3 is visible in frame.",
@@ -2336,7 +2336,7 @@
             "kit_colours_mentioned": [
               "red"
             ],
-            "kit_colour_check": "match"
+            "kit_colour_check": "abstain: uncertain kit truth"
           }
         ],
         "malformed_claim_text_count": 0,
@@ -2344,7 +2344,8 @@
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": true,
         "invented_jersey_number_kill": false,
-        "kit_colour_mismatch": false
+        "kit_colour_mismatch": false,
+        "kit_color_uncertain": true
       },
       "m04-n04-t3006-243433-247994": {
         "adapter_error": null,
@@ -2707,7 +2708,7 @@
       "m04-n22-t3012-070707-074371": {
         "adapter_error": null,
         "supplied_jersey_number": 22,
-        "truth_kit_colour": "red",
+        "truth_kit_colour": null,
         "claims": [
           {
             "claim": "A player in red jersey with black shorts is visible on the right side of the field.",
@@ -2716,7 +2717,7 @@
             "kit_colours_mentioned": [
               "red"
             ],
-            "kit_colour_check": "match"
+            "kit_colour_check": "abstain: uncertain kit truth"
           }
         ],
         "malformed_claim_text_count": 0,
@@ -2724,12 +2725,13 @@
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": false,
         "invented_jersey_number_kill": false,
-        "kit_colour_mismatch": false
+        "kit_colour_mismatch": false,
+        "kit_color_uncertain": true
       },
       "m04-n24-t3013-679939-681217": {
         "adapter_error": null,
-        "supplied_jersey_number": 24,
-        "truth_kit_colour": "red",
+        "supplied_jersey_number": null,
+        "truth_kit_colour": "black",
         "claims": [
           {
             "claim": "The player marked with #24 in frame 6799.440 is visible at the same location as a referee holding a white object.",
@@ -2738,7 +2740,7 @@
               {
                 "text": "#24",
                 "number": 24,
-                "matches_supplied": true,
+                "matches_supplied": null,
                 "asserted_as_kit_detail": false
               }
             ],
@@ -2751,9 +2753,15 @@
           24
         ],
         "unsupplied_numbers": [],
-        "supplied_number_asserted_as_kit_detail": false,
-        "invented_jersey_number_kill": false,
-        "kit_colour_mismatch": false
+        "supplied_number_asserted_as_kit_detail": null,
+        "invented_jersey_number_kill": null,
+        "kit_colour_mismatch": false,
+        "truth_label_disputed": true,
+        "truth_label_dispute_note": "wrong number. this is number 12 from the shorts",
+        "excluded_truth_jersey_number": 24,
+        "excluded_truth_kit_colour": "red",
+        "kit_color_truth_override": "black",
+        "kit_truth_correction_note": "MJ corrected the frozen kit colour to black; kit reads of black were correct. Jersey binding remains disputed."
       },
       "m04-n25-t3014-530600-532465": {
         "adapter_error": null,
@@ -2830,7 +2838,7 @@
       "m04-n03-t1406-385962-387137": {
         "adapter_error": null,
         "supplied_jersey_number": 3,
-        "truth_kit_colour": "red",
+        "truth_kit_colour": null,
         "claims": [
           {
             "claim": "A player wearing red jersey number 3 is visible on the field.",
@@ -2846,7 +2854,7 @@
             "kit_colours_mentioned": [
               "red"
             ],
-            "kit_colour_check": "match"
+            "kit_colour_check": "abstain: uncertain kit truth"
           }
         ],
         "malformed_claim_text_count": 0,
@@ -2854,7 +2862,8 @@
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": true,
         "invented_jersey_number_kill": false,
-        "kit_colour_mismatch": false
+        "kit_colour_mismatch": false,
+        "kit_color_uncertain": true
       },
       "m04-n04-t3006-243433-247994": {
         "adapter_error": null,
@@ -3222,7 +3231,7 @@
       "m04-n22-t3012-070707-074371": {
         "adapter_error": null,
         "supplied_jersey_number": 22,
-        "truth_kit_colour": "red",
+        "truth_kit_colour": null,
         "claims": [
           {
             "claim": "The player marked with #22 in frame 707.120 appears on the right side of the field.",
@@ -3236,7 +3245,7 @@
               }
             ],
             "kit_colours_mentioned": [],
-            "kit_colour_check": "not mentioned"
+            "kit_colour_check": "abstain: uncertain kit truth"
           }
         ],
         "malformed_claim_text_count": 0,
@@ -3246,12 +3255,13 @@
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": false,
         "invented_jersey_number_kill": false,
-        "kit_colour_mismatch": false
+        "kit_colour_mismatch": false,
+        "kit_color_uncertain": true
       },
       "m04-n24-t3013-679939-681217": {
         "adapter_error": null,
-        "supplied_jersey_number": 24,
-        "truth_kit_colour": "red",
+        "supplied_jersey_number": null,
+        "truth_kit_colour": "black",
         "claims": [
           {
             "claim": "The player marked with #24 in frame 6799.440 is visible on the field.",
@@ -3260,7 +3270,7 @@
               {
                 "text": "#24",
                 "number": 24,
-                "matches_supplied": true,
+                "matches_supplied": null,
                 "asserted_as_kit_detail": false
               }
             ],
@@ -3273,9 +3283,15 @@
           24
         ],
         "unsupplied_numbers": [],
-        "supplied_number_asserted_as_kit_detail": false,
-        "invented_jersey_number_kill": false,
-        "kit_colour_mismatch": false
+        "supplied_number_asserted_as_kit_detail": null,
+        "invented_jersey_number_kill": null,
+        "kit_colour_mismatch": false,
+        "truth_label_disputed": true,
+        "truth_label_dispute_note": "wrong number. this is number 12 from the shorts",
+        "excluded_truth_jersey_number": 24,
+        "excluded_truth_kit_colour": "red",
+        "kit_color_truth_override": "black",
+        "kit_truth_correction_note": "MJ corrected the frozen kit colour to black; kit reads of black were correct. Jersey binding remains disputed."
       },
       "m04-n25-t3014-530600-532465": {
         "adapter_error": null,
@@ -3345,7 +3361,7 @@
       "m04-n03-t1406-385962-387137": {
         "adapter_error": null,
         "supplied_jersey_number": 3,
-        "truth_kit_colour": "red",
+        "truth_kit_colour": null,
         "claims": [
           {
             "claim": "Player wearing jersey #3 is visible in the video.",
@@ -3359,7 +3375,7 @@
               }
             ],
             "kit_colours_mentioned": [],
-            "kit_colour_check": "not mentioned"
+            "kit_colour_check": "abstain: uncertain kit truth"
           }
         ],
         "malformed_claim_text_count": 0,
@@ -3367,7 +3383,8 @@
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": true,
         "invented_jersey_number_kill": false,
-        "kit_colour_mismatch": false
+        "kit_colour_mismatch": false,
+        "kit_color_uncertain": true
       },
       "m04-n04-t3006-243433-247994": {
         "adapter_error": "no parseable claims",
@@ -3682,7 +3699,7 @@
       "m04-n22-t3012-070707-074371": {
         "adapter_error": null,
         "supplied_jersey_number": 22,
-        "truth_kit_colour": "red",
+        "truth_kit_colour": null,
         "claims": [
           {
             "claim": "Player #22 is visible in the video.",
@@ -3696,7 +3713,7 @@
               }
             ],
             "kit_colours_mentioned": [],
-            "kit_colour_check": "not mentioned"
+            "kit_colour_check": "abstain: uncertain kit truth"
           }
         ],
         "malformed_claim_text_count": 0,
@@ -3706,12 +3723,13 @@
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": false,
         "invented_jersey_number_kill": false,
-        "kit_colour_mismatch": false
+        "kit_colour_mismatch": false,
+        "kit_color_uncertain": true
       },
       "m04-n24-t3013-679939-681217": {
         "adapter_error": null,
-        "supplied_jersey_number": 24,
-        "truth_kit_colour": "red",
+        "supplied_jersey_number": null,
+        "truth_kit_colour": "black",
         "claims": [
           {
             "claim": "The player wearing a black jersey with the number 24 is walking on the field.",
@@ -3720,22 +3738,28 @@
               {
                 "text": "number 24",
                 "number": 24,
-                "matches_supplied": true,
+                "matches_supplied": null,
                 "asserted_as_kit_detail": true
               }
             ],
             "kit_colours_mentioned": [
               "black"
             ],
-            "kit_colour_check": "mismatch"
+            "kit_colour_check": "match"
           }
         ],
         "malformed_claim_text_count": 0,
         "non_jersey_numbers": [],
         "unsupplied_numbers": [],
-        "supplied_number_asserted_as_kit_detail": true,
-        "invented_jersey_number_kill": false,
-        "kit_colour_mismatch": true
+        "supplied_number_asserted_as_kit_detail": null,
+        "invented_jersey_number_kill": null,
+        "kit_colour_mismatch": false,
+        "truth_label_disputed": true,
+        "truth_label_dispute_note": "wrong number. this is number 12 from the shorts",
+        "excluded_truth_jersey_number": 24,
+        "excluded_truth_kit_colour": "red",
+        "kit_color_truth_override": "black",
+        "kit_truth_correction_note": "MJ corrected the frozen kit colour to black; kit reads of black were correct. Jersey binding remains disputed."
       },
       "m04-n25-t3014-530600-532465": {
         "adapter_error": null,
@@ -3805,7 +3829,7 @@
       "m04-n03-t1406-385962-387137": {
         "adapter_error": null,
         "supplied_jersey_number": 3,
-        "truth_kit_colour": "red",
+        "truth_kit_colour": null,
         "claims": [
           {
             "claim": "The player wearing jersey #3 is visible in the video.",
@@ -3819,7 +3843,7 @@
               }
             ],
             "kit_colours_mentioned": [],
-            "kit_colour_check": "not mentioned"
+            "kit_colour_check": "abstain: uncertain kit truth"
           }
         ],
         "malformed_claim_text_count": 0,
@@ -3827,7 +3851,8 @@
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": true,
         "invented_jersey_number_kill": false,
-        "kit_colour_mismatch": false
+        "kit_colour_mismatch": false,
+        "kit_color_uncertain": true
       },
       "m04-n04-t3006-243433-247994": {
         "adapter_error": null,
@@ -4176,14 +4201,14 @@
       "m04-n22-t3012-070707-074371": {
         "adapter_error": null,
         "supplied_jersey_number": 22,
-        "truth_kit_colour": "red",
+        "truth_kit_colour": null,
         "claims": [
           {
             "claim": "Player identified by red rectangle in first frame is tracked across subsequent frames.",
             "vague_clothing_descriptions": [],
             "jersey_mentions": [],
             "kit_colours_mentioned": [],
-            "kit_colour_check": "not mentioned"
+            "kit_colour_check": "abstain: uncertain kit truth"
           }
         ],
         "malformed_claim_text_count": 0,
@@ -4191,12 +4216,13 @@
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": false,
         "invented_jersey_number_kill": false,
-        "kit_colour_mismatch": false
+        "kit_colour_mismatch": false,
+        "kit_color_uncertain": true
       },
       "m04-n24-t3013-679939-681217": {
         "adapter_error": null,
-        "supplied_jersey_number": 24,
-        "truth_kit_colour": "red",
+        "supplied_jersey_number": null,
+        "truth_kit_colour": "black",
         "claims": [
           {
             "claim": "The player identified by the red rectangle in frame 0 is visible in subsequent frames.",
@@ -4209,9 +4235,15 @@
         "malformed_claim_text_count": 0,
         "non_jersey_numbers": [],
         "unsupplied_numbers": [],
-        "supplied_number_asserted_as_kit_detail": false,
-        "invented_jersey_number_kill": false,
-        "kit_colour_mismatch": false
+        "supplied_number_asserted_as_kit_detail": null,
+        "invented_jersey_number_kill": null,
+        "kit_colour_mismatch": false,
+        "truth_label_disputed": true,
+        "truth_label_dispute_note": "wrong number. this is number 12 from the shorts",
+        "excluded_truth_jersey_number": 24,
+        "excluded_truth_kit_colour": "red",
+        "kit_color_truth_override": "black",
+        "kit_truth_correction_note": "MJ corrected the frozen kit colour to black; kit reads of black were correct. Jersey binding remains disputed."
       },
       "m04-n25-t3014-530600-532465": {
         "adapter_error": null,
@@ -4245,8 +4277,8 @@
     "Ollama GGUF Q4_K_M and MLX's separately converted 4-bit weights, preprocessing, repetition handling and JSON enforcement differ. MLX uses prompt-only JSON instructions and the same strict parser; invalid responses remain failed.",
     "MLX starts a fresh worker/model per clip; Ollama reuses a model server and the 5s smoke warmed one prompt. Sequential single passes have no repeated trials or machine-workload isolation; prod30 ran later after the GPU gate opened.",
     "Rates exclude failed clips; wall and sent-frame means include every attempt. Hollow/malformed=0 among scored claims does not erase failed outputs. Full metrics, available token counts, failures and claim-level jersey/colour review are in JSON.",
-    "Shared anchor lookup fails for m04-n02-t3005-474114-478131 before inference; historical E1 instead counted it unsupported. Frozen truth is unchanged and no human_note is populated, so action semantics are ungraded.",
-    "Supplied numbers restated as kit detail — frames: [3, 9, 17, 21]; frames_prod30: [3, 4, 9, 17, 21]; video_fps2: [3, 9, 17, 21, 24]; video_fps4: [3, 9, 17, 21]; no unsupplied numbers observed. Kit-colour mismatches: video_fps2 m04-n24-t3013-679939-681217: black vs truth red; video_fps4 m04-n15-t3010-164698-170777: blue vs truth red. Geometry scoring does not penalize colour errors or establish number legibility.",
+    "Shared anchor lookup fails for m04-n02-t3005-474114-478131 before inference; historical E1 instead counted it unsupported. Historical run inputs had no human_note, so their saved action-semantic metrics are ungraded; this comparison refreshes identity/kit review without re-scoring those metrics.",
+    "Supplied numbers restated as kit detail — frames: [3, 9, 17, 21]; frames_prod30: [3, 4, 9, 17, 21]; video_fps2: [3, 9, 17, 21]; video_fps4: [3, 9, 17, 21]; no unsupplied numbers observed. Kit-colour mismatches: video_fps4 m04-n15-t3010-164698-170777: blue vs truth red. Geometry scoring does not penalize colour errors or establish number legibility.",
     "Historical MLX runs used ignored report/.worker-deps via PYTHONPATH (preserved in their original run metadata); Jinja2 3.1.6/MarkupSafe 3.0.3 are now installed in the MLX venv. Earlier failed smokes were missing Jinja2 and fenced JSON; no video rerun was requested for this repair.",
     "Ollama thinking-field fallback despite think=false: frames 95% of all attempts; frames_prod30 95% of all attempts. This does not establish format-grammar enforcement on the thinking field; the transport is unchanged."
   ],

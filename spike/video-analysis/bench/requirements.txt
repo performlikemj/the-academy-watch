@@ -1,0 +1,2 @@
+# Bench CPU review rendering; matches the video spike's OpenCV pin.
+opencv-python-headless==4.13.0.92

@@ -477,11 +477,11 @@ def test_gap_sampling_snaps_time_not_geometry_and_records_it(monkeypatch, tmp_pa
         ),
         ("Player in red kit visible moving across field during play.", True, False),
         ("Player in red kit visible on right sideline holding ball.", True, False),
-        ("Player in red kit visible on field carrying ball.", False, False),
+        ("Player in red kit visible on field carrying ball.", False, True),
         (
             "Player #12 in red kit is visible running with the ball during play.",
             False,
-            False,
+            True,
         ),
         (
             "The marked player in red carries the ball and passes it during build-up play.",
@@ -502,7 +502,7 @@ def test_real_presence_sentences_are_checked_independently_of_events(
     assert result["presence_only_read"] is False
 
 
-def test_consistency_requires_every_event_class_and_preserves_keyword_rule():
+def test_consistency_requires_every_mapped_event_class():
     value = read(
         sentence="Player in red kit carries ball and engages in duel with opponent.",
         events=[event(event_type="carry"), event(event_type="duel")],
@@ -514,7 +514,7 @@ def test_consistency_requires_every_event_class_and_preserves_keyword_rule():
     assert result["sentence_event_unmatched_classes"] == ["pass"]
     value["events"] = [event(event_type="off_ball")]
     assert score_read(SemanticRead(**value), truth())[
-        "sentence_event_unmatched_classes"
+        "sentence_event_unmapped_classes"
     ] == ["off_ball"]
     value["events"] = []
     assert score_read(SemanticRead(**value), truth())["sentence_event_consistency"]
@@ -1055,3 +1055,150 @@ def test_all_twenty_notes_in_comparison_table(tmp_path):
         assert row["reads"]["dense"]["metrics"]["truth_activity"] == expected
     assert "Off-pitch clips given on-ball events: dense 7/7; prod30 7/7." in rendered
     assert "pass/unclear" in table and "label disputed" in table
+
+
+@pytest.mark.parametrize(
+    "sentence,strict",
+    [
+        ("Player in red kit visible moving across field during play.", False),
+        (
+            "Player in red jersey with number 9 visible on field moving and interacting.",
+            False,
+        ),
+        ("Player in red kit visible on right sideline holding ball.", False),
+        (
+            "Player marked #12 in red kit visible on field with ball near center circle.",
+            False,
+        ),
+        ("Player visible with the ball.", False),
+        ("Player visible in possession.", False),
+        ("Player visible preparing to hold a shirt.", False),
+        ("Player in red kit visible on field throughout sequence.", True),
+    ],
+)
+def test_strict_presence_and_presence_event_independent(sentence, strict):
+    value = read(sentence=sentence, events=[event(event_type="carry")])
+    m = score_read(SemanticRead(**value), truth())
+    assert m["presence_only_sentence"]
+    assert m["presence_only_strict"] is strict
+    assert m["presence_with_substantive_event"]
+    value["events"] = [event(event_type="none")]
+    assert not score_read(SemanticRead(**value), truth())[
+        "presence_with_substantive_event"
+    ]
+
+
+@pytest.mark.parametrize(
+    "sentence,cls",
+    [
+        ("The player is carrying the ball.", "carry"),
+        ("The player is dribbling.", "carry"),
+        ("The player is running with ball.", "carry"),
+        ("The player is running with the ball.", "carry"),
+        ("The player is passing.", "pass"),
+    ],
+)
+def test_consistency_inflections_leave_fabrication_rule_unchanged(sentence, cls):
+    from score import _event_classes
+
+    assert cls not in _event_classes(sentence)
+    m = score_read(
+        SemanticRead(**read(sentence=sentence, events=[event(event_type=cls)])), truth()
+    )
+    assert m["sentence_event_consistency"]
+    assert m["sentence_event_unmatched_classes"] == []
+
+
+@pytest.mark.parametrize(
+    "cls", ["off_ball", "defensive_action", "set_piece", "goalkeeping"]
+)
+def test_consistency_unmapped_classes_are_reported_not_required(cls):
+    m = score_read(SemanticRead(**read(events=[event(event_type=cls)])), truth())
+    assert m["sentence_event_consistency"]
+    assert m["sentence_event_unmapped_classes"] == [cls]
+    assert m["sentence_event_unmatched_classes"] == []
+
+
+def test_kit_override_and_uncertainty_in_both_scorers():
+    from score import score_run as grounded_score
+    from compare_runs import jersey_review
+
+    corrected = {
+        **truth(),
+        "truth_label_disputed": True,
+        "kit_color_truth_override": "black",
+    }
+    uncertain = {**truth(), "clip_id": "uncertain", "kit_color_uncertain": True}
+    rows = [
+        raw(sentence="Player in black kit wears jersey 9.", kit_color_seen="black"),
+        {**raw(kit_color_seen="blue"), "clip_id": "uncertain"},
+    ]
+    truths = {"fixture": corrected, "uncertain": uncertain}
+    r = score_run(rows, truths)
+    assert r["overall"]["kit_color_match_rate"] == 0.5
+    assert r["overall"]["kit_color_wrong_rate"] == 0
+    assert r["overall"]["kit_color_abstain_rate"] == 0.5
+    assert r["overall"]["kit_evaluated_clips"] == 2
+    assert r["overall"]["identity_evaluated_clips"] == 1
+    assert r["clips"][0]["metrics"]["number_invented"] is None
+    assert r["clips"][1]["metrics"]["kit_color_match"] is None
+    assert score_read(SemanticRead(**read()), corrected)["kit_color_wrong"] is True
+    legacy_rows = [
+        {
+            "clip_id": "fixture",
+            "claims": [{"claim": "Player in black kit wears jersey 9."}],
+        },
+        {"clip_id": "uncertain", "claims": [{"claim": "Player in blue kit."}]},
+    ]
+    g = grounded_score(legacy_rows, truths)["overall"]
+    assert g["kit_evaluated_clips"] == 2 and g["identity_evaluated_clips"] == 1
+    assert g["kit_colour_mismatch_rate"] == 0 and g["kit_colour_abstain_rate"] == 0.5
+    review = jersey_review(legacy_rows[0], corrected)
+    assert review["claims"][0]["kit_colour_check"] == "match"
+    assert review["invented_jersey_number_kill"] is None
+    assert "kit reads of black were correct" in review["kit_truth_correction_note"]
+
+
+def test_kit_intake_validates_before_writes_and_preserves_notes(tmp_path):
+    manifest = frozen(tmp_path)
+    path = tmp_path / "truth/fixture.json"
+    notes = tmp_path / "notes.md"
+    notes.write_text(
+        template([truth()]).replace("| note:", "| note: Wrong label. Black kit.")
+    )
+    before = path.read_bytes()
+    for kwargs in (
+        {"kit_overrides": {"missing": "black"}},
+        {"disputes": ("fixture",), "kit_overrides": {"fixture": "purple"}},
+        {"kit_overrides": {"fixture": "black"}},
+        {
+            "disputes": ("fixture",),
+            "kit_overrides": {"fixture": "black"},
+            "kit_uncertain": ("fixture",),
+        },
+    ):
+        with pytest.raises(ValueError):
+            apply_notes(notes, manifest, **kwargs)
+        assert path.read_bytes() == before
+    apply_notes(
+        notes, manifest, disputes=("fixture",), kit_overrides={"fixture": "black"}
+    )
+    corrected = json.loads(path.read_text())
+    assert corrected["human_note"] == "Wrong label. Black kit."
+    assert corrected["kit_color_truth_override"] == "black"
+    assert corrected["kit_color"] == "red" and corrected["jersey_number"] == 12
+    apply_notes(notes, manifest, kit_uncertain=("fixture",))
+    assert json.loads(path.read_text())["kit_color_uncertain"] is True
+
+
+def test_default_notes_path_prefers_ledger_then_local_report(monkeypatch, tmp_path):
+    import apply_notes as intake
+
+    bench = tmp_path / "spike/video-analysis/bench"
+    bench.mkdir(parents=True)
+    monkeypatch.setattr(intake, "__file__", str(bench / "apply_notes.py"))
+    assert intake.default_notes_path() == bench / "report/mj-notes.md"
+    ledger = tmp_path / "ledgers/lane-a-notes.md"
+    ledger.parent.mkdir()
+    ledger.write_text("local notes")
+    assert intake.default_notes_path() == ledger
