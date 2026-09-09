@@ -129,7 +129,13 @@ def build_prompt(
     )
 
 
-def apply_anchors(frames: list[dict], truth: dict, anchor_mode: str) -> list[dict]:
+def apply_anchors(
+    frames: list[dict],
+    truth: dict,
+    anchor_mode: str,
+    *,
+    color: tuple[int, int, int] | None = None,
+) -> list[dict]:
     """Draw identity anchors and record their exact sent-image rectangles."""
     if anchor_mode not in ANCHOR_MODES:
         raise ValueError(
@@ -149,7 +155,12 @@ def apply_anchors(frames: list[dict], truth: dict, anchor_mode: str) -> list[dic
             )
         sent_size = (int(frame["sent_w"]), int(frame["sent_h"]))
         sent_box = scale_box(box, source_size, sent_size)
-        draw_truth_box(frame_path, sent_box, int(truth["jersey_number"]))
+        draw_truth_box(
+            frame_path,
+            sent_box,
+            int(truth["jersey_number"]),
+            **({"color": color} if color is not None else {}),
+        )
         anchored_frames.append(
             {
                 "t": absolute_s,

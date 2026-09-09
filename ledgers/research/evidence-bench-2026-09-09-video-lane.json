@@ -1,4 +1,6 @@
 {
+  "truth_set_sha256_after_notes": "c5d09d12aef8254227be840a12ce3055a0a4f78f47831a428d90ef9c991f6e91",
+  "human_notes_sha256": "37dad17e173ca7000467e237b32b58d040a26dca668e9845d2dd672ce0e92d41",
   "experiment": "E1b — Qwen3-VL native-video versus sampled-frame grounded-claim bench",
   "date": "2026-09-09",
   "frozen_set": "20 evaluation-only clips (frozen_set_id 1f68e2755002b3598c763532e95c212de9261ffa638c2943ad3769a1be77503f)",
@@ -81,10 +83,12 @@
       "unsupported_rate": 0.2632,
       "untracked_gap": 0,
       "untracked_gap_rate": 0.0,
-      "wall_s_per_clip": 12.759
+      "wall_s_per_clip": 12.759,
+      "from_thinking_rate": 0.95
     },
     "fps": null,
     "attempted_clips": 20,
+    "anchor_only_attempts": 1,
     "clips_with_any_supported_claim": 14,
     "sent_frames_per_clip": 4.15,
     "recorded_sent_frames_per_clip": 4.45,
@@ -202,10 +206,12 @@
       "unsupported_rate": 0.1579,
       "untracked_gap": 0,
       "untracked_gap_rate": 0.0,
-      "wall_s_per_clip": 6.367
+      "wall_s_per_clip": 6.367,
+      "from_thinking_rate": 0.95
     },
     "fps": null,
     "attempted_clips": 20,
+    "anchor_only_attempts": 13,
     "clips_with_any_supported_claim": 16,
     "sent_frames_per_clip": 1.35,
     "recorded_sent_frames_per_clip": 1.45,
@@ -326,10 +332,12 @@
       "unsupported_rate": 0.3125,
       "untracked_gap": 0,
       "untracked_gap_rate": 0.0,
-      "wall_s_per_clip": 56.017
+      "wall_s_per_clip": 56.017,
+      "from_thinking_rate": 0.0
     },
     "fps": 2.0,
     "attempted_clips": 20,
+    "anchor_only_attempts": 0,
     "clips_with_any_supported_claim": 11,
     "sent_frames_per_clip": 49.6,
     "recorded_sent_frames_per_clip": 49.6,
@@ -526,10 +534,12 @@
       "unsupported_rate": 0.2222,
       "untracked_gap": 0,
       "untracked_gap_rate": 0.0,
-      "wall_s_per_clip": 63.771
+      "wall_s_per_clip": 63.771,
+      "from_thinking_rate": 0.0
     },
     "fps": 4.0,
     "attempted_clips": 20,
+    "anchor_only_attempts": 0,
     "clips_with_any_supported_claim": 14,
     "sent_frames_per_clip": 100.5,
     "recorded_sent_frames_per_clip": 100.5,
@@ -4237,7 +4247,8 @@
     "Rates exclude failed clips; wall and sent-frame means include every attempt. Hollow/malformed=0 among scored claims does not erase failed outputs. Full metrics, available token counts, failures and claim-level jersey/colour review are in JSON.",
     "Shared anchor lookup fails for m04-n02-t3005-474114-478131 before inference; historical E1 instead counted it unsupported. Frozen truth is unchanged and no human_note is populated, so action semantics are ungraded.",
     "Supplied numbers restated as kit detail — frames: [3, 9, 17, 21]; frames_prod30: [3, 4, 9, 17, 21]; video_fps2: [3, 9, 17, 21, 24]; video_fps4: [3, 9, 17, 21]; no unsupplied numbers observed. Kit-colour mismatches: video_fps2 m04-n24-t3013-679939-681217: black vs truth red; video_fps4 m04-n15-t3010-164698-170777: blue vs truth red. Geometry scoring does not penalize colour errors or establish number legibility.",
-    "Historical MLX runs used ignored report/.worker-deps via PYTHONPATH (preserved in their original run metadata); Jinja2 3.1.6/MarkupSafe 3.0.3 are now installed in the MLX venv. Earlier failed smokes were missing Jinja2 and fenced JSON; no video rerun was requested for this repair."
+    "Historical MLX runs used ignored report/.worker-deps via PYTHONPATH (preserved in their original run metadata); Jinja2 3.1.6/MarkupSafe 3.0.3 are now installed in the MLX venv. Earlier failed smokes were missing Jinja2 and fenced JSON; no video rerun was requested for this repair.",
+    "Ollama thinking-field fallback despite think=false: frames 95% of all attempts; frames_prod30 95% of all attempts. This does not establish format-grammar enforcement on the thinking field; the transport is unchanged."
   ],
   "headline": "On these 20 clips no lane — sampled stills at 5 s, sampled stills at production's 30 s, or native video at 2/4 fps — ever grounded the player on a frame without the red rectangle; every supported claim is a box at the anchor time plus a presence sentence.",
   "verdict": "no clear winner on the headline (unboxed grounding is 0 in every lane); frames on cost",

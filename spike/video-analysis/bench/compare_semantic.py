@@ -4,15 +4,14 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 from pathlib import Path
 
 try:
-    from .apply_notes import load_truths
+    from .provenance import load_truth_snapshot
     from .semantic_score import RATE_KEYS, score_run
 except ImportError:  # pragma: no cover
-    from apply_notes import load_truths
+    from provenance import load_truth_snapshot
     from semantic_score import RATE_KEYS, score_run
 
 CAVEATS = [
@@ -23,6 +22,10 @@ CAVEATS = [
     "The conservative event keyword mismatch rule becomes available only on clips with human notes; it is neither a complete event taxonomy nor a measure of event correctness.",
     "Sequential single passes, without repeats or confidence intervals. Wall time includes extraction/drawing and all failed attempts; Ollama may reuse a warm model. Temporary frame paths record provenance but images are removed after each call.",
     "Uniform target samples falling in tracking gaps snap to the nearest recorded track timestamp within 0.5s, remaining distinct and chronological; target_t and sampling_shift_s record every adjustment. Larger gaps fail before inference. Geometry is never extrapolated across gaps.",
+    "All 20 truths have red kits and both measured runs used red rectangles: kit-colour matching is uninformative until the frozen set includes non-red kits. Future lane-A model inputs use magenta; these saved outputs were not rerun.",
+    "Every lane-A response (40/40) was read from Ollama's thinking field despite think=false. Schema-valid parsing is established; the format grammar's effect on that field is unverified. The transport is unchanged.",
+    "Sentence-only presence applies the specified verb-stem exclusion literally: moving, interacting and holding are not excluded. Consistency uses the unchanged conservative score._event_classes vocabulary, so carrying/passing inflections and unmapped broad types may remain unmatched; these are lexical diagnostics, not semantic accuracy.",
+    "Truth and note hashes describe the current rescoring snapshot across all manifest truth files. Historical run.json files retain their original launch metadata; absent inference-time hashes are not retroactively asserted.",
     "No adoption recommendation; MJ owns that decision.",
 ]
 
@@ -31,7 +34,7 @@ def compare(reports_root: Path, runs: dict[str, str], manifest_path: Path) -> di
     if len(runs) != 2:
         raise ValueError("provide the dense and prod30 runs")
     manifest = json.loads(manifest_path.read_text())
-    truths = {truth["clip_id"]: truth for _, truth in load_truths(manifest_path)}
+    truths, truth_provenance = load_truth_snapshot(manifest_path)
     selected = None
     lanes = {}
     for name, run in runs.items():
@@ -51,7 +54,7 @@ def compare(reports_root: Path, runs: dict[str, str], manifest_path: Path) -> di
             for cid in selected
             if (directory / "claims" / f"{cid}.json").is_file()
         ]
-        report = score_run(raw, truths)
+        report = score_run(raw, truths, truth_provenance=truth_provenance)
         report["generated_at"] = original["generated_at"]
         scored = [c for c in report["clips"] if c["status"] == "scored"]
         frames = [frame for row in raw for frame in row["sent_frames"]]
@@ -89,11 +92,7 @@ def compare(reports_root: Path, runs: dict[str, str], manifest_path: Path) -> di
         "state": "measured",
         "honest_limit": next(iter(lanes.values()))["report"]["honest_limit"],
         "frozen_set_id": manifest["frozen_set_id"],
-        "human_notes_sha256": hashlib.sha256(
-            json.dumps(
-                {cid: truths[cid].get("human_note") for cid in selected}, sort_keys=True
-            ).encode()
-        ).hexdigest(),
+        **truth_provenance,
         "sentence_selection": "First five scored clips in manifest order, verbatim; no quality selection.",
         "lanes": lanes,
         "caveats": CAVEATS,
@@ -102,6 +101,11 @@ def compare(reports_root: Path, runs: dict[str, str], manifest_path: Path) -> di
 
 def markdown(result: dict) -> str:
     keys = [f"{k}_rate" for k in RATE_KEYS] + [
+        "zero_duration_event_rate",
+        "window_filling_event_rate",
+        "events_per_sent_frame",
+        "high_confidence_completed_from_one_frame_count",
+        "from_thinking_rate",
         "valid_attempt_rate",
         "time_in_window_event_rate",
         "fabricated_rate",

@@ -36,6 +36,7 @@ from .common import (
 from .qwen3vl_ollama import apply_anchors
 
 DEFAULT_MODEL = "qwen3-vl:8b"
+ANCHOR_COLOR = (255, 0, 255)
 
 
 def spread_timestamps(
@@ -98,14 +99,14 @@ def build_prompt(truth: dict, timestamps: list[float]) -> str:
         f"{key} must be exactly one of: {', '.join(values)}."
         for key, values in VOCABULARIES.items()
     )
-    return f"""Review these chronological football frames. Every image has a red rectangle labelled #{int(truth["jersey_number"])} around the same tracked player.
+    return f"""Review these chronological football frames. Every image has a magenta rectangle labelled #{int(truth["jersey_number"])} around the same tracked player.
 The tracker owns geometry; describe only the marked player's visible meaning. Do not return boxes or coordinates.
 Never name a player. Never state a jersey number other than the drawn label; that label is supplied tracking identity, not proof that a number is readable.
 Never claim a goal unless visibly scored. Do not invent actions or outcomes between sampled images.
 Return one JSON object matching the supplied schema, with 0 to 3 events, player_visible, kit_color_seen, and sentence.
 The sentence must be one sentence of at most 200 characters describing only what is visible.
 Use no events, none, or unclear when nothing is visible; these are correct answers. Use low confidence for uncertain evidence.
-Read the kit colour from the player, not the red rectangle. Use unclear when it cannot be seen.
+Read the kit colour from the player, not the magenta rectangle. Use unclear when it cannot be seen.
 Window absolute source seconds: [{float(truth["window"]["start_s"]):.3f}, {float(truth["window"]["end_s"]):.3f}].
 Sampled timestamps in image order (absolute source seconds): {", ".join(f"{t:.3f}" for t in timestamps)}.
 Every event's t0 and t1 must be ordered absolute source seconds inside this window.
@@ -158,7 +159,7 @@ def run(clip: str | Path, truth: dict, cfg: dict) -> dict:
                 frame["sampling_shift_s"] = round(frame["t"] - target_t, 3)
             if not extracted:
                 raise RuntimeError("clip yielded no sample frames")
-            anchors = apply_anchors(extracted, truth, "all")
+            anchors = apply_anchors(extracted, truth, "all", color=ANCHOR_COLOR)
             frames = extracted
             parsed = call_model(
                 build_prompt(truth, [f["t"] for f in frames]), frames, cfg, metadata
@@ -173,6 +174,7 @@ def run(clip: str | Path, truth: dict, cfg: dict) -> dict:
         "wall_s": round(time.monotonic() - started, 3),
         "model": cfg.get("model") or os.getenv("BENCH_MODEL") or DEFAULT_MODEL,
         "anchor_mode": "all",
+        "anchor_color": "magenta",
         "format_mode": "schema",
         "sent_frames": frames,
         "anchored_frames": anchors,

@@ -186,9 +186,20 @@ def ollama_chat_with_options(
             qwen_match_analysis.urllib.request.Request = original_request
 
 
-def draw_truth_box(frame: Path, box: list[float], jersey_number: int) -> None:
+def draw_truth_box(
+    frame: Path,
+    box: list[float],
+    jersey_number: int,
+    *,
+    color: tuple[int, int, int] | None = None,
+) -> None:
     """Compatibility wrapper around the one shared anchor renderer."""
-    draw_anchor_box(frame, box, f"#{jersey_number}")
+    draw_anchor_box(
+        frame,
+        box,
+        f"#{jersey_number}",
+        **({"color": color} if color is not None else {}),
+    )
 
 
 def temp_directory(prefix: str):

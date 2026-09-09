@@ -11,8 +11,10 @@ from pathlib import Path
 
 try:
     from .contract import normalize_claim, parse_claims
+    from .provenance import thinking_rate
 except ImportError:  # pragma: no cover - direct script/import from bench directory
     from contract import normalize_claim, parse_claims
+    from provenance import thinking_rate
 
 VIDEO_ANALYSIS_DIR = Path(__file__).resolve().parent.parent
 if str(VIDEO_ANALYSIS_DIR) not in sys.path:
@@ -410,7 +412,11 @@ def score_clip(result: dict, truth: dict | None) -> dict:
 
 
 def score_run(
-    results: list[dict], truths: dict[str, dict], *, adapter: str | None = None
+    results: list[dict],
+    truths: dict[str, dict],
+    *,
+    adapter: str | None = None,
+    truth_provenance: dict | None = None,
 ) -> dict:
     clips = [
         score_clip(result, truths.get(str(result.get("clip_id")))) for result in results
@@ -434,6 +440,7 @@ def score_run(
     ]
     metrics.update(
         {
+            "from_thinking_rate": thinking_rate(results),
             "wall_s_per_clip": round(sum(walls) / len(walls), 3) if walls else None,
             "tokens_per_clip": round(sum(tokens) / len(tokens), 3) if tokens else None,
             "failed_clips": sum(clip["status"] == "failed" for clip in clips),
@@ -448,6 +455,7 @@ def score_run(
         clip["box_space"] for clip in clips if clip.get("box_space") is not None
     }
     return {
+        **(truth_provenance or {}),
         "schema_version": "film-room-evidence-report-v5",
         "generated_at": datetime.now(UTC).isoformat(),
         "adapter": adapter,
@@ -492,6 +500,8 @@ def render_markdown(report: dict) -> str:
         f"Adapter: `{report.get('adapter') or 'unspecified'}`",
         f"Anchor mode: `{report.get('anchor_mode') or 'none'}`",
         f"Box space: `{report.get('box_space') or 'unspecified'}`",
+        "",
+        f"From thinking field / all attempts: {percent(overall.get('from_thinking_rate'))}",
         "",
         "## Overall",
         "",

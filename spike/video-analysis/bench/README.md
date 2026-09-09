@@ -274,8 +274,8 @@ frame sizing and boxed-frame tagging, with media extraction and inference faked.
 
 ## Lane A: annotated meaning-only reads (`qwen3vl_annotated`)
 
-The tracker owns geometry; the VLM owns meaning. Every sent frame has the shared
-red rectangle and `#N` label, drawn from `truth["box_track"]` through
+The tracker owns geometry; the VLM owns meaning. Every future lane-A model frame has a
+magenta rectangle and `#N` label, drawn from `truth["box_track"]` through
 `grounding.interpolated_box`. **Bench truth stands in for the production
 tracker's persisted box track.** This evaluates the semantic reader with supplied
 geometry, not the tracker or unlabelled-player grounding. No box is requested
@@ -354,7 +354,7 @@ Honesty rates and events/clip use scored clips. `valid_attempt_rate` exposes
 schema/transport failures across every attempt; `valid_rate` among scored clips
 is necessarily 100%. Wall/clip includes every attempt. `unclear` colour is an
 abstention, never wrong; report match/abstain/wrong rates use all scored clips,
-with a separate match rate among asserted colours. `presence_only` requires no
+with a separate match rate among asserted colours. `presence_only_read` preserves the original rule: no
 substantive event class and the narrow presence regex, so it is not an independent
 assessment of descriptive usefulness. Names/goals and sentence kit assertions
 are not independently verified by these metrics.
@@ -433,3 +433,54 @@ message to copy notes before closing. Space plays/pauses the focused clip; J/K
 move between clips, and shortcuts do not intercept note editing. Paste the
 copied lines into `ledgers/lane-a-notes.md`, then use `apply_notes.py` with that
 file when ready. The committed blank template remains unchanged.
+
+
+## Lane A honesty review, round 2 (saved-output rescoring only)
+
+The `e1c-annotated-dense` and `e1c-annotated-prod30` measurements used **red**
+rectangles. No model runs or review-video renders were repeated for this repair.
+Future `qwen3vl_annotated` inputs use magenta (RGB 255, 0, 255), recorded in their
+run settings; `grounding.draw_anchor_box` retains its original default for other
+callers. All 20 current truths are red kits, so the existing kit-colour metric is
+uninformative until non-red kits enter the frozen set.
+
+The original `presence_only_rate` becomes `presence_only_read_rate`, with its
+exact event-gated calculation preserved. `presence_only_sentence_rate` inspects
+the sentence regardless of events: `visible`, `can be seen`, or `on the field`,
+without a hit on the requested action-verb stems (carry/carries/carrying, pass,
+duel, shot/shoot, run/running, dribbl, tackl, cross, header, clear). This literal
+rule still counts moving/interacting/holding descriptions. It yields 7/20 dense
+and 12/20 prod30 presence sentences; it is not the manual strict/loose tally.
+`sentence_event_consistency_rate` requires **every** substantive event type to
+occur in the existing conservative `score._event_classes(sentence)` output.
+Unmapped types and inflections absent from that vocabulary fail the check;
+zero substantive events pass vacuously. These are lexical checks, not correctness.
+
+`zero_duration_event_rate` counts events with equal endpoints;
+`window_filling_event_rate` counts events whose endpoints are each within 0.5s of
+the full window. Both denominators are events across scored clips.
+`events_per_sent_frame` divides their total event count by their total sent-frame
+count. `high_confidence_completed_from_one_frame_count` counts high-confidence,
+completed events from scored attempts with exactly one sent frame. The r2 jersey
+review also supplies `supplied_number_asserted_as_kit_detail_rate`, independently
+of invented-number detection.
+
+Both scorers expose `from_thinking_rate`: recorded true flags divided by all
+attempts, including pre-inference failures (missing flags count false). All 40
+lane-A replies came through the thinking-field fallback despite `think=false`;
+Pydantic validity therefore does not verify the effect of Ollama's `format`
+grammar on that field. The transport is unchanged.
+
+Every new runner launch records `truth_set_sha256_after_notes` and
+`human_notes_sha256` in both `run.json` and the report. The snapshot covers all
+manifest truth files, including clips not selected for inference. The first hash
+is SHA-256 of a sorted JSON clip-ID → SHA-256(file bytes) mapping; the second is
+SHA-256 of a sorted JSON clip-ID → human-note mapping (Python JSON defaults).
+The same single-read snapshot supplies scoring truth throughout the run. These
+hashes join the inference fingerprint, so changed truth/notes refuse a stale
+explicit resume; this intentionally changes new launch fingerprints. The
+manifest's `frozen_set_id` semantics remain unchanged. `apply_notes.py` prints
+both current hashes after intake. Use the comparison scripts to re-score saved
+outputs without inference: their report hashes describe the current scoring
+snapshot, while historical launch metadata remains intact. Missing historical
+inference-time hashes cannot be retroactively established.

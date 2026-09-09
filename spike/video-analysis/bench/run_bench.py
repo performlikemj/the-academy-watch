@@ -14,8 +14,10 @@ from pathlib import Path
 
 try:
     from .score import score_run, write_report
+    from .provenance import load_truth_snapshot
 except ImportError:  # pragma: no cover - direct script invocation
     from score import score_run, write_report
+    from provenance import load_truth_snapshot
 
 BENCH_DIR = Path(__file__).resolve().parent
 DEFAULT_MANIFEST = BENCH_DIR / "frozen" / "manifest.json"
@@ -91,7 +93,9 @@ def _resolve_inference_settings(args: argparse.Namespace, manifest: dict) -> dic
         "qwen3vl_ollama",
         "qwen3vl_annotated",
     }:
-        raise ValueError("--format-mode schema is only supported by qwen3vl_ollama")
+        raise ValueError(
+            "--format-mode schema is only supported by qwen3vl_ollama and qwen3vl_annotated"
+        )
     wall_cap = getattr(args, "wall_cap", None)
     if wall_cap is not None and (not math.isfinite(wall_cap) or wall_cap <= 0):
         raise ValueError("--wall-cap must be a positive finite number")
@@ -138,6 +142,7 @@ def _resolve_inference_settings(args: argparse.Namespace, manifest: dict) -> dic
             "repetition_context_size": 64,
         }
     return {
+        **({"anchor_color": "magenta"} if semantic else {}),
         **mlx_settings,
         **sampling_settings,
         **({"wall_cap_s": wall_cap} if wall_cap is not None else {}),
@@ -243,6 +248,8 @@ def run_benchmark(args: argparse.Namespace) -> tuple[dict, Path]:
         if clip["clip_id"] in selected_ids
     }
     settings = _resolve_inference_settings(args, manifest)
+    truth_snapshot, truth_provenance = load_truth_snapshot(manifest_path)
+    settings.update(truth_provenance)
     metadata = _run_metadata(settings, selected_ids)
     output_dir = _output_dir(args, metadata)
     _write_run_metadata(output_dir, metadata, force=args.force)
@@ -279,9 +286,8 @@ def run_benchmark(args: argparse.Namespace) -> tuple[dict, Path]:
     for clip_id in selected_ids:
         entry = selected[clip_id]
         claims_path = claims_dir / f"{clip_id}.json"
-        truth_path = manifest_path.parent / entry["truth"]
         clip_path = manifest_path.parent / entry["clip"]
-        truth = _load_json(truth_path)
+        truth = truth_snapshot[clip_id]
         truths[clip_id] = truth
         if claims_path.is_file() and not args.force:
             print(f"skip {clip_id} (claims file exists)")
@@ -309,7 +315,9 @@ def run_benchmark(args: argparse.Namespace) -> tuple[dict, Path]:
             f"{__package__}.semantic_score" if __package__ else "semantic_score"
         )
         scorer, writer = module.score_run, module.write_report
-    report = scorer(results, truths, adapter=args.adapter)
+    report = scorer(
+        results, truths, adapter=args.adapter, truth_provenance=truth_provenance
+    )
     if stopped_early:
         report["stopped_early"] = stopped_early
     writer(report, output_dir)

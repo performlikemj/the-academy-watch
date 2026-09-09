@@ -16,6 +16,11 @@ HEADLINE = (
     "presence sentence."
 )
 VERDICT = "no clear winner on the headline (unboxed grounding is 0 in every lane); frames on cost"
+try:
+    from .provenance import load_truth_snapshot, thinking_rate
+except ImportError:  # pragma: no cover
+    from provenance import load_truth_snapshot, thinking_rate
+
 COLORS = "red|blue|black|white|yellow|green|orange|purple|pink|grey|gray"
 
 
@@ -257,6 +262,15 @@ def experiment_caveats(lanes: dict, reviews: dict) -> list[str]:
             else "See early-stop metadata for cap effects."
         )
     )
+    notes.append(
+        "Ollama thinking-field fallback despite think=false: "
+        + "; ".join(
+            f"{name} {lane['metrics']['from_thinking_rate']:.0%} of all attempts"
+            for name, lane in lanes.items()
+            if lane["adapter"] == "qwen3vl_ollama"
+        )
+        + ". This does not establish format-grammar enforcement on the thinking field; the transport is unchanged."
+    )
     return notes
 
 
@@ -360,6 +374,7 @@ def compare(
         }
         metrics = report["overall"]
         values = list(raw.values())
+        metrics = {**metrics, "from_thinking_rate": thinking_rate(values)}
         sizes = sorted(
             {(f["sent_w"], f["sent_h"]) for c in values for f in sent_frames(c)},
             key=lambda s: (s[0] * s[1], s),
@@ -452,6 +467,7 @@ def compare(
         else f"Across these runs, {grounded_unboxed} claims grounded the player on an unboxed frame."
     )
     return {
+        **(load_truth_snapshot(manifest_path)[1] if manifest_path else {}),
         "experiment": "E1b — Qwen3-VL native-video versus sampled-frame grounded-claim bench",
         "date": min(r["generated_at"][:10] for r in reports.values()),
         "frozen_set": f"{len(selected)} evaluation-only clips (frozen_set_id {frozen_id})",

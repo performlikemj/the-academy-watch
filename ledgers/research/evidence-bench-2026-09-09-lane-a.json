@@ -3,6 +3,7 @@
   "state": "measured",
   "honest_limit": "The frozen clips have no human notes: event CORRECTNESS is not measured until MJ supplies them. This run measures honesty/format/presence-only/number-invention/kit-colour and time bounds only.",
   "frozen_set_id": "1f68e2755002b3598c763532e95c212de9261ffa638c2943ad3769a1be77503f",
+  "truth_set_sha256_after_notes": "c5d09d12aef8254227be840a12ce3055a0a4f78f47831a428d90ef9c991f6e91",
   "human_notes_sha256": "37dad17e173ca7000467e237b32b58d040a26dca668e9845d2dd672ce0e92d41",
   "sentence_selection": "First five scored clips in manifest order, verbatim; no quality selection.",
   "lanes": {
@@ -51,23 +52,33 @@
         "timeout_s": 120.0
       },
       "report": {
-        "schema_version": "film-room-semantic-report-v1",
+        "truth_set_sha256_after_notes": "c5d09d12aef8254227be840a12ce3055a0a4f78f47831a428d90ef9c991f6e91",
+        "human_notes_sha256": "37dad17e173ca7000467e237b32b58d040a26dca668e9845d2dd672ce0e92d41",
+        "schema_version": "film-room-semantic-report-v2",
         "generated_at": "2026-09-09T08:07:07.715288+00:00",
         "adapter": "qwen3vl_annotated",
         "honest_limit": "The frozen clips have no human notes: event CORRECTNESS is not measured until MJ supplies them. This run measures honesty/format/presence-only/number-invention/kit-colour and time bounds only.",
-        "denominators": "Honesty rates and events/clip: scored clips. Valid attempt rate and wall/clip: all attempts. Kit match excludes abstentions from the asserted-only rate; match/abstain/wrong rates use all scored clips. Time/clip means all event times pass (vacuously true with no events); event-time rate counts events. Fabricated rate: noted scored clips only.",
+        "denominators": "Honesty rates and events/clip: scored clips. Valid attempt rate and wall/clip: all attempts. Kit match excludes abstentions from the asserted-only rate; match/abstain/wrong rates use all scored clips. Time/clip means all event times pass (vacuously true with no events); event-time rate counts events. Fabricated rate: noted scored clips only. Presence-only read retains the original event-gated narrow regex; sentence-only presence ignores events and excludes the specified action-verb stems. Consistency requires every substantive event class in score._event_classes(sentence); unmatched/unmapped classes fail, and no substantive events pass vacuously. Zero-duration and window-filling rates count events, not clips. Events/sent-frame uses all frames of scored clips. Thinking rate counts recorded true flags across all attempts, including failures.",
         "overall": {
           "attempted_clips": 20,
           "scored_clips": 20,
           "failed_clips": 0,
           "valid_rate": 1.0,
           "empty_rate": 0.0,
-          "presence_only_rate": 0.0,
+          "presence_only_read_rate": 0.0,
+          "presence_only_sentence_rate": 0.35,
+          "sentence_event_consistency_rate": 0.1,
+          "supplied_number_asserted_as_kit_detail_rate": 0.05,
           "number_invented_rate": 0.0,
           "kit_color_match_rate": 1.0,
           "kit_color_abstain_rate": 0.0,
           "kit_color_wrong_rate": 0.0,
           "time_in_window_rate": 1.0,
+          "from_thinking_rate": 1.0,
+          "zero_duration_event_rate": 0.0,
+          "window_filling_event_rate": 0.0652,
+          "events_per_sent_frame": 0.1933,
+          "high_confidence_completed_from_one_frame_count": 0,
           "valid_attempt_rate": 1.0,
           "kit_color_match_when_asserted_rate": 1.0,
           "time_in_window_event_rate": 1.0,
@@ -83,6 +94,7 @@
             "status": "scored",
             "valid": true,
             "error": null,
+            "from_thinking": true,
             "semantic": {
               "events": [
                 {
@@ -127,7 +139,28 @@
               "kit_color_match": true,
               "kit_color_abstain": false,
               "kit_color_wrong": false,
-              "presence_only": false,
+              "presence_only_read": false,
+              "presence_only_sentence": false,
+              "sentence_event_consistency": false,
+              "sentence_event_unmatched_classes": [
+                "duel"
+              ],
+              "supplied_number_asserted_as_kit_detail": false,
+              "zero_duration_events": [
+                false,
+                false,
+                false
+              ],
+              "zero_duration_event_rate": 0.0,
+              "window_filling_events": [
+                false,
+                false,
+                false
+              ],
+              "window_filling_event_rate": 0.0,
+              "sent_frame_count": 12,
+              "events_per_sent_frame": 0.25,
+              "high_confidence_completed_from_one_frame_count": 0,
               "fabricated_event_classes": null,
               "event_count": 3
             }
@@ -138,6 +171,7 @@
             "status": "scored",
             "valid": true,
             "error": null,
+            "from_thinking": true,
             "semantic": {
               "events": [
                 {
@@ -173,7 +207,27 @@
               "kit_color_match": true,
               "kit_color_abstain": false,
               "kit_color_wrong": false,
-              "presence_only": false,
+              "presence_only_read": false,
+              "presence_only_sentence": true,
+              "sentence_event_consistency": false,
+              "sentence_event_unmatched_classes": [
+                "carry",
+                "pass"
+              ],
+              "supplied_number_asserted_as_kit_detail": false,
+              "zero_duration_events": [
+                false,
+                false
+              ],
+              "zero_duration_event_rate": 0.0,
+              "window_filling_events": [
+                false,
+                false
+              ],
+              "window_filling_event_rate": 0.0,
+              "sent_frame_count": 12,
+              "events_per_sent_frame": 0.1667,
+              "high_confidence_completed_from_one_frame_count": 0,
               "fabricated_event_classes": null,
               "event_count": 2
             }
@@ -184,6 +238,7 @@
             "status": "scored",
             "valid": true,
             "error": null,
+            "from_thinking": true,
             "semantic": {
               "events": [
                 {
@@ -219,7 +274,24 @@
               "kit_color_match": true,
               "kit_color_abstain": false,
               "kit_color_wrong": false,
-              "presence_only": false,
+              "presence_only_read": false,
+              "presence_only_sentence": false,
+              "sentence_event_consistency": true,
+              "sentence_event_unmatched_classes": [],
+              "supplied_number_asserted_as_kit_detail": false,
+              "zero_duration_events": [
+                false,
+                false
+              ],
+              "zero_duration_event_rate": 0.0,
+              "window_filling_events": [
+                false,
+                false
+              ],
+              "window_filling_event_rate": 0.0,
+              "sent_frame_count": 12,
+              "events_per_sent_frame": 0.1667,
+              "high_confidence_completed_from_one_frame_count": 0,
               "fabricated_event_classes": null,
               "event_count": 2
             }
@@ -230,6 +302,7 @@
             "status": "scored",
             "valid": true,
             "error": null,
+            "from_thinking": true,
             "semantic": {
               "events": [
                 {
@@ -265,7 +338,27 @@
               "kit_color_match": true,
               "kit_color_abstain": false,
               "kit_color_wrong": false,
-              "presence_only": false,
+              "presence_only_read": false,
+              "presence_only_sentence": true,
+              "sentence_event_consistency": false,
+              "sentence_event_unmatched_classes": [
+                "carry",
+                "off_ball"
+              ],
+              "supplied_number_asserted_as_kit_detail": false,
+              "zero_duration_events": [
+                false,
+                false
+              ],
+              "zero_duration_event_rate": 0.0,
+              "window_filling_events": [
+                false,
+                false
+              ],
+              "window_filling_event_rate": 0.0,
+              "sent_frame_count": 12,
+              "events_per_sent_frame": 0.1667,
+              "high_confidence_completed_from_one_frame_count": 0,
               "fabricated_event_classes": null,
               "event_count": 2
             }
@@ -276,6 +369,7 @@
             "status": "scored",
             "valid": true,
             "error": null,
+            "from_thinking": true,
             "semantic": {
               "events": [
                 {
@@ -311,7 +405,26 @@
               "kit_color_match": true,
               "kit_color_abstain": false,
               "kit_color_wrong": false,
-              "presence_only": false,
+              "presence_only_read": false,
+              "presence_only_sentence": false,
+              "sentence_event_consistency": false,
+              "sentence_event_unmatched_classes": [
+                "carry"
+              ],
+              "supplied_number_asserted_as_kit_detail": false,
+              "zero_duration_events": [
+                false,
+                false
+              ],
+              "zero_duration_event_rate": 0.0,
+              "window_filling_events": [
+                false,
+                false
+              ],
+              "window_filling_event_rate": 0.0,
+              "sent_frame_count": 12,
+              "events_per_sent_frame": 0.1667,
+              "high_confidence_completed_from_one_frame_count": 0,
               "fabricated_event_classes": null,
               "event_count": 2
             }
@@ -322,6 +435,7 @@
             "status": "scored",
             "valid": true,
             "error": null,
+            "from_thinking": true,
             "semantic": {
               "events": [
                 {
@@ -357,7 +471,27 @@
               "kit_color_match": true,
               "kit_color_abstain": false,
               "kit_color_wrong": false,
-              "presence_only": false,
+              "presence_only_read": false,
+              "presence_only_sentence": false,
+              "sentence_event_consistency": false,
+              "sentence_event_unmatched_classes": [
+                "carry",
+                "off_ball"
+              ],
+              "supplied_number_asserted_as_kit_detail": false,
+              "zero_duration_events": [
+                false,
+                false
+              ],
+              "zero_duration_event_rate": 0.0,
+              "window_filling_events": [
+                false,
+                false
+              ],
+              "window_filling_event_rate": 0.0,
+              "sent_frame_count": 12,
+              "events_per_sent_frame": 0.1667,
+              "high_confidence_completed_from_one_frame_count": 0,
               "fabricated_event_classes": null,
               "event_count": 2
             }
@@ -368,6 +502,7 @@
             "status": "scored",
             "valid": true,
             "error": null,
+            "from_thinking": true,
             "semantic": {
               "events": [
                 {
@@ -403,7 +538,26 @@
               "kit_color_match": true,
               "kit_color_abstain": false,
               "kit_color_wrong": false,
-              "presence_only": false,
+              "presence_only_read": false,
+              "presence_only_sentence": false,
+              "sentence_event_consistency": false,
+              "sentence_event_unmatched_classes": [
+                "off_ball"
+              ],
+              "supplied_number_asserted_as_kit_detail": false,
+              "zero_duration_events": [
+                false,
+                false
+              ],
+              "zero_duration_event_rate": 0.0,
+              "window_filling_events": [
+                true,
+                false
+              ],
+              "window_filling_event_rate": 0.5,
+              "sent_frame_count": 12,
+              "events_per_sent_frame": 0.1667,
+              "high_confidence_completed_from_one_frame_count": 0,
               "fabricated_event_classes": null,
               "event_count": 2
             }
@@ -414,6 +568,7 @@
             "status": "scored",
             "valid": true,
             "error": null,
+            "from_thinking": true,
             "semantic": {
               "events": [
                 {
@@ -449,7 +604,27 @@
               "kit_color_match": true,
               "kit_color_abstain": false,
               "kit_color_wrong": false,
-              "presence_only": false,
+              "presence_only_read": false,
+              "presence_only_sentence": true,
+              "sentence_event_consistency": false,
+              "sentence_event_unmatched_classes": [
+                "carry",
+                "off_ball"
+              ],
+              "supplied_number_asserted_as_kit_detail": false,
+              "zero_duration_events": [
+                false,
+                false
+              ],
+              "zero_duration_event_rate": 0.0,
+              "window_filling_events": [
+                true,
+                false
+              ],
+              "window_filling_event_rate": 0.5,
+              "sent_frame_count": 12,
+              "events_per_sent_frame": 0.1667,
+              "high_confidence_completed_from_one_frame_count": 0,
               "fabricated_event_classes": null,
               "event_count": 2
             }
@@ -460,6 +635,7 @@
             "status": "scored",
             "valid": true,
             "error": null,
+            "from_thinking": true,
             "semantic": {
               "events": [
                 {
@@ -495,7 +671,27 @@
               "kit_color_match": true,
               "kit_color_abstain": false,
               "kit_color_wrong": false,
-              "presence_only": false,
+              "presence_only_read": false,
+              "presence_only_sentence": true,
+              "sentence_event_consistency": false,
+              "sentence_event_unmatched_classes": [
+                "carry",
+                "off_ball"
+              ],
+              "supplied_number_asserted_as_kit_detail": true,
+              "zero_duration_events": [
+                false,
+                false
+              ],
+              "zero_duration_event_rate": 0.0,
+              "window_filling_events": [
+                false,
+                false
+              ],
+              "window_filling_event_rate": 0.0,
+              "sent_frame_count": 12,
+              "events_per_sent_frame": 0.1667,
+              "high_confidence_completed_from_one_frame_count": 0,
               "fabricated_event_classes": null,
               "event_count": 2
             }
@@ -506,6 +702,7 @@
             "status": "scored",
             "valid": true,
             "error": null,
+            "from_thinking": true,
             "semantic": {
               "events": [
                 {
@@ -550,7 +747,26 @@
               "kit_color_match": true,
               "kit_color_abstain": false,
               "kit_color_wrong": false,
-              "presence_only": false,
+              "presence_only_read": false,
+              "presence_only_sentence": false,
+              "sentence_event_consistency": true,
+              "sentence_event_unmatched_classes": [],
+              "supplied_number_asserted_as_kit_detail": false,
+              "zero_duration_events": [
+                false,
+                false,
+                false
+              ],
+              "zero_duration_event_rate": 0.0,
+              "window_filling_events": [
+                false,
+                false,
+                false
+              ],
+              "window_filling_event_rate": 0.0,
+              "sent_frame_count": 12,
+              "events_per_sent_frame": 0.25,
+              "high_confidence_completed_from_one_frame_count": 0,
               "fabricated_event_classes": null,
               "event_count": 3
             }
@@ -561,6 +777,7 @@
             "status": "scored",
             "valid": true,
             "error": null,
+            "from_thinking": true,
             "semantic": {
               "events": [
                 {
@@ -596,7 +813,27 @@
               "kit_color_match": true,
               "kit_color_abstain": false,
               "kit_color_wrong": false,
-              "presence_only": false,
+              "presence_only_read": false,
+              "presence_only_sentence": false,
+              "sentence_event_consistency": false,
+              "sentence_event_unmatched_classes": [
+                "carry",
+                "off_ball"
+              ],
+              "supplied_number_asserted_as_kit_detail": false,
+              "zero_duration_events": [
+                false,
+                false
+              ],
+              "zero_duration_event_rate": 0.0,
+              "window_filling_events": [
+                true,
+                false
+              ],
+              "window_filling_event_rate": 0.5,
+              "sent_frame_count": 12,
+              "events_per_sent_frame": 0.1667,
+              "high_confidence_completed_from_one_frame_count": 0,
               "fabricated_event_classes": null,
               "event_count": 2
             }
@@ -607,6 +844,7 @@
             "status": "scored",
             "valid": true,
             "error": null,
+            "from_thinking": true,
             "semantic": {
               "events": [
                 {
@@ -651,7 +889,29 @@
               "kit_color_match": true,
               "kit_color_abstain": false,
               "kit_color_wrong": false,
-              "presence_only": false,
+              "presence_only_read": false,
+              "presence_only_sentence": true,
+              "sentence_event_consistency": false,
+              "sentence_event_unmatched_classes": [
+                "carry",
+                "off_ball"
+              ],
+              "supplied_number_asserted_as_kit_detail": false,
+              "zero_duration_events": [
+                false,
+                false,
+                false
+              ],
+              "zero_duration_event_rate": 0.0,
+              "window_filling_events": [
+                false,
+                false,
+                false
+              ],
+              "window_filling_event_rate": 0.0,
+              "sent_frame_count": 12,
+              "events_per_sent_frame": 0.25,
+              "high_confidence_completed_from_one_frame_count": 0,
               "fabricated_event_classes": null,
               "event_count": 3
             }
@@ -662,6 +922,7 @@
             "status": "scored",
             "valid": true,
             "error": null,
+            "from_thinking": true,
             "semantic": {
               "events": [
                 {
@@ -706,7 +967,28 @@
               "kit_color_match": true,
               "kit_color_abstain": false,
               "kit_color_wrong": false,
-              "presence_only": false,
+              "presence_only_read": false,
+              "presence_only_sentence": false,
+              "sentence_event_consistency": false,
+              "sentence_event_unmatched_classes": [
+                "carry"
+              ],
+              "supplied_number_asserted_as_kit_detail": false,
+              "zero_duration_events": [
+                false,
+                false,
+                false
+              ],
+              "zero_duration_event_rate": 0.0,
+              "window_filling_events": [
+                false,
+                false,
+                false
+              ],
+              "window_filling_event_rate": 0.0,
+              "sent_frame_count": 12,
+              "events_per_sent_frame": 0.25,
+              "high_confidence_completed_from_one_frame_count": 0,
               "fabricated_event_classes": null,
               "event_count": 3
             }
@@ -717,6 +999,7 @@
             "status": "scored",
             "valid": true,
             "error": null,
+            "from_thinking": true,
             "semantic": {
               "events": [
                 {
@@ -761,7 +1044,28 @@
               "kit_color_match": true,
               "kit_color_abstain": false,
               "kit_color_wrong": false,
-              "presence_only": false,
+              "presence_only_read": false,
+              "presence_only_sentence": false,
+              "sentence_event_consistency": false,
+              "sentence_event_unmatched_classes": [
+                "carry"
+              ],
+              "supplied_number_asserted_as_kit_detail": false,
+              "zero_duration_events": [
+                false,
+                false,
+                false
+              ],
+              "zero_duration_event_rate": 0.0,
+              "window_filling_events": [
+                false,
+                false,
+                false
+              ],
+              "window_filling_event_rate": 0.0,
+              "sent_frame_count": 12,
+              "events_per_sent_frame": 0.25,
+              "high_confidence_completed_from_one_frame_count": 0,
               "fabricated_event_classes": null,
               "event_count": 3
             }
@@ -772,6 +1076,7 @@
             "status": "scored",
             "valid": true,
             "error": null,
+            "from_thinking": true,
             "semantic": {
               "events": [
                 {
@@ -816,7 +1121,29 @@
               "kit_color_match": true,
               "kit_color_abstain": false,
               "kit_color_wrong": false,
-              "presence_only": false,
+              "presence_only_read": false,
+              "presence_only_sentence": false,
+              "sentence_event_consistency": false,
+              "sentence_event_unmatched_classes": [
+                "carry",
+                "pass"
+              ],
+              "supplied_number_asserted_as_kit_detail": false,
+              "zero_duration_events": [
+                false,
+                false,
+                false
+              ],
+              "zero_duration_event_rate": 0.0,
+              "window_filling_events": [
+                false,
+                false,
+                false
+              ],
+              "window_filling_event_rate": 0.0,
+              "sent_frame_count": 12,
+              "events_per_sent_frame": 0.25,
+              "high_confidence_completed_from_one_frame_count": 0,
               "fabricated_event_classes": null,
               "event_count": 3
             }
@@ -827,6 +1154,7 @@
             "status": "scored",
             "valid": true,
             "error": null,
+            "from_thinking": true,
             "semantic": {
               "events": [
                 {
@@ -862,7 +1190,27 @@
               "kit_color_match": true,
               "kit_color_abstain": false,
               "kit_color_wrong": false,
-              "presence_only": false,
+              "presence_only_read": false,
+              "presence_only_sentence": false,
+              "sentence_event_consistency": false,
+              "sentence_event_unmatched_classes": [
+                "carry",
+                "pass"
+              ],
+              "supplied_number_asserted_as_kit_detail": false,
+              "zero_duration_events": [
+                false,
+                false
+              ],
+              "zero_duration_event_rate": 0.0,
+              "window_filling_events": [
+                false,
+                false
+              ],
+              "window_filling_event_rate": 0.0,
+              "sent_frame_count": 12,
+              "events_per_sent_frame": 0.1667,
+              "high_confidence_completed_from_one_frame_count": 0,
               "fabricated_event_classes": null,
               "event_count": 2
             }
@@ -873,6 +1221,7 @@
             "status": "scored",
             "valid": true,
             "error": null,
+            "from_thinking": true,
             "semantic": {
               "events": [
                 {
@@ -908,7 +1257,27 @@
               "kit_color_match": true,
               "kit_color_abstain": false,
               "kit_color_wrong": false,
-              "presence_only": false,
+              "presence_only_read": false,
+              "presence_only_sentence": true,
+              "sentence_event_consistency": false,
+              "sentence_event_unmatched_classes": [
+                "carry",
+                "off_ball"
+              ],
+              "supplied_number_asserted_as_kit_detail": false,
+              "zero_duration_events": [
+                false,
+                false
+              ],
+              "zero_duration_event_rate": 0.0,
+              "window_filling_events": [
+                false,
+                false
+              ],
+              "window_filling_event_rate": 0.0,
+              "sent_frame_count": 10,
+              "events_per_sent_frame": 0.2,
+              "high_confidence_completed_from_one_frame_count": 0,
               "fabricated_event_classes": null,
               "event_count": 2
             }
@@ -919,6 +1288,7 @@
             "status": "scored",
             "valid": true,
             "error": null,
+            "from_thinking": true,
             "semantic": {
               "events": [
                 {
@@ -954,7 +1324,27 @@
               "kit_color_match": true,
               "kit_color_abstain": false,
               "kit_color_wrong": false,
-              "presence_only": false,
+              "presence_only_read": false,
+              "presence_only_sentence": false,
+              "sentence_event_consistency": false,
+              "sentence_event_unmatched_classes": [
+                "carry",
+                "pass"
+              ],
+              "supplied_number_asserted_as_kit_detail": false,
+              "zero_duration_events": [
+                false,
+                false
+              ],
+              "zero_duration_event_rate": 0.0,
+              "window_filling_events": [
+                false,
+                false
+              ],
+              "window_filling_event_rate": 0.0,
+              "sent_frame_count": 12,
+              "events_per_sent_frame": 0.1667,
+              "high_confidence_completed_from_one_frame_count": 0,
               "fabricated_event_classes": null,
               "event_count": 2
             }
@@ -965,6 +1355,7 @@
             "status": "scored",
             "valid": true,
             "error": null,
+            "from_thinking": true,
             "semantic": {
               "events": [
                 {
@@ -1000,7 +1391,26 @@
               "kit_color_match": true,
               "kit_color_abstain": false,
               "kit_color_wrong": false,
-              "presence_only": false,
+              "presence_only_read": false,
+              "presence_only_sentence": false,
+              "sentence_event_consistency": false,
+              "sentence_event_unmatched_classes": [
+                "off_ball"
+              ],
+              "supplied_number_asserted_as_kit_detail": false,
+              "zero_duration_events": [
+                false,
+                false
+              ],
+              "zero_duration_event_rate": 0.0,
+              "window_filling_events": [
+                false,
+                false
+              ],
+              "window_filling_event_rate": 0.0,
+              "sent_frame_count": 12,
+              "events_per_sent_frame": 0.1667,
+              "high_confidence_completed_from_one_frame_count": 0,
               "fabricated_event_classes": null,
               "event_count": 2
             }
@@ -1011,6 +1421,7 @@
             "status": "scored",
             "valid": true,
             "error": null,
+            "from_thinking": true,
             "semantic": {
               "events": [
                 {
@@ -1046,7 +1457,27 @@
               "kit_color_match": true,
               "kit_color_abstain": false,
               "kit_color_wrong": false,
-              "presence_only": false,
+              "presence_only_read": false,
+              "presence_only_sentence": true,
+              "sentence_event_consistency": false,
+              "sentence_event_unmatched_classes": [
+                "carry",
+                "off_ball"
+              ],
+              "supplied_number_asserted_as_kit_detail": false,
+              "zero_duration_events": [
+                false,
+                false
+              ],
+              "zero_duration_event_rate": 0.0,
+              "window_filling_events": [
+                false,
+                false
+              ],
+              "window_filling_event_rate": 0.0,
+              "sent_frame_count": 12,
+              "events_per_sent_frame": 0.1667,
+              "high_confidence_completed_from_one_frame_count": 0,
               "fabricated_event_classes": null,
               "event_count": 2
             }
@@ -7254,23 +7685,33 @@
         "timeout_s": 120.0
       },
       "report": {
-        "schema_version": "film-room-semantic-report-v1",
+        "truth_set_sha256_after_notes": "c5d09d12aef8254227be840a12ce3055a0a4f78f47831a428d90ef9c991f6e91",
+        "human_notes_sha256": "37dad17e173ca7000467e237b32b58d040a26dca668e9845d2dd672ce0e92d41",
+        "schema_version": "film-room-semantic-report-v2",
         "generated_at": "2026-09-09T08:10:40.717723+00:00",
         "adapter": "qwen3vl_annotated",
         "honest_limit": "The frozen clips have no human notes: event CORRECTNESS is not measured until MJ supplies them. This run measures honesty/format/presence-only/number-invention/kit-colour and time bounds only.",
-        "denominators": "Honesty rates and events/clip: scored clips. Valid attempt rate and wall/clip: all attempts. Kit match excludes abstentions from the asserted-only rate; match/abstain/wrong rates use all scored clips. Time/clip means all event times pass (vacuously true with no events); event-time rate counts events. Fabricated rate: noted scored clips only.",
+        "denominators": "Honesty rates and events/clip: scored clips. Valid attempt rate and wall/clip: all attempts. Kit match excludes abstentions from the asserted-only rate; match/abstain/wrong rates use all scored clips. Time/clip means all event times pass (vacuously true with no events); event-time rate counts events. Fabricated rate: noted scored clips only. Presence-only read retains the original event-gated narrow regex; sentence-only presence ignores events and excludes the specified action-verb stems. Consistency requires every substantive event class in score._event_classes(sentence); unmatched/unmapped classes fail, and no substantive events pass vacuously. Zero-duration and window-filling rates count events, not clips. Events/sent-frame uses all frames of scored clips. Thinking rate counts recorded true flags across all attempts, including failures.",
         "overall": {
           "attempted_clips": 20,
           "scored_clips": 20,
           "failed_clips": 0,
           "valid_rate": 1.0,
           "empty_rate": 0.0,
-          "presence_only_rate": 0.0,
+          "presence_only_read_rate": 0.0,
+          "presence_only_sentence_rate": 0.6,
+          "sentence_event_consistency_rate": 0.05,
+          "supplied_number_asserted_as_kit_detail_rate": 0.15,
           "number_invented_rate": 0.0,
           "kit_color_match_rate": 0.9,
           "kit_color_abstain_rate": 0.0,
           "kit_color_wrong_rate": 0.1,
           "time_in_window_rate": 1.0,
+          "from_thinking_rate": 1.0,
+          "zero_duration_event_rate": 0.3143,
+          "window_filling_event_rate": 0.5714,
+          "events_per_sent_frame": 1.2069,
+          "high_confidence_completed_from_one_frame_count": 12,
           "valid_attempt_rate": 1.0,
           "kit_color_match_when_asserted_rate": 0.9,
           "time_in_window_event_rate": 1.0,
@@ -7286,6 +7727,7 @@
             "status": "scored",
             "valid": true,
             "error": null,
+            "from_thinking": true,
             "semantic": {
               "events": [
                 {
@@ -7321,7 +7763,24 @@
               "kit_color_match": true,
               "kit_color_abstain": false,
               "kit_color_wrong": false,
-              "presence_only": false,
+              "presence_only_read": false,
+              "presence_only_sentence": false,
+              "sentence_event_consistency": true,
+              "sentence_event_unmatched_classes": [],
+              "supplied_number_asserted_as_kit_detail": false,
+              "zero_duration_events": [
+                false,
+                true
+              ],
+              "zero_duration_event_rate": 0.5,
+              "window_filling_events": [
+                true,
+                false
+              ],
+              "window_filling_event_rate": 0.5,
+              "sent_frame_count": 2,
+              "events_per_sent_frame": 1.0,
+              "high_confidence_completed_from_one_frame_count": 0,
               "fabricated_event_classes": null,
               "event_count": 2
             }
@@ -7332,6 +7791,7 @@
             "status": "scored",
             "valid": true,
             "error": null,
+            "from_thinking": true,
             "semantic": {
               "events": [
                 {
@@ -7367,7 +7827,26 @@
               "kit_color_match": true,
               "kit_color_abstain": false,
               "kit_color_wrong": false,
-              "presence_only": false,
+              "presence_only_read": false,
+              "presence_only_sentence": true,
+              "sentence_event_consistency": false,
+              "sentence_event_unmatched_classes": [
+                "carry"
+              ],
+              "supplied_number_asserted_as_kit_detail": false,
+              "zero_duration_events": [
+                false,
+                false
+              ],
+              "zero_duration_event_rate": 0.0,
+              "window_filling_events": [
+                true,
+                true
+              ],
+              "window_filling_event_rate": 1.0,
+              "sent_frame_count": 1,
+              "events_per_sent_frame": 2.0,
+              "high_confidence_completed_from_one_frame_count": 1,
               "fabricated_event_classes": null,
               "event_count": 2
             }
@@ -7378,6 +7857,7 @@
             "status": "scored",
             "valid": true,
             "error": null,
+            "from_thinking": true,
             "semantic": {
               "events": [
                 {
@@ -7404,7 +7884,24 @@
               "kit_color_match": true,
               "kit_color_abstain": false,
               "kit_color_wrong": false,
-              "presence_only": false,
+              "presence_only_read": false,
+              "presence_only_sentence": true,
+              "sentence_event_consistency": false,
+              "sentence_event_unmatched_classes": [
+                "off_ball"
+              ],
+              "supplied_number_asserted_as_kit_detail": true,
+              "zero_duration_events": [
+                true
+              ],
+              "zero_duration_event_rate": 1.0,
+              "window_filling_events": [
+                false
+              ],
+              "window_filling_event_rate": 0.0,
+              "sent_frame_count": 1,
+              "events_per_sent_frame": 1.0,
+              "high_confidence_completed_from_one_frame_count": 0,
               "fabricated_event_classes": null,
               "event_count": 1
             }
@@ -7415,6 +7912,7 @@
             "status": "scored",
             "valid": true,
             "error": null,
+            "from_thinking": true,
             "semantic": {
               "events": [
                 {
@@ -7450,7 +7948,26 @@
               "kit_color_match": true,
               "kit_color_abstain": false,
               "kit_color_wrong": false,
-              "presence_only": false,
+              "presence_only_read": false,
+              "presence_only_sentence": false,
+              "sentence_event_consistency": false,
+              "sentence_event_unmatched_classes": [
+                "carry"
+              ],
+              "supplied_number_asserted_as_kit_detail": false,
+              "zero_duration_events": [
+                false,
+                false
+              ],
+              "zero_duration_event_rate": 0.0,
+              "window_filling_events": [
+                true,
+                true
+              ],
+              "window_filling_event_rate": 1.0,
+              "sent_frame_count": 2,
+              "events_per_sent_frame": 1.0,
+              "high_confidence_completed_from_one_frame_count": 0,
               "fabricated_event_classes": null,
               "event_count": 2
             }
@@ -7461,6 +7978,7 @@
             "status": "scored",
             "valid": true,
             "error": null,
+            "from_thinking": true,
             "semantic": {
               "events": [
                 {
@@ -7496,7 +8014,26 @@
               "kit_color_match": true,
               "kit_color_abstain": false,
               "kit_color_wrong": false,
-              "presence_only": false,
+              "presence_only_read": false,
+              "presence_only_sentence": false,
+              "sentence_event_consistency": false,
+              "sentence_event_unmatched_classes": [
+                "carry"
+              ],
+              "supplied_number_asserted_as_kit_detail": false,
+              "zero_duration_events": [
+                true,
+                true
+              ],
+              "zero_duration_event_rate": 1.0,
+              "window_filling_events": [
+                false,
+                false
+              ],
+              "window_filling_event_rate": 0.0,
+              "sent_frame_count": 1,
+              "events_per_sent_frame": 2.0,
+              "high_confidence_completed_from_one_frame_count": 1,
               "fabricated_event_classes": null,
               "event_count": 2
             }
@@ -7507,6 +8044,7 @@
             "status": "scored",
             "valid": true,
             "error": null,
+            "from_thinking": true,
             "semantic": {
               "events": [
                 {
@@ -7542,7 +8080,27 @@
               "kit_color_match": true,
               "kit_color_abstain": false,
               "kit_color_wrong": false,
-              "presence_only": false,
+              "presence_only_read": false,
+              "presence_only_sentence": true,
+              "sentence_event_consistency": false,
+              "sentence_event_unmatched_classes": [
+                "carry",
+                "off_ball"
+              ],
+              "supplied_number_asserted_as_kit_detail": false,
+              "zero_duration_events": [
+                false,
+                false
+              ],
+              "zero_duration_event_rate": 0.0,
+              "window_filling_events": [
+                true,
+                true
+              ],
+              "window_filling_event_rate": 1.0,
+              "sent_frame_count": 1,
+              "events_per_sent_frame": 2.0,
+              "high_confidence_completed_from_one_frame_count": 1,
               "fabricated_event_classes": null,
               "event_count": 2
             }
@@ -7553,6 +8111,7 @@
             "status": "scored",
             "valid": true,
             "error": null,
+            "from_thinking": true,
             "semantic": {
               "events": [
                 {
@@ -7579,7 +8138,24 @@
               "kit_color_match": true,
               "kit_color_abstain": false,
               "kit_color_wrong": false,
-              "presence_only": false,
+              "presence_only_read": false,
+              "presence_only_sentence": true,
+              "sentence_event_consistency": false,
+              "sentence_event_unmatched_classes": [
+                "carry"
+              ],
+              "supplied_number_asserted_as_kit_detail": false,
+              "zero_duration_events": [
+                true
+              ],
+              "zero_duration_event_rate": 1.0,
+              "window_filling_events": [
+                false
+              ],
+              "window_filling_event_rate": 0.0,
+              "sent_frame_count": 1,
+              "events_per_sent_frame": 1.0,
+              "high_confidence_completed_from_one_frame_count": 1,
               "fabricated_event_classes": null,
               "event_count": 1
             }
@@ -7590,6 +8166,7 @@
             "status": "scored",
             "valid": true,
             "error": null,
+            "from_thinking": true,
             "semantic": {
               "events": [
                 {
@@ -7616,7 +8193,24 @@
               "kit_color_match": true,
               "kit_color_abstain": false,
               "kit_color_wrong": false,
-              "presence_only": false,
+              "presence_only_read": false,
+              "presence_only_sentence": false,
+              "sentence_event_consistency": false,
+              "sentence_event_unmatched_classes": [
+                "carry"
+              ],
+              "supplied_number_asserted_as_kit_detail": false,
+              "zero_duration_events": [
+                false
+              ],
+              "zero_duration_event_rate": 0.0,
+              "window_filling_events": [
+                true
+              ],
+              "window_filling_event_rate": 1.0,
+              "sent_frame_count": 1,
+              "events_per_sent_frame": 1.0,
+              "high_confidence_completed_from_one_frame_count": 1,
               "fabricated_event_classes": null,
               "event_count": 1
             }
@@ -7627,6 +8221,7 @@
             "status": "scored",
             "valid": true,
             "error": null,
+            "from_thinking": true,
             "semantic": {
               "events": [
                 {
@@ -7653,7 +8248,24 @@
               "kit_color_match": true,
               "kit_color_abstain": false,
               "kit_color_wrong": false,
-              "presence_only": false,
+              "presence_only_read": false,
+              "presence_only_sentence": true,
+              "sentence_event_consistency": false,
+              "sentence_event_unmatched_classes": [
+                "off_ball"
+              ],
+              "supplied_number_asserted_as_kit_detail": true,
+              "zero_duration_events": [
+                false
+              ],
+              "zero_duration_event_rate": 0.0,
+              "window_filling_events": [
+                true
+              ],
+              "window_filling_event_rate": 1.0,
+              "sent_frame_count": 1,
+              "events_per_sent_frame": 1.0,
+              "high_confidence_completed_from_one_frame_count": 1,
               "fabricated_event_classes": null,
               "event_count": 1
             }
@@ -7664,6 +8276,7 @@
             "status": "scored",
             "valid": true,
             "error": null,
+            "from_thinking": true,
             "semantic": {
               "events": [
                 {
@@ -7699,7 +8312,27 @@
               "kit_color_match": false,
               "kit_color_abstain": false,
               "kit_color_wrong": true,
-              "presence_only": false,
+              "presence_only_read": false,
+              "presence_only_sentence": true,
+              "sentence_event_consistency": false,
+              "sentence_event_unmatched_classes": [
+                "carry",
+                "off_ball"
+              ],
+              "supplied_number_asserted_as_kit_detail": false,
+              "zero_duration_events": [
+                true,
+                true
+              ],
+              "zero_duration_event_rate": 1.0,
+              "window_filling_events": [
+                false,
+                false
+              ],
+              "window_filling_event_rate": 0.0,
+              "sent_frame_count": 1,
+              "events_per_sent_frame": 2.0,
+              "high_confidence_completed_from_one_frame_count": 1,
               "fabricated_event_classes": null,
               "event_count": 2
             }
@@ -7710,6 +8343,7 @@
             "status": "scored",
             "valid": true,
             "error": null,
+            "from_thinking": true,
             "semantic": {
               "events": [
                 {
@@ -7745,7 +8379,27 @@
               "kit_color_match": true,
               "kit_color_abstain": false,
               "kit_color_wrong": false,
-              "presence_only": false,
+              "presence_only_read": false,
+              "presence_only_sentence": false,
+              "sentence_event_consistency": false,
+              "sentence_event_unmatched_classes": [
+                "carry",
+                "duel"
+              ],
+              "supplied_number_asserted_as_kit_detail": false,
+              "zero_duration_events": [
+                false,
+                true
+              ],
+              "zero_duration_event_rate": 0.5,
+              "window_filling_events": [
+                true,
+                false
+              ],
+              "window_filling_event_rate": 0.5,
+              "sent_frame_count": 2,
+              "events_per_sent_frame": 1.0,
+              "high_confidence_completed_from_one_frame_count": 0,
               "fabricated_event_classes": null,
               "event_count": 2
             }
@@ -7756,6 +8410,7 @@
             "status": "scored",
             "valid": true,
             "error": null,
+            "from_thinking": true,
             "semantic": {
               "events": [
                 {
@@ -7791,7 +8446,27 @@
               "kit_color_match": true,
               "kit_color_abstain": false,
               "kit_color_wrong": false,
-              "presence_only": false,
+              "presence_only_read": false,
+              "presence_only_sentence": true,
+              "sentence_event_consistency": false,
+              "sentence_event_unmatched_classes": [
+                "carry",
+                "off_ball"
+              ],
+              "supplied_number_asserted_as_kit_detail": false,
+              "zero_duration_events": [
+                false,
+                false
+              ],
+              "zero_duration_event_rate": 0.0,
+              "window_filling_events": [
+                true,
+                true
+              ],
+              "window_filling_event_rate": 1.0,
+              "sent_frame_count": 1,
+              "events_per_sent_frame": 2.0,
+              "high_confidence_completed_from_one_frame_count": 1,
               "fabricated_event_classes": null,
               "event_count": 2
             }
@@ -7802,6 +8477,7 @@
             "status": "scored",
             "valid": true,
             "error": null,
+            "from_thinking": true,
             "semantic": {
               "events": [
                 {
@@ -7837,7 +8513,26 @@
               "kit_color_match": true,
               "kit_color_abstain": false,
               "kit_color_wrong": false,
-              "presence_only": false,
+              "presence_only_read": false,
+              "presence_only_sentence": false,
+              "sentence_event_consistency": false,
+              "sentence_event_unmatched_classes": [
+                "carry"
+              ],
+              "supplied_number_asserted_as_kit_detail": false,
+              "zero_duration_events": [
+                false,
+                false
+              ],
+              "zero_duration_event_rate": 0.0,
+              "window_filling_events": [
+                false,
+                false
+              ],
+              "window_filling_event_rate": 0.0,
+              "sent_frame_count": 3,
+              "events_per_sent_frame": 0.6667,
+              "high_confidence_completed_from_one_frame_count": 0,
               "fabricated_event_classes": null,
               "event_count": 2
             }
@@ -7848,6 +8543,7 @@
             "status": "scored",
             "valid": true,
             "error": null,
+            "from_thinking": true,
             "semantic": {
               "events": [
                 {
@@ -7883,7 +8579,26 @@
               "kit_color_match": true,
               "kit_color_abstain": false,
               "kit_color_wrong": false,
-              "presence_only": false,
+              "presence_only_read": false,
+              "presence_only_sentence": false,
+              "sentence_event_consistency": false,
+              "sentence_event_unmatched_classes": [
+                "carry"
+              ],
+              "supplied_number_asserted_as_kit_detail": false,
+              "zero_duration_events": [
+                false,
+                false
+              ],
+              "zero_duration_event_rate": 0.0,
+              "window_filling_events": [
+                false,
+                false
+              ],
+              "window_filling_event_rate": 0.0,
+              "sent_frame_count": 3,
+              "events_per_sent_frame": 0.6667,
+              "high_confidence_completed_from_one_frame_count": 0,
               "fabricated_event_classes": null,
               "event_count": 2
             }
@@ -7894,6 +8609,7 @@
             "status": "scored",
             "valid": true,
             "error": null,
+            "from_thinking": true,
             "semantic": {
               "events": [
                 {
@@ -7929,7 +8645,27 @@
               "kit_color_match": true,
               "kit_color_abstain": false,
               "kit_color_wrong": false,
-              "presence_only": false,
+              "presence_only_read": false,
+              "presence_only_sentence": true,
+              "sentence_event_consistency": false,
+              "sentence_event_unmatched_classes": [
+                "carry",
+                "off_ball"
+              ],
+              "supplied_number_asserted_as_kit_detail": false,
+              "zero_duration_events": [
+                false,
+                false
+              ],
+              "zero_duration_event_rate": 0.0,
+              "window_filling_events": [
+                true,
+                true
+              ],
+              "window_filling_event_rate": 1.0,
+              "sent_frame_count": 2,
+              "events_per_sent_frame": 1.0,
+              "high_confidence_completed_from_one_frame_count": 0,
               "fabricated_event_classes": null,
               "event_count": 2
             }
@@ -7940,6 +8676,7 @@
             "status": "scored",
             "valid": true,
             "error": null,
+            "from_thinking": true,
             "semantic": {
               "events": [
                 {
@@ -7975,7 +8712,27 @@
               "kit_color_match": true,
               "kit_color_abstain": false,
               "kit_color_wrong": false,
-              "presence_only": false,
+              "presence_only_read": false,
+              "presence_only_sentence": true,
+              "sentence_event_consistency": false,
+              "sentence_event_unmatched_classes": [
+                "carry",
+                "off_ball"
+              ],
+              "supplied_number_asserted_as_kit_detail": false,
+              "zero_duration_events": [
+                true,
+                true
+              ],
+              "zero_duration_event_rate": 1.0,
+              "window_filling_events": [
+                false,
+                false
+              ],
+              "window_filling_event_rate": 0.0,
+              "sent_frame_count": 1,
+              "events_per_sent_frame": 2.0,
+              "high_confidence_completed_from_one_frame_count": 1,
               "fabricated_event_classes": null,
               "event_count": 2
             }
@@ -7986,6 +8743,7 @@
             "status": "scored",
             "valid": true,
             "error": null,
+            "from_thinking": true,
             "semantic": {
               "events": [
                 {
@@ -8012,7 +8770,24 @@
               "kit_color_match": true,
               "kit_color_abstain": false,
               "kit_color_wrong": false,
-              "presence_only": false,
+              "presence_only_read": false,
+              "presence_only_sentence": true,
+              "sentence_event_consistency": false,
+              "sentence_event_unmatched_classes": [
+                "off_ball"
+              ],
+              "supplied_number_asserted_as_kit_detail": true,
+              "zero_duration_events": [
+                false
+              ],
+              "zero_duration_event_rate": 0.0,
+              "window_filling_events": [
+                true
+              ],
+              "window_filling_event_rate": 1.0,
+              "sent_frame_count": 1,
+              "events_per_sent_frame": 1.0,
+              "high_confidence_completed_from_one_frame_count": 1,
               "fabricated_event_classes": null,
               "event_count": 1
             }
@@ -8023,6 +8798,7 @@
             "status": "scored",
             "valid": true,
             "error": null,
+            "from_thinking": true,
             "semantic": {
               "events": [
                 {
@@ -8058,7 +8834,27 @@
               "kit_color_match": true,
               "kit_color_abstain": false,
               "kit_color_wrong": false,
-              "presence_only": false,
+              "presence_only_read": false,
+              "presence_only_sentence": true,
+              "sentence_event_consistency": false,
+              "sentence_event_unmatched_classes": [
+                "carry",
+                "off_ball"
+              ],
+              "supplied_number_asserted_as_kit_detail": false,
+              "zero_duration_events": [
+                false,
+                false
+              ],
+              "zero_duration_event_rate": 0.0,
+              "window_filling_events": [
+                true,
+                true
+              ],
+              "window_filling_event_rate": 1.0,
+              "sent_frame_count": 2,
+              "events_per_sent_frame": 1.0,
+              "high_confidence_completed_from_one_frame_count": 0,
               "fabricated_event_classes": null,
               "event_count": 2
             }
@@ -8069,6 +8865,7 @@
             "status": "scored",
             "valid": true,
             "error": null,
+            "from_thinking": true,
             "semantic": {
               "events": [
                 {
@@ -8104,7 +8901,26 @@
               "kit_color_match": false,
               "kit_color_abstain": false,
               "kit_color_wrong": true,
-              "presence_only": false,
+              "presence_only_read": false,
+              "presence_only_sentence": false,
+              "sentence_event_consistency": false,
+              "sentence_event_unmatched_classes": [
+                "carry"
+              ],
+              "supplied_number_asserted_as_kit_detail": false,
+              "zero_duration_events": [
+                false,
+                true
+              ],
+              "zero_duration_event_rate": 0.5,
+              "window_filling_events": [
+                true,
+                false
+              ],
+              "window_filling_event_rate": 0.5,
+              "sent_frame_count": 1,
+              "events_per_sent_frame": 2.0,
+              "high_confidence_completed_from_one_frame_count": 1,
               "fabricated_event_classes": null,
               "event_count": 2
             }
@@ -8115,6 +8931,7 @@
             "status": "scored",
             "valid": true,
             "error": null,
+            "from_thinking": true,
             "semantic": {
               "events": [
                 {
@@ -8150,7 +8967,27 @@
               "kit_color_match": true,
               "kit_color_abstain": false,
               "kit_color_wrong": false,
-              "presence_only": false,
+              "presence_only_read": false,
+              "presence_only_sentence": true,
+              "sentence_event_consistency": false,
+              "sentence_event_unmatched_classes": [
+                "carry",
+                "off_ball"
+              ],
+              "supplied_number_asserted_as_kit_detail": false,
+              "zero_duration_events": [
+                false,
+                false
+              ],
+              "zero_duration_event_rate": 0.0,
+              "window_filling_events": [
+                true,
+                true
+              ],
+              "window_filling_event_rate": 1.0,
+              "sent_frame_count": 1,
+              "events_per_sent_frame": 2.0,
+              "high_confidence_completed_from_one_frame_count": 1,
               "fabricated_event_classes": null,
               "event_count": 2
             }
@@ -9097,6 +9934,10 @@
     "The conservative event keyword mismatch rule becomes available only on clips with human notes; it is neither a complete event taxonomy nor a measure of event correctness.",
     "Sequential single passes, without repeats or confidence intervals. Wall time includes extraction/drawing and all failed attempts; Ollama may reuse a warm model. Temporary frame paths record provenance but images are removed after each call.",
     "Uniform target samples falling in tracking gaps snap to the nearest recorded track timestamp within 0.5s, remaining distinct and chronological; target_t and sampling_shift_s record every adjustment. Larger gaps fail before inference. Geometry is never extrapolated across gaps.",
+    "All 20 truths have red kits and both measured runs used red rectangles: kit-colour matching is uninformative until the frozen set includes non-red kits. Future lane-A model inputs use magenta; these saved outputs were not rerun.",
+    "Every lane-A response (40/40) was read from Ollama's thinking field despite think=false. Schema-valid parsing is established; the format grammar's effect on that field is unverified. The transport is unchanged.",
+    "Sentence-only presence applies the specified verb-stem exclusion literally: moving, interacting and holding are not excluded. Consistency uses the unchanged conservative score._event_classes vocabulary, so carrying/passing inflections and unmapped broad types may remain unmatched; these are lexical diagnostics, not semantic accuracy.",
+    "Truth and note hashes describe the current rescoring snapshot across all manifest truth files. Historical run.json files retain their original launch metadata; absent inference-time hashes are not retroactively asserted.",
     "No adoption recommendation; MJ owns that decision."
   ]
 }

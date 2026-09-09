@@ -10,6 +10,11 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+try:
+    from .provenance import load_truth_snapshot
+except ImportError:  # pragma: no cover
+    from provenance import load_truth_snapshot
+
 LINE = re.compile(
     r"^- `(?P<id>[^`]+)` \| window: (?P<start>[\d.]+)–(?P<end>[\d.]+) s \| jersey: #(?P<jersey>\d+) \| kit: (?P<kit>[^|]+) \| note:(?P<note>.*)$"
 )
@@ -133,6 +138,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Wrote {args.notes}")
     else:
         print(f"Applied {apply_notes(args.notes, args.manifest)} human notes")
+        _, hashes = load_truth_snapshot(args.manifest)
+        print(json.dumps(hashes, sort_keys=True))
     return 0
 
 
