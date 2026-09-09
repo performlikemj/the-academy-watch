@@ -72,10 +72,14 @@ def require_local_untracked(path: Path) -> None:
         raise ValueError("refusing to write tracked or nonignored truth")
 
 
-def apply_notes(notes_path: Path, manifest_path: Path) -> int:
+def apply_notes(
+    notes_path: Path, manifest_path: Path, *, disputes: tuple[str, ...] = ()
+) -> int:
     truths = {
         truth["clip_id"]: (path, truth) for path, truth in load_truths(manifest_path)
     }
+    if set(disputes) - truths.keys():
+        raise ValueError("unknown disputed clip ID")
     updates, seen = [], set()
     for line in notes_path.read_text().splitlines():
         if not line.startswith("- `"):
@@ -99,11 +103,14 @@ def apply_notes(notes_path: Path, manifest_path: Path) -> int:
         ):
             raise ValueError("note identity/window does not match frozen truth")
         note = row["note"].strip()
+        if cid in disputes and not note:
+            raise ValueError("disputed truth requires a nonblank human note")
         if note:
-            if re.search(r"[.!?]\s+\S", note):
-                raise ValueError("note must be one plain sentence")
             require_local_untracked(path)
-            updates.append((path, {**truth, "human_note": note}))
+            update = {**truth, "human_note": note}
+            if cid in disputes:
+                update.update(truth_label_disputed=True, truth_label_dispute_note=note)
+            updates.append((path, update))
     if seen != set(truths):
         raise ValueError("notes must contain exactly one line per manifest clip")
     # Validate the complete form before the first write; replace each file atomically.
@@ -123,6 +130,7 @@ def apply_notes(notes_path: Path, manifest_path: Path) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", type=Path, required=True)
+    parser.add_argument("--dispute", action="append", default=[], metavar="CLIP_ID")
     parser.add_argument(
         "--notes", type=Path, default=Path(__file__).with_name("notes_template.md")
     )
@@ -137,7 +145,8 @@ def main(argv: list[str] | None = None) -> int:
             handle.write(template([truth for _, truth in load_truths(args.manifest)]))
         print(f"Wrote {args.notes}")
     else:
-        print(f"Applied {apply_notes(args.notes, args.manifest)} human notes")
+        count = apply_notes(args.notes, args.manifest, disputes=tuple(args.dispute))
+        print(f"Applied {count} human notes")
         _, hashes = load_truth_snapshot(args.manifest)
         print(json.dumps(hashes, sort_keys=True))
     return 0

@@ -15,12 +15,14 @@ try:
     from .score import _event_classes, fabricated_event_classes
     from .provenance import thinking_rate
     from .semantic_contract import SemanticRead, parse_read
+    from .semantic_activity import activity_metrics
 except ImportError:  # pragma: no cover
     from compare_runs import jersey_review
     from contract import BOX_T_SPAN_TOLERANCE_S
     from score import _event_classes, fabricated_event_classes
     from provenance import thinking_rate
     from semantic_contract import SemanticRead, parse_read
+    from semantic_activity import activity_metrics
 
 HONEST_LIMIT = (
     "The frozen clips have no human notes: event CORRECTNESS is not measured until MJ supplies them. "
@@ -47,6 +49,13 @@ RATE_KEYS = (
     "kit_color_wrong",
     "time_in_window",
 )
+IDENTITY_KEYS = {
+    "number_invented",
+    "supplied_number_asserted_as_kit_detail",
+    "kit_color_match",
+    "kit_color_abstain",
+    "kit_color_wrong",
+}
 
 
 def rate(values: list[bool]) -> float | None:
@@ -80,7 +89,7 @@ def score_read(read: SemanticRead, truth: dict, *, sent_frame_count: int = 0) ->
         abs(event.t0 - start) <= tolerance and abs(event.t1 - end) <= tolerance
         for event in read.events
     ]
-    return {
+    metrics = {
         "valid": True,
         "empty": not read.events and read.player_visible in {"no", "unclear"},
         "event_time_in_window": event_times,
@@ -115,7 +124,11 @@ def score_read(read: SemanticRead, truth: dict, *, sent_frame_count: int = 0) ->
         else 0,
         "fabricated_event_classes": fabricated,
         "event_count": len(read.events),
+        **activity_metrics(read, truth),
     }
+    if truth.get("truth_label_disputed"):
+        metrics.update({key: None for key in IDENTITY_KEYS})
+    return metrics
 
 
 def score_clip(result: dict, truth: dict) -> dict:
@@ -126,6 +139,8 @@ def score_clip(result: dict, truth: dict) -> dict:
         "valid": False,
         "error": result.get("error"),
         "from_thinking": bool(result.get("from_thinking", False)),
+        "truth_label_disputed": bool(truth.get("truth_label_disputed")),
+        "human_note": truth.get("human_note"),
     }
     try:
         # Revalidate stored results when re-scoring; cached parsed data cannot hide bad raw JSON.
@@ -164,7 +179,21 @@ def score_run(
         "attempted_clips": len(clips),
         "scored_clips": len(scored),
         "failed_clips": len(clips) - len(scored),
-        **{f"{key}_rate": rate([m[key] is True for m in scored]) for key in RATE_KEYS},
+        **{
+            f"{key}_rate": rate(
+                [
+                    c["metrics"][key] is True
+                    for c in clips
+                    if c["status"] == "scored"
+                    and (key not in IDENTITY_KEYS or not c["truth_label_disputed"])
+                ]
+            )
+            for key in RATE_KEYS
+        },
+        "disputed_clips": [c["clip_id"] for c in clips if c["truth_label_disputed"]],
+        "identity_evaluated_clips": sum(
+            c["status"] == "scored" and not c["truth_label_disputed"] for c in clips
+        ),
         "from_thinking_rate": thinking_rate(results),
         "zero_duration_event_rate": rate(
             [v for m in scored for v in m["zero_duration_events"]]
@@ -197,6 +226,28 @@ def score_run(
         "human_noted_scored_clips": sum(
             m["fabricated_event_classes"] is not None for m in scored
         ),
+        **{
+            output: rate([m[key] for m in scored if m[key] is not None])
+            for output, key in (
+                ("off_pitch_claimed_on_ball_rate", "off_pitch_claimed_on_ball"),
+                ("idle_claimed_on_ball_rate", "idle_claimed_on_ball"),
+                ("on_ball_recall", "on_ball_recalled"),
+                ("activity_agreement_rate", "activity_agreement"),
+            )
+        },
+        "activity_denominators": {
+            key: sum(m[key] is not None for m in scored)
+            for key in (
+                "off_pitch_claimed_on_ball",
+                "idle_claimed_on_ball",
+                "on_ball_recalled",
+                "activity_agreement",
+            )
+        },
+        "sentence_matches_note": {
+            verdict: sum(m["sentence_matches_note"] == verdict for m in scored)
+            for verdict in ("agree", "disagree", "undetermined")
+        },
         "events_per_clip": round(sum(m["event_count"] for m in scored) / len(scored), 3)
         if scored
         else None,
@@ -207,13 +258,13 @@ def score_run(
     has_notes = any(truth.get("human_note") is not None for truth in truths.values())
     return {
         **(truth_provenance or {}),
-        "schema_version": "film-room-semantic-report-v2",
+        "schema_version": "film-room-semantic-report-v3",
         "generated_at": datetime.now(UTC).isoformat(),
         "adapter": adapter,
-        "honest_limit": "Human notes enable only the existing conservative keyword mismatch rule on noted clips; event correctness is not fully measured."
+        "honest_limit": "Human notes enable deterministic activity and event-class checks. These measure coarse correctness against MJ's observations, not timing/outcome accuracy or exhaustive semantic correctness."
         if has_notes
         else HONEST_LIMIT,
-        "denominators": "Honesty rates and events/clip: scored clips. Valid attempt rate and wall/clip: all attempts. Kit match excludes abstentions from the asserted-only rate; match/abstain/wrong rates use all scored clips. Time/clip means all event times pass (vacuously true with no events); event-time rate counts events. Fabricated rate: noted scored clips only. Presence-only read retains the original event-gated narrow regex; sentence-only presence ignores events and excludes the specified action-verb stems. Consistency requires every substantive event class in score._event_classes(sentence); unmatched/unmapped classes fail, and no substantive events pass vacuously. Zero-duration and window-filling rates count events, not clips. Events/sent-frame uses all frames of scored clips. Thinking rate counts recorded true flags across all attempts, including failures.",
+        "denominators": "Honesty rates and events/clip: scored clips. Jersey/kit rates exclude disputed truth labels; their per-clip metrics are null. Activity subset rates use classified notes only; agreement excludes unclassified notes. On-ball recall requires at least one exact event-class match per on-ball note, without credit for unmatched receive/header/turn/loss classes. Sentence verdicts count all scored clips, including undetermined notes. Valid attempt rate and wall/clip: all attempts. Kit match excludes abstentions from the asserted-only rate; match/abstain/wrong rates use all scored clips. Time/clip means all event times pass (vacuously true with no events); event-time rate counts events. Fabricated rate: noted scored clips only. Presence-only read retains the original event-gated narrow regex; sentence-only presence ignores events and excludes the specified action-verb stems. Consistency requires every substantive event class in score._event_classes(sentence); unmatched/unmapped classes fail, and no substantive events pass vacuously. Zero-duration and window-filling rates count events, not clips. Events/sent-frame uses all frames of scored clips. Thinking rate counts recorded true flags across all attempts, including failures.",
         "overall": overall,
         "clips": clips,
     }

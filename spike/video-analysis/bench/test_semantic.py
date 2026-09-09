@@ -688,3 +688,370 @@ def test_lane_a_magenta_preserves_shared_red_default(tmp_path, monkeypatch):
     assert Image.open(paths[0]).getpixel((10, 30)) == (255, 40, 40)
     assert Image.open(paths[1]).getpixel((10, 30)) == (255, 0, 255)
     assert "magenta rectangle" in adapter.build_prompt(truth(), [10.0])
+
+
+# Verbatim MJ notes as explicit classifier fixtures, not a copy of the intake file.
+MJ_ACTIVITY_FIXTURES = [
+    (
+        "m04-n02-t3005-474114-478131",
+        "playing right-side center back in a three at the back system. close to the touchline.",
+        ["positional_only"],
+    ),
+    (
+        "m04-n03-t1406-157170-158922",
+        "either playing left-sided center back or left wing. nice move to win his challenge and passes it along to winger",
+        ["on_ball_action"],
+    ),
+    (
+        "m04-n03-t1406-385962-387137",
+        "putting on their warmup kit. and walks to sideline",
+        ["off_pitch"],
+    ),
+    (
+        "m04-n04-t3006-243433-247994",
+        "playing up top. just walks around and waits until the keeper boots it to halfway line and then receives and does a half turn.",
+        ["idle_on_pitch", "on_ball_action"],
+    ),
+    (
+        "m04-n04-t3006-307417-310307",
+        "a bit of running. ball doesn't come and waits for opposite team to throw in",
+        ["idle_on_pitch"],
+    ),
+    (
+        "m04-n05-t3007-284945-287898",
+        "seems to be playing defense. tracked back.",
+        ["defensive_track_back"],
+    ),
+    ("m04-n09-t1409-143096-143834", "on the sideline", ["off_pitch"]),
+    (
+        "m04-n09-t1409-297601-298865",
+        "tracked back for defense and then went forward when team recovered.",
+        ["defensive_track_back"],
+    ),
+    ("m04-n09-t1409-385922-386603", "stretching on sidelines", ["off_pitch"]),
+    ("m04-n10-t711-186553-188161", "just walking around.", ["idle_on_pitch"]),
+    (
+        "m04-n12-t1411-237107-242145",
+        "intercepts a ball but passes to opposite team",
+        ["on_ball_action"],
+    ),
+    ("m04-n12-t1411-679986-681985", "walking off the field.", ["off_pitch"]),
+    (
+        "m04-n15-t3010-164698-170777",
+        "multiple challenges for the ball",
+        ["on_ball_action"],
+    ),
+    (
+        "m04-n17-t717-253073-260377",
+        "heads the ball off defender for a throw-in. and goes forward when team recovers the ball.",
+        ["on_ball_action"],
+    ),
+    (
+        "m04-n17-t717-304624-307834",
+        "walking back on defense as play is on the opposite side. stays wide.",
+        ["defensive_track_back"],
+    ),
+    (
+        "m04-n17-t717-416826-418915",
+        "receives ball in midfield. playing as false 9 or 10 spot. loses the ball",
+        ["on_ball_action"],
+    ),
+    (
+        "m04-n21-t3011-390297-390800",
+        "warming up sideline. grabs hamstring",
+        ["off_pitch"],
+    ),
+    (
+        "m04-n22-t3012-070707-074371",
+        "walking off field in warmup suit. misses header",
+        ["off_pitch"],
+    ),
+    (
+        "m04-n24-t3013-679939-681217",
+        "wrong number. this is number 12 from the shorts",
+        [],
+    ),
+    ("m04-n25-t3014-530600-532465", "coming off the pitch.", ["off_pitch"]),
+]
+
+
+@pytest.mark.parametrize("cid,note,expected", MJ_ACTIVITY_FIXTURES)
+def test_mj_activity_rules(cid, note, expected):
+    from semantic_activity import truth_activity
+
+    assert truth_activity(note) == expected, cid
+
+
+def test_activity_subsets_matching_recall_and_stoppage():
+    from semantic_activity import ON_BALL_TYPES, activity_metrics
+
+    assert ON_BALL_TYPES == set(ACTION_TYPES) - {"none", "unclear", "off_ball"}
+    passing = SemanticRead(**read(events=[event()], sentence="The player passes."))
+    assert activity_metrics(passing, truth(MJ_ACTIVITY_FIXTURES[1][1]))[
+        "on_ball_recalled"
+    ]
+    for index in (
+        3,
+        13,
+        15,
+    ):  # Receive/turn/header/loss cannot be laundered into carry.
+        m = activity_metrics(
+            SemanticRead(**read(events=[event(event_type="carry")])),
+            truth(MJ_ACTIVITY_FIXTURES[index][1]),
+        )
+        assert m["on_ball_recalled"] is False
+        assert m["unmapped_truth_action_classes"]
+    off_pitch = truth("stretching on sidelines")
+    m = activity_metrics(passing, off_pitch)
+    assert m["off_pitch_claimed_on_ball"] and not m["activity_agreement"]
+    m = activity_metrics(
+        SemanticRead(
+            **read(
+                events=[event(event_type="off_ball", phase="stoppage")],
+                sentence="The player is stretching on the sideline.",
+            )
+        ),
+        off_pitch,
+    )
+    assert set(m["model_activity"]) == {"off_ball", "off_pitch", "stoppage"}
+    assert not m["off_pitch_claimed_on_ball"] and m["activity_agreement"]
+    # Event-only headline stays separate from an on-ball sentence assertion.
+    m = activity_metrics(
+        SemanticRead(**read(sentence="The player carries the ball.")), off_pitch
+    )
+    assert not m["off_pitch_claimed_on_ball"] and m["model_activity"] == ["on_ball"]
+    assert not m["activity_agreement"]
+
+
+@pytest.mark.parametrize(
+    "note,sentence,expected",
+    [
+        (
+            "on the sideline",
+            "The marked player in red kit stands near the sideline observing play.",
+            "agree",
+        ),
+        (
+            "putting on their warmup kit. and walks to sideline",
+            "Player in red kit carries ball and engages in duel with opponent.",
+            "disagree",
+        ),
+        (
+            "stretching on sidelines",
+            "Player in red jersey with number 9 visible on the field.",
+            "disagree",
+        ),
+        (
+            "intercepts a ball but passes to opposite team",
+            "The player passes the ball.",
+            "agree",
+        ),
+        (
+            "intercepts a ball but passes to opposite team",
+            "Player marked #12 is visible in red kit running with ball during attack phase.",
+            "disagree",
+        ),
+        (
+            "multiple challenges for the ball",
+            "The player challenges for the ball.",
+            "agree",
+        ),
+        (
+            "just walking around.",
+            "A player in blue is visible on the field.",
+            "undetermined",
+        ),
+        (
+            "wrong number. this is number 12 from the shorts",
+            "The player carries the ball.",
+            "undetermined",
+        ),
+        (None, "The player carries the ball.", "undetermined"),
+    ],
+)
+def test_sentence_note_verdicts(note, sentence, expected):
+    from semantic_activity import sentence_verdict
+
+    assert sentence_verdict(note, sentence) == expected
+
+
+def test_disputed_identity_excluded_by_both_scorers():
+    from score import score_run as grounded_score
+    from compare_runs import jersey_review
+
+    dispute = {
+        **truth("wrong number. this is number 9 from the shorts"),
+        "clip_id": "disputed",
+        "truth_label_disputed": True,
+    }
+    normal = raw(sentence="Player wears jersey 9.", kit_color_seen="black")
+    disputed = {**normal, "clip_id": "disputed"}
+    report = score_run([normal, disputed], {"fixture": truth(), "disputed": dispute})
+    assert report["overall"]["disputed_clips"] == ["disputed"]
+    assert report["overall"]["identity_evaluated_clips"] == 1
+    assert report["overall"]["number_invented_rate"] == 1
+    assert report["overall"]["kit_color_wrong_rate"] == 1
+    excluded = report["clips"][1]
+    assert excluded["semantic"]["kit_color_seen"] == "black"
+    for k in (
+        "number_invented",
+        "kit_color_match",
+        "kit_color_wrong",
+        "kit_color_abstain",
+        "supplied_number_asserted_as_kit_detail",
+    ):
+        assert excluded["metrics"][k] is None
+    assert report["overall"]["human_noted_scored_clips"] == 1
+    legacy_raw = {
+        "clip_id": "fixture",
+        "claims": [{"claim": "Player wears jersey 9 and a black kit."}],
+        "wall_s": 1,
+    }
+    legacy = grounded_score(
+        [legacy_raw, {**legacy_raw, "clip_id": "disputed"}],
+        {"fixture": truth(), "disputed": dispute},
+    )
+    assert legacy["overall"]["disputed_clips"] == ["disputed"]
+    assert legacy["overall"]["identity_evaluated_clips"] == 1
+    assert legacy["overall"]["invented_jersey_number_kill_rate"] == 1
+    assert legacy["overall"]["kit_colour_mismatch_rate"] == 1
+    review = jersey_review(legacy_raw, dispute)
+    assert review["invented_jersey_number_kill"] is None
+    assert review["kit_colour_mismatch"] is None
+    assert review["claims"][0]["kit_colours_mentioned"] == ["black"]
+    assert (
+        score_run([disputed], {"disputed": dispute})["overall"]["number_invented_rate"]
+        is None
+    )
+    assert (
+        grounded_score([{**legacy_raw, "clip_id": "disputed"}], {"disputed": dispute})[
+            "overall"
+        ]["kit_colour_mismatch_rate"]
+        is None
+    )
+
+
+def test_mj_note_intake_preserves_prose_and_dispute(tmp_path, capsys):
+    from apply_notes import main
+    from provenance import load_truth_snapshot
+
+    manifest = frozen(tmp_path)
+    original_manifest = manifest.read_bytes()
+    note = "wrong number. this is number 12 from the shorts"
+    form = tmp_path / "notes.md"
+    form.write_text(template([truth()]).replace("| note:", "| note: " + note))
+    before = form.read_bytes()
+    with pytest.raises(ValueError, match="unknown disputed"):
+        apply_notes(form, manifest, disputes=("missing",))
+    assert (
+        main(
+            ["--manifest", str(manifest), "--notes", str(form), "--dispute", "fixture"]
+        )
+        == 0
+    )
+    printed = capsys.readouterr().out.splitlines()
+    truths, hashes = load_truth_snapshot(manifest)
+    assert json.loads(printed[-1]) == hashes
+    assert truths["fixture"]["human_note"] == note
+    assert truths["fixture"]["truth_label_dispute_note"] == note
+    assert truths["fixture"]["truth_label_disputed"] is True
+    assert truths["fixture"]["jersey_number"] == 12  # Binding not silently replaced.
+    assert form.read_bytes() == before and manifest.read_bytes() == original_manifest
+
+
+def test_activity_denominators_empty_and_unclassified_notes():
+    rows, truths = [], {}
+    for i, note in enumerate(
+        (
+            "on the sideline",
+            "just walking around.",
+            "intercepts a ball but passes to opposite team",
+            "wrong number. this is number 12 from the shorts",
+            None,
+        )
+    ):
+        cid = str(i)
+        rows.append(
+            {**raw(events=[event()], sentence="The player passes."), "clip_id": cid}
+        )
+        truths[cid] = {**truth(note), "clip_id": cid}
+    overall = score_run(rows, truths)["overall"]
+    assert overall["activity_denominators"] == {
+        "off_pitch_claimed_on_ball": 1,
+        "idle_claimed_on_ball": 1,
+        "on_ball_recalled": 1,
+        "activity_agreement": 3,
+    }
+    assert overall["off_pitch_claimed_on_ball_rate"] == 1
+    assert overall["idle_claimed_on_ball_rate"] == 1
+    assert overall["on_ball_recall"] == 1
+    assert overall["activity_agreement_rate"] == 0.3333
+    assert overall["sentence_matches_note"] == {
+        "agree": 1,
+        "disagree": 2,
+        "undetermined": 2,
+    }
+    empty = score_run([], {})["overall"]
+    assert empty["off_pitch_claimed_on_ball_rate"] is None
+    assert empty["on_ball_recall"] is None
+    assert empty["activity_agreement_rate"] is None
+
+
+def test_all_twenty_notes_in_comparison_table(tmp_path):
+    truths = {}
+    (tmp_path / "truth").mkdir()
+    for cid, note, _expected in MJ_ACTIVITY_FIXTURES:
+        truths[cid] = {
+            **truth(note),
+            "clip_id": cid,
+            "truth_label_disputed": cid == "m04-n24-t3013-679939-681217",
+        }
+        (tmp_path / "truth" / f"{cid}.json").write_text(json.dumps(truths[cid]))
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "frozen_set_id": "fixture-set",
+                "clips": [
+                    {"clip_id": cid, "truth": f"truth/{cid}.json"} for cid in truths
+                ],
+            }
+        )
+    )
+    for name in ("dense", "prod30"):
+        directory = tmp_path / name
+        (directory / "claims").mkdir(parents=True)
+        (directory / "run.json").write_text(
+            json.dumps(
+                {
+                    "adapter": "qwen3vl_annotated",
+                    "frozen_set_id": "fixture-set",
+                    "clips": list(truths),
+                }
+            )
+        )
+        (directory / "report.json").write_text(
+            json.dumps({"generated_at": "2026-09-09"})
+        )
+        for cid in truths:
+            (directory / "claims" / f"{cid}.json").write_text(
+                json.dumps(
+                    {
+                        **raw(events=[event()], sentence="The player passes."),
+                        "clip_id": cid,
+                    }
+                )
+            )
+    result = compare(tmp_path, {"dense": "dense", "prod30": "prod30"}, manifest)
+    rendered = markdown(result)
+    assert result == compare(tmp_path, {"dense": "dense", "prod30": "prod30"}, manifest)
+    assert len(result["per_clip_comparison"]) == 20
+    table = rendered.split("All 20 clips — MJ notes verbatim:")[1].split("Caveats:")[0]
+    assert sum(line.startswith("| m04-") for line in table.splitlines()) == 20
+    for cid, note, expected in MJ_ACTIVITY_FIXTURES:
+        assert f"| {cid} | {note} |" in table
+        row = next(r for r in result["per_clip_comparison"] if r["clip_id"] == cid)
+        assert row["human_note"] == note
+        assert row["reads"]["dense"]["metrics"]["truth_activity"] == expected
+    assert "Off-pitch clips given on-ball events: dense 7/7; prod30 7/7." in rendered
+    assert "pass/unclear" in table and "label disputed" in table

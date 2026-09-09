@@ -265,7 +265,8 @@ jersey/shirt/kit detail trigger `invented_jersey_number_kill`; other numeric lab
 (including frame/time/tracking references) appear in each clip's
 `non_jersey_numbers`. Non-string claim text is replaced with an empty string,
 flagged `malformed` with `malformed_fields: ["claim"]`, and counted in
-`malformed_claim_text_count`. These review fields do not change scorer metrics.
+`malformed_claim_text_count`. These review fields do not change geometry metrics. Round 3 also aggregates
+identity checks in the legacy scorer, excluding disputed truth labels.
 
 Test blind spots: `prepare_anchor` is monkeypatched in MLX adapter tests;
 the worker test fakes the `mlx_vlm` API, so signature drift is caught only by a
@@ -341,9 +342,9 @@ BENCH_NUM_CTX=65536 ~/Projects/loanarmy/.loan/bin/python spike/video-analysis/be
 touch ~/codex-runs/GPU_DONE_A
 ```
 
-`semantic_score.py` alone scores this adapter; the existing geometry scorer is
-unchanged. Reports start with the honest limit: **the frozen clips have no human
-notes, so event CORRECTNESS is not measured until MJ supplies them**. Metrics
+`semantic_score.py` alone scores this adapter; geometry scoring stays unchanged.
+The original runs had no human notes. Round 3 applies MJ's 20 notes and reports
+deterministic activity checks, with the limits described below. Other metrics
 cover format, empty answers, presence-only prose, invented numbers (the exact
 r2 jersey regex), explicit kit-colour matches/abstentions/mismatches, and event
 times within the window ±0.5s. Schema-invalid JSON is failed. Clip time validity
@@ -371,7 +372,8 @@ cp spike/video-analysis/bench/notes_template.md spike/video-analysis/bench/repor
 ```
 
 The intake validates the complete form, clip IDs, windows, jersey and kit before
-writing only `human_note` into local `truth/*.json`. It refuses tracked or
+writing `human_note` into local `truth/*.json` (and dispute metadata when requested).
+Human prose may contain multiple sentences and is preserved without rewriting. It refuses tracked or
 nonignored truth inside a Git worktree. Blank notes preserve existing values.
 `--generate --notes <new-path>` creates a form for another manifest and refuses
 to overwrite an existing form. Never commit populated truth or raw reports.
@@ -484,3 +486,92 @@ both current hashes after intake. Use the comparison scripts to re-score saved
 outputs without inference: their report hashes describe the current scoring
 snapshot, while historical launch metadata remains intact. Missing historical
 inference-time hashes cannot be retroactively established.
+
+## Lane A round 3: MJ notes and activity checks
+
+MJ reviewed all 20 boxed clips. Apply his local notes verbatim, without inference:
+
+```sh
+~/Projects/loanarmy/.loan/bin/python spike/video-analysis/bench/apply_notes.py \
+  --manifest ~/Projects/loanarmy-bench-frozen/manifest.json \
+  --notes ~/codex-runs/lane-a-notes.md \
+  --dispute m04-n24-t3013-679939-681217
+```
+
+`--dispute CLIP_ID` is repeatable, requires a nonblank note, and writes
+`truth_label_disputed: true` and `truth_label_dispute_note` alongside `human_note`.
+The supplied label stays unchanged for audit; it is not silently replaced with
+another number. Both scorers list `disputed_clips` in overall and exclude them
+from all jersey/kit denominators, retaining their raw assertions and activity
+checks. Semantic per-clip identity metrics are null for disputed clips; legacy
+`jersey_review` keeps colour/number mentions but makes checks unavailable.
+The manifest's `frozen_set_id` is unchanged. Intake prints the updated truth-byte
+and note hashes; the regenerated ledger records the same snapshot hashes.
+Neither the intake file nor populated truth files are committed.
+
+MJ disputes #24: “wrong number. this is number 12 from the shorts”. The earlier
+fps2 video lane called this player's kit **black**, as did annotated prod30.
+MJ's appended clarification confirms black warm-up kit and black shorts: those
+colour readings were correct and frozen `kit_color: red` is wrong. The existing
+dispute excludes both identity and colour metrics; frozen fields stay for audit. MJ also reports “some misses as
+far as boxes are concerned”: visible truth-track misses belong to the tracker
+input, and may affect model readings. Red-kit metrics remain uninformative on
+the remaining red-labelled evaluation set with the historical red annotations.
+
+The explicit rules live in `semantic_activity.py`. Case-insensitive phrase/stem
+matches classify the note, with no clip-ID overrides. Multiple classes are kept:
+
+| Truth activity | Positive note evidence | Current clips |
+|---|---|---:|
+| off_pitch | sideline(s), warm-up/warmup/warm up, warming up, stretching, walking off, coming off, hamstring | 7 |
+| idle_on_pitch | just walks/walking around, wait(s)/waiting, ball doesn't come | 3 |
+| defensive_track_back | track/tracks/tracked/tracking back, walking back on defense | 3 |
+| on_ball_action | Any action from the next table, excluding a missed header | 6 |
+| positional_only | center/centre back, touchline, stays wide, only when no other activity matched | 1 |
+
+The idle/on-ball overlap is n04-243433. The disputed n24 note is unclassified:
+it says nothing about activity. n22's “misses header” is not a positive header.
+
+| Note/sentence action class | Explicit keyword family |
+|---|---|
+| pass | pass, passes, passed, passing |
+| carry | carry, carries, carried, carrying, dribbl…, running with (the) ball |
+| duel | duel(s), challeng…, tackl… |
+| shot | shot(s), shoot… |
+| defensive_action | intercept… |
+| header | head(s) the ball, header(s); exclude “miss(es/ed/ing) [a/the] header” |
+| receive | receiv… |
+| turn | half turn, half-turn |
+| loss | lose/loses/losing/lost the ball |
+| cross | cross, crosses, crossed, crossing |
+| goalkeeping | save, saves, saved, saving |
+
+The schema's on-ball event classes are `ACTION_TYPES` minus
+`off_ball`, `none`, and `unclear`: pass, carry, duel, shot, defensive_action,
+set_piece, goalkeeping. The contract has **no header or receive event**.
+Header/receive/turn/loss remain distinct note classes; a carry is not credited
+as a match for them. This deliberate vocabulary limitation lowers recall.
+
+`model_activity` is on_ball when events or sentence action keywords assert an
+action; otherwise off_ball. It additionally records stoppage for any stoppage
+phase and off_pitch for an explicit sentence context. An empty event list does
+not hide an on-ball sentence assertion. Subset headline rates below use the
+structured events alone, as requested.
+
+| Metric | Rule and denominator |
+|---|---|
+| fabricated_rate | Original unchanged conservative `score.fabricated_event_classes` on sentence plus event classes; any mismatch / all 20 noted scored clips. This even evaluates the identity-only note; it does not prove every mismatch is fabricated. |
+| off_pitch_claimed_on_ball_rate | Any structured on-ball event / off-pitch notes (7); headline fabrication diagnostic |
+| idle_claimed_on_ball_rate | Any structured on-ball event / idle notes (3); mixed n04 can legitimately have a later on-ball action |
+| on_ball_recall | At least one exact structured event-class match to a note action / on-ball notes (6); not event-level recall and not outcome grading |
+| activity_agreement_rate | Compatible coarse activity / classified notes (19). Off-pitch requires explicit off-pitch prose with no on-ball activity; on-ball notes require any on-ball activity; idle/defensive/positional notes require no on-ball or off-pitch activity. Mixed idle/on-ball follows the on-ball rule. |
+| sentence_matches_note | agree/disagree/undetermined counts across all scored clips (20). Positive shared action/activity with no detected incompatible assertion = agree; an extra action class or incompatible off-pitch/on-pitch context = disagree; absent evidence or unclassified note = undetermined. |
+
+These deterministic rules measure limited correctness against MJ's observations.
+Coarse activity agreement can pass a generic carry while exact event recall
+fails. Sentence overlap does not validate every detail (e.g. holding a ball on a
+sideline), resolve arbitrary negation, attribute actions to actors, or establish
+outcome or event timing. The conservative fabricated rule retains its narrow
+vocabulary, including its original missing inflections. These limits are also
+shown in the ledger, alongside every note, both sentences/events, and verdicts.
+No model runs, GPU work, transport changes or adoption decision are involved.

@@ -49,8 +49,9 @@ def claim_text(claim: dict) -> str:
 
 
 def jersey_review(raw: dict, truth: dict) -> dict:
-    supplied = truth.get("jersey_number")
-    color = truth.get("kit_color")
+    disputed = bool(truth.get("truth_label_disputed"))
+    supplied = None if disputed else truth.get("jersey_number")
+    color = None if disputed else truth.get("kit_color")
     claims = []
     malformed_text_count = 0
     for claim in raw_claims(raw):
@@ -128,7 +129,7 @@ def jersey_review(raw: dict, truth: dict) -> dict:
         for m in c["jersey_mentions"]
         if m["matches_supplied"] is False
     ]
-    return {
+    result = {
         "adapter_error": raw.get("error"),
         "supplied_jersey_number": supplied,
         "truth_kit_colour": color,
@@ -155,6 +156,17 @@ def jersey_review(raw: dict, truth: dict) -> dict:
         ),
         "kit_colour_mismatch": any(c["kit_colour_check"] == "mismatch" for c in claims),
     }
+    if disputed:
+        result.update(
+            truth_label_disputed=True,
+            truth_label_dispute_note=truth.get("truth_label_dispute_note"),
+            excluded_truth_jersey_number=truth.get("jersey_number"),
+            excluded_truth_kit_colour=truth.get("kit_color"),
+            supplied_number_asserted_as_kit_detail=None,
+            invented_jersey_number_kill=None,
+            kit_colour_mismatch=None,
+        )
+    return result
 
 
 def sent_frames(raw: dict) -> list[dict]:

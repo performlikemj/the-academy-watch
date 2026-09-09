@@ -385,6 +385,7 @@ def score_clip(result: dict, truth: dict | None) -> dict:
         "anchor_mode": result.get("anchor_mode"),
         "box_space": result.get("box_space"),
         "error": result.get("error"),
+        "truth_label_disputed": bool((truth or {}).get("truth_label_disputed")),
     }
     if result.get("error"):
         return {**base, "status": "failed", "claims": [], "metrics": _clip_metrics([])}
@@ -403,11 +404,18 @@ def score_clip(result: dict, truth: dict | None) -> dict:
         score_claim(claim, truth, anchored_frames)
         for claim in _claims_from_result(result)
     ]
+    # The legacy geometry scorer did not previously aggregate identity checks.
+    # Reuse its comparison review and retain excluded claims for inspection.
+    try:
+        from .compare_runs import jersey_review
+    except ImportError:  # pragma: no cover
+        from compare_runs import jersey_review
     return {
         **base,
         "status": "scored",
         "claims": scored_claims,
         "metrics": _clip_metrics(scored_claims),
+        "jersey_review": jersey_review(result, truth),
     }
 
 
@@ -440,6 +448,9 @@ def score_run(
     ]
     metrics.update(
         {
+            "disputed_clips": [
+                clip["clip_id"] for clip in clips if clip["truth_label_disputed"]
+            ],
             "from_thinking_rate": thinking_rate(results),
             "wall_s_per_clip": round(sum(walls) / len(walls), 3) if walls else None,
             "tokens_per_clip": round(sum(tokens) / len(tokens), 3) if tokens else None,
@@ -448,6 +459,18 @@ def score_run(
             "scored_clips": len(scored_clips),
         }
     )
+    identity = [
+        c["jersey_review"] for c in scored_clips if not c["truth_label_disputed"]
+    ]
+    metrics["identity_evaluated_clips"] = len(identity)
+    for key in (
+        "invented_jersey_number_kill",
+        "supplied_number_asserted_as_kit_detail",
+        "kit_colour_mismatch",
+    ):
+        metrics[f"{key}_rate"] = _rate(
+            sum(r[key] is True for r in identity), len(identity)
+        )
     anchor_modes = {
         clip["anchor_mode"] for clip in clips if clip.get("anchor_mode") is not None
     }
