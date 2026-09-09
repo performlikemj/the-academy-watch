@@ -103,8 +103,66 @@ frame, or an `image_pixels` box whose coordinates all remain at or below 1000
 despite a larger sent image is explicitly malformed. The claim records a
 `box_sanity_reason`, and reports count these under `box_sanity_guard_count`.
 
-`qwen3vl_mlx` is intentionally a fail-fast E0 stub. It documents the native
-video model/path but never substitutes another backend.
+## qwen3vl_mlx native video
+
+```sh
+~/Projects/loanarmy/.loan/bin/python spike/video-analysis/bench/run_bench.py \
+  --adapter qwen3vl_mlx --fps 2.0 --clips all \
+  --manifest ~/Projects/loanarmy-bench-frozen/manifest.json \
+  --report-root ~/Projects/loanarmy-bench-reports --run-id e1b-mlx-video-fps2 \
+  --anchor-mode first --box-space normalized_1000 \
+  --num-predict 400 --repeat-penalty 1.15 --timeout 120 --wall-cap 120
+```
+
+The worker also needs Jinja2 for the cached model's chat template. On this
+machine it was missing; this worktree-local install avoids changing the shared
+venv (using the existing `uv`, since neither interpreter has pip):
+
+```sh
+mkdir -p spike/video-analysis/bench/report
+printf '*\n' > spike/video-analysis/bench/report/.gitignore
+uv pip install --python ~/mlx-vlm-venv/bin/python --no-cache \
+  --target spike/video-analysis/bench/report/.worker-deps \
+  Jinja2==3.1.6 MarkupSafe==3.0.3
+export PYTHONPATH="$PWD/spike/video-analysis/bench/report/.worker-deps"
+export HF_HUB_OFFLINE=1
+```
+
+Run that setup before the bench command above. `PYTHONPATH` is fingerprinted;
+no dependencies, frozen media, or raw reports should be staged.
+
+The bench stays on Python 3.11 and launches `adapters/mlx_worker.py` with
+`BENCH_MLX_PYTHON` (default `~/mlx-vlm-venv/bin/python`, Python 3.12).
+Each clip uses one JSON stdin/stdout transaction and includes model startup in
+wall time. Optional `--wall-cap 120` stops a slow lane after at least five
+attempts (immediately if the breach occurs later), writes the partial report,
+and records `stopped_early.unrun_clips` in `report.json`. The cap is fingerprinted. Failures and unparseable responses are `failed`; there is no fallback.
+`--model` / `BENCH_MLX_MODEL` defaults to
+`mlx-community/Qwen3-VL-8B-Instruct-4bit`. `--fps` overrides `BENCH_MLX_FPS`
+(default 2.0); FPS, resolved model and worker interpreter are fingerprinted.
+`--num-predict` maps to `max_tokens`, `--repeat-penalty` to
+`repetition_penalty` (64-token repetition context, temperature 0).
+
+“Native video” here means mlx-vlm's dense `fps`-sampled frames with Qwen3-VL's
+video encoding, versus the production 3-still multi-image lane. The frozen E1
+Ollama control actually samples every 5 seconds, up to six stills per clip.
+The MLX loader uniformly samples an even frame count (maximum 768); effective
+FPS can differ from the request. Decoder-read indices supply actual source
+timestamps. The installed mlx-vlm Qwen processor does no second sampling;
+native video tensors and temporal patch grids are passed to `generate`. This
+processor omits HF per-pair timestamp tokens: exact times are supplied in the
+text prompt, while the model uses its native video grid for temporal positions.
+
+One separate first-sample image gets the shared red `#N` anchor; the raw video
+is unlabelled. The image uses the same truth-aware first time as Ollama
+(usually 0.05s), while native video begins at 0s. Model claims must already use
+absolute source seconds; only frame provenance is converted from clip-local
+seconds with the shared helper. No heuristic claim-time correction is applied.
+`sent_frames` records every native frame's absolute time and processor-grid
+pixel dimensions. Anchor dimensions/boxes also reflect processor resizing.
+The existing ±0.5s boxed-frame tolerance remains, so nearby unlabelled video
+frames can still count as boxed controls. Normalized-1000 and anchor-first are
+required; all-frame anchors and image-pixel boxes are rejected.
 
 ## Read the report
 

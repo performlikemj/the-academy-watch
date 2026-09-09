@@ -87,7 +87,31 @@ def _resolve_inference_settings(args: argparse.Namespace, manifest: dict) -> dic
         raise ValueError(f"--format-mode must be one of {', '.join(FORMAT_MODES)}")
     if format_mode == "schema" and args.adapter != "qwen3vl_ollama":
         raise ValueError("--format-mode schema is only supported by qwen3vl_ollama")
+    wall_cap = getattr(args, "wall_cap", None)
+    if wall_cap is not None and (not math.isfinite(wall_cap) or wall_cap <= 0):
+        raise ValueError("--wall-cap must be a positive finite number")
+    mlx_settings = {}
+    if args.adapter == "qwen3vl_mlx":
+        requested_fps = getattr(args, "fps", None)
+        fps = float(
+            os.getenv("BENCH_MLX_FPS", "2.0")
+            if requested_fps is None
+            else requested_fps
+        )
+        if not math.isfinite(fps) or fps <= 0:
+            raise ValueError("--fps must be a positive finite number")
+        if args.anchor_mode != "first" or box_space != "normalized_1000":
+            raise ValueError("MLX requires anchor-mode first and normalized_1000 boxes")
+        mlx_settings = {
+            "fps": fps,
+            "mlx_python": _adapter_module(args.adapter).resolved_python(),
+            "mlx_pythonpath": os.getenv("PYTHONPATH", ""),
+            "temperature": 0.0,
+            "repetition_context_size": 64,
+        }
     return {
+        **mlx_settings,
+        **({"wall_cap_s": wall_cap} if wall_cap is not None else {}),
         "adapter": args.adapter,
         "model": _resolved_model(args.adapter, args.model),
         "ollama_url": str(args.ollama_url),
@@ -207,8 +231,16 @@ def run_benchmark(args: argparse.Namespace) -> tuple[dict, Path]:
         "num_predict": settings["num_predict"],
         "repeat_penalty": settings["repeat_penalty"],
     }
+    if args.adapter == "qwen3vl_mlx":
+        cfg.update(
+            fps=settings["fps"],
+            mlx_python=settings["mlx_python"],
+            scratch_dir=str(output_dir),
+        )
     results = []
     truths = {}
+    slow_lane = False
+    stopped_early = None
     for clip_id in selected_ids:
         entry = selected[clip_id]
         claims_path = claims_dir / f"{clip_id}.json"
@@ -225,8 +257,20 @@ def run_benchmark(args: argparse.Namespace) -> tuple[dict, Path]:
             result["clip_id"] = clip_id
             claims_path.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
         results.append(result)
+        wall_cap = settings.get("wall_cap_s")
+        if wall_cap is not None:
+            slow_lane = slow_lane or float(result.get("wall_s", 0)) > wall_cap
+            if slow_lane and len(results) >= 5 and len(results) < len(selected_ids):
+                stopped_early = {
+                    "reason": f"lane exceeded {wall_cap:g}s per clip; stopped after {len(results)} attempts",
+                    "unrun_clips": selected_ids[len(results) :],
+                }
+                print(stopped_early["reason"])
+                break
 
     report = score_run(results, truths, adapter=args.adapter)
+    if stopped_early:
+        report["stopped_early"] = stopped_early
     write_report(report, output_dir)
     return report, output_dir
 
@@ -274,6 +318,12 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--model")
     parser.add_argument(
+        "--fps",
+        type=float,
+        default=None,
+        help="MLX native video sampling rate (env BENCH_MLX_FPS; default 2.0)",
+    )
+    parser.add_argument(
         "--anchor-mode",
         choices=("first", "all"),
         default="first",
@@ -301,6 +351,11 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--timeout", type=float, default=300.0)
     parser.add_argument(
+        "--wall-cap",
+        type=float,
+        help="stop after at least five attempts if any clip exceeds this many seconds",
+    )
+    parser.add_argument(
         "--num-predict",
         type=int,
         default=MAX_NUM_PREDICT,
@@ -316,7 +371,7 @@ def _parser() -> argparse.ArgumentParser:
 def main() -> int:
     report, output_dir = run_benchmark(_parser().parse_args())
     print_summary(report, output_dir)
-    return 1 if report["overall"]["failed_clips"] else 0
+    return 1 if report["overall"]["failed_clips"] or report.get("stopped_early") else 0
 
 
 if __name__ == "__main__":

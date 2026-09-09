@@ -12,7 +12,7 @@ if str(HERE) not in sys.path:
 from adapters import common as adapter_common  # noqa: E402
 from adapters import qwen3vl_ollama as qwen_adapter  # noqa: E402
 from adapters.common import sample_timestamps, scale_box  # noqa: E402
-from adapters.qwen3vl_mlx import STUB_ERROR, run as run_mlx  # noqa: E402
+from adapters import qwen3vl_mlx as mlx_adapter  # noqa: E402
 from contract import CONFIDENCE_VALUES, VISIBILITY_VALUES, parse_claims  # noqa: E402
 from run_bench import (  # noqa: E402
     _find_resume_dir,
@@ -1253,9 +1253,347 @@ def test_report_writers_produce_json_and_explain_conservative_fabrication(tmp_pa
     assert "Per clip" in render_markdown(report)
 
 
-def test_mlx_adapter_fails_fast_with_actionable_message():
-    result = run_mlx("clip.mp4", _truth(), {})
+def _fake_mlx(monkeypatch, tmp_path, *, error=None, raw=None):
+    truth = {**_truth(), "frame_size": [1920, 1080], "jersey_number": 12}
+    anchor = {
+        "path": str(tmp_path / "anchor.jpg"),
+        "t": 10.05,
+        "sent_w": 1280,
+        "sent_h": 720,
+    }
+    monkeypatch.setattr(
+        mlx_adapter,
+        "prepare_anchor",
+        lambda *_: (anchor, [{**anchor, "box": [100, 100, 200, 200]}]),
+    )
+    captured = {}
 
-    assert result["wall_s"] == 0.0
-    assert result["error"] == STUB_ERROR
-    assert "native-video" in result["error"]
+    def fake_worker(argv, **kwargs):
+        captured.update(argv=argv, request=json.loads(kwargs["input"]))
+        payload = {
+            "text": raw or json.dumps({"claims": [_claim(box_t=15.0)]}),
+            "model": mlx_adapter.DEFAULT_MODEL,
+            "prompt_tokens": 500,
+            "generation_tokens": 80,
+            "wall_s": 1.0,
+            "sampled_frame_times": [0.0, 0.5, 1.0],
+            "sent_w": 960,
+            "sent_h": 544,
+            "anchor_sent_w": 1280,
+            "anchor_sent_h": 736,
+        }
+        if error:
+            payload = {"error": error}
+        return SimpleNamespace(returncode=1 if error else 0, stdout=json.dumps(payload))
+
+    monkeypatch.setattr(mlx_adapter.subprocess, "run", fake_worker)
+    result = mlx_adapter.run(
+        tmp_path / "clip.mp4",
+        truth,
+        {
+            "fps": 4.0,
+            "mlx_python": "/worker/python",
+            "num_predict": 350,
+            "repeat_penalty": 1.2,
+        },
+    )
+    return result, captured, truth
+
+
+def test_mlx_fake_worker_success_and_absolute_frame_provenance(monkeypatch, tmp_path):
+    result, captured, _ = _fake_mlx(monkeypatch, tmp_path)
+    assert result["error"] is None
+    assert result["claims"][0]["box"] == pytest.approx([278.4, 156.6, 489.6, 275.4])
+    assert (
+        result["claims"][0]["box_t"] == 15.0
+    )  # Already absolute: never shift claims heuristically.
+    assert result["claims"][0]["boxed_frame"] is False
+    assert [frame["t"] for frame in result["sent_frames"]] == [10.0, 10.5, 11.0]
+    assert all(
+        (frame["sent_w"], frame["sent_h"]) == (960, 544)
+        for frame in result["sent_frames"]
+    )
+    assert result["tokens"] == 80
+    assert result["prompt_tokens"] == 500
+    assert captured["argv"][0] == "/worker/python"
+    assert captured["request"]["fps"] == 4.0
+    assert captured["request"]["max_tokens"] == 350
+    assert captured["request"]["repetition_penalty"] == 1.2
+    assert "__VIDEO_TIMESTAMPS__" in captured["request"]["prompt"]
+
+
+def test_mlx_worker_error_is_failed(monkeypatch, tmp_path):
+    result, _, truth = _fake_mlx(monkeypatch, tmp_path, error="native video failure")
+    assert "native video failure" in result["error"]
+    assert score_clip(result, truth)["status"] == "failed"
+
+
+@pytest.mark.parametrize(
+    "raw", ['{"claims":[]}', "not json", '{"claims":[{"claim":"incomplete"}]}']
+)
+def test_mlx_never_relaxes_claim_contract(monkeypatch, tmp_path, raw):
+    result, _, truth = _fake_mlx(monkeypatch, tmp_path, raw=raw)
+    assert result["error"] == "no parseable claims"
+    assert score_clip(result, truth)["status"] == "failed"
+
+
+def test_mlx_settings_fingerprint_fps_model_and_worker(monkeypatch, tmp_path):
+    from run_bench import _parser
+
+    monkeypatch.setenv("BENCH_MLX_FPS", "2")
+    monkeypatch.setenv("BENCH_MLX_MODEL", "model-one")
+    monkeypatch.setenv("BENCH_MLX_PYTHON", "/venv-one/bin/python")
+    args = _parser().parse_args(["--adapter", "qwen3vl_mlx"])
+    manifest = {"frozen_set_id": "frozen-1"}
+    first = _run_metadata(_resolve_inference_settings(args, manifest), ["clip-1"])
+    _write_run_metadata(tmp_path, first)
+    assert first["fps"] == 2.0
+    assert first["model"] == "model-one"
+    assert first["mlx_python"] == "/venv-one/bin/python"
+    for env, value in [
+        ("BENCH_MLX_FPS", "4"),
+        ("BENCH_MLX_MODEL", "model-two"),
+        ("BENCH_MLX_PYTHON", "/venv-two/bin/python"),
+        ("PYTHONPATH", "/different/worker/dependencies"),
+    ]:
+        with monkeypatch.context() as context:
+            context.setenv(env, value)
+            changed = _run_metadata(
+                _resolve_inference_settings(args, manifest), ["clip-1"]
+            )
+            with pytest.raises(ValueError, match="fingerprint mismatch"):
+                _write_run_metadata(tmp_path, changed)
+    args.fps = 4.0
+    assert _resolve_inference_settings(args, manifest)["fps"] == 4.0
+
+
+@pytest.mark.parametrize("fps", [0.0, -1.0, float("nan"), float("inf")])
+def test_mlx_rejects_invalid_fps(fps):
+    from run_bench import _parser
+
+    args = _parser().parse_args(["--adapter", "qwen3vl_mlx"])
+    args.fps = fps
+    with pytest.raises(ValueError, match="fps must be a positive finite"):
+        _resolve_inference_settings(args, {"frozen_set_id": "frozen-1"})
+
+
+def test_native_loader_records_actual_reads_without_another_sampler(monkeypatch):
+    from adapters.mlx_worker import load_native_video
+
+    class Capture:
+        index = 0
+
+        def __init__(self, path):
+            assert path == "native.mp4"
+
+        def get(self, prop):
+            return {1: 25.0, 2: 100, 3: self.index}[prop]
+
+        def read(self):
+            return True, "frame"
+
+        def set(self, _prop, value):
+            self.index = value
+
+    cv2 = SimpleNamespace(
+        VideoCapture=Capture,
+        CAP_PROP_FPS=1,
+        CAP_PROP_FRAME_COUNT=2,
+        CAP_PROP_POS_FRAMES=3,
+    )
+
+    def library_load(path, *, fps, max_frames):
+        assert fps == 2.0 and max_frames == 768
+        cap = cv2.VideoCapture(path)
+        # The library owns selection; the worker must observe these indices.
+        for index in [0, 33, 66, 99]:
+            cap.set(3, index)
+            cap.read()
+        return ["frame"] * 4, 1.0
+
+    monkeypatch.setitem(sys.modules, "cv2", cv2)
+    monkeypatch.setitem(sys.modules, "mlx_vlm", SimpleNamespace())
+    monkeypatch.setitem(
+        sys.modules, "mlx_vlm.utils", SimpleNamespace(load_video=library_load)
+    )
+    video, fps, metadata = load_native_video("native.mp4", 2.0)
+    assert len(video) == 4 and fps == 1.0
+    assert metadata == {
+        "fps": 25.0,
+        "total_num_frames": 100,
+        "frames_indices": [0, 33, 66, 99],
+    }
+    assert cv2.VideoCapture is Capture
+
+
+def test_mlx_timeout_is_failed_without_fallback(monkeypatch, tmp_path):
+    result, _, truth = _fake_mlx(monkeypatch, tmp_path)
+    assert result["error"] is None
+
+    def timeout(argv, **kwargs):
+        raise mlx_adapter.subprocess.TimeoutExpired(argv, kwargs["timeout"])
+
+    monkeypatch.setattr(mlx_adapter.subprocess, "run", timeout)
+    result = mlx_adapter.run(tmp_path / "clip.mp4", truth, {"timeout_s": 1})
+    assert "TimeoutExpired" in result["error"]
+    assert score_clip(result, truth)["status"] == "failed"
+    assert result["claims"] == []
+
+
+def test_mlx_worker_sends_native_video_tensors_and_reports_processor_sizes(
+    monkeypatch, tmp_path
+):
+    import numpy as np
+    from PIL import Image
+    from adapters import mlx_worker
+
+    anchor = tmp_path / "anchor.jpg"
+    Image.new("RGB", (1280, 720)).save(anchor)
+    video = np.zeros((4, 3, 1080, 1920), dtype=np.uint8)
+    monkeypatch.setattr(
+        mlx_worker,
+        "load_native_video",
+        lambda *_: (video, 2.0, {"fps": 25.0, "frames_indices": [0, 12, 25, 37]}),
+    )
+    captured = {}
+
+    class Processor:
+        video_processor = SimpleNamespace(patch_size=16, temporal_patch_size=2)
+        image_processor = SimpleNamespace(patch_size=16)
+
+        def apply_chat_template(self, messages, **_kwargs):
+            captured["content"] = messages[0]["content"]
+            return "formatted-native-video-prompt"
+
+        def __call__(self, **kwargs):
+            assert kwargs["videos"][0] is video
+            assert len(kwargs["images"]) == 1
+            return {
+                "input_ids": np.array([[1, 2]]),
+                "attention_mask": np.array([[1, 1]]),
+                "video_grid_thw": np.array([[2, 18, 32]]),
+                "image_grid_thw": np.array([[1, 46, 80]]),
+                "pixel_values_videos": np.array([[7]]),
+                "pixel_values": np.array([[8]]),
+            }
+
+    def generate(_model, _processor, _prompt, **kwargs):
+        captured["generate"] = kwargs
+        return SimpleNamespace(
+            text='{"claims":[]}', prompt_tokens=120, generation_tokens=8
+        )
+
+    core = SimpleNamespace(array=lambda value: value)
+    monkeypatch.setitem(sys.modules, "mlx", SimpleNamespace(core=core))
+    monkeypatch.setitem(sys.modules, "mlx.core", core)
+    monkeypatch.setitem(
+        sys.modules,
+        "mlx_vlm",
+        SimpleNamespace(load=lambda _: ("model", Processor()), generate=generate),
+    )
+    result = mlx_worker.run(
+        {
+            "clip": "clip.mp4",
+            "fps": 2.0,
+            "model": "native",
+            "start_s": 100.0,
+            "prompt": "Times: __VIDEO_TIMESTAMPS__",
+            "anchor_image": str(anchor),
+            "max_tokens": 400,
+            "temperature": 0.0,
+            "repetition_penalty": 1.15,
+            "repetition_context_size": 64,
+        }
+    )
+    assert [item["type"] for item in captured["content"]] == ["image", "video", "text"]
+    assert (
+        captured["content"][-1]["text"] == "Times: 100.000, 100.480, 101.000, 101.480"
+    )
+    assert "pixel_values_videos" in captured["generate"]
+    assert captured["generate"]["max_tokens"] == 400
+    assert (result["sent_w"], result["sent_h"]) == (512, 288)
+    assert (result["anchor_sent_w"], result["anchor_sent_h"]) == (1280, 736)
+    assert result["sampled_frame_times"] == [0.0, 0.48, 1.0, 1.48]
+
+
+@pytest.mark.parametrize("error", [None, "worker could not decode native video"])
+def test_mlx_runner_persists_worker_result_and_failure_status(
+    monkeypatch, tmp_path, error
+):
+    from run_bench import _parser
+
+    _, _, truth = _fake_mlx(monkeypatch, tmp_path, error=error)
+    manifest = {
+        "frozen_set_id": "frozen-test",
+        "clips": [{"clip_id": "clip-1", "clip": "clip.mp4", "truth": "truth.json"}],
+    }
+    (tmp_path / "manifest.json").write_text(json.dumps(manifest))
+    (tmp_path / "truth.json").write_text(json.dumps(truth))
+    args = _parser().parse_args(
+        [
+            "--adapter",
+            "qwen3vl_mlx",
+            "--fps",
+            "4",
+            "--manifest",
+            str(tmp_path / "manifest.json"),
+            "--report-root",
+            str(tmp_path / "reports"),
+            "--run-id",
+            "worker-test",
+        ]
+    )
+    report, output = run_benchmark(args)
+    persisted = json.loads((output / "claims" / "clip-1.json").read_text())
+    assert report["clips"][0]["status"] == ("failed" if error else "scored")
+    assert json.loads((output / "run.json").read_text())["fps"] == 4.0
+    if not error:
+        assert [frame["t"] for frame in persisted["sent_frames"]] == [10.0, 10.5, 11.0]
+        assert persisted["sent_frames"][0]["sent_w"] == 960
+        assert persisted["claims"][0]["box_t"] == 15.0
+
+
+@pytest.mark.parametrize(("wall", "attempts"), [(121.0, 5), (119.0, 6)])
+def test_slow_lane_cap_writes_partial_report_after_five_attempts(
+    monkeypatch, tmp_path, wall, attempts
+):
+    from run_bench import _parser
+
+    ids = [f"clip-{i}" for i in range(6)]
+    manifest = {
+        "frozen_set_id": "frozen-test",
+        "clips": [
+            {"clip_id": cid, "clip": "clip.mp4", "truth": "truth.json"} for cid in ids
+        ],
+    }
+    (tmp_path / "manifest.json").write_text(json.dumps(manifest))
+    (tmp_path / "truth.json").write_text(json.dumps(_truth()))
+    monkeypatch.setattr(
+        mlx_adapter,
+        "run",
+        lambda *_: {"claims": [_claim()], "error": None, "wall_s": wall},
+    )
+    args = _parser().parse_args(
+        [
+            "--adapter",
+            "qwen3vl_mlx",
+            "--manifest",
+            str(tmp_path / "manifest.json"),
+            "--report-root",
+            str(tmp_path / "reports"),
+            "--wall-cap",
+            "120",
+        ]
+    )
+    report, output = run_benchmark(args)
+    assert len(report["clips"]) == attempts
+    assert len(list((output / "claims").glob("*.json"))) == attempts
+    assert json.loads((output / "run.json").read_text())["wall_cap_s"] == 120.0
+    if attempts == 5:
+        assert report["stopped_early"]["unrun_clips"] == ["clip-5"]
+        assert (
+            json.loads((output / "report.json").read_text())["stopped_early"]
+            == report["stopped_early"]
+        )
+    else:
+        assert "stopped_early" not in report

@@ -24,6 +24,11 @@ from grounding import (  # noqa: E402
 _REQUEST_PATCH_LOCK = threading.Lock()
 
 
+def absolute_timestamp(truth: dict, local_s: float) -> float:
+    """Convert clip-local seconds to the bench source timeline."""
+    return round(float(truth["window"]["start_s"]) + local_s, 3)
+
+
 def sample_timestamps(
     truth: dict, *, interval_s: float = 5.0, limit: int = 6
 ) -> list[tuple[float, float]]:
@@ -41,7 +46,9 @@ def sample_timestamps(
     while next_time < duration and len(local_times) < limit:
         local_times.append(next_time)
         next_time += interval_s
-    return [(round(local, 3), round(start + local, 3)) for local in local_times]
+    return [
+        (round(local, 3), absolute_timestamp(truth, local)) for local in local_times
+    ]
 
 
 def extract_sample_frames(clip: Path, truth: dict, output_dir: Path) -> list[dict]:

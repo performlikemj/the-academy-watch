@@ -1,0 +1,956 @@
+{
+  "experiment": "E1b \u2014 Qwen3-VL native-video versus sampled-frame grounded-claim bench",
+  "date": "2026-09-09",
+  "frozen_set": "match 4, 20 uploader-side reel windows (frozen_set_id 1f68e2755002b3598c763532e95c212de9261ffa638c2943ad3769a1be77503f)",
+  "frozen_manifest": "/Users/mjjones/Projects/loanarmy-bench-frozen/manifest.json",
+  "basecamp": "Apple silicon Mac, 128 GB; Ollama 0.33.2, num_ctx=65536; mlx-vlm 0.6.17, Python 3.12.14 worker, Python 3.11.16 bench",
+  "mlx_model_revision": "defcdea7cc7a4b0858fea563cbbce171d328e457",
+  "ollama_weight_format": "GGUF Q4_K_M (api/show); MLX uses its separately converted 4-bit snapshot",
+  "worker_dependencies": {
+    "Jinja2": "3.1.6",
+    "MarkupSafe": "3.0.3",
+    "location": "worktree-local ignored bench/report/.worker-deps, exposed through fingerprinted PYTHONPATH"
+  },
+  "frames": {
+    "model": "qwen3-vl:8b",
+    "adapter": "qwen3vl_ollama",
+    "run": "e1b-ollama-frames",
+    "attempted_clips": 20,
+    "clips_with_any_supported_claim": 14,
+    "run_dir": "/Users/mjjones/Projects/loanarmy-bench-reports/e1b-ollama-frames",
+    "settings": {
+      "adapter": "qwen3vl_ollama",
+      "anchor_mode": "first",
+      "box_space": "normalized_1000",
+      "clips": [
+        "m04-n02-t3005-474114-478131",
+        "m04-n03-t1406-157170-158922",
+        "m04-n03-t1406-385962-387137",
+        "m04-n04-t3006-243433-247994",
+        "m04-n04-t3006-307417-310307",
+        "m04-n05-t3007-284945-287898",
+        "m04-n09-t1409-143096-143834",
+        "m04-n09-t1409-297601-298865",
+        "m04-n09-t1409-385922-386603",
+        "m04-n10-t711-186553-188161",
+        "m04-n12-t1411-237107-242145",
+        "m04-n12-t1411-679986-681985",
+        "m04-n15-t3010-164698-170777",
+        "m04-n17-t717-253073-260377",
+        "m04-n17-t717-304624-307834",
+        "m04-n17-t717-416826-418915",
+        "m04-n21-t3011-390297-390800",
+        "m04-n22-t3012-070707-074371",
+        "m04-n24-t3013-679939-681217",
+        "m04-n25-t3014-530600-532465"
+      ],
+      "fingerprint": "2426f5e86cfe705347cd1fc5ff0e59bdff9555e7d2f01aec814d395e86132df8",
+      "format_mode": "json",
+      "frozen_set_id": "1f68e2755002b3598c763532e95c212de9261ffa638c2943ad3769a1be77503f",
+      "model": "qwen3-vl:8b",
+      "num_predict": 400,
+      "ollama_url": "http://127.0.0.1:11434",
+      "repeat_penalty": 1.15,
+      "schema_version": "film-room-evidence-run-v5",
+      "timeout_s": 300.0
+    },
+    "metrics": {
+      "box_grounded_at_midpoint_rate": 0.0,
+      "box_grounded_at_midpoint_rate_boxed": 0.0,
+      "box_grounded_at_midpoint_rate_unboxed": 0.0,
+      "box_grounded_rate": 0.7368,
+      "box_grounded_rate_boxed": 0.8235,
+      "box_grounded_rate_unboxed": 0.0,
+      "box_sanity_guard_count": 0,
+      "boxed_claim_count": 17,
+      "claim_count": 19,
+      "claims_per_clip": 1.0,
+      "echo_suspect_count": 0,
+      "fabricated_rate": null,
+      "failed_clips": 1,
+      "hollow_rate": 0.0,
+      "malformed_rate": 0.0,
+      "observed_clips": 0,
+      "scored_clips": 19,
+      "supported_rate": 0.7368,
+      "supported_rate_boxed": 0.8235,
+      "supported_rate_unboxed": 0.0,
+      "time_only_rate": 0.2632,
+      "tokens_per_clip": null,
+      "unboxed_claim_count": 2,
+      "unsupported_rate": 0.2632,
+      "untracked_gap": 0,
+      "untracked_gap_rate": 0.0,
+      "wall_s_per_clip": 12.759
+    },
+    "fps": null,
+    "sent_frames_per_clip": 4.15,
+    "recorded_sent_frames_per_clip": 4.45,
+    "unknown_frame_provenance_clips": 0,
+    "stopped_early": null,
+    "sent_frames_mean_denominator": "all attempted clips; pre-inference anchor failures count zero (Ollama records extracted but unsent frames); separate MLX anchor excluded; if unknown_frame_provenance_clips > 0 this is only a lower bound",
+    "sent_frames_per_successful_clip": 4.368,
+    "sent_sizes": [
+      [
+        1280,
+        720
+      ]
+    ],
+    "tokens": {
+      "available_clips": 0,
+      "prompt_total": null,
+      "generation_total": null,
+      "prompt_mean": null,
+      "generation_mean": null
+    },
+    "max_wall_s": 22.463,
+    "failures": [
+      {
+        "clip_id": "m04-n02-t3005-474114-478131",
+        "error": "RuntimeError: truth box is unavailable at sampled time 4741.190s",
+        "claims_raw": ""
+      }
+    ],
+    "smoke_run": "e1b-ollama-frames-smoke",
+    "thresholds": {
+      "unsupported_le_10_percent": false,
+      "supported_ge_2x_historical_baseline_zero": true,
+      "headline_unboxed_ge_2x_historical_baseline_zero": true,
+      "hollow_lt_5_percent": true,
+      "every_attempt_le_120s": true,
+      "kill_unsupported_gt_25_percent": true,
+      "baseline_caveat": "Historical baseline supported_rate=0 structurally (no boxes), so 2x is vacuous, not evidence of improvement.",
+      "invented_jersey_number_kill": false
+    },
+    "jersey_review": {
+      "clips": [
+        "m04-n05-t3007-284945-287898",
+        "m04-n17-t717-416826-418915"
+      ],
+      "new_unsupplied_number_observed": false,
+      "supplied_17_asserted_as_kit_detail": false,
+      "interpretation": "References are to the supplied red-rectangle tracking label; no visual number-read assertion observed."
+    }
+  },
+  "video_fps2": {
+    "model": "mlx-community/Qwen3-VL-8B-Instruct-4bit",
+    "adapter": "qwen3vl_mlx",
+    "run": "e1b-mlx-video-fps2",
+    "attempted_clips": 20,
+    "clips_with_any_supported_claim": 11,
+    "run_dir": "/Users/mjjones/Projects/loanarmy-bench-reports/e1b-mlx-video-fps2",
+    "settings": {
+      "adapter": "qwen3vl_mlx",
+      "anchor_mode": "first",
+      "box_space": "normalized_1000",
+      "clips": [
+        "m04-n02-t3005-474114-478131",
+        "m04-n03-t1406-157170-158922",
+        "m04-n03-t1406-385962-387137",
+        "m04-n04-t3006-243433-247994",
+        "m04-n04-t3006-307417-310307",
+        "m04-n05-t3007-284945-287898",
+        "m04-n09-t1409-143096-143834",
+        "m04-n09-t1409-297601-298865",
+        "m04-n09-t1409-385922-386603",
+        "m04-n10-t711-186553-188161",
+        "m04-n12-t1411-237107-242145",
+        "m04-n12-t1411-679986-681985",
+        "m04-n15-t3010-164698-170777",
+        "m04-n17-t717-253073-260377",
+        "m04-n17-t717-304624-307834",
+        "m04-n17-t717-416826-418915",
+        "m04-n21-t3011-390297-390800",
+        "m04-n22-t3012-070707-074371",
+        "m04-n24-t3013-679939-681217",
+        "m04-n25-t3014-530600-532465"
+      ],
+      "fingerprint": "0d787eb0cf4c0334c4abf085748ddd0530aab8453d7933566779e39984bd4fd9",
+      "format_mode": "json",
+      "fps": 2.0,
+      "frozen_set_id": "1f68e2755002b3598c763532e95c212de9261ffa638c2943ad3769a1be77503f",
+      "mlx_python": "/Users/mjjones/mlx-vlm-venv/bin/python",
+      "mlx_pythonpath": "/Users/mjjones/Projects/loanarmy/.worktrees/video-lane/spike/video-analysis/bench/report/.worker-deps",
+      "model": "mlx-community/Qwen3-VL-8B-Instruct-4bit",
+      "num_predict": 400,
+      "ollama_url": "http://127.0.0.1:11434",
+      "repeat_penalty": 1.15,
+      "repetition_context_size": 64,
+      "schema_version": "film-room-evidence-run-v5",
+      "temperature": 0.0,
+      "timeout_s": 120.0
+    },
+    "metrics": {
+      "box_grounded_at_midpoint_rate": 0.0,
+      "box_grounded_at_midpoint_rate_boxed": 0.0,
+      "box_grounded_at_midpoint_rate_unboxed": 0.0,
+      "box_grounded_rate": 0.6875,
+      "box_grounded_rate_boxed": 0.7333,
+      "box_grounded_rate_unboxed": 0.0,
+      "box_sanity_guard_count": 0,
+      "boxed_claim_count": 15,
+      "claim_count": 16,
+      "claims_per_clip": 1.0,
+      "echo_suspect_count": 0,
+      "fabricated_rate": null,
+      "failed_clips": 4,
+      "hollow_rate": 0.0,
+      "malformed_rate": 0.0,
+      "observed_clips": 0,
+      "scored_clips": 16,
+      "supported_rate": 0.6875,
+      "supported_rate_boxed": 0.7333,
+      "supported_rate_unboxed": 0.0,
+      "time_only_rate": 0.3125,
+      "tokens_per_clip": 85.737,
+      "unboxed_claim_count": 1,
+      "unsupported_rate": 0.3125,
+      "untracked_gap": 0,
+      "untracked_gap_rate": 0.0,
+      "wall_s_per_clip": 56.017
+    },
+    "fps": 2.0,
+    "sent_frames_per_clip": 49.6,
+    "recorded_sent_frames_per_clip": 49.6,
+    "unknown_frame_provenance_clips": 0,
+    "stopped_early": null,
+    "sent_frames_mean_denominator": "all attempted clips; pre-inference anchor failures count zero (Ollama records extracted but unsent frames); separate MLX anchor excluded; if unknown_frame_provenance_clips > 0 this is only a lower bound",
+    "sent_frames_per_successful_clip": 51.875,
+    "sent_sizes": [
+      [
+        544,
+        288
+      ],
+      [
+        608,
+        320
+      ],
+      [
+        640,
+        352
+      ],
+      [
+        704,
+        384
+      ],
+      [
+        768,
+        416
+      ],
+      [
+        832,
+        448
+      ],
+      [
+        864,
+        480
+      ],
+      [
+        1056,
+        576
+      ],
+      [
+        1056,
+        608
+      ],
+      [
+        1088,
+        608
+      ],
+      [
+        1120,
+        640
+      ],
+      [
+        1152,
+        640
+      ],
+      [
+        1344,
+        768
+      ],
+      [
+        1408,
+        800
+      ],
+      [
+        1760,
+        992
+      ],
+      [
+        1920,
+        1088
+      ]
+    ],
+    "tokens": {
+      "available_clips": 19,
+      "prompt_total": 256519,
+      "generation_total": 1629,
+      "prompt_mean": 13501,
+      "generation_mean": 85.737
+    },
+    "max_wall_s": 98.052,
+    "failures": [
+      {
+        "clip_id": "m04-n02-t3005-474114-478131",
+        "error": "RuntimeError: truth box is unavailable at sampled time 4741.190s",
+        "claims_raw": ""
+      },
+      {
+        "clip_id": "m04-n04-t3006-243433-247994",
+        "error": "no parseable claims",
+        "claims_raw": "{\"claims\":[{\"claim\":\"The player marked with a red rectangle in the first frame is visible across multiple subsequent frames.\",\"t0\":2434.38,\"t1\":2479.94,\"box_t\":2434.38,\"box\":[65, 1000, 1000, 1000],\"confidence\":\"high\",\"visibility\":\"clear\"}]}"
+      },
+      {
+        "clip_id": "m04-n05-t3007-284945-287898",
+        "error": "no parseable claims",
+        "claims_raw": "{\"claims\":[]}"
+      },
+      {
+        "clip_id": "m04-n09-t1409-143096-143834",
+        "error": "no parseable claims",
+        "claims_raw": "{\"claims\":[{\"claim\":\"A player in a red jersey and black shorts is standing near the sideline, arms crossed.\",\"t0\":1431.527,\"t1\":1438.334,\"box_t\":1431.010,\"box\":[926, 630, 996, 996],\"confidence\":\"high\",\"visibility\":\"clear\"}]}"
+      }
+    ],
+    "smoke_run": "e1b-mlx-video-fps2-smoke-v3",
+    "thresholds": {
+      "unsupported_le_10_percent": false,
+      "supported_ge_2x_historical_baseline_zero": true,
+      "headline_unboxed_ge_2x_historical_baseline_zero": true,
+      "hollow_lt_5_percent": true,
+      "every_attempt_le_120s": true,
+      "kill_unsupported_gt_25_percent": true,
+      "baseline_caveat": "Historical baseline supported_rate=0 structurally (no boxes), so 2x is vacuous, not evidence of improvement.",
+      "invented_jersey_number_kill": null
+    },
+    "jersey_review": {
+      "clips": [
+        "m04-n05-t3007-284945-287898",
+        "m04-n17-t717-416826-418915"
+      ],
+      "new_unsupplied_number_observed": false,
+      "supplied_17_asserted_as_kit_detail": true,
+      "interpretation": "No new-number invention observed; video wording asserts supplied tracking label as kit number on a designated unreadable-number clip. Kill criterion UNCONFIRMED; flagged for review."
+    }
+  },
+  "video_fps4": {
+    "model": "mlx-community/Qwen3-VL-8B-Instruct-4bit",
+    "adapter": "qwen3vl_mlx",
+    "run": "e1b-mlx-video-fps4",
+    "attempted_clips": 20,
+    "clips_with_any_supported_claim": 14,
+    "run_dir": "/Users/mjjones/Projects/loanarmy-bench-reports/e1b-mlx-video-fps4",
+    "settings": {
+      "adapter": "qwen3vl_mlx",
+      "anchor_mode": "first",
+      "box_space": "normalized_1000",
+      "clips": [
+        "m04-n02-t3005-474114-478131",
+        "m04-n03-t1406-157170-158922",
+        "m04-n03-t1406-385962-387137",
+        "m04-n04-t3006-243433-247994",
+        "m04-n04-t3006-307417-310307",
+        "m04-n05-t3007-284945-287898",
+        "m04-n09-t1409-143096-143834",
+        "m04-n09-t1409-297601-298865",
+        "m04-n09-t1409-385922-386603",
+        "m04-n10-t711-186553-188161",
+        "m04-n12-t1411-237107-242145",
+        "m04-n12-t1411-679986-681985",
+        "m04-n15-t3010-164698-170777",
+        "m04-n17-t717-253073-260377",
+        "m04-n17-t717-304624-307834",
+        "m04-n17-t717-416826-418915",
+        "m04-n21-t3011-390297-390800",
+        "m04-n22-t3012-070707-074371",
+        "m04-n24-t3013-679939-681217",
+        "m04-n25-t3014-530600-532465"
+      ],
+      "fingerprint": "fd66d3163071f6749682edefa6326ae4c9c0536c1eee09f284fffeb945f48435",
+      "format_mode": "json",
+      "fps": 4.0,
+      "frozen_set_id": "1f68e2755002b3598c763532e95c212de9261ffa638c2943ad3769a1be77503f",
+      "mlx_python": "/Users/mjjones/mlx-vlm-venv/bin/python",
+      "mlx_pythonpath": "/Users/mjjones/Projects/loanarmy/.worktrees/video-lane/spike/video-analysis/bench/report/.worker-deps",
+      "model": "mlx-community/Qwen3-VL-8B-Instruct-4bit",
+      "num_predict": 400,
+      "ollama_url": "http://127.0.0.1:11434",
+      "repeat_penalty": 1.15,
+      "repetition_context_size": 64,
+      "schema_version": "film-room-evidence-run-v5",
+      "temperature": 0.0,
+      "timeout_s": 120.0,
+      "wall_cap_s": 120.0
+    },
+    "metrics": {
+      "box_grounded_at_midpoint_rate": 0.0,
+      "box_grounded_at_midpoint_rate_boxed": 0.0,
+      "box_grounded_at_midpoint_rate_unboxed": null,
+      "box_grounded_rate": 0.7778,
+      "box_grounded_rate_boxed": 0.7778,
+      "box_grounded_rate_unboxed": null,
+      "box_sanity_guard_count": 0,
+      "boxed_claim_count": 18,
+      "claim_count": 18,
+      "claims_per_clip": 1.0,
+      "echo_suspect_count": 0,
+      "fabricated_rate": null,
+      "failed_clips": 2,
+      "hollow_rate": 0.0,
+      "malformed_rate": 0.0,
+      "observed_clips": 0,
+      "scored_clips": 18,
+      "supported_rate": 0.7778,
+      "supported_rate_boxed": 0.7778,
+      "supported_rate_unboxed": null,
+      "time_only_rate": 0.2222,
+      "tokens_per_clip": 89.684,
+      "unboxed_claim_count": 0,
+      "unsupported_rate": 0.2222,
+      "untracked_gap": 0,
+      "untracked_gap_rate": 0.0,
+      "wall_s_per_clip": 63.771
+    },
+    "fps": 4.0,
+    "sent_frames_per_clip": 100.5,
+    "recorded_sent_frames_per_clip": 100.5,
+    "unknown_frame_provenance_clips": 0,
+    "stopped_early": null,
+    "sent_frames_mean_denominator": "all attempted clips; pre-inference anchor failures count zero (Ollama records extracted but unsent frames); separate MLX anchor excluded; if unknown_frame_provenance_clips > 0 this is only a lower bound",
+    "sent_frames_per_successful_clip": 95.444,
+    "sent_sizes": [
+      [
+        384,
+        192
+      ],
+      [
+        416,
+        224
+      ],
+      [
+        448,
+        256
+      ],
+      [
+        480,
+        256
+      ],
+      [
+        544,
+        288
+      ],
+      [
+        576,
+        320
+      ],
+      [
+        608,
+        320
+      ],
+      [
+        608,
+        352
+      ],
+      [
+        736,
+        384
+      ],
+      [
+        736,
+        416
+      ],
+      [
+        768,
+        416
+      ],
+      [
+        768,
+        448
+      ],
+      [
+        832,
+        448
+      ],
+      [
+        928,
+        512
+      ],
+      [
+        960,
+        544
+      ],
+      [
+        1248,
+        704
+      ],
+      [
+        1280,
+        736
+      ],
+      [
+        1472,
+        832
+      ]
+    ],
+    "tokens": {
+      "available_clips": 19,
+      "prompt_total": 263949,
+      "generation_total": 1704,
+      "prompt_mean": 13892.053,
+      "generation_mean": 89.684
+    },
+    "max_wall_s": 95.118,
+    "failures": [
+      {
+        "clip_id": "m04-n02-t3005-474114-478131",
+        "error": "RuntimeError: truth box is unavailable at sampled time 4741.190s",
+        "claims_raw": ""
+      },
+      {
+        "clip_id": "m04-n17-t717-253073-260377",
+        "error": "no parseable claims",
+        "claims_raw": "{ \"claims\": [ { \"claim\": \"The player in the red jersey is running with the ball.\", \"t0\": 2531.497, \"t1\": 2536.736, \"box_t\": 2530.830, \"box\": [100, 600, 150, 650], \"confidence\": \"medium\", \"visibility\": \"clear\" } ] }"
+      }
+    ],
+    "smoke_run": "e1b-mlx-video-fps4-smoke",
+    "thresholds": {
+      "unsupported_le_10_percent": false,
+      "supported_ge_2x_historical_baseline_zero": true,
+      "headline_unboxed_ge_2x_historical_baseline_zero": null,
+      "hollow_lt_5_percent": true,
+      "every_attempt_le_120s": true,
+      "kill_unsupported_gt_25_percent": false,
+      "baseline_caveat": "Historical baseline supported_rate=0 structurally (no boxes), so 2x is vacuous, not evidence of improvement.",
+      "invented_jersey_number_kill": null
+    },
+    "jersey_review": {
+      "clips": [
+        "m04-n05-t3007-284945-287898",
+        "m04-n17-t717-416826-418915"
+      ],
+      "new_unsupplied_number_observed": false,
+      "supplied_17_asserted_as_kit_detail": true,
+      "interpretation": "No new-number invention observed; video wording asserts supplied tracking label as kit number on a designated unreadable-number clip. Kill criterion UNCONFIRMED; flagged for review."
+    }
+  },
+  "per_clip_flips": {
+    "video_fps2": [
+      {
+        "clip_id": "m04-n04-t3006-243433-247994",
+        "winner": "frames",
+        "kind": "mechanical_failure",
+        "frames_status": "scored",
+        "video_status": "failed",
+        "video_error": "no parseable claims",
+        "frames_claims": [
+          {
+            "claim": "The player marked with red rectangle in frame 2434.380 is visible as a person wearing dark clothing and standing near the goal area.",
+            "box_t": 2434.38,
+            "supported": true,
+            "boxed_frame": true,
+            "malformed": false,
+            "time_grounded": true,
+            "box_grounded": true
+          }
+        ],
+        "video_claims": []
+      },
+      {
+        "clip_id": "m04-n05-t3007-284945-287898",
+        "winner": "frames",
+        "kind": "mechanical_failure",
+        "frames_status": "scored",
+        "video_status": "failed",
+        "video_error": "no parseable claims",
+        "frames_claims": [
+          {
+            "claim": "The player marked with red rectangle in frame 0 (2849.500) is visible in subsequent frames.",
+            "box_t": 2849.5,
+            "supported": true,
+            "boxed_frame": true,
+            "malformed": false,
+            "time_grounded": true,
+            "box_grounded": true
+          }
+        ],
+        "video_claims": []
+      },
+      {
+        "clip_id": "m04-n09-t1409-143096-143834",
+        "winner": "frames",
+        "kind": "mechanical_failure",
+        "frames_status": "scored",
+        "video_status": "failed",
+        "video_error": "no parseable claims",
+        "frames_claims": [
+          {
+            "claim": "The player in red with arms crossed stands near the sideline.",
+            "box_t": 1431.01,
+            "supported": true,
+            "boxed_frame": true,
+            "malformed": false,
+            "time_grounded": true,
+            "box_grounded": true
+          }
+        ],
+        "video_claims": []
+      },
+      {
+        "clip_id": "m04-n10-t711-186553-188161",
+        "winner": "frames",
+        "kind": "support_rate",
+        "frames_rate": 1.0,
+        "video_rate": 0.0,
+        "frames_claims": [
+          {
+            "claim": "The player marked with #10 in frame 1865.580 is visible in subsequent frames.",
+            "box_t": 1865.58,
+            "supported": true,
+            "boxed_frame": true,
+            "malformed": false,
+            "time_grounded": true,
+            "box_grounded": true
+          }
+        ],
+        "video_claims": [
+          {
+            "claim": "A player in a red jersey is visible on the field.",
+            "box_t": 1879.511,
+            "supported": false,
+            "boxed_frame": false,
+            "malformed": false,
+            "time_grounded": true,
+            "box_grounded": false
+          }
+        ]
+      },
+      {
+        "clip_id": "m04-n15-t3010-164698-170777",
+        "winner": "frames",
+        "kind": "support_rate",
+        "frames_rate": 1.0,
+        "video_rate": 0.0,
+        "frames_claims": [
+          {
+            "claim": "The player marked with red rectangle in frame 1647.030 appears to be a footballer wearing a red jersey and black shorts.",
+            "box_t": 1647.03,
+            "supported": true,
+            "boxed_frame": true,
+            "malformed": false,
+            "time_grounded": true,
+            "box_grounded": true
+          }
+        ],
+        "video_claims": [
+          {
+            "claim": "Player with red rectangle in first frame is tracked through the video.",
+            "box_t": 1647.03,
+            "supported": false,
+            "boxed_frame": true,
+            "malformed": false,
+            "time_grounded": true,
+            "box_grounded": false
+          }
+        ]
+      },
+      {
+        "clip_id": "m04-n17-t717-253073-260377",
+        "winner": "video",
+        "kind": "support_rate",
+        "frames_rate": 0.0,
+        "video_rate": 1.0,
+        "frames_claims": [
+          {
+            "claim": "The player in red jersey with number 17 is holding a football.",
+            "box_t": 2535.83,
+            "supported": false,
+            "boxed_frame": false,
+            "malformed": false,
+            "time_grounded": true,
+            "box_grounded": false
+          }
+        ],
+        "video_claims": [
+          {
+            "claim": "A player in a red jersey is visible on the field.",
+            "box_t": 2530.83,
+            "supported": true,
+            "boxed_frame": true,
+            "malformed": false,
+            "time_grounded": true,
+            "box_grounded": true
+          }
+        ]
+      },
+      {
+        "clip_id": "m04-n17-t717-416826-418915",
+        "winner": "frames",
+        "kind": "support_rate",
+        "frames_rate": 1.0,
+        "video_rate": 0.0,
+        "frames_claims": [
+          {
+            "claim": "The player marked with #17 in frame 4168.330 is visible running on the field.",
+            "box_t": 4168.33,
+            "supported": true,
+            "boxed_frame": true,
+            "malformed": false,
+            "time_grounded": true,
+            "box_grounded": true
+          }
+        ],
+        "video_claims": [
+          {
+            "claim": "The player wearing a red jersey with the number 17 is visible in frame t0=4168.330 and continues to be tracked through subsequent frames.",
+            "box_t": 4168.33,
+            "supported": false,
+            "boxed_frame": true,
+            "malformed": false,
+            "time_grounded": true,
+            "box_grounded": false
+          }
+        ]
+      },
+      {
+        "clip_id": "m04-n24-t3013-679939-681217",
+        "winner": "video",
+        "kind": "support_rate",
+        "frames_rate": 0.0,
+        "video_rate": 1.0,
+        "frames_claims": [
+          {
+            "claim": "The player marked with #24 in frame 6799.440 is visible at the same location as a referee holding a white object.",
+            "box_t": 6804.44,
+            "supported": false,
+            "boxed_frame": false,
+            "malformed": false,
+            "time_grounded": true,
+            "box_grounded": false
+          }
+        ],
+        "video_claims": [
+          {
+            "claim": "The player wearing a black jersey with the number 24 is walking on the field.",
+            "box_t": 6799.44,
+            "supported": true,
+            "boxed_frame": true,
+            "malformed": false,
+            "time_grounded": true,
+            "box_grounded": true
+          }
+        ]
+      },
+      {
+        "clip_id": "m04-n25-t3014-530600-532465",
+        "winner": "video",
+        "kind": "support_rate",
+        "frames_rate": 0.0,
+        "video_rate": 1.0,
+        "frames_claims": [
+          {
+            "claim": "The player marked with #25 in frame 0 is visible at position (178,349) in the first image.",
+            "box_t": 5306.05,
+            "supported": false,
+            "boxed_frame": true,
+            "malformed": false,
+            "time_grounded": true,
+            "box_grounded": false
+          }
+        ],
+        "video_claims": [
+          {
+            "claim": "Player #25 is visible in the video.",
+            "box_t": 5306.05,
+            "supported": true,
+            "boxed_frame": true,
+            "malformed": false,
+            "time_grounded": true,
+            "box_grounded": true
+          }
+        ]
+      }
+    ],
+    "video_fps4": [
+      {
+        "clip_id": "m04-n04-t3006-243433-247994",
+        "winner": "frames",
+        "kind": "support_rate",
+        "frames_rate": 1.0,
+        "video_rate": 0.0,
+        "frames_claims": [
+          {
+            "claim": "The player marked with red rectangle in frame 2434.380 is visible as a person wearing dark clothing and standing near the goal area.",
+            "box_t": 2434.38,
+            "supported": true,
+            "boxed_frame": true,
+            "malformed": false,
+            "time_grounded": true,
+            "box_grounded": true
+          }
+        ],
+        "video_claims": [
+          {
+            "claim": "A player in a red jersey is tracked across multiple frames.",
+            "box_t": 2434.38,
+            "supported": false,
+            "boxed_frame": true,
+            "malformed": false,
+            "time_grounded": true,
+            "box_grounded": false
+          }
+        ]
+      },
+      {
+        "clip_id": "m04-n15-t3010-164698-170777",
+        "winner": "frames",
+        "kind": "support_rate",
+        "frames_rate": 1.0,
+        "video_rate": 0.0,
+        "frames_claims": [
+          {
+            "claim": "The player marked with red rectangle in frame 1647.030 appears to be a footballer wearing a red jersey and black shorts.",
+            "box_t": 1647.03,
+            "supported": true,
+            "boxed_frame": true,
+            "malformed": false,
+            "time_grounded": true,
+            "box_grounded": true
+          }
+        ],
+        "video_claims": [
+          {
+            "claim": "A player in a blue jersey is tracked across multiple frames.",
+            "box_t": 1647.03,
+            "supported": false,
+            "boxed_frame": true,
+            "malformed": false,
+            "time_grounded": true,
+            "box_grounded": false
+          }
+        ]
+      },
+      {
+        "clip_id": "m04-n17-t717-253073-260377",
+        "winner": "frames",
+        "kind": "mechanical_failure",
+        "frames_status": "scored",
+        "video_status": "failed",
+        "video_error": "no parseable claims",
+        "frames_claims": [
+          {
+            "claim": "The player in red jersey with number 17 is holding a football.",
+            "box_t": 2535.83,
+            "supported": false,
+            "boxed_frame": false,
+            "malformed": false,
+            "time_grounded": true,
+            "box_grounded": false
+          }
+        ],
+        "video_claims": []
+      },
+      {
+        "clip_id": "m04-n24-t3013-679939-681217",
+        "winner": "video",
+        "kind": "support_rate",
+        "frames_rate": 0.0,
+        "video_rate": 1.0,
+        "frames_claims": [
+          {
+            "claim": "The player marked with #24 in frame 6799.440 is visible at the same location as a referee holding a white object.",
+            "box_t": 6804.44,
+            "supported": false,
+            "boxed_frame": false,
+            "malformed": false,
+            "time_grounded": true,
+            "box_grounded": false
+          }
+        ],
+        "video_claims": [
+          {
+            "claim": "The player identified by the red rectangle in frame 0 is visible in subsequent frames.",
+            "box_t": 6799.44,
+            "supported": true,
+            "boxed_frame": true,
+            "malformed": false,
+            "time_grounded": true,
+            "box_grounded": true
+          }
+        ]
+      },
+      {
+        "clip_id": "m04-n25-t3014-530600-532465",
+        "winner": "video",
+        "kind": "support_rate",
+        "frames_rate": 0.0,
+        "video_rate": 1.0,
+        "frames_claims": [
+          {
+            "claim": "The player marked with #25 in frame 0 is visible at position (178,349) in the first image.",
+            "box_t": 5306.05,
+            "supported": false,
+            "boxed_frame": true,
+            "malformed": false,
+            "time_grounded": true,
+            "box_grounded": false
+          }
+        ],
+        "video_claims": [
+          {
+            "claim": "The player identified by the red rectangle in frame 5306.050 is visible in subsequent frames.",
+            "box_t": 5306.05,
+            "supported": true,
+            "boxed_frame": true,
+            "malformed": false,
+            "time_grounded": true,
+            "box_grounded": true
+          }
+        ]
+      }
+    ]
+  },
+  "verdict": "frames",
+  "verdict_evidence": "Frames match 4 FPS at 14/20 supported clips with fewer failures (1 versus 2) and approximately 5x lower wall time (12.759 versus 63.771s); neither video rate demonstrates unboxed grounding.",
+  "smoke_attempts": [
+    {
+      "run": "e1b-mlx-video-fps2-smoke",
+      "result": "missing Jinja2 before generation; installed worktree-local dependency"
+    },
+    {
+      "run": "e1b-mlx-video-fps2-smoke-v2",
+      "result": "Markdown-wrapped JSON rejected by unchanged contract; explicitly prohibited fences in prompt"
+    },
+    {
+      "run": "e1b-mlx-video-fps2-smoke-v3",
+      "result": "strictly parseable claim, unsupported box, 100 video frames, 59.713s"
+    },
+    {
+      "run": "e1b-mlx-video-fps4-smoke",
+      "result": "strictly parseable claim, unsupported box, 200 video frames, 84.190s"
+    }
+  ],
+  "like_for_like_caveats": [
+    "E1 frames sample every 5s, at most six stills; production's \u22643 stills every 30s is a different sampling policy.",
+    "MLX uses native temporal patch grids, not multi-image stills. Its installed Qwen processor omits HF per-pair timestamp tokens; actual decoder times are supplied in text. This is not full HF timestamp encoding parity.",
+    "MLX adds a separate marked image at the same truth-aware first time (usually 0.05s); raw video starts at 0s and remains unlabelled. The unchanged \u00b10.5s rule can count nearby raw video frames as boxed.",
+    "Spatial resolution and coverage differ: MLX samples the full clip and spends a fixed total video pixel budget; doubling FPS reduces each frame's resolution. Frames are 1280\u00d7720.",
+    "Ollama GGUF Q4_K_M and the MLX 4-bit conversion are different weights/engines; tokenizer, preprocessing, repetition implementations and output formatting can differ despite shared temperature 0, 400-token cap and penalty 1.15. Ollama enforces JSON mode; MLX uses prompt instructions with the same strict parser.",
+    "MLX includes a fresh Python process/model load for every clip. Ollama keeps a shared server/model and its smoke prompt cache sped the repeated control clip to 2.248s. Single sequential passes, no repeated trials or machine workload isolation.",
+    "Rates exclude failed clips; 0% hollow/malformed among scored claims hides failed empty/invalid outputs. Count successful grounded clips over all 20 as well: frames 14, 2 FPS 11, 4 FPS 14. Wall means include early failures; token means cover available worker responses only.",
+    "`m04-n02-t3005-474114-478131` fails the current shared anchor lookup in all lanes at 4741.19s. Historical E1 counted it unsupported; 14 supported claims persist in today's frames control, but the scored denominator is 19 instead of 20.",
+    "No frozen clip has a human note; action semantics/fabrication are not graded. On the designated unreadable-number clip, both video rates assert jersey 17 as kit detail; 17 was supplied, so new-number invention is UNCONFIRMED, but the wording is flagged for the jersey-number kill criterion. Frames refers to the marked #17 label.",
+    "Two unsuccessful MLX smoke attempts are retained: missing Jinja2, then fenced JSON. Jinja2 3.1.6/MarkupSafe 3.0.3 were installed only under this worktree's ignored report directory; the final prompt forbids Markdown and the parser was not relaxed.",
+    "4 FPS and frames each support 14/20 attempted clips; 4 FPS has one additional failure excluded from its unsupported-rate denominator, so the lower conditional unsupported rate is not a coverage gain."
+  ],
+  "execution": {
+    "all_lanes_attempted_all_20": true,
+    "parallel_model_runs": false,
+    "wall_cap_stops": 0,
+    "ollama_num_ctx": 65536,
+    "control_timeout_s": 300,
+    "mlx_worker_timeout_s": 120,
+    "control_guard": "Only this session's caffeinate wrapper matched qwen_match_analysis|run_bench before control runs; parentage inspected.",
+    "evaluation_only": true,
+    "raw_reports_and_frozen_media_committed": false
+  }
+}
