@@ -1,4 +1,6 @@
-On 20 human-noted clips, Qwen3-VL:8b invented on-ball play for 12 of 13 clips where MJ saw none (dense) and 10 of 13 (single-still), matched MJ's actual action on at most 1 of 6 on-ball clips (3 of 6 lenient), and 12 frames instead of 1 made the invention worse, not better.
+On 20 shared scored clips, qwen3-vl:8b invented on-ball play for 12 of 13 clips where MJ saw none (dense) and 10 of 13 (prod30), matched MJ's actual action on at most 1 of 6 on-ball clips (3 of 6 lenient). The runs sent a mean 11.9 boxed frames per clip vs 1.45; the sparse run (prod30) had a single frame on 13 of 20 attempts.
+
+Shared scored clips: 20. The scored/failed columns and per-run reports retain all attempts. All other comparison-table metrics and activity headline counts use only shared scored clip IDs, scored in both saved reports and current rescoring. Frame facts use all recorded raw attempts, including failures.
 
 Human notes enable deterministic activity and event-class checks. These measure coarse correctness against MJ's observations, not timing/outcome accuracy or exhaustive semantic correctness.
 
@@ -13,7 +15,7 @@ Honesty rates and events/clip: scored clips. Jersey rates exclude disputed label
 | e1c-annotated-dense | 20 / 0 | 92.31% | 85.71% | 100.00% | 16.67% | 50.00% | 36.84% | 94.74% | 1/15/4 | 100.00% | 0.00% | 0.00% | 35.00% | 15.00% | 35.00% | 55.00% | 5.26% | 0.00% | 85.00% | 10.00% | 5.00% | 100.00% | 0.00% | 6.52% | 0.1933 | 0 | 100.00% | 100.00% | 100.00% | 2.3 | 58.417 |
 | e1c-annotated-prod30 | 20 / 0 | 76.92% | 57.14% | 100.00% | 0.00% | 33.33% | 31.58% | 84.21% | 0/12/8 | 100.00% | 0.00% | 0.00% | 60.00% | 40.00% | 60.00% | 45.00% | 15.79% | 0.00% | 85.00% | 10.00% | 5.00% | 100.00% | 31.43% | 57.14% | 1.2069 | 12 | 100.00% | 100.00% | 100.00% | 1.75 | 9.898 |
 
-Sentence counts are agree/disagree/undetermined. Activity and identity denominators per run:
+Sentence counts are agree/disagree/undetermined. Full per-run report denominators (comparison rates above use shared clips):
 
 - e1c-annotated-dense: {'off_pitch_claimed_on_ball': 7, 'idle_claimed_on_ball': 3, 'on_ball_recalled': 6, 'on_ball_recalled_lenient': 6, 'no_on_ball_claimed_on_ball': 13, 'activity_agreement': 19}; jersey eligible 19; kit eligible 20; noted clips 20; fabrication eligible 19
 - e1c-annotated-prod30: {'off_pitch_claimed_on_ball': 7, 'idle_claimed_on_ball': 3, 'on_ball_recalled': 6, 'on_ball_recalled_lenient': 6, 'no_on_ball_claimed_on_ball': 13, 'activity_agreement': 19}; jersey eligible 19; kit eligible 20; noted clips 20; fabrication eligible 19

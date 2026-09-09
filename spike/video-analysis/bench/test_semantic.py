@@ -1025,13 +1025,19 @@ def test_all_twenty_notes_in_comparison_table(tmp_path):
             json.dumps(
                 {
                     "adapter": "qwen3vl_annotated",
+                    "model": "fixture-model",
                     "frozen_set_id": "fixture-set",
                     "clips": list(truths),
                 }
             )
         )
         (directory / "report.json").write_text(
-            json.dumps({"generated_at": "2026-09-09"})
+            json.dumps(
+                {
+                    "generated_at": "2026-09-09",
+                    "clips": [{"clip_id": cid, "status": "scored"} for cid in truths],
+                }
+            )
         )
         for cid in truths:
             (directory / "claims" / f"{cid}.json").write_text(
@@ -1318,10 +1324,267 @@ def test_headline_excludes_mixed_activity_from_no_on_ball_group():
     ]
     report = score_run(rows, truths)
     headline = activity_headline(
-        {"dense": {"report": report}, "prod30": {"report": report}}
+        {
+            "complete": True,
+            "shared_scored_clips": 20,
+            "paired_overall": {name: report["overall"] for name in ("dense", "prod30")},
+            "paired_counts": {
+                name: {
+                    "no_on_ball_claimed_on_ball": 13,
+                    "on_ball_recalled": 0,
+                    "on_ball_recalled_lenient": 2,
+                }
+                for name in ("dense", "prod30")
+            },
+            "frame_facts": {
+                name: {
+                    "model": "fixture",
+                    "mean_boxed_frames_per_clip": 2 if name == "dense" else 1,
+                    "single_frame_attempts": 20,
+                    "attempted_clips": 20,
+                }
+                for name in ("dense", "prod30")
+            },
+        }
     )
     assert "13 of 13 clips where MJ saw none" in headline
     assert "0 of 6 on-ball clips (2 of 6 lenient)" in headline
     assert (
         report["overall"]["activity_denominators"]["no_on_ball_claimed_on_ball"] == 13
     )
+
+
+def semantic_comparison_fixture(tmp_path):
+    notes = [
+        "on the sideline",
+        "passes the ball",
+        "just walking around.",
+        "tracked back for defense",
+    ]
+    truths = {
+        f"clip-{i}": {**truth(note), "clip_id": f"clip-{i}"}
+        for i, note in enumerate(notes)
+    }
+    (tmp_path / "truth").mkdir()
+    for cid, value in truths.items():
+        (tmp_path / "truth" / f"{cid}.json").write_text(json.dumps(value))
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "frozen_set_id": "fixture-set",
+                "clips": [
+                    {"clip_id": cid, "truth": f"truth/{cid}.json"} for cid in truths
+                ],
+            }
+        )
+    )
+    for name, frames in [("dense", 4), ("prod30", 2)]:
+        directory = tmp_path / name
+        (directory / "claims").mkdir(parents=True)
+        rows = []
+        for cid in truths:
+            # Last idle/defensive clips abstain on actions; dropping them changes
+            # the no-on-ball denominator and rate, exposing unpaired comparisons.
+            cls = (
+                "carry"
+                if cid == "clip-0"
+                else "pass"
+                if cid == "clip-1"
+                else "off_ball"
+            )
+            sent = [
+                {"t": 11.0 + i}
+                for i in range(1 if name == "prod30" and cid == "clip-0" else frames)
+            ]
+            row = {
+                **raw(events=[event(event_type=cls)]),
+                "clip_id": cid,
+                "sent_frames": sent,
+                "anchored_frames": sent,
+            }
+            rows.append(row)
+            (directory / "claims" / f"{cid}.json").write_text(json.dumps(row))
+        (directory / "run.json").write_text(
+            json.dumps(
+                {
+                    "adapter": "qwen3vl_annotated",
+                    "model": "fixture-model:3b",
+                    "frozen_set_id": "fixture-set",
+                    "clips": list(truths),
+                    "wall_cap_s": 120,
+                }
+            )
+        )
+        (directory / "report.json").write_text(json.dumps(score_run(rows, truths)))
+    return manifest, {"dense": "dense", "prod30": "prod30"}
+
+
+@pytest.mark.parametrize("partial", ["dense", "prod30"])
+@pytest.mark.parametrize("gap", ["claim", "report", "not_attempted", "missing_report"])
+def test_partial_semantic_comparison_withholds_headline_and_pairs(
+    tmp_path, partial, gap
+):
+    manifest, runs = semantic_comparison_fixture(tmp_path)
+    if gap == "claim":
+        (tmp_path / partial / "claims/clip-3.json").unlink()
+    elif gap == "missing_report":
+        (tmp_path / partial / "report.json").unlink()
+    else:
+        path = tmp_path / partial / "report.json"
+        report = json.loads(path.read_text())
+        if gap == "report":
+            report["clips"] = report["clips"][
+                :-1
+            ]  # Leave raw file: must not mask coverage gap.
+        else:
+            report["clips"][-1]["status"] = "not_attempted"
+        path.write_text(json.dumps(report))
+    result = compare(tmp_path, runs, manifest)
+    assert result["headline"] == "INCOMPLETE COMPARISON — headline withheld"
+    assert result["state"] == "incomplete"
+    metadata = result["comparison_metadata"]
+    assert metadata["shared_scored_clips"] == (0 if gap == "missing_report" else 3)
+    assert "clip-3" in metadata["coverage"][partial]["missing_clip_ids"]
+    for overall in metadata["paired_overall"].values():
+        assert overall["activity_denominators"]["no_on_ball_claimed_on_ball"] == (
+            0 if gap == "missing_report" else 2
+        )
+        assert overall["no_on_ball_claimed_on_ball_rate"] == (
+            None if gap == "missing_report" else 0.5
+        )
+        assert overall["on_ball_recall"] == (None if gap == "missing_report" else 1)
+        assert overall["activity_agreement_rate"] == (
+            None if gap == "missing_report" else 0.6667
+        )
+    text = markdown(result)
+    assert text.startswith("INCOMPLETE COMPARISON — headline withheld")
+    assert f"{partial}: missing clip IDs:" in text and "clip-3" in text
+    other = "prod30" if partial == "dense" else "dense"
+    assert f"{other}: missing clip IDs: none" in text
+    assert "Shared scored clips:" in text
+    assert "made the invention" not in text
+
+
+@pytest.mark.parametrize(
+    "source,key,value",
+    [
+        ("report", "stopped_early", {"reason": "wall cap"}),
+        ("run", "stopped_early", {}),
+        ("report", "wall_cap_exceeded", True),
+    ],
+)
+@pytest.mark.parametrize("partial", ["dense", "prod30"])
+def test_semantic_stop_markers_with_full_coverage_withhold(
+    tmp_path, source, key, value, partial
+):
+    manifest, runs = semantic_comparison_fixture(tmp_path)
+    path = tmp_path / partial / f"{source}.json"
+    payload = json.loads(path.read_text())
+    payload[key] = value
+    path.write_text(json.dumps(payload))
+    result = compare(tmp_path, runs, manifest)
+    assert result["headline"] == "INCOMPLETE COMPARISON — headline withheld"
+    metadata = result["comparison_metadata"]
+    assert metadata["shared_scored_clips"] == 4
+    assert metadata["coverage"][partial]["stop_markers"] == {f"{source}.{key}": value}
+    assert metadata["coverage"][partial]["missing_clip_ids"] == []
+
+
+def test_complete_semantic_pair_derives_model_and_frame_facts(tmp_path):
+    manifest, runs = semantic_comparison_fixture(tmp_path)
+    result = compare(tmp_path, runs, manifest)
+    assert result["comparison_metadata"]["complete"]
+    assert result["comparison_metadata"]["shared_scored_clips"] == 4
+    assert result["headline"].startswith("On 4 shared scored clips, fixture-model:3b")
+    assert "mean 4 boxed frames per clip vs 1.75" in result["headline"]
+    assert "single frame on 1 of 4 attempts" in result["headline"]
+    assert (
+        "Qwen3-VL:8b" not in result["headline"]
+        and "12 frames" not in result["headline"]
+    )
+    # Inverse input order must not reverse the measured dense/sparse assignment.
+    reverse = compare(tmp_path, {"prod30": "prod30", "dense": "dense"}, manifest)
+    assert reverse["headline"] == result["headline"]
+
+
+def test_complete_attempts_but_failures_pair_only_shared_scores(tmp_path):
+    manifest, runs = semantic_comparison_fixture(tmp_path)
+    for name, cid in [("dense", "clip-3"), ("prod30", "clip-2")]:
+        path = tmp_path / name / "claims" / f"{cid}.json"
+        payload = json.loads(path.read_text())
+        payload["error"] = "fixture failure"
+        path.write_text(json.dumps(payload))
+        path = tmp_path / name / "report.json"
+        report = json.loads(path.read_text())
+        next(c for c in report["clips"] if c["clip_id"] == cid)["status"] = "failed"
+        path.write_text(json.dumps(report))
+    result = compare(tmp_path, runs, manifest)
+    metadata = result["comparison_metadata"]
+    assert metadata["complete"]
+    assert metadata["shared_scored_clip_ids"] == ["clip-0", "clip-1"]
+    assert result["headline"].startswith("On 2 shared scored clips")
+    for overall in metadata["paired_overall"].values():
+        assert overall["no_on_ball_claimed_on_ball_rate"] == 1
+        assert overall["activity_agreement_rate"] == 0.5
+        assert overall["on_ball_recall"] == 1
+    assert all(
+        lane["report"]["overall"]["scored_clips"] == 3
+        for lane in result["lanes"].values()
+    )
+
+
+@pytest.mark.parametrize(
+    "key,value",
+    [
+        ("model", "other-model:9b"),
+        ("adapter", "other-semantic-adapter"),
+        ("frozen_set_id", "other-set"),
+    ],
+)
+def test_semantic_mixed_settings_require_explicit_opt_in(tmp_path, key, value):
+    manifest, runs = semantic_comparison_fixture(tmp_path)
+    path = tmp_path / "prod30/run.json"
+    settings = json.loads(path.read_text())
+    settings[key] = value
+    path.write_text(json.dumps(settings))
+    with pytest.raises(ValueError, match="--allow-mixed"):
+        compare(tmp_path, runs, manifest)
+    result = compare(tmp_path, runs, manifest, allow_mixed=True)
+    assert result["comparison_metadata"]["mixed_settings"]["prod30"][key] == value
+    assert "Mixed settings explicitly allowed" in markdown(result)
+    if key == "model":
+        assert (
+            "fixture-model:3b (dense) and other-model:9b (prod30)" in result["headline"]
+        )
+
+
+def test_semantic_allow_mixed_cli(tmp_path):
+    from compare_semantic import main
+
+    manifest, _runs = semantic_comparison_fixture(tmp_path)
+    path = tmp_path / "prod30/run.json"
+    settings = json.loads(path.read_text())
+    settings["model"] = "other-model"
+    path.write_text(json.dumps(settings))
+    output = tmp_path / "comparison.json"
+    assert (
+        main(
+            [
+                "--reports-root",
+                str(tmp_path),
+                "--manifest",
+                str(manifest),
+                "--runs",
+                "dense=dense",
+                "prod30=prod30",
+                "--allow-mixed",
+                "--out-json",
+                str(output),
+                "--out-md",
+                str(tmp_path / "comparison.md"),
+            ]
+        )
+        == 0
+    )
+    assert json.loads(output.read_text())["comparison_metadata"]["allow_mixed"]

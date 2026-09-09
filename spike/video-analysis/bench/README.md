@@ -667,3 +667,34 @@ and 10/13 prod30. The idle subset still includes the mixed clip. The headline
 uses the requested “12 frames” and “single-still” shorthand; actual sampling is
 11.9 versus 1.45 frames/attempt, with single stills on 13/20 prod30 clips. This
 single-pass comparison does not prove a general causal effect of frame density.
+
+## Semantic comparison completeness and paired metrics
+
+`compare_semantic.py` requires complete coverage of the selected clip IDs in
+both saved `report.json` files and raw claim files. Failed attempts count as
+covered; missing reports, missing claim files, missing/not-attempted report rows,
+or `stopped_early` / `wall_cap_exceeded` markers in either run/report withhold
+the headline as **INCOMPLETE COMPARISON — headline withheld**. Missing IDs and
+stop markers are listed for both lanes. A configured wall cap alone is not a
+stop marker; an empty recorded stop object still is.
+
+Every comparison-table rate, recall, agreement and sentence count uses only the
+shared IDs scored in both saved reports and current rescoring. The shared count
+is printed above the table. Full per-run reports and the scored/failed columns
+retain all attempts, so failures remain visible. JSON records coverage, exact
+paired counts, shared IDs, paired aggregates and frame facts under
+`comparison_metadata`; existing per-clip scores are not rewritten.
+
+Run adapter, model and frozen-set identities must match, and the frozen set
+must match the supplied manifest. `--allow-mixed` explicitly permits identity
+mismatches and displays them; it does not relax the identical selection or
+semantic-schema requirements. Mixed-set comparisons still use the supplied
+manifest truth, as disclosed in the report. Both run.json model names must be
+recorded. The headline uses those names, measured mean boxed-frame counts from
+`anchored_frames`, and the count of raw attempts with exactly one `sent_frame`.
+Frame facts include all recorded attempts, including failures, independently
+of the shared scored metric denominator. Dense/sparse order follows measured
+boxed-frame means, so custom run names or reversed input order do not substitute
+hard-coded models or frame counts. The canonical pair has 20 shared scored
+clips and means 11.9 vs 1.45 boxed frames; 13/20 sparse attempts have one frame.
+The earlier round-5 headline shorthand is superseded by these measured facts.

@@ -11159,7 +11159,194 @@
       ]
     }
   },
-  "headline": "On 20 human-noted clips, Qwen3-VL:8b invented on-ball play for 12 of 13 clips where MJ saw none (dense) and 10 of 13 (single-still), matched MJ's actual action on at most 1 of 6 on-ball clips (3 of 6 lenient), and 12 frames instead of 1 made the invention worse, not better.",
+  "headline": "On 20 shared scored clips, qwen3-vl:8b invented on-ball play for 12 of 13 clips where MJ saw none (dense) and 10 of 13 (prod30), matched MJ's actual action on at most 1 of 6 on-ball clips (3 of 6 lenient). The runs sent a mean 11.9 boxed frames per clip vs 1.45; the sparse run (prod30) had a single frame on 13 of 20 attempts.",
+  "comparison_metadata": {
+    "complete": true,
+    "coverage": {
+      "dense": {
+        "missing_clip_ids": [],
+        "missing_claim_clip_ids": [],
+        "missing_report_clip_ids": [],
+        "stop_markers": {}
+      },
+      "prod30": {
+        "missing_clip_ids": [],
+        "missing_claim_clip_ids": [],
+        "missing_report_clip_ids": [],
+        "stop_markers": {}
+      }
+    },
+    "shared_scored_clip_ids": [
+      "m04-n02-t3005-474114-478131",
+      "m04-n03-t1406-157170-158922",
+      "m04-n03-t1406-385962-387137",
+      "m04-n04-t3006-243433-247994",
+      "m04-n04-t3006-307417-310307",
+      "m04-n05-t3007-284945-287898",
+      "m04-n09-t1409-143096-143834",
+      "m04-n09-t1409-297601-298865",
+      "m04-n09-t1409-385922-386603",
+      "m04-n10-t711-186553-188161",
+      "m04-n12-t1411-237107-242145",
+      "m04-n12-t1411-679986-681985",
+      "m04-n15-t3010-164698-170777",
+      "m04-n17-t717-253073-260377",
+      "m04-n17-t717-304624-307834",
+      "m04-n17-t717-416826-418915",
+      "m04-n21-t3011-390297-390800",
+      "m04-n22-t3012-070707-074371",
+      "m04-n24-t3013-679939-681217",
+      "m04-n25-t3014-530600-532465"
+    ],
+    "shared_scored_clips": 20,
+    "allow_mixed": false,
+    "mixed_settings": {},
+    "frame_facts": {
+      "dense": {
+        "adapter": "qwen3vl_annotated",
+        "model": "qwen3-vl:8b",
+        "frozen_set_id": "1f68e2755002b3598c763532e95c212de9261ffa638c2943ad3769a1be77503f",
+        "attempted_clips": 20,
+        "mean_boxed_frames_per_clip": 11.9,
+        "single_frame_attempts": 0
+      },
+      "prod30": {
+        "adapter": "qwen3vl_annotated",
+        "model": "qwen3-vl:8b",
+        "frozen_set_id": "1f68e2755002b3598c763532e95c212de9261ffa638c2943ad3769a1be77503f",
+        "attempted_clips": 20,
+        "mean_boxed_frames_per_clip": 1.45,
+        "single_frame_attempts": 13
+      }
+    },
+    "paired_overall": {
+      "dense": {
+        "attempted_clips": 20,
+        "scored_clips": 20,
+        "failed_clips": 0,
+        "valid_rate": 1.0,
+        "empty_rate": 0.0,
+        "presence_only_read_rate": 0.0,
+        "presence_only_sentence_rate": 0.35,
+        "presence_only_strict_rate": 0.15,
+        "presence_with_substantive_event_rate": 0.35,
+        "sentence_event_consistency_rate": 0.55,
+        "supplied_number_asserted_as_kit_detail_rate": 0.0526,
+        "number_invented_rate": 0.0,
+        "kit_color_match_rate": 0.85,
+        "kit_color_abstain_rate": 0.1,
+        "kit_color_wrong_rate": 0.05,
+        "time_in_window_rate": 1.0,
+        "disputed_clips": [
+          "m04-n24-t3013-679939-681217"
+        ],
+        "identity_evaluated_clips": 19,
+        "kit_evaluated_clips": 20,
+        "from_thinking_rate": 1.0,
+        "zero_duration_event_rate": 0.0,
+        "window_filling_event_rate": 0.0652,
+        "events_per_sent_frame": 0.1933,
+        "high_confidence_completed_from_one_frame_count": 0,
+        "valid_attempt_rate": 1.0,
+        "kit_color_match_when_asserted_rate": 0.9444,
+        "time_in_window_event_rate": 1.0,
+        "fabricated_rate": 0.9474,
+        "human_noted_scored_clips": 20,
+        "fabricated_evaluated_clips": 19,
+        "off_pitch_claimed_on_ball_rate": 0.8571,
+        "idle_claimed_on_ball_rate": 1.0,
+        "on_ball_recall": 0.1667,
+        "on_ball_recall_lenient": 0.5,
+        "no_on_ball_claimed_on_ball_rate": 0.9231,
+        "activity_agreement_rate": 0.3684,
+        "activity_denominators": {
+          "off_pitch_claimed_on_ball": 7,
+          "idle_claimed_on_ball": 3,
+          "on_ball_recalled": 6,
+          "on_ball_recalled_lenient": 6,
+          "no_on_ball_claimed_on_ball": 13,
+          "activity_agreement": 19
+        },
+        "sentence_matches_note": {
+          "agree": 1,
+          "disagree": 15,
+          "undetermined": 4
+        },
+        "events_per_clip": 2.3,
+        "wall_s_per_clip": 58.417
+      },
+      "prod30": {
+        "attempted_clips": 20,
+        "scored_clips": 20,
+        "failed_clips": 0,
+        "valid_rate": 1.0,
+        "empty_rate": 0.0,
+        "presence_only_read_rate": 0.0,
+        "presence_only_sentence_rate": 0.6,
+        "presence_only_strict_rate": 0.4,
+        "presence_with_substantive_event_rate": 0.6,
+        "sentence_event_consistency_rate": 0.45,
+        "supplied_number_asserted_as_kit_detail_rate": 0.1579,
+        "number_invented_rate": 0.0,
+        "kit_color_match_rate": 0.85,
+        "kit_color_abstain_rate": 0.1,
+        "kit_color_wrong_rate": 0.05,
+        "time_in_window_rate": 1.0,
+        "disputed_clips": [
+          "m04-n24-t3013-679939-681217"
+        ],
+        "identity_evaluated_clips": 19,
+        "kit_evaluated_clips": 20,
+        "from_thinking_rate": 1.0,
+        "zero_duration_event_rate": 0.3143,
+        "window_filling_event_rate": 0.5714,
+        "events_per_sent_frame": 1.2069,
+        "high_confidence_completed_from_one_frame_count": 12,
+        "valid_attempt_rate": 1.0,
+        "kit_color_match_when_asserted_rate": 0.9444,
+        "time_in_window_event_rate": 1.0,
+        "fabricated_rate": 0.8421,
+        "human_noted_scored_clips": 20,
+        "fabricated_evaluated_clips": 19,
+        "off_pitch_claimed_on_ball_rate": 0.5714,
+        "idle_claimed_on_ball_rate": 1.0,
+        "on_ball_recall": 0.0,
+        "on_ball_recall_lenient": 0.3333,
+        "no_on_ball_claimed_on_ball_rate": 0.7692,
+        "activity_agreement_rate": 0.3158,
+        "activity_denominators": {
+          "off_pitch_claimed_on_ball": 7,
+          "idle_claimed_on_ball": 3,
+          "on_ball_recalled": 6,
+          "on_ball_recalled_lenient": 6,
+          "no_on_ball_claimed_on_ball": 13,
+          "activity_agreement": 19
+        },
+        "sentence_matches_note": {
+          "agree": 0,
+          "disagree": 12,
+          "undetermined": 8
+        },
+        "events_per_clip": 1.75,
+        "wall_s_per_clip": 9.898
+      }
+    },
+    "paired_counts": {
+      "dense": {
+        "no_on_ball_claimed_on_ball": 12,
+        "off_pitch_claimed_on_ball": 6,
+        "on_ball_recalled": 1,
+        "on_ball_recalled_lenient": 3
+      },
+      "prod30": {
+        "no_on_ball_claimed_on_ball": 10,
+        "off_pitch_claimed_on_ball": 4,
+        "on_ball_recalled": 0,
+        "on_ball_recalled_lenient": 2
+      }
+    },
+    "denominators": "The scored/failed columns and per-run reports retain all attempts. All other comparison-table metrics and activity headline counts use only shared scored clip IDs, scored in both saved reports and current rescoring. Frame facts use all recorded raw attempts, including failures."
+  },
   "per_clip_comparison": [
     {
       "clip_id": "m04-n02-t3005-474114-478131",
