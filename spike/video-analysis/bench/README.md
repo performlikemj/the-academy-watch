@@ -640,8 +640,8 @@ carry for a header, duel/challenge or interception. A pass can still match a
 pass under either rule. Dense matches 1/6 strictly and 3/6 leniently; prod30
 matches 0/6 strictly and 2/6 leniently.
 
-The saved outputs contain carry on **36/40 reads** (dense 19/20, prod30 17/20),
-not the review's 39/40 estimate. Lenient recall therefore rewards a frequent
+The saved outputs contain carry on **36/40 reads** (dense 19/20, prod30 17/20).
+Lenient recall therefore rewards a frequent
 carry prior; it must not replace strict recall or be read as evidence that the
 model recovered the actual receive/turn/loss. No matching outcome is implied.
 
