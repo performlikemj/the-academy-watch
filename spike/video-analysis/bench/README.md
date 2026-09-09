@@ -698,3 +698,160 @@ boxed-frame means, so custom run names or reversed input order do not substitute
 hard-coded models or frame counts. The canonical pair has 20 shared scored
 clips and means 11.9 vs 1.45 boxed frames; 13/20 sparse attempts have one frame.
 The earlier round-5 headline shorthand is superseded by these measured facts.
+
+## Lane B: yes/no checks (`qwen3vl_checks`)
+
+MJ's 2026-09-10 decision narrows Qwen3-VL to six closed questions that can be
+assessed for use by the existing honesty gate. Lane A invented on-ball play on
+12/13 dense clips where MJ saw none. This experiment measures checks; adoption
+and production integration remain MJ's decision.
+
+`checks_contract.py` defines strict Pydantic v2 `ChecksRead`, with forbidden
+extras at every level. Each of the six fields is an object containing `answer`,
+`confidence` (`low|medium|high`), and an optional `reason` of at most 80 characters.
+The first five answers are `yes|no|unclear`; `kit_color_seen.answer` is
+`red|blue|white|black|yellow|green|other|unclear`. Example question value:
+`{"answer":"unclear","confidence":"low","reason":"Ball obscured"}`.
+There are no other free-text fields. Reasons are **never scored**; the prompt
+requests brief reasons so the ledger can log verbatim audit examples. The exact
+inlined schema is Ollama's `format`, and raw replies use `model_validate_json`.
+A malformed reply fails the clip. Parsed caches cannot hide malformed raw JSON.
+
+The prompt defines on-pitch as field of play (excluding bench/sideline/warm-up),
+in-progress as active play (excluding warm-up/walking off/stoppages), nearby ball
+as within roughly two body-lengths, a touch as clearly playing the ball at least
+once, and running as running rather than walking/standing. `unclear` is correct
+whenever frames do not clearly show an answer; never guess or infer unseen action.
+The magenta box identifies the player; its `#N` label does not establish a visible
+jersey number. Kit colour must come from the clothing, not the annotation.
+
+The adapter imports `qwen3vl_annotated.prepare_frames` rather than duplicating
+sampling or drawing: dense `0.5 / 12` and sparse `30 / 3`, magenta on every frame,
+spread over the window with the same bounded gap adjustments. Runner fingerprints
+include contract version, prompt version, resolved context, sampling and all
+existing inference/truth provenance settings. Context must be 65536 or omitted.
+The shared Ollama transport and thinking-field fallback are unchanged.
+
+### Explicit truth rules
+
+`checks_truth.py` applies `semantic_activity.truth_activity` to MJ's notes.
+`fixtures/checks_notes.json` contains the 20 real note/kit fixtures and independently
+transcribed expected cells. Missing evidence is ungraded, not a fabricated label.
+Rules apply in the following precedence order; off-pitch takes precedence, and
+on-ball takes precedence over idle in the mixed receive clip:
+
+| Question | Rule |
+|---|---|
+| player_on_pitch | off_pitch → no; every other classified clip → yes; identity-only n24 → ungraded |
+| play_in_progress | off_pitch → no; on_ball_action / defensive_track_back / positional_only → yes; idle waiting for throw-in n04-307417 → no; idle “just walking around” n10 → ungraded; mixed receive n04-243433 → yes |
+| ball_near_player | off_pitch → no; on_ball_action → yes; other idle → no; defensive / positional / unclassified → ungraded |
+| player_touches_ball | off_pitch → no; on_ball_action → yes; other idle → no; defensive / positional / unclassified → ungraded |
+| player_running | off_pitch or non-on-ball walking/standing/sideline/stretching → no; run / track back / goes or went forward / challenge → yes; n17-416826 → yes by explicit directive override; mixed walking/receive n04-243433 and others → ungraded |
+| kit_color_seen | Import lane A's `identity_truth.kit_truth`: uncertainty takes precedence and forces abstention; verified override restores colour independently of disputed jersey identity; disputed colour without override/uncertainty → ungraded |
+
+On-ball touch positives: n03-157170, n12-237107, n15, n17-253073,
+n17-416826, n04-243433. Running positives: n04-307417, n05, n09-297601,
+n15, n17-253073, n17-416826, n03-157170. Running negatives: n03-385962,
+n09-143096, n09-385922, n10, n12-679986, n17-304624, n21, n22, n25.
+Running for n02, n04-243433, n12-237107 and n24 is ungraded. The n17-416826
+note has no running phrase: this explicitly requested exception is bound to the
+exact reviewed clip/note, and is disclosed as a directive override in the ledger.
+The two uncertain kits are n22 and n03-385962; disputed n24 uses black. The full
+20 × 6 truth table with MJ's verbatim notes is printed in the comparison ledger
+so MJ can correct any cell.
+
+### Scoring and thresholds
+
+`checks_score.py` uses only answer/confidence and derived truth, never reasons.
+Per-question counts expose every denominator:
+
+- Accuracy: correct / graded answered; `unclear` excluded.
+- Abstain rate: unclear / eligible. Uncertain kit truth forces abstention even
+  when a colour is asserted, exactly as lane A. Unavailable truth is ungraded.
+- Coverage: graded answered / eligible. The kit denominator includes its two
+  forced abstentions; binary eligibility requires yes/no truth.
+- False-yes rate: yes answers / truth-no cells. False-no rate: no answers /
+  truth-yes cells. Truth denominators include model abstentions. Neither rate
+  applies to colour; colour accuracy grades exact matches.
+- Confident wrong: incorrect graded answers with high confidence.
+- Macro accuracy: mean of available answered accuracies over all six questions.
+  Macro false-yes: mean of available rates over the five binary questions.
+  Overall abstain: pooled abstentions / eligible question cells.
+- Gate 1: false-yes pooled across `player_on_pitch` and `play_in_progress` on
+  off-pitch clips (14 truth-no cells on the complete set).
+- Gate 2: false-yes for `player_touches_ball` on off-pitch plus idle clips whose
+  touch truth is **no** (9 clips). The mixed idle/receive clip n04-243433 is
+  excluded because it has a real touch; an affirmative answer is correct there.
+
+Thresholds are **Gate 1 ≤ 10%, Gate 2 ≤ 10%, macro accuracy ≥ 80% on answered,
+overall abstain ≤ 40%**. The ledger states each PASS/FAIL; it makes no adoption
+call. Empty denominators withhold the corresponding threshold. Per-run reports
+keep all attempts and failures; failed reads are excluded from correctness
+metrics. `from_thinking_rate` and wall seconds/clip include all attempts.
+
+`compare_checks.py` requires two runs selecting the same unique, nonempty clip
+IDs in the same order. It validates adapter/model/frozen-set identities against
+both runs and the supplied manifest, and checks the contract version in run,
+report and raw files. `--allow-mixed` permits identity mismatches with a visible
+caveat, but never relaxes selection or schema requirements. Missing raw files,
+missing saved reports/rows, not-attempted rows and stop markers (including empty
+objects) withhold the headline and thresholds. Failed attempts count as covered;
+configured wall caps alone do not mark a run incomplete. All comparison metrics
+use the intersection scored in both saved reports and current rescoring. Full-run
+reports retain every attempt. Frame facts come from run.json and recorded frame
+lists, including failures; measured boxed-frame means determine dense/sparse
+headline order. Five reasons are the first available question reason per scored
+clip, in contract order, then the first five such clips in selected order.
+
+### Sequential execution on basecamp
+
+MJ authorizes lane B to start when ready: **no lane-A gate file applies**.
+Before each run, `pgrep -f "run_bench|qwen_match_analysis"` must show only this
+session's own processes. Never stop another session's processes. Smoke the
+specified clip, inspect the raw JSON, then run the final lanes sequentially:
+
+```sh
+BENCH_NUM_CTX=65536 ~/Projects/loanarmy/.loan/bin/python spike/video-analysis/bench/run_bench.py \
+  --adapter qwen3vl_checks --model qwen3-vl:8b \
+  --clips m04-n12-t1411-237107-242145 --sample-interval 0.5 --sample-limit 12 --timeout 120 \
+  --manifest ~/Projects/loanarmy-bench-frozen/manifest.json \
+  --report-root ~/Projects/loanarmy-bench-reports --run-id e1d-checks-smoke-reasons
+
+BENCH_NUM_CTX=65536 ~/Projects/loanarmy/.loan/bin/python spike/video-analysis/bench/run_bench.py \
+  --adapter qwen3vl_checks --model qwen3-vl:8b --clips all \
+  --sample-interval 0.5 --sample-limit 12 --timeout 120 \
+  --manifest ~/Projects/loanarmy-bench-frozen/manifest.json \
+  --report-root ~/Projects/loanarmy-bench-reports --run-id e1d-checks-dense
+
+BENCH_NUM_CTX=65536 ~/Projects/loanarmy/.loan/bin/python spike/video-analysis/bench/run_bench.py \
+  --adapter qwen3vl_checks --model qwen3-vl:8b --clips all \
+  --sample-interval 30 --sample-limit 3 --timeout 120 \
+  --manifest ~/Projects/loanarmy-bench-frozen/manifest.json \
+  --report-root ~/Projects/loanarmy-bench-reports --run-id e1d-checks-prod30
+
+~/Projects/loanarmy/.loan/bin/python spike/video-analysis/bench/diag_format_channel.py \
+  --manifest ~/Projects/loanarmy-bench-frozen/manifest.json \
+  --out-json ~/Projects/loanarmy-bench-reports/e1d-checks-format-diagnostic.json
+
+~/Projects/loanarmy/.loan/bin/python spike/video-analysis/bench/compare_checks.py \
+  --reports-root ~/Projects/loanarmy-bench-reports \
+  --manifest ~/Projects/loanarmy-bench-frozen/manifest.json \
+  --diagnostic ~/Projects/loanarmy-bench-reports/e1d-checks-format-diagnostic.json \
+  --out-json ledgers/research/evidence-bench-2026-09-10-lane-b.json \
+  --out-md ledgers/research/evidence-bench-2026-09-10-lane-b.md
+```
+
+The diagnostic uses the smoke clip's dense frames for exactly three direct
+`/api/chat` requests: schema format, `"json"` format, no format. It holds prompt,
+frames, `think:false`, context 65536 and generation options constant. It records
+both raw message fields, which contain JSON, content emptiness and strict
+validation under the existing content-first/fallback selection. No response
+repair or transport change is made. Exceptions are logged without blocking the
+comparison. This small diagnostic cannot establish grammar enforcement generally.
+
+Caveats: n=20, rule-derived note truth, single passes, mostly red kit truth,
+magenta inputs versus lane A's historical red inputs, and MJ-reported tracker
+misses. No frozen media, populated truth files or raw reports are staged. The
+explicit note fixtures are committed for the required deterministic unit tests.
+Run the Verify gates above with `BENCH_REQUIRE_CV2=1`; no frontend changes or
+dependency restore are needed.

@@ -1,0 +1,307 @@
+[
+  {
+    "truth": {
+      "clip_id": "m04-n02-t3005-474114-478131",
+      "human_note": "playing right-side center back in a three at the back system. close to the touchline.",
+      "kit_color": "red"
+    },
+    "expected": [
+      "yes",
+      "yes",
+      null,
+      null,
+      null,
+      "red"
+    ]
+  },
+  {
+    "truth": {
+      "clip_id": "m04-n03-t1406-157170-158922",
+      "human_note": "either playing left-sided center back or left wing. nice move to win his challenge and passes it along to winger",
+      "kit_color": "red"
+    },
+    "expected": [
+      "yes",
+      "yes",
+      "yes",
+      "yes",
+      "yes",
+      "red"
+    ]
+  },
+  {
+    "truth": {
+      "clip_id": "m04-n03-t1406-385962-387137",
+      "human_note": "putting on their warmup kit. and walks to sideline",
+      "kit_color": "red",
+      "kit_color_uncertain": true
+    },
+    "expected": [
+      "no",
+      "no",
+      "no",
+      "no",
+      "no",
+      null
+    ]
+  },
+  {
+    "truth": {
+      "clip_id": "m04-n04-t3006-243433-247994",
+      "human_note": "playing up top. just walks around and waits until the keeper boots it to halfway line and then receives and does a half turn.",
+      "kit_color": "red"
+    },
+    "expected": [
+      "yes",
+      "yes",
+      "yes",
+      "yes",
+      null,
+      "red"
+    ]
+  },
+  {
+    "truth": {
+      "clip_id": "m04-n04-t3006-307417-310307",
+      "human_note": "a bit of running. ball doesn't come and waits for opposite team to throw in",
+      "kit_color": "red"
+    },
+    "expected": [
+      "yes",
+      "no",
+      "no",
+      "no",
+      "yes",
+      "red"
+    ]
+  },
+  {
+    "truth": {
+      "clip_id": "m04-n05-t3007-284945-287898",
+      "human_note": "seems to be playing defense. tracked back.",
+      "kit_color": "red"
+    },
+    "expected": [
+      "yes",
+      "yes",
+      null,
+      null,
+      "yes",
+      "red"
+    ]
+  },
+  {
+    "truth": {
+      "clip_id": "m04-n09-t1409-143096-143834",
+      "human_note": "on the sideline",
+      "kit_color": "red"
+    },
+    "expected": [
+      "no",
+      "no",
+      "no",
+      "no",
+      "no",
+      "red"
+    ]
+  },
+  {
+    "truth": {
+      "clip_id": "m04-n09-t1409-297601-298865",
+      "human_note": "tracked back for defense and then went forward when team recovered.",
+      "kit_color": "red"
+    },
+    "expected": [
+      "yes",
+      "yes",
+      null,
+      null,
+      "yes",
+      "red"
+    ]
+  },
+  {
+    "truth": {
+      "clip_id": "m04-n09-t1409-385922-386603",
+      "human_note": "stretching on sidelines",
+      "kit_color": "red"
+    },
+    "expected": [
+      "no",
+      "no",
+      "no",
+      "no",
+      "no",
+      "red"
+    ]
+  },
+  {
+    "truth": {
+      "clip_id": "m04-n10-t711-186553-188161",
+      "human_note": "just walking around.",
+      "kit_color": "red"
+    },
+    "expected": [
+      "yes",
+      null,
+      "no",
+      "no",
+      "no",
+      "red"
+    ]
+  },
+  {
+    "truth": {
+      "clip_id": "m04-n12-t1411-237107-242145",
+      "human_note": "intercepts a ball but passes to opposite team",
+      "kit_color": "red"
+    },
+    "expected": [
+      "yes",
+      "yes",
+      "yes",
+      "yes",
+      null,
+      "red"
+    ]
+  },
+  {
+    "truth": {
+      "clip_id": "m04-n12-t1411-679986-681985",
+      "human_note": "walking off the field.",
+      "kit_color": "red"
+    },
+    "expected": [
+      "no",
+      "no",
+      "no",
+      "no",
+      "no",
+      "red"
+    ]
+  },
+  {
+    "truth": {
+      "clip_id": "m04-n15-t3010-164698-170777",
+      "human_note": "multiple challenges for the ball",
+      "kit_color": "red"
+    },
+    "expected": [
+      "yes",
+      "yes",
+      "yes",
+      "yes",
+      "yes",
+      "red"
+    ]
+  },
+  {
+    "truth": {
+      "clip_id": "m04-n17-t717-253073-260377",
+      "human_note": "heads the ball off defender for a throw-in. and goes forward when team recovers the ball.",
+      "kit_color": "red"
+    },
+    "expected": [
+      "yes",
+      "yes",
+      "yes",
+      "yes",
+      "yes",
+      "red"
+    ]
+  },
+  {
+    "truth": {
+      "clip_id": "m04-n17-t717-304624-307834",
+      "human_note": "walking back on defense as play is on the opposite side. stays wide.",
+      "kit_color": "red"
+    },
+    "expected": [
+      "yes",
+      "yes",
+      null,
+      null,
+      "no",
+      "red"
+    ]
+  },
+  {
+    "truth": {
+      "clip_id": "m04-n17-t717-416826-418915",
+      "human_note": "receives ball in midfield. playing as false 9 or 10 spot. loses the ball",
+      "kit_color": "red"
+    },
+    "expected": [
+      "yes",
+      "yes",
+      "yes",
+      "yes",
+      "yes",
+      "red"
+    ]
+  },
+  {
+    "truth": {
+      "clip_id": "m04-n21-t3011-390297-390800",
+      "human_note": "warming up sideline. grabs hamstring",
+      "kit_color": "red"
+    },
+    "expected": [
+      "no",
+      "no",
+      "no",
+      "no",
+      "no",
+      "red"
+    ]
+  },
+  {
+    "truth": {
+      "clip_id": "m04-n22-t3012-070707-074371",
+      "human_note": "walking off field in warmup suit. misses header",
+      "kit_color": "red",
+      "kit_color_uncertain": true
+    },
+    "expected": [
+      "no",
+      "no",
+      "no",
+      "no",
+      "no",
+      null
+    ]
+  },
+  {
+    "truth": {
+      "clip_id": "m04-n24-t3013-679939-681217",
+      "human_note": "wrong number. this is number 12 from the shorts",
+      "kit_color": "red",
+      "truth_label_disputed": true,
+      "kit_color_truth_override": "black",
+      "kit_color_uncertain": false
+    },
+    "expected": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      "black"
+    ]
+  },
+  {
+    "truth": {
+      "clip_id": "m04-n25-t3014-530600-532465",
+      "human_note": "coming off the pitch.",
+      "kit_color": "red"
+    },
+    "expected": [
+      "no",
+      "no",
+      "no",
+      "no",
+      "no",
+      "red"
+    ]
+  }
+]

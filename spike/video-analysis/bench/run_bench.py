@@ -22,12 +22,19 @@ except ImportError:  # pragma: no cover - direct script invocation
 BENCH_DIR = Path(__file__).resolve().parent
 DEFAULT_MANIFEST = BENCH_DIR / "frozen" / "manifest.json"
 DEFAULT_REPORT_ROOT = BENCH_DIR / "report"
-ADAPTERS = ("baseline", "qwen3vl_ollama", "qwen3vl_mlx", "qwen3vl_annotated")
+ADAPTERS = (
+    "baseline",
+    "qwen3vl_ollama",
+    "qwen3vl_mlx",
+    "qwen3vl_annotated",
+    "qwen3vl_checks",
+)
 MODEL_ENVIRONMENT = {
     "baseline": "BENCH_BASELINE_MODEL",
     "qwen3vl_ollama": "BENCH_MODEL",
     "qwen3vl_mlx": "BENCH_MLX_MODEL",
     "qwen3vl_annotated": "BENCH_MODEL",
+    "qwen3vl_checks": "BENCH_MODEL",
 }
 MAX_NUM_PREDICT = 400
 DEFAULT_REPEAT_PENALTY = 1.15
@@ -85,16 +92,17 @@ def _resolve_inference_settings(args: argparse.Namespace, manifest: dict) -> dic
     box_space = requested_box_space or default_box_space
     if box_space not in BOX_SPACES:
         raise ValueError(f"--box-space must be one of {', '.join(BOX_SPACES)}")
-    semantic = args.adapter == "qwen3vl_annotated"
+    semantic = args.adapter in {"qwen3vl_annotated", "qwen3vl_checks"}
     format_mode = "schema" if semantic else getattr(args, "format_mode", "json")
     if format_mode not in FORMAT_MODES:
         raise ValueError(f"--format-mode must be one of {', '.join(FORMAT_MODES)}")
     if format_mode == "schema" and args.adapter not in {
         "qwen3vl_ollama",
         "qwen3vl_annotated",
+        "qwen3vl_checks",
     }:
         raise ValueError(
-            "--format-mode schema is only supported by qwen3vl_ollama and qwen3vl_annotated"
+            "--format-mode schema is only supported by qwen3vl_ollama, qwen3vl_annotated and qwen3vl_checks"
         )
     wall_cap = getattr(args, "wall_cap", None)
     if wall_cap is not None and (not math.isfinite(wall_cap) or wall_cap <= 0):
@@ -115,7 +123,11 @@ def _resolve_inference_settings(args: argparse.Namespace, manifest: dict) -> dic
         raise ValueError("--sample-limit must be positive")
     sampling_settings = {}
     if semantic or (sample_interval, sample_limit) != (5.0, 6):
-        if args.adapter not in {"qwen3vl_ollama", "qwen3vl_annotated"}:
+        if args.adapter not in {
+            "qwen3vl_ollama",
+            "qwen3vl_annotated",
+            "qwen3vl_checks",
+        }:
             raise ValueError("sampling overrides require qwen3vl_ollama")
         # Omit legacy defaults so existing v5 metadata/fingerprints remain exact.
         sampling_settings = {
@@ -141,7 +153,20 @@ def _resolve_inference_settings(args: argparse.Namespace, manifest: dict) -> dic
             "temperature": 0.0,
             "repetition_context_size": 64,
         }
+    checks_settings = {}
+    if args.adapter == "qwen3vl_checks":
+        module = _adapter_module(args.adapter)
+        checks_settings = {
+            "contract_version": module.CONTRACT_VERSION,
+            "prompt_version": module.PROMPT_VERSION,
+            "num_ctx": module.qwen_match_analysis.resolve_num_ctx(
+                "BENCH_NUM_CTX", "QWEN_NUM_CTX"
+            ),
+        }
+        if checks_settings["num_ctx"] not in (None, 65536):
+            raise ValueError("checks lane requires num_ctx 65536 or omitted")
     return {
+        **checks_settings,
         **({"anchor_color": "magenta"} if semantic else {}),
         **mlx_settings,
         **sampling_settings,
@@ -267,7 +292,7 @@ def run_benchmark(args: argparse.Namespace) -> tuple[dict, Path]:
         "num_predict": settings["num_predict"],
         "repeat_penalty": settings["repeat_penalty"],
     }
-    if args.adapter in {"qwen3vl_ollama", "qwen3vl_annotated"}:
+    if args.adapter in {"qwen3vl_ollama", "qwen3vl_annotated", "qwen3vl_checks"}:
         cfg.update(
             sample_interval=settings.get("sample_interval", 5.0),
             sample_limit=settings.get("sample_limit", 6),
@@ -310,9 +335,12 @@ def run_benchmark(args: argparse.Namespace) -> tuple[dict, Path]:
                 break
 
     scorer, writer = score_run, write_report
-    if args.adapter == "qwen3vl_annotated":
+    if args.adapter in {"qwen3vl_annotated", "qwen3vl_checks"}:
+        score_module = (
+            "checks_score" if args.adapter == "qwen3vl_checks" else "semantic_score"
+        )
         module = importlib.import_module(
-            f"{__package__}.semantic_score" if __package__ else "semantic_score"
+            f"{__package__}.{score_module}" if __package__ else score_module
         )
         scorer, writer = module.score_run, module.write_report
     report = scorer(
@@ -325,7 +353,7 @@ def run_benchmark(args: argparse.Namespace) -> tuple[dict, Path]:
 
 
 def print_summary(report: dict, output_dir: Path) -> None:
-    if report.get("adapter") == "qwen3vl_annotated":
+    if report.get("adapter") in {"qwen3vl_annotated", "qwen3vl_checks"}:
         print(json.dumps(report["overall"], indent=2))
         print(f"report: {output_dir / 'report.json'}")
         return
