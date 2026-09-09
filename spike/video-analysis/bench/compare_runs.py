@@ -160,6 +160,17 @@ def sent_frames(raw: dict) -> list[dict]:
     return raw.get("sent_frames", [])
 
 
+def anchor_only_attempt(raw: dict) -> bool:
+    """Count actual sent stills all at the sole anchor, never nearby video frames."""
+    frames = sent_frames(raw)
+    anchors = raw.get("anchored_frames", [])
+    return bool(
+        frames
+        and len(anchors) == 1
+        and all(abs(float(f["t"]) - float(anchors[0]["t"])) < 0.001 for f in frames)
+    )
+
+
 def claim_evidence(scored: dict, raw: dict) -> dict:
     keys = (
         "claim",
@@ -370,6 +381,7 @@ def compare(
             "metrics": metrics,
             "fps": config.get("fps"),
             "attempted_clips": len(values),
+            "anchor_only_attempts": sum(anchor_only_attempt(c) for c in values),
             "clips_with_any_supported_claim": sum(
                 any(c.get("supported") for c in row.get("claims", []))
                 for row in report["clips"]
@@ -520,8 +532,8 @@ def markdown(result: dict) -> str:
         *incomplete_lines,
         f"E1b comparison, {result['date']}. {result['frozen_set']}.",
         "",
-        "| Lane | Scored / failed | Supported | Unboxed supported | Unsupported | Hollow | Wall s/clip | Stills/video frames per attempt | Sent resolution (min–max WxH) |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|---|",
+        "| Lane | Scored / failed | Supported | Unboxed supported | Unsupported | Hollow | Wall s/clip | Stills/video frames per attempt | Sent resolution (min–max WxH) | Anchor-only attempts |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---|---:|",
     ]
     for name in names:
         lane = result[name]
@@ -531,8 +543,13 @@ def markdown(result: dict) -> str:
             for k in ("sent_resolution_min", "sent_resolution_max")
         ]
         lines.append(
-            f"| {name} | {m['scored_clips']} / {m['failed_clips']} | {percent(m['supported_rate'])} | {percent(m['supported_rate_unboxed'])} ({m['unboxed_claim_count']} claims) | {percent(m['unsupported_rate'])} | {percent(m['hollow_rate'])} | {m['wall_s_per_clip']} | {lane['sent_frames_per_clip']} | {'–'.join(sizes)} |"
+            f"| {name} | {m['scored_clips']} / {m['failed_clips']} | {percent(m['supported_rate'])} | {percent(m['supported_rate_unboxed'])} ({m['unboxed_claim_count']} claims) | {percent(m['unsupported_rate'])} | {percent(m['hollow_rate'])} | {m['wall_s_per_clip']} | {lane['sent_frames_per_clip']} | {'–'.join(sizes)} | {lane['anchor_only_attempts']}/{lane['attempted_clips']} |"
         )
+    if "frames_prod30" in names and result["headline"] == HEADLINE:
+        lines += [
+            "",
+            "Prod30's 84% supported rate is single-still anchor echo, not grounding.",
+        ]
     lines += [
         "",
         "E1 thresholds per lane (≥2× a zero-box baseline is vacuous, not evidence of improvement):",

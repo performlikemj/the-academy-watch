@@ -271,3 +271,124 @@ Test blind spots: `prepare_anchor` is monkeypatched in MLX adapter tests;
 the worker test fakes the `mlx_vlm` API, so signature drift is caught only by a
 live smoke. The production single-still test exercises actual anchor drawing,
 frame sizing and boxed-frame tagging, with media extraction and inference faked.
+
+## Lane A: annotated meaning-only reads (`qwen3vl_annotated`)
+
+The tracker owns geometry; the VLM owns meaning. Every sent frame has the shared
+red rectangle and `#N` label, drawn from `truth["box_track"]` through
+`grounding.interpolated_box`. **Bench truth stands in for the production
+tracker's persisted box track.** This evaluates the semantic reader with supplied
+geometry, not the tracker or unlabelled-player grounding. No box is requested
+from the VLM, so copying a drawn box is not a failure mode in this lane.
+
+`semantic_contract.py` defines the Pydantic v2 `SemanticRead` / `SemanticEvent`
+contract: 0–3 events, visibility, observed kit colour, and one sentence of at
+most 200 characters. The exact schema is sent as Ollama `format`; replies parse
+with `model_validate_json`, forbidden extras and strict enums. Action and phase
+vocabularies reuse `qwen_match_analysis`; all prompt vocabulary lists come from
+the same constants. No names, unsupplied numbers, inferred actions or invisible
+goals are permitted by the prompt. `none`, `unclear`, empty events and low
+confidence provide honest exits. These prompt rules do not establish truth.
+
+Sampling defaults to `--sample-interval 0.5 --sample-limit 12`. The cadence
+sets the count (at least eight when the window accommodates eight samples),
+then samples are evenly spread over the full window with 0.05s endpoint margins
+and the shared truth-aware first timestamp. Thus long windows with the 12-frame
+cap have an effective interval longer than 0.5s. The sparse annotated control
+uses `30 / 3` with the same spread policy and contract.
+
+The first smoke exposed a missing truth box inside a tracking gap. To keep every
+image annotated without inventing geometry, a target lacking interpolation is
+moved to the nearest *recorded* track timestamp within 0.5s (ties go earlier).
+Samples must stay distinct and chronological; a larger gap fails the clip before
+inference. `sent_frames` records actual absolute time, original `target_t`,
+`sampling_shift_s`, path and dimensions. The text prompt lists actual times.
+This bounded departure from uniform spacing is disclosed in the comparison;
+no truth files or legacy interpolation rules change. Frame images are temporary.
+
+Run on basecamp only. Wait for MJ's GPU gate before **any** Ollama call, polling
+every 30s for at most 90 minutes. Keep `BENCH_NUM_CTX=65536` (or omit `num_ctx`);
+this adapter refuses smaller context settings. Example gate:
+
+```sh
+python3 - <<'PY'
+import time
+from pathlib import Path
+start = time.monotonic()
+while not (Path.home() / "codex-runs/GPU_OK_A").exists():
+    if time.monotonic() - start >= 5400:
+        raise SystemExit("GPU_OK_A timed out; no model call made")
+    time.sleep(30)
+PY
+```
+
+After the gate, smoke `m04-n12-t1411-237107-242145` and inspect its
+`semantic_raw`, then run these sequentially (repeat the gate check if removed):
+
+```sh
+BENCH_NUM_CTX=65536 ~/Projects/loanarmy/.loan/bin/python spike/video-analysis/bench/run_bench.py \
+  --adapter qwen3vl_annotated --model qwen3-vl:8b --clips all \
+  --sample-interval 0.5 --sample-limit 12 --timeout 120 \
+  --manifest ~/Projects/loanarmy-bench-frozen/manifest.json \
+  --report-root ~/Projects/loanarmy-bench-reports --run-id e1c-annotated-dense
+
+BENCH_NUM_CTX=65536 ~/Projects/loanarmy/.loan/bin/python spike/video-analysis/bench/run_bench.py \
+  --adapter qwen3vl_annotated --model qwen3-vl:8b --clips all \
+  --sample-interval 30 --sample-limit 3 --timeout 120 \
+  --manifest ~/Projects/loanarmy-bench-frozen/manifest.json \
+  --report-root ~/Projects/loanarmy-bench-reports --run-id e1c-annotated-prod30
+
+touch ~/codex-runs/GPU_DONE_A
+```
+
+`semantic_score.py` alone scores this adapter; the existing geometry scorer is
+unchanged. Reports start with the honest limit: **the frozen clips have no human
+notes, so event CORRECTNESS is not measured until MJ supplies them**. Metrics
+cover format, empty answers, presence-only prose, invented numbers (the exact
+r2 jersey regex), explicit kit-colour matches/abstentions/mismatches, and event
+times within the window ±0.5s. Schema-invalid JSON is failed. Clip time validity
+requires all event times to pass (vacuously true with no events); the separate
+event-time rate has no denominator when no events exist.
+
+Honesty rates and events/clip use scored clips. `valid_attempt_rate` exposes
+schema/transport failures across every attempt; `valid_rate` among scored clips
+is necessarily 100%. Wall/clip includes every attempt. `unclear` colour is an
+abstention, never wrong; report match/abstain/wrong rates use all scored clips,
+with a separate match rate among asserted colours. `presence_only` requires no
+substantive event class and the narrow presence regex, so it is not an independent
+assessment of descriptive usefulness. Names/goals and sentence kit assertions
+are not independently verified by these metrics.
+
+Fill `notes_template.md` with one plain sentence per marked clip (about 30
+minutes for 20 clips). Prefer a local ignored copy for completed notes:
+
+```sh
+cp spike/video-analysis/bench/notes_template.md spike/video-analysis/bench/report/mj-notes.md
+# Edit report/mj-notes.md, then:
+~/Projects/loanarmy/.loan/bin/python spike/video-analysis/bench/apply_notes.py \
+  --manifest ~/Projects/loanarmy-bench-frozen/manifest.json \
+  --notes spike/video-analysis/bench/report/mj-notes.md
+```
+
+The intake validates the complete form, clip IDs, windows, jersey and kit before
+writing only `human_note` into local `truth/*.json`. It refuses tracked or
+nonignored truth inside a Git worktree. Blank notes preserve existing values.
+`--generate --notes <new-path>` creates a form for another manifest and refuses
+to overwrite an existing form. Never commit populated truth or raw reports.
+
+When notes exist, re-score via the comparison command below with no new inference
+or code change. The existing conservative keyword mismatch rule examines the
+sentence plus explicit event classes (underscores replaced by spaces); it is
+available only for noted scored clips and does not grade every action class.
+The comparison fingerprints current human notes and includes five verbatim
+sentences per run, chosen in manifest order, full clip metrics and provenance.
+
+```sh
+~/Projects/loanarmy/.loan/bin/python spike/video-analysis/bench/compare_semantic.py \
+  --reports-root ~/Projects/loanarmy-bench-reports \
+  --manifest ~/Projects/loanarmy-bench-frozen/manifest.json \
+  --out-json ledgers/research/evidence-bench-2026-09-09-lane-a.json \
+  --out-md ledgers/research/evidence-bench-2026-09-09-lane-a.md
+```
+
+No adoption call is made; that decision belongs to MJ.

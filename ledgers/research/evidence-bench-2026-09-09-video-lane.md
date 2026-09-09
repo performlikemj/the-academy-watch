@@ -1,12 +1,14 @@
 On these 20 clips no lane — sampled stills at 5 s, sampled stills at production's 30 s, or native video at 2/4 fps — ever grounded the player on a frame without the red rectangle; every supported claim is a box at the anchor time plus a presence sentence.
 E1b comparison, 2026-09-09. 20 evaluation-only clips (frozen_set_id 1f68e2755002b3598c763532e95c212de9261ffa638c2943ad3769a1be77503f).
 
-| Lane | Scored / failed | Supported | Unboxed supported | Unsupported | Hollow | Wall s/clip | Stills/video frames per attempt | Sent resolution (min–max WxH) |
-|---|---:|---:|---:|---:|---:|---:|---:|---|
-| frames | 19 / 1 | 73.68% | 0.00% (2 claims) | 26.32% | 0.00% | 12.759 | 4.15 | 1280×720–1280×720 |
-| frames_prod30 | 19 / 1 | 84.21% | 0.00% (1 claims) | 15.79% | 0.00% | 6.367 | 1.35 | 1280×720–1280×720 |
-| video_fps2 | 16 / 4 | 68.75% | 0.00% (1 claims) | 31.25% | 0.00% | 56.017 | 49.6 | 544×288–1920×1088 |
-| video_fps4 | 18 / 2 | 77.78% | N/A (0 claims) | 22.22% | 0.00% | 63.771 | 100.5 | 384×192–1472×832 |
+| Lane | Scored / failed | Supported | Unboxed supported | Unsupported | Hollow | Wall s/clip | Stills/video frames per attempt | Sent resolution (min–max WxH) | Anchor-only attempts |
+|---|---:|---:|---:|---:|---:|---:|---:|---|---:|
+| frames | 19 / 1 | 73.68% | 0.00% (2 claims) | 26.32% | 0.00% | 12.759 | 4.15 | 1280×720–1280×720 | 1/20 |
+| frames_prod30 | 19 / 1 | 84.21% | 0.00% (1 claims) | 15.79% | 0.00% | 6.367 | 1.35 | 1280×720–1280×720 | 13/20 |
+| video_fps2 | 16 / 4 | 68.75% | 0.00% (1 claims) | 31.25% | 0.00% | 56.017 | 49.6 | 544×288–1920×1088 | 0/20 |
+| video_fps4 | 18 / 2 | 77.78% | N/A (0 claims) | 22.22% | 0.00% | 63.771 | 100.5 | 384×192–1472×832 | 0/20 |
+
+Prod30's 84% supported rate is single-still anchor echo, not grounding.
 
 E1 thresholds per lane (≥2× a zero-box baseline is vacuous, not evidence of improvement):
 

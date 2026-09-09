@@ -58,6 +58,7 @@ def extract_sample_frames(
     *,
     interval_s: float = 5.0,
     limit: int = 6,
+    timestamps: list[tuple[float, float]] | None = None,
 ) -> list[dict]:
     ffmpeg = shutil.which("ffmpeg")
     ffprobe = shutil.which("ffprobe")
@@ -70,6 +71,8 @@ def extract_sample_frames(
     output_dir.mkdir(parents=True, exist_ok=True)
     for index, (local_s, absolute_s) in enumerate(
         sample_timestamps(truth, interval_s=interval_s, limit=limit)
+        if timestamps is None
+        else timestamps
     ):
         output = output_dir / f"frame-{index:02d}.jpg"
         qwen_match_analysis.extract_frame(
