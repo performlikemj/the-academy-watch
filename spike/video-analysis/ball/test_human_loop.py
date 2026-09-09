@@ -186,13 +186,14 @@ def test_20px_matching_precision_and_offpitch_unlabelled():
     assert r["off_pitch_sample"]["labelled_frames"] == 1
 
 
-def test_extra_candidate_validation_and_scoring(measured, tmp_path):
+@pytest.mark.parametrize("synthetic", [True, False])
+def test_extra_candidate_validation_and_scoring(measured, tmp_path, synthetic):
     data = {
         "schema_version": 1,
         "frozen_set_id": measured["frozen_set_id"],
         "source_sha256": measured["runs"]["rf_full"]["source_sha256"],
         "source_size": [1920, 1080],
-        "synthetic_smoke": True,
+        "synthetic_smoke": synthetic,
         "threshold": 0.1,
         "outputs": copy.deepcopy(measured["outputs"]["rf_full"]),
     }
@@ -208,12 +209,20 @@ def test_extra_candidate_validation_and_scoring(measured, tmp_path):
             ]
     p = tmp_path / "extra.json"
     dump(p, data)
-    extras = load_extra([f"tiny={p}"], measured)
+    if synthetic:
+        with pytest.raises(ValueError, match="--allow-synthetic"):
+            load_extra([f"tiny={p}"], measured)
+    extras = load_extra([f"tiny={p}"], measured, allow_synthetic=synthetic)
     execution = json.loads((HERE / "fixtures/execution.json").read_text())
     r = compare(measured, execution, extra_detections=extras)
     extra = next(r for r in r["results"] if r["candidate"] == "tiny")
     assert extra["overall"]["gate_proxy"] == "UNMEASURABLE (proxy)"
-    assert extra["overall"]["human"]["gate"] == "SYNTHETIC SMOKE — NOT RESULTS"
+    assert extra["overall"]["human"]["gate"] == (
+        "SYNTHETIC SMOKE — NOT RESULTS" if synthetic else "PENDING"
+    )
+    assert all(
+        row.get("synthetic_smoke", False) == synthetic for row in extra["per_clip"]
+    )
     # Exercise the actual command, without any model or media dependencies.
     f = frame_catalog(measured)[0]
     human_path = tmp_path / "test-only-synthetic-label.jsonl"
@@ -222,23 +231,44 @@ def test_extra_candidate_validation_and_scoring(measured, tmp_path):
         [{"clip": f["clip"], "t": f["t"], "x": 100.0, "y": 100.0, "visible": True}],
     )
     prefix = tmp_path / "score"
-    subprocess.run(
-        [
-            sys.executable,
-            str(HERE / "score_from_saved.py"),
-            "--human-jsonl",
-            str(human_path),
-            "--extra-detections",
-            f"tiny={p}",
-            "--out-prefix",
-            str(prefix),
-        ],
-        check=True,
-        capture_output=True,
-    )
+    command = [
+        sys.executable,
+        str(HERE / "score_from_saved.py"),
+        "--human-jsonl",
+        str(human_path),
+        "--extra-detections",
+        f"tiny={p}",
+        "--out-prefix",
+        str(prefix),
+    ]
+    if synthetic:
+        refused = subprocess.run(command, capture_output=True, text=True)
+        assert refused.returncode == 2
+        assert "--allow-synthetic" in refused.stderr
+        assert not prefix.with_suffix(".json").exists()
+        assert not prefix.with_suffix(".md").exists()
+        command.append("--allow-synthetic")
+    accepted = subprocess.run(command, check=True, capture_output=True, text=True)
+    assert ("tiny [SYNTHETIC]" in accepted.stdout) == synthetic
     scored = json.loads(prefix.with_suffix(".json").read_text())
-    assert scored["extra_candidates"]["tiny"]["synthetic_smoke"]
+    assert scored["extra_candidates"]["tiny"]["synthetic_smoke"] == synthetic
     assert any(r["candidate"] == "tiny" for r in scored["results"])
+    report = prefix.with_suffix(".md").read_text()
+    display = "tiny [SYNTHETIC]" if synthetic else "tiny"
+    # All three aggregate tables and every clip row retain the badge.
+    aggregate = [
+        line for line in report.splitlines() if line.startswith(f"| {display} |")
+    ]
+    assert len(aggregate) == 3
+    clip_section = report.split(f"### {display} @0.1", 1)[1].split(
+        "## Three track overlays", 1
+    )[0]
+    clip_rows = [
+        line for line in clip_section.splitlines() if line.startswith("| m04-")
+    ]
+    assert len(clip_rows) == 20
+    assert all(("SYNTHETIC" in line) == synthetic for line in aggregate + clip_rows)
+    assert "| rf_full [SYNTHETIC]" not in report
     for spec in [f"rf_full={p}", f"invalid/name={p}"]:
         with pytest.raises(ValueError):
             load_extra([spec], measured)
@@ -246,9 +276,33 @@ def test_extra_candidate_validation_and_scoring(measured, tmp_path):
         bad = {**data, field: value}
         p.write_text(json.dumps(bad))
         with pytest.raises(ValueError):
-            load_extra([f"tiny={p}"], measured)
+            load_extra([f"tiny={p}"], measured, allow_synthetic=True)
     cid = next(iter(data["outputs"]))
     data["outputs"][cid]["frames"].pop()
     dump(p, data)
     with pytest.raises(ValueError):
-        load_extra([f"tiny={p}"], measured)
+        load_extra([f"tiny={p}"], measured, allow_synthetic=True)
+
+
+def test_suggestions_copy_cli(measured, tmp_path):
+    out = tmp_path / "kit/suggestions.jsonl"
+    copied = tmp_path / "audit/suggestions.jsonl"
+    subprocess.run(
+        [
+            sys.executable,
+            str(HERE / "human_loop.py"),
+            "--out",
+            str(out),
+            "--copy-to",
+            str(copied),
+        ],
+        check=True,
+        capture_output=True,
+    )
+    assert out.read_bytes() == copied.read_bytes()
+    rows = load_suggestions(copied, frame_catalog(measured))
+    assert len(rows) == 1041
+    assert {
+        source: sum(r["source"] == source for r in rows)
+        for source in {r["source"] for r in rows}
+    } == {"rf_3x3": 683, "rf_2x2": 242, "wasb_2x2": 116}

@@ -938,17 +938,16 @@ Current human status: not_labelled; 0 labels.
 
 ```json
 {
-  "base_commit": "16cc31c17ab8fe27335ea4c9a084912f334be468",
+  "base_commit": "583c9aebb02f42da1613a05fd461bf0e4bcca347",
   "branch": "feat/bench-ball-detect",
   "checks": [
-    "Worktree BENCH_REQUIRE_CV2=1 .loan pytest: 375 passed; six existing Pillow deprecation warnings.",
-    "Git archive without cv2, torch, supervision or ultralytics: 372 passed, three expected cv2 skips; six existing Pillow warnings.",
-    "Ruff check and ruff format --check pass in worktree and archive: 55 files.",
-    "Mypy 2.3.1 checks passed for four changed implementation modules; external imports skipped.",
-    "Ledger regenerates byte-for-byte from committed fixtures in worktree and archive.",
-    "Chromium isolated-context kit check passed; kit build 4 and synced copy agree; progress target is 640.",
-    "Original five candidate outputs, timing, tracks and truth unchanged; only human_label_plan changed in measurement fixture.",
-    "Only two requested external archive-r2*.tar files deleted; 133058560 bytes removed."
+    "Worktree BENCH_REQUIRE_CV2=1 .loan pytest: 377 passed; six existing Pillow deprecation warnings.",
+    "Suggestions copy is byte-identical to existing kit suggestions; 1041 rows and source counts match the synced build metadata.",
+    "Git archive without cv2, torch, supervision or ultralytics: 374 passed, three expected cv2 skips; six existing Pillow deprecation warnings.",
+    "Ruff check and ruff format --check passed in worktree and archive (55 Python files).",
+    "Mypy 2.3.1 passed for four changed implementation modules; external imports skipped.",
+    "Ledger JSON and Markdown regenerate byte-for-byte in worktree and archive.",
+    "Synthetic extras refusal and explicit override CLI paths passed; every synthetic aggregate/per-clip table row badged, regular candidates unbadged. Measurement fixture unchanged."
   ],
   "click_kit": "/Users/mjjones/ball-truth-review/index.html",
   "date": "2026-09-10",
@@ -987,7 +986,10 @@ Current human status: not_labelled; 0 labels.
     "Parity preflight now chooses five distinct samples from available clips before model loading, spreads selected clips and frame positions, and balances quotas (three clips: 2/2/1). Too few frames or unavailable MPS fail before any model load. Parity restores the original device.",
     "Review claim about first 100 manifest frames did not match round 3 fixture: n22/n25 already contributed 34/18, but three shorter clips contributed only 7/7/5. Replaced with balanced 100-frame quotas, at least ten per off-pitch clip, and evenly spaced indices including both endpoints.",
     "Kit build 4 rebuilt in place using existing frame files and unchanged localStorage key; original suggestions retained. Progress still targets 540+100=640; prior labels retained even when outside the revised target.",
-    "Only requested external archive-r2*.tar scratch files deleted; archive directories and later-round tar files retained."
+    "Only requested external archive-r2*.tar scratch files deleted; archive directories and later-round tar files retained.",
+    "Round 5 keeps raw suggestion ranking unchanged: RF confidence and maximum sigmoid heatmap value within the selected WASB component are different, uncalibrated score scales. Source-name tie-breaking favours WASB over RF at equal raw scores; this is only a display heuristic, not accuracy evidence.",
+    "Synthetic extras are refused by default before scoring/report writes. --allow-synthetic explicitly enables diagnostic scoring; every synthetic aggregate/per-clip Markdown row and console summary is badged SYNTHETIC, and JSON result/per-clip records retain synthetic_smoke=true. Non-synthetic candidates remain unbadged.",
+    "human_loop.py --copy-to takes an optional destination file path. Generated suggestions are copied byte-for-byte to ~/codex-runs/suggestions.jsonl beside the synced build metadata. No inference, truth changes, model runs, or suggestion-ranking changes."
   ],
   "frozen_clip_probe": {
     "count": 20,
@@ -1054,15 +1056,34 @@ Current human status: not_labelled; 0 labels.
       "git. `score_from_saved.py` needs no torch, cv2, video, model or inference.",
       "`--extra-detections name=path` can repeat; it validates source hash, frozen set,",
       "all 20 clips, all 1,105 timestamps/frame indices, geometry and timings.",
+      "Extras declaring `synthetic_smoke: true` are refused unless `--allow-synthetic`",
+      "is explicitly supplied. That diagnostic override badges every synthetic table",
+      "row **SYNTHETIC**, including per-clip rows; JSON rows retain the synthetic flag.",
+      "Synthetic smoke scores remain plumbing diagnostics, never ball accuracy results.",
       "`compare_ball.py --human-jsonl` remains available for the original candidates.",
       "",
       "The first 1,041 suggestions come solely from saved detections: **683 rf_3x3,",
       "242 rf_2x2, 116 wasb_2x2**. Choose the highest confidence observation on one of",
       "those candidates' longest re-tracked fragments at that timestamp; otherwise use",
-      "the top rf_3x3 box at >=0.3, or no suggestion. WASB supplies a point. These scores",
-      "are not calibrated across models. Track membership does not prove ball identity.",
-      "Regenerate using `python spike/video-analysis/ball/human_loop.py`; then rebuild",
-      "with `ball_truth_kit.py --suggestions ~/ball-truth-review/suggestions.jsonl`.",
+      "the top rf_3x3 box at >=0.3, or no suggestion. WASB supplies a point.",
+      "**Ranking is unchanged and unnormalised:** it compares RF detection confidence",
+      "with WASB's maximum sigmoid heatmap value within its selected component, on",
+      "different scales. Equal raw scores",
+      "break by source name, so WASB wins ties over RF; that preference has no meaning",
+      "on a calibrated common scale and might reverse after calibration. This is a",
+      "suggestion-display heuristic only, not evidence of accuracy or ball identity.",
+      "",
+      "Regenerate and make an auditable copy beside the synced build metadata:",
+      "",
+      "```sh",
+      "~/Projects/loanarmy/.loan/bin/python spike/video-analysis/ball/human_loop.py \\",
+      "  --copy-to ~/codex-runs/suggestions.jsonl",
+      "```",
+      "",
+      "The copy is byte-identical to `~/ball-truth-review/suggestions.jsonl`; source",
+      "counts can be checked without opening the kit. `--copy-to` takes a file path.",
+      "Then rebuild with",
+      "`ball_truth_kit.py --suggestions ~/ball-truth-review/suggestions.jsonl`.",
       "Build version 4 is synced to `~/codex-runs/ball-truth-review-build.json`.",
       "",
       "The original JSONL fields remain `{clip,t,x,y,visible}`: source pixels, absolute",
@@ -1244,6 +1265,16 @@ Current human status: not_labelled; 0 labels.
       }
     },
     "smoke_status": "SYNTHETIC PIPELINE CHECK ONLY; no held-out labels, no ball accuracy result. Empty suggestions file at >=0.1.",
+    "suggestions_copy": {
+      "by_source": {
+        "rf_2x2": 242,
+        "rf_3x3": 683,
+        "wasb_2x2": 116
+      },
+      "path": "/Users/mjjones/codex-runs/suggestions.jsonl",
+      "rows": 1041,
+      "sha256": "5b55b3ce0737f90a7568158dc8cfa00e2d3de9fd5eed1d6157f44ab76454ade7"
+    },
     "suggestions_sha256": "5b55b3ce0737f90a7568158dc8cfa00e2d3de9fd5eed1d6157f44ab76454ade7",
     "synced_build_path": "/Users/mjjones/codex-runs/ball-truth-review-build.json"
   },
@@ -1300,7 +1331,17 @@ Current human status: not_labelled; 0 labels.
       }
     ]
   },
-  "state": "round 4 complete; code-only worktree/archive/browser gates passed; no inference",
+  "round4_checks": [
+    "Worktree BENCH_REQUIRE_CV2=1 .loan pytest: 375 passed; six existing Pillow deprecation warnings.",
+    "Git archive without cv2, torch, supervision or ultralytics: 372 passed, three expected cv2 skips; six existing Pillow warnings.",
+    "Ruff check and ruff format --check pass in worktree and archive: 55 files.",
+    "Mypy 2.3.1 checks passed for four changed implementation modules; external imports skipped.",
+    "Ledger regenerates byte-for-byte from committed fixtures in worktree and archive.",
+    "Chromium isolated-context kit check passed; kit build 4 and synced copy agree; progress target is 640.",
+    "Original five candidate outputs, timing, tracks and truth unchanged; only human_label_plan changed in measurement fixture.",
+    "Only two requested external archive-r2*.tar files deleted; 133058560 bytes removed."
+  ],
+  "state": "round 5 complete; code/docs-only worktree/archive gates passed; no inference",
   "track_examples": [
     "/Users/mjjones/Projects/loanarmy-bench-reports/ball-detect-2026-09-10/tracks/rf_full-n12-track.png",
     "/Users/mjjones/Projects/loanarmy-bench-reports/ball-detect-2026-09-10/tracks/rf_2x2-n12-track.png",
@@ -1372,15 +1413,34 @@ Use a fresh output directory per run. Weights, datasets and labels stay outside
 git. `score_from_saved.py` needs no torch, cv2, video, model or inference.
 `--extra-detections name=path` can repeat; it validates source hash, frozen set,
 all 20 clips, all 1,105 timestamps/frame indices, geometry and timings.
+Extras declaring `synthetic_smoke: true` are refused unless `--allow-synthetic`
+is explicitly supplied. That diagnostic override badges every synthetic table
+row **SYNTHETIC**, including per-clip rows; JSON rows retain the synthetic flag.
+Synthetic smoke scores remain plumbing diagnostics, never ball accuracy results.
 `compare_ball.py --human-jsonl` remains available for the original candidates.
 
 The first 1,041 suggestions come solely from saved detections: **683 rf_3x3,
 242 rf_2x2, 116 wasb_2x2**. Choose the highest confidence observation on one of
 those candidates' longest re-tracked fragments at that timestamp; otherwise use
-the top rf_3x3 box at >=0.3, or no suggestion. WASB supplies a point. These scores
-are not calibrated across models. Track membership does not prove ball identity.
-Regenerate using `python spike/video-analysis/ball/human_loop.py`; then rebuild
-with `ball_truth_kit.py --suggestions ~/ball-truth-review/suggestions.jsonl`.
+the top rf_3x3 box at >=0.3, or no suggestion. WASB supplies a point.
+**Ranking is unchanged and unnormalised:** it compares RF detection confidence
+with WASB's maximum sigmoid heatmap value within its selected component, on
+different scales. Equal raw scores
+break by source name, so WASB wins ties over RF; that preference has no meaning
+on a calibrated common scale and might reverse after calibration. This is a
+suggestion-display heuristic only, not evidence of accuracy or ball identity.
+
+Regenerate and make an auditable copy beside the synced build metadata:
+
+```sh
+~/Projects/loanarmy/.loan/bin/python spike/video-analysis/ball/human_loop.py \
+  --copy-to ~/codex-runs/suggestions.jsonl
+```
+
+The copy is byte-identical to `~/ball-truth-review/suggestions.jsonl`; source
+counts can be checked without opening the kit. `--copy-to` takes a file path.
+Then rebuild with
+`ball_truth_kit.py --suggestions ~/ball-truth-review/suggestions.jsonl`.
 Build version 4 is synced to `~/codex-runs/ball-truth-review-build.json`.
 
 The original JSONL fields remain `{clip,t,x,y,visible}`: source pixels, absolute
@@ -1567,6 +1627,16 @@ Recorded build and training smoke (synthetic; no accuracy result):
     }
   },
   "smoke_status": "SYNTHETIC PIPELINE CHECK ONLY; no held-out labels, no ball accuracy result. Empty suggestions file at >=0.1.",
+  "suggestions_copy": {
+    "by_source": {
+      "rf_2x2": 242,
+      "rf_3x3": 683,
+      "wasb_2x2": 116
+    },
+    "path": "/Users/mjjones/codex-runs/suggestions.jsonl",
+    "rows": 1041,
+    "sha256": "5b55b3ce0737f90a7568158dc8cfa00e2d3de9fd5eed1d6157f44ab76454ade7"
+  },
   "suggestions_sha256": "5b55b3ce0737f90a7568158dc8cfa00e2d3de9fd5eed1d6157f44ab76454ade7",
   "synced_build_path": "/Users/mjjones/codex-runs/ball-truth-review-build.json"
 }

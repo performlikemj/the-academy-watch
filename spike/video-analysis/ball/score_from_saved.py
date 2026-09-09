@@ -6,7 +6,13 @@ import json
 from pathlib import Path
 from common import DEFAULT_REPORT, HERE, dump
 from extra_detections import load_extra
-from compare_ball import MEASUREMENTS, compare, load_measurements, markdown
+from compare_ball import (
+    MEASUREMENTS,
+    candidate_label,
+    compare,
+    load_measurements,
+    markdown,
+)
 
 
 def main():
@@ -17,18 +23,29 @@ def main():
     p.add_argument(
         "--extra-detections", action="append", default=[], metavar="NAME=PATH"
     )
+    p.add_argument(
+        "--allow-synthetic",
+        action="store_true",
+        help="Allow synthetic extras, badged SYNTHETIC in every result row",
+    )
     a = p.parse_args()
     measurements = load_measurements(a.measurements)
+    try:
+        extras = load_extra(
+            a.extra_detections, measurements, allow_synthetic=a.allow_synthetic
+        )
+    except ValueError as error:
+        p.error(str(error))
     data = compare(
         measurements,
         json.loads((HERE / "fixtures/execution.json").read_text()),
         a.human_jsonl,
-        load_extra(a.extra_detections, measurements),
+        extras,
     )
     dump(a.out_prefix.with_suffix(".json"), data)
     a.out_prefix.with_suffix(".md").write_text(markdown(data))
     for r in data["results"]:
-        print(r["candidate"], r["threshold"], r["overall"]["human"])
+        print(candidate_label(r), r["threshold"], r["overall"]["human"])
     print("Wrote", a.out_prefix.with_suffix(".json"), a.out_prefix.with_suffix(".md"))
 
 

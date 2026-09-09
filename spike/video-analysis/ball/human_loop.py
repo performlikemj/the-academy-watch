@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import shutil
 from pathlib import Path
 from ball_track import track
 from common import dump
@@ -171,9 +172,19 @@ if __name__ == "__main__":
     p.add_argument(
         "--out", type=Path, default=Path.home() / "ball-truth-review/suggestions.jsonl"
     )
+    p.add_argument(
+        "--copy-to",
+        type=Path,
+        help="Write a byte-identical suggestions copy at this file path",
+    )
     a = p.parse_args()
     m = load_measurements()
     rows = saved_suggestions(m)
     write_jsonl(a.out, rows)
     dump(a.out.with_suffix(".plan.json"), review_plan(frame_catalog(m)))
+    if a.copy_to is not None:
+        a.copy_to.parent.mkdir(parents=True, exist_ok=True)
+        if a.copy_to.resolve() != a.out.resolve():
+            shutil.copyfile(a.out, a.copy_to)
+        print(f"Copied suggestions: {a.copy_to}")
     print(f"{len(rows)} unconfirmed suggestions: {a.out}")

@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 
 
-def load_extra(specs, measurements):
+def load_extra(specs, measurements, *, allow_synthetic=False):
     extras = {}
     expected_ids = set(measurements["outputs"]["rf_full"])
     source_hash = measurements["runs"]["rf_full"]["source_sha256"]
@@ -39,6 +39,10 @@ def load_extra(specs, measurements):
             or set(data["outputs"]) != expected_ids
         ):
             raise ValueError("all clips and explicit synthetic status required")
+        if data["synthetic_smoke"] and not allow_synthetic:
+            raise ValueError(
+                f"synthetic extra {name!r} refused; use --allow-synthetic for badged diagnostics"
+            )
         for cid, raw in data["outputs"].items():
             expected = measurements["outputs"]["rf_full"][cid]
             if (

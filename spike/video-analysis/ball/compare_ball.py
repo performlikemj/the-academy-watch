@@ -162,12 +162,16 @@ def compare(measurements, execution, human_path=None, extra_detections=None):
             total = overall(rows)
             if extras.get(name, {}).get("synthetic_smoke"):
                 total["human"]["gate"] = "SYNTHETIC SMOKE — NOT RESULTS"
+            synthetic = bool(extras.get(name, {}).get("synthetic_smoke"))
             for row in rows:
+                if synthetic:
+                    row["synthetic_smoke"] = True
                 row.pop("_sizes")
                 row.pop("_confidence")
             results.append(
                 {
                     "candidate": name,
+                    **({"synthetic_smoke": True} if synthetic else {}),
                     "threshold": threshold,
                     "overall": total,
                     "per_clip": rows,
@@ -257,6 +261,12 @@ def number(value, percent=False):
     )
 
 
+def candidate_label(result):
+    return result["candidate"] + (
+        " [SYNTHETIC]" if result.get("synthetic_smoke") else ""
+    )
+
+
 def markdown(data):
     lines = [
         data["headline"],
@@ -293,7 +303,7 @@ def markdown(data):
     for r in data["results"]:
         o = r["overall"]
         lines.append(
-            f"| {r['candidate']} | {r['threshold']} | {number(o['self_agreement_rate_proxy'], True)} | {number(o['boxes_per_frame'])} | {number(o['boxes_per_10s_offpitch'])} | {number(o['mean_confidence'])} | {number(o['box_px_min'])}/{number(o['box_px_median'])} | {number(o['fps'])} | {number(o['wall_s_per_clip'])} | {o['gate_proxy']} |"
+            f"| {candidate_label(r)} | {r['threshold']} | {number(o['self_agreement_rate_proxy'], True)} | {number(o['boxes_per_frame'])} | {number(o['boxes_per_10s_offpitch'])} | {number(o['mean_confidence'])} | {number(o['box_px_min'])}/{number(o['box_px_median'])} | {number(o['fps'])} | {number(o['wall_s_per_clip'])} | {o['gate_proxy']} |"
         )
     lines += [
         "",
@@ -352,7 +362,7 @@ def markdown(data):
         t = r["overall"]["touch_preview"]
         a, b = t["on_ball"], t["off_pitch"]
         lines.append(
-            f"| {r['candidate']} | {r['threshold']} | {a['near_frames']}/{a['box_available_frames']} | {number(a['rate'], True)} | {b['near_frames']}/{b['box_available_frames']} | {number(b['rate'], True)} |"
+            f"| {candidate_label(r)} | {r['threshold']} | {a['near_frames']}/{a['box_available_frames']} | {number(a['rate'], True)} | {b['near_frames']}/{b['box_available_frames']} | {number(b['rate'], True)} |"
         )
     lines += [
         "",
@@ -374,12 +384,12 @@ def markdown(data):
     for r in data["results"]:
         h = r["overall"]["human"]
         lines.append(
-            f"| {r['candidate']} | {r['threshold']} | {h['detected_on_ball_frames']}/{h['visible_on_ball_frames']} | {number(h['detection_rate'], True)} | {number(h['false_per_10s'])} | {h['gate']} |"
+            f"| {candidate_label(r)} | {r['threshold']} | {h['detected_on_ball_frames']}/{h['visible_on_ball_frames']} | {number(h['detection_rate'], True)} | {number(h['false_per_10s'])} | {h['gate']} |"
         )
     lines += ["", "## Per clip — diagnostic PROXY and track/proximity preview", ""]
     for r in data["results"]:
         lines += [
-            f"### {r['candidate']} @{r['threshold']}",
+            f"### {candidate_label(r)} @{r['threshold']}",
             "",
             "| Clip | Group | Proxy matches/agreement | Self-agreement | Boxes/frame | boxes_per_10s_offpitch | Confidence | Box px min/median | FPS | Wall s | Fragments | Continuity | Longest s | Near-rate |",
             "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
@@ -393,7 +403,7 @@ def markdown(data):
                 else "other"
             )
             lines.append(
-                f"| {c['clip']} | {group} | {c['proxy_matched_frames']}/{c['proxy_agreement_frames']} | {number(c['self_agreement_rate_proxy'], True)} | {number(c['boxes_per_frame'])} | {number(c['boxes_per_10s_offpitch'])} | {number(c['mean_confidence'])} | {number(c['box_px_min'])}/{number(c['box_px_median'])} | {number(c['fps'])} | {number(c['wall_s'])} | {c['track_fragments']} | {number(c['continuity'], True)} | {number(c['longest_track_s'])} | {number(c['touch_preview_rate'], True)} |"
+                f"| {c['clip']}{' [SYNTHETIC]' if r.get('synthetic_smoke') else ''} | {group} | {c['proxy_matched_frames']}/{c['proxy_agreement_frames']} | {number(c['self_agreement_rate_proxy'], True)} | {number(c['boxes_per_frame'])} | {number(c['boxes_per_10s_offpitch'])} | {number(c['mean_confidence'])} | {number(c['box_px_min'])}/{number(c['box_px_median'])} | {number(c['fps'])} | {number(c['wall_s'])} | {c['track_fragments']} | {number(c['continuity'], True)} | {number(c['longest_track_s'])} | {number(c['touch_preview_rate'], True)} |"
             )
         lines.append("")
     lines += ["## Three track overlays (unverified hypotheses)", ""] + [

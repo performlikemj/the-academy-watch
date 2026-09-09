@@ -64,15 +64,34 @@ Use a fresh output directory per run. Weights, datasets and labels stay outside
 git. `score_from_saved.py` needs no torch, cv2, video, model or inference.
 `--extra-detections name=path` can repeat; it validates source hash, frozen set,
 all 20 clips, all 1,105 timestamps/frame indices, geometry and timings.
+Extras declaring `synthetic_smoke: true` are refused unless `--allow-synthetic`
+is explicitly supplied. That diagnostic override badges every synthetic table
+row **SYNTHETIC**, including per-clip rows; JSON rows retain the synthetic flag.
+Synthetic smoke scores remain plumbing diagnostics, never ball accuracy results.
 `compare_ball.py --human-jsonl` remains available for the original candidates.
 
 The first 1,041 suggestions come solely from saved detections: **683 rf_3x3,
 242 rf_2x2, 116 wasb_2x2**. Choose the highest confidence observation on one of
 those candidates' longest re-tracked fragments at that timestamp; otherwise use
-the top rf_3x3 box at >=0.3, or no suggestion. WASB supplies a point. These scores
-are not calibrated across models. Track membership does not prove ball identity.
-Regenerate using `python spike/video-analysis/ball/human_loop.py`; then rebuild
-with `ball_truth_kit.py --suggestions ~/ball-truth-review/suggestions.jsonl`.
+the top rf_3x3 box at >=0.3, or no suggestion. WASB supplies a point.
+**Ranking is unchanged and unnormalised:** it compares RF detection confidence
+with WASB's maximum sigmoid heatmap value within its selected component, on
+different scales. Equal raw scores
+break by source name, so WASB wins ties over RF; that preference has no meaning
+on a calibrated common scale and might reverse after calibration. This is a
+suggestion-display heuristic only, not evidence of accuracy or ball identity.
+
+Regenerate and make an auditable copy beside the synced build metadata:
+
+```sh
+~/Projects/loanarmy/.loan/bin/python spike/video-analysis/ball/human_loop.py \
+  --copy-to ~/codex-runs/suggestions.jsonl
+```
+
+The copy is byte-identical to `~/ball-truth-review/suggestions.jsonl`; source
+counts can be checked without opening the kit. `--copy-to` takes a file path.
+Then rebuild with
+`ball_truth_kit.py --suggestions ~/ball-truth-review/suggestions.jsonl`.
 Build version 4 is synced to `~/codex-runs/ball-truth-review-build.json`.
 
 The original JSONL fields remain `{clip,t,x,y,visible}`: source pixels, absolute
