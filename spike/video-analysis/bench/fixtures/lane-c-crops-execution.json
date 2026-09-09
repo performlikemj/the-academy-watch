@@ -1,0 +1,2402 @@
+{
+  "round": "r2; scorer/ledger only; no new inference",
+  "base_commit": "b96e6b2",
+  "historical_execution": {
+    "timeout_s": 900,
+    "num_ctx": 65536,
+    "crop_coordinate_space": "Same decoded frame as lane B (1280x720 in frozen set); truth box scaled before crop calculation",
+    "geometry": "ceil(max(3*height,4*width,384)), capped to shorter frame dimension; square translated inside frame; resize 768x768; annotate after resizing",
+    "context": "Crop followed by 512-wide aspect-preserving wide frame at same timestamp, both marked magenta; unique timestamps unchanged in prompt",
+    "prompt": "Lane B unchanged plus one crop-description sentence; version suffix -crop",
+    "32b_rule": "Only if at least 2 of 6 true-touch clips answered yes in any completed 8B run",
+    "status": "Smoke, requested runs, conditional 32B decision, comparison and validation complete; prepared for one local commit",
+    "constraints": "No scorer, comparison, contract, truth or question wording changes. No push. One commit.",
+    "smoke": {
+      "wall_s": 38.809,
+      "validated": true,
+      "checks": {
+        "ball_near_player": {
+          "answer": "no",
+          "confidence": "low",
+          "reason": "Ball not seen near player"
+        },
+        "kit_color_seen": {
+          "answer": "red",
+          "confidence": "high",
+          "reason": "Red jersey clearly seen"
+        },
+        "play_in_progress": {
+          "answer": "no",
+          "confidence": "medium",
+          "reason": "No ball movement observed"
+        },
+        "player_on_pitch": {
+          "answer": "yes",
+          "confidence": "high",
+          "reason": "Player visible on field in all frames"
+        },
+        "player_running": {
+          "answer": "yes",
+          "confidence": "medium",
+          "reason": "Player moving in some frames"
+        },
+        "player_touches_ball": {
+          "answer": "no",
+          "confidence": "high",
+          "reason": "No contact with ball visible"
+        }
+      },
+      "images": 12,
+      "from_thinking": true
+    },
+    "per_run_wall_cap_s": 5400,
+    "wall_cap_choice": "Carry forward 90-minute cap from preceding lane; external watchdog only, no early per-clip stop.",
+    "sequential_execution": {
+      "request_timeout_s": 900,
+      "per_run_wall_cap_s": 5400,
+      "runs": {
+        "e1e-crop-8b-smoke": {
+          "argv": [
+            "/Users/mjjones/Projects/loanarmy/.loan/bin/python",
+            "-u",
+            "/Users/mjjones/Projects/loanarmy/.worktrees/lane-b/spike/video-analysis/bench/run_bench.py",
+            "--adapter",
+            "qwen3vl_checks_crop",
+            "--timeout",
+            "900",
+            "--manifest",
+            "/Users/mjjones/Projects/loanarmy-bench-frozen/manifest.json",
+            "--report-root",
+            "/Users/mjjones/Projects/loanarmy-bench-reports",
+            "--model",
+            "qwen3-vl:8b",
+            "--clips",
+            "m04-n12-t1411-237107-242145",
+            "--sample-interval",
+            "0.5",
+            "--sample-limit",
+            "12",
+            "--run-id",
+            "e1e-crop-8b-smoke"
+          ],
+          "started_at": "2026-09-09T15:00:44.682866+00:00",
+          "pid": 62381,
+          "wall_cap_s": 5400,
+          "cap_exceeded": false,
+          "exit_code": 0,
+          "wall_s": 38.964,
+          "completed_at": "2026-09-09T15:01:23.646852+00:00"
+        },
+        "e1e-crop-8b-dense": {
+          "argv": [
+            "/Users/mjjones/Projects/loanarmy/.loan/bin/python",
+            "-u",
+            "/Users/mjjones/Projects/loanarmy/.worktrees/lane-b/spike/video-analysis/bench/run_bench.py",
+            "--adapter",
+            "qwen3vl_checks_crop",
+            "--timeout",
+            "900",
+            "--manifest",
+            "/Users/mjjones/Projects/loanarmy-bench-frozen/manifest.json",
+            "--report-root",
+            "/Users/mjjones/Projects/loanarmy-bench-reports",
+            "--model",
+            "qwen3-vl:8b",
+            "--clips",
+            "all",
+            "--sample-interval",
+            "0.5",
+            "--sample-limit",
+            "12",
+            "--run-id",
+            "e1e-crop-8b-dense"
+          ],
+          "started_at": "2026-09-09T15:01:57.792816+00:00",
+          "pid": 62718,
+          "wall_cap_s": 5400,
+          "cap_exceeded": false,
+          "exit_code": 0,
+          "wall_s": 1068.807,
+          "completed_at": "2026-09-09T15:19:46.573435+00:00"
+        },
+        "e1e-crop-8b-prod30": {
+          "argv": [
+            "/Users/mjjones/Projects/loanarmy/.loan/bin/python",
+            "-u",
+            "/Users/mjjones/Projects/loanarmy/.worktrees/lane-b/spike/video-analysis/bench/run_bench.py",
+            "--adapter",
+            "qwen3vl_checks_crop",
+            "--timeout",
+            "900",
+            "--manifest",
+            "/Users/mjjones/Projects/loanarmy-bench-frozen/manifest.json",
+            "--report-root",
+            "/Users/mjjones/Projects/loanarmy-bench-reports",
+            "--model",
+            "qwen3-vl:8b",
+            "--clips",
+            "all",
+            "--sample-interval",
+            "30",
+            "--sample-limit",
+            "3",
+            "--run-id",
+            "e1e-crop-8b-prod30"
+          ],
+          "started_at": "2026-09-09T15:19:46.634641+00:00",
+          "pid": 67668,
+          "wall_cap_s": 5400,
+          "cap_exceeded": false,
+          "exit_code": 0,
+          "wall_s": 221.621,
+          "completed_at": "2026-09-09T15:23:28.254386+00:00"
+        },
+        "e1e-cropctx-8b-dense": {
+          "argv": [
+            "/Users/mjjones/Projects/loanarmy/.loan/bin/python",
+            "-u",
+            "/Users/mjjones/Projects/loanarmy/.worktrees/lane-b/spike/video-analysis/bench/run_bench.py",
+            "--adapter",
+            "qwen3vl_checks_crop",
+            "--timeout",
+            "900",
+            "--manifest",
+            "/Users/mjjones/Projects/loanarmy-bench-frozen/manifest.json",
+            "--report-root",
+            "/Users/mjjones/Projects/loanarmy-bench-reports",
+            "--model",
+            "qwen3-vl:8b",
+            "--clips",
+            "all",
+            "--sample-interval",
+            "0.5",
+            "--sample-limit",
+            "12",
+            "--run-id",
+            "e1e-cropctx-8b-dense",
+            "--crop-context"
+          ],
+          "started_at": "2026-09-09T15:23:28.328967+00:00",
+          "pid": 68744,
+          "wall_cap_s": 5400,
+          "cap_exceeded": false,
+          "exit_code": 0,
+          "wall_s": 2457.213,
+          "completed_at": "2026-09-09T16:04:25.551457+00:00"
+        }
+      },
+      "guard_checks": [
+        {
+          "before": "e1e-crop-8b-smoke",
+          "matched_pids": [],
+          "foreign_pids": [],
+          "at": "2026-09-09T15:00:44.681784+00:00"
+        },
+        {
+          "before": "e1e-crop-8b-dense",
+          "matched_pids": [],
+          "foreign_pids": [],
+          "at": "2026-09-09T15:01:57.791608+00:00"
+        },
+        {
+          "before": "e1e-crop-8b-prod30",
+          "matched_pids": [],
+          "foreign_pids": [],
+          "at": "2026-09-09T15:19:46.631581+00:00"
+        },
+        {
+          "before": "e1e-cropctx-8b-dense",
+          "matched_pids": [],
+          "foreign_pids": [],
+          "at": "2026-09-09T15:23:28.325308+00:00"
+        }
+      ],
+      "state": "all_runs_finished",
+      "decision_32b": {
+        "recalls": {
+          "e1e-crop-8b-dense": {
+            "hits": [],
+            "count": 0,
+            "denominator": 6
+          },
+          "e1e-crop-8b-prod30": {
+            "hits": [],
+            "count": 0,
+            "denominator": 6
+          },
+          "e1e-cropctx-8b-dense": {
+            "hits": [],
+            "count": 0,
+            "denominator": 6
+          }
+        },
+        "run": false,
+        "rule": "At least 2/6 yes on true-touch clips in any 8B run"
+      }
+    },
+    "gates": {
+      "pytest": "317 passed in 1.37s; BENCH_REQUIRE_CV2=1 /Users/mjjones/Projects/loanarmy/.loan/bin/python -m pytest spike/video-analysis/bench -q",
+      "ruff_check": "PASS; ruff check spike/video-analysis/bench",
+      "ruff_format": "PASS, 31 files; ruff format --check spike/video-analysis/bench",
+      "diff_check": "PASS; git diff --check"
+    },
+    "not_done": "Known truth correction/r2 pending. No adoption decision, production integration or push. Channel diagnostic was not requested for crop lane.",
+    "unchanged_proof": {
+      "protected_source_sha256": {
+        "checks_contract.py": "579d1ca7d6f01a95c33c36bd072ee7b56016eab752b5a8cc5cb8ce2c22b048d8",
+        "checks_truth.py": "d847e4934d1774914e4df44b0797521c4c9695fff281d58a6afdabf0f6f204e7",
+        "checks_score.py": "29f5d71602b1fa0b19881afe624b2a32606169691ab5bbbdca8259a1a4ad2a7f",
+        "compare_checks.py": "b012370b8d13528f9ac4d2ee5527c3aecdcf8f951e96b37a76edbfd3f90c49bc",
+        "adapters/qwen3vl_checks.py": "92f070b614adf821628c228685deba4ac99a1a63cc21c0f02015253b6d3ec394",
+        "semantic_activity.py": "5a114717535212ed76bad545562b40579290b67445d1fc31309ed9dfd95ec8ae"
+      },
+      "previous_six_run_fingerprints": "exact match from current runner",
+      "truth_provenance": {
+        "truth_set_sha256_after_notes": "b0701190324ab2527d400b2b176da67291a5efffc11fd314068b343e9f74e8ed",
+        "human_notes_sha256": "5944679d0b576bfd8790d9d1206def9485f7618b0c6d53d4c7593c266d51d59f"
+      }
+    }
+  },
+  "historical_execution_note": "Archived pre-r2 execution, validation and interpretation. R2 metrics, truth and temporal caveats supersede historical metric conclusions and unchanged-scorer statements.",
+  "prompt_history": {
+    "verbatim_diff": "- Return one JSON object matching the supplied schema. Each question has answer and confidence (low, medium, high), and optionally one short reason (at most 80 characters). Keep reasons very brief. No other text.\n+ Return one JSON object matching the supplied schema. Each question has answer and confidence (low, medium, high), and one short reason (at most 80 characters). Include a reason for each answer, in at most five words. No other text.",
+    "PROMPT_VERSION_before": null,
+    "PROMPT_VERSION_after": "film-room-checks-prompt-v1-reasons",
+    "version_provenance": "Pilot PROMPT_VERSION is not persisted in the saved run metadata (UNCONFIRMED); do not reconstruct it. Final saved run.json records film-room-checks-prompt-v1-reasons; committed adapter bcb1699a contains the final wording. The pilot wording is recorded verbatim from the r2 review brief. No prompt edited in r2.",
+    "confidence_shift": [
+      {
+        "clip_id": "m04-n12-t1411-237107-242145",
+        "pilot_run": "e1d-checks-smoke",
+        "pilot": {
+          "answer": "no",
+          "confidence": "low",
+          "reason": null
+        },
+        "final_run": "e1d-checks-dense",
+        "final": {
+          "answer": "no",
+          "confidence": "high",
+          "reason": "No ball contact shown"
+        },
+        "pilot_prompt_version": null,
+        "final_prompt_version": "film-room-checks-prompt-v1-reasons",
+        "final_version_source": "run.json (not the raw claim)"
+      },
+      {
+        "clip_id": "m04-n02-t3005-474114-478131",
+        "pilot_run": "e1d-checks-dense-prompt-pilot",
+        "pilot": {
+          "answer": "no",
+          "confidence": "low",
+          "reason": null
+        },
+        "final_run": "e1d-checks-dense",
+        "final": {
+          "answer": "no",
+          "confidence": "high",
+          "reason": "No visible contact with ball"
+        },
+        "pilot_prompt_version": null,
+        "final_prompt_version": "film-room-checks-prompt-v1-reasons",
+        "final_version_source": "run.json (not the raw claim)"
+      }
+    ],
+    "caveat": "Confidence is uncalibrated and prompt-sensitive; both pilot clips changed touch no/low to no/high."
+  },
+  "notes_check": {
+    "path": "/Users/mjjones/codex-runs/lane-a-notes.md",
+    "source_file_sha256": "0fb137cf89ebb46352d48b3283eed62464aad3d95b3f2d8ff7e9b99e4ede022a",
+    "source_human_notes_sha256": "5944679d0b576bfd8790d9d1206def9485f7618b0c6d53d4c7593c266d51d59f",
+    "applied_human_notes_sha256": "5944679d0b576bfd8790d9d1206def9485f7618b0c6d53d4c7593c266d51d59f",
+    "reapplied": false,
+    "changed_clip_ids": [],
+    "lane_a_regenerated": false,
+    "reason": "Normalized ID-to-note mapping matches applied truth exactly; lane-A activity/identity rules unchanged."
+  },
+  "artifacts": {
+    "experiment": "E1e lane C — player-centred crops with unchanged six checks",
+    "base_commit": "113624e6",
+    "thinking_channel_diagnostic": {},
+    "crop_geometry": {
+      "crop8_dense": {
+        "crop_side_px_min": 384,
+        "crop_side_px_max": 689,
+        "crop_scale_min": 1.1146589259796806,
+        "crop_scale_max": 2.0,
+        "crop_output_size": [
+          768,
+          768
+        ],
+        "context_width": null,
+        "per_clip_counts": [
+          {
+            "clip_id": "m04-n02-t3005-474114-478131",
+            "sampled_instants": 12,
+            "sent_images": 12,
+            "crop_images": 12,
+            "context_images": 0
+          },
+          {
+            "clip_id": "m04-n03-t1406-157170-158922",
+            "sampled_instants": 12,
+            "sent_images": 12,
+            "crop_images": 12,
+            "context_images": 0
+          },
+          {
+            "clip_id": "m04-n03-t1406-385962-387137",
+            "sampled_instants": 12,
+            "sent_images": 12,
+            "crop_images": 12,
+            "context_images": 0
+          },
+          {
+            "clip_id": "m04-n04-t3006-243433-247994",
+            "sampled_instants": 12,
+            "sent_images": 12,
+            "crop_images": 12,
+            "context_images": 0
+          },
+          {
+            "clip_id": "m04-n04-t3006-307417-310307",
+            "sampled_instants": 12,
+            "sent_images": 12,
+            "crop_images": 12,
+            "context_images": 0
+          },
+          {
+            "clip_id": "m04-n05-t3007-284945-287898",
+            "sampled_instants": 12,
+            "sent_images": 12,
+            "crop_images": 12,
+            "context_images": 0
+          },
+          {
+            "clip_id": "m04-n09-t1409-143096-143834",
+            "sampled_instants": 12,
+            "sent_images": 12,
+            "crop_images": 12,
+            "context_images": 0
+          },
+          {
+            "clip_id": "m04-n09-t1409-297601-298865",
+            "sampled_instants": 12,
+            "sent_images": 12,
+            "crop_images": 12,
+            "context_images": 0
+          },
+          {
+            "clip_id": "m04-n09-t1409-385922-386603",
+            "sampled_instants": 12,
+            "sent_images": 12,
+            "crop_images": 12,
+            "context_images": 0
+          },
+          {
+            "clip_id": "m04-n10-t711-186553-188161",
+            "sampled_instants": 12,
+            "sent_images": 12,
+            "crop_images": 12,
+            "context_images": 0
+          },
+          {
+            "clip_id": "m04-n12-t1411-237107-242145",
+            "sampled_instants": 12,
+            "sent_images": 12,
+            "crop_images": 12,
+            "context_images": 0
+          },
+          {
+            "clip_id": "m04-n12-t1411-679986-681985",
+            "sampled_instants": 12,
+            "sent_images": 12,
+            "crop_images": 12,
+            "context_images": 0
+          },
+          {
+            "clip_id": "m04-n15-t3010-164698-170777",
+            "sampled_instants": 12,
+            "sent_images": 12,
+            "crop_images": 12,
+            "context_images": 0
+          },
+          {
+            "clip_id": "m04-n17-t717-253073-260377",
+            "sampled_instants": 12,
+            "sent_images": 12,
+            "crop_images": 12,
+            "context_images": 0
+          },
+          {
+            "clip_id": "m04-n17-t717-304624-307834",
+            "sampled_instants": 12,
+            "sent_images": 12,
+            "crop_images": 12,
+            "context_images": 0
+          },
+          {
+            "clip_id": "m04-n17-t717-416826-418915",
+            "sampled_instants": 12,
+            "sent_images": 12,
+            "crop_images": 12,
+            "context_images": 0
+          },
+          {
+            "clip_id": "m04-n21-t3011-390297-390800",
+            "sampled_instants": 10,
+            "sent_images": 10,
+            "crop_images": 10,
+            "context_images": 0
+          },
+          {
+            "clip_id": "m04-n22-t3012-070707-074371",
+            "sampled_instants": 12,
+            "sent_images": 12,
+            "crop_images": 12,
+            "context_images": 0
+          },
+          {
+            "clip_id": "m04-n24-t3013-679939-681217",
+            "sampled_instants": 12,
+            "sent_images": 12,
+            "crop_images": 12,
+            "context_images": 0
+          },
+          {
+            "clip_id": "m04-n25-t3014-530600-532465",
+            "sampled_instants": 12,
+            "sent_images": 12,
+            "crop_images": 12,
+            "context_images": 0
+          }
+        ],
+        "sampled_instants": 238,
+        "sent_images": 238,
+        "coordinate_space": "Decoded lane-B frames; source truth scaled before crop geometry"
+      },
+      "crop8_prod30": {
+        "crop_side_px_min": 384,
+        "crop_side_px_max": 689,
+        "crop_scale_min": 1.1146589259796806,
+        "crop_scale_max": 2.0,
+        "crop_output_size": [
+          768,
+          768
+        ],
+        "context_width": null,
+        "per_clip_counts": [
+          {
+            "clip_id": "m04-n02-t3005-474114-478131",
+            "sampled_instants": 2,
+            "sent_images": 2,
+            "crop_images": 2,
+            "context_images": 0
+          },
+          {
+            "clip_id": "m04-n03-t1406-157170-158922",
+            "sampled_instants": 1,
+            "sent_images": 1,
+            "crop_images": 1,
+            "context_images": 0
+          },
+          {
+            "clip_id": "m04-n03-t1406-385962-387137",
+            "sampled_instants": 1,
+            "sent_images": 1,
+            "crop_images": 1,
+            "context_images": 0
+          },
+          {
+            "clip_id": "m04-n04-t3006-243433-247994",
+            "sampled_instants": 2,
+            "sent_images": 2,
+            "crop_images": 2,
+            "context_images": 0
+          },
+          {
+            "clip_id": "m04-n04-t3006-307417-310307",
+            "sampled_instants": 1,
+            "sent_images": 1,
+            "crop_images": 1,
+            "context_images": 0
+          },
+          {
+            "clip_id": "m04-n05-t3007-284945-287898",
+            "sampled_instants": 1,
+            "sent_images": 1,
+            "crop_images": 1,
+            "context_images": 0
+          },
+          {
+            "clip_id": "m04-n09-t1409-143096-143834",
+            "sampled_instants": 1,
+            "sent_images": 1,
+            "crop_images": 1,
+            "context_images": 0
+          },
+          {
+            "clip_id": "m04-n09-t1409-297601-298865",
+            "sampled_instants": 1,
+            "sent_images": 1,
+            "crop_images": 1,
+            "context_images": 0
+          },
+          {
+            "clip_id": "m04-n09-t1409-385922-386603",
+            "sampled_instants": 1,
+            "sent_images": 1,
+            "crop_images": 1,
+            "context_images": 0
+          },
+          {
+            "clip_id": "m04-n10-t711-186553-188161",
+            "sampled_instants": 1,
+            "sent_images": 1,
+            "crop_images": 1,
+            "context_images": 0
+          },
+          {
+            "clip_id": "m04-n12-t1411-237107-242145",
+            "sampled_instants": 2,
+            "sent_images": 2,
+            "crop_images": 2,
+            "context_images": 0
+          },
+          {
+            "clip_id": "m04-n12-t1411-679986-681985",
+            "sampled_instants": 1,
+            "sent_images": 1,
+            "crop_images": 1,
+            "context_images": 0
+          },
+          {
+            "clip_id": "m04-n15-t3010-164698-170777",
+            "sampled_instants": 3,
+            "sent_images": 3,
+            "crop_images": 3,
+            "context_images": 0
+          },
+          {
+            "clip_id": "m04-n17-t717-253073-260377",
+            "sampled_instants": 3,
+            "sent_images": 3,
+            "crop_images": 3,
+            "context_images": 0
+          },
+          {
+            "clip_id": "m04-n17-t717-304624-307834",
+            "sampled_instants": 2,
+            "sent_images": 2,
+            "crop_images": 2,
+            "context_images": 0
+          },
+          {
+            "clip_id": "m04-n17-t717-416826-418915",
+            "sampled_instants": 1,
+            "sent_images": 1,
+            "crop_images": 1,
+            "context_images": 0
+          },
+          {
+            "clip_id": "m04-n21-t3011-390297-390800",
+            "sampled_instants": 1,
+            "sent_images": 1,
+            "crop_images": 1,
+            "context_images": 0
+          },
+          {
+            "clip_id": "m04-n22-t3012-070707-074371",
+            "sampled_instants": 2,
+            "sent_images": 2,
+            "crop_images": 2,
+            "context_images": 0
+          },
+          {
+            "clip_id": "m04-n24-t3013-679939-681217",
+            "sampled_instants": 1,
+            "sent_images": 1,
+            "crop_images": 1,
+            "context_images": 0
+          },
+          {
+            "clip_id": "m04-n25-t3014-530600-532465",
+            "sampled_instants": 1,
+            "sent_images": 1,
+            "crop_images": 1,
+            "context_images": 0
+          }
+        ],
+        "sampled_instants": 29,
+        "sent_images": 29,
+        "coordinate_space": "Decoded lane-B frames; source truth scaled before crop geometry"
+      },
+      "cropctx8_dense": {
+        "crop_side_px_min": 384,
+        "crop_side_px_max": 689,
+        "crop_scale_min": 1.1146589259796806,
+        "crop_scale_max": 2.0,
+        "crop_output_size": [
+          768,
+          768
+        ],
+        "context_width": 512,
+        "per_clip_counts": [
+          {
+            "clip_id": "m04-n02-t3005-474114-478131",
+            "sampled_instants": 12,
+            "sent_images": 24,
+            "crop_images": 12,
+            "context_images": 12
+          },
+          {
+            "clip_id": "m04-n03-t1406-157170-158922",
+            "sampled_instants": 12,
+            "sent_images": 24,
+            "crop_images": 12,
+            "context_images": 12
+          },
+          {
+            "clip_id": "m04-n03-t1406-385962-387137",
+            "sampled_instants": 12,
+            "sent_images": 24,
+            "crop_images": 12,
+            "context_images": 12
+          },
+          {
+            "clip_id": "m04-n04-t3006-243433-247994",
+            "sampled_instants": 12,
+            "sent_images": 24,
+            "crop_images": 12,
+            "context_images": 12
+          },
+          {
+            "clip_id": "m04-n04-t3006-307417-310307",
+            "sampled_instants": 12,
+            "sent_images": 24,
+            "crop_images": 12,
+            "context_images": 12
+          },
+          {
+            "clip_id": "m04-n05-t3007-284945-287898",
+            "sampled_instants": 12,
+            "sent_images": 24,
+            "crop_images": 12,
+            "context_images": 12
+          },
+          {
+            "clip_id": "m04-n09-t1409-143096-143834",
+            "sampled_instants": 12,
+            "sent_images": 24,
+            "crop_images": 12,
+            "context_images": 12
+          },
+          {
+            "clip_id": "m04-n09-t1409-297601-298865",
+            "sampled_instants": 12,
+            "sent_images": 24,
+            "crop_images": 12,
+            "context_images": 12
+          },
+          {
+            "clip_id": "m04-n09-t1409-385922-386603",
+            "sampled_instants": 12,
+            "sent_images": 24,
+            "crop_images": 12,
+            "context_images": 12
+          },
+          {
+            "clip_id": "m04-n10-t711-186553-188161",
+            "sampled_instants": 12,
+            "sent_images": 24,
+            "crop_images": 12,
+            "context_images": 12
+          },
+          {
+            "clip_id": "m04-n12-t1411-237107-242145",
+            "sampled_instants": 12,
+            "sent_images": 24,
+            "crop_images": 12,
+            "context_images": 12
+          },
+          {
+            "clip_id": "m04-n12-t1411-679986-681985",
+            "sampled_instants": 12,
+            "sent_images": 24,
+            "crop_images": 12,
+            "context_images": 12
+          },
+          {
+            "clip_id": "m04-n15-t3010-164698-170777",
+            "sampled_instants": 12,
+            "sent_images": 24,
+            "crop_images": 12,
+            "context_images": 12
+          },
+          {
+            "clip_id": "m04-n17-t717-253073-260377",
+            "sampled_instants": 12,
+            "sent_images": 24,
+            "crop_images": 12,
+            "context_images": 12
+          },
+          {
+            "clip_id": "m04-n17-t717-304624-307834",
+            "sampled_instants": 12,
+            "sent_images": 24,
+            "crop_images": 12,
+            "context_images": 12
+          },
+          {
+            "clip_id": "m04-n17-t717-416826-418915",
+            "sampled_instants": 12,
+            "sent_images": 24,
+            "crop_images": 12,
+            "context_images": 12
+          },
+          {
+            "clip_id": "m04-n21-t3011-390297-390800",
+            "sampled_instants": 10,
+            "sent_images": 20,
+            "crop_images": 10,
+            "context_images": 10
+          },
+          {
+            "clip_id": "m04-n22-t3012-070707-074371",
+            "sampled_instants": 12,
+            "sent_images": 24,
+            "crop_images": 12,
+            "context_images": 12
+          },
+          {
+            "clip_id": "m04-n24-t3013-679939-681217",
+            "sampled_instants": 12,
+            "sent_images": 24,
+            "crop_images": 12,
+            "context_images": 12
+          },
+          {
+            "clip_id": "m04-n25-t3014-530600-532465",
+            "sampled_instants": 12,
+            "sent_images": 24,
+            "crop_images": 12,
+            "context_images": 12
+          }
+        ],
+        "sampled_instants": 238,
+        "sent_images": 476,
+        "coordinate_space": "Decoded lane-B frames; source truth scaled before crop geometry"
+      }
+    },
+    "example_crops": [
+      {
+        "path": "/Users/mjjones/Projects/loanarmy-bench-reports/e1e-crop-examples/m04-n12-t1411-237107-242145-sample-00.png",
+        "t": 2371.12,
+        "sent_w": 768,
+        "sent_h": 768,
+        "target_t": 2371.12,
+        "sampling_shift_s": 0.0,
+        "crop_side_px": 384,
+        "crop_scale": 2.0,
+        "crop_rect": [
+          752,
+          74,
+          1136,
+          458
+        ],
+        "decoded_frame_size": [
+          1280,
+          720
+        ],
+        "box_decoded_space": [
+          936.1904761904767,
+          241.14285714285654,
+          952.285714285713,
+          291.3333333333333
+        ],
+        "box": [
+          368.38095238095343,
+          334.2857142857131,
+          400.57142857142594,
+          434.66666666666663
+        ],
+        "image_kind": "crop",
+        "sha256": "f124e405b5f90d6fe7f68cdf4bc799a0370f6324ffcd7d97685232c1be5fc8a7"
+      },
+      {
+        "path": "/Users/mjjones/Projects/loanarmy-bench-reports/e1e-crop-examples/m04-n12-t1411-237107-242145-sample-05.png",
+        "t": 2393.975,
+        "sent_w": 768,
+        "sent_h": 768,
+        "target_t": 2393.975,
+        "sampling_shift_s": 0.0,
+        "crop_side_px": 384,
+        "crop_scale": 2.0,
+        "crop_rect": [
+          7,
+          191,
+          391,
+          575
+        ],
+        "decoded_frame_size": [
+          1280,
+          720
+        ],
+        "box_decoded_space": [
+          184.90000000000228,
+          346.66666666666663,
+          213.20000000000303,
+          418.66666666666663
+        ],
+        "box": [
+          355.80000000000456,
+          311.33333333333326,
+          412.40000000000606,
+          455.33333333333326
+        ],
+        "image_kind": "crop",
+        "sha256": "56e99a5e7fe703016f6bc5768a3eeb0194b8b0a9d5f933bc113f8818312aa13b"
+      },
+      {
+        "path": "/Users/mjjones/Projects/loanarmy-bench-reports/e1e-crop-examples/m04-n12-t1411-237107-242145-sample-11.png",
+        "t": 2421.4,
+        "sent_w": 768,
+        "sent_h": 768,
+        "target_t": 2421.4,
+        "sampling_shift_s": 0.0,
+        "crop_side_px": 384,
+        "crop_scale": 2.0,
+        "crop_rect": [
+          813,
+          145,
+          1197,
+          529
+        ],
+        "decoded_frame_size": [
+          1280,
+          720
+        ],
+        "box_decoded_space": [
+          989.5555555556061,
+          308.1111111111136,
+          1020.0000000000455,
+          365.1111111111061
+        ],
+        "box": [
+          353.11111111121227,
+          326.2222222222272,
+          414.00000000009095,
+          440.22222222221217
+        ],
+        "image_kind": "crop",
+        "sha256": "6b0dbfc380de794aa5538bd3a548d23df1e96a3dd3b7699a6b08703b0fcfffa2"
+      }
+    ],
+    "decision_32b": {
+      "recalls": {
+        "e1e-crop-8b-dense": {
+          "hits": [],
+          "count": 0,
+          "denominator": 6
+        },
+        "e1e-crop-8b-prod30": {
+          "hits": [],
+          "count": 0,
+          "denominator": 6
+        },
+        "e1e-cropctx-8b-dense": {
+          "hits": [],
+          "count": 0,
+          "denominator": 6
+        }
+      },
+      "run": false,
+      "rule": "At least 2/6 yes on true-touch clips in any 8B run"
+    }
+  },
+  "previous_truth": {
+    "m04-n02-t3005-474114-478131": {
+      "player_on_pitch": "yes",
+      "play_in_progress": "yes",
+      "ball_near_player": null,
+      "player_touches_ball": null,
+      "player_running": null,
+      "kit_color_seen": "red"
+    },
+    "m04-n03-t1406-157170-158922": {
+      "player_on_pitch": "yes",
+      "play_in_progress": "yes",
+      "ball_near_player": "yes",
+      "player_touches_ball": "yes",
+      "player_running": "yes",
+      "kit_color_seen": "red"
+    },
+    "m04-n03-t1406-385962-387137": {
+      "player_on_pitch": "no",
+      "play_in_progress": "no",
+      "ball_near_player": "no",
+      "player_touches_ball": "no",
+      "player_running": "no",
+      "kit_color_seen": null
+    },
+    "m04-n04-t3006-243433-247994": {
+      "player_on_pitch": "yes",
+      "play_in_progress": "yes",
+      "ball_near_player": "yes",
+      "player_touches_ball": "yes",
+      "player_running": null,
+      "kit_color_seen": "red"
+    },
+    "m04-n04-t3006-307417-310307": {
+      "player_on_pitch": "yes",
+      "play_in_progress": "no",
+      "ball_near_player": "no",
+      "player_touches_ball": "no",
+      "player_running": "yes",
+      "kit_color_seen": "red"
+    },
+    "m04-n05-t3007-284945-287898": {
+      "player_on_pitch": "yes",
+      "play_in_progress": "yes",
+      "ball_near_player": null,
+      "player_touches_ball": null,
+      "player_running": "yes",
+      "kit_color_seen": "red"
+    },
+    "m04-n09-t1409-143096-143834": {
+      "player_on_pitch": "no",
+      "play_in_progress": "no",
+      "ball_near_player": "no",
+      "player_touches_ball": "no",
+      "player_running": "no",
+      "kit_color_seen": "red"
+    },
+    "m04-n09-t1409-297601-298865": {
+      "player_on_pitch": "yes",
+      "play_in_progress": "yes",
+      "ball_near_player": null,
+      "player_touches_ball": null,
+      "player_running": "yes",
+      "kit_color_seen": "red"
+    },
+    "m04-n09-t1409-385922-386603": {
+      "player_on_pitch": "no",
+      "play_in_progress": "no",
+      "ball_near_player": "no",
+      "player_touches_ball": "no",
+      "player_running": "no",
+      "kit_color_seen": "red"
+    },
+    "m04-n10-t711-186553-188161": {
+      "player_on_pitch": "yes",
+      "play_in_progress": null,
+      "ball_near_player": "no",
+      "player_touches_ball": "no",
+      "player_running": "no",
+      "kit_color_seen": "red"
+    },
+    "m04-n12-t1411-237107-242145": {
+      "player_on_pitch": "yes",
+      "play_in_progress": "yes",
+      "ball_near_player": "yes",
+      "player_touches_ball": "yes",
+      "player_running": null,
+      "kit_color_seen": "red"
+    },
+    "m04-n12-t1411-679986-681985": {
+      "player_on_pitch": "no",
+      "play_in_progress": "no",
+      "ball_near_player": "no",
+      "player_touches_ball": "no",
+      "player_running": "no",
+      "kit_color_seen": "red"
+    },
+    "m04-n15-t3010-164698-170777": {
+      "player_on_pitch": "yes",
+      "play_in_progress": "yes",
+      "ball_near_player": "yes",
+      "player_touches_ball": "yes",
+      "player_running": "yes",
+      "kit_color_seen": "red"
+    },
+    "m04-n17-t717-253073-260377": {
+      "player_on_pitch": "yes",
+      "play_in_progress": "yes",
+      "ball_near_player": "yes",
+      "player_touches_ball": "yes",
+      "player_running": "yes",
+      "kit_color_seen": "red"
+    },
+    "m04-n17-t717-304624-307834": {
+      "player_on_pitch": "yes",
+      "play_in_progress": "yes",
+      "ball_near_player": null,
+      "player_touches_ball": null,
+      "player_running": "no",
+      "kit_color_seen": "red"
+    },
+    "m04-n17-t717-416826-418915": {
+      "player_on_pitch": "yes",
+      "play_in_progress": "yes",
+      "ball_near_player": "yes",
+      "player_touches_ball": "yes",
+      "player_running": "yes",
+      "kit_color_seen": "red"
+    },
+    "m04-n21-t3011-390297-390800": {
+      "player_on_pitch": "no",
+      "play_in_progress": "no",
+      "ball_near_player": "no",
+      "player_touches_ball": "no",
+      "player_running": "no",
+      "kit_color_seen": "red"
+    },
+    "m04-n22-t3012-070707-074371": {
+      "player_on_pitch": "no",
+      "play_in_progress": "no",
+      "ball_near_player": "no",
+      "player_touches_ball": "no",
+      "player_running": "no",
+      "kit_color_seen": null
+    },
+    "m04-n24-t3013-679939-681217": {
+      "player_on_pitch": null,
+      "play_in_progress": null,
+      "ball_near_player": null,
+      "player_touches_ball": null,
+      "player_running": null,
+      "kit_color_seen": "black"
+    },
+    "m04-n25-t3014-530600-532465": {
+      "player_on_pitch": "no",
+      "play_in_progress": "no",
+      "ball_near_player": "no",
+      "player_touches_ball": "no",
+      "player_running": "no",
+      "kit_color_seen": "red"
+    }
+  },
+  "previous_metrics": {
+    "8b_dense": {
+      "attempted_clips": 20,
+      "scored_clips": 20,
+      "failed_clips": 0,
+      "questions": {
+        "player_on_pitch": {
+          "eligible_count": 19,
+          "answered_count": 19,
+          "correct_count": 12,
+          "abstain_count": 0,
+          "truth_no_count": 7,
+          "truth_yes_count": 12,
+          "false_yes_count": 7,
+          "false_no_count": 0,
+          "accuracy": 0.631578947368421,
+          "abstain_rate": 0.0,
+          "coverage": 1.0,
+          "false_yes_rate": 1.0,
+          "false_no_rate": 0.0,
+          "confident_wrong_count": 7
+        },
+        "play_in_progress": {
+          "eligible_count": 18,
+          "answered_count": 18,
+          "correct_count": 16,
+          "abstain_count": 0,
+          "truth_no_count": 8,
+          "truth_yes_count": 10,
+          "false_yes_count": 1,
+          "false_no_count": 1,
+          "accuracy": 0.8888888888888888,
+          "abstain_rate": 0.0,
+          "coverage": 1.0,
+          "false_yes_rate": 0.125,
+          "false_no_rate": 0.1,
+          "confident_wrong_count": 0
+        },
+        "ball_near_player": {
+          "eligible_count": 15,
+          "answered_count": 14,
+          "correct_count": 7,
+          "abstain_count": 1,
+          "truth_no_count": 9,
+          "truth_yes_count": 6,
+          "false_yes_count": 1,
+          "false_no_count": 6,
+          "accuracy": 0.5,
+          "abstain_rate": 0.06666666666666667,
+          "coverage": 0.9333333333333333,
+          "false_yes_rate": 0.1111111111111111,
+          "false_no_rate": 1.0,
+          "confident_wrong_count": 1
+        },
+        "player_touches_ball": {
+          "eligible_count": 15,
+          "answered_count": 15,
+          "correct_count": 9,
+          "abstain_count": 0,
+          "truth_no_count": 9,
+          "truth_yes_count": 6,
+          "false_yes_count": 0,
+          "false_no_count": 6,
+          "accuracy": 0.6,
+          "abstain_rate": 0.0,
+          "coverage": 1.0,
+          "false_yes_rate": 0.0,
+          "false_no_rate": 1.0,
+          "confident_wrong_count": 6
+        },
+        "player_running": {
+          "eligible_count": 16,
+          "answered_count": 16,
+          "correct_count": 7,
+          "abstain_count": 0,
+          "truth_no_count": 9,
+          "truth_yes_count": 7,
+          "false_yes_count": 9,
+          "false_no_count": 0,
+          "accuracy": 0.4375,
+          "abstain_rate": 0.0,
+          "coverage": 1.0,
+          "false_yes_rate": 1.0,
+          "false_no_rate": 0.0,
+          "confident_wrong_count": 0
+        },
+        "kit_color_seen": {
+          "eligible_count": 20,
+          "answered_count": 18,
+          "correct_count": 17,
+          "abstain_count": 2,
+          "truth_no_count": 0,
+          "truth_yes_count": 0,
+          "false_yes_count": 0,
+          "false_no_count": 0,
+          "accuracy": 0.9444444444444444,
+          "abstain_rate": 0.1,
+          "coverage": 0.9,
+          "false_yes_rate": null,
+          "false_no_rate": null,
+          "confident_wrong_count": 1
+        }
+      },
+      "gates": {
+        "off_pitch": {
+          "eligible_count": 14,
+          "answered_count": 14,
+          "correct_count": 6,
+          "abstain_count": 0,
+          "truth_no_count": 14,
+          "truth_yes_count": 0,
+          "false_yes_count": 8,
+          "false_no_count": 0,
+          "accuracy": 0.42857142857142855,
+          "abstain_rate": 0.0,
+          "coverage": 1.0,
+          "false_yes_rate": 0.5714285714285714,
+          "false_no_rate": null,
+          "confident_wrong_count": 7
+        },
+        "off_pitch_idle_touch": {
+          "eligible_count": 9,
+          "answered_count": 9,
+          "correct_count": 9,
+          "abstain_count": 0,
+          "truth_no_count": 9,
+          "truth_yes_count": 0,
+          "false_yes_count": 0,
+          "false_no_count": 0,
+          "accuracy": 1.0,
+          "abstain_rate": 0.0,
+          "coverage": 1.0,
+          "false_yes_rate": 0.0,
+          "false_no_rate": null,
+          "confident_wrong_count": 0
+        }
+      },
+      "off_pitch_false_yes_rate": 0.5714285714285714,
+      "off_pitch_idle_touch_false_yes_rate": 0.0,
+      "macro_accuracy": 0.6670687134502923,
+      "macro_false_yes_rate": 0.44722222222222224,
+      "abstain_rate": 0.02912621359223301,
+      "from_thinking_rate": 1.0,
+      "wall_s_per_clip": 51.65084999999999
+    },
+    "8b_prod30": {
+      "attempted_clips": 20,
+      "scored_clips": 20,
+      "failed_clips": 0,
+      "questions": {
+        "player_on_pitch": {
+          "eligible_count": 19,
+          "answered_count": 19,
+          "correct_count": 13,
+          "abstain_count": 0,
+          "truth_no_count": 7,
+          "truth_yes_count": 12,
+          "false_yes_count": 6,
+          "false_no_count": 0,
+          "accuracy": 0.6842105263157895,
+          "abstain_rate": 0.0,
+          "coverage": 1.0,
+          "false_yes_rate": 0.8571428571428571,
+          "false_no_rate": 0.0,
+          "confident_wrong_count": 6
+        },
+        "play_in_progress": {
+          "eligible_count": 18,
+          "answered_count": 18,
+          "correct_count": 7,
+          "abstain_count": 0,
+          "truth_no_count": 8,
+          "truth_yes_count": 10,
+          "false_yes_count": 2,
+          "false_no_count": 9,
+          "accuracy": 0.3888888888888889,
+          "abstain_rate": 0.0,
+          "coverage": 1.0,
+          "false_yes_rate": 0.25,
+          "false_no_rate": 0.9,
+          "confident_wrong_count": 0
+        },
+        "ball_near_player": {
+          "eligible_count": 15,
+          "answered_count": 9,
+          "correct_count": 8,
+          "abstain_count": 6,
+          "truth_no_count": 9,
+          "truth_yes_count": 6,
+          "false_yes_count": 0,
+          "false_no_count": 1,
+          "accuracy": 0.8888888888888888,
+          "abstain_rate": 0.4,
+          "coverage": 0.6,
+          "false_yes_rate": 0.0,
+          "false_no_rate": 0.16666666666666666,
+          "confident_wrong_count": 0
+        },
+        "player_touches_ball": {
+          "eligible_count": 15,
+          "answered_count": 15,
+          "correct_count": 9,
+          "abstain_count": 0,
+          "truth_no_count": 9,
+          "truth_yes_count": 6,
+          "false_yes_count": 0,
+          "false_no_count": 6,
+          "accuracy": 0.6,
+          "abstain_rate": 0.0,
+          "coverage": 1.0,
+          "false_yes_rate": 0.0,
+          "false_no_rate": 1.0,
+          "confident_wrong_count": 6
+        },
+        "player_running": {
+          "eligible_count": 16,
+          "answered_count": 16,
+          "correct_count": 9,
+          "abstain_count": 0,
+          "truth_no_count": 9,
+          "truth_yes_count": 7,
+          "false_yes_count": 7,
+          "false_no_count": 0,
+          "accuracy": 0.5625,
+          "abstain_rate": 0.0,
+          "coverage": 1.0,
+          "false_yes_rate": 0.7777777777777778,
+          "false_no_rate": 0.0,
+          "confident_wrong_count": 0
+        },
+        "kit_color_seen": {
+          "eligible_count": 20,
+          "answered_count": 18,
+          "correct_count": 15,
+          "abstain_count": 2,
+          "truth_no_count": 0,
+          "truth_yes_count": 0,
+          "false_yes_count": 0,
+          "false_no_count": 0,
+          "accuracy": 0.8333333333333334,
+          "abstain_rate": 0.1,
+          "coverage": 0.9,
+          "false_yes_rate": null,
+          "false_no_rate": null,
+          "confident_wrong_count": 3
+        }
+      },
+      "gates": {
+        "off_pitch": {
+          "eligible_count": 14,
+          "answered_count": 14,
+          "correct_count": 7,
+          "abstain_count": 0,
+          "truth_no_count": 14,
+          "truth_yes_count": 0,
+          "false_yes_count": 7,
+          "false_no_count": 0,
+          "accuracy": 0.5,
+          "abstain_rate": 0.0,
+          "coverage": 1.0,
+          "false_yes_rate": 0.5,
+          "false_no_rate": null,
+          "confident_wrong_count": 6
+        },
+        "off_pitch_idle_touch": {
+          "eligible_count": 9,
+          "answered_count": 9,
+          "correct_count": 9,
+          "abstain_count": 0,
+          "truth_no_count": 9,
+          "truth_yes_count": 0,
+          "false_yes_count": 0,
+          "false_no_count": 0,
+          "accuracy": 1.0,
+          "abstain_rate": 0.0,
+          "coverage": 1.0,
+          "false_yes_rate": 0.0,
+          "false_no_rate": null,
+          "confident_wrong_count": 0
+        }
+      },
+      "off_pitch_false_yes_rate": 0.5,
+      "off_pitch_idle_touch_false_yes_rate": 0.0,
+      "macro_accuracy": 0.6596369395711501,
+      "macro_false_yes_rate": 0.376984126984127,
+      "abstain_rate": 0.07766990291262135,
+      "from_thinking_rate": 1.0,
+      "wall_s_per_clip": 10.5474
+    },
+    "32b_dense": {
+      "attempted_clips": 20,
+      "scored_clips": 20,
+      "failed_clips": 0,
+      "questions": {
+        "player_on_pitch": {
+          "eligible_count": 19,
+          "answered_count": 19,
+          "correct_count": 13,
+          "abstain_count": 0,
+          "truth_no_count": 7,
+          "truth_yes_count": 12,
+          "false_yes_count": 6,
+          "false_no_count": 0,
+          "accuracy": 0.6842105263157895,
+          "abstain_rate": 0.0,
+          "coverage": 1.0,
+          "false_yes_rate": 0.8571428571428571,
+          "false_no_rate": 0.0,
+          "confident_wrong_count": 6
+        },
+        "play_in_progress": {
+          "eligible_count": 18,
+          "answered_count": 13,
+          "correct_count": 11,
+          "abstain_count": 5,
+          "truth_no_count": 8,
+          "truth_yes_count": 10,
+          "false_yes_count": 2,
+          "false_no_count": 0,
+          "accuracy": 0.8461538461538461,
+          "abstain_rate": 0.2777777777777778,
+          "coverage": 0.7222222222222222,
+          "false_yes_rate": 0.25,
+          "false_no_rate": 0.0,
+          "confident_wrong_count": 1
+        },
+        "ball_near_player": {
+          "eligible_count": 15,
+          "answered_count": 15,
+          "correct_count": 8,
+          "abstain_count": 0,
+          "truth_no_count": 9,
+          "truth_yes_count": 6,
+          "false_yes_count": 1,
+          "false_no_count": 6,
+          "accuracy": 0.5333333333333333,
+          "abstain_rate": 0.0,
+          "coverage": 1.0,
+          "false_yes_rate": 0.1111111111111111,
+          "false_no_rate": 1.0,
+          "confident_wrong_count": 7
+        },
+        "player_touches_ball": {
+          "eligible_count": 15,
+          "answered_count": 15,
+          "correct_count": 9,
+          "abstain_count": 0,
+          "truth_no_count": 9,
+          "truth_yes_count": 6,
+          "false_yes_count": 0,
+          "false_no_count": 6,
+          "accuracy": 0.6,
+          "abstain_rate": 0.0,
+          "coverage": 1.0,
+          "false_yes_rate": 0.0,
+          "false_no_rate": 1.0,
+          "confident_wrong_count": 6
+        },
+        "player_running": {
+          "eligible_count": 16,
+          "answered_count": 16,
+          "correct_count": 10,
+          "abstain_count": 0,
+          "truth_no_count": 9,
+          "truth_yes_count": 7,
+          "false_yes_count": 6,
+          "false_no_count": 0,
+          "accuracy": 0.625,
+          "abstain_rate": 0.0,
+          "coverage": 1.0,
+          "false_yes_rate": 0.6666666666666666,
+          "false_no_rate": 0.0,
+          "confident_wrong_count": 0
+        },
+        "kit_color_seen": {
+          "eligible_count": 20,
+          "answered_count": 18,
+          "correct_count": 17,
+          "abstain_count": 2,
+          "truth_no_count": 0,
+          "truth_yes_count": 0,
+          "false_yes_count": 0,
+          "false_no_count": 0,
+          "accuracy": 0.9444444444444444,
+          "abstain_rate": 0.1,
+          "coverage": 0.9,
+          "false_yes_rate": null,
+          "false_no_rate": null,
+          "confident_wrong_count": 1
+        }
+      },
+      "gates": {
+        "off_pitch": {
+          "eligible_count": 14,
+          "answered_count": 9,
+          "correct_count": 2,
+          "abstain_count": 5,
+          "truth_no_count": 14,
+          "truth_yes_count": 0,
+          "false_yes_count": 7,
+          "false_no_count": 0,
+          "accuracy": 0.2222222222222222,
+          "abstain_rate": 0.35714285714285715,
+          "coverage": 0.6428571428571429,
+          "false_yes_rate": 0.5,
+          "false_no_rate": null,
+          "confident_wrong_count": 7
+        },
+        "off_pitch_idle_touch": {
+          "eligible_count": 9,
+          "answered_count": 9,
+          "correct_count": 9,
+          "abstain_count": 0,
+          "truth_no_count": 9,
+          "truth_yes_count": 0,
+          "false_yes_count": 0,
+          "false_no_count": 0,
+          "accuracy": 1.0,
+          "abstain_rate": 0.0,
+          "coverage": 1.0,
+          "false_yes_rate": 0.0,
+          "false_no_rate": null,
+          "confident_wrong_count": 0
+        }
+      },
+      "off_pitch_false_yes_rate": 0.5,
+      "off_pitch_idle_touch_false_yes_rate": 0.0,
+      "macro_accuracy": 0.7055236917079023,
+      "macro_false_yes_rate": 0.376984126984127,
+      "abstain_rate": 0.06796116504854369,
+      "from_thinking_rate": 1.0,
+      "wall_s_per_clip": 216.42754999999997
+    },
+    "32b_prod30": {
+      "attempted_clips": 20,
+      "scored_clips": 20,
+      "failed_clips": 0,
+      "questions": {
+        "player_on_pitch": {
+          "eligible_count": 19,
+          "answered_count": 19,
+          "correct_count": 12,
+          "abstain_count": 0,
+          "truth_no_count": 7,
+          "truth_yes_count": 12,
+          "false_yes_count": 7,
+          "false_no_count": 0,
+          "accuracy": 0.631578947368421,
+          "abstain_rate": 0.0,
+          "coverage": 1.0,
+          "false_yes_rate": 1.0,
+          "false_no_rate": 0.0,
+          "confident_wrong_count": 7
+        },
+        "play_in_progress": {
+          "eligible_count": 18,
+          "answered_count": 13,
+          "correct_count": 8,
+          "abstain_count": 5,
+          "truth_no_count": 8,
+          "truth_yes_count": 10,
+          "false_yes_count": 4,
+          "false_no_count": 1,
+          "accuracy": 0.6153846153846154,
+          "abstain_rate": 0.2777777777777778,
+          "coverage": 0.7222222222222222,
+          "false_yes_rate": 0.5,
+          "false_no_rate": 0.1,
+          "confident_wrong_count": 1
+        },
+        "ball_near_player": {
+          "eligible_count": 15,
+          "answered_count": 13,
+          "correct_count": 9,
+          "abstain_count": 2,
+          "truth_no_count": 9,
+          "truth_yes_count": 6,
+          "false_yes_count": 0,
+          "false_no_count": 4,
+          "accuracy": 0.6923076923076923,
+          "abstain_rate": 0.13333333333333333,
+          "coverage": 0.8666666666666667,
+          "false_yes_rate": 0.0,
+          "false_no_rate": 0.6666666666666666,
+          "confident_wrong_count": 1
+        },
+        "player_touches_ball": {
+          "eligible_count": 15,
+          "answered_count": 15,
+          "correct_count": 9,
+          "abstain_count": 0,
+          "truth_no_count": 9,
+          "truth_yes_count": 6,
+          "false_yes_count": 0,
+          "false_no_count": 6,
+          "accuracy": 0.6,
+          "abstain_rate": 0.0,
+          "coverage": 1.0,
+          "false_yes_rate": 0.0,
+          "false_no_rate": 1.0,
+          "confident_wrong_count": 5
+        },
+        "player_running": {
+          "eligible_count": 16,
+          "answered_count": 12,
+          "correct_count": 9,
+          "abstain_count": 4,
+          "truth_no_count": 9,
+          "truth_yes_count": 7,
+          "false_yes_count": 3,
+          "false_no_count": 0,
+          "accuracy": 0.75,
+          "abstain_rate": 0.25,
+          "coverage": 0.75,
+          "false_yes_rate": 0.3333333333333333,
+          "false_no_rate": 0.0,
+          "confident_wrong_count": 1
+        },
+        "kit_color_seen": {
+          "eligible_count": 20,
+          "answered_count": 18,
+          "correct_count": 18,
+          "abstain_count": 2,
+          "truth_no_count": 0,
+          "truth_yes_count": 0,
+          "false_yes_count": 0,
+          "false_no_count": 0,
+          "accuracy": 1.0,
+          "abstain_rate": 0.1,
+          "coverage": 0.9,
+          "false_yes_rate": null,
+          "false_no_rate": null,
+          "confident_wrong_count": 0
+        }
+      },
+      "gates": {
+        "off_pitch": {
+          "eligible_count": 14,
+          "answered_count": 12,
+          "correct_count": 2,
+          "abstain_count": 2,
+          "truth_no_count": 14,
+          "truth_yes_count": 0,
+          "false_yes_count": 10,
+          "false_no_count": 0,
+          "accuracy": 0.16666666666666666,
+          "abstain_rate": 0.14285714285714285,
+          "coverage": 0.8571428571428571,
+          "false_yes_rate": 0.7142857142857143,
+          "false_no_rate": null,
+          "confident_wrong_count": 8
+        },
+        "off_pitch_idle_touch": {
+          "eligible_count": 9,
+          "answered_count": 9,
+          "correct_count": 9,
+          "abstain_count": 0,
+          "truth_no_count": 9,
+          "truth_yes_count": 0,
+          "false_yes_count": 0,
+          "false_no_count": 0,
+          "accuracy": 1.0,
+          "abstain_rate": 0.0,
+          "coverage": 1.0,
+          "false_yes_rate": 0.0,
+          "false_no_rate": null,
+          "confident_wrong_count": 0
+        }
+      },
+      "off_pitch_false_yes_rate": 0.7142857142857143,
+      "off_pitch_idle_touch_false_yes_rate": 0.0,
+      "macro_accuracy": 0.7148785425101215,
+      "macro_false_yes_rate": 0.36666666666666664,
+      "abstain_rate": 0.1262135922330097,
+      "from_thinking_rate": 1.0,
+      "wall_s_per_clip": 39.57985000000001
+    },
+    "27b_dense": {
+      "attempted_clips": 20,
+      "scored_clips": 20,
+      "failed_clips": 0,
+      "questions": {
+        "player_on_pitch": {
+          "eligible_count": 19,
+          "answered_count": 19,
+          "correct_count": 13,
+          "abstain_count": 0,
+          "truth_no_count": 7,
+          "truth_yes_count": 12,
+          "false_yes_count": 6,
+          "false_no_count": 0,
+          "accuracy": 0.6842105263157895,
+          "abstain_rate": 0.0,
+          "coverage": 1.0,
+          "false_yes_rate": 0.8571428571428571,
+          "false_no_rate": 0.0,
+          "confident_wrong_count": 6
+        },
+        "play_in_progress": {
+          "eligible_count": 18,
+          "answered_count": 18,
+          "correct_count": 14,
+          "abstain_count": 0,
+          "truth_no_count": 8,
+          "truth_yes_count": 10,
+          "false_yes_count": 4,
+          "false_no_count": 0,
+          "accuracy": 0.7777777777777778,
+          "abstain_rate": 0.0,
+          "coverage": 1.0,
+          "false_yes_rate": 0.5,
+          "false_no_rate": 0.0,
+          "confident_wrong_count": 4
+        },
+        "ball_near_player": {
+          "eligible_count": 15,
+          "answered_count": 13,
+          "correct_count": 6,
+          "abstain_count": 2,
+          "truth_no_count": 9,
+          "truth_yes_count": 6,
+          "false_yes_count": 1,
+          "false_no_count": 6,
+          "accuracy": 0.46153846153846156,
+          "abstain_rate": 0.13333333333333333,
+          "coverage": 0.8666666666666667,
+          "false_yes_rate": 0.1111111111111111,
+          "false_no_rate": 1.0,
+          "confident_wrong_count": 1
+        },
+        "player_touches_ball": {
+          "eligible_count": 15,
+          "answered_count": 15,
+          "correct_count": 9,
+          "abstain_count": 0,
+          "truth_no_count": 9,
+          "truth_yes_count": 6,
+          "false_yes_count": 0,
+          "false_no_count": 6,
+          "accuracy": 0.6,
+          "abstain_rate": 0.0,
+          "coverage": 1.0,
+          "false_yes_rate": 0.0,
+          "false_no_rate": 1.0,
+          "confident_wrong_count": 2
+        },
+        "player_running": {
+          "eligible_count": 16,
+          "answered_count": 16,
+          "correct_count": 12,
+          "abstain_count": 0,
+          "truth_no_count": 9,
+          "truth_yes_count": 7,
+          "false_yes_count": 4,
+          "false_no_count": 0,
+          "accuracy": 0.75,
+          "abstain_rate": 0.0,
+          "coverage": 1.0,
+          "false_yes_rate": 0.4444444444444444,
+          "false_no_rate": 0.0,
+          "confident_wrong_count": 0
+        },
+        "kit_color_seen": {
+          "eligible_count": 20,
+          "answered_count": 18,
+          "correct_count": 17,
+          "abstain_count": 2,
+          "truth_no_count": 0,
+          "truth_yes_count": 0,
+          "false_yes_count": 0,
+          "false_no_count": 0,
+          "accuracy": 0.9444444444444444,
+          "abstain_rate": 0.1,
+          "coverage": 0.9,
+          "false_yes_rate": null,
+          "false_no_rate": null,
+          "confident_wrong_count": 1
+        }
+      },
+      "gates": {
+        "off_pitch": {
+          "eligible_count": 14,
+          "answered_count": 14,
+          "correct_count": 5,
+          "abstain_count": 0,
+          "truth_no_count": 14,
+          "truth_yes_count": 0,
+          "false_yes_count": 9,
+          "false_no_count": 0,
+          "accuracy": 0.35714285714285715,
+          "abstain_rate": 0.0,
+          "coverage": 1.0,
+          "false_yes_rate": 0.6428571428571429,
+          "false_no_rate": null,
+          "confident_wrong_count": 9
+        },
+        "off_pitch_idle_touch": {
+          "eligible_count": 9,
+          "answered_count": 9,
+          "correct_count": 9,
+          "abstain_count": 0,
+          "truth_no_count": 9,
+          "truth_yes_count": 0,
+          "false_yes_count": 0,
+          "false_no_count": 0,
+          "accuracy": 1.0,
+          "abstain_rate": 0.0,
+          "coverage": 1.0,
+          "false_yes_rate": 0.0,
+          "false_no_rate": null,
+          "confident_wrong_count": 0
+        }
+      },
+      "off_pitch_false_yes_rate": 0.6428571428571429,
+      "off_pitch_idle_touch_false_yes_rate": 0.0,
+      "macro_accuracy": 0.7029952016794122,
+      "macro_false_yes_rate": 0.38253968253968257,
+      "abstain_rate": 0.038834951456310676,
+      "from_thinking_rate": 0.0,
+      "wall_s_per_clip": 172.7882
+    },
+    "27b_prod30": {
+      "attempted_clips": 20,
+      "scored_clips": 20,
+      "failed_clips": 0,
+      "questions": {
+        "player_on_pitch": {
+          "eligible_count": 19,
+          "answered_count": 19,
+          "correct_count": 12,
+          "abstain_count": 0,
+          "truth_no_count": 7,
+          "truth_yes_count": 12,
+          "false_yes_count": 7,
+          "false_no_count": 0,
+          "accuracy": 0.631578947368421,
+          "abstain_rate": 0.0,
+          "coverage": 1.0,
+          "false_yes_rate": 1.0,
+          "false_no_rate": 0.0,
+          "confident_wrong_count": 7
+        },
+        "play_in_progress": {
+          "eligible_count": 18,
+          "answered_count": 16,
+          "correct_count": 11,
+          "abstain_count": 2,
+          "truth_no_count": 8,
+          "truth_yes_count": 10,
+          "false_yes_count": 5,
+          "false_no_count": 0,
+          "accuracy": 0.6875,
+          "abstain_rate": 0.1111111111111111,
+          "coverage": 0.8888888888888888,
+          "false_yes_rate": 0.625,
+          "false_no_rate": 0.0,
+          "confident_wrong_count": 5
+        },
+        "ball_near_player": {
+          "eligible_count": 15,
+          "answered_count": 15,
+          "correct_count": 9,
+          "abstain_count": 0,
+          "truth_no_count": 9,
+          "truth_yes_count": 6,
+          "false_yes_count": 0,
+          "false_no_count": 6,
+          "accuracy": 0.6,
+          "abstain_rate": 0.0,
+          "coverage": 1.0,
+          "false_yes_rate": 0.0,
+          "false_no_rate": 1.0,
+          "confident_wrong_count": 1
+        },
+        "player_touches_ball": {
+          "eligible_count": 15,
+          "answered_count": 7,
+          "correct_count": 6,
+          "abstain_count": 8,
+          "truth_no_count": 9,
+          "truth_yes_count": 6,
+          "false_yes_count": 0,
+          "false_no_count": 1,
+          "accuracy": 0.8571428571428571,
+          "abstain_rate": 0.5333333333333333,
+          "coverage": 0.4666666666666667,
+          "false_yes_rate": 0.0,
+          "false_no_rate": 0.16666666666666666,
+          "confident_wrong_count": 0
+        },
+        "player_running": {
+          "eligible_count": 16,
+          "answered_count": 11,
+          "correct_count": 7,
+          "abstain_count": 5,
+          "truth_no_count": 9,
+          "truth_yes_count": 7,
+          "false_yes_count": 3,
+          "false_no_count": 1,
+          "accuracy": 0.6363636363636364,
+          "abstain_rate": 0.3125,
+          "coverage": 0.6875,
+          "false_yes_rate": 0.3333333333333333,
+          "false_no_rate": 0.14285714285714285,
+          "confident_wrong_count": 1
+        },
+        "kit_color_seen": {
+          "eligible_count": 20,
+          "answered_count": 18,
+          "correct_count": 16,
+          "abstain_count": 2,
+          "truth_no_count": 0,
+          "truth_yes_count": 0,
+          "false_yes_count": 0,
+          "false_no_count": 0,
+          "accuracy": 0.8888888888888888,
+          "abstain_rate": 0.1,
+          "coverage": 0.9,
+          "false_yes_rate": null,
+          "false_no_rate": null,
+          "confident_wrong_count": 2
+        }
+      },
+      "gates": {
+        "off_pitch": {
+          "eligible_count": 14,
+          "answered_count": 12,
+          "correct_count": 1,
+          "abstain_count": 2,
+          "truth_no_count": 14,
+          "truth_yes_count": 0,
+          "false_yes_count": 11,
+          "false_no_count": 0,
+          "accuracy": 0.08333333333333333,
+          "abstain_rate": 0.14285714285714285,
+          "coverage": 0.8571428571428571,
+          "false_yes_rate": 0.7857142857142857,
+          "false_no_rate": null,
+          "confident_wrong_count": 11
+        },
+        "off_pitch_idle_touch": {
+          "eligible_count": 9,
+          "answered_count": 6,
+          "correct_count": 6,
+          "abstain_count": 3,
+          "truth_no_count": 9,
+          "truth_yes_count": 0,
+          "false_yes_count": 0,
+          "false_no_count": 0,
+          "accuracy": 1.0,
+          "abstain_rate": 0.3333333333333333,
+          "coverage": 0.6666666666666666,
+          "false_yes_rate": 0.0,
+          "false_no_rate": null,
+          "confident_wrong_count": 0
+        }
+      },
+      "off_pitch_false_yes_rate": 0.7857142857142857,
+      "off_pitch_idle_touch_false_yes_rate": 0.0,
+      "macro_accuracy": 0.7169123882939671,
+      "macro_false_yes_rate": 0.39166666666666666,
+      "abstain_rate": 0.1650485436893204,
+      "from_thinking_rate": 0.0,
+      "wall_s_per_clip": 87.78285000000002
+    },
+    "crop8_dense": {
+      "attempted_clips": 20,
+      "scored_clips": 20,
+      "failed_clips": 0,
+      "questions": {
+        "player_on_pitch": {
+          "eligible_count": 19,
+          "answered_count": 19,
+          "correct_count": 12,
+          "abstain_count": 0,
+          "truth_no_count": 7,
+          "truth_yes_count": 12,
+          "false_yes_count": 7,
+          "false_no_count": 0,
+          "accuracy": 0.631578947368421,
+          "abstain_rate": 0.0,
+          "coverage": 1.0,
+          "false_yes_rate": 1.0,
+          "false_no_rate": 0.0,
+          "confident_wrong_count": 7
+        },
+        "play_in_progress": {
+          "eligible_count": 18,
+          "answered_count": 18,
+          "correct_count": 10,
+          "abstain_count": 0,
+          "truth_no_count": 8,
+          "truth_yes_count": 10,
+          "false_yes_count": 0,
+          "false_no_count": 8,
+          "accuracy": 0.5555555555555556,
+          "abstain_rate": 0.0,
+          "coverage": 1.0,
+          "false_yes_rate": 0.0,
+          "false_no_rate": 0.8,
+          "confident_wrong_count": 0
+        },
+        "ball_near_player": {
+          "eligible_count": 15,
+          "answered_count": 15,
+          "correct_count": 9,
+          "abstain_count": 0,
+          "truth_no_count": 9,
+          "truth_yes_count": 6,
+          "false_yes_count": 0,
+          "false_no_count": 6,
+          "accuracy": 0.6,
+          "abstain_rate": 0.0,
+          "coverage": 1.0,
+          "false_yes_rate": 0.0,
+          "false_no_rate": 1.0,
+          "confident_wrong_count": 0
+        },
+        "player_touches_ball": {
+          "eligible_count": 15,
+          "answered_count": 15,
+          "correct_count": 9,
+          "abstain_count": 0,
+          "truth_no_count": 9,
+          "truth_yes_count": 6,
+          "false_yes_count": 0,
+          "false_no_count": 6,
+          "accuracy": 0.6,
+          "abstain_rate": 0.0,
+          "coverage": 1.0,
+          "false_yes_rate": 0.0,
+          "false_no_rate": 1.0,
+          "confident_wrong_count": 6
+        },
+        "player_running": {
+          "eligible_count": 16,
+          "answered_count": 16,
+          "correct_count": 9,
+          "abstain_count": 0,
+          "truth_no_count": 9,
+          "truth_yes_count": 7,
+          "false_yes_count": 7,
+          "false_no_count": 0,
+          "accuracy": 0.5625,
+          "abstain_rate": 0.0,
+          "coverage": 1.0,
+          "false_yes_rate": 0.7777777777777778,
+          "false_no_rate": 0.0,
+          "confident_wrong_count": 0
+        },
+        "kit_color_seen": {
+          "eligible_count": 20,
+          "answered_count": 18,
+          "correct_count": 17,
+          "abstain_count": 2,
+          "truth_no_count": 0,
+          "truth_yes_count": 0,
+          "false_yes_count": 0,
+          "false_no_count": 0,
+          "accuracy": 0.9444444444444444,
+          "abstain_rate": 0.1,
+          "coverage": 0.9,
+          "false_yes_rate": null,
+          "false_no_rate": null,
+          "confident_wrong_count": 1
+        }
+      },
+      "gates": {
+        "off_pitch": {
+          "eligible_count": 14,
+          "answered_count": 14,
+          "correct_count": 7,
+          "abstain_count": 0,
+          "truth_no_count": 14,
+          "truth_yes_count": 0,
+          "false_yes_count": 7,
+          "false_no_count": 0,
+          "accuracy": 0.5,
+          "abstain_rate": 0.0,
+          "coverage": 1.0,
+          "false_yes_rate": 0.5,
+          "false_no_rate": null,
+          "confident_wrong_count": 7
+        },
+        "off_pitch_idle_touch": {
+          "eligible_count": 9,
+          "answered_count": 9,
+          "correct_count": 9,
+          "abstain_count": 0,
+          "truth_no_count": 9,
+          "truth_yes_count": 0,
+          "false_yes_count": 0,
+          "false_no_count": 0,
+          "accuracy": 1.0,
+          "abstain_rate": 0.0,
+          "coverage": 1.0,
+          "false_yes_rate": 0.0,
+          "false_no_rate": null,
+          "confident_wrong_count": 0
+        }
+      },
+      "off_pitch_false_yes_rate": 0.5,
+      "off_pitch_idle_touch_false_yes_rate": 0.0,
+      "macro_accuracy": 0.6490131578947369,
+      "macro_false_yes_rate": 0.3555555555555555,
+      "abstain_rate": 0.019417475728155338,
+      "from_thinking_rate": 1.0,
+      "wall_s_per_clip": 53.43065
+    },
+    "crop8_prod30": {
+      "attempted_clips": 20,
+      "scored_clips": 20,
+      "failed_clips": 0,
+      "questions": {
+        "player_on_pitch": {
+          "eligible_count": 19,
+          "answered_count": 19,
+          "correct_count": 13,
+          "abstain_count": 0,
+          "truth_no_count": 7,
+          "truth_yes_count": 12,
+          "false_yes_count": 6,
+          "false_no_count": 0,
+          "accuracy": 0.6842105263157895,
+          "abstain_rate": 0.0,
+          "coverage": 1.0,
+          "false_yes_rate": 0.8571428571428571,
+          "false_no_rate": 0.0,
+          "confident_wrong_count": 6
+        },
+        "play_in_progress": {
+          "eligible_count": 18,
+          "answered_count": 18,
+          "correct_count": 7,
+          "abstain_count": 0,
+          "truth_no_count": 8,
+          "truth_yes_count": 10,
+          "false_yes_count": 1,
+          "false_no_count": 10,
+          "accuracy": 0.3888888888888889,
+          "abstain_rate": 0.0,
+          "coverage": 1.0,
+          "false_yes_rate": 0.125,
+          "false_no_rate": 1.0,
+          "confident_wrong_count": 0
+        },
+        "ball_near_player": {
+          "eligible_count": 15,
+          "answered_count": 11,
+          "correct_count": 8,
+          "abstain_count": 4,
+          "truth_no_count": 9,
+          "truth_yes_count": 6,
+          "false_yes_count": 0,
+          "false_no_count": 3,
+          "accuracy": 0.7272727272727273,
+          "abstain_rate": 0.26666666666666666,
+          "coverage": 0.7333333333333333,
+          "false_yes_rate": 0.0,
+          "false_no_rate": 0.5,
+          "confident_wrong_count": 1
+        },
+        "player_touches_ball": {
+          "eligible_count": 15,
+          "answered_count": 15,
+          "correct_count": 9,
+          "abstain_count": 0,
+          "truth_no_count": 9,
+          "truth_yes_count": 6,
+          "false_yes_count": 0,
+          "false_no_count": 6,
+          "accuracy": 0.6,
+          "abstain_rate": 0.0,
+          "coverage": 1.0,
+          "false_yes_rate": 0.0,
+          "false_no_rate": 1.0,
+          "confident_wrong_count": 6
+        },
+        "player_running": {
+          "eligible_count": 16,
+          "answered_count": 16,
+          "correct_count": 10,
+          "abstain_count": 0,
+          "truth_no_count": 9,
+          "truth_yes_count": 7,
+          "false_yes_count": 6,
+          "false_no_count": 0,
+          "accuracy": 0.625,
+          "abstain_rate": 0.0,
+          "coverage": 1.0,
+          "false_yes_rate": 0.6666666666666666,
+          "false_no_rate": 0.0,
+          "confident_wrong_count": 0
+        },
+        "kit_color_seen": {
+          "eligible_count": 20,
+          "answered_count": 18,
+          "correct_count": 18,
+          "abstain_count": 2,
+          "truth_no_count": 0,
+          "truth_yes_count": 0,
+          "false_yes_count": 0,
+          "false_no_count": 0,
+          "accuracy": 1.0,
+          "abstain_rate": 0.1,
+          "coverage": 0.9,
+          "false_yes_rate": null,
+          "false_no_rate": null,
+          "confident_wrong_count": 0
+        }
+      },
+      "gates": {
+        "off_pitch": {
+          "eligible_count": 14,
+          "answered_count": 14,
+          "correct_count": 7,
+          "abstain_count": 0,
+          "truth_no_count": 14,
+          "truth_yes_count": 0,
+          "false_yes_count": 7,
+          "false_no_count": 0,
+          "accuracy": 0.5,
+          "abstain_rate": 0.0,
+          "coverage": 1.0,
+          "false_yes_rate": 0.5,
+          "false_no_rate": null,
+          "confident_wrong_count": 6
+        },
+        "off_pitch_idle_touch": {
+          "eligible_count": 9,
+          "answered_count": 9,
+          "correct_count": 9,
+          "abstain_count": 0,
+          "truth_no_count": 9,
+          "truth_yes_count": 0,
+          "false_yes_count": 0,
+          "false_no_count": 0,
+          "accuracy": 1.0,
+          "abstain_rate": 0.0,
+          "coverage": 1.0,
+          "false_yes_rate": 0.0,
+          "false_no_rate": null,
+          "confident_wrong_count": 0
+        }
+      },
+      "off_pitch_false_yes_rate": 0.5,
+      "off_pitch_idle_touch_false_yes_rate": 0.0,
+      "macro_accuracy": 0.6708953570795676,
+      "macro_false_yes_rate": 0.32976190476190476,
+      "abstain_rate": 0.05825242718446602,
+      "from_thinking_rate": 1.0,
+      "wall_s_per_clip": 11.068200000000001
+    },
+    "cropctx8_dense": {
+      "attempted_clips": 20,
+      "scored_clips": 20,
+      "failed_clips": 0,
+      "questions": {
+        "player_on_pitch": {
+          "eligible_count": 19,
+          "answered_count": 19,
+          "correct_count": 12,
+          "abstain_count": 0,
+          "truth_no_count": 7,
+          "truth_yes_count": 12,
+          "false_yes_count": 7,
+          "false_no_count": 0,
+          "accuracy": 0.631578947368421,
+          "abstain_rate": 0.0,
+          "coverage": 1.0,
+          "false_yes_rate": 1.0,
+          "false_no_rate": 0.0,
+          "confident_wrong_count": 7
+        },
+        "play_in_progress": {
+          "eligible_count": 18,
+          "answered_count": 18,
+          "correct_count": 12,
+          "abstain_count": 0,
+          "truth_no_count": 8,
+          "truth_yes_count": 10,
+          "false_yes_count": 0,
+          "false_no_count": 6,
+          "accuracy": 0.6666666666666666,
+          "abstain_rate": 0.0,
+          "coverage": 1.0,
+          "false_yes_rate": 0.0,
+          "false_no_rate": 0.6,
+          "confident_wrong_count": 0
+        },
+        "ball_near_player": {
+          "eligible_count": 15,
+          "answered_count": 14,
+          "correct_count": 9,
+          "abstain_count": 1,
+          "truth_no_count": 9,
+          "truth_yes_count": 6,
+          "false_yes_count": 0,
+          "false_no_count": 5,
+          "accuracy": 0.6428571428571429,
+          "abstain_rate": 0.06666666666666667,
+          "coverage": 0.9333333333333333,
+          "false_yes_rate": 0.0,
+          "false_no_rate": 0.8333333333333334,
+          "confident_wrong_count": 0
+        },
+        "player_touches_ball": {
+          "eligible_count": 15,
+          "answered_count": 15,
+          "correct_count": 9,
+          "abstain_count": 0,
+          "truth_no_count": 9,
+          "truth_yes_count": 6,
+          "false_yes_count": 0,
+          "false_no_count": 6,
+          "accuracy": 0.6,
+          "abstain_rate": 0.0,
+          "coverage": 1.0,
+          "false_yes_rate": 0.0,
+          "false_no_rate": 1.0,
+          "confident_wrong_count": 6
+        },
+        "player_running": {
+          "eligible_count": 16,
+          "answered_count": 16,
+          "correct_count": 8,
+          "abstain_count": 0,
+          "truth_no_count": 9,
+          "truth_yes_count": 7,
+          "false_yes_count": 8,
+          "false_no_count": 0,
+          "accuracy": 0.5,
+          "abstain_rate": 0.0,
+          "coverage": 1.0,
+          "false_yes_rate": 0.8888888888888888,
+          "false_no_rate": 0.0,
+          "confident_wrong_count": 0
+        },
+        "kit_color_seen": {
+          "eligible_count": 20,
+          "answered_count": 18,
+          "correct_count": 17,
+          "abstain_count": 2,
+          "truth_no_count": 0,
+          "truth_yes_count": 0,
+          "false_yes_count": 0,
+          "false_no_count": 0,
+          "accuracy": 0.9444444444444444,
+          "abstain_rate": 0.1,
+          "coverage": 0.9,
+          "false_yes_rate": null,
+          "false_no_rate": null,
+          "confident_wrong_count": 1
+        }
+      },
+      "gates": {
+        "off_pitch": {
+          "eligible_count": 14,
+          "answered_count": 14,
+          "correct_count": 7,
+          "abstain_count": 0,
+          "truth_no_count": 14,
+          "truth_yes_count": 0,
+          "false_yes_count": 7,
+          "false_no_count": 0,
+          "accuracy": 0.5,
+          "abstain_rate": 0.0,
+          "coverage": 1.0,
+          "false_yes_rate": 0.5,
+          "false_no_rate": null,
+          "confident_wrong_count": 7
+        },
+        "off_pitch_idle_touch": {
+          "eligible_count": 9,
+          "answered_count": 9,
+          "correct_count": 9,
+          "abstain_count": 0,
+          "truth_no_count": 9,
+          "truth_yes_count": 0,
+          "false_yes_count": 0,
+          "false_no_count": 0,
+          "accuracy": 1.0,
+          "abstain_rate": 0.0,
+          "coverage": 1.0,
+          "false_yes_rate": 0.0,
+          "false_no_rate": null,
+          "confident_wrong_count": 0
+        }
+      },
+      "off_pitch_false_yes_rate": 0.5,
+      "off_pitch_idle_touch_false_yes_rate": 0.0,
+      "macro_accuracy": 0.6642578668894458,
+      "macro_false_yes_rate": 0.37777777777777777,
+      "abstain_rate": 0.02912621359223301,
+      "from_thinking_rate": 1.0,
+      "wall_s_per_clip": 122.83994999999997
+    }
+  },
+  "regeneration": {
+    "runs": {
+      "8b_dense": "e1d-checks-dense",
+      "8b_prod30": "e1d-checks-prod30",
+      "32b_dense": "e1d-checks-32b-dense",
+      "32b_prod30": "e1d-checks-32b-prod30",
+      "27b_dense": "e1d-checks-27b-dense",
+      "27b_prod30": "e1d-checks-27b-prod30",
+      "crop8_dense": "e1e-crop-8b-dense",
+      "crop8_prod30": "e1e-crop-8b-prod30",
+      "cropctx8_dense": "e1e-cropctx-8b-dense"
+    },
+    "allow_mixed": true,
+    "output_stem": "evidence-bench-2026-09-10-lane-c-crops"
+  },
+  "validation": {
+    "status": "passed",
+    "pytest": "333 passed in 1.19s; BENCH_REQUIRE_CV2=1 /Users/mjjones/Projects/loanarmy/.loan/bin/python -m pytest spike/video-analysis/bench -q",
+    "ruff_check": "PASS; ruff check spike/video-analysis/bench",
+    "ruff_format": "PASS, 33 files; ruff format --check spike/video-analysis/bench",
+    "diff_check": "PASS; git diff --check",
+    "regeneration": "All three JSON/Markdown ledger pairs regenerated twice with byte-for-byte equality using regenerate_checks_ledgers.py and these committed execution fixtures.",
+    "preserved": "All nine run.json settings and 180 reads equal b96e6b2 ledger; frozen truth bytes and human note hashes unchanged; contract, prompts, transport, image adapters, runner and lane-A scorer unchanged.",
+    "no_inference": true
+  },
+  "not_done": "No new model runs, moment windows, production integration or adoption decision. MJ must mark touch times on all six clips. Pilot PROMPT_VERSION was not persisted and remains unconfirmed; final version verified from run.json. No notes-file correction appeared; no lane-A rescore needed. No push."
+}

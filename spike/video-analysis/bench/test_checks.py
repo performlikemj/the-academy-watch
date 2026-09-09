@@ -109,15 +109,13 @@ def test_twenty_real_notes(fixture):
     assert [expected[q] for q in QUESTIONS] == fixture["expected"]
 
 
-def test_running_override_is_disclosed_and_bound_to_reviewed_note():
+def test_receive_without_running_is_ungraded_independent_of_clip_id():
     fixture = FIXTURES[15]["truth"]
-    assert "directive override" in derive_truth(fixture)["sources"]["player_running"]
-    assert (
-        derive_truth({**fixture, "human_note": "unclassified"})["expected"][
-            "player_running"
-        ]
-        is None
-    )
+    for cid in (fixture["clip_id"], "another-clip"):
+        assert (
+            derive_truth({**fixture, "clip_id": cid})["expected"]["player_running"]
+            is None
+        )
 
 
 def test_scoring_false_yes_no_abstention_and_high_confidence():

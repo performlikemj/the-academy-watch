@@ -509,7 +509,8 @@ A kit override restores kit evaluation; uncertain kit truth counts as abstention
 or uncertainty flag remain unavailable.
 The manifest's `frozen_set_id` is unchanged. Intake prints the updated truth-byte
 and note hashes; the regenerated ledger records the same snapshot hashes.
-Neither the intake file nor populated truth files are committed.
+Truth JSON is never committed; the notes text is published in the ledgers and
+test fixtures. The local intake file remains outside Git.
 
 MJ disputes #24: “wrong number. this is number 12 from the shorts”. The earlier
 fps2 video lane called this player's kit **black**, as did annotated prod30.
@@ -590,7 +591,8 @@ No alternate interpreter, dependency shim, model run or clip rebuild is needed.
 All note-entry instructions target `ledgers/lane-a-notes.md`, including the
 page and generated README.txt. `apply_notes --notes` defaults to that worktree
 path when it exists; otherwise it uses `bench/report/mj-notes.md`. Both are
-local intake paths; never stage populated notes. Explicit `--notes` still works.
+local intake paths; do not stage the local intake file. Notes text is published
+in ledgers and test fixtures. Explicit `--notes` still works.
 Future `build.json` files record the current Git HEAD in `commit` at build
 start (null if Git metadata is unavailable). Existing rendered clips and their
 build metadata remain untouched.
@@ -737,25 +739,27 @@ The shared Ollama transport and thinking-field fallback are unchanged.
 `checks_truth.py` applies `semantic_activity.truth_activity` to MJ's notes.
 `fixtures/checks_notes.json` contains the 20 real note/kit fixtures and independently
 transcribed expected cells. Missing evidence is ungraded, not a fabricated label.
-Rules apply in the following precedence order; off-pitch takes precedence, and
+Rules apply in the following precedence order; a missed header establishes
+proximity even off-pitch. Otherwise off-pitch takes precedence, and
 on-ball takes precedence over idle in the mixed receive clip:
 
 | Question | Rule |
 |---|---|
 | player_on_pitch | off_pitch → no; every other classified clip → yes; identity-only n24 → ungraded |
-| play_in_progress | off_pitch → no; on_ball_action / defensive_track_back / positional_only → yes; idle waiting for throw-in n04-307417 → no; idle “just walking around” n10 → ungraded; mixed receive n04-243433 → yes |
-| ball_near_player | off_pitch → no; on_ball_action → yes; other idle → no; defensive / positional / unclassified → ungraded |
+| play_in_progress | off_pitch → no; on_ball_action / defensive_track_back / positional_only → yes; idle waiting for throw-in without running → no; mixed running/throw-in n04-307417 → ungraded; idle “just walking around” n10 → ungraded; mixed receive n04-243433 → yes |
+| ball_near_player | misses/missed (a/the) header → yes, even off-pitch (n22); otherwise off_pitch → no; on_ball_action → yes; other idle → no; defensive / positional / unclassified → ungraded |
 | player_touches_ball | off_pitch → no; on_ball_action → yes; other idle → no; defensive / positional / unclassified → ungraded |
-| player_running | off_pitch or non-on-ball walking/standing/sideline/stretching → no; run / track back / goes or went forward / challenge → yes; n17-416826 → yes by explicit directive override; mixed walking/receive n04-243433 and others → ungraded |
+| player_running | off_pitch or non-on-ball walking/standing/sideline/stretching → no; run / track back / goes or went forward → yes; challenges or receives alone → ungraded; mixed walking/receive n04-243433 and others → ungraded |
 | kit_color_seen | Import lane A's `identity_truth.kit_truth`: uncertainty takes precedence and forces abstention; verified override restores colour independently of disputed jersey identity; disputed colour without override/uncertainty → ungraded |
 
 On-ball touch positives: n03-157170, n12-237107, n15, n17-253073,
 n17-416826, n04-243433. Running positives: n04-307417, n05, n09-297601,
-n15, n17-253073, n17-416826, n03-157170. Running negatives: n03-385962,
-n09-143096, n09-385922, n10, n12-679986, n17-304624, n21, n22, n25.
-Running for n02, n04-243433, n12-237107 and n24 is ungraded. The n17-416826
-note has no running phrase: this explicitly requested exception is bound to the
-exact reviewed clip/note, and is disclosed as a directive override in the ledger.
+n17-253073. Running negatives: n03-385962, n09-143096, n09-385922, n10,
+n12-679986, n17-304624, n21, n22, n25. Other running cells are ungraded.
+Round r2 removes the erroneous n17-416826 directive and challenge-as-running
+rule; n03-157170, n15 and n17-416826 become ungraded for running. The mixed
+running/throw-in note makes n04-307417 play-in-progress ungraded. A missed
+header makes n22 ball-near yes. These are note rules, with no clip-ID overrides.
 The two uncertain kits are n22 and n03-385962; disputed n24 uses black. The full
 20 × 6 truth table with MJ's verbatim notes is printed in the comparison ledger
 so MJ can correct any cell.
@@ -773,18 +777,36 @@ Per-question counts expose every denominator:
 - False-yes rate: yes answers / truth-no cells. False-no rate: no answers /
   truth-yes cells. Truth denominators include model abstentions. Neither rate
   applies to colour; colour accuracy grades exact matches.
-- Confident wrong: incorrect graded answers with high confidence.
+- Modal answer/share: most frequent raw valid answer over all selected valid reads
+  (20 here), including unclear, ungraded cells and uncertain kit assertions.
+  Ties sort lexically. Failed reads have no answer and are counted separately.
+- Majority baseline: largest truth-class count / all selected graded truth cells;
+  independent of model abstention, excluding uncertain/unavailable kit truth.
+  `accuracy_minus_baseline` subtracts that baseline from answered accuracy.
+- `information` is true only if modal share < 0.9 AND accuracy > baseline + 0.05.
+  This requested heuristic is not proof of visual grounding; selective abstention
+  can raise answered accuracy even without any yes answers.
+- Recall where binary truth is defined: true yes / all selected truth-positive
+  clips; no, unclear and failures count as misses. Touch recall is subject to the
+  temporal sampling screen below; its raw numerator, denominator and rate remain.
+- Confident wrong: incorrect graded answers with high confidence. Confidence is
+  uncalibrated and prompt-sensitive; two pilot clips changed no/low to no/high
+  after the reason instruction changed. No prompt changes are made in r2.
 - Macro accuracy: mean of available answered accuracies over all six questions.
   Macro false-yes: mean of available rates over the five binary questions.
   Overall abstain: pooled abstentions / eligible question cells.
 - Gate 1: false-yes pooled across `player_on_pitch` and `play_in_progress` on
-  off-pitch clips (14 truth-no cells on the complete set).
+  off-pitch clips (14 truth-no cells on the complete set), also split by question
+  (7 each).
 - Gate 2: false-yes for `player_touches_ball` on off-pitch plus idle clips whose
   touch truth is **no** (9 clips). The mixed idle/receive clip n04-243433 is
   excluded because it has a real touch; an affirmative answer is correct there.
 
-Thresholds are **Gate 1 ≤ 10%, Gate 2 ≤ 10%, macro accuracy ≥ 80% on answered,
-overall abstain ≤ 40%**. The ledger states each PASS/FAIL; it makes no adoption
+Thresholds are **Gate 1 false-yes ≤ 10%, Gate 2 touch false-yes ≤ 10% AND
+measurable touch recall ≥ 50%, macro accuracy ≥ 80% on answered, overall
+abstain ≤ 40%**. Gate 2 is WITHHELD when recall is not measurable; its
+false-yes component passing alone is not a gate PASS. The ledger states each
+PASS/FAIL/WITHHELD; it makes no adoption
 call. Empty denominators withhold the corresponding threshold. Per-run reports
 keep all attempts and failures; failed reads are excluded from correctness
 metrics. `from_thinking_rate` and wall seconds/clip include all attempts.
@@ -796,8 +818,9 @@ report and raw files. `--allow-mixed` permits identity mismatches with a visible
 caveat, but never relaxes selection or schema requirements. Missing raw files,
 missing saved reports/rows, not-attempted rows and stop markers (including empty
 objects) withhold the headline and thresholds. Failed attempts count as covered;
-configured wall caps alone do not mark a run incomplete. All comparison metrics
-use the intersection scored in both saved reports and current rescoring. Full-run
+configured wall caps alone do not mark a run incomplete. Comparison accuracy/error metrics
+use the intersection scored in both saved reports and current rescoring. Modal
+distributions, baselines, touch counts and sampling use each full run. Full-run
 reports retain every attempt. Frame facts come from run.json and recorded frame
 lists, including failures; measured boxed-frame means determine dense/sparse
 headline order. Five reasons are the first available question reason per scored
@@ -898,12 +921,50 @@ Use `30 / 3` for `e1e-crop-8b-prod30`; add `--crop-context` to dense for
 `e1e-crop-32b-dense` only when at least one completed 8B variant answers touch=yes
 on at least **2 of the 6 truth-positive touch clips**. Recall counts yes/6;
 unclear, no and failed reads are misses, independently of answered-only accuracy.
-No touch-recall threshold replaces the existing honesty-gate thresholds.
+This was the original execution scheduling rule; r2 adds a measurable recall
+requirement to gate 2 and marks these sparse-in-time raw counts unmeasurable.
 
-The crop ledger uses unchanged `compare_checks.py --allow-mixed` alongside all
+The crop ledger uses the shared `compare_checks.py --allow-mixed` alongside all
 six lane-B runs. Existing complete/shared-coverage guards apply. It adds recall,
 geometry, per-instant/image counts, the 32B execution decision and three local crop
 PNG paths/hashes. Examples and raw reports stay outside the repository. Cropping
 can remove the ball or sideline context; provided tracking may miss the player.
-The unchanged note-derived truth includes one known error pending r2. These are
-single passes on 20 clips; adoption remains MJ's decision.
+Round r2 corrects the five reviewed truth cells and rescores these saved outputs.
+These are single passes on 20 clips; adoption remains MJ's decision.
+
+## Round r2: temporal sampling and reproducible rescoring
+
+Frame density is calculated from saved distinct timestamps: N / full truth-window
+seconds, reporting the unweighted mean and minimum across clips. Crop/context
+pairs count once. Mean spacing is window seconds / (N−1); a single-frame clip
+uses the full window. Missing window/timestamp metadata withholds recall. If the
+run's mean spacing exceeds 1.0 s, `touch_recall` and the touch question's `recall`
+are null with reason "not measurable at this sampling"; raw touch counts and
+`touch_recall_raw` remain. Passing the spacing screen alone does not verify that
+a touch was visible.
+
+The saved dense runs average about 2.49 s spacing, and prod30 about 23.99 s.
+Zero affirmative touches across these nine runs cannot establish inability to
+see a touch: the frames rarely contain the brief contact. On-pitch/sideline
+failures remain interpretable. Follow-up **moment windows** require MJ to mark
+touch times on the six clips: at least 8 frames at at least 4 fps in the 2 seconds
+around each marked touch. No new model calls occur in r2.
+
+`compare_checks.py --execution path.json` reads the committed execution record,
+including archived run provenance, prompt diff, diagnostic results, notes hash,
+previous metrics/truth for deltas, and crop artifact paths. It generates both
+ledger formats without post-processing. The historical 32B-only ledger was
+renamed to lane-b-models; this six-run ledger retains both 32B runs.
+Regenerate all three current lane-B/C ledger pairs from the saved claims:
+
+```sh
+~/Projects/loanarmy/.loan/bin/python spike/video-analysis/bench/regenerate_checks_ledgers.py \
+  --reports-root ~/Projects/loanarmy-bench-reports \
+  --manifest ~/Projects/loanarmy-bench-frozen/manifest.json \
+  --output-dir ledgers/research
+```
+
+The wrapper passes each committed `fixtures/lane-*-execution.json` to the
+comparator and calls no inference code. With the same saved reports, truth and
+execution inputs, JSON and Markdown regenerate byte-for-byte. Existing run.json,
+claims, prompts, contracts, model fingerprints and frozen truth remain intact.

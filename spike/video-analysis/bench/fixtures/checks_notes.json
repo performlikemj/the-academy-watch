@@ -25,7 +25,7 @@
       "yes",
       "yes",
       "yes",
-      "yes",
+      null,
       "red"
     ]
   },
@@ -68,7 +68,7 @@
     },
     "expected": [
       "yes",
-      "no",
+      null,
       "no",
       "no",
       "yes",
@@ -191,7 +191,7 @@
       "yes",
       "yes",
       "yes",
-      "yes",
+      null,
       "red"
     ]
   },
@@ -236,7 +236,7 @@
       "yes",
       "yes",
       "yes",
-      "yes",
+      null,
       "red"
     ]
   },
@@ -265,7 +265,7 @@
     "expected": [
       "no",
       "no",
-      "no",
+      "yes",
       "no",
       "no",
       null

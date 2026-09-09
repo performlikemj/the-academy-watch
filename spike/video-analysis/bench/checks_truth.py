@@ -1,4 +1,4 @@
-"""MJ's explicit note-derived rule table, with directive exceptions disclosed."""
+"""MJ's explicit note-derived rule table, without clip-ID overrides."""
 
 import re
 
@@ -11,24 +11,20 @@ except ImportError:  # pragma: no cover
     from identity_truth import kit_truth
     from semantic_activity import truth_activity
 
-TRUTH_VERSION = "film-room-checks-truth-v1"
+TRUTH_VERSION = "film-room-checks-truth-v2"
 RULE_TABLE = {
     "player_on_pitch": "off_pitch=no; other classified=yes; unclassified (n24)=ungraded",
-    "play_in_progress": "off_pitch=no; on_ball_action/defensive_track_back/positional_only=yes; idle throw-in (n04-307417)=no; other idle (n10)=ungraded; mixed receive (n04-243433)=yes",
-    "ball_near_player": "off_pitch=no; on_ball_action=yes; other idle=no; defensive/positional/unclassified=ungraded",
+    "play_in_progress": "off_pitch=no; on_ball_action/defensive_track_back/positional_only=yes; idle throw-in without running=no; mixed running/throw-in (n04-307417)=ungraded; other idle (n10)=ungraded; mixed receive (n04-243433)=yes",
+    "ball_near_player": "misses/missed header=yes (takes precedence over off_pitch); off_pitch=no; on_ball_action=yes; other idle=no; defensive/positional/unclassified=ungraded",
     "player_touches_ball": "off_pitch=no; on_ball_action=yes (including mixed n04-243433); other idle=no; defensive/positional/unclassified=ungraded",
-    "player_running": "off_pitch or non-on-ball walk/stand=no; mixed receive/walking n04-243433=ungraded; run/track back/goes or went forward/challenge=yes; n17-416826=yes by explicit directive override; other=ungraded",
+    "player_running": "off_pitch or non-on-ball walk/stand=no; mixed receive/walking n04-243433=ungraded; run/track back/goes or went forward=yes; challenge alone and receive without running=ungraded; other=ungraded",
     "kit_color_seen": "identity_truth.kit_truth: uncertainty takes precedence and counts as abstention; verified override restores colour independently of disputed label; unavailable disputed colour=ungraded",
 }
 RUNNING_YES = re.compile(
-    r"\b(?:run(?:s|ning)?|track(?:s|ed|ing)? back|(?:goes|went) forward|challeng\w*)\b",
+    r"\b(?:run(?:s|ning)?|track(?:s|ed|ing)? back|(?:goes|went) forward)\b",
     re.I,
 )
 RUNNING_NO = re.compile(r"\b(?:walk\w*|stand\w*|sidelines?|stretch\w*)\b", re.I)
-# This note has no running phrase. MJ's lane-B directive explicitly grades it yes.
-RUNNING_DIRECTIVE = {
-    "m04-n17-t717-416826-418915": "receives ball in midfield. playing as false 9 or 10 spot. loses the ball"
-}
 
 
 def derive_truth(truth: dict) -> dict:
@@ -47,7 +43,11 @@ def derive_truth(truth: dict) -> dict:
         else:
             if on_ball or set(activity) & {"defensive_track_back", "positional_only"}:
                 expected["play_in_progress"] = "yes"
-            elif idle and re.search(r"throw[ -]in", note, re.I):
+            elif (
+                idle
+                and re.search(r"throw[ -]in", note, re.I)
+                and not RUNNING_YES.search(note)
+            ):
                 expected["play_in_progress"] = "no"
             if on_ball or idle:
                 for q in ("ball_near_player", "player_touches_ball"):
@@ -56,12 +56,8 @@ def derive_truth(truth: dict) -> dict:
             expected["player_running"] = "no"
         elif RUNNING_YES.search(note):
             expected["player_running"] = "yes"
-    cid = truth.get("clip_id")
-    if cid in RUNNING_DIRECTIVE and note == RUNNING_DIRECTIVE[cid]:
-        expected["player_running"] = "yes"
-        sources["player_running"] = (
-            "explicit MJ lane-B directive override, not a running keyword"
-        )
+    if re.search(r"\bmiss(?:es|ed)?\s+(?:a\s+|the\s+)?header\b", note, re.I):
+        expected["ball_near_player"] = "yes"
     kit = kit_truth(truth)
     expected["kit_color_seen"] = kit["color"]
     for q, value in expected.items():

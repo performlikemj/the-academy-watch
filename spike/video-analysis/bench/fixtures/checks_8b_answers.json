@@ -1,0 +1,2172 @@
+{
+  "source": "Saved final 8B reads, all 20 clips in each run; answers/confidences and sampled times retained, reasons omitted.",
+  "windows": {
+    "m04-n02-t3005-474114-478131": {
+      "end_s": 4781.31,
+      "start_s": 4741.14
+    },
+    "m04-n03-t1406-157170-158922": {
+      "end_s": 1589.22,
+      "start_s": 1571.7
+    },
+    "m04-n03-t1406-385962-387137": {
+      "end_s": 3871.37,
+      "start_s": 3859.62
+    },
+    "m04-n04-t3006-243433-247994": {
+      "end_s": 2479.94,
+      "start_s": 2434.33
+    },
+    "m04-n04-t3006-307417-310307": {
+      "end_s": 3103.07,
+      "start_s": 3074.17
+    },
+    "m04-n05-t3007-284945-287898": {
+      "end_s": 2878.98,
+      "start_s": 2849.45
+    },
+    "m04-n09-t1409-143096-143834": {
+      "end_s": 1438.34,
+      "start_s": 1430.96
+    },
+    "m04-n09-t1409-297601-298865": {
+      "end_s": 2988.65,
+      "start_s": 2976.01
+    },
+    "m04-n09-t1409-385922-386603": {
+      "end_s": 3866.03,
+      "start_s": 3859.22
+    },
+    "m04-n10-t711-186553-188161": {
+      "end_s": 1881.61,
+      "start_s": 1865.53
+    },
+    "m04-n12-t1411-237107-242145": {
+      "end_s": 2421.45,
+      "start_s": 2371.07
+    },
+    "m04-n12-t1411-679986-681985": {
+      "end_s": 6819.85,
+      "start_s": 6799.86
+    },
+    "m04-n15-t3010-164698-170777": {
+      "end_s": 1707.77,
+      "start_s": 1646.98
+    },
+    "m04-n17-t717-253073-260377": {
+      "end_s": 2603.77,
+      "start_s": 2530.73
+    },
+    "m04-n17-t717-304624-307834": {
+      "end_s": 3078.34,
+      "start_s": 3046.24
+    },
+    "m04-n17-t717-416826-418915": {
+      "end_s": 4189.15,
+      "start_s": 4168.26
+    },
+    "m04-n21-t3011-390297-390800": {
+      "end_s": 3908.0,
+      "start_s": 3902.97
+    },
+    "m04-n22-t3012-070707-074371": {
+      "end_s": 743.71,
+      "start_s": 707.07
+    },
+    "m04-n24-t3013-679939-681217": {
+      "end_s": 6812.17,
+      "start_s": 6799.39
+    },
+    "m04-n25-t3014-530600-532465": {
+      "end_s": 5324.65,
+      "start_s": 5306.0
+    }
+  },
+  "runs": {
+    "e1d-checks-dense": [
+      {
+        "clip_id": "m04-n02-t3005-474114-478131",
+        "checks": {
+          "ball_near_player": {
+            "answer": "no",
+            "confidence": "low"
+          },
+          "kit_color_seen": {
+            "answer": "red",
+            "confidence": "high"
+          },
+          "play_in_progress": {
+            "answer": "yes",
+            "confidence": "medium"
+          },
+          "player_on_pitch": {
+            "answer": "yes",
+            "confidence": "high"
+          },
+          "player_running": {
+            "answer": "yes",
+            "confidence": "medium"
+          },
+          "player_touches_ball": {
+            "answer": "no",
+            "confidence": "high"
+          }
+        },
+        "sent_frames": [
+          {
+            "t": 4741.14
+          },
+          {
+            "t": 4744.74
+          },
+          {
+            "t": 4748.475
+          },
+          {
+            "t": 4752.118
+          },
+          {
+            "t": 4755.761
+          },
+          {
+            "t": 4759.404
+          },
+          {
+            "t": 4763.046
+          },
+          {
+            "t": 4766.689
+          },
+          {
+            "t": 4770.332
+          },
+          {
+            "t": 4773.975
+          },
+          {
+            "t": 4777.617
+          },
+          {
+            "t": 4781.26
+          }
+        ],
+        "source_sha256": "a702e98f5a33cbd22bed3f5bad4db7b10b5c785c74f5775b16142f22517809d8"
+      },
+      {
+        "clip_id": "m04-n03-t1406-157170-158922",
+        "checks": {
+          "ball_near_player": {
+            "answer": "no",
+            "confidence": "low"
+          },
+          "kit_color_seen": {
+            "answer": "red",
+            "confidence": "high"
+          },
+          "play_in_progress": {
+            "answer": "yes",
+            "confidence": "medium"
+          },
+          "player_on_pitch": {
+            "answer": "yes",
+            "confidence": "high"
+          },
+          "player_running": {
+            "answer": "yes",
+            "confidence": "medium"
+          },
+          "player_touches_ball": {
+            "answer": "no",
+            "confidence": "high"
+          }
+        },
+        "sent_frames": [
+          {
+            "t": 1571.75
+          },
+          {
+            "t": 1573.334
+          },
+          {
+            "t": 1574.917
+          },
+          {
+            "t": 1576.501
+          },
+          {
+            "t": 1578.085
+          },
+          {
+            "t": 1579.668
+          },
+          {
+            "t": 1581.252
+          },
+          {
+            "t": 1582.835
+          },
+          {
+            "t": 1584.419
+          },
+          {
+            "t": 1586.003
+          },
+          {
+            "t": 1587.586
+          },
+          {
+            "t": 1589.17
+          }
+        ],
+        "source_sha256": "ee9d0eef0000fcdf5bfb3de9db6a33fb9e9b9af85e717aee7e147797d2265b81"
+      },
+      {
+        "clip_id": "m04-n03-t1406-385962-387137",
+        "checks": {
+          "ball_near_player": {
+            "answer": "no",
+            "confidence": "low"
+          },
+          "kit_color_seen": {
+            "answer": "red",
+            "confidence": "high"
+          },
+          "play_in_progress": {
+            "answer": "no",
+            "confidence": "medium"
+          },
+          "player_on_pitch": {
+            "answer": "yes",
+            "confidence": "high"
+          },
+          "player_running": {
+            "answer": "yes",
+            "confidence": "medium"
+          },
+          "player_touches_ball": {
+            "answer": "no",
+            "confidence": "high"
+          }
+        },
+        "sent_frames": [
+          {
+            "t": 3859.67
+          },
+          {
+            "t": 3860.729
+          },
+          {
+            "t": 3861.788
+          },
+          {
+            "t": 3862.847
+          },
+          {
+            "t": 3863.906
+          },
+          {
+            "t": 3864.965
+          },
+          {
+            "t": 3866.025
+          },
+          {
+            "t": 3867.084
+          },
+          {
+            "t": 3868.143
+          },
+          {
+            "t": 3869.202
+          },
+          {
+            "t": 3870.261
+          },
+          {
+            "t": 3871.32
+          }
+        ],
+        "source_sha256": "625ae1869265053f4b3e64dfff79cf7800f0a2527c1f9e32c92dbd2e860950d9"
+      },
+      {
+        "clip_id": "m04-n04-t3006-243433-247994",
+        "checks": {
+          "ball_near_player": {
+            "answer": "no",
+            "confidence": "low"
+          },
+          "kit_color_seen": {
+            "answer": "red",
+            "confidence": "high"
+          },
+          "play_in_progress": {
+            "answer": "no",
+            "confidence": "medium"
+          },
+          "player_on_pitch": {
+            "answer": "yes",
+            "confidence": "high"
+          },
+          "player_running": {
+            "answer": "yes",
+            "confidence": "medium"
+          },
+          "player_touches_ball": {
+            "answer": "no",
+            "confidence": "high"
+          }
+        },
+        "sent_frames": [
+          {
+            "t": 2434.38
+          },
+          {
+            "t": 2438.517
+          },
+          {
+            "t": 2442.655
+          },
+          {
+            "t": 2446.792
+          },
+          {
+            "t": 2450.929
+          },
+          {
+            "t": 2455.066
+          },
+          {
+            "t": 2459.204
+          },
+          {
+            "t": 2463.341
+          },
+          {
+            "t": 2467.478
+          },
+          {
+            "t": 2471.615
+          },
+          {
+            "t": 2475.753
+          },
+          {
+            "t": 2479.89
+          }
+        ],
+        "source_sha256": "7b88877f5df1be0467df9027fa66ce747f3c9ed9110f83d47c44dca8204057bc"
+      },
+      {
+        "clip_id": "m04-n04-t3006-307417-310307",
+        "checks": {
+          "ball_near_player": {
+            "answer": "no",
+            "confidence": "low"
+          },
+          "kit_color_seen": {
+            "answer": "red",
+            "confidence": "high"
+          },
+          "play_in_progress": {
+            "answer": "no",
+            "confidence": "medium"
+          },
+          "player_on_pitch": {
+            "answer": "yes",
+            "confidence": "high"
+          },
+          "player_running": {
+            "answer": "yes",
+            "confidence": "medium"
+          },
+          "player_touches_ball": {
+            "answer": "no",
+            "confidence": "high"
+          }
+        },
+        "sent_frames": [
+          {
+            "t": 3074.22
+          },
+          {
+            "t": 3076.838
+          },
+          {
+            "t": 3079.456
+          },
+          {
+            "t": 3082.18
+          },
+          {
+            "t": 3084.693
+          },
+          {
+            "t": 3087.311
+          },
+          {
+            "t": 3089.929
+          },
+          {
+            "t": 3092.547
+          },
+          {
+            "t": 3095.165
+          },
+          {
+            "t": 3097.784
+          },
+          {
+            "t": 3100.402
+          },
+          {
+            "t": 3103.02
+          }
+        ],
+        "source_sha256": "51f19c602d557d4852a077445a36e7e17c6b93532d703f0b19d2cfceb82542fe"
+      },
+      {
+        "clip_id": "m04-n05-t3007-284945-287898",
+        "checks": {
+          "ball_near_player": {
+            "answer": "no",
+            "confidence": "medium"
+          },
+          "kit_color_seen": {
+            "answer": "red",
+            "confidence": "high"
+          },
+          "play_in_progress": {
+            "answer": "yes",
+            "confidence": "high"
+          },
+          "player_on_pitch": {
+            "answer": "yes",
+            "confidence": "high"
+          },
+          "player_running": {
+            "answer": "yes",
+            "confidence": "high"
+          },
+          "player_touches_ball": {
+            "answer": "no",
+            "confidence": "low"
+          }
+        },
+        "sent_frames": [
+          {
+            "t": 2849.5
+          },
+          {
+            "t": 2852.175
+          },
+          {
+            "t": 2854.851
+          },
+          {
+            "t": 2857.526
+          },
+          {
+            "t": 2860.202
+          },
+          {
+            "t": 2862.877
+          },
+          {
+            "t": 2865.553
+          },
+          {
+            "t": 2868.228
+          },
+          {
+            "t": 2870.904
+          },
+          {
+            "t": 2873.579
+          },
+          {
+            "t": 2876.255
+          },
+          {
+            "t": 2878.93
+          }
+        ],
+        "source_sha256": "61bbf37416c42a8a9b8b184ae03a4fadf99f27ece49c2074c6c69d410ab09fda"
+      },
+      {
+        "clip_id": "m04-n09-t1409-143096-143834",
+        "checks": {
+          "ball_near_player": {
+            "answer": "no",
+            "confidence": "high"
+          },
+          "kit_color_seen": {
+            "answer": "red",
+            "confidence": "high"
+          },
+          "play_in_progress": {
+            "answer": "yes",
+            "confidence": "medium"
+          },
+          "player_on_pitch": {
+            "answer": "yes",
+            "confidence": "high"
+          },
+          "player_running": {
+            "answer": "yes",
+            "confidence": "medium"
+          },
+          "player_touches_ball": {
+            "answer": "no",
+            "confidence": "high"
+          }
+        },
+        "sent_frames": [
+          {
+            "t": 1431.01
+          },
+          {
+            "t": 1431.672
+          },
+          {
+            "t": 1432.334
+          },
+          {
+            "t": 1432.995
+          },
+          {
+            "t": 1433.657
+          },
+          {
+            "t": 1434.319
+          },
+          {
+            "t": 1434.981
+          },
+          {
+            "t": 1435.643
+          },
+          {
+            "t": 1436.305
+          },
+          {
+            "t": 1436.966
+          },
+          {
+            "t": 1437.628
+          },
+          {
+            "t": 1438.29
+          }
+        ],
+        "source_sha256": "6b324980b8da6622402d7ef6df4087b5633472649e360c27ba1b272194f1d350"
+      },
+      {
+        "clip_id": "m04-n09-t1409-297601-298865",
+        "checks": {
+          "ball_near_player": {
+            "answer": "no",
+            "confidence": "low"
+          },
+          "kit_color_seen": {
+            "answer": "red",
+            "confidence": "high"
+          },
+          "play_in_progress": {
+            "answer": "yes",
+            "confidence": "medium"
+          },
+          "player_on_pitch": {
+            "answer": "yes",
+            "confidence": "high"
+          },
+          "player_running": {
+            "answer": "yes",
+            "confidence": "medium"
+          },
+          "player_touches_ball": {
+            "answer": "no",
+            "confidence": "high"
+          }
+        },
+        "sent_frames": [
+          {
+            "t": 2976.06
+          },
+          {
+            "t": 2977.2
+          },
+          {
+            "t": 2978.34
+          },
+          {
+            "t": 2979.48
+          },
+          {
+            "t": 2980.62
+          },
+          {
+            "t": 2981.76
+          },
+          {
+            "t": 2982.9
+          },
+          {
+            "t": 2984.04
+          },
+          {
+            "t": 2985.18
+          },
+          {
+            "t": 2986.32
+          },
+          {
+            "t": 2987.46
+          },
+          {
+            "t": 2988.6
+          }
+        ],
+        "source_sha256": "c1e791deda4556c7b86877fdc335aebd81f6b50f4bbbe97ce9727f8f0e08dd07"
+      },
+      {
+        "clip_id": "m04-n09-t1409-385922-386603",
+        "checks": {
+          "ball_near_player": {
+            "answer": "unclear",
+            "confidence": "low"
+          },
+          "kit_color_seen": {
+            "answer": "red",
+            "confidence": "high"
+          },
+          "play_in_progress": {
+            "answer": "no",
+            "confidence": "medium"
+          },
+          "player_on_pitch": {
+            "answer": "yes",
+            "confidence": "high"
+          },
+          "player_running": {
+            "answer": "yes",
+            "confidence": "medium"
+          },
+          "player_touches_ball": {
+            "answer": "no",
+            "confidence": "high"
+          }
+        },
+        "sent_frames": [
+          {
+            "t": 3859.27
+          },
+          {
+            "t": 3859.88
+          },
+          {
+            "t": 3860.49
+          },
+          {
+            "t": 3861.1
+          },
+          {
+            "t": 3861.71
+          },
+          {
+            "t": 3862.32
+          },
+          {
+            "t": 3862.93
+          },
+          {
+            "t": 3863.54
+          },
+          {
+            "t": 3864.15
+          },
+          {
+            "t": 3864.76
+          },
+          {
+            "t": 3865.37
+          },
+          {
+            "t": 3865.98
+          }
+        ],
+        "source_sha256": "29f95b28647ccbe2c084f395addddf78d6a948940d9585292991b9d12d774eec"
+      },
+      {
+        "clip_id": "m04-n10-t711-186553-188161",
+        "checks": {
+          "ball_near_player": {
+            "answer": "no",
+            "confidence": "low"
+          },
+          "kit_color_seen": {
+            "answer": "red",
+            "confidence": "high"
+          },
+          "play_in_progress": {
+            "answer": "yes",
+            "confidence": "medium"
+          },
+          "player_on_pitch": {
+            "answer": "yes",
+            "confidence": "high"
+          },
+          "player_running": {
+            "answer": "yes",
+            "confidence": "medium"
+          },
+          "player_touches_ball": {
+            "answer": "no",
+            "confidence": "high"
+          }
+        },
+        "sent_frames": [
+          {
+            "t": 1865.58
+          },
+          {
+            "t": 1867.033
+          },
+          {
+            "t": 1868.485
+          },
+          {
+            "t": 1869.938
+          },
+          {
+            "t": 1871.391
+          },
+          {
+            "t": 1872.844
+          },
+          {
+            "t": 1874.296
+          },
+          {
+            "t": 1875.749
+          },
+          {
+            "t": 1877.202
+          },
+          {
+            "t": 1878.655
+          },
+          {
+            "t": 1880.107
+          },
+          {
+            "t": 1881.56
+          }
+        ],
+        "source_sha256": "ffbe374db02bffc67e9c5a7346279a90dced393557ab18b6d7a866c20239bafe"
+      },
+      {
+        "clip_id": "m04-n12-t1411-237107-242145",
+        "checks": {
+          "ball_near_player": {
+            "answer": "no",
+            "confidence": "low"
+          },
+          "kit_color_seen": {
+            "answer": "red",
+            "confidence": "high"
+          },
+          "play_in_progress": {
+            "answer": "yes",
+            "confidence": "medium"
+          },
+          "player_on_pitch": {
+            "answer": "yes",
+            "confidence": "high"
+          },
+          "player_running": {
+            "answer": "yes",
+            "confidence": "medium"
+          },
+          "player_touches_ball": {
+            "answer": "no",
+            "confidence": "high"
+          }
+        },
+        "sent_frames": [
+          {
+            "t": 2371.12
+          },
+          {
+            "t": 2375.691
+          },
+          {
+            "t": 2380.262
+          },
+          {
+            "t": 2384.833
+          },
+          {
+            "t": 2389.404
+          },
+          {
+            "t": 2393.975
+          },
+          {
+            "t": 2398.545
+          },
+          {
+            "t": 2403.6
+          },
+          {
+            "t": 2407.687
+          },
+          {
+            "t": 2412.258
+          },
+          {
+            "t": 2416.829
+          },
+          {
+            "t": 2421.4
+          }
+        ],
+        "source_sha256": "fe3cfba0b39c0e2920824183d9403c90794b27b84292c8579a29a1f9b1f6b32c"
+      },
+      {
+        "clip_id": "m04-n12-t1411-679986-681985",
+        "checks": {
+          "ball_near_player": {
+            "answer": "no",
+            "confidence": "low"
+          },
+          "kit_color_seen": {
+            "answer": "red",
+            "confidence": "high"
+          },
+          "play_in_progress": {
+            "answer": "no",
+            "confidence": "medium"
+          },
+          "player_on_pitch": {
+            "answer": "yes",
+            "confidence": "high"
+          },
+          "player_running": {
+            "answer": "yes",
+            "confidence": "medium"
+          },
+          "player_touches_ball": {
+            "answer": "no",
+            "confidence": "high"
+          }
+        },
+        "sent_frames": [
+          {
+            "t": 6799.91
+          },
+          {
+            "t": 6801.718
+          },
+          {
+            "t": 6803.526
+          },
+          {
+            "t": 6805.335
+          },
+          {
+            "t": 6807.143
+          },
+          {
+            "t": 6808.951
+          },
+          {
+            "t": 6810.759
+          },
+          {
+            "t": 6812.567
+          },
+          {
+            "t": 6814.375
+          },
+          {
+            "t": 6816.184
+          },
+          {
+            "t": 6817.992
+          },
+          {
+            "t": 6819.8
+          }
+        ],
+        "source_sha256": "8b9cfaf72d3744b97c3d99e8a0f6e3187f61b856814a0f85519aa65f888410c6"
+      },
+      {
+        "clip_id": "m04-n15-t3010-164698-170777",
+        "checks": {
+          "ball_near_player": {
+            "answer": "no",
+            "confidence": "low"
+          },
+          "kit_color_seen": {
+            "answer": "red",
+            "confidence": "high"
+          },
+          "play_in_progress": {
+            "answer": "yes",
+            "confidence": "medium"
+          },
+          "player_on_pitch": {
+            "answer": "yes",
+            "confidence": "high"
+          },
+          "player_running": {
+            "answer": "yes",
+            "confidence": "medium"
+          },
+          "player_touches_ball": {
+            "answer": "no",
+            "confidence": "high"
+          }
+        },
+        "sent_frames": [
+          {
+            "t": 1647.03
+          },
+          {
+            "t": 1652.547
+          },
+          {
+            "t": 1658.065
+          },
+          {
+            "t": 1663.582
+          },
+          {
+            "t": 1669.099
+          },
+          {
+            "t": 1674.616
+          },
+          {
+            "t": 1680.134
+          },
+          {
+            "t": 1685.651
+          },
+          {
+            "t": 1691.168
+          },
+          {
+            "t": 1696.685
+          },
+          {
+            "t": 1702.203
+          },
+          {
+            "t": 1707.72
+          }
+        ],
+        "source_sha256": "d35d88e0f249cd6c2092654e5e96b08518b467b971c413030ccd39693e178c54"
+      },
+      {
+        "clip_id": "m04-n17-t717-253073-260377",
+        "checks": {
+          "ball_near_player": {
+            "answer": "no",
+            "confidence": "low"
+          },
+          "kit_color_seen": {
+            "answer": "red",
+            "confidence": "high"
+          },
+          "play_in_progress": {
+            "answer": "yes",
+            "confidence": "medium"
+          },
+          "player_on_pitch": {
+            "answer": "yes",
+            "confidence": "high"
+          },
+          "player_running": {
+            "answer": "yes",
+            "confidence": "medium"
+          },
+          "player_touches_ball": {
+            "answer": "no",
+            "confidence": "high"
+          }
+        },
+        "sent_frames": [
+          {
+            "t": 2530.83
+          },
+          {
+            "t": 2537.456
+          },
+          {
+            "t": 2544.083
+          },
+          {
+            "t": 2550.88
+          },
+          {
+            "t": 2557.335
+          },
+          {
+            "t": 2563.962
+          },
+          {
+            "t": 2570.588
+          },
+          {
+            "t": 2577.215
+          },
+          {
+            "t": 2583.841
+          },
+          {
+            "t": 2590.467
+          },
+          {
+            "t": 2597.094
+          },
+          {
+            "t": 2603.7
+          }
+        ],
+        "source_sha256": "da2fc17062a61a0f88609016dd3050192d9bc133c2f2f0fd148bab3d8587d308"
+      },
+      {
+        "clip_id": "m04-n17-t717-304624-307834",
+        "checks": {
+          "ball_near_player": {
+            "answer": "no",
+            "confidence": "low"
+          },
+          "kit_color_seen": {
+            "answer": "red",
+            "confidence": "high"
+          },
+          "play_in_progress": {
+            "answer": "yes",
+            "confidence": "medium"
+          },
+          "player_on_pitch": {
+            "answer": "yes",
+            "confidence": "high"
+          },
+          "player_running": {
+            "answer": "yes",
+            "confidence": "medium"
+          },
+          "player_touches_ball": {
+            "answer": "no",
+            "confidence": "high"
+          }
+        },
+        "sent_frames": [
+          {
+            "t": 3046.34
+          },
+          {
+            "t": 3049.245
+          },
+          {
+            "t": 3052.149
+          },
+          {
+            "t": 3055.054
+          },
+          {
+            "t": 3057.958
+          },
+          {
+            "t": 3060.863
+          },
+          {
+            "t": 3063.767
+          },
+          {
+            "t": 3066.672
+          },
+          {
+            "t": 3069.576
+          },
+          {
+            "t": 3072.481
+          },
+          {
+            "t": 3075.385
+          },
+          {
+            "t": 3078.29
+          }
+        ],
+        "source_sha256": "d0dc0975ecbd5a9c19a83cd88da6b677e04e74d1a54e64b5872edd143f04a2c7"
+      },
+      {
+        "clip_id": "m04-n17-t717-416826-418915",
+        "checks": {
+          "ball_near_player": {
+            "answer": "no",
+            "confidence": "low"
+          },
+          "kit_color_seen": {
+            "answer": "red",
+            "confidence": "high"
+          },
+          "play_in_progress": {
+            "answer": "yes",
+            "confidence": "medium"
+          },
+          "player_on_pitch": {
+            "answer": "yes",
+            "confidence": "high"
+          },
+          "player_running": {
+            "answer": "yes",
+            "confidence": "medium"
+          },
+          "player_touches_ball": {
+            "answer": "no",
+            "confidence": "high"
+          }
+        },
+        "sent_frames": [
+          {
+            "t": 4168.33
+          },
+          {
+            "t": 4170.218
+          },
+          {
+            "t": 4172.106
+          },
+          {
+            "t": 4173.6
+          },
+          {
+            "t": 4175.883
+          },
+          {
+            "t": 4177.771
+          },
+          {
+            "t": 4179.71
+          },
+          {
+            "t": 4181.547
+          },
+          {
+            "t": 4183.435
+          },
+          {
+            "t": 4185.324
+          },
+          {
+            "t": 4187.212
+          },
+          {
+            "t": 4189.05
+          }
+        ],
+        "source_sha256": "94548275e4a1abcc8de68e502611129d6e7129876d91b10af2b6c0c8c9bb1901"
+      },
+      {
+        "clip_id": "m04-n21-t3011-390297-390800",
+        "checks": {
+          "ball_near_player": {
+            "answer": "no",
+            "confidence": "low"
+          },
+          "kit_color_seen": {
+            "answer": "red",
+            "confidence": "high"
+          },
+          "play_in_progress": {
+            "answer": "no",
+            "confidence": "medium"
+          },
+          "player_on_pitch": {
+            "answer": "yes",
+            "confidence": "high"
+          },
+          "player_running": {
+            "answer": "yes",
+            "confidence": "medium"
+          },
+          "player_touches_ball": {
+            "answer": "no",
+            "confidence": "high"
+          }
+        },
+        "sent_frames": [
+          {
+            "t": 3903.02
+          },
+          {
+            "t": 3903.568
+          },
+          {
+            "t": 3904.116
+          },
+          {
+            "t": 3904.663
+          },
+          {
+            "t": 3905.211
+          },
+          {
+            "t": 3905.759
+          },
+          {
+            "t": 3906.4
+          },
+          {
+            "t": 3906.854
+          },
+          {
+            "t": 3907.402
+          },
+          {
+            "t": 3907.95
+          }
+        ],
+        "source_sha256": "8c3498d4b3b639caff6924d8b8464685a6bb9876f2fbe7f1e552af56ac9b3e90"
+      },
+      {
+        "clip_id": "m04-n22-t3012-070707-074371",
+        "checks": {
+          "ball_near_player": {
+            "answer": "yes",
+            "confidence": "high"
+          },
+          "kit_color_seen": {
+            "answer": "red",
+            "confidence": "high"
+          },
+          "play_in_progress": {
+            "answer": "no",
+            "confidence": "medium"
+          },
+          "player_on_pitch": {
+            "answer": "yes",
+            "confidence": "high"
+          },
+          "player_running": {
+            "answer": "yes",
+            "confidence": "medium"
+          },
+          "player_touches_ball": {
+            "answer": "no",
+            "confidence": "low"
+          }
+        },
+        "sent_frames": [
+          {
+            "t": 707.12
+          },
+          {
+            "t": 710.442
+          },
+          {
+            "t": 713.764
+          },
+          {
+            "t": 717.085
+          },
+          {
+            "t": 720.407
+          },
+          {
+            "t": 723.729
+          },
+          {
+            "t": 727.051
+          },
+          {
+            "t": 730.373
+          },
+          {
+            "t": 733.695
+          },
+          {
+            "t": 737.016
+          },
+          {
+            "t": 740.51
+          },
+          {
+            "t": 743.66
+          }
+        ],
+        "source_sha256": "f3c658b92c6fbbd73c32833838d2bdced1f415fd3384a6260a3fdfcb49632819"
+      },
+      {
+        "clip_id": "m04-n24-t3013-679939-681217",
+        "checks": {
+          "ball_near_player": {
+            "answer": "no",
+            "confidence": "low"
+          },
+          "kit_color_seen": {
+            "answer": "red",
+            "confidence": "high"
+          },
+          "play_in_progress": {
+            "answer": "no",
+            "confidence": "medium"
+          },
+          "player_on_pitch": {
+            "answer": "yes",
+            "confidence": "high"
+          },
+          "player_running": {
+            "answer": "yes",
+            "confidence": "medium"
+          },
+          "player_touches_ball": {
+            "answer": "no",
+            "confidence": "high"
+          }
+        },
+        "sent_frames": [
+          {
+            "t": 6799.44
+          },
+          {
+            "t": 6800.593
+          },
+          {
+            "t": 6801.745
+          },
+          {
+            "t": 6802.898
+          },
+          {
+            "t": 6804.051
+          },
+          {
+            "t": 6805.204
+          },
+          {
+            "t": 6806.356
+          },
+          {
+            "t": 6807.509
+          },
+          {
+            "t": 6808.662
+          },
+          {
+            "t": 6809.815
+          },
+          {
+            "t": 6810.967
+          },
+          {
+            "t": 6812.12
+          }
+        ],
+        "source_sha256": "bcbccea3363be5aaa0fcccf3428489120779a5205674863a1ef46c89e1e83a6f"
+      },
+      {
+        "clip_id": "m04-n25-t3014-530600-532465",
+        "checks": {
+          "ball_near_player": {
+            "answer": "no",
+            "confidence": "low"
+          },
+          "kit_color_seen": {
+            "answer": "red",
+            "confidence": "high"
+          },
+          "play_in_progress": {
+            "answer": "no",
+            "confidence": "medium"
+          },
+          "player_on_pitch": {
+            "answer": "yes",
+            "confidence": "high"
+          },
+          "player_running": {
+            "answer": "yes",
+            "confidence": "medium"
+          },
+          "player_touches_ball": {
+            "answer": "no",
+            "confidence": "high"
+          }
+        },
+        "sent_frames": [
+          {
+            "t": 5306.05
+          },
+          {
+            "t": 5307.736
+          },
+          {
+            "t": 5309.423
+          },
+          {
+            "t": 5311.109
+          },
+          {
+            "t": 5312.795
+          },
+          {
+            "t": 5314.482
+          },
+          {
+            "t": 5316.168
+          },
+          {
+            "t": 5317.855
+          },
+          {
+            "t": 5319.541
+          },
+          {
+            "t": 5321.227
+          },
+          {
+            "t": 5322.914
+          },
+          {
+            "t": 5324.6
+          }
+        ],
+        "source_sha256": "4b9eed7d2da50094e6a76ca930c3b0a7db1646e49cc0e731c368d2d31f59a484"
+      }
+    ],
+    "e1d-checks-prod30": [
+      {
+        "clip_id": "m04-n02-t3005-474114-478131",
+        "checks": {
+          "ball_near_player": {
+            "answer": "unclear",
+            "confidence": "low"
+          },
+          "kit_color_seen": {
+            "answer": "red",
+            "confidence": "high"
+          },
+          "play_in_progress": {
+            "answer": "no",
+            "confidence": "medium"
+          },
+          "player_on_pitch": {
+            "answer": "yes",
+            "confidence": "high"
+          },
+          "player_running": {
+            "answer": "yes",
+            "confidence": "medium"
+          },
+          "player_touches_ball": {
+            "answer": "no",
+            "confidence": "high"
+          }
+        },
+        "sent_frames": [
+          {
+            "t": 4741.14
+          },
+          {
+            "t": 4781.26
+          }
+        ],
+        "source_sha256": "6c3a346f78ddbf74c8f04aa84c073c8b89a47dfade499b4be3096fd0f94fc6c0"
+      },
+      {
+        "clip_id": "m04-n03-t1406-157170-158922",
+        "checks": {
+          "ball_near_player": {
+            "answer": "unclear",
+            "confidence": "low"
+          },
+          "kit_color_seen": {
+            "answer": "red",
+            "confidence": "high"
+          },
+          "play_in_progress": {
+            "answer": "no",
+            "confidence": "medium"
+          },
+          "player_on_pitch": {
+            "answer": "yes",
+            "confidence": "high"
+          },
+          "player_running": {
+            "answer": "yes",
+            "confidence": "medium"
+          },
+          "player_touches_ball": {
+            "answer": "no",
+            "confidence": "high"
+          }
+        },
+        "sent_frames": [
+          {
+            "t": 1571.75
+          }
+        ],
+        "source_sha256": "297cf4d3172981b7b94f08f920e7dde1fac1cf7e634e45d53a2f61f9b0512b38"
+      },
+      {
+        "clip_id": "m04-n03-t1406-385962-387137",
+        "checks": {
+          "ball_near_player": {
+            "answer": "no",
+            "confidence": "low"
+          },
+          "kit_color_seen": {
+            "answer": "red",
+            "confidence": "high"
+          },
+          "play_in_progress": {
+            "answer": "no",
+            "confidence": "medium"
+          },
+          "player_on_pitch": {
+            "answer": "yes",
+            "confidence": "high"
+          },
+          "player_running": {
+            "answer": "yes",
+            "confidence": "medium"
+          },
+          "player_touches_ball": {
+            "answer": "no",
+            "confidence": "high"
+          }
+        },
+        "sent_frames": [
+          {
+            "t": 3859.67
+          }
+        ],
+        "source_sha256": "02524d06dffc0c0c3ecc7d53abbd4179cc2bb012d1774cad9dfde56882f0dd72"
+      },
+      {
+        "clip_id": "m04-n04-t3006-243433-247994",
+        "checks": {
+          "ball_near_player": {
+            "answer": "unclear",
+            "confidence": "low"
+          },
+          "kit_color_seen": {
+            "answer": "blue",
+            "confidence": "high"
+          },
+          "play_in_progress": {
+            "answer": "no",
+            "confidence": "medium"
+          },
+          "player_on_pitch": {
+            "answer": "yes",
+            "confidence": "high"
+          },
+          "player_running": {
+            "answer": "yes",
+            "confidence": "medium"
+          },
+          "player_touches_ball": {
+            "answer": "no",
+            "confidence": "high"
+          }
+        },
+        "sent_frames": [
+          {
+            "t": 2434.38
+          },
+          {
+            "t": 2479.89
+          }
+        ],
+        "source_sha256": "94118d410264ffb9893720642dc4bdf1983f505628856819311d794963c0c084"
+      },
+      {
+        "clip_id": "m04-n04-t3006-307417-310307",
+        "checks": {
+          "ball_near_player": {
+            "answer": "no",
+            "confidence": "low"
+          },
+          "kit_color_seen": {
+            "answer": "red",
+            "confidence": "high"
+          },
+          "play_in_progress": {
+            "answer": "yes",
+            "confidence": "medium"
+          },
+          "player_on_pitch": {
+            "answer": "yes",
+            "confidence": "high"
+          },
+          "player_running": {
+            "answer": "yes",
+            "confidence": "medium"
+          },
+          "player_touches_ball": {
+            "answer": "no",
+            "confidence": "high"
+          }
+        },
+        "sent_frames": [
+          {
+            "t": 3074.22
+          }
+        ],
+        "source_sha256": "66a8ece718b64f8bf20c1061afc1877ddbf57d4f33ca1a1058e76ff589c7434c"
+      },
+      {
+        "clip_id": "m04-n05-t3007-284945-287898",
+        "checks": {
+          "ball_near_player": {
+            "answer": "no",
+            "confidence": "medium"
+          },
+          "kit_color_seen": {
+            "answer": "blue",
+            "confidence": "high"
+          },
+          "play_in_progress": {
+            "answer": "yes",
+            "confidence": "high"
+          },
+          "player_on_pitch": {
+            "answer": "yes",
+            "confidence": "high"
+          },
+          "player_running": {
+            "answer": "yes",
+            "confidence": "high"
+          },
+          "player_touches_ball": {
+            "answer": "no",
+            "confidence": "low"
+          }
+        },
+        "sent_frames": [
+          {
+            "t": 2849.5
+          }
+        ],
+        "source_sha256": "df83e2a0f27fda37f3411591d5a68eeb2e70eb7f2660a37e3204a1477f24e8db"
+      },
+      {
+        "clip_id": "m04-n09-t1409-143096-143834",
+        "checks": {
+          "ball_near_player": {
+            "answer": "no",
+            "confidence": "high"
+          },
+          "kit_color_seen": {
+            "answer": "red",
+            "confidence": "high"
+          },
+          "play_in_progress": {
+            "answer": "yes",
+            "confidence": "medium"
+          },
+          "player_on_pitch": {
+            "answer": "no",
+            "confidence": "high"
+          },
+          "player_running": {
+            "answer": "no",
+            "confidence": "high"
+          },
+          "player_touches_ball": {
+            "answer": "no",
+            "confidence": "high"
+          }
+        },
+        "sent_frames": [
+          {
+            "t": 1431.01
+          }
+        ],
+        "source_sha256": "43d62a589974c1ee5cb9ce1ff158d28d99e0686b2db5ab18a909a976f8253e0a"
+      },
+      {
+        "clip_id": "m04-n09-t1409-297601-298865",
+        "checks": {
+          "ball_near_player": {
+            "answer": "unclear",
+            "confidence": "low"
+          },
+          "kit_color_seen": {
+            "answer": "red",
+            "confidence": "high"
+          },
+          "play_in_progress": {
+            "answer": "no",
+            "confidence": "medium"
+          },
+          "player_on_pitch": {
+            "answer": "yes",
+            "confidence": "high"
+          },
+          "player_running": {
+            "answer": "yes",
+            "confidence": "medium"
+          },
+          "player_touches_ball": {
+            "answer": "no",
+            "confidence": "high"
+          }
+        },
+        "sent_frames": [
+          {
+            "t": 2976.06
+          }
+        ],
+        "source_sha256": "17d45e4e878862ee1f3e95101d2dc265ee3b944b44bfbdfeab8f62715f566598"
+      },
+      {
+        "clip_id": "m04-n09-t1409-385922-386603",
+        "checks": {
+          "ball_near_player": {
+            "answer": "unclear",
+            "confidence": "low"
+          },
+          "kit_color_seen": {
+            "answer": "red",
+            "confidence": "high"
+          },
+          "play_in_progress": {
+            "answer": "no",
+            "confidence": "medium"
+          },
+          "player_on_pitch": {
+            "answer": "yes",
+            "confidence": "high"
+          },
+          "player_running": {
+            "answer": "yes",
+            "confidence": "medium"
+          },
+          "player_touches_ball": {
+            "answer": "no",
+            "confidence": "high"
+          }
+        },
+        "sent_frames": [
+          {
+            "t": 3859.27
+          }
+        ],
+        "source_sha256": "6f87cb5d6bcde6d83b2fb82762db46dbe626baef27ef96f07e1cd8220db16404"
+      },
+      {
+        "clip_id": "m04-n10-t711-186553-188161",
+        "checks": {
+          "ball_near_player": {
+            "answer": "no",
+            "confidence": "low"
+          },
+          "kit_color_seen": {
+            "answer": "blue",
+            "confidence": "high"
+          },
+          "play_in_progress": {
+            "answer": "no",
+            "confidence": "medium"
+          },
+          "player_on_pitch": {
+            "answer": "yes",
+            "confidence": "high"
+          },
+          "player_running": {
+            "answer": "yes",
+            "confidence": "medium"
+          },
+          "player_touches_ball": {
+            "answer": "no",
+            "confidence": "high"
+          }
+        },
+        "sent_frames": [
+          {
+            "t": 1865.58
+          }
+        ],
+        "source_sha256": "6958b96316bccb83c10694fa6793a8c30a9e417162ddcea6a3315d8631ebd930"
+      },
+      {
+        "clip_id": "m04-n12-t1411-237107-242145",
+        "checks": {
+          "ball_near_player": {
+            "answer": "unclear",
+            "confidence": "low"
+          },
+          "kit_color_seen": {
+            "answer": "red",
+            "confidence": "high"
+          },
+          "play_in_progress": {
+            "answer": "no",
+            "confidence": "medium"
+          },
+          "player_on_pitch": {
+            "answer": "yes",
+            "confidence": "high"
+          },
+          "player_running": {
+            "answer": "yes",
+            "confidence": "medium"
+          },
+          "player_touches_ball": {
+            "answer": "no",
+            "confidence": "high"
+          }
+        },
+        "sent_frames": [
+          {
+            "t": 2371.12
+          },
+          {
+            "t": 2421.4
+          }
+        ],
+        "source_sha256": "b12b982b7268e6081229cbc152e14fa27797a9e47c9f56a74b1680333eeacef6"
+      },
+      {
+        "clip_id": "m04-n12-t1411-679986-681985",
+        "checks": {
+          "ball_near_player": {
+            "answer": "no",
+            "confidence": "low"
+          },
+          "kit_color_seen": {
+            "answer": "red",
+            "confidence": "high"
+          },
+          "play_in_progress": {
+            "answer": "no",
+            "confidence": "medium"
+          },
+          "player_on_pitch": {
+            "answer": "yes",
+            "confidence": "high"
+          },
+          "player_running": {
+            "answer": "yes",
+            "confidence": "medium"
+          },
+          "player_touches_ball": {
+            "answer": "no",
+            "confidence": "high"
+          }
+        },
+        "sent_frames": [
+          {
+            "t": 6799.91
+          }
+        ],
+        "source_sha256": "ac769681e95481009703b6d4b4bf843b3bacfcf25fa00b97049e42c3ea91aa3e"
+      },
+      {
+        "clip_id": "m04-n15-t3010-164698-170777",
+        "checks": {
+          "ball_near_player": {
+            "answer": "unclear",
+            "confidence": "low"
+          },
+          "kit_color_seen": {
+            "answer": "red",
+            "confidence": "high"
+          },
+          "play_in_progress": {
+            "answer": "no",
+            "confidence": "medium"
+          },
+          "player_on_pitch": {
+            "answer": "yes",
+            "confidence": "high"
+          },
+          "player_running": {
+            "answer": "yes",
+            "confidence": "medium"
+          },
+          "player_touches_ball": {
+            "answer": "no",
+            "confidence": "high"
+          }
+        },
+        "sent_frames": [
+          {
+            "t": 1647.03
+          },
+          {
+            "t": 1677.375
+          },
+          {
+            "t": 1707.72
+          }
+        ],
+        "source_sha256": "551614709d9ced66785e55735d5fca6f6a3426fb69ce7ad54534e950e00b48ce"
+      },
+      {
+        "clip_id": "m04-n17-t717-253073-260377",
+        "checks": {
+          "ball_near_player": {
+            "answer": "no",
+            "confidence": "low"
+          },
+          "kit_color_seen": {
+            "answer": "red",
+            "confidence": "high"
+          },
+          "play_in_progress": {
+            "answer": "no",
+            "confidence": "medium"
+          },
+          "player_on_pitch": {
+            "answer": "yes",
+            "confidence": "high"
+          },
+          "player_running": {
+            "answer": "yes",
+            "confidence": "medium"
+          },
+          "player_touches_ball": {
+            "answer": "no",
+            "confidence": "high"
+          }
+        },
+        "sent_frames": [
+          {
+            "t": 2530.83
+          },
+          {
+            "t": 2567.275
+          },
+          {
+            "t": 2603.7
+          }
+        ],
+        "source_sha256": "0f9977ea5930cac1b3a75788d9d1c8742494f80799bf797f138e613244ef9693"
+      },
+      {
+        "clip_id": "m04-n17-t717-304624-307834",
+        "checks": {
+          "ball_near_player": {
+            "answer": "unclear",
+            "confidence": "low"
+          },
+          "kit_color_seen": {
+            "answer": "red",
+            "confidence": "high"
+          },
+          "play_in_progress": {
+            "answer": "no",
+            "confidence": "medium"
+          },
+          "player_on_pitch": {
+            "answer": "yes",
+            "confidence": "high"
+          },
+          "player_running": {
+            "answer": "yes",
+            "confidence": "medium"
+          },
+          "player_touches_ball": {
+            "answer": "no",
+            "confidence": "high"
+          }
+        },
+        "sent_frames": [
+          {
+            "t": 3046.34
+          },
+          {
+            "t": 3078.29
+          }
+        ],
+        "source_sha256": "dd9ce4a15d8b284ef87b607f7f192b311c280f3301e4eb195b225ba02ad5c516"
+      },
+      {
+        "clip_id": "m04-n17-t717-416826-418915",
+        "checks": {
+          "ball_near_player": {
+            "answer": "unclear",
+            "confidence": "low"
+          },
+          "kit_color_seen": {
+            "answer": "red",
+            "confidence": "high"
+          },
+          "play_in_progress": {
+            "answer": "no",
+            "confidence": "medium"
+          },
+          "player_on_pitch": {
+            "answer": "yes",
+            "confidence": "high"
+          },
+          "player_running": {
+            "answer": "yes",
+            "confidence": "medium"
+          },
+          "player_touches_ball": {
+            "answer": "no",
+            "confidence": "high"
+          }
+        },
+        "sent_frames": [
+          {
+            "t": 4168.33
+          }
+        ],
+        "source_sha256": "35ac1deede8be9073e2231bf1db50b9f20fb0735a2581e9c87fe37222e5240f6"
+      },
+      {
+        "clip_id": "m04-n21-t3011-390297-390800",
+        "checks": {
+          "ball_near_player": {
+            "answer": "no",
+            "confidence": "low"
+          },
+          "kit_color_seen": {
+            "answer": "red",
+            "confidence": "high"
+          },
+          "play_in_progress": {
+            "answer": "no",
+            "confidence": "medium"
+          },
+          "player_on_pitch": {
+            "answer": "yes",
+            "confidence": "high"
+          },
+          "player_running": {
+            "answer": "no",
+            "confidence": "medium"
+          },
+          "player_touches_ball": {
+            "answer": "no",
+            "confidence": "high"
+          }
+        },
+        "sent_frames": [
+          {
+            "t": 3903.02
+          }
+        ],
+        "source_sha256": "6f2877ff329583d1b109ec51cb3122388b89f0e21e7a25ed975e2f9e032cd1cb"
+      },
+      {
+        "clip_id": "m04-n22-t3012-070707-074371",
+        "checks": {
+          "ball_near_player": {
+            "answer": "no",
+            "confidence": "low"
+          },
+          "kit_color_seen": {
+            "answer": "red",
+            "confidence": "high"
+          },
+          "play_in_progress": {
+            "answer": "no",
+            "confidence": "medium"
+          },
+          "player_on_pitch": {
+            "answer": "yes",
+            "confidence": "high"
+          },
+          "player_running": {
+            "answer": "yes",
+            "confidence": "medium"
+          },
+          "player_touches_ball": {
+            "answer": "no",
+            "confidence": "high"
+          }
+        },
+        "sent_frames": [
+          {
+            "t": 707.12
+          },
+          {
+            "t": 743.66
+          }
+        ],
+        "source_sha256": "5a6505ec150066d5456d88158a6523914f21383137332b7a8df66371e7836fb8"
+      },
+      {
+        "clip_id": "m04-n24-t3013-679939-681217",
+        "checks": {
+          "ball_near_player": {
+            "answer": "no",
+            "confidence": "low"
+          },
+          "kit_color_seen": {
+            "answer": "black",
+            "confidence": "high"
+          },
+          "play_in_progress": {
+            "answer": "no",
+            "confidence": "medium"
+          },
+          "player_on_pitch": {
+            "answer": "yes",
+            "confidence": "high"
+          },
+          "player_running": {
+            "answer": "yes",
+            "confidence": "medium"
+          },
+          "player_touches_ball": {
+            "answer": "no",
+            "confidence": "high"
+          }
+        },
+        "sent_frames": [
+          {
+            "t": 6799.44
+          }
+        ],
+        "source_sha256": "349ae3e42a8084018140b593121dd8d5e0fe25d6d77a86744ff70cc61b40d6f4"
+      },
+      {
+        "clip_id": "m04-n25-t3014-530600-532465",
+        "checks": {
+          "ball_near_player": {
+            "answer": "no",
+            "confidence": "low"
+          },
+          "kit_color_seen": {
+            "answer": "red",
+            "confidence": "high"
+          },
+          "play_in_progress": {
+            "answer": "no",
+            "confidence": "medium"
+          },
+          "player_on_pitch": {
+            "answer": "yes",
+            "confidence": "high"
+          },
+          "player_running": {
+            "answer": "yes",
+            "confidence": "medium"
+          },
+          "player_touches_ball": {
+            "answer": "no",
+            "confidence": "high"
+          }
+        },
+        "sent_frames": [
+          {
+            "t": 5306.05
+          }
+        ],
+        "source_sha256": "7e36bc31da00d0117d29aa05fc8ab49f33fbac2b7b137c44306ad2dba65c51c5"
+      }
+    ]
+  }
+}
