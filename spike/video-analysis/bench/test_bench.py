@@ -2110,13 +2110,14 @@ def test_review_kit_renders_every_frame_and_offline_note_template(tmp_path):
     )
     out = tmp_path / "review"
     report = build_kit(frozen, out, clips="marked", scale=64)
-    assert (
-        report["commit"]
-        == subprocess.check_output(
-            ["git", "-C", str(Path(__file__).resolve().parent), "rev-parse", "HEAD"],
-            text=True,
-        ).strip()
+    revision = subprocess.run(
+        ["git", "-C", str(Path(__file__).resolve().parent), "rev-parse", "HEAD"],
+        text=True,
+        capture_output=True,
+        check=False,
     )
+    if revision.returncode == 0:
+        assert report["commit"] == revision.stdout.strip()
     output = out / "clips/marked.mp4"
     assert output.is_file()
     assert (

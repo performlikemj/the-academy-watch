@@ -83,7 +83,7 @@ def test_schema_transport_image_order_and_identity(monkeypatch, tmp_path, contex
             assert im.size == ((768, 768) if kind == "crop" else (512, 410))
             assert any(
                 r > 200 and b > 200 and g < 60
-                for r, g, b in list(im.convert("RGB").get_flattened_data())
+                for r, g, b in list(im.convert("RGB").getdata())
             )
     assert result["sent_frames"][0]["t"] == result["anchored_frames"][0]["t"]
     assert len(result["anchored_frames"]) == len(expected)

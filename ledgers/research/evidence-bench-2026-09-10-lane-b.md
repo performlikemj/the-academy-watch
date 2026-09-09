@@ -1,30 +1,65 @@
-On 20 shared scored clips: e1d-checks-dense (qwen3-vl:8b, 11.9 boxed frames/attempt): off-pitch false-yes 57.14%, touch false-yes 0.00%, touch recall N/A (raw 0/6), gate 2 WITHHELD; e1d-checks-prod30 (qwen3-vl:8b, 1.45 boxed frames/attempt): off-pitch false-yes 50.00%, touch false-yes 0.00%, touch recall N/A (raw 0/6), gate 2 WITHHELD. Adoption belongs to MJ.
+On 20 shared scored clips (wide runs only; crops excluded from gate-1 headline): e1d-checks-dense (qwen3-vl:8b, 11.9 boxed frames/attempt): off-pitch false-yes 57.14%, touch false-yes 0.00%, touch recall N/A (raw 0/6), gate 2 WITHHELD; e1d-checks-prod30 (qwen3-vl:8b, 1.45 boxed frames/attempt): off-pitch false-yes 50.00%, touch false-yes 0.00%, touch recall N/A (raw 0/6), gate 2 WITHHELD. Adoption belongs to MJ.
 
 Gate numbers (false-yes count / truth-no cells):
 
-| Run | Off-pitch on-pitch | Off-pitch in-progress | Gate 1 pooled | Touch false-yes | Raw touch yes/positive | Touch recall | Gate 2 |
-|---|---:|---:|---:|---:|---:|---|---|
-| e1d-checks-dense | 7/7 (100.00%) | 1/7 (14.29%) | 8/14 (57.14%) | 0/9 (0.00%) | 0/6 | N/A | WITHHELD |
-| e1d-checks-prod30 | 6/7 (85.71%) | 1/7 (14.29%) | 7/14 (50.00%) | 0/9 (0.00%) | 0/6 | N/A | WITHHELD |
+| Run | Off-pitch on-pitch | Off-pitch in-progress | Gate 1 pooled | Touch false-yes | Raw touch yes/positive | Touch recall | Gate 2 | Confounds |
+|---|---:|---:|---:|---:|---:|---|---|---|
+| e1d-checks-dense | 7/7 (100.00%) | 1/7 (14.29%) | 8/14 (57.14%) | 0/9 (0.00%) | 0/6 | N/A | WITHHELD | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition.  |
+| e1d-checks-prod30 | 6/7 (85.71%) | 1/7 (14.29%) | 7/14 (50.00%) | 0/9 (0.00%) | 0/6 | N/A | WITHHELD | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition.  |
 
 Per-question comparison:
 
-| Run | Question | Eligible/answered | Accuracy | Majority baseline | Accuracy minus baseline | Modal answer | Modal share | Information | Abstain | False-yes | Recall | False-no | Coverage | High-confidence wrong |
-|---|---|---:|---:|---:|---:|---|---:|---|---:|---:|---:|---:|---:|---:|
-| e1d-checks-dense | player_on_pitch | 19/19 | 63.16% | 63.16% | 0.00% | yes | 100.00% | False | 0.00% | 100.00% | 100.00% | 0.00% | 100.00% | 7 |
-| e1d-checks-dense | play_in_progress | 17/17 | 88.24% | 58.82% | 29.41% | yes | 55.00% | True | 0.00% | 14.29% | 90.00% | 10.00% | 100.00% | 0 |
-| e1d-checks-dense | ball_near_player | 15/14 | 57.14% | 53.33% | 3.81% | no | 90.00% | False | 6.67% | 0.00% | 14.29% | 85.71% | 93.33% | 0 |
-| e1d-checks-dense | player_touches_ball | 15/15 | 60.00% | 60.00% | 0.00% | no | 100.00% | False | 0.00% | 0.00% | N/A | 100.00% | 100.00% | 6 |
-| e1d-checks-dense | player_running | 13/13 | 30.77% | 69.23% | -38.46% | yes | 100.00% | False | 0.00% | 100.00% | 100.00% | 0.00% | 100.00% | 0 |
-| e1d-checks-dense | kit_color_seen | 20/18 | 94.44% | 94.44% | 0.00% | red | 100.00% | False | 10.00% | N/A | N/A | N/A | 90.00% | 1 |
-| e1d-checks-prod30 | player_on_pitch | 19/19 | 68.42% | 63.16% | 5.26% | yes | 95.00% | False | 0.00% | 85.71% | 100.00% | 0.00% | 100.00% | 6 |
-| e1d-checks-prod30 | play_in_progress | 17/17 | 41.18% | 58.82% | -17.65% | no | 85.00% | False | 0.00% | 14.29% | 10.00% | 90.00% | 100.00% | 0 |
-| e1d-checks-prod30 | ball_near_player | 15/9 | 77.78% | 53.33% | 24.44% | no | 55.00% | True | 40.00% | 0.00% | 0.00% | 28.57% | 60.00% | 0 |
-| e1d-checks-prod30 | player_touches_ball | 15/15 | 60.00% | 60.00% | 0.00% | no | 100.00% | False | 0.00% | 0.00% | N/A | 100.00% | 100.00% | 6 |
-| e1d-checks-prod30 | player_running | 13/13 | 46.15% | 69.23% | -23.08% | yes | 90.00% | False | 0.00% | 77.78% | 100.00% | 0.00% | 100.00% | 0 |
-| e1d-checks-prod30 | kit_color_seen | 20/18 | 83.33% | 94.44% | -11.11% | red | 80.00% | False | 10.00% | N/A | N/A | N/A | 90.00% | 3 |
+| Run | Question | Eligible/answered | Accuracy | Majority baseline | Accuracy minus baseline | Modal answer | Modal share | Information | Abstain | False-yes | Recall | False-no | Coverage | High-confidence wrong | Confound |
+|---|---|---:|---:|---:|---:|---|---:|---|---:|---:|---:|---:|---:|---:|---|
+| e1d-checks-dense | player_on_pitch | 19/19 | 63.16% | 63.16% | 0.00% | yes | 100.00% | False | 0.00% | 100.00% | 100.00% | 0.00% | 100.00% | 7 | — |
+| e1d-checks-dense | play_in_progress | 17/17 | 88.24% | 58.82% | 29.41% | yes | 55.00% | True | 0.00% | 14.29% | 90.00% | 10.00% | 100.00% | 0 | — |
+| e1d-checks-dense | ball_near_player | 15/14 | 57.14% | 53.33% | 3.81% | no | 90.00% | False | 6.67% | 0.00% | 14.29% | 85.71% | 93.33% | 0 | — |
+| e1d-checks-dense | player_touches_ball | 15/15 | 60.00% | 60.00% | 0.00% | no | 100.00% | False | 0.00% | 0.00% | N/A | 100.00% | 100.00% | 6 | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1d-checks-dense | player_running | 13/13 | 30.77% | 69.23% | -38.46% | yes | 100.00% | False | 0.00% | 100.00% | 100.00% | 0.00% | 100.00% | 0 | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1d-checks-dense | kit_color_seen | 20/18 | 94.44% | 94.44% | 0.00% | red | 100.00% | False | 10.00% | N/A | N/A | N/A | 90.00% | 1 | — |
+| e1d-checks-prod30 | player_on_pitch | 19/19 | 68.42% | 63.16% | 5.26% | yes | 95.00% | False | 0.00% | 85.71% | 100.00% | 0.00% | 100.00% | 6 | — |
+| e1d-checks-prod30 | play_in_progress | 17/17 | 41.18% | 58.82% | -17.65% | no | 85.00% | False | 0.00% | 14.29% | 10.00% | 90.00% | 100.00% | 0 | — |
+| e1d-checks-prod30 | ball_near_player | 15/9 | 77.78% | 53.33% | 24.44% | no | 55.00% | True | 40.00% | 0.00% | 0.00% | 28.57% | 60.00% | 0 | — |
+| e1d-checks-prod30 | player_touches_ball | 15/15 | 60.00% | 60.00% | 0.00% | no | 100.00% | False | 0.00% | 0.00% | N/A | 100.00% | 100.00% | 6 | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1d-checks-prod30 | player_running | 13/13 | 46.15% | 69.23% | -23.08% | yes | 90.00% | False | 0.00% | 77.78% | 100.00% | 0.00% | 100.00% | 0 | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1d-checks-prod30 | kit_color_seen | 20/18 | 83.33% | 94.44% | -11.11% | red | 80.00% | False | 10.00% | N/A | N/A | N/A | 90.00% | 3 | — |
 
-Every saved touch answer across the nine runs is no/unclear, but 12 frames spread over a long window leave multi-second gaps while a touch lasts a fraction of a second. The inspected n12 middle crop is clear and contains no nearby ball. Raw 0/6 is not evidence that the model cannot see a touch: these frames rarely contain one, and touch recall is not measurable at this sampling. The on-pitch/sideline failures are unaffected because that distinction is visible in any frame. Follow-up: moment windows — at least 8 frames at at least 4 fps in the 2 s around a human-marked touch time; MJ must mark touch times on the six clips. No new inference in r2.
+Per-question deltas in percentage points versus dense (same metric denominators as above):
+
+| Run | Question | Accuracy Δ | Abstain Δ | False-yes Δ | Recall Δ | Confound |
+|---|---|---:|---:|---:|---:|---|
+| e1d-checks-dense | player_on_pitch | +0.00 | +0.00 | +0.00 | +0.00 | — |
+| e1d-checks-dense | play_in_progress | +0.00 | +0.00 | +0.00 | +0.00 | — |
+| e1d-checks-dense | ball_near_player | +0.00 | +0.00 | +0.00 | +0.00 | — |
+| e1d-checks-dense | player_touches_ball | +0.00 | +0.00 | +0.00 | N/A | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1d-checks-dense | player_running | +0.00 | +0.00 | +0.00 | +0.00 | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1d-checks-dense | kit_color_seen | +0.00 | +0.00 | N/A | N/A | — |
+| e1d-checks-prod30 | player_on_pitch | +5.26 | +0.00 | -14.29 | +0.00 | — |
+| e1d-checks-prod30 | play_in_progress | -47.06 | +0.00 | +0.00 | -80.00 | — |
+| e1d-checks-prod30 | ball_near_player | +20.63 | +33.33 | +0.00 | -14.29 | — |
+| e1d-checks-prod30 | player_touches_ball | +0.00 | +0.00 | +0.00 | N/A | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1d-checks-prod30 | player_running | +15.38 | +0.00 | -22.22 | +0.00 | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1d-checks-prod30 | kit_color_seen | -11.11 | +0.00 | N/A | N/A | — |
+
+Touch recall (raw counts retained; null recall is not a detector score):
+
+| Run | Raw affirmative touches | Recall | Sampling confound |
+|---|---:|---|---|
+| e1d-checks-dense | 0/6 | N/A | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1d-checks-prod30 | 0/6 | N/A | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+
+Six truth-positive touch clips — answers/confidence and measured mean still spacing (single frame has no inter-still interval):
+
+| Clip | dense | prod30 | Confound |
+|---|---|---|---|
+| m04-n03-t1406-157170-158922 | no/high; 1.58 s | no/high; single/missing frame | Temporal sampling; raw no/unclear is not evidence of inability to detect a visible touch. Reviewed dataset: dense true-touch still spacing is 1.58–6.62 s; run-wide mean spacing is 2.49 s dense and 23.99 s sparse. Review estimate: a perfect detector would score approximately 1/6 dense and 0/6 sparse, making the 2/6 crop scheduling rule 'unattainable by construction' under that assumption. This is not a measured detector bound: spacing alone cannot establish visibility, a perfect-detector score or mathematical impossibility. Human touch timestamps and frame-level visibility labels are still needed. |
+| m04-n04-t3006-243433-247994 | no/high; 4.14 s | no/high; 45.51 s | Temporal sampling; raw no/unclear is not evidence of inability to detect a visible touch. Reviewed dataset: dense true-touch still spacing is 1.58–6.62 s; run-wide mean spacing is 2.49 s dense and 23.99 s sparse. Review estimate: a perfect detector would score approximately 1/6 dense and 0/6 sparse, making the 2/6 crop scheduling rule 'unattainable by construction' under that assumption. This is not a measured detector bound: spacing alone cannot establish visibility, a perfect-detector score or mathematical impossibility. Human touch timestamps and frame-level visibility labels are still needed. |
+| m04-n12-t1411-237107-242145 | no/high; 4.57 s | no/high; 50.28 s | Temporal sampling; raw no/unclear is not evidence of inability to detect a visible touch. Reviewed dataset: dense true-touch still spacing is 1.58–6.62 s; run-wide mean spacing is 2.49 s dense and 23.99 s sparse. Review estimate: a perfect detector would score approximately 1/6 dense and 0/6 sparse, making the 2/6 crop scheduling rule 'unattainable by construction' under that assumption. This is not a measured detector bound: spacing alone cannot establish visibility, a perfect-detector score or mathematical impossibility. Human touch timestamps and frame-level visibility labels are still needed. |
+| m04-n15-t3010-164698-170777 | no/high; 5.52 s | no/high; 30.35 s | Temporal sampling; raw no/unclear is not evidence of inability to detect a visible touch. Reviewed dataset: dense true-touch still spacing is 1.58–6.62 s; run-wide mean spacing is 2.49 s dense and 23.99 s sparse. Review estimate: a perfect detector would score approximately 1/6 dense and 0/6 sparse, making the 2/6 crop scheduling rule 'unattainable by construction' under that assumption. This is not a measured detector bound: spacing alone cannot establish visibility, a perfect-detector score or mathematical impossibility. Human touch timestamps and frame-level visibility labels are still needed. |
+| m04-n17-t717-253073-260377 | no/high; 6.62 s | no/high; 36.43 s | Temporal sampling; raw no/unclear is not evidence of inability to detect a visible touch. Reviewed dataset: dense true-touch still spacing is 1.58–6.62 s; run-wide mean spacing is 2.49 s dense and 23.99 s sparse. Review estimate: a perfect detector would score approximately 1/6 dense and 0/6 sparse, making the 2/6 crop scheduling rule 'unattainable by construction' under that assumption. This is not a measured detector bound: spacing alone cannot establish visibility, a perfect-detector score or mathematical impossibility. Human touch timestamps and frame-level visibility labels are still needed. |
+| m04-n17-t717-416826-418915 | no/high; 1.88 s | no/high; single/missing frame | Temporal sampling; raw no/unclear is not evidence of inability to detect a visible touch. Reviewed dataset: dense true-touch still spacing is 1.58–6.62 s; run-wide mean spacing is 2.49 s dense and 23.99 s sparse. Review estimate: a perfect detector would score approximately 1/6 dense and 0/6 sparse, making the 2/6 crop scheduling rule 'unattainable by construction' under that assumption. This is not a measured detector bound: spacing alone cannot establish visibility, a perfect-detector score or mathematical impossibility. Human touch timestamps and frame-level visibility labels are still needed. |
+
+Every saved touch answer across the nine runs is no/unclear, but 12 frames spread over a long window leave multi-second gaps while a touch lasts a fraction of a second. The inspected n12 middle crop is clear and contains no nearby ball. Raw 0/6 is not evidence that the model cannot see a touch: these frames rarely contain one, and touch recall is not measurable at this sampling. Wide-frame on-pitch/sideline results retain context; crop on-pitch and ball-near results have a spatial confound. Follow-up: moment windows — at least 8 frames at at least 4 fps in the 2 s around a human-marked touch time; MJ must mark touch times on the six clips. No new inference in r2.
 
 5 truth cells corrected. Pooled false-yes gate numbers unchanged. The headline changes: gate 2 now requires measurable recall as well as low false-yes, so its former false-yes-only PASS is WITHHELD at this sampling. Macro accuracies and per-question metrics changed as listed; raw touch counts remain visible. The requested information heuristic can flag selective-abstention outputs despite zero affirmative touches; it is not a calibrated measure of visual information.
 
@@ -40,20 +75,20 @@ Accuracy = correct / graded answered (unclear excluded). Abstain = unclear / eli
 
 Thresholds (MJ decides adoption):
 
-| Run | Metric | Threshold | Measured | Result |
-|---|---|---:|---:|---|
-| e1d-checks-dense | off_pitch_false_yes_rate | <= 10.00% | 57.14% | FAIL |
-| e1d-checks-dense | off_pitch_idle_touch_false_yes_rate | <= 10.00% | 0.00% | PASS |
-| e1d-checks-dense | touch_recall | >= 50.00% | N/A | WITHHELD |
-| e1d-checks-dense | macro_accuracy | >= 80.00% | 65.62% | FAIL |
-| e1d-checks-dense | abstain_rate | <= 40.00% | 3.03% | PASS |
-| e1d-checks-dense | gate2 | touch false-yes <=10% AND measurable touch recall >=50% | N/A | WITHHELD |
-| e1d-checks-prod30 | off_pitch_false_yes_rate | <= 10.00% | 50.00% | FAIL |
-| e1d-checks-prod30 | off_pitch_idle_touch_false_yes_rate | <= 10.00% | 0.00% | PASS |
-| e1d-checks-prod30 | touch_recall | >= 50.00% | N/A | WITHHELD |
-| e1d-checks-prod30 | macro_accuracy | >= 80.00% | 62.81% | FAIL |
-| e1d-checks-prod30 | abstain_rate | <= 40.00% | 8.08% | PASS |
-| e1d-checks-prod30 | gate2 | touch false-yes <=10% AND measurable touch recall >=50% | N/A | WITHHELD |
+| Run | Metric | Threshold | Measured | Result | Confound |
+|---|---|---:|---:|---|---|
+| e1d-checks-dense | off_pitch_false_yes_rate | <= 10.00% | 57.14% | FAIL | — |
+| e1d-checks-dense | off_pitch_idle_touch_false_yes_rate | <= 10.00% | 0.00% | PASS | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1d-checks-dense | touch_recall | >= 50.00% | N/A | WITHHELD | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1d-checks-dense | macro_accuracy | >= 80.00% | 65.62% | FAIL | — |
+| e1d-checks-dense | abstain_rate | <= 40.00% | 3.03% | PASS | — |
+| e1d-checks-dense | gate2 | touch false-yes <=10% AND measurable touch recall >=50% | N/A | WITHHELD | not measurable at this sampling: mean frame spacing exceeds 1.0 s |
+| e1d-checks-prod30 | off_pitch_false_yes_rate | <= 10.00% | 50.00% | FAIL | — |
+| e1d-checks-prod30 | off_pitch_idle_touch_false_yes_rate | <= 10.00% | 0.00% | PASS | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1d-checks-prod30 | touch_recall | >= 50.00% | N/A | WITHHELD | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1d-checks-prod30 | macro_accuracy | >= 80.00% | 62.81% | FAIL | — |
+| e1d-checks-prod30 | abstain_rate | <= 40.00% | 8.08% | PASS | — |
+| e1d-checks-prod30 | gate2 | touch false-yes <=10% AND measurable touch recall >=50% | N/A | WITHHELD | not measurable at this sampling: mean frame spacing exceeds 1.0 s |
 
 Truth rules:
 
@@ -91,48 +126,48 @@ Full truth table — ungraded cells shown as —; uncertain kit cells force abst
 
 All per-clip answers (answer / confidence):
 
-| Clip | Run | Status | player_on_pitch | play_in_progress | ball_near_player | player_touches_ball | player_running | kit_color_seen |
-|---|---|---|---|---|---|---|---|---|
-| m04-n02-t3005-474114-478131 | e1d-checks-dense | scored | yes / high | yes / medium | no / low | no / high | yes / medium | red / high |
-| m04-n02-t3005-474114-478131 | e1d-checks-prod30 | scored | yes / high | no / medium | unclear / low | no / high | yes / medium | red / high |
-| m04-n03-t1406-157170-158922 | e1d-checks-dense | scored | yes / high | yes / medium | no / low | no / high | yes / medium | red / high |
-| m04-n03-t1406-157170-158922 | e1d-checks-prod30 | scored | yes / high | no / medium | unclear / low | no / high | yes / medium | red / high |
-| m04-n03-t1406-385962-387137 | e1d-checks-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high |
-| m04-n03-t1406-385962-387137 | e1d-checks-prod30 | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high |
-| m04-n04-t3006-243433-247994 | e1d-checks-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high |
-| m04-n04-t3006-243433-247994 | e1d-checks-prod30 | scored | yes / high | no / medium | unclear / low | no / high | yes / medium | blue / high |
-| m04-n04-t3006-307417-310307 | e1d-checks-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high |
-| m04-n04-t3006-307417-310307 | e1d-checks-prod30 | scored | yes / high | yes / medium | no / low | no / high | yes / medium | red / high |
-| m04-n05-t3007-284945-287898 | e1d-checks-dense | scored | yes / high | yes / high | no / medium | no / low | yes / high | red / high |
-| m04-n05-t3007-284945-287898 | e1d-checks-prod30 | scored | yes / high | yes / high | no / medium | no / low | yes / high | blue / high |
-| m04-n09-t1409-143096-143834 | e1d-checks-dense | scored | yes / high | yes / medium | no / high | no / high | yes / medium | red / high |
-| m04-n09-t1409-143096-143834 | e1d-checks-prod30 | scored | no / high | yes / medium | no / high | no / high | no / high | red / high |
-| m04-n09-t1409-297601-298865 | e1d-checks-dense | scored | yes / high | yes / medium | no / low | no / high | yes / medium | red / high |
-| m04-n09-t1409-297601-298865 | e1d-checks-prod30 | scored | yes / high | no / medium | unclear / low | no / high | yes / medium | red / high |
-| m04-n09-t1409-385922-386603 | e1d-checks-dense | scored | yes / high | no / medium | unclear / low | no / high | yes / medium | red / high |
-| m04-n09-t1409-385922-386603 | e1d-checks-prod30 | scored | yes / high | no / medium | unclear / low | no / high | yes / medium | red / high |
-| m04-n10-t711-186553-188161 | e1d-checks-dense | scored | yes / high | yes / medium | no / low | no / high | yes / medium | red / high |
-| m04-n10-t711-186553-188161 | e1d-checks-prod30 | scored | yes / high | no / medium | no / low | no / high | yes / medium | blue / high |
-| m04-n12-t1411-237107-242145 | e1d-checks-dense | scored | yes / high | yes / medium | no / low | no / high | yes / medium | red / high |
-| m04-n12-t1411-237107-242145 | e1d-checks-prod30 | scored | yes / high | no / medium | unclear / low | no / high | yes / medium | red / high |
-| m04-n12-t1411-679986-681985 | e1d-checks-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high |
-| m04-n12-t1411-679986-681985 | e1d-checks-prod30 | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high |
-| m04-n15-t3010-164698-170777 | e1d-checks-dense | scored | yes / high | yes / medium | no / low | no / high | yes / medium | red / high |
-| m04-n15-t3010-164698-170777 | e1d-checks-prod30 | scored | yes / high | no / medium | unclear / low | no / high | yes / medium | red / high |
-| m04-n17-t717-253073-260377 | e1d-checks-dense | scored | yes / high | yes / medium | no / low | no / high | yes / medium | red / high |
-| m04-n17-t717-253073-260377 | e1d-checks-prod30 | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high |
-| m04-n17-t717-304624-307834 | e1d-checks-dense | scored | yes / high | yes / medium | no / low | no / high | yes / medium | red / high |
-| m04-n17-t717-304624-307834 | e1d-checks-prod30 | scored | yes / high | no / medium | unclear / low | no / high | yes / medium | red / high |
-| m04-n17-t717-416826-418915 | e1d-checks-dense | scored | yes / high | yes / medium | no / low | no / high | yes / medium | red / high |
-| m04-n17-t717-416826-418915 | e1d-checks-prod30 | scored | yes / high | no / medium | unclear / low | no / high | yes / medium | red / high |
-| m04-n21-t3011-390297-390800 | e1d-checks-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high |
-| m04-n21-t3011-390297-390800 | e1d-checks-prod30 | scored | yes / high | no / medium | no / low | no / high | no / medium | red / high |
-| m04-n22-t3012-070707-074371 | e1d-checks-dense | scored | yes / high | no / medium | yes / high | no / low | yes / medium | red / high |
-| m04-n22-t3012-070707-074371 | e1d-checks-prod30 | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high |
-| m04-n24-t3013-679939-681217 | e1d-checks-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high |
-| m04-n24-t3013-679939-681217 | e1d-checks-prod30 | scored | yes / high | no / medium | no / low | no / high | yes / medium | black / high |
-| m04-n25-t3014-530600-532465 | e1d-checks-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high |
-| m04-n25-t3014-530600-532465 | e1d-checks-prod30 | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high |
+| Clip | Run | Status | player_on_pitch | play_in_progress | ball_near_player | player_touches_ball (temporal confound) | player_running (temporal confound) | kit_color_seen | Confounds |
+|---|---|---|---|---|---|---|---|---|---|
+| m04-n02-t3005-474114-478131 | e1d-checks-dense | scored | yes / high | yes / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n02-t3005-474114-478131 | e1d-checks-prod30 | scored | yes / high | no / medium | unclear / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n03-t1406-157170-158922 | e1d-checks-dense | scored | yes / high | yes / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n03-t1406-157170-158922 | e1d-checks-prod30 | scored | yes / high | no / medium | unclear / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n03-t1406-385962-387137 | e1d-checks-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n03-t1406-385962-387137 | e1d-checks-prod30 | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n04-t3006-243433-247994 | e1d-checks-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n04-t3006-243433-247994 | e1d-checks-prod30 | scored | yes / high | no / medium | unclear / low | no / high | yes / medium | blue / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n04-t3006-307417-310307 | e1d-checks-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n04-t3006-307417-310307 | e1d-checks-prod30 | scored | yes / high | yes / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n05-t3007-284945-287898 | e1d-checks-dense | scored | yes / high | yes / high | no / medium | no / low | yes / high | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n05-t3007-284945-287898 | e1d-checks-prod30 | scored | yes / high | yes / high | no / medium | no / low | yes / high | blue / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n09-t1409-143096-143834 | e1d-checks-dense | scored | yes / high | yes / medium | no / high | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n09-t1409-143096-143834 | e1d-checks-prod30 | scored | no / high | yes / medium | no / high | no / high | no / high | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n09-t1409-297601-298865 | e1d-checks-dense | scored | yes / high | yes / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n09-t1409-297601-298865 | e1d-checks-prod30 | scored | yes / high | no / medium | unclear / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n09-t1409-385922-386603 | e1d-checks-dense | scored | yes / high | no / medium | unclear / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n09-t1409-385922-386603 | e1d-checks-prod30 | scored | yes / high | no / medium | unclear / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n10-t711-186553-188161 | e1d-checks-dense | scored | yes / high | yes / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n10-t711-186553-188161 | e1d-checks-prod30 | scored | yes / high | no / medium | no / low | no / high | yes / medium | blue / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n12-t1411-237107-242145 | e1d-checks-dense | scored | yes / high | yes / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n12-t1411-237107-242145 | e1d-checks-prod30 | scored | yes / high | no / medium | unclear / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n12-t1411-679986-681985 | e1d-checks-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n12-t1411-679986-681985 | e1d-checks-prod30 | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n15-t3010-164698-170777 | e1d-checks-dense | scored | yes / high | yes / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n15-t3010-164698-170777 | e1d-checks-prod30 | scored | yes / high | no / medium | unclear / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n17-t717-253073-260377 | e1d-checks-dense | scored | yes / high | yes / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n17-t717-253073-260377 | e1d-checks-prod30 | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n17-t717-304624-307834 | e1d-checks-dense | scored | yes / high | yes / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n17-t717-304624-307834 | e1d-checks-prod30 | scored | yes / high | no / medium | unclear / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n17-t717-416826-418915 | e1d-checks-dense | scored | yes / high | yes / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n17-t717-416826-418915 | e1d-checks-prod30 | scored | yes / high | no / medium | unclear / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n21-t3011-390297-390800 | e1d-checks-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n21-t3011-390297-390800 | e1d-checks-prod30 | scored | yes / high | no / medium | no / low | no / high | no / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n22-t3012-070707-074371 | e1d-checks-dense | scored | yes / high | no / medium | yes / high | no / low | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n22-t3012-070707-074371 | e1d-checks-prod30 | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n24-t3013-679939-681217 | e1d-checks-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n24-t3013-679939-681217 | e1d-checks-prod30 | scored | yes / high | no / medium | no / low | no / high | yes / medium | black / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n25-t3014-530600-532465 | e1d-checks-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n25-t3014-530600-532465 | e1d-checks-prod30 | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
 
 First available question reason per scored clip, in contract question order; first five such clips in selected manifest order, verbatim. Missing optional reasons are never invented.
 
@@ -181,7 +216,7 @@ Caveats:
 - Reason strings are verbatim audit text and never scored. Failed reads remain failed; comparison metrics use only shared scored IDs. Thresholds are withheld for incomplete coverage or no shared scores.
 - Wall time includes extraction/drawing and failures, with warm-model effects possible. Thinking rate counts all attempts in full-run reports; comparison rates use shared attempts.
 - No adoption call: MJ owns that decision. This bench does not wire checks into the production honesty gate.
-- Every saved touch answer across the nine runs is no/unclear, but 12 frames spread over a long window leave multi-second gaps while a touch lasts a fraction of a second. The inspected n12 middle crop is clear and contains no nearby ball. Raw 0/6 is not evidence that the model cannot see a touch: these frames rarely contain one, and touch recall is not measurable at this sampling. The on-pitch/sideline failures are unaffected because that distinction is visible in any frame. Follow-up: moment windows — at least 8 frames at at least 4 fps in the 2 s around a human-marked touch time; MJ must mark touch times on the six clips. No new inference in r2.
+- Every saved touch answer across the nine runs is no/unclear, but 12 frames spread over a long window leave multi-second gaps while a touch lasts a fraction of a second. The inspected n12 middle crop is clear and contains no nearby ball. Raw 0/6 is not evidence that the model cannot see a touch: these frames rarely contain one, and touch recall is not measurable at this sampling. Wide-frame on-pitch/sideline results retain context; crop on-pitch and ball-near results have a spatial confound. Follow-up: moment windows — at least 8 frames at at least 4 fps in the 2 s around a human-marked touch time; MJ must mark touch times on the six clips. No new inference in r2.
 - Confidence is uncalibrated and prompt-sensitive: on both pilot clips, touch no/low changed to no/high after the reason instruction changed. Modal share and baseline comparisons expose near-constant priors; low touch false-yes alone is not sensitivity.
 
 Temporal sampling (distinct timestamps; context pairs counted once):
@@ -400,7 +435,7 @@ Execution/gates:
 
 ```json
 {
-  "round": "r2; scorer/ledger only; no new inference",
+  "round": "r3; code/ledger only; no new inference",
   "base_commit": "b96e6b2",
   "historical_execution": {
     "state": "complete; final evidence for the lane B local commit",
@@ -911,7 +946,8 @@ Execution/gates:
         }
       ],
       "scope": "Three single requests, identical dense frames and prompt, only format varies. Raw message fields retained. No repairs, retries or shared-transport changes."
-    }
+    },
+    "known_truth_error": "Five explicit rule-derived cells corrected in r2. MJ source notes remain unchanged; no additional specific correction received."
   },
   "previous_truth": {
     "m04-n02-t3005-474114-478131": {
@@ -1371,9 +1407,16 @@ Execution/gates:
       "prod30": "e1d-checks-prod30"
     },
     "allow_mixed": false,
-    "output_stem": "evidence-bench-2026-09-10-lane-b"
+    "output_stem": "evidence-bench-2026-09-10-lane-b",
+    "baseline_run": "dense"
   },
-  "validation": {
+  "not_done": "No new inference or moment-window bench. MJ touch times and sampled-frame visibility labels are needed; the review perfect-detector estimate/unattainable wording is not a measured bound. No adoption decision or push.",
+  "round_base_commit": "60d5772",
+  "r2_verification": "Before changes, all three JSON/MD pairs regenerated byte-for-byte from committed r2 comparator and execution inputs. Existing null recall and FPS metrics retained.",
+  "positive_touch_caveat": "Temporal confound: dense true-touch mean still spacing is 1.58, 4.14, 4.57, 5.52, 6.62 and 1.88 s; run-wide mean spacing is 2.49 s dense and 23.99 s sparse. Raw 0/6 is not a detector score. Review estimate of perfect-detector 1/6 dense or 0/6 sparse, and 2/6 being unattainable by construction, is an assumption rather than a bound proved by these stills. Running rows share the temporal confound; crop sideline and ball-near rows also have spatial confounds.",
+  "exact_regeneration_command": "/Users/mjjones/Projects/loanarmy/.loan/bin/python spike/video-analysis/bench/compare_checks.py --reports-root /Users/mjjones/Projects/loanarmy-bench-reports --manifest /Users/mjjones/Projects/loanarmy-bench-frozen/manifest.json --execution spike/video-analysis/bench/fixtures/lane-b-execution.json --runs dense=e1d-checks-dense prod30=e1d-checks-prod30 --touch-clips --baseline-run dense --out-json ledgers/research/evidence-bench-2026-09-10-lane-b.json --out-md ledgers/research/evidence-bench-2026-09-10-lane-b.md",
+  "regeneration_cwd": "/Users/mjjones/Projects/loanarmy/.worktrees/lane-b",
+  "validation_r2": {
     "status": "passed",
     "pytest": "333 passed in 1.19s; BENCH_REQUIRE_CV2=1 /Users/mjjones/Projects/loanarmy/.loan/bin/python -m pytest spike/video-analysis/bench -q",
     "ruff_check": "PASS; ruff check spike/video-analysis/bench",
@@ -1383,6 +1426,24 @@ Execution/gates:
     "preserved": "All nine run.json settings and 180 reads equal b96e6b2 ledger; frozen truth bytes and human note hashes unchanged; contract, prompts, transport, image adapters, runner and lane-A scorer unchanged.",
     "no_inference": true
   },
-  "not_done": "No new model runs, moment windows, production integration or adoption decision. MJ must mark touch times on all six clips. Pilot PROMPT_VERSION was not persisted and remains unconfirmed; final version verified from run.json. No notes-file correction appeared; no lane-A rescore needed. No push."
+  "validation": {
+    "status": "PASS",
+    "worktree_pytest": "BENCH_REQUIRE_CV2=1; 336 passed in 1.35s with isolated Pillow 11.3.0; installed Pillow 12.3.0 also passed 336 tests (six getdata deprecation warnings).",
+    "archive_pytest": "BENCH_REQUIRE_CV2=1; 336 passed in 1.52s with Pillow 11.3.0; installed Pillow 12.3.0 also passed 336 tests in the earlier export. No .git directory.",
+    "python": "/Users/mjjones/Projects/loanarmy/.loan/bin/python, CPython 3.11.16",
+    "pillow_compatibility": "Pillow 11.3.0 installed with uv pip --no-deps --target in an isolated temporary directory and selected with PYTHONPATH; .loan unchanged.",
+    "export": {
+      "tree": "a78a23a12e4c51418d63c613b633dd46d68a8d4c",
+      "directory": "/var/folders/z8/ytqjknls5lz7klz3p2jq7x_00000gn/T/lane-bc-r3-export-gt8g4lea/tree-final",
+      "archive": "/var/folders/z8/ytqjknls5lz7klz3p2jq7x_00000gn/T/lane-bc-r3-export-gt8g4lea/source-final.tar"
+    },
+    "export_note": "Git archive of staged tree before final validation records were stamped; all Python sources byte-identical to tested export. Export uses no Git checkout.",
+    "pytest_command": "BENCH_REQUIRE_CV2=1 /Users/mjjones/Projects/loanarmy/.loan/bin/python -m pytest spike/video-analysis/bench -q",
+    "ruff_check": "PASS; ruff check spike/video-analysis/bench",
+    "ruff_format": "PASS, 35 files; ruff format --check spike/video-analysis/bench",
+    "diff_check": "PASS; git diff --check",
+    "regeneration": "All three ledger pairs regenerate byte-for-byte using each exact_regeneration_command below; six files, zero diff. R2 inputs were independently verified byte-identical before changing code.",
+    "unchanged": "All nine numeric report overalls identical to r2; checks_score.py, truth rules, contract, prompts, image adapters, transport and runner unchanged. No model calls."
+  }
 }
 ```

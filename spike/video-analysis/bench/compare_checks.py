@@ -8,11 +8,13 @@ import json
 from pathlib import Path
 
 try:
+    from .checks_comparison_facts import CROP_CONTEXT_CAVEAT, add_facts, is_crop
     from .checks_contract import CONTRACT_VERSION, QUESTIONS
     from .checks_score import DENOMINATORS, THRESHOLDS, score_run, threshold_results
     from .checks_truth import RULE_TABLE, TRUTH_VERSION, derive_truth
     from .provenance import load_truth_snapshot
 except ImportError:  # pragma: no cover
+    from checks_comparison_facts import CROP_CONTEXT_CAVEAT, add_facts, is_crop
     from checks_contract import CONTRACT_VERSION, QUESTIONS
     from checks_score import DENOMINATORS, THRESHOLDS, score_run, threshold_results
     from checks_truth import RULE_TABLE, TRUTH_VERSION, derive_truth
@@ -36,7 +38,7 @@ TEMPORAL_CAVEAT = (
     "leave multi-second gaps while a touch lasts a fraction of a second. The inspected n12 middle crop "
     "is clear and contains no nearby ball. Raw 0/6 is not evidence that the model cannot see a touch: "
     "these frames rarely contain one, and touch recall is not measurable at this sampling. "
-    "The on-pitch/sideline failures are unaffected because that distinction is visible in any frame. "
+    "Wide-frame on-pitch/sideline results retain context; crop on-pitch and ball-near results have a spatial confound. "
     "Follow-up: moment windows — at least 8 frames at at least 4 fps in the 2 s around a human-marked "
     "touch time; MJ must mark touch times on the six clips. No new inference in r2."
 )
@@ -64,6 +66,8 @@ def compare(
     *,
     allow_mixed=False,
     execution: Path | None = None,
+    baseline_run: str | None = None,
+    example_crops: Path | None = None,
 ) -> dict:
     if len(runs) < 2:
         raise ValueError("provide at least two runs")
@@ -291,17 +295,24 @@ def compare(
         "denominators": "Comparison accuracy/error rates use shared IDs scored in every saved report and current rescoring. Modal distributions, majority baselines, touch counts/recall and temporal sampling use each full run, so abstention or another run's failure cannot remove valid answers or touch positives from those denominators. Full-run reports retain every attempt. Frame facts use all raw attempts. Configured wall caps alone do not imply an incomplete run.",
     }
     ordered = sorted(
-        frame_facts,
+        (name for name in frame_facts if not is_crop(lanes[name])),
         key=lambda n: frame_facts[n]["mean_boxed_frames_per_clip"] or 0,
         reverse=True,
     )
+    metadata["gate1_excluded_runs"] = {
+        name: CROP_CONTEXT_CAVEAT for name, lane in lanes.items() if is_crop(lane)
+    }
+    for name in metadata["gate1_excluded_runs"]:
+        metadata["threshold_results"][name]["off_pitch_false_yes_rate"].update(
+            status="WITHHELD", reason=CROP_CONTEXT_CAVEAT
+        )
     headline = (
         "INCOMPLETE COMPARISON — headline withheld"
         if not complete
         else (
             "No shared scored clips — headline withheld"
             if not shared
-            else f"On {len(shared)} shared scored clips: "
+            else f"On {len(shared)} shared scored clips (wide runs only; crops excluded from gate-1 headline): "
             + "; ".join(
                 f"{lanes[n]['run']} ({frame_facts[n]['model']}, {frame_facts[n]['mean_boxed_frames_per_clip']:g} boxed frames/attempt): off-pitch false-yes {pct(paired[n]['off_pitch_false_yes_rate'])}, touch false-yes {pct(paired[n]['off_pitch_idle_touch_false_yes_rate'])}, touch recall {pct(paired[n]['touch_recall'])} (raw {paired[n]['touch_yes_count']}/{paired[n]['touch_truth_positive_count']}), gate 2 {metadata['threshold_results'][n]['gate2']['status']}"
                 for n in ordered
@@ -380,12 +391,13 @@ def compare(
             "historical_32b_preflight",
             "model_27b",
             "smoke_27b",
-            "crop_geometry",
-            "example_crops",
-            "decision_32b",
+            "known_truth_error",
         ):
             if key in payload.get("artifacts", {}):
                 result[key] = payload["artifacts"][key]
+        result["caveats"] += payload.get("extra_caveats", [])
+        if complete and shared and payload.get("review_headline"):
+            result["review_headline"] = payload["review_headline"]
         previous = payload.get("previous_truth", {})
         result["truth_cells_changed"] = [
             {
@@ -417,6 +429,7 @@ def compare(
             "Macro accuracies and per-question metrics changed as listed; raw touch counts remain visible. "
             "The requested information heuristic can flag selective-abstention outputs despite zero affirmative touches; it is not a calibrated measure of visual information."
         )
+    add_facts(result, baseline_run=baseline_run, example_crops=example_crops)
     return result
 
 
@@ -430,13 +443,21 @@ def cell(value):
 
 def markdown(result: dict) -> str:
     meta = result["comparison_metadata"]
-    lines = [
+    lines = []
+    if result.get("review_headline"):
+        lines += [
+            result["review_headline"],
+            "",
+            "Review-requested synthesis, reproduced verbatim. The categorical wording is not a measured perfect-detector bound or a claim that every individual read was identical. Actual counts and confounds follow: temporal spacing does not prove that zero touches were visible, and crop views also remove sideline/ball context.",
+            "",
+        ]
+    lines += [
         result["headline"],
         "",
         "Gate numbers (false-yes count / truth-no cells):",
         "",
-        "| Run | Off-pitch on-pitch | Off-pitch in-progress | Gate 1 pooled | Touch false-yes | Raw touch yes/positive | Touch recall | Gate 2 |",
-        "|---|---:|---:|---:|---:|---:|---|---|",
+        "| Run | Off-pitch on-pitch | Off-pitch in-progress | Gate 1 pooled | Touch false-yes | Raw touch yes/positive | Touch recall | Gate 2 | Confounds |",
+        "|---|---:|---:|---:|---:|---:|---|---|---|",
     ]
     for name, lane in result["lanes"].items():
         m = meta["paired_overall"][name]
@@ -446,20 +467,68 @@ def markdown(result: dict) -> str:
                 f"{g['false_yes_count']}/{g['truth_no_count']} ({pct(g['false_yes_rate'])})"
                 for g in m["gates"].values()
             )
-            + f" | {m['touch_yes_count']}/{m['touch_truth_positive_count']} | {pct(m['touch_recall'])} | {meta['threshold_results'][name]['gate2']['status']} |"
+            + f" | {m['touch_yes_count']}/{m['touch_truth_positive_count']} | {pct(m['touch_recall'])} | {meta['threshold_results'][name]['gate2']['status']} | {cell(result['touch_recall'][name]['confound'])} {CROP_CONTEXT_CAVEAT if is_crop(lane) else ''} |"
         )
     lines += [
         "",
         "Per-question comparison:",
         "",
-        "| Run | Question | Eligible/answered | Accuracy | Majority baseline | Accuracy minus baseline | Modal answer | Modal share | Information | Abstain | False-yes | Recall | False-no | Coverage | High-confidence wrong |",
-        "|---|---|---:|---:|---:|---:|---|---:|---|---:|---:|---:|---:|---:|---:|",
+        "| Run | Question | Eligible/answered | Accuracy | Majority baseline | Accuracy minus baseline | Modal answer | Modal share | Information | Abstain | False-yes | Recall | False-no | Coverage | High-confidence wrong | Confound |",
+        "|---|---|---:|---:|---:|---:|---|---:|---|---:|---:|---:|---:|---:|---:|---|",
     ]
     for name, lane in result["lanes"].items():
         for q, m in meta["paired_overall"][name]["questions"].items():
             lines.append(
-                f"| {lane['run']} | {q} | {m['eligible_count']}/{m['answered_count']} | {pct(m['accuracy'])} | {pct(m['majority_baseline_accuracy'])} | {pct(m['accuracy_minus_baseline'])} | {m['modal_answer']} | {pct(m['modal_answer_share'])} | {m['information']} | {pct(m['abstain_rate'])} | {pct(m['false_yes_rate'])} | {pct(m['recall'])} | {pct(m['false_no_rate'])} | {pct(m['coverage'])} | {m['confident_wrong_count']} |"
+                f"| {lane['run']} | {q} | {m['eligible_count']}/{m['answered_count']} | {pct(m['accuracy'])} | {pct(m['majority_baseline_accuracy'])} | {pct(m['accuracy_minus_baseline'])} | {m['modal_answer']} | {pct(m['modal_answer_share'])} | {m['information']} | {pct(m['abstain_rate'])} | {pct(m['false_yes_rate'])} | {pct(m['recall'])} | {pct(m['false_no_rate'])} | {pct(m['coverage'])} | {m['confident_wrong_count']} | {cell(result['question_caveats'][name].get(q, '—'))} |"
             )
+    if result.get("per_question_deltas_pp"):
+        lines += [
+            "",
+            f"Per-question deltas in percentage points versus {result['baseline_run']} (same metric denominators as above):",
+            "",
+            "| Run | Question | Accuracy Δ | Abstain Δ | False-yes Δ | Recall Δ | Confound |",
+            "|---|---|---:|---:|---:|---:|---|",
+        ]
+        for name, questions in result["per_question_deltas_pp"].items():
+            for q, metrics in questions.items():
+                values = ["N/A" if v is None else f"{v:+.2f}" for v in metrics.values()]
+                lines.append(
+                    f"| {result['lanes'][name]['run']} | {q} | "
+                    + " | ".join(values)
+                    + f" | {cell(result['question_caveats'][name].get(q, '—'))} |"
+                )
+    lines += [
+        "",
+        "Touch recall (raw counts retained; null recall is not a detector score):",
+        "",
+        "| Run | Raw affirmative touches | Recall | Sampling confound |",
+        "|---|---:|---|---|",
+    ]
+    for name, facts in result["touch_recall"].items():
+        lines.append(
+            f"| {result['lanes'][name]['run']} | {facts['touch_yes_count']}/{facts['touch_truth_positive_count']} | {pct(facts['touch_recall'])} | {cell(facts['confound'])} |"
+        )
+    lines += [
+        "",
+        "Six truth-positive touch clips — answers/confidence and measured mean still spacing (single frame has no inter-still interval):",
+        "",
+        "| Clip | " + " | ".join(result["lanes"]) + " | Confound |",
+        "|---|" + "---|" * (len(result["lanes"]) + 1),
+    ]
+    for row in result["true_touch_clips"]:
+        values = []
+        for name in result["lanes"]:
+            answer = row["reads"][name].get("checks", {}).get("player_touches_ball", {})
+            spacing = row["sampling"][name]["mean_still_spacing_s"]
+            interval = "single/missing frame" if spacing is None else f"{spacing:.2f} s"
+            values.append(
+                f"{answer.get('answer', 'failed')}/{answer.get('confidence', '—')}; {interval}"
+            )
+        lines.append(
+            f"| {row['clip_id']} | "
+            + " | ".join(values)
+            + f" | {cell(row['confound'])} |"
+        )
     lines += ["", TEMPORAL_CAVEAT, ""]
     if result.get("r2_summary"):
         lines += [result["r2_summary"], ""]
@@ -499,13 +568,13 @@ def markdown(result: dict) -> str:
         "",
         "Thresholds (MJ decides adoption):",
         "",
-        "| Run | Metric | Threshold | Measured | Result |",
-        "|---|---|---:|---:|---|",
+        "| Run | Metric | Threshold | Measured | Result | Confound |",
+        "|---|---|---:|---:|---|---|",
     ]
     for name, rules in meta["threshold_results"].items():
         for metric, rule in rules.items():
             lines.append(
-                f"| {result['lanes'][name]['run']} | {metric} | {rule.get('requires', rule['operator'] + ' ' + pct(rule['threshold']))} | {pct(rule['value'])} | {rule['status']} |"
+                f"| {result['lanes'][name]['run']} | {metric} | {rule.get('requires', rule['operator'] + ' ' + pct(rule['threshold']))} | {pct(rule['value'])} | {rule['status']} | {cell(rule.get('reason') or (result['touch_recall'][name]['confound'] if metric in ('touch_recall', 'gate2', 'off_pitch_idle_touch_false_yes_rate') else '—'))} |"
             )
     lines += ["", "Truth rules:", ""] + [f"- {q}: {r}" for q, r in RULE_TABLE.items()]
     lines += [
@@ -530,8 +599,15 @@ def markdown(result: dict) -> str:
         "",
         "All per-clip answers (answer / confidence):",
         "",
-        "| Clip | Run | Status | " + " | ".join(QUESTIONS) + " |",
-        "|---|---|---|" + "---|" * len(QUESTIONS),
+        "| Clip | Run | Status | "
+        + " | ".join(
+            q + " (temporal confound)"
+            if q in ("player_touches_ball", "player_running")
+            else q
+            for q in QUESTIONS
+        )
+        + " | Confounds |",
+        "|---|---|---|" + "---|" * (len(QUESTIONS) + 1),
     ]
     for row in result["per_clip_comparison"]:
         for name, read in row["reads"].items():
@@ -542,6 +618,10 @@ def markdown(result: dict) -> str:
                 else read.get("error", "—")
                 for q in QUESTIONS
             ]
+            values.append(
+                result["touch_recall"][name]["confound"]
+                + (" " + CROP_CONTEXT_CAVEAT if is_crop(result["lanes"][name]) else "")
+            )
             lines.append("| " + " | ".join(cell(v) for v in values) + " |")
     lines += ["", result["reason_selection"]]
     for lane in result["lanes"].values():
@@ -619,7 +699,7 @@ def markdown(result: dict) -> str:
             )
         lines += [
             "",
-            "32B crop run remained skipped under the original scheduling rule. Its raw 0/6 trigger is confounded by temporal sampling; r2 makes no model-capability inference from it.",
+            f"32B crop run: {'WITHHELD' if result['decision_32b']['run'] is None else 'YES' if result['decision_32b']['run'] else 'NO'} — evaluated from the saved 8B crop answers. {result['decision_32b']['confound']}",
             "",
             "Three inspected example crop PNGs (external, not committed):",
             "",
@@ -650,7 +730,27 @@ def main(argv=None):
         default=["dense=e1d-checks-dense", "prod30=e1d-checks-prod30"],
     )
     parser.add_argument("--allow-mixed", action="store_true")
-    parser.add_argument("--diagnostic", type=Path)
+    parser.add_argument(
+        "--diagnostic",
+        action="append",
+        default=[],
+        metavar="NAME=PATH",
+        help="repeatable; a bare path retains legacy single-diagnostic behavior",
+    )
+    parser.add_argument(
+        "--baseline-run", help="selected run alias used for per-question deltas"
+    )
+    parser.add_argument(
+        "--touch-clips",
+        action="store_true",
+        help="explicitly request truth-derived touch tables (also included by default)",
+    )
+    parser.add_argument(
+        "--example-crops",
+        type=Path,
+        help="directory containing examples.json and its PNGs",
+    )
+    parser.add_argument("--extra-caveat", action="append", default=[])
     parser.add_argument(
         "--execution",
         type=Path,
@@ -671,9 +771,24 @@ def main(argv=None):
         args.manifest,
         allow_mixed=args.allow_mixed,
         execution=args.execution,
+        baseline_run=args.baseline_run,
+        example_crops=args.example_crops,
     )
-    if args.diagnostic:
-        result["thinking_channel_diagnostic"] = json.loads(args.diagnostic.read_text())
+    diagnostic_names = set()
+    for diagnostic in args.diagnostic:
+        name, separator, path = diagnostic.partition("=")
+        if separator:
+            if not name or not path or name in diagnostic_names:
+                parser.error("diagnostics must be unique NAME=PATH pairs")
+            diagnostic_names.add(name)
+            result.setdefault("thinking_channel_diagnostics", {})[name] = json.loads(
+                Path(path).read_text()
+            )
+        else:
+            result["thinking_channel_diagnostic"] = json.loads(
+                Path(diagnostic).read_text()
+            )
+    result["caveats"] += args.extra_caveat
     args.out_json.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n")
     args.out_md.write_text(markdown(result))
     return 0

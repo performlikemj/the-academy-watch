@@ -37,6 +37,9 @@ def main(argv=None):
         ]
         if config["allow_mixed"]:
             command.append("--allow-mixed")
+        command += ["--touch-clips", "--baseline-run", config["baseline_run"]]
+        if config.get("example_crops"):
+            command += ["--example-crops", config["example_crops"]]
         compare_main(command)
         print(f"Regenerated {stem}.json and .md from saved outputs")
     return 0

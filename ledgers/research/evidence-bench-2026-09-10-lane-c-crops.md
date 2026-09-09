@@ -1,79 +1,167 @@
-On 20 shared scored clips: e1e-cropctx-8b-dense (qwen3-vl:8b, 23.8 boxed frames/attempt): off-pitch false-yes 50.00%, touch false-yes 0.00%, touch recall N/A (raw 0/6), gate 2 WITHHELD; e1d-checks-dense (qwen3-vl:8b, 11.9 boxed frames/attempt): off-pitch false-yes 57.14%, touch false-yes 0.00%, touch recall N/A (raw 0/6), gate 2 WITHHELD; e1d-checks-32b-dense (qwen3-vl:32b, 11.9 boxed frames/attempt): off-pitch false-yes 50.00%, touch false-yes 0.00%, touch recall N/A (raw 0/6), gate 2 WITHHELD; e1d-checks-27b-dense (qwen3.8:27b-obliterated-q8, 11.9 boxed frames/attempt): off-pitch false-yes 64.29%, touch false-yes 0.00%, touch recall N/A (raw 0/6), gate 2 WITHHELD; e1e-crop-8b-dense (qwen3-vl:8b, 11.9 boxed frames/attempt): off-pitch false-yes 50.00%, touch false-yes 0.00%, touch recall N/A (raw 0/6), gate 2 WITHHELD; e1d-checks-prod30 (qwen3-vl:8b, 1.45 boxed frames/attempt): off-pitch false-yes 50.00%, touch false-yes 0.00%, touch recall N/A (raw 0/6), gate 2 WITHHELD; e1d-checks-32b-prod30 (qwen3-vl:32b, 1.45 boxed frames/attempt): off-pitch false-yes 71.43%, touch false-yes 0.00%, touch recall N/A (raw 0/6), gate 2 WITHHELD; e1d-checks-27b-prod30 (qwen3.8:27b-obliterated-q8, 1.45 boxed frames/attempt): off-pitch false-yes 78.57%, touch false-yes 0.00%, touch recall N/A (raw 0/6), gate 2 WITHHELD; e1e-crop-8b-prod30 (qwen3-vl:8b, 1.45 boxed frames/attempt): off-pitch false-yes 50.00%, touch false-yes 0.00%, touch recall N/A (raw 0/6), gate 2 WITHHELD. Adoption belongs to MJ.
+Across 8B, 32B and 27B, wide frames or 768-px crops, every model says 'on pitch, high confidence' for players stretching, warming up or in warm-up kit on the sideline, and no run could have detected a touch because the stills are 1.6–6.6 s apart — the bench has shown the checks are blind to sideline context and has not yet tested touch detection at all.
+
+Review-requested synthesis, reproduced verbatim. The categorical wording is not a measured perfect-detector bound or a claim that every individual read was identical. Actual counts and confounds follow: temporal spacing does not prove that zero touches were visible, and crop views also remove sideline/ball context.
+
+On 20 shared scored clips (wide runs only; crops excluded from gate-1 headline): e1d-checks-dense (qwen3-vl:8b, 11.9 boxed frames/attempt): off-pitch false-yes 57.14%, touch false-yes 0.00%, touch recall N/A (raw 0/6), gate 2 WITHHELD; e1d-checks-32b-dense (qwen3-vl:32b, 11.9 boxed frames/attempt): off-pitch false-yes 50.00%, touch false-yes 0.00%, touch recall N/A (raw 0/6), gate 2 WITHHELD; e1d-checks-27b-dense (qwen3.8:27b-obliterated-q8, 11.9 boxed frames/attempt): off-pitch false-yes 64.29%, touch false-yes 0.00%, touch recall N/A (raw 0/6), gate 2 WITHHELD; e1d-checks-prod30 (qwen3-vl:8b, 1.45 boxed frames/attempt): off-pitch false-yes 50.00%, touch false-yes 0.00%, touch recall N/A (raw 0/6), gate 2 WITHHELD; e1d-checks-32b-prod30 (qwen3-vl:32b, 1.45 boxed frames/attempt): off-pitch false-yes 71.43%, touch false-yes 0.00%, touch recall N/A (raw 0/6), gate 2 WITHHELD; e1d-checks-27b-prod30 (qwen3.8:27b-obliterated-q8, 1.45 boxed frames/attempt): off-pitch false-yes 78.57%, touch false-yes 0.00%, touch recall N/A (raw 0/6), gate 2 WITHHELD. Adoption belongs to MJ.
 
 Gate numbers (false-yes count / truth-no cells):
 
-| Run | Off-pitch on-pitch | Off-pitch in-progress | Gate 1 pooled | Touch false-yes | Raw touch yes/positive | Touch recall | Gate 2 |
-|---|---:|---:|---:|---:|---:|---|---|
-| e1d-checks-dense | 7/7 (100.00%) | 1/7 (14.29%) | 8/14 (57.14%) | 0/9 (0.00%) | 0/6 | N/A | WITHHELD |
-| e1d-checks-prod30 | 6/7 (85.71%) | 1/7 (14.29%) | 7/14 (50.00%) | 0/9 (0.00%) | 0/6 | N/A | WITHHELD |
-| e1d-checks-32b-dense | 6/7 (85.71%) | 1/7 (14.29%) | 7/14 (50.00%) | 0/9 (0.00%) | 0/6 | N/A | WITHHELD |
-| e1d-checks-32b-prod30 | 7/7 (100.00%) | 3/7 (42.86%) | 10/14 (71.43%) | 0/9 (0.00%) | 0/6 | N/A | WITHHELD |
-| e1d-checks-27b-dense | 6/7 (85.71%) | 3/7 (42.86%) | 9/14 (64.29%) | 0/9 (0.00%) | 0/6 | N/A | WITHHELD |
-| e1d-checks-27b-prod30 | 7/7 (100.00%) | 4/7 (57.14%) | 11/14 (78.57%) | 0/9 (0.00%) | 0/6 | N/A | WITHHELD |
-| e1e-crop-8b-dense | 7/7 (100.00%) | 0/7 (0.00%) | 7/14 (50.00%) | 0/9 (0.00%) | 0/6 | N/A | WITHHELD |
-| e1e-crop-8b-prod30 | 6/7 (85.71%) | 1/7 (14.29%) | 7/14 (50.00%) | 0/9 (0.00%) | 0/6 | N/A | WITHHELD |
-| e1e-cropctx-8b-dense | 7/7 (100.00%) | 0/7 (0.00%) | 7/14 (50.00%) | 0/9 (0.00%) | 0/6 | N/A | WITHHELD |
+| Run | Off-pitch on-pitch | Off-pitch in-progress | Gate 1 pooled | Touch false-yes | Raw touch yes/positive | Touch recall | Gate 2 | Confounds |
+|---|---:|---:|---:|---:|---:|---|---|---|
+| e1d-checks-dense | 7/7 (100.00%) | 1/7 (14.29%) | 8/14 (57.14%) | 0/9 (0.00%) | 0/6 | N/A | WITHHELD | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition.  |
+| e1d-checks-prod30 | 6/7 (85.71%) | 1/7 (14.29%) | 7/14 (50.00%) | 0/9 (0.00%) | 0/6 | N/A | WITHHELD | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition.  |
+| e1d-checks-32b-dense | 6/7 (85.71%) | 1/7 (14.29%) | 7/14 (50.00%) | 0/9 (0.00%) | 0/6 | N/A | WITHHELD | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition.  |
+| e1d-checks-32b-prod30 | 7/7 (100.00%) | 3/7 (42.86%) | 10/14 (71.43%) | 0/9 (0.00%) | 0/6 | N/A | WITHHELD | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition.  |
+| e1d-checks-27b-dense | 6/7 (85.71%) | 3/7 (42.86%) | 9/14 (64.29%) | 0/9 (0.00%) | 0/6 | N/A | WITHHELD | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition.  |
+| e1d-checks-27b-prod30 | 7/7 (100.00%) | 4/7 (57.14%) | 11/14 (78.57%) | 0/9 (0.00%) | 0/6 | N/A | WITHHELD | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition.  |
+| e1e-crop-8b-dense | 7/7 (100.00%) | 0/7 (0.00%) | 7/14 (50.00%) | 0/9 (0.00%) | 0/6 | N/A | WITHHELD | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| e1e-crop-8b-prod30 | 6/7 (85.71%) | 1/7 (14.29%) | 7/14 (50.00%) | 0/9 (0.00%) | 0/6 | N/A | WITHHELD | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| e1e-cropctx-8b-dense | 7/7 (100.00%) | 0/7 (0.00%) | 7/14 (50.00%) | 0/9 (0.00%) | 0/6 | N/A | WITHHELD | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
 
 Per-question comparison:
 
-| Run | Question | Eligible/answered | Accuracy | Majority baseline | Accuracy minus baseline | Modal answer | Modal share | Information | Abstain | False-yes | Recall | False-no | Coverage | High-confidence wrong |
-|---|---|---:|---:|---:|---:|---|---:|---|---:|---:|---:|---:|---:|---:|
-| e1d-checks-dense | player_on_pitch | 19/19 | 63.16% | 63.16% | 0.00% | yes | 100.00% | False | 0.00% | 100.00% | 100.00% | 0.00% | 100.00% | 7 |
-| e1d-checks-dense | play_in_progress | 17/17 | 88.24% | 58.82% | 29.41% | yes | 55.00% | True | 0.00% | 14.29% | 90.00% | 10.00% | 100.00% | 0 |
-| e1d-checks-dense | ball_near_player | 15/14 | 57.14% | 53.33% | 3.81% | no | 90.00% | False | 6.67% | 0.00% | 14.29% | 85.71% | 93.33% | 0 |
-| e1d-checks-dense | player_touches_ball | 15/15 | 60.00% | 60.00% | 0.00% | no | 100.00% | False | 0.00% | 0.00% | N/A | 100.00% | 100.00% | 6 |
-| e1d-checks-dense | player_running | 13/13 | 30.77% | 69.23% | -38.46% | yes | 100.00% | False | 0.00% | 100.00% | 100.00% | 0.00% | 100.00% | 0 |
-| e1d-checks-dense | kit_color_seen | 20/18 | 94.44% | 94.44% | 0.00% | red | 100.00% | False | 10.00% | N/A | N/A | N/A | 90.00% | 1 |
-| e1d-checks-prod30 | player_on_pitch | 19/19 | 68.42% | 63.16% | 5.26% | yes | 95.00% | False | 0.00% | 85.71% | 100.00% | 0.00% | 100.00% | 6 |
-| e1d-checks-prod30 | play_in_progress | 17/17 | 41.18% | 58.82% | -17.65% | no | 85.00% | False | 0.00% | 14.29% | 10.00% | 90.00% | 100.00% | 0 |
-| e1d-checks-prod30 | ball_near_player | 15/9 | 77.78% | 53.33% | 24.44% | no | 55.00% | True | 40.00% | 0.00% | 0.00% | 28.57% | 60.00% | 0 |
-| e1d-checks-prod30 | player_touches_ball | 15/15 | 60.00% | 60.00% | 0.00% | no | 100.00% | False | 0.00% | 0.00% | N/A | 100.00% | 100.00% | 6 |
-| e1d-checks-prod30 | player_running | 13/13 | 46.15% | 69.23% | -23.08% | yes | 90.00% | False | 0.00% | 77.78% | 100.00% | 0.00% | 100.00% | 0 |
-| e1d-checks-prod30 | kit_color_seen | 20/18 | 83.33% | 94.44% | -11.11% | red | 80.00% | False | 10.00% | N/A | N/A | N/A | 90.00% | 3 |
-| e1d-checks-32b-dense | player_on_pitch | 19/19 | 68.42% | 63.16% | 5.26% | yes | 95.00% | False | 0.00% | 85.71% | 100.00% | 0.00% | 100.00% | 6 |
-| e1d-checks-32b-dense | play_in_progress | 17/12 | 91.67% | 58.82% | 32.84% | yes | 65.00% | True | 29.41% | 14.29% | 100.00% | 0.00% | 70.59% | 1 |
-| e1d-checks-32b-dense | ball_near_player | 15/15 | 46.67% | 53.33% | -6.67% | no | 95.00% | False | 0.00% | 12.50% | 0.00% | 100.00% | 100.00% | 8 |
-| e1d-checks-32b-dense | player_touches_ball | 15/15 | 60.00% | 60.00% | 0.00% | no | 100.00% | False | 0.00% | 0.00% | N/A | 100.00% | 100.00% | 6 |
-| e1d-checks-32b-dense | player_running | 13/13 | 53.85% | 69.23% | -15.38% | yes | 80.00% | False | 0.00% | 66.67% | 100.00% | 0.00% | 100.00% | 0 |
-| e1d-checks-32b-dense | kit_color_seen | 20/18 | 94.44% | 94.44% | 0.00% | red | 100.00% | False | 10.00% | N/A | N/A | N/A | 90.00% | 1 |
-| e1d-checks-32b-prod30 | player_on_pitch | 19/19 | 63.16% | 63.16% | 0.00% | yes | 100.00% | False | 0.00% | 100.00% | 100.00% | 0.00% | 100.00% | 7 |
-| e1d-checks-32b-prod30 | play_in_progress | 17/12 | 66.67% | 58.82% | 7.84% | yes | 55.00% | True | 29.41% | 42.86% | 60.00% | 10.00% | 70.59% | 1 |
-| e1d-checks-32b-prod30 | ball_near_player | 15/13 | 61.54% | 53.33% | 8.21% | no | 85.00% | True | 13.33% | 0.00% | 0.00% | 71.43% | 86.67% | 1 |
-| e1d-checks-32b-prod30 | player_touches_ball | 15/15 | 60.00% | 60.00% | 0.00% | no | 100.00% | False | 0.00% | 0.00% | N/A | 100.00% | 100.00% | 5 |
-| e1d-checks-32b-prod30 | player_running | 13/10 | 70.00% | 69.23% | 0.77% | yes | 55.00% | False | 23.08% | 33.33% | 75.00% | 0.00% | 76.92% | 1 |
-| e1d-checks-32b-prod30 | kit_color_seen | 20/18 | 100.00% | 94.44% | 5.56% | red | 95.00% | False | 10.00% | N/A | N/A | N/A | 90.00% | 0 |
-| e1d-checks-27b-dense | player_on_pitch | 19/19 | 68.42% | 63.16% | 5.26% | yes | 95.00% | False | 0.00% | 85.71% | 100.00% | 0.00% | 100.00% | 6 |
-| e1d-checks-27b-dense | play_in_progress | 17/17 | 82.35% | 58.82% | 23.53% | yes | 75.00% | True | 0.00% | 42.86% | 100.00% | 0.00% | 100.00% | 3 |
-| e1d-checks-27b-dense | ball_near_player | 15/13 | 38.46% | 53.33% | -14.87% | no | 80.00% | False | 13.33% | 12.50% | 0.00% | 100.00% | 86.67% | 1 |
-| e1d-checks-27b-dense | player_touches_ball | 15/15 | 60.00% | 60.00% | 0.00% | no | 95.00% | False | 0.00% | 0.00% | N/A | 100.00% | 100.00% | 2 |
-| e1d-checks-27b-dense | player_running | 13/13 | 69.23% | 69.23% | 0.00% | yes | 70.00% | False | 0.00% | 44.44% | 100.00% | 0.00% | 100.00% | 0 |
-| e1d-checks-27b-dense | kit_color_seen | 20/18 | 94.44% | 94.44% | 0.00% | red | 100.00% | False | 10.00% | N/A | N/A | N/A | 90.00% | 1 |
-| e1d-checks-27b-prod30 | player_on_pitch | 19/19 | 63.16% | 63.16% | 0.00% | yes | 100.00% | False | 0.00% | 100.00% | 100.00% | 0.00% | 100.00% | 7 |
-| e1d-checks-27b-prod30 | play_in_progress | 17/15 | 73.33% | 58.82% | 14.51% | yes | 85.00% | True | 11.76% | 57.14% | 100.00% | 0.00% | 88.24% | 4 |
-| e1d-checks-27b-prod30 | ball_near_player | 15/15 | 53.33% | 53.33% | 0.00% | no | 100.00% | False | 0.00% | 0.00% | 0.00% | 100.00% | 100.00% | 1 |
-| e1d-checks-27b-prod30 | player_touches_ball | 15/7 | 85.71% | 60.00% | 25.71% | unclear | 60.00% | True | 53.33% | 0.00% | N/A | 16.67% | 46.67% | 0 |
-| e1d-checks-27b-prod30 | player_running | 13/8 | 62.50% | 69.23% | -6.73% | yes | 55.00% | False | 38.46% | 33.33% | 50.00% | 0.00% | 61.54% | 0 |
-| e1d-checks-27b-prod30 | kit_color_seen | 20/18 | 88.89% | 94.44% | -5.56% | red | 95.00% | False | 10.00% | N/A | N/A | N/A | 90.00% | 2 |
-| e1e-crop-8b-dense | player_on_pitch | 19/19 | 63.16% | 63.16% | 0.00% | yes | 100.00% | False | 0.00% | 100.00% | 100.00% | 0.00% | 100.00% | 7 |
-| e1e-crop-8b-dense | play_in_progress | 17/17 | 52.94% | 58.82% | -5.88% | no | 90.00% | False | 0.00% | 0.00% | 20.00% | 80.00% | 100.00% | 0 |
-| e1e-crop-8b-dense | ball_near_player | 15/15 | 53.33% | 53.33% | 0.00% | no | 100.00% | False | 0.00% | 0.00% | 0.00% | 100.00% | 100.00% | 0 |
-| e1e-crop-8b-dense | player_touches_ball | 15/15 | 60.00% | 60.00% | 0.00% | no | 100.00% | False | 0.00% | 0.00% | N/A | 100.00% | 100.00% | 6 |
-| e1e-crop-8b-dense | player_running | 13/13 | 46.15% | 69.23% | -23.08% | yes | 90.00% | False | 0.00% | 77.78% | 100.00% | 0.00% | 100.00% | 0 |
-| e1e-crop-8b-dense | kit_color_seen | 20/18 | 94.44% | 94.44% | 0.00% | red | 100.00% | False | 10.00% | N/A | N/A | N/A | 90.00% | 1 |
-| e1e-crop-8b-prod30 | player_on_pitch | 19/19 | 68.42% | 63.16% | 5.26% | yes | 95.00% | False | 0.00% | 85.71% | 100.00% | 0.00% | 100.00% | 6 |
-| e1e-crop-8b-prod30 | play_in_progress | 17/17 | 35.29% | 58.82% | -23.53% | no | 95.00% | False | 0.00% | 14.29% | 0.00% | 100.00% | 100.00% | 0 |
-| e1e-crop-8b-prod30 | ball_near_player | 15/11 | 63.64% | 53.33% | 10.30% | no | 65.00% | True | 26.67% | 0.00% | 0.00% | 57.14% | 73.33% | 1 |
-| e1e-crop-8b-prod30 | player_touches_ball | 15/15 | 60.00% | 60.00% | 0.00% | no | 100.00% | False | 0.00% | 0.00% | N/A | 100.00% | 100.00% | 6 |
-| e1e-crop-8b-prod30 | player_running | 13/13 | 53.85% | 69.23% | -15.38% | yes | 85.00% | False | 0.00% | 66.67% | 100.00% | 0.00% | 100.00% | 0 |
-| e1e-crop-8b-prod30 | kit_color_seen | 20/18 | 100.00% | 94.44% | 5.56% | red | 95.00% | False | 10.00% | N/A | N/A | N/A | 90.00% | 0 |
-| e1e-cropctx-8b-dense | player_on_pitch | 19/19 | 63.16% | 63.16% | 0.00% | yes | 100.00% | False | 0.00% | 100.00% | 100.00% | 0.00% | 100.00% | 7 |
-| e1e-cropctx-8b-dense | play_in_progress | 17/17 | 64.71% | 58.82% | 5.88% | no | 80.00% | True | 0.00% | 0.00% | 40.00% | 60.00% | 100.00% | 0 |
-| e1e-cropctx-8b-dense | ball_near_player | 15/14 | 57.14% | 53.33% | 3.81% | no | 95.00% | False | 6.67% | 0.00% | 0.00% | 85.71% | 93.33% | 0 |
-| e1e-cropctx-8b-dense | player_touches_ball | 15/15 | 60.00% | 60.00% | 0.00% | no | 100.00% | False | 0.00% | 0.00% | N/A | 100.00% | 100.00% | 6 |
-| e1e-cropctx-8b-dense | player_running | 13/13 | 38.46% | 69.23% | -30.77% | yes | 95.00% | False | 0.00% | 88.89% | 100.00% | 0.00% | 100.00% | 0 |
-| e1e-cropctx-8b-dense | kit_color_seen | 20/18 | 94.44% | 94.44% | 0.00% | red | 100.00% | False | 10.00% | N/A | N/A | N/A | 90.00% | 1 |
+| Run | Question | Eligible/answered | Accuracy | Majority baseline | Accuracy minus baseline | Modal answer | Modal share | Information | Abstain | False-yes | Recall | False-no | Coverage | High-confidence wrong | Confound |
+|---|---|---:|---:|---:|---:|---|---:|---|---:|---:|---:|---:|---:|---:|---|
+| e1d-checks-dense | player_on_pitch | 19/19 | 63.16% | 63.16% | 0.00% | yes | 100.00% | False | 0.00% | 100.00% | 100.00% | 0.00% | 100.00% | 7 | — |
+| e1d-checks-dense | play_in_progress | 17/17 | 88.24% | 58.82% | 29.41% | yes | 55.00% | True | 0.00% | 14.29% | 90.00% | 10.00% | 100.00% | 0 | — |
+| e1d-checks-dense | ball_near_player | 15/14 | 57.14% | 53.33% | 3.81% | no | 90.00% | False | 6.67% | 0.00% | 14.29% | 85.71% | 93.33% | 0 | — |
+| e1d-checks-dense | player_touches_ball | 15/15 | 60.00% | 60.00% | 0.00% | no | 100.00% | False | 0.00% | 0.00% | N/A | 100.00% | 100.00% | 6 | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1d-checks-dense | player_running | 13/13 | 30.77% | 69.23% | -38.46% | yes | 100.00% | False | 0.00% | 100.00% | 100.00% | 0.00% | 100.00% | 0 | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1d-checks-dense | kit_color_seen | 20/18 | 94.44% | 94.44% | 0.00% | red | 100.00% | False | 10.00% | N/A | N/A | N/A | 90.00% | 1 | — |
+| e1d-checks-prod30 | player_on_pitch | 19/19 | 68.42% | 63.16% | 5.26% | yes | 95.00% | False | 0.00% | 85.71% | 100.00% | 0.00% | 100.00% | 6 | — |
+| e1d-checks-prod30 | play_in_progress | 17/17 | 41.18% | 58.82% | -17.65% | no | 85.00% | False | 0.00% | 14.29% | 10.00% | 90.00% | 100.00% | 0 | — |
+| e1d-checks-prod30 | ball_near_player | 15/9 | 77.78% | 53.33% | 24.44% | no | 55.00% | True | 40.00% | 0.00% | 0.00% | 28.57% | 60.00% | 0 | — |
+| e1d-checks-prod30 | player_touches_ball | 15/15 | 60.00% | 60.00% | 0.00% | no | 100.00% | False | 0.00% | 0.00% | N/A | 100.00% | 100.00% | 6 | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1d-checks-prod30 | player_running | 13/13 | 46.15% | 69.23% | -23.08% | yes | 90.00% | False | 0.00% | 77.78% | 100.00% | 0.00% | 100.00% | 0 | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1d-checks-prod30 | kit_color_seen | 20/18 | 83.33% | 94.44% | -11.11% | red | 80.00% | False | 10.00% | N/A | N/A | N/A | 90.00% | 3 | — |
+| e1d-checks-32b-dense | player_on_pitch | 19/19 | 68.42% | 63.16% | 5.26% | yes | 95.00% | False | 0.00% | 85.71% | 100.00% | 0.00% | 100.00% | 6 | — |
+| e1d-checks-32b-dense | play_in_progress | 17/12 | 91.67% | 58.82% | 32.84% | yes | 65.00% | True | 29.41% | 14.29% | 100.00% | 0.00% | 70.59% | 1 | — |
+| e1d-checks-32b-dense | ball_near_player | 15/15 | 46.67% | 53.33% | -6.67% | no | 95.00% | False | 0.00% | 12.50% | 0.00% | 100.00% | 100.00% | 8 | — |
+| e1d-checks-32b-dense | player_touches_ball | 15/15 | 60.00% | 60.00% | 0.00% | no | 100.00% | False | 0.00% | 0.00% | N/A | 100.00% | 100.00% | 6 | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1d-checks-32b-dense | player_running | 13/13 | 53.85% | 69.23% | -15.38% | yes | 80.00% | False | 0.00% | 66.67% | 100.00% | 0.00% | 100.00% | 0 | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1d-checks-32b-dense | kit_color_seen | 20/18 | 94.44% | 94.44% | 0.00% | red | 100.00% | False | 10.00% | N/A | N/A | N/A | 90.00% | 1 | — |
+| e1d-checks-32b-prod30 | player_on_pitch | 19/19 | 63.16% | 63.16% | 0.00% | yes | 100.00% | False | 0.00% | 100.00% | 100.00% | 0.00% | 100.00% | 7 | — |
+| e1d-checks-32b-prod30 | play_in_progress | 17/12 | 66.67% | 58.82% | 7.84% | yes | 55.00% | True | 29.41% | 42.86% | 60.00% | 10.00% | 70.59% | 1 | — |
+| e1d-checks-32b-prod30 | ball_near_player | 15/13 | 61.54% | 53.33% | 8.21% | no | 85.00% | True | 13.33% | 0.00% | 0.00% | 71.43% | 86.67% | 1 | — |
+| e1d-checks-32b-prod30 | player_touches_ball | 15/15 | 60.00% | 60.00% | 0.00% | no | 100.00% | False | 0.00% | 0.00% | N/A | 100.00% | 100.00% | 5 | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1d-checks-32b-prod30 | player_running | 13/10 | 70.00% | 69.23% | 0.77% | yes | 55.00% | False | 23.08% | 33.33% | 75.00% | 0.00% | 76.92% | 1 | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1d-checks-32b-prod30 | kit_color_seen | 20/18 | 100.00% | 94.44% | 5.56% | red | 95.00% | False | 10.00% | N/A | N/A | N/A | 90.00% | 0 | — |
+| e1d-checks-27b-dense | player_on_pitch | 19/19 | 68.42% | 63.16% | 5.26% | yes | 95.00% | False | 0.00% | 85.71% | 100.00% | 0.00% | 100.00% | 6 | — |
+| e1d-checks-27b-dense | play_in_progress | 17/17 | 82.35% | 58.82% | 23.53% | yes | 75.00% | True | 0.00% | 42.86% | 100.00% | 0.00% | 100.00% | 3 | — |
+| e1d-checks-27b-dense | ball_near_player | 15/13 | 38.46% | 53.33% | -14.87% | no | 80.00% | False | 13.33% | 12.50% | 0.00% | 100.00% | 86.67% | 1 | — |
+| e1d-checks-27b-dense | player_touches_ball | 15/15 | 60.00% | 60.00% | 0.00% | no | 95.00% | False | 0.00% | 0.00% | N/A | 100.00% | 100.00% | 2 | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1d-checks-27b-dense | player_running | 13/13 | 69.23% | 69.23% | 0.00% | yes | 70.00% | False | 0.00% | 44.44% | 100.00% | 0.00% | 100.00% | 0 | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1d-checks-27b-dense | kit_color_seen | 20/18 | 94.44% | 94.44% | 0.00% | red | 100.00% | False | 10.00% | N/A | N/A | N/A | 90.00% | 1 | — |
+| e1d-checks-27b-prod30 | player_on_pitch | 19/19 | 63.16% | 63.16% | 0.00% | yes | 100.00% | False | 0.00% | 100.00% | 100.00% | 0.00% | 100.00% | 7 | — |
+| e1d-checks-27b-prod30 | play_in_progress | 17/15 | 73.33% | 58.82% | 14.51% | yes | 85.00% | True | 11.76% | 57.14% | 100.00% | 0.00% | 88.24% | 4 | — |
+| e1d-checks-27b-prod30 | ball_near_player | 15/15 | 53.33% | 53.33% | 0.00% | no | 100.00% | False | 0.00% | 0.00% | 0.00% | 100.00% | 100.00% | 1 | — |
+| e1d-checks-27b-prod30 | player_touches_ball | 15/7 | 85.71% | 60.00% | 25.71% | unclear | 60.00% | True | 53.33% | 0.00% | N/A | 16.67% | 46.67% | 0 | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1d-checks-27b-prod30 | player_running | 13/8 | 62.50% | 69.23% | -6.73% | yes | 55.00% | False | 38.46% | 33.33% | 50.00% | 0.00% | 61.54% | 0 | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1d-checks-27b-prod30 | kit_color_seen | 20/18 | 88.89% | 94.44% | -5.56% | red | 95.00% | False | 10.00% | N/A | N/A | N/A | 90.00% | 2 | — |
+| e1e-crop-8b-dense | player_on_pitch | 19/19 | 63.16% | 63.16% | 0.00% | yes | 100.00% | False | 0.00% | 100.00% | 100.00% | 0.00% | 100.00% | 7 | Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| e1e-crop-8b-dense | play_in_progress | 17/17 | 52.94% | 58.82% | -5.88% | no | 90.00% | False | 0.00% | 0.00% | 20.00% | 80.00% | 100.00% | 0 | Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| e1e-crop-8b-dense | ball_near_player | 15/15 | 53.33% | 53.33% | 0.00% | no | 100.00% | False | 0.00% | 0.00% | 0.00% | 100.00% | 100.00% | 0 | Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| e1e-crop-8b-dense | player_touches_ball | 15/15 | 60.00% | 60.00% | 0.00% | no | 100.00% | False | 0.00% | 0.00% | N/A | 100.00% | 100.00% | 6 | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1e-crop-8b-dense | player_running | 13/13 | 46.15% | 69.23% | -23.08% | yes | 90.00% | False | 0.00% | 77.78% | 100.00% | 0.00% | 100.00% | 0 | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1e-crop-8b-dense | kit_color_seen | 20/18 | 94.44% | 94.44% | 0.00% | red | 100.00% | False | 10.00% | N/A | N/A | N/A | 90.00% | 1 | — |
+| e1e-crop-8b-prod30 | player_on_pitch | 19/19 | 68.42% | 63.16% | 5.26% | yes | 95.00% | False | 0.00% | 85.71% | 100.00% | 0.00% | 100.00% | 6 | Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| e1e-crop-8b-prod30 | play_in_progress | 17/17 | 35.29% | 58.82% | -23.53% | no | 95.00% | False | 0.00% | 14.29% | 0.00% | 100.00% | 100.00% | 0 | Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| e1e-crop-8b-prod30 | ball_near_player | 15/11 | 63.64% | 53.33% | 10.30% | no | 65.00% | True | 26.67% | 0.00% | 0.00% | 57.14% | 73.33% | 1 | Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| e1e-crop-8b-prod30 | player_touches_ball | 15/15 | 60.00% | 60.00% | 0.00% | no | 100.00% | False | 0.00% | 0.00% | N/A | 100.00% | 100.00% | 6 | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1e-crop-8b-prod30 | player_running | 13/13 | 53.85% | 69.23% | -15.38% | yes | 85.00% | False | 0.00% | 66.67% | 100.00% | 0.00% | 100.00% | 0 | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1e-crop-8b-prod30 | kit_color_seen | 20/18 | 100.00% | 94.44% | 5.56% | red | 95.00% | False | 10.00% | N/A | N/A | N/A | 90.00% | 0 | — |
+| e1e-cropctx-8b-dense | player_on_pitch | 19/19 | 63.16% | 63.16% | 0.00% | yes | 100.00% | False | 0.00% | 100.00% | 100.00% | 0.00% | 100.00% | 7 | Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| e1e-cropctx-8b-dense | play_in_progress | 17/17 | 64.71% | 58.82% | 5.88% | no | 80.00% | True | 0.00% | 0.00% | 40.00% | 60.00% | 100.00% | 0 | Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| e1e-cropctx-8b-dense | ball_near_player | 15/14 | 57.14% | 53.33% | 3.81% | no | 95.00% | False | 6.67% | 0.00% | 0.00% | 85.71% | 93.33% | 0 | Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| e1e-cropctx-8b-dense | player_touches_ball | 15/15 | 60.00% | 60.00% | 0.00% | no | 100.00% | False | 0.00% | 0.00% | N/A | 100.00% | 100.00% | 6 | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1e-cropctx-8b-dense | player_running | 13/13 | 38.46% | 69.23% | -30.77% | yes | 95.00% | False | 0.00% | 88.89% | 100.00% | 0.00% | 100.00% | 0 | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1e-cropctx-8b-dense | kit_color_seen | 20/18 | 94.44% | 94.44% | 0.00% | red | 100.00% | False | 10.00% | N/A | N/A | N/A | 90.00% | 1 | — |
 
-Every saved touch answer across the nine runs is no/unclear, but 12 frames spread over a long window leave multi-second gaps while a touch lasts a fraction of a second. The inspected n12 middle crop is clear and contains no nearby ball. Raw 0/6 is not evidence that the model cannot see a touch: these frames rarely contain one, and touch recall is not measurable at this sampling. The on-pitch/sideline failures are unaffected because that distinction is visible in any frame. Follow-up: moment windows — at least 8 frames at at least 4 fps in the 2 s around a human-marked touch time; MJ must mark touch times on the six clips. No new inference in r2.
+Per-question deltas in percentage points versus 8b_dense (same metric denominators as above):
+
+| Run | Question | Accuracy Δ | Abstain Δ | False-yes Δ | Recall Δ | Confound |
+|---|---|---:|---:|---:|---:|---|
+| e1d-checks-dense | player_on_pitch | +0.00 | +0.00 | +0.00 | +0.00 | — |
+| e1d-checks-dense | play_in_progress | +0.00 | +0.00 | +0.00 | +0.00 | — |
+| e1d-checks-dense | ball_near_player | +0.00 | +0.00 | +0.00 | +0.00 | — |
+| e1d-checks-dense | player_touches_ball | +0.00 | +0.00 | +0.00 | N/A | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1d-checks-dense | player_running | +0.00 | +0.00 | +0.00 | +0.00 | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1d-checks-dense | kit_color_seen | +0.00 | +0.00 | N/A | N/A | — |
+| e1d-checks-prod30 | player_on_pitch | +5.26 | +0.00 | -14.29 | +0.00 | — |
+| e1d-checks-prod30 | play_in_progress | -47.06 | +0.00 | +0.00 | -80.00 | — |
+| e1d-checks-prod30 | ball_near_player | +20.63 | +33.33 | +0.00 | -14.29 | — |
+| e1d-checks-prod30 | player_touches_ball | +0.00 | +0.00 | +0.00 | N/A | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1d-checks-prod30 | player_running | +15.38 | +0.00 | -22.22 | +0.00 | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1d-checks-prod30 | kit_color_seen | -11.11 | +0.00 | N/A | N/A | — |
+| e1d-checks-32b-dense | player_on_pitch | +5.26 | +0.00 | -14.29 | +0.00 | — |
+| e1d-checks-32b-dense | play_in_progress | +3.43 | +29.41 | +0.00 | +10.00 | — |
+| e1d-checks-32b-dense | ball_near_player | -10.48 | -6.67 | +12.50 | -14.29 | — |
+| e1d-checks-32b-dense | player_touches_ball | +0.00 | +0.00 | +0.00 | N/A | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1d-checks-32b-dense | player_running | +23.08 | +0.00 | -33.33 | +0.00 | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1d-checks-32b-dense | kit_color_seen | +0.00 | +0.00 | N/A | N/A | — |
+| e1d-checks-32b-prod30 | player_on_pitch | +0.00 | +0.00 | +0.00 | +0.00 | — |
+| e1d-checks-32b-prod30 | play_in_progress | -21.57 | +29.41 | +28.57 | -30.00 | — |
+| e1d-checks-32b-prod30 | ball_near_player | +4.40 | +6.67 | +0.00 | -14.29 | — |
+| e1d-checks-32b-prod30 | player_touches_ball | +0.00 | +0.00 | +0.00 | N/A | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1d-checks-32b-prod30 | player_running | +39.23 | +23.08 | -66.67 | -25.00 | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1d-checks-32b-prod30 | kit_color_seen | +5.56 | +0.00 | N/A | N/A | — |
+| e1d-checks-27b-dense | player_on_pitch | +5.26 | +0.00 | -14.29 | +0.00 | — |
+| e1d-checks-27b-dense | play_in_progress | -5.88 | +0.00 | +28.57 | +10.00 | — |
+| e1d-checks-27b-dense | ball_near_player | -18.68 | +6.67 | +12.50 | -14.29 | — |
+| e1d-checks-27b-dense | player_touches_ball | +0.00 | +0.00 | +0.00 | N/A | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1d-checks-27b-dense | player_running | +38.46 | +0.00 | -55.56 | +0.00 | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1d-checks-27b-dense | kit_color_seen | +0.00 | +0.00 | N/A | N/A | — |
+| e1d-checks-27b-prod30 | player_on_pitch | +0.00 | +0.00 | +0.00 | +0.00 | — |
+| e1d-checks-27b-prod30 | play_in_progress | -14.90 | +11.76 | +42.86 | +10.00 | — |
+| e1d-checks-27b-prod30 | ball_near_player | -3.81 | -6.67 | +0.00 | -14.29 | — |
+| e1d-checks-27b-prod30 | player_touches_ball | +25.71 | +53.33 | +0.00 | N/A | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1d-checks-27b-prod30 | player_running | +31.73 | +38.46 | -66.67 | -50.00 | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1d-checks-27b-prod30 | kit_color_seen | -5.56 | +0.00 | N/A | N/A | — |
+| e1e-crop-8b-dense | player_on_pitch | +0.00 | +0.00 | +0.00 | +0.00 | Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| e1e-crop-8b-dense | play_in_progress | -35.29 | +0.00 | -14.29 | -70.00 | Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| e1e-crop-8b-dense | ball_near_player | -3.81 | -6.67 | +0.00 | -14.29 | Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| e1e-crop-8b-dense | player_touches_ball | +0.00 | +0.00 | +0.00 | N/A | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1e-crop-8b-dense | player_running | +15.38 | +0.00 | -22.22 | +0.00 | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1e-crop-8b-dense | kit_color_seen | +0.00 | +0.00 | N/A | N/A | — |
+| e1e-crop-8b-prod30 | player_on_pitch | +5.26 | +0.00 | -14.29 | +0.00 | Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| e1e-crop-8b-prod30 | play_in_progress | -52.94 | +0.00 | +0.00 | -90.00 | Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| e1e-crop-8b-prod30 | ball_near_player | +6.49 | +20.00 | +0.00 | -14.29 | Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| e1e-crop-8b-prod30 | player_touches_ball | +0.00 | +0.00 | +0.00 | N/A | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1e-crop-8b-prod30 | player_running | +23.08 | +0.00 | -33.33 | +0.00 | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1e-crop-8b-prod30 | kit_color_seen | +5.56 | +0.00 | N/A | N/A | — |
+| e1e-cropctx-8b-dense | player_on_pitch | +0.00 | +0.00 | +0.00 | +0.00 | Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| e1e-cropctx-8b-dense | play_in_progress | -23.53 | +0.00 | -14.29 | -50.00 | Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| e1e-cropctx-8b-dense | ball_near_player | +0.00 | +0.00 | +0.00 | -14.29 | Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| e1e-cropctx-8b-dense | player_touches_ball | +0.00 | +0.00 | +0.00 | N/A | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1e-cropctx-8b-dense | player_running | +7.69 | +0.00 | -11.11 | +0.00 | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1e-cropctx-8b-dense | kit_color_seen | +0.00 | +0.00 | N/A | N/A | — |
+
+Touch recall (raw counts retained; null recall is not a detector score):
+
+| Run | Raw affirmative touches | Recall | Sampling confound |
+|---|---:|---|---|
+| e1d-checks-dense | 0/6 | N/A | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1d-checks-prod30 | 0/6 | N/A | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1d-checks-32b-dense | 0/6 | N/A | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1d-checks-32b-prod30 | 0/6 | N/A | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1d-checks-27b-dense | 0/6 | N/A | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1d-checks-27b-prod30 | 0/6 | N/A | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1e-crop-8b-dense | 0/6 | N/A | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1e-crop-8b-prod30 | 0/6 | N/A | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1e-cropctx-8b-dense | 0/6 | N/A | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+
+Six truth-positive touch clips — answers/confidence and measured mean still spacing (single frame has no inter-still interval):
+
+| Clip | 8b_dense | 8b_prod30 | 32b_dense | 32b_prod30 | 27b_dense | 27b_prod30 | crop8_dense | crop8_prod30 | cropctx8_dense | Confound |
+|---|---|---|---|---|---|---|---|---|---|---|
+| m04-n03-t1406-157170-158922 | no/high; 1.58 s | no/high; single/missing frame | no/high; 1.58 s | no/low; single/missing frame | no/high; 1.58 s | unclear/medium; single/missing frame | no/high; 1.58 s | no/high; single/missing frame | no/high; 1.58 s | Temporal sampling; raw no/unclear is not evidence of inability to detect a visible touch. Reviewed dataset: dense true-touch still spacing is 1.58–6.62 s; run-wide mean spacing is 2.49 s dense and 23.99 s sparse. Review estimate: a perfect detector would score approximately 1/6 dense and 0/6 sparse, making the 2/6 crop scheduling rule 'unattainable by construction' under that assumption. This is not a measured detector bound: spacing alone cannot establish visibility, a perfect-detector score or mathematical impossibility. Human touch timestamps and frame-level visibility labels are still needed. |
+| m04-n04-t3006-243433-247994 | no/high; 4.14 s | no/high; 45.51 s | no/high; 4.14 s | no/high; 45.51 s | no/medium; 4.14 s | unclear/low; 45.51 s | no/high; 4.14 s | no/high; 45.51 s | no/high; 4.14 s | Temporal sampling; raw no/unclear is not evidence of inability to detect a visible touch. Reviewed dataset: dense true-touch still spacing is 1.58–6.62 s; run-wide mean spacing is 2.49 s dense and 23.99 s sparse. Review estimate: a perfect detector would score approximately 1/6 dense and 0/6 sparse, making the 2/6 crop scheduling rule 'unattainable by construction' under that assumption. This is not a measured detector bound: spacing alone cannot establish visibility, a perfect-detector score or mathematical impossibility. Human touch timestamps and frame-level visibility labels are still needed. |
+| m04-n12-t1411-237107-242145 | no/high; 4.57 s | no/high; 50.28 s | no/high; 4.57 s | no/high; 50.28 s | no/medium; 4.57 s | unclear/low; 50.28 s | no/high; 4.57 s | no/high; 50.28 s | no/high; 4.57 s | Temporal sampling; raw no/unclear is not evidence of inability to detect a visible touch. Reviewed dataset: dense true-touch still spacing is 1.58–6.62 s; run-wide mean spacing is 2.49 s dense and 23.99 s sparse. Review estimate: a perfect detector would score approximately 1/6 dense and 0/6 sparse, making the 2/6 crop scheduling rule 'unattainable by construction' under that assumption. This is not a measured detector bound: spacing alone cannot establish visibility, a perfect-detector score or mathematical impossibility. Human touch timestamps and frame-level visibility labels are still needed. |
+| m04-n15-t3010-164698-170777 | no/high; 5.52 s | no/high; 30.35 s | no/high; 5.52 s | no/high; 30.35 s | no/high; 5.52 s | unclear/low; 30.35 s | no/high; 5.52 s | no/high; 30.35 s | no/high; 5.52 s | Temporal sampling; raw no/unclear is not evidence of inability to detect a visible touch. Reviewed dataset: dense true-touch still spacing is 1.58–6.62 s; run-wide mean spacing is 2.49 s dense and 23.99 s sparse. Review estimate: a perfect detector would score approximately 1/6 dense and 0/6 sparse, making the 2/6 crop scheduling rule 'unattainable by construction' under that assumption. This is not a measured detector bound: spacing alone cannot establish visibility, a perfect-detector score or mathematical impossibility. Human touch timestamps and frame-level visibility labels are still needed. |
+| m04-n17-t717-253073-260377 | no/high; 6.62 s | no/high; 36.43 s | no/high; 6.62 s | no/high; 36.43 s | no/medium; 6.62 s | unclear/low; 36.43 s | no/high; 6.62 s | no/high; 36.43 s | no/high; 6.62 s | Temporal sampling; raw no/unclear is not evidence of inability to detect a visible touch. Reviewed dataset: dense true-touch still spacing is 1.58–6.62 s; run-wide mean spacing is 2.49 s dense and 23.99 s sparse. Review estimate: a perfect detector would score approximately 1/6 dense and 0/6 sparse, making the 2/6 crop scheduling rule 'unattainable by construction' under that assumption. This is not a measured detector bound: spacing alone cannot establish visibility, a perfect-detector score or mathematical impossibility. Human touch timestamps and frame-level visibility labels are still needed. |
+| m04-n17-t717-416826-418915 | no/high; 1.88 s | no/high; single/missing frame | no/high; 1.88 s | no/high; single/missing frame | no/medium; 1.88 s | no/medium; single/missing frame | no/high; 1.88 s | no/high; single/missing frame | no/high; 1.88 s | Temporal sampling; raw no/unclear is not evidence of inability to detect a visible touch. Reviewed dataset: dense true-touch still spacing is 1.58–6.62 s; run-wide mean spacing is 2.49 s dense and 23.99 s sparse. Review estimate: a perfect detector would score approximately 1/6 dense and 0/6 sparse, making the 2/6 crop scheduling rule 'unattainable by construction' under that assumption. This is not a measured detector bound: spacing alone cannot establish visibility, a perfect-detector score or mathematical impossibility. Human touch timestamps and frame-level visibility labels are still needed. |
+
+Every saved touch answer across the nine runs is no/unclear, but 12 frames spread over a long window leave multi-second gaps while a touch lasts a fraction of a second. The inspected n12 middle crop is clear and contains no nearby ball. Raw 0/6 is not evidence that the model cannot see a touch: these frames rarely contain one, and touch recall is not measurable at this sampling. Wide-frame on-pitch/sideline results retain context; crop on-pitch and ball-near results have a spatial confound. Follow-up: moment windows — at least 8 frames at at least 4 fps in the 2 s around a human-marked touch time; MJ must mark touch times on the six clips. No new inference in r2.
 
 5 truth cells corrected. Pooled false-yes gate numbers unchanged. The headline changes: gate 2 now requires measurable recall as well as low false-yes, so its former false-yes-only PASS is WITHHELD at this sampling. Macro accuracies and per-question metrics changed as listed; raw touch counts remain visible. The requested information heuristic can flag selective-abstention outputs despite zero affirmative touches; it is not a calibrated measure of visual information.
 
@@ -98,62 +186,62 @@ Mixed settings explicitly allowed: {"27b_dense": {"model": "qwen3.8:27b-oblitera
 
 Thresholds (MJ decides adoption):
 
-| Run | Metric | Threshold | Measured | Result |
-|---|---|---:|---:|---|
-| e1d-checks-dense | off_pitch_false_yes_rate | <= 10.00% | 57.14% | FAIL |
-| e1d-checks-dense | off_pitch_idle_touch_false_yes_rate | <= 10.00% | 0.00% | PASS |
-| e1d-checks-dense | touch_recall | >= 50.00% | N/A | WITHHELD |
-| e1d-checks-dense | macro_accuracy | >= 80.00% | 65.62% | FAIL |
-| e1d-checks-dense | abstain_rate | <= 40.00% | 3.03% | PASS |
-| e1d-checks-dense | gate2 | touch false-yes <=10% AND measurable touch recall >=50% | N/A | WITHHELD |
-| e1d-checks-prod30 | off_pitch_false_yes_rate | <= 10.00% | 50.00% | FAIL |
-| e1d-checks-prod30 | off_pitch_idle_touch_false_yes_rate | <= 10.00% | 0.00% | PASS |
-| e1d-checks-prod30 | touch_recall | >= 50.00% | N/A | WITHHELD |
-| e1d-checks-prod30 | macro_accuracy | >= 80.00% | 62.81% | FAIL |
-| e1d-checks-prod30 | abstain_rate | <= 40.00% | 8.08% | PASS |
-| e1d-checks-prod30 | gate2 | touch false-yes <=10% AND measurable touch recall >=50% | N/A | WITHHELD |
-| e1d-checks-32b-dense | off_pitch_false_yes_rate | <= 10.00% | 50.00% | FAIL |
-| e1d-checks-32b-dense | off_pitch_idle_touch_false_yes_rate | <= 10.00% | 0.00% | PASS |
-| e1d-checks-32b-dense | touch_recall | >= 50.00% | N/A | WITHHELD |
-| e1d-checks-32b-dense | macro_accuracy | >= 80.00% | 69.17% | FAIL |
-| e1d-checks-32b-dense | abstain_rate | <= 40.00% | 7.07% | PASS |
-| e1d-checks-32b-dense | gate2 | touch false-yes <=10% AND measurable touch recall >=50% | N/A | WITHHELD |
-| e1d-checks-32b-prod30 | off_pitch_false_yes_rate | <= 10.00% | 71.43% | FAIL |
-| e1d-checks-32b-prod30 | off_pitch_idle_touch_false_yes_rate | <= 10.00% | 0.00% | PASS |
-| e1d-checks-32b-prod30 | touch_recall | >= 50.00% | N/A | WITHHELD |
-| e1d-checks-32b-prod30 | macro_accuracy | >= 80.00% | 70.23% | FAIL |
-| e1d-checks-32b-prod30 | abstain_rate | <= 40.00% | 12.12% | PASS |
-| e1d-checks-32b-prod30 | gate2 | touch false-yes <=10% AND measurable touch recall >=50% | N/A | WITHHELD |
-| e1d-checks-27b-dense | off_pitch_false_yes_rate | <= 10.00% | 64.29% | FAIL |
-| e1d-checks-27b-dense | off_pitch_idle_touch_false_yes_rate | <= 10.00% | 0.00% | PASS |
-| e1d-checks-27b-dense | touch_recall | >= 50.00% | N/A | WITHHELD |
-| e1d-checks-27b-dense | macro_accuracy | >= 80.00% | 68.82% | FAIL |
-| e1d-checks-27b-dense | abstain_rate | <= 40.00% | 4.04% | PASS |
-| e1d-checks-27b-dense | gate2 | touch false-yes <=10% AND measurable touch recall >=50% | N/A | WITHHELD |
-| e1d-checks-27b-prod30 | off_pitch_false_yes_rate | <= 10.00% | 78.57% | FAIL |
-| e1d-checks-27b-prod30 | off_pitch_idle_touch_false_yes_rate | <= 10.00% | 0.00% | PASS |
-| e1d-checks-27b-prod30 | touch_recall | >= 50.00% | N/A | WITHHELD |
-| e1d-checks-27b-prod30 | macro_accuracy | >= 80.00% | 71.15% | FAIL |
-| e1d-checks-27b-prod30 | abstain_rate | <= 40.00% | 17.17% | PASS |
-| e1d-checks-27b-prod30 | gate2 | touch false-yes <=10% AND measurable touch recall >=50% | N/A | WITHHELD |
-| e1e-crop-8b-dense | off_pitch_false_yes_rate | <= 10.00% | 50.00% | FAIL |
-| e1e-crop-8b-dense | off_pitch_idle_touch_false_yes_rate | <= 10.00% | 0.00% | PASS |
-| e1e-crop-8b-dense | touch_recall | >= 50.00% | N/A | WITHHELD |
-| e1e-crop-8b-dense | macro_accuracy | >= 80.00% | 61.67% | FAIL |
-| e1e-crop-8b-dense | abstain_rate | <= 40.00% | 2.02% | PASS |
-| e1e-crop-8b-dense | gate2 | touch false-yes <=10% AND measurable touch recall >=50% | N/A | WITHHELD |
-| e1e-crop-8b-prod30 | off_pitch_false_yes_rate | <= 10.00% | 50.00% | FAIL |
-| e1e-crop-8b-prod30 | off_pitch_idle_touch_false_yes_rate | <= 10.00% | 0.00% | PASS |
-| e1e-crop-8b-prod30 | touch_recall | >= 50.00% | N/A | WITHHELD |
-| e1e-crop-8b-prod30 | macro_accuracy | >= 80.00% | 63.53% | FAIL |
-| e1e-crop-8b-prod30 | abstain_rate | <= 40.00% | 6.06% | PASS |
-| e1e-crop-8b-prod30 | gate2 | touch false-yes <=10% AND measurable touch recall >=50% | N/A | WITHHELD |
-| e1e-cropctx-8b-dense | off_pitch_false_yes_rate | <= 10.00% | 50.00% | FAIL |
-| e1e-cropctx-8b-dense | off_pitch_idle_touch_false_yes_rate | <= 10.00% | 0.00% | PASS |
-| e1e-cropctx-8b-dense | touch_recall | >= 50.00% | N/A | WITHHELD |
-| e1e-cropctx-8b-dense | macro_accuracy | >= 80.00% | 62.99% | FAIL |
-| e1e-cropctx-8b-dense | abstain_rate | <= 40.00% | 3.03% | PASS |
-| e1e-cropctx-8b-dense | gate2 | touch false-yes <=10% AND measurable touch recall >=50% | N/A | WITHHELD |
+| Run | Metric | Threshold | Measured | Result | Confound |
+|---|---|---:|---:|---|---|
+| e1d-checks-dense | off_pitch_false_yes_rate | <= 10.00% | 57.14% | FAIL | — |
+| e1d-checks-dense | off_pitch_idle_touch_false_yes_rate | <= 10.00% | 0.00% | PASS | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1d-checks-dense | touch_recall | >= 50.00% | N/A | WITHHELD | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1d-checks-dense | macro_accuracy | >= 80.00% | 65.62% | FAIL | — |
+| e1d-checks-dense | abstain_rate | <= 40.00% | 3.03% | PASS | — |
+| e1d-checks-dense | gate2 | touch false-yes <=10% AND measurable touch recall >=50% | N/A | WITHHELD | not measurable at this sampling: mean frame spacing exceeds 1.0 s |
+| e1d-checks-prod30 | off_pitch_false_yes_rate | <= 10.00% | 50.00% | FAIL | — |
+| e1d-checks-prod30 | off_pitch_idle_touch_false_yes_rate | <= 10.00% | 0.00% | PASS | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1d-checks-prod30 | touch_recall | >= 50.00% | N/A | WITHHELD | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1d-checks-prod30 | macro_accuracy | >= 80.00% | 62.81% | FAIL | — |
+| e1d-checks-prod30 | abstain_rate | <= 40.00% | 8.08% | PASS | — |
+| e1d-checks-prod30 | gate2 | touch false-yes <=10% AND measurable touch recall >=50% | N/A | WITHHELD | not measurable at this sampling: mean frame spacing exceeds 1.0 s |
+| e1d-checks-32b-dense | off_pitch_false_yes_rate | <= 10.00% | 50.00% | FAIL | — |
+| e1d-checks-32b-dense | off_pitch_idle_touch_false_yes_rate | <= 10.00% | 0.00% | PASS | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1d-checks-32b-dense | touch_recall | >= 50.00% | N/A | WITHHELD | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1d-checks-32b-dense | macro_accuracy | >= 80.00% | 69.17% | FAIL | — |
+| e1d-checks-32b-dense | abstain_rate | <= 40.00% | 7.07% | PASS | — |
+| e1d-checks-32b-dense | gate2 | touch false-yes <=10% AND measurable touch recall >=50% | N/A | WITHHELD | not measurable at this sampling: mean frame spacing exceeds 1.0 s |
+| e1d-checks-32b-prod30 | off_pitch_false_yes_rate | <= 10.00% | 71.43% | FAIL | — |
+| e1d-checks-32b-prod30 | off_pitch_idle_touch_false_yes_rate | <= 10.00% | 0.00% | PASS | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1d-checks-32b-prod30 | touch_recall | >= 50.00% | N/A | WITHHELD | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1d-checks-32b-prod30 | macro_accuracy | >= 80.00% | 70.23% | FAIL | — |
+| e1d-checks-32b-prod30 | abstain_rate | <= 40.00% | 12.12% | PASS | — |
+| e1d-checks-32b-prod30 | gate2 | touch false-yes <=10% AND measurable touch recall >=50% | N/A | WITHHELD | not measurable at this sampling: mean frame spacing exceeds 1.0 s |
+| e1d-checks-27b-dense | off_pitch_false_yes_rate | <= 10.00% | 64.29% | FAIL | — |
+| e1d-checks-27b-dense | off_pitch_idle_touch_false_yes_rate | <= 10.00% | 0.00% | PASS | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1d-checks-27b-dense | touch_recall | >= 50.00% | N/A | WITHHELD | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1d-checks-27b-dense | macro_accuracy | >= 80.00% | 68.82% | FAIL | — |
+| e1d-checks-27b-dense | abstain_rate | <= 40.00% | 4.04% | PASS | — |
+| e1d-checks-27b-dense | gate2 | touch false-yes <=10% AND measurable touch recall >=50% | N/A | WITHHELD | not measurable at this sampling: mean frame spacing exceeds 1.0 s |
+| e1d-checks-27b-prod30 | off_pitch_false_yes_rate | <= 10.00% | 78.57% | FAIL | — |
+| e1d-checks-27b-prod30 | off_pitch_idle_touch_false_yes_rate | <= 10.00% | 0.00% | PASS | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1d-checks-27b-prod30 | touch_recall | >= 50.00% | N/A | WITHHELD | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1d-checks-27b-prod30 | macro_accuracy | >= 80.00% | 71.15% | FAIL | — |
+| e1d-checks-27b-prod30 | abstain_rate | <= 40.00% | 17.17% | PASS | — |
+| e1d-checks-27b-prod30 | gate2 | touch false-yes <=10% AND measurable touch recall >=50% | N/A | WITHHELD | not measurable at this sampling: mean frame spacing exceeds 1.0 s |
+| e1e-crop-8b-dense | off_pitch_false_yes_rate | <= 10.00% | 50.00% | WITHHELD | Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| e1e-crop-8b-dense | off_pitch_idle_touch_false_yes_rate | <= 10.00% | 0.00% | PASS | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1e-crop-8b-dense | touch_recall | >= 50.00% | N/A | WITHHELD | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1e-crop-8b-dense | macro_accuracy | >= 80.00% | 61.67% | FAIL | — |
+| e1e-crop-8b-dense | abstain_rate | <= 40.00% | 2.02% | PASS | — |
+| e1e-crop-8b-dense | gate2 | touch false-yes <=10% AND measurable touch recall >=50% | N/A | WITHHELD | not measurable at this sampling: mean frame spacing exceeds 1.0 s |
+| e1e-crop-8b-prod30 | off_pitch_false_yes_rate | <= 10.00% | 50.00% | WITHHELD | Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| e1e-crop-8b-prod30 | off_pitch_idle_touch_false_yes_rate | <= 10.00% | 0.00% | PASS | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1e-crop-8b-prod30 | touch_recall | >= 50.00% | N/A | WITHHELD | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1e-crop-8b-prod30 | macro_accuracy | >= 80.00% | 63.53% | FAIL | — |
+| e1e-crop-8b-prod30 | abstain_rate | <= 40.00% | 6.06% | PASS | — |
+| e1e-crop-8b-prod30 | gate2 | touch false-yes <=10% AND measurable touch recall >=50% | N/A | WITHHELD | not measurable at this sampling: mean frame spacing exceeds 1.0 s |
+| e1e-cropctx-8b-dense | off_pitch_false_yes_rate | <= 10.00% | 50.00% | WITHHELD | Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| e1e-cropctx-8b-dense | off_pitch_idle_touch_false_yes_rate | <= 10.00% | 0.00% | PASS | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1e-cropctx-8b-dense | touch_recall | >= 50.00% | N/A | WITHHELD | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| e1e-cropctx-8b-dense | macro_accuracy | >= 80.00% | 62.99% | FAIL | — |
+| e1e-cropctx-8b-dense | abstain_rate | <= 40.00% | 3.03% | PASS | — |
+| e1e-cropctx-8b-dense | gate2 | touch false-yes <=10% AND measurable touch recall >=50% | N/A | WITHHELD | not measurable at this sampling: mean frame spacing exceeds 1.0 s |
 
 Truth rules:
 
@@ -191,188 +279,188 @@ Full truth table — ungraded cells shown as —; uncertain kit cells force abst
 
 All per-clip answers (answer / confidence):
 
-| Clip | Run | Status | player_on_pitch | play_in_progress | ball_near_player | player_touches_ball | player_running | kit_color_seen |
-|---|---|---|---|---|---|---|---|---|
-| m04-n02-t3005-474114-478131 | e1d-checks-dense | scored | yes / high | yes / medium | no / low | no / high | yes / medium | red / high |
-| m04-n02-t3005-474114-478131 | e1d-checks-prod30 | scored | yes / high | no / medium | unclear / low | no / high | yes / medium | red / high |
-| m04-n02-t3005-474114-478131 | e1d-checks-32b-dense | scored | yes / high | yes / medium | no / high | no / high | yes / medium | red / high |
-| m04-n02-t3005-474114-478131 | e1d-checks-32b-prod30 | scored | yes / high | yes / medium | no / low | no / high | yes / medium | red / high |
-| m04-n02-t3005-474114-478131 | e1d-checks-27b-dense | scored | yes / high | yes / high | no / medium | no / medium | yes / high | red / high |
-| m04-n02-t3005-474114-478131 | e1d-checks-27b-prod30 | scored | yes / high | yes / high | no / medium | unclear / low | yes / medium | red / high |
-| m04-n02-t3005-474114-478131 | e1e-crop-8b-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high |
-| m04-n02-t3005-474114-478131 | e1e-crop-8b-prod30 | scored | yes / high | no / medium | unclear / low | no / high | yes / medium | red / high |
-| m04-n02-t3005-474114-478131 | e1e-cropctx-8b-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high |
-| m04-n03-t1406-157170-158922 | e1d-checks-dense | scored | yes / high | yes / medium | no / low | no / high | yes / medium | red / high |
-| m04-n03-t1406-157170-158922 | e1d-checks-prod30 | scored | yes / high | no / medium | unclear / low | no / high | yes / medium | red / high |
-| m04-n03-t1406-157170-158922 | e1d-checks-32b-dense | scored | yes / high | yes / medium | no / high | no / high | yes / medium | red / high |
-| m04-n03-t1406-157170-158922 | e1d-checks-32b-prod30 | scored | yes / high | no / medium | no / low | no / low | unclear / medium | red / high |
-| m04-n03-t1406-157170-158922 | e1d-checks-27b-dense | scored | yes / high | yes / high | no / medium | no / high | yes / medium | red / high |
-| m04-n03-t1406-157170-158922 | e1d-checks-27b-prod30 | scored | yes / high | yes / medium | no / high | unclear / medium | no / high | red / high |
-| m04-n03-t1406-157170-158922 | e1e-crop-8b-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high |
-| m04-n03-t1406-157170-158922 | e1e-crop-8b-prod30 | scored | yes / high | no / medium | no / high | no / high | yes / medium | red / high |
-| m04-n03-t1406-157170-158922 | e1e-cropctx-8b-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high |
-| m04-n03-t1406-385962-387137 | e1d-checks-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high |
-| m04-n03-t1406-385962-387137 | e1d-checks-prod30 | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high |
-| m04-n03-t1406-385962-387137 | e1d-checks-32b-dense | scored | yes / high | unclear / low | no / high | no / high | yes / medium | red / high |
-| m04-n03-t1406-385962-387137 | e1d-checks-32b-prod30 | scored | yes / high | unclear / low | no / high | no / high | unclear / low | red / high |
-| m04-n03-t1406-385962-387137 | e1d-checks-27b-dense | scored | yes / high | no / medium | unclear / low | no / medium | no / medium | red / high |
-| m04-n03-t1406-385962-387137 | e1d-checks-27b-prod30 | scored | yes / high | unclear / low | no / high | no / high | unclear / low | red / high |
-| m04-n03-t1406-385962-387137 | e1e-crop-8b-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high |
-| m04-n03-t1406-385962-387137 | e1e-crop-8b-prod30 | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high |
-| m04-n03-t1406-385962-387137 | e1e-cropctx-8b-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high |
-| m04-n04-t3006-243433-247994 | e1d-checks-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high |
-| m04-n04-t3006-243433-247994 | e1d-checks-prod30 | scored | yes / high | no / medium | unclear / low | no / high | yes / medium | blue / high |
-| m04-n04-t3006-243433-247994 | e1d-checks-32b-dense | scored | yes / high | yes / medium | no / high | no / high | yes / medium | red / high |
-| m04-n04-t3006-243433-247994 | e1d-checks-32b-prod30 | scored | yes / high | yes / medium | unclear / low | no / high | yes / medium | red / high |
-| m04-n04-t3006-243433-247994 | e1d-checks-27b-dense | scored | yes / high | yes / high | no / medium | no / medium | yes / high | red / high |
-| m04-n04-t3006-243433-247994 | e1d-checks-27b-prod30 | scored | yes / high | yes / high | no / medium | unclear / low | yes / medium | red / high |
-| m04-n04-t3006-243433-247994 | e1e-crop-8b-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high |
-| m04-n04-t3006-243433-247994 | e1e-crop-8b-prod30 | scored | yes / high | no / medium | unclear / low | no / high | yes / medium | red / high |
-| m04-n04-t3006-243433-247994 | e1e-cropctx-8b-dense | scored | yes / high | no / medium | unclear / low | no / high | yes / medium | red / high |
-| m04-n04-t3006-307417-310307 | e1d-checks-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high |
-| m04-n04-t3006-307417-310307 | e1d-checks-prod30 | scored | yes / high | yes / medium | no / low | no / high | yes / medium | red / high |
-| m04-n04-t3006-307417-310307 | e1d-checks-32b-dense | scored | yes / high | yes / medium | no / high | no / high | yes / medium | red / high |
-| m04-n04-t3006-307417-310307 | e1d-checks-32b-prod30 | scored | yes / high | yes / medium | no / high | no / high | yes / medium | red / high |
-| m04-n04-t3006-307417-310307 | e1d-checks-27b-dense | scored | yes / high | yes / high | no / medium | no / high | yes / medium | red / high |
-| m04-n04-t3006-307417-310307 | e1d-checks-27b-prod30 | scored | yes / high | yes / high | no / medium | unclear / low | yes / medium | red / high |
-| m04-n04-t3006-307417-310307 | e1e-crop-8b-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high |
-| m04-n04-t3006-307417-310307 | e1e-crop-8b-prod30 | scored | yes / high | no / medium | unclear / low | no / high | yes / medium | red / high |
-| m04-n04-t3006-307417-310307 | e1e-cropctx-8b-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high |
-| m04-n05-t3007-284945-287898 | e1d-checks-dense | scored | yes / high | yes / high | no / medium | no / low | yes / high | red / high |
-| m04-n05-t3007-284945-287898 | e1d-checks-prod30 | scored | yes / high | yes / high | no / medium | no / low | yes / high | blue / high |
-| m04-n05-t3007-284945-287898 | e1d-checks-32b-dense | scored | yes / high | yes / medium | no / high | no / high | yes / medium | red / high |
-| m04-n05-t3007-284945-287898 | e1d-checks-32b-prod30 | scored | yes / high | yes / high | no / medium | no / high | yes / high | red / high |
-| m04-n05-t3007-284945-287898 | e1d-checks-27b-dense | scored | yes / high | yes / high | no / medium | no / high | yes / medium | red / high |
-| m04-n05-t3007-284945-287898 | e1d-checks-27b-prod30 | scored | yes / high | yes / high | no / medium | unclear / low | unclear / low | yellow / high |
-| m04-n05-t3007-284945-287898 | e1e-crop-8b-dense | scored | yes / high | yes / medium | no / low | no / high | yes / medium | red / high |
-| m04-n05-t3007-284945-287898 | e1e-crop-8b-prod30 | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high |
-| m04-n05-t3007-284945-287898 | e1e-cropctx-8b-dense | scored | yes / high | yes / medium | no / low | no / high | yes / medium | red / high |
-| m04-n09-t1409-143096-143834 | e1d-checks-dense | scored | yes / high | yes / medium | no / high | no / high | yes / medium | red / high |
-| m04-n09-t1409-143096-143834 | e1d-checks-prod30 | scored | no / high | yes / medium | no / high | no / high | no / high | red / high |
-| m04-n09-t1409-143096-143834 | e1d-checks-32b-dense | scored | no / high | yes / high | no / high | no / high | no / high | red / high |
-| m04-n09-t1409-143096-143834 | e1d-checks-32b-prod30 | scored | yes / high | no / medium | no / low | no / low | no / medium | red / high |
-| m04-n09-t1409-143096-143834 | e1d-checks-27b-dense | scored | no / high | yes / high | no / high | no / high | no / high | red / high |
-| m04-n09-t1409-143096-143834 | e1d-checks-27b-prod30 | scored | yes / high | yes / high | no / medium | no / high | no / medium | red / high |
-| m04-n09-t1409-143096-143834 | e1e-crop-8b-dense | scored | yes / high | no / medium | no / high | no / high | no / high | red / high |
-| m04-n09-t1409-143096-143834 | e1e-crop-8b-prod30 | scored | no / high | yes / medium | no / high | no / high | no / high | red / high |
-| m04-n09-t1409-143096-143834 | e1e-cropctx-8b-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high |
-| m04-n09-t1409-297601-298865 | e1d-checks-dense | scored | yes / high | yes / medium | no / low | no / high | yes / medium | red / high |
-| m04-n09-t1409-297601-298865 | e1d-checks-prod30 | scored | yes / high | no / medium | unclear / low | no / high | yes / medium | red / high |
-| m04-n09-t1409-297601-298865 | e1d-checks-32b-dense | scored | yes / high | yes / medium | no / high | no / high | yes / medium | red / high |
-| m04-n09-t1409-297601-298865 | e1d-checks-32b-prod30 | scored | yes / high | unclear / low | no / high | no / high | unclear / low | red / high |
-| m04-n09-t1409-297601-298865 | e1d-checks-27b-dense | scored | yes / high | yes / high | no / medium | unclear / low | yes / high | red / high |
-| m04-n09-t1409-297601-298865 | e1d-checks-27b-prod30 | scored | yes / high | yes / high | no / medium | no / medium | unclear / low | red / high |
-| m04-n09-t1409-297601-298865 | e1e-crop-8b-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high |
-| m04-n09-t1409-297601-298865 | e1e-crop-8b-prod30 | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high |
-| m04-n09-t1409-297601-298865 | e1e-cropctx-8b-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high |
-| m04-n09-t1409-385922-386603 | e1d-checks-dense | scored | yes / high | no / medium | unclear / low | no / high | yes / medium | red / high |
-| m04-n09-t1409-385922-386603 | e1d-checks-prod30 | scored | yes / high | no / medium | unclear / low | no / high | yes / medium | red / high |
-| m04-n09-t1409-385922-386603 | e1d-checks-32b-dense | scored | yes / high | unclear / low | no / high | no / high | yes / medium | red / high |
-| m04-n09-t1409-385922-386603 | e1d-checks-32b-prod30 | scored | yes / high | unclear / low | no / high | no / high | unclear / low | red / high |
-| m04-n09-t1409-385922-386603 | e1d-checks-27b-dense | scored | yes / high | no / medium | unclear / low | no / medium | no / medium | red / high |
-| m04-n09-t1409-385922-386603 | e1d-checks-27b-prod30 | scored | yes / high | unclear / low | no / high | no / high | unclear / low | red / high |
-| m04-n09-t1409-385922-386603 | e1e-crop-8b-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high |
-| m04-n09-t1409-385922-386603 | e1e-crop-8b-prod30 | scored | yes / high | no / medium | no / low | no / high | no / medium | red / high |
-| m04-n09-t1409-385922-386603 | e1e-cropctx-8b-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high |
-| m04-n10-t711-186553-188161 | e1d-checks-dense | scored | yes / high | yes / medium | no / low | no / high | yes / medium | red / high |
-| m04-n10-t711-186553-188161 | e1d-checks-prod30 | scored | yes / high | no / medium | no / low | no / high | yes / medium | blue / high |
-| m04-n10-t711-186553-188161 | e1d-checks-32b-dense | scored | yes / high | yes / medium | no / high | no / high | yes / medium | red / high |
-| m04-n10-t711-186553-188161 | e1d-checks-32b-prod30 | scored | yes / high | yes / medium | no / high | no / high | no / medium | red / high |
-| m04-n10-t711-186553-188161 | e1d-checks-27b-dense | scored | yes / high | yes / high | no / medium | no / high | yes / medium | red / high |
-| m04-n10-t711-186553-188161 | e1d-checks-27b-prod30 | scored | yes / high | yes / high | no / medium | unclear / low | no / medium | red / high |
-| m04-n10-t711-186553-188161 | e1e-crop-8b-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high |
-| m04-n10-t711-186553-188161 | e1e-crop-8b-prod30 | scored | yes / high | no / medium | no / high | no / high | yes / medium | red / high |
-| m04-n10-t711-186553-188161 | e1e-cropctx-8b-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high |
-| m04-n12-t1411-237107-242145 | e1d-checks-dense | scored | yes / high | yes / medium | no / low | no / high | yes / medium | red / high |
-| m04-n12-t1411-237107-242145 | e1d-checks-prod30 | scored | yes / high | no / medium | unclear / low | no / high | yes / medium | red / high |
-| m04-n12-t1411-237107-242145 | e1d-checks-32b-dense | scored | yes / high | yes / medium | no / high | no / high | yes / medium | red / high |
-| m04-n12-t1411-237107-242145 | e1d-checks-32b-prod30 | scored | yes / high | yes / medium | unclear / low | no / high | yes / medium | red / high |
-| m04-n12-t1411-237107-242145 | e1d-checks-27b-dense | scored | yes / high | yes / high | no / medium | no / medium | yes / high | red / high |
-| m04-n12-t1411-237107-242145 | e1d-checks-27b-prod30 | scored | yes / high | yes / high | no / medium | unclear / low | yes / medium | red / high |
-| m04-n12-t1411-237107-242145 | e1e-crop-8b-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high |
-| m04-n12-t1411-237107-242145 | e1e-crop-8b-prod30 | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high |
-| m04-n12-t1411-237107-242145 | e1e-cropctx-8b-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high |
-| m04-n12-t1411-679986-681985 | e1d-checks-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high |
-| m04-n12-t1411-679986-681985 | e1d-checks-prod30 | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high |
-| m04-n12-t1411-679986-681985 | e1d-checks-32b-dense | scored | yes / high | no / medium | yes / high | no / medium | no / high | red / high |
-| m04-n12-t1411-679986-681985 | e1d-checks-32b-prod30 | scored | yes / high | yes / medium | no / high | no / high | no / medium | red / high |
-| m04-n12-t1411-679986-681985 | e1d-checks-27b-dense | scored | yes / high | no / medium | yes / high | no / medium | no / high | red / high |
-| m04-n12-t1411-679986-681985 | e1d-checks-27b-prod30 | scored | yes / high | yes / high | no / medium | no / high | unclear / low | red / high |
-| m04-n12-t1411-679986-681985 | e1e-crop-8b-dense | scored | yes / high | no / medium | no / high | no / high | no / high | red / high |
-| m04-n12-t1411-679986-681985 | e1e-crop-8b-prod30 | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high |
-| m04-n12-t1411-679986-681985 | e1e-cropctx-8b-dense | scored | yes / high | no / medium | no / low | no / high | no / high | red / high |
-| m04-n15-t3010-164698-170777 | e1d-checks-dense | scored | yes / high | yes / medium | no / low | no / high | yes / medium | red / high |
-| m04-n15-t3010-164698-170777 | e1d-checks-prod30 | scored | yes / high | no / medium | unclear / low | no / high | yes / medium | red / high |
-| m04-n15-t3010-164698-170777 | e1d-checks-32b-dense | scored | yes / high | yes / medium | no / high | no / high | yes / medium | red / high |
-| m04-n15-t3010-164698-170777 | e1d-checks-32b-prod30 | scored | yes / high | unclear / low | no / medium | no / high | yes / medium | red / high |
-| m04-n15-t3010-164698-170777 | e1d-checks-27b-dense | scored | yes / high | yes / high | no / medium | no / high | yes / medium | red / high |
-| m04-n15-t3010-164698-170777 | e1d-checks-27b-prod30 | scored | yes / high | yes / high | no / medium | unclear / low | yes / medium | red / high |
-| m04-n15-t3010-164698-170777 | e1e-crop-8b-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high |
-| m04-n15-t3010-164698-170777 | e1e-crop-8b-prod30 | scored | yes / high | no / medium | unclear / low | no / high | yes / medium | red / high |
-| m04-n15-t3010-164698-170777 | e1e-cropctx-8b-dense | scored | yes / high | yes / medium | no / low | no / high | yes / medium | red / high |
-| m04-n17-t717-253073-260377 | e1d-checks-dense | scored | yes / high | yes / medium | no / low | no / high | yes / medium | red / high |
-| m04-n17-t717-253073-260377 | e1d-checks-prod30 | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high |
-| m04-n17-t717-253073-260377 | e1d-checks-32b-dense | scored | yes / high | yes / medium | no / high | no / high | yes / medium | red / high |
-| m04-n17-t717-253073-260377 | e1d-checks-32b-prod30 | scored | yes / high | yes / medium | no / high | no / high | yes / medium | red / high |
-| m04-n17-t717-253073-260377 | e1d-checks-27b-dense | scored | yes / high | yes / high | no / medium | no / medium | yes / high | red / high |
-| m04-n17-t717-253073-260377 | e1d-checks-27b-prod30 | scored | yes / high | yes / high | no / medium | unclear / low | yes / medium | red / high |
-| m04-n17-t717-253073-260377 | e1e-crop-8b-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high |
-| m04-n17-t717-253073-260377 | e1e-crop-8b-prod30 | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high |
-| m04-n17-t717-253073-260377 | e1e-cropctx-8b-dense | scored | yes / high | yes / medium | no / low | no / high | yes / medium | red / high |
-| m04-n17-t717-304624-307834 | e1d-checks-dense | scored | yes / high | yes / medium | no / low | no / high | yes / medium | red / high |
-| m04-n17-t717-304624-307834 | e1d-checks-prod30 | scored | yes / high | no / medium | unclear / low | no / high | yes / medium | red / high |
-| m04-n17-t717-304624-307834 | e1d-checks-32b-dense | scored | yes / high | yes / medium | no / high | no / high | yes / medium | red / high |
-| m04-n17-t717-304624-307834 | e1d-checks-32b-prod30 | scored | yes / high | unclear / low | unclear / low | no / high | yes / medium | red / high |
-| m04-n17-t717-304624-307834 | e1d-checks-27b-dense | scored | yes / high | yes / high | no / medium | no / high | yes / medium | red / high |
-| m04-n17-t717-304624-307834 | e1d-checks-27b-prod30 | scored | yes / high | yes / high | no / medium | unclear / low | yes / medium | red / high |
-| m04-n17-t717-304624-307834 | e1e-crop-8b-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high |
-| m04-n17-t717-304624-307834 | e1e-crop-8b-prod30 | scored | yes / high | no / medium | unclear / low | no / high | yes / medium | red / high |
-| m04-n17-t717-304624-307834 | e1e-cropctx-8b-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high |
-| m04-n17-t717-416826-418915 | e1d-checks-dense | scored | yes / high | yes / medium | no / low | no / high | yes / medium | red / high |
-| m04-n17-t717-416826-418915 | e1d-checks-prod30 | scored | yes / high | no / medium | unclear / low | no / high | yes / medium | red / high |
-| m04-n17-t717-416826-418915 | e1d-checks-32b-dense | scored | yes / high | yes / medium | no / high | no / high | yes / medium | red / high |
-| m04-n17-t717-416826-418915 | e1d-checks-32b-prod30 | scored | yes / high | yes / high | no / medium | no / high | yes / high | red / high |
-| m04-n17-t717-416826-418915 | e1d-checks-27b-dense | scored | yes / high | yes / high | no / medium | no / medium | yes / high | red / high |
-| m04-n17-t717-416826-418915 | e1d-checks-27b-prod30 | scored | yes / high | yes / high | no / medium | no / medium | yes / high | red / high |
-| m04-n17-t717-416826-418915 | e1e-crop-8b-dense | scored | yes / high | yes / medium | no / low | no / high | yes / medium | red / high |
-| m04-n17-t717-416826-418915 | e1e-crop-8b-prod30 | scored | yes / high | no / medium | unclear / low | no / high | yes / medium | red / high |
-| m04-n17-t717-416826-418915 | e1e-cropctx-8b-dense | scored | yes / high | yes / medium | no / low | no / high | yes / medium | red / high |
-| m04-n21-t3011-390297-390800 | e1d-checks-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high |
-| m04-n21-t3011-390297-390800 | e1d-checks-prod30 | scored | yes / high | no / medium | no / low | no / high | no / medium | red / high |
-| m04-n21-t3011-390297-390800 | e1d-checks-32b-dense | scored | yes / high | unclear / low | no / high | no / high | no / medium | red / high |
-| m04-n21-t3011-390297-390800 | e1d-checks-32b-prod30 | scored | yes / high | no / medium | no / high | no / high | no / medium | red / high |
-| m04-n21-t3011-390297-390800 | e1d-checks-27b-dense | scored | yes / high | no / medium | no / high | no / high | no / medium | red / high |
-| m04-n21-t3011-390297-390800 | e1d-checks-27b-prod30 | scored | yes / high | no / medium | no / high | no / medium | no / high | red / high |
-| m04-n21-t3011-390297-390800 | e1e-crop-8b-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high |
-| m04-n21-t3011-390297-390800 | e1e-crop-8b-prod30 | scored | yes / high | no / medium | no / low | no / high | no / medium | red / high |
-| m04-n21-t3011-390297-390800 | e1e-cropctx-8b-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high |
-| m04-n22-t3012-070707-074371 | e1d-checks-dense | scored | yes / high | no / medium | yes / high | no / low | yes / medium | red / high |
-| m04-n22-t3012-070707-074371 | e1d-checks-prod30 | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high |
-| m04-n22-t3012-070707-074371 | e1d-checks-32b-dense | scored | yes / high | unclear / low | no / high | no / high | yes / medium | red / high |
-| m04-n22-t3012-070707-074371 | e1d-checks-32b-prod30 | scored | yes / high | yes / medium | no / low | no / high | yes / medium | red / high |
-| m04-n22-t3012-070707-074371 | e1d-checks-27b-dense | scored | yes / high | yes / high | no / medium | no / high | yes / medium | red / high |
-| m04-n22-t3012-070707-074371 | e1d-checks-27b-prod30 | scored | yes / high | yes / high | no / medium | unclear / low | yes / medium | red / high |
-| m04-n22-t3012-070707-074371 | e1e-crop-8b-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high |
-| m04-n22-t3012-070707-074371 | e1e-crop-8b-prod30 | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high |
-| m04-n22-t3012-070707-074371 | e1e-cropctx-8b-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high |
-| m04-n24-t3013-679939-681217 | e1d-checks-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high |
-| m04-n24-t3013-679939-681217 | e1d-checks-prod30 | scored | yes / high | no / medium | no / low | no / high | yes / medium | black / high |
-| m04-n24-t3013-679939-681217 | e1d-checks-32b-dense | scored | yes / high | no / medium | no / high | no / high | no / medium | red / high |
-| m04-n24-t3013-679939-681217 | e1d-checks-32b-prod30 | scored | yes / high | no / medium | no / low | no / high | no / medium | black / high |
-| m04-n24-t3013-679939-681217 | e1d-checks-27b-dense | scored | yes / high | no / medium | yes / high | no / medium | no / high | red / high |
-| m04-n24-t3013-679939-681217 | e1d-checks-27b-prod30 | scored | yes / high | yes / medium | no / high | unclear / medium | yes / high | red / high |
-| m04-n24-t3013-679939-681217 | e1e-crop-8b-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high |
-| m04-n24-t3013-679939-681217 | e1e-crop-8b-prod30 | scored | yes / high | no / medium | unclear / low | no / high | yes / medium | black / high |
-| m04-n24-t3013-679939-681217 | e1e-cropctx-8b-dense | scored | yes / high | no / medium | no / high | no / high | yes / medium | red / high |
-| m04-n25-t3014-530600-532465 | e1d-checks-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high |
-| m04-n25-t3014-530600-532465 | e1d-checks-prod30 | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high |
-| m04-n25-t3014-530600-532465 | e1d-checks-32b-dense | scored | yes / high | unclear / low | no / high | no / high | yes / medium | red / high |
-| m04-n25-t3014-530600-532465 | e1d-checks-32b-prod30 | scored | yes / high | yes / high | no / medium | no / high | yes / high | red / high |
-| m04-n25-t3014-530600-532465 | e1d-checks-27b-dense | scored | yes / high | yes / high | no / medium | no / high | yes / medium | red / high |
-| m04-n25-t3014-530600-532465 | e1d-checks-27b-prod30 | scored | yes / high | yes / high | no / medium | no / medium | yes / medium | red / high |
-| m04-n25-t3014-530600-532465 | e1e-crop-8b-dense | scored | yes / high | no / medium | no / high | no / high | yes / medium | red / high |
-| m04-n25-t3014-530600-532465 | e1e-crop-8b-prod30 | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high |
-| m04-n25-t3014-530600-532465 | e1e-cropctx-8b-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high |
+| Clip | Run | Status | player_on_pitch | play_in_progress | ball_near_player | player_touches_ball (temporal confound) | player_running (temporal confound) | kit_color_seen | Confounds |
+|---|---|---|---|---|---|---|---|---|---|
+| m04-n02-t3005-474114-478131 | e1d-checks-dense | scored | yes / high | yes / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n02-t3005-474114-478131 | e1d-checks-prod30 | scored | yes / high | no / medium | unclear / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n02-t3005-474114-478131 | e1d-checks-32b-dense | scored | yes / high | yes / medium | no / high | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n02-t3005-474114-478131 | e1d-checks-32b-prod30 | scored | yes / high | yes / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n02-t3005-474114-478131 | e1d-checks-27b-dense | scored | yes / high | yes / high | no / medium | no / medium | yes / high | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n02-t3005-474114-478131 | e1d-checks-27b-prod30 | scored | yes / high | yes / high | no / medium | unclear / low | yes / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n02-t3005-474114-478131 | e1e-crop-8b-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| m04-n02-t3005-474114-478131 | e1e-crop-8b-prod30 | scored | yes / high | no / medium | unclear / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| m04-n02-t3005-474114-478131 | e1e-cropctx-8b-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| m04-n03-t1406-157170-158922 | e1d-checks-dense | scored | yes / high | yes / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n03-t1406-157170-158922 | e1d-checks-prod30 | scored | yes / high | no / medium | unclear / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n03-t1406-157170-158922 | e1d-checks-32b-dense | scored | yes / high | yes / medium | no / high | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n03-t1406-157170-158922 | e1d-checks-32b-prod30 | scored | yes / high | no / medium | no / low | no / low | unclear / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n03-t1406-157170-158922 | e1d-checks-27b-dense | scored | yes / high | yes / high | no / medium | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n03-t1406-157170-158922 | e1d-checks-27b-prod30 | scored | yes / high | yes / medium | no / high | unclear / medium | no / high | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n03-t1406-157170-158922 | e1e-crop-8b-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| m04-n03-t1406-157170-158922 | e1e-crop-8b-prod30 | scored | yes / high | no / medium | no / high | no / high | yes / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| m04-n03-t1406-157170-158922 | e1e-cropctx-8b-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| m04-n03-t1406-385962-387137 | e1d-checks-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n03-t1406-385962-387137 | e1d-checks-prod30 | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n03-t1406-385962-387137 | e1d-checks-32b-dense | scored | yes / high | unclear / low | no / high | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n03-t1406-385962-387137 | e1d-checks-32b-prod30 | scored | yes / high | unclear / low | no / high | no / high | unclear / low | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n03-t1406-385962-387137 | e1d-checks-27b-dense | scored | yes / high | no / medium | unclear / low | no / medium | no / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n03-t1406-385962-387137 | e1d-checks-27b-prod30 | scored | yes / high | unclear / low | no / high | no / high | unclear / low | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n03-t1406-385962-387137 | e1e-crop-8b-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| m04-n03-t1406-385962-387137 | e1e-crop-8b-prod30 | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| m04-n03-t1406-385962-387137 | e1e-cropctx-8b-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| m04-n04-t3006-243433-247994 | e1d-checks-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n04-t3006-243433-247994 | e1d-checks-prod30 | scored | yes / high | no / medium | unclear / low | no / high | yes / medium | blue / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n04-t3006-243433-247994 | e1d-checks-32b-dense | scored | yes / high | yes / medium | no / high | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n04-t3006-243433-247994 | e1d-checks-32b-prod30 | scored | yes / high | yes / medium | unclear / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n04-t3006-243433-247994 | e1d-checks-27b-dense | scored | yes / high | yes / high | no / medium | no / medium | yes / high | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n04-t3006-243433-247994 | e1d-checks-27b-prod30 | scored | yes / high | yes / high | no / medium | unclear / low | yes / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n04-t3006-243433-247994 | e1e-crop-8b-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| m04-n04-t3006-243433-247994 | e1e-crop-8b-prod30 | scored | yes / high | no / medium | unclear / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| m04-n04-t3006-243433-247994 | e1e-cropctx-8b-dense | scored | yes / high | no / medium | unclear / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| m04-n04-t3006-307417-310307 | e1d-checks-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n04-t3006-307417-310307 | e1d-checks-prod30 | scored | yes / high | yes / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n04-t3006-307417-310307 | e1d-checks-32b-dense | scored | yes / high | yes / medium | no / high | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n04-t3006-307417-310307 | e1d-checks-32b-prod30 | scored | yes / high | yes / medium | no / high | no / high | yes / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n04-t3006-307417-310307 | e1d-checks-27b-dense | scored | yes / high | yes / high | no / medium | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n04-t3006-307417-310307 | e1d-checks-27b-prod30 | scored | yes / high | yes / high | no / medium | unclear / low | yes / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n04-t3006-307417-310307 | e1e-crop-8b-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| m04-n04-t3006-307417-310307 | e1e-crop-8b-prod30 | scored | yes / high | no / medium | unclear / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| m04-n04-t3006-307417-310307 | e1e-cropctx-8b-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| m04-n05-t3007-284945-287898 | e1d-checks-dense | scored | yes / high | yes / high | no / medium | no / low | yes / high | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n05-t3007-284945-287898 | e1d-checks-prod30 | scored | yes / high | yes / high | no / medium | no / low | yes / high | blue / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n05-t3007-284945-287898 | e1d-checks-32b-dense | scored | yes / high | yes / medium | no / high | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n05-t3007-284945-287898 | e1d-checks-32b-prod30 | scored | yes / high | yes / high | no / medium | no / high | yes / high | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n05-t3007-284945-287898 | e1d-checks-27b-dense | scored | yes / high | yes / high | no / medium | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n05-t3007-284945-287898 | e1d-checks-27b-prod30 | scored | yes / high | yes / high | no / medium | unclear / low | unclear / low | yellow / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n05-t3007-284945-287898 | e1e-crop-8b-dense | scored | yes / high | yes / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| m04-n05-t3007-284945-287898 | e1e-crop-8b-prod30 | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| m04-n05-t3007-284945-287898 | e1e-cropctx-8b-dense | scored | yes / high | yes / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| m04-n09-t1409-143096-143834 | e1d-checks-dense | scored | yes / high | yes / medium | no / high | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n09-t1409-143096-143834 | e1d-checks-prod30 | scored | no / high | yes / medium | no / high | no / high | no / high | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n09-t1409-143096-143834 | e1d-checks-32b-dense | scored | no / high | yes / high | no / high | no / high | no / high | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n09-t1409-143096-143834 | e1d-checks-32b-prod30 | scored | yes / high | no / medium | no / low | no / low | no / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n09-t1409-143096-143834 | e1d-checks-27b-dense | scored | no / high | yes / high | no / high | no / high | no / high | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n09-t1409-143096-143834 | e1d-checks-27b-prod30 | scored | yes / high | yes / high | no / medium | no / high | no / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n09-t1409-143096-143834 | e1e-crop-8b-dense | scored | yes / high | no / medium | no / high | no / high | no / high | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| m04-n09-t1409-143096-143834 | e1e-crop-8b-prod30 | scored | no / high | yes / medium | no / high | no / high | no / high | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| m04-n09-t1409-143096-143834 | e1e-cropctx-8b-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| m04-n09-t1409-297601-298865 | e1d-checks-dense | scored | yes / high | yes / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n09-t1409-297601-298865 | e1d-checks-prod30 | scored | yes / high | no / medium | unclear / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n09-t1409-297601-298865 | e1d-checks-32b-dense | scored | yes / high | yes / medium | no / high | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n09-t1409-297601-298865 | e1d-checks-32b-prod30 | scored | yes / high | unclear / low | no / high | no / high | unclear / low | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n09-t1409-297601-298865 | e1d-checks-27b-dense | scored | yes / high | yes / high | no / medium | unclear / low | yes / high | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n09-t1409-297601-298865 | e1d-checks-27b-prod30 | scored | yes / high | yes / high | no / medium | no / medium | unclear / low | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n09-t1409-297601-298865 | e1e-crop-8b-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| m04-n09-t1409-297601-298865 | e1e-crop-8b-prod30 | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| m04-n09-t1409-297601-298865 | e1e-cropctx-8b-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| m04-n09-t1409-385922-386603 | e1d-checks-dense | scored | yes / high | no / medium | unclear / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n09-t1409-385922-386603 | e1d-checks-prod30 | scored | yes / high | no / medium | unclear / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n09-t1409-385922-386603 | e1d-checks-32b-dense | scored | yes / high | unclear / low | no / high | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n09-t1409-385922-386603 | e1d-checks-32b-prod30 | scored | yes / high | unclear / low | no / high | no / high | unclear / low | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n09-t1409-385922-386603 | e1d-checks-27b-dense | scored | yes / high | no / medium | unclear / low | no / medium | no / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n09-t1409-385922-386603 | e1d-checks-27b-prod30 | scored | yes / high | unclear / low | no / high | no / high | unclear / low | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n09-t1409-385922-386603 | e1e-crop-8b-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| m04-n09-t1409-385922-386603 | e1e-crop-8b-prod30 | scored | yes / high | no / medium | no / low | no / high | no / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| m04-n09-t1409-385922-386603 | e1e-cropctx-8b-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| m04-n10-t711-186553-188161 | e1d-checks-dense | scored | yes / high | yes / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n10-t711-186553-188161 | e1d-checks-prod30 | scored | yes / high | no / medium | no / low | no / high | yes / medium | blue / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n10-t711-186553-188161 | e1d-checks-32b-dense | scored | yes / high | yes / medium | no / high | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n10-t711-186553-188161 | e1d-checks-32b-prod30 | scored | yes / high | yes / medium | no / high | no / high | no / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n10-t711-186553-188161 | e1d-checks-27b-dense | scored | yes / high | yes / high | no / medium | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n10-t711-186553-188161 | e1d-checks-27b-prod30 | scored | yes / high | yes / high | no / medium | unclear / low | no / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n10-t711-186553-188161 | e1e-crop-8b-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| m04-n10-t711-186553-188161 | e1e-crop-8b-prod30 | scored | yes / high | no / medium | no / high | no / high | yes / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| m04-n10-t711-186553-188161 | e1e-cropctx-8b-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| m04-n12-t1411-237107-242145 | e1d-checks-dense | scored | yes / high | yes / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n12-t1411-237107-242145 | e1d-checks-prod30 | scored | yes / high | no / medium | unclear / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n12-t1411-237107-242145 | e1d-checks-32b-dense | scored | yes / high | yes / medium | no / high | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n12-t1411-237107-242145 | e1d-checks-32b-prod30 | scored | yes / high | yes / medium | unclear / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n12-t1411-237107-242145 | e1d-checks-27b-dense | scored | yes / high | yes / high | no / medium | no / medium | yes / high | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n12-t1411-237107-242145 | e1d-checks-27b-prod30 | scored | yes / high | yes / high | no / medium | unclear / low | yes / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n12-t1411-237107-242145 | e1e-crop-8b-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| m04-n12-t1411-237107-242145 | e1e-crop-8b-prod30 | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| m04-n12-t1411-237107-242145 | e1e-cropctx-8b-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| m04-n12-t1411-679986-681985 | e1d-checks-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n12-t1411-679986-681985 | e1d-checks-prod30 | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n12-t1411-679986-681985 | e1d-checks-32b-dense | scored | yes / high | no / medium | yes / high | no / medium | no / high | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n12-t1411-679986-681985 | e1d-checks-32b-prod30 | scored | yes / high | yes / medium | no / high | no / high | no / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n12-t1411-679986-681985 | e1d-checks-27b-dense | scored | yes / high | no / medium | yes / high | no / medium | no / high | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n12-t1411-679986-681985 | e1d-checks-27b-prod30 | scored | yes / high | yes / high | no / medium | no / high | unclear / low | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n12-t1411-679986-681985 | e1e-crop-8b-dense | scored | yes / high | no / medium | no / high | no / high | no / high | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| m04-n12-t1411-679986-681985 | e1e-crop-8b-prod30 | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| m04-n12-t1411-679986-681985 | e1e-cropctx-8b-dense | scored | yes / high | no / medium | no / low | no / high | no / high | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| m04-n15-t3010-164698-170777 | e1d-checks-dense | scored | yes / high | yes / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n15-t3010-164698-170777 | e1d-checks-prod30 | scored | yes / high | no / medium | unclear / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n15-t3010-164698-170777 | e1d-checks-32b-dense | scored | yes / high | yes / medium | no / high | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n15-t3010-164698-170777 | e1d-checks-32b-prod30 | scored | yes / high | unclear / low | no / medium | no / high | yes / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n15-t3010-164698-170777 | e1d-checks-27b-dense | scored | yes / high | yes / high | no / medium | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n15-t3010-164698-170777 | e1d-checks-27b-prod30 | scored | yes / high | yes / high | no / medium | unclear / low | yes / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n15-t3010-164698-170777 | e1e-crop-8b-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| m04-n15-t3010-164698-170777 | e1e-crop-8b-prod30 | scored | yes / high | no / medium | unclear / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| m04-n15-t3010-164698-170777 | e1e-cropctx-8b-dense | scored | yes / high | yes / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| m04-n17-t717-253073-260377 | e1d-checks-dense | scored | yes / high | yes / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n17-t717-253073-260377 | e1d-checks-prod30 | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n17-t717-253073-260377 | e1d-checks-32b-dense | scored | yes / high | yes / medium | no / high | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n17-t717-253073-260377 | e1d-checks-32b-prod30 | scored | yes / high | yes / medium | no / high | no / high | yes / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n17-t717-253073-260377 | e1d-checks-27b-dense | scored | yes / high | yes / high | no / medium | no / medium | yes / high | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n17-t717-253073-260377 | e1d-checks-27b-prod30 | scored | yes / high | yes / high | no / medium | unclear / low | yes / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n17-t717-253073-260377 | e1e-crop-8b-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| m04-n17-t717-253073-260377 | e1e-crop-8b-prod30 | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| m04-n17-t717-253073-260377 | e1e-cropctx-8b-dense | scored | yes / high | yes / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| m04-n17-t717-304624-307834 | e1d-checks-dense | scored | yes / high | yes / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n17-t717-304624-307834 | e1d-checks-prod30 | scored | yes / high | no / medium | unclear / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n17-t717-304624-307834 | e1d-checks-32b-dense | scored | yes / high | yes / medium | no / high | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n17-t717-304624-307834 | e1d-checks-32b-prod30 | scored | yes / high | unclear / low | unclear / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n17-t717-304624-307834 | e1d-checks-27b-dense | scored | yes / high | yes / high | no / medium | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n17-t717-304624-307834 | e1d-checks-27b-prod30 | scored | yes / high | yes / high | no / medium | unclear / low | yes / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n17-t717-304624-307834 | e1e-crop-8b-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| m04-n17-t717-304624-307834 | e1e-crop-8b-prod30 | scored | yes / high | no / medium | unclear / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| m04-n17-t717-304624-307834 | e1e-cropctx-8b-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| m04-n17-t717-416826-418915 | e1d-checks-dense | scored | yes / high | yes / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n17-t717-416826-418915 | e1d-checks-prod30 | scored | yes / high | no / medium | unclear / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n17-t717-416826-418915 | e1d-checks-32b-dense | scored | yes / high | yes / medium | no / high | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n17-t717-416826-418915 | e1d-checks-32b-prod30 | scored | yes / high | yes / high | no / medium | no / high | yes / high | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n17-t717-416826-418915 | e1d-checks-27b-dense | scored | yes / high | yes / high | no / medium | no / medium | yes / high | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n17-t717-416826-418915 | e1d-checks-27b-prod30 | scored | yes / high | yes / high | no / medium | no / medium | yes / high | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n17-t717-416826-418915 | e1e-crop-8b-dense | scored | yes / high | yes / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| m04-n17-t717-416826-418915 | e1e-crop-8b-prod30 | scored | yes / high | no / medium | unclear / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| m04-n17-t717-416826-418915 | e1e-cropctx-8b-dense | scored | yes / high | yes / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| m04-n21-t3011-390297-390800 | e1d-checks-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n21-t3011-390297-390800 | e1d-checks-prod30 | scored | yes / high | no / medium | no / low | no / high | no / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n21-t3011-390297-390800 | e1d-checks-32b-dense | scored | yes / high | unclear / low | no / high | no / high | no / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n21-t3011-390297-390800 | e1d-checks-32b-prod30 | scored | yes / high | no / medium | no / high | no / high | no / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n21-t3011-390297-390800 | e1d-checks-27b-dense | scored | yes / high | no / medium | no / high | no / high | no / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n21-t3011-390297-390800 | e1d-checks-27b-prod30 | scored | yes / high | no / medium | no / high | no / medium | no / high | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n21-t3011-390297-390800 | e1e-crop-8b-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| m04-n21-t3011-390297-390800 | e1e-crop-8b-prod30 | scored | yes / high | no / medium | no / low | no / high | no / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| m04-n21-t3011-390297-390800 | e1e-cropctx-8b-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| m04-n22-t3012-070707-074371 | e1d-checks-dense | scored | yes / high | no / medium | yes / high | no / low | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n22-t3012-070707-074371 | e1d-checks-prod30 | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n22-t3012-070707-074371 | e1d-checks-32b-dense | scored | yes / high | unclear / low | no / high | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n22-t3012-070707-074371 | e1d-checks-32b-prod30 | scored | yes / high | yes / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n22-t3012-070707-074371 | e1d-checks-27b-dense | scored | yes / high | yes / high | no / medium | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n22-t3012-070707-074371 | e1d-checks-27b-prod30 | scored | yes / high | yes / high | no / medium | unclear / low | yes / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n22-t3012-070707-074371 | e1e-crop-8b-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| m04-n22-t3012-070707-074371 | e1e-crop-8b-prod30 | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| m04-n22-t3012-070707-074371 | e1e-cropctx-8b-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| m04-n24-t3013-679939-681217 | e1d-checks-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n24-t3013-679939-681217 | e1d-checks-prod30 | scored | yes / high | no / medium | no / low | no / high | yes / medium | black / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n24-t3013-679939-681217 | e1d-checks-32b-dense | scored | yes / high | no / medium | no / high | no / high | no / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n24-t3013-679939-681217 | e1d-checks-32b-prod30 | scored | yes / high | no / medium | no / low | no / high | no / medium | black / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n24-t3013-679939-681217 | e1d-checks-27b-dense | scored | yes / high | no / medium | yes / high | no / medium | no / high | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n24-t3013-679939-681217 | e1d-checks-27b-prod30 | scored | yes / high | yes / medium | no / high | unclear / medium | yes / high | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n24-t3013-679939-681217 | e1e-crop-8b-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| m04-n24-t3013-679939-681217 | e1e-crop-8b-prod30 | scored | yes / high | no / medium | unclear / low | no / high | yes / medium | black / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| m04-n24-t3013-679939-681217 | e1e-cropctx-8b-dense | scored | yes / high | no / medium | no / high | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| m04-n25-t3014-530600-532465 | e1d-checks-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n25-t3014-530600-532465 | e1d-checks-prod30 | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n25-t3014-530600-532465 | e1d-checks-32b-dense | scored | yes / high | unclear / low | no / high | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n25-t3014-530600-532465 | e1d-checks-32b-prod30 | scored | yes / high | yes / high | no / medium | no / high | yes / high | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n25-t3014-530600-532465 | e1d-checks-27b-dense | scored | yes / high | yes / high | no / medium | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n25-t3014-530600-532465 | e1d-checks-27b-prod30 | scored | yes / high | yes / high | no / medium | no / medium | yes / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. |
+| m04-n25-t3014-530600-532465 | e1e-crop-8b-dense | scored | yes / high | no / medium | no / high | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| m04-n25-t3014-530600-532465 | e1e-crop-8b-prod30 | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
+| m04-n25-t3014-530600-532465 | e1e-cropctx-8b-dense | scored | yes / high | no / medium | no / low | no / high | yes / medium | red / high | Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition. Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near. |
 
 First available question reason per scored clip, in contract question order; first five such clips in selected manifest order, verbatim. Missing optional reasons are never invented.
 
@@ -481,8 +569,10 @@ Caveats:
 - Reason strings are verbatim audit text and never scored. Failed reads remain failed; comparison metrics use only shared scored IDs. Thresholds are withheld for incomplete coverage or no shared scores.
 - Wall time includes extraction/drawing and failures, with warm-model effects possible. Thinking rate counts all attempts in full-run reports; comparison rates use shared attempts.
 - No adoption call: MJ owns that decision. This bench does not wire checks into the production honesty gate.
-- Every saved touch answer across the nine runs is no/unclear, but 12 frames spread over a long window leave multi-second gaps while a touch lasts a fraction of a second. The inspected n12 middle crop is clear and contains no nearby ball. Raw 0/6 is not evidence that the model cannot see a touch: these frames rarely contain one, and touch recall is not measurable at this sampling. The on-pitch/sideline failures are unaffected because that distinction is visible in any frame. Follow-up: moment windows — at least 8 frames at at least 4 fps in the 2 s around a human-marked touch time; MJ must mark touch times on the six clips. No new inference in r2.
+- Every saved touch answer across the nine runs is no/unclear, but 12 frames spread over a long window leave multi-second gaps while a touch lasts a fraction of a second. The inspected n12 middle crop is clear and contains no nearby ball. Raw 0/6 is not evidence that the model cannot see a touch: these frames rarely contain one, and touch recall is not measurable at this sampling. Wide-frame on-pitch/sideline results retain context; crop on-pitch and ball-near results have a spatial confound. Follow-up: moment windows — at least 8 frames at at least 4 fps in the 2 s around a human-marked touch time; MJ must mark touch times on the six clips. No new inference in r2.
 - Confidence is uncalibrated and prompt-sensitive: on both pilot clips, touch no/low changed to no/high after the reason instruction changed. Modal share and baseline comparisons expose near-constant priors; low touch false-yes alone is not sensitivity.
+- Crop spatial confound: the sideline is largely cropped out of crops-only images; crop+context supplies only a 512-wide full frame, not the wide baseline. All three crop variants are excluded from the gate-1 headline. Their on-pitch numbers do not isolate sideline recognition. A ball outside the crop also confounds ball-near.
+- Reviewed dataset: dense true-touch still spacing is 1.58–6.62 s; run-wide mean spacing is 2.49 s dense and 23.99 s sparse. Review estimate: a perfect detector would score approximately 1/6 dense and 0/6 sparse, making the 2/6 crop scheduling rule 'unattainable by construction' under that assumption. This is not a measured detector bound: spacing alone cannot establish visibility, a perfect-detector score or mathematical impossibility. Human touch timestamps and frame-level visibility labels are still needed.
 
 Temporal sampling (distinct timestamps; context pairs counted once):
 
@@ -1383,7 +1473,7 @@ Crop geometry (decoded lane-B frames, resized to 768 square):
 - crop8_prod30: side 384–689 px; scale 1.115–2.000; 29 instants / 29 images.
 - cropctx8_dense: side 384–689 px; scale 1.115–2.000; 238 instants / 476 images.
 
-32B crop run remained skipped under the original scheduling rule. Its raw 0/6 trigger is confounded by temporal sampling; r2 makes no model-capability inference from it.
+32B crop run: NO — evaluated from the saved 8B crop answers. The original scheduling rule cannot assess detector capability with these stills. Reviewed dataset: dense true-touch still spacing is 1.58–6.62 s; run-wide mean spacing is 2.49 s dense and 23.99 s sparse. Review estimate: a perfect detector would score approximately 1/6 dense and 0/6 sparse, making the 2/6 crop scheduling rule 'unattainable by construction' under that assumption. This is not a measured detector bound: spacing alone cannot establish visibility, a perfect-detector score or mathematical impossibility. Human touch timestamps and frame-level visibility labels are still needed.
 
 Three inspected example crop PNGs (external, not committed):
 
@@ -1395,7 +1485,7 @@ Execution/gates:
 
 ```json
 {
-  "round": "r2; scorer/ledger only; no new inference",
+  "round": "r3; code/ledger only; no new inference",
   "base_commit": "b96e6b2",
   "historical_execution": {
     "timeout_s": 900,
@@ -1713,601 +1803,7 @@ Execution/gates:
     "experiment": "E1e lane C \u2014 player-centred crops with unchanged six checks",
     "base_commit": "113624e6",
     "thinking_channel_diagnostic": {},
-    "crop_geometry": {
-      "crop8_dense": {
-        "crop_side_px_min": 384,
-        "crop_side_px_max": 689,
-        "crop_scale_min": 1.1146589259796806,
-        "crop_scale_max": 2.0,
-        "crop_output_size": [
-          768,
-          768
-        ],
-        "context_width": null,
-        "per_clip_counts": [
-          {
-            "clip_id": "m04-n02-t3005-474114-478131",
-            "sampled_instants": 12,
-            "sent_images": 12,
-            "crop_images": 12,
-            "context_images": 0
-          },
-          {
-            "clip_id": "m04-n03-t1406-157170-158922",
-            "sampled_instants": 12,
-            "sent_images": 12,
-            "crop_images": 12,
-            "context_images": 0
-          },
-          {
-            "clip_id": "m04-n03-t1406-385962-387137",
-            "sampled_instants": 12,
-            "sent_images": 12,
-            "crop_images": 12,
-            "context_images": 0
-          },
-          {
-            "clip_id": "m04-n04-t3006-243433-247994",
-            "sampled_instants": 12,
-            "sent_images": 12,
-            "crop_images": 12,
-            "context_images": 0
-          },
-          {
-            "clip_id": "m04-n04-t3006-307417-310307",
-            "sampled_instants": 12,
-            "sent_images": 12,
-            "crop_images": 12,
-            "context_images": 0
-          },
-          {
-            "clip_id": "m04-n05-t3007-284945-287898",
-            "sampled_instants": 12,
-            "sent_images": 12,
-            "crop_images": 12,
-            "context_images": 0
-          },
-          {
-            "clip_id": "m04-n09-t1409-143096-143834",
-            "sampled_instants": 12,
-            "sent_images": 12,
-            "crop_images": 12,
-            "context_images": 0
-          },
-          {
-            "clip_id": "m04-n09-t1409-297601-298865",
-            "sampled_instants": 12,
-            "sent_images": 12,
-            "crop_images": 12,
-            "context_images": 0
-          },
-          {
-            "clip_id": "m04-n09-t1409-385922-386603",
-            "sampled_instants": 12,
-            "sent_images": 12,
-            "crop_images": 12,
-            "context_images": 0
-          },
-          {
-            "clip_id": "m04-n10-t711-186553-188161",
-            "sampled_instants": 12,
-            "sent_images": 12,
-            "crop_images": 12,
-            "context_images": 0
-          },
-          {
-            "clip_id": "m04-n12-t1411-237107-242145",
-            "sampled_instants": 12,
-            "sent_images": 12,
-            "crop_images": 12,
-            "context_images": 0
-          },
-          {
-            "clip_id": "m04-n12-t1411-679986-681985",
-            "sampled_instants": 12,
-            "sent_images": 12,
-            "crop_images": 12,
-            "context_images": 0
-          },
-          {
-            "clip_id": "m04-n15-t3010-164698-170777",
-            "sampled_instants": 12,
-            "sent_images": 12,
-            "crop_images": 12,
-            "context_images": 0
-          },
-          {
-            "clip_id": "m04-n17-t717-253073-260377",
-            "sampled_instants": 12,
-            "sent_images": 12,
-            "crop_images": 12,
-            "context_images": 0
-          },
-          {
-            "clip_id": "m04-n17-t717-304624-307834",
-            "sampled_instants": 12,
-            "sent_images": 12,
-            "crop_images": 12,
-            "context_images": 0
-          },
-          {
-            "clip_id": "m04-n17-t717-416826-418915",
-            "sampled_instants": 12,
-            "sent_images": 12,
-            "crop_images": 12,
-            "context_images": 0
-          },
-          {
-            "clip_id": "m04-n21-t3011-390297-390800",
-            "sampled_instants": 10,
-            "sent_images": 10,
-            "crop_images": 10,
-            "context_images": 0
-          },
-          {
-            "clip_id": "m04-n22-t3012-070707-074371",
-            "sampled_instants": 12,
-            "sent_images": 12,
-            "crop_images": 12,
-            "context_images": 0
-          },
-          {
-            "clip_id": "m04-n24-t3013-679939-681217",
-            "sampled_instants": 12,
-            "sent_images": 12,
-            "crop_images": 12,
-            "context_images": 0
-          },
-          {
-            "clip_id": "m04-n25-t3014-530600-532465",
-            "sampled_instants": 12,
-            "sent_images": 12,
-            "crop_images": 12,
-            "context_images": 0
-          }
-        ],
-        "sampled_instants": 238,
-        "sent_images": 238,
-        "coordinate_space": "Decoded lane-B frames; source truth scaled before crop geometry"
-      },
-      "crop8_prod30": {
-        "crop_side_px_min": 384,
-        "crop_side_px_max": 689,
-        "crop_scale_min": 1.1146589259796806,
-        "crop_scale_max": 2.0,
-        "crop_output_size": [
-          768,
-          768
-        ],
-        "context_width": null,
-        "per_clip_counts": [
-          {
-            "clip_id": "m04-n02-t3005-474114-478131",
-            "sampled_instants": 2,
-            "sent_images": 2,
-            "crop_images": 2,
-            "context_images": 0
-          },
-          {
-            "clip_id": "m04-n03-t1406-157170-158922",
-            "sampled_instants": 1,
-            "sent_images": 1,
-            "crop_images": 1,
-            "context_images": 0
-          },
-          {
-            "clip_id": "m04-n03-t1406-385962-387137",
-            "sampled_instants": 1,
-            "sent_images": 1,
-            "crop_images": 1,
-            "context_images": 0
-          },
-          {
-            "clip_id": "m04-n04-t3006-243433-247994",
-            "sampled_instants": 2,
-            "sent_images": 2,
-            "crop_images": 2,
-            "context_images": 0
-          },
-          {
-            "clip_id": "m04-n04-t3006-307417-310307",
-            "sampled_instants": 1,
-            "sent_images": 1,
-            "crop_images": 1,
-            "context_images": 0
-          },
-          {
-            "clip_id": "m04-n05-t3007-284945-287898",
-            "sampled_instants": 1,
-            "sent_images": 1,
-            "crop_images": 1,
-            "context_images": 0
-          },
-          {
-            "clip_id": "m04-n09-t1409-143096-143834",
-            "sampled_instants": 1,
-            "sent_images": 1,
-            "crop_images": 1,
-            "context_images": 0
-          },
-          {
-            "clip_id": "m04-n09-t1409-297601-298865",
-            "sampled_instants": 1,
-            "sent_images": 1,
-            "crop_images": 1,
-            "context_images": 0
-          },
-          {
-            "clip_id": "m04-n09-t1409-385922-386603",
-            "sampled_instants": 1,
-            "sent_images": 1,
-            "crop_images": 1,
-            "context_images": 0
-          },
-          {
-            "clip_id": "m04-n10-t711-186553-188161",
-            "sampled_instants": 1,
-            "sent_images": 1,
-            "crop_images": 1,
-            "context_images": 0
-          },
-          {
-            "clip_id": "m04-n12-t1411-237107-242145",
-            "sampled_instants": 2,
-            "sent_images": 2,
-            "crop_images": 2,
-            "context_images": 0
-          },
-          {
-            "clip_id": "m04-n12-t1411-679986-681985",
-            "sampled_instants": 1,
-            "sent_images": 1,
-            "crop_images": 1,
-            "context_images": 0
-          },
-          {
-            "clip_id": "m04-n15-t3010-164698-170777",
-            "sampled_instants": 3,
-            "sent_images": 3,
-            "crop_images": 3,
-            "context_images": 0
-          },
-          {
-            "clip_id": "m04-n17-t717-253073-260377",
-            "sampled_instants": 3,
-            "sent_images": 3,
-            "crop_images": 3,
-            "context_images": 0
-          },
-          {
-            "clip_id": "m04-n17-t717-304624-307834",
-            "sampled_instants": 2,
-            "sent_images": 2,
-            "crop_images": 2,
-            "context_images": 0
-          },
-          {
-            "clip_id": "m04-n17-t717-416826-418915",
-            "sampled_instants": 1,
-            "sent_images": 1,
-            "crop_images": 1,
-            "context_images": 0
-          },
-          {
-            "clip_id": "m04-n21-t3011-390297-390800",
-            "sampled_instants": 1,
-            "sent_images": 1,
-            "crop_images": 1,
-            "context_images": 0
-          },
-          {
-            "clip_id": "m04-n22-t3012-070707-074371",
-            "sampled_instants": 2,
-            "sent_images": 2,
-            "crop_images": 2,
-            "context_images": 0
-          },
-          {
-            "clip_id": "m04-n24-t3013-679939-681217",
-            "sampled_instants": 1,
-            "sent_images": 1,
-            "crop_images": 1,
-            "context_images": 0
-          },
-          {
-            "clip_id": "m04-n25-t3014-530600-532465",
-            "sampled_instants": 1,
-            "sent_images": 1,
-            "crop_images": 1,
-            "context_images": 0
-          }
-        ],
-        "sampled_instants": 29,
-        "sent_images": 29,
-        "coordinate_space": "Decoded lane-B frames; source truth scaled before crop geometry"
-      },
-      "cropctx8_dense": {
-        "crop_side_px_min": 384,
-        "crop_side_px_max": 689,
-        "crop_scale_min": 1.1146589259796806,
-        "crop_scale_max": 2.0,
-        "crop_output_size": [
-          768,
-          768
-        ],
-        "context_width": 512,
-        "per_clip_counts": [
-          {
-            "clip_id": "m04-n02-t3005-474114-478131",
-            "sampled_instants": 12,
-            "sent_images": 24,
-            "crop_images": 12,
-            "context_images": 12
-          },
-          {
-            "clip_id": "m04-n03-t1406-157170-158922",
-            "sampled_instants": 12,
-            "sent_images": 24,
-            "crop_images": 12,
-            "context_images": 12
-          },
-          {
-            "clip_id": "m04-n03-t1406-385962-387137",
-            "sampled_instants": 12,
-            "sent_images": 24,
-            "crop_images": 12,
-            "context_images": 12
-          },
-          {
-            "clip_id": "m04-n04-t3006-243433-247994",
-            "sampled_instants": 12,
-            "sent_images": 24,
-            "crop_images": 12,
-            "context_images": 12
-          },
-          {
-            "clip_id": "m04-n04-t3006-307417-310307",
-            "sampled_instants": 12,
-            "sent_images": 24,
-            "crop_images": 12,
-            "context_images": 12
-          },
-          {
-            "clip_id": "m04-n05-t3007-284945-287898",
-            "sampled_instants": 12,
-            "sent_images": 24,
-            "crop_images": 12,
-            "context_images": 12
-          },
-          {
-            "clip_id": "m04-n09-t1409-143096-143834",
-            "sampled_instants": 12,
-            "sent_images": 24,
-            "crop_images": 12,
-            "context_images": 12
-          },
-          {
-            "clip_id": "m04-n09-t1409-297601-298865",
-            "sampled_instants": 12,
-            "sent_images": 24,
-            "crop_images": 12,
-            "context_images": 12
-          },
-          {
-            "clip_id": "m04-n09-t1409-385922-386603",
-            "sampled_instants": 12,
-            "sent_images": 24,
-            "crop_images": 12,
-            "context_images": 12
-          },
-          {
-            "clip_id": "m04-n10-t711-186553-188161",
-            "sampled_instants": 12,
-            "sent_images": 24,
-            "crop_images": 12,
-            "context_images": 12
-          },
-          {
-            "clip_id": "m04-n12-t1411-237107-242145",
-            "sampled_instants": 12,
-            "sent_images": 24,
-            "crop_images": 12,
-            "context_images": 12
-          },
-          {
-            "clip_id": "m04-n12-t1411-679986-681985",
-            "sampled_instants": 12,
-            "sent_images": 24,
-            "crop_images": 12,
-            "context_images": 12
-          },
-          {
-            "clip_id": "m04-n15-t3010-164698-170777",
-            "sampled_instants": 12,
-            "sent_images": 24,
-            "crop_images": 12,
-            "context_images": 12
-          },
-          {
-            "clip_id": "m04-n17-t717-253073-260377",
-            "sampled_instants": 12,
-            "sent_images": 24,
-            "crop_images": 12,
-            "context_images": 12
-          },
-          {
-            "clip_id": "m04-n17-t717-304624-307834",
-            "sampled_instants": 12,
-            "sent_images": 24,
-            "crop_images": 12,
-            "context_images": 12
-          },
-          {
-            "clip_id": "m04-n17-t717-416826-418915",
-            "sampled_instants": 12,
-            "sent_images": 24,
-            "crop_images": 12,
-            "context_images": 12
-          },
-          {
-            "clip_id": "m04-n21-t3011-390297-390800",
-            "sampled_instants": 10,
-            "sent_images": 20,
-            "crop_images": 10,
-            "context_images": 10
-          },
-          {
-            "clip_id": "m04-n22-t3012-070707-074371",
-            "sampled_instants": 12,
-            "sent_images": 24,
-            "crop_images": 12,
-            "context_images": 12
-          },
-          {
-            "clip_id": "m04-n24-t3013-679939-681217",
-            "sampled_instants": 12,
-            "sent_images": 24,
-            "crop_images": 12,
-            "context_images": 12
-          },
-          {
-            "clip_id": "m04-n25-t3014-530600-532465",
-            "sampled_instants": 12,
-            "sent_images": 24,
-            "crop_images": 12,
-            "context_images": 12
-          }
-        ],
-        "sampled_instants": 238,
-        "sent_images": 476,
-        "coordinate_space": "Decoded lane-B frames; source truth scaled before crop geometry"
-      }
-    },
-    "example_crops": [
-      {
-        "path": "/Users/mjjones/Projects/loanarmy-bench-reports/e1e-crop-examples/m04-n12-t1411-237107-242145-sample-00.png",
-        "t": 2371.12,
-        "sent_w": 768,
-        "sent_h": 768,
-        "target_t": 2371.12,
-        "sampling_shift_s": 0.0,
-        "crop_side_px": 384,
-        "crop_scale": 2.0,
-        "crop_rect": [
-          752,
-          74,
-          1136,
-          458
-        ],
-        "decoded_frame_size": [
-          1280,
-          720
-        ],
-        "box_decoded_space": [
-          936.1904761904767,
-          241.14285714285654,
-          952.285714285713,
-          291.3333333333333
-        ],
-        "box": [
-          368.38095238095343,
-          334.2857142857131,
-          400.57142857142594,
-          434.66666666666663
-        ],
-        "image_kind": "crop",
-        "sha256": "f124e405b5f90d6fe7f68cdf4bc799a0370f6324ffcd7d97685232c1be5fc8a7"
-      },
-      {
-        "path": "/Users/mjjones/Projects/loanarmy-bench-reports/e1e-crop-examples/m04-n12-t1411-237107-242145-sample-05.png",
-        "t": 2393.975,
-        "sent_w": 768,
-        "sent_h": 768,
-        "target_t": 2393.975,
-        "sampling_shift_s": 0.0,
-        "crop_side_px": 384,
-        "crop_scale": 2.0,
-        "crop_rect": [
-          7,
-          191,
-          391,
-          575
-        ],
-        "decoded_frame_size": [
-          1280,
-          720
-        ],
-        "box_decoded_space": [
-          184.90000000000228,
-          346.66666666666663,
-          213.20000000000303,
-          418.66666666666663
-        ],
-        "box": [
-          355.80000000000456,
-          311.33333333333326,
-          412.40000000000606,
-          455.33333333333326
-        ],
-        "image_kind": "crop",
-        "sha256": "56e99a5e7fe703016f6bc5768a3eeb0194b8b0a9d5f933bc113f8818312aa13b"
-      },
-      {
-        "path": "/Users/mjjones/Projects/loanarmy-bench-reports/e1e-crop-examples/m04-n12-t1411-237107-242145-sample-11.png",
-        "t": 2421.4,
-        "sent_w": 768,
-        "sent_h": 768,
-        "target_t": 2421.4,
-        "sampling_shift_s": 0.0,
-        "crop_side_px": 384,
-        "crop_scale": 2.0,
-        "crop_rect": [
-          813,
-          145,
-          1197,
-          529
-        ],
-        "decoded_frame_size": [
-          1280,
-          720
-        ],
-        "box_decoded_space": [
-          989.5555555556061,
-          308.1111111111136,
-          1020.0000000000455,
-          365.1111111111061
-        ],
-        "box": [
-          353.11111111121227,
-          326.2222222222272,
-          414.00000000009095,
-          440.22222222221217
-        ],
-        "image_kind": "crop",
-        "sha256": "6b0dbfc380de794aa5538bd3a548d23df1e96a3dd3b7699a6b08703b0fcfffa2"
-      }
-    ],
-    "decision_32b": {
-      "recalls": {
-        "e1e-crop-8b-dense": {
-          "hits": [],
-          "count": 0,
-          "denominator": 6
-        },
-        "e1e-crop-8b-prod30": {
-          "hits": [],
-          "count": 0,
-          "denominator": 6
-        },
-        "e1e-cropctx-8b-dense": {
-          "hits": [],
-          "count": 0,
-          "denominator": 6
-        }
-      },
-      "run": false,
-      "rule": "At least 2/6 yes on true-touch clips in any 8B run"
-    }
+    "known_truth_error": "Five explicit rule-derived cells corrected in r2. MJ source notes remain unchanged; no additional specific correction received."
   },
   "previous_truth": {
     "m04-n02-t3005-474114-478131": {
@@ -3782,9 +3278,18 @@ Execution/gates:
       "cropctx8_dense": "e1e-cropctx-8b-dense"
     },
     "allow_mixed": true,
-    "output_stem": "evidence-bench-2026-09-10-lane-c-crops"
+    "output_stem": "evidence-bench-2026-09-10-lane-c-crops",
+    "baseline_run": "8b_dense",
+    "example_crops": "/Users/mjjones/Projects/loanarmy-bench-reports/e1e-crop-examples"
   },
-  "validation": {
+  "not_done": "No new inference or moment-window bench. MJ touch times and sampled-frame visibility labels are needed; the review perfect-detector estimate/unattainable wording is not a measured bound. No adoption decision or push.",
+  "round_base_commit": "60d5772",
+  "r2_verification": "Before changes, all three JSON/MD pairs regenerated byte-for-byte from committed r2 comparator and execution inputs. Existing null recall and FPS metrics retained.",
+  "review_headline": "Across 8B, 32B and 27B, wide frames or 768-px crops, every model says 'on pitch, high confidence' for players stretching, warming up or in warm-up kit on the sideline, and no run could have detected a touch because the stills are 1.6\u20136.6 s apart \u2014 the bench has shown the checks are blind to sideline context and has not yet tested touch detection at all.",
+  "positive_touch_caveat": "Temporal confound: dense true-touch mean still spacing is 1.58, 4.14, 4.57, 5.52, 6.62 and 1.88 s; run-wide mean spacing is 2.49 s dense and 23.99 s sparse. Raw 0/6 is not a detector score. Review estimate of perfect-detector 1/6 dense or 0/6 sparse, and 2/6 being unattainable by construction, is an assumption rather than a bound proved by these stills. Running rows share the temporal confound; crop sideline and ball-near rows also have spatial confounds.",
+  "exact_regeneration_command": "/Users/mjjones/Projects/loanarmy/.loan/bin/python spike/video-analysis/bench/compare_checks.py --reports-root /Users/mjjones/Projects/loanarmy-bench-reports --manifest /Users/mjjones/Projects/loanarmy-bench-frozen/manifest.json --execution spike/video-analysis/bench/fixtures/lane-c-crops-execution.json --runs 8b_dense=e1d-checks-dense 8b_prod30=e1d-checks-prod30 32b_dense=e1d-checks-32b-dense 32b_prod30=e1d-checks-32b-prod30 27b_dense=e1d-checks-27b-dense 27b_prod30=e1d-checks-27b-prod30 crop8_dense=e1e-crop-8b-dense crop8_prod30=e1e-crop-8b-prod30 cropctx8_dense=e1e-cropctx-8b-dense --touch-clips --baseline-run 8b_dense --allow-mixed --example-crops /Users/mjjones/Projects/loanarmy-bench-reports/e1e-crop-examples --out-json ledgers/research/evidence-bench-2026-09-10-lane-c-crops.json --out-md ledgers/research/evidence-bench-2026-09-10-lane-c-crops.md",
+  "regeneration_cwd": "/Users/mjjones/Projects/loanarmy/.worktrees/lane-b",
+  "validation_r2": {
     "status": "passed",
     "pytest": "333 passed in 1.19s; BENCH_REQUIRE_CV2=1 /Users/mjjones/Projects/loanarmy/.loan/bin/python -m pytest spike/video-analysis/bench -q",
     "ruff_check": "PASS; ruff check spike/video-analysis/bench",
@@ -3794,6 +3299,24 @@ Execution/gates:
     "preserved": "All nine run.json settings and 180 reads equal b96e6b2 ledger; frozen truth bytes and human note hashes unchanged; contract, prompts, transport, image adapters, runner and lane-A scorer unchanged.",
     "no_inference": true
   },
-  "not_done": "No new model runs, moment windows, production integration or adoption decision. MJ must mark touch times on all six clips. Pilot PROMPT_VERSION was not persisted and remains unconfirmed; final version verified from run.json. No notes-file correction appeared; no lane-A rescore needed. No push."
+  "validation": {
+    "status": "PASS",
+    "worktree_pytest": "BENCH_REQUIRE_CV2=1; 336 passed in 1.35s with isolated Pillow 11.3.0; installed Pillow 12.3.0 also passed 336 tests (six getdata deprecation warnings).",
+    "archive_pytest": "BENCH_REQUIRE_CV2=1; 336 passed in 1.52s with Pillow 11.3.0; installed Pillow 12.3.0 also passed 336 tests in the earlier export. No .git directory.",
+    "python": "/Users/mjjones/Projects/loanarmy/.loan/bin/python, CPython 3.11.16",
+    "pillow_compatibility": "Pillow 11.3.0 installed with uv pip --no-deps --target in an isolated temporary directory and selected with PYTHONPATH; .loan unchanged.",
+    "export": {
+      "tree": "a78a23a12e4c51418d63c613b633dd46d68a8d4c",
+      "directory": "/var/folders/z8/ytqjknls5lz7klz3p2jq7x_00000gn/T/lane-bc-r3-export-gt8g4lea/tree-final",
+      "archive": "/var/folders/z8/ytqjknls5lz7klz3p2jq7x_00000gn/T/lane-bc-r3-export-gt8g4lea/source-final.tar"
+    },
+    "export_note": "Git archive of staged tree before final validation records were stamped; all Python sources byte-identical to tested export. Export uses no Git checkout.",
+    "pytest_command": "BENCH_REQUIRE_CV2=1 /Users/mjjones/Projects/loanarmy/.loan/bin/python -m pytest spike/video-analysis/bench -q",
+    "ruff_check": "PASS; ruff check spike/video-analysis/bench",
+    "ruff_format": "PASS, 35 files; ruff format --check spike/video-analysis/bench",
+    "diff_check": "PASS; git diff --check",
+    "regeneration": "All three ledger pairs regenerate byte-for-byte using each exact_regeneration_command below; six files, zero diff. R2 inputs were independently verified byte-identical before changing code.",
+    "unchanged": "All nine numeric report overalls identical to r2; checks_score.py, truth rules, contract, prompts, image adapters, transport and runner unchanged. No model calls."
+  }
 }
 ```

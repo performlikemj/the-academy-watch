@@ -923,6 +923,21 @@ on at least **2 of the 6 truth-positive touch clips**. Recall counts yes/6;
 unclear, no and failed reads are misses, independently of answered-only accuracy.
 This was the original execution scheduling rule; r2 adds a measurable recall
 requirement to gate 2 and marks these sparse-in-time raw counts unmeasurable.
+Dense still spacing on the six touch clips is 1.58, 4.14, 4.57, 5.52, 6.62 and
+1.88 seconds, derived from saved distinct timestamps. The review estimates a
+perfect detector would score approximately 1/6 dense and 0/6 sparse, calling the
+2/6 rule "unattainable by construction". That is a review assumption, not a
+measured bound: spacing alone cannot establish touch visibility or mathematical
+impossibility. Human touch times and frame-level visibility labels are missing.
+Touch and running scores must be read with this temporal confound. The 32B
+scheduling result is now recomputed from saved 8B crop answers, never hand-set.
+
+For all three crop variants, on-pitch numbers are also spatially confounded:
+the sideline is largely cropped out in crops-only views, and crop+context adds
+only a 512-wide frame. Crop runs are excluded from the gate-1 headline and their
+gate-1 threshold is WITHHELD; raw counts remain visible. A ball outside the crop
+confounds ball-near answers too. These crop results cannot isolate model failure
+to recognize sideline context.
 
 The crop ledger uses the shared `compare_checks.py --allow-mixed` alongside all
 six lane-B runs. Existing complete/shared-coverage guards apply. It adds recall,
@@ -945,8 +960,8 @@ a touch was visible.
 
 The saved dense runs average about 2.49 s spacing, and prod30 about 23.99 s.
 Zero affirmative touches across these nine runs cannot establish inability to
-see a touch: the frames rarely contain the brief contact. On-pitch/sideline
-failures remain interpretable. Follow-up **moment windows** require MJ to mark
+see a touch: the frames rarely contain the brief contact. Wide-frame on-pitch/sideline
+failures retain context; crop on-pitch and ball-near results are spatially confounded. Follow-up **moment windows** require MJ to mark
 touch times on the six clips: at least 8 frames at at least 4 fps in the 2 seconds
 around each marked touch. No new model calls occur in r2.
 
@@ -968,3 +983,29 @@ The wrapper passes each committed `fixtures/lane-*-execution.json` to the
 comparator and calls no inference code. With the same saved reports, truth and
 execution inputs, JSON and Markdown regenerate byte-for-byte. Existing run.json,
 claims, prompts, contracts, model fingerprints and frozen truth remain intact.
+
+### Round r3 regeneration inputs and portable gates
+
+R2's six ledger files already reproduced byte-for-byte; r3 retains that mechanism.
+Each execution input now records its exact `compare_checks.py` command and cwd.
+`--diagnostic NAME=PATH` is repeatable (the old bare-path form still works);
+`--execution` can retain the already committed named diagnostic payloads and
+historical model provenance. `--touch-clips` explicitly requests the automatically
+truth-derived touch tables. `--example-crops DIR` reads `examples.json` and
+verifies each local PNG's SHA-256. Crop geometry is derived from saved frames;
+`decision_32b` is evaluated from complete 8B crop runs and the six truth positives.
+`--baseline-run NAME` produces per-question percentage-point deltas versus that
+selected run; these ledgers use 8B wide dense as the explicit baseline, including
+for sparse runs. `--extra-caveat` or the execution input records additional context.
+
+The requested nine-run review headline appears verbatim on the models and crops
+ledgers, followed by its qualification: it is review wording, not a quantified
+perfect-detector bound or a claim that all individual answers were identical.
+Generated touch/running rows carry temporal caveats; crop on-pitch and ball-near
+rows carry spatial caveats. Model inputs, questions, truth rules and numeric
+scoring remain unchanged in r3.
+
+Portable tests use Pillow `getdata()` and assert the review-kit commit only when
+Git can resolve HEAD. Run `BENCH_REQUIRE_CV2=1 python -m pytest
+spike/video-analysis/bench -q` both in the worktree and in a `git archive` export
+using the same dependency environment. No `.git` directory is needed in the export.

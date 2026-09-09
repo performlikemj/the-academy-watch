@@ -6,7 +6,7 @@
   "frozen_set_id": "1f68e2755002b3598c763532e95c212de9261ffa638c2943ad3769a1be77503f",
   "truth_set_sha256_after_notes": "b0701190324ab2527d400b2b176da67291a5efffc11fd314068b343e9f74e8ed",
   "human_notes_sha256": "5944679d0b576bfd8790d9d1206def9485f7618b0c6d53d4c7593c266d51d59f",
-  "headline": "On 20 shared scored clips: e1d-checks-dense (qwen3-vl:8b, 11.9 boxed frames/attempt): off-pitch false-yes 57.14%, touch false-yes 0.00%, touch recall N/A (raw 0/6), gate 2 WITHHELD; e1d-checks-prod30 (qwen3-vl:8b, 1.45 boxed frames/attempt): off-pitch false-yes 50.00%, touch false-yes 0.00%, touch recall N/A (raw 0/6), gate 2 WITHHELD. Adoption belongs to MJ.",
+  "headline": "On 20 shared scored clips (wide runs only; crops excluded from gate-1 headline): e1d-checks-dense (qwen3-vl:8b, 11.9 boxed frames/attempt): off-pitch false-yes 57.14%, touch false-yes 0.00%, touch recall N/A (raw 0/6), gate 2 WITHHELD; e1d-checks-prod30 (qwen3-vl:8b, 1.45 boxed frames/attempt): off-pitch false-yes 50.00%, touch false-yes 0.00%, touch recall N/A (raw 0/6), gate 2 WITHHELD. Adoption belongs to MJ.",
   "denominators": "Accuracy = correct / graded answered (unclear excluded). Abstain = unclear / eligible; coverage = graded answered / eligible. Binary eligibility requires yes/no truth. Kit eligibility follows lane A: uncertain kit truth forces abstention even for an asserted colour. False-yes = yes / truth-no cells; false-no = no / truth-yes cells, including abstentions in those truth denominators. Kit has no yes/no rates. Macro accuracy averages available accuracies across six questions; macro false-yes averages available rates across five binary questions; overall abstain is pooled over eligible cells. Gate 1 pools player_on_pitch and play_in_progress over off-pitch clips (14 cells on full set); Gate 2 uses player_touches_ball over off-pitch or idle clips with truth no (9 clips; mixed receive excluded). Modal answer/share uses every valid answer, including unclear and ungraded cells; ties sort lexically. Majority baseline uses all selected graded truth classes (uncertain kit excluded), independent of abstention; information requires modal share <90% and accuracy > baseline +5 percentage points. Gate 1 also splits its two questions. Gate 2 requires false-yes <=10% AND measurable touch recall >=50%. Raw recall = yes / all selected truth-positive clips, counting unclear/failed reads as misses. Touch recall is null when mean spacing >1s or sampling metadata is missing; raw counts remain. Accuracy metrics exclude failed reads; attempted/scored/failed counts remain visible. Thinking rate and wall/clip include all attempts. Reasons are logged only, never scored.",
   "rules": {
     "player_on_pitch": "off_pitch=no; other classified=yes; unclassified (n24)=ungraded",
@@ -1076,7 +1076,8 @@
         }
       }
     },
-    "denominators": "Comparison accuracy/error rates use shared IDs scored in every saved report and current rescoring. Modal distributions, majority baselines, touch counts/recall and temporal sampling use each full run, so abstention or another run's failure cannot remove valid answers or touch positives from those denominators. Full-run reports retain every attempt. Frame facts use all raw attempts. Configured wall caps alone do not imply an incomplete run."
+    "denominators": "Comparison accuracy/error rates use shared IDs scored in every saved report and current rescoring. Modal distributions, majority baselines, touch counts/recall and temporal sampling use each full run, so abstention or another run's failure cannot remove valid answers or touch positives from those denominators. Full-run reports retain every attempt. Frame facts use all raw attempts. Configured wall caps alone do not imply an incomplete run.",
+    "gate1_excluded_runs": {}
   },
   "lanes": {
     "dense": {
@@ -14335,7 +14336,20 @@
             ]
           }
         }
-      }
+      },
+      "sampling": {
+        "dense": {
+          "distinct_frames": 12,
+          "mean_still_spacing_s": 1.5836363636363702,
+          "confound": "Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition."
+        },
+        "prod30": {
+          "distinct_frames": 1,
+          "mean_still_spacing_s": null,
+          "confound": "Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition."
+        }
+      },
+      "confound": "Temporal sampling; raw no/unclear is not evidence of inability to detect a visible touch. Reviewed dataset: dense true-touch still spacing is 1.58–6.62 s; run-wide mean spacing is 2.49 s dense and 23.99 s sparse. Review estimate: a perfect detector would score approximately 1/6 dense and 0/6 sparse, making the 2/6 crop scheduling rule 'unattainable by construction' under that assumption. This is not a measured detector bound: spacing alone cannot establish visibility, a perfect-detector score or mathematical impossibility. Human touch timestamps and frame-level visibility labels are still needed."
     },
     {
       "clip_id": "m04-n03-t1406-385962-387137",
@@ -14771,7 +14785,20 @@
             ]
           }
         }
-      }
+      },
+      "sampling": {
+        "dense": {
+          "distinct_frames": 12,
+          "mean_still_spacing_s": 4.1372727272727055,
+          "confound": "Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition."
+        },
+        "prod30": {
+          "distinct_frames": 2,
+          "mean_still_spacing_s": 45.50999999999976,
+          "confound": "Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition."
+        }
+      },
+      "confound": "Temporal sampling; raw no/unclear is not evidence of inability to detect a visible touch. Reviewed dataset: dense true-touch still spacing is 1.58–6.62 s; run-wide mean spacing is 2.49 s dense and 23.99 s sparse. Review estimate: a perfect detector would score approximately 1/6 dense and 0/6 sparse, making the 2/6 crop scheduling rule 'unattainable by construction' under that assumption. This is not a measured detector bound: spacing alone cannot establish visibility, a perfect-detector score or mathematical impossibility. Human touch timestamps and frame-level visibility labels are still needed."
     },
     {
       "clip_id": "m04-n04-t3006-307417-310307",
@@ -16290,7 +16317,20 @@
             ]
           }
         }
-      }
+      },
+      "sampling": {
+        "dense": {
+          "distinct_frames": 12,
+          "mean_still_spacing_s": 4.570909090909109,
+          "confound": "Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition."
+        },
+        "prod30": {
+          "distinct_frames": 2,
+          "mean_still_spacing_s": 50.2800000000002,
+          "confound": "Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition."
+        }
+      },
+      "confound": "Temporal sampling; raw no/unclear is not evidence of inability to detect a visible touch. Reviewed dataset: dense true-touch still spacing is 1.58–6.62 s; run-wide mean spacing is 2.49 s dense and 23.99 s sparse. Review estimate: a perfect detector would score approximately 1/6 dense and 0/6 sparse, making the 2/6 crop scheduling rule 'unattainable by construction' under that assumption. This is not a measured detector bound: spacing alone cannot establish visibility, a perfect-detector score or mathematical impossibility. Human touch timestamps and frame-level visibility labels are still needed."
     },
     {
       "clip_id": "m04-n12-t1411-679986-681985",
@@ -16724,7 +16764,20 @@
             ]
           }
         }
-      }
+      },
+      "sampling": {
+        "dense": {
+          "distinct_frames": 12,
+          "mean_still_spacing_s": 5.517272727272732,
+          "confound": "Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition."
+        },
+        "prod30": {
+          "distinct_frames": 3,
+          "mean_still_spacing_s": 30.345000000000027,
+          "confound": "Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition."
+        }
+      },
+      "confound": "Temporal sampling; raw no/unclear is not evidence of inability to detect a visible touch. Reviewed dataset: dense true-touch still spacing is 1.58–6.62 s; run-wide mean spacing is 2.49 s dense and 23.99 s sparse. Review estimate: a perfect detector would score approximately 1/6 dense and 0/6 sparse, making the 2/6 crop scheduling rule 'unattainable by construction' under that assumption. This is not a measured detector bound: spacing alone cannot establish visibility, a perfect-detector score or mathematical impossibility. Human touch timestamps and frame-level visibility labels are still needed."
     },
     {
       "clip_id": "m04-n17-t717-253073-260377",
@@ -16941,7 +16994,20 @@
             ]
           }
         }
-      }
+      },
+      "sampling": {
+        "dense": {
+          "distinct_frames": 12,
+          "mean_still_spacing_s": 6.624545454545444,
+          "confound": "Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition."
+        },
+        "prod30": {
+          "distinct_frames": 3,
+          "mean_still_spacing_s": 36.434999999999945,
+          "confound": "Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition."
+        }
+      },
+      "confound": "Temporal sampling; raw no/unclear is not evidence of inability to detect a visible touch. Reviewed dataset: dense true-touch still spacing is 1.58–6.62 s; run-wide mean spacing is 2.49 s dense and 23.99 s sparse. Review estimate: a perfect detector would score approximately 1/6 dense and 0/6 sparse, making the 2/6 crop scheduling rule 'unattainable by construction' under that assumption. This is not a measured detector bound: spacing alone cannot establish visibility, a perfect-detector score or mathematical impossibility. Human touch timestamps and frame-level visibility labels are still needed."
     },
     {
       "clip_id": "m04-n17-t717-304624-307834",
@@ -17375,7 +17441,20 @@
             ]
           }
         }
-      }
+      },
+      "sampling": {
+        "dense": {
+          "distinct_frames": 12,
+          "mean_still_spacing_s": 1.8836363636363869,
+          "confound": "Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition."
+        },
+        "prod30": {
+          "distinct_frames": 1,
+          "mean_still_spacing_s": null,
+          "confound": "Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition."
+        }
+      },
+      "confound": "Temporal sampling; raw no/unclear is not evidence of inability to detect a visible touch. Reviewed dataset: dense true-touch still spacing is 1.58–6.62 s; run-wide mean spacing is 2.49 s dense and 23.99 s sparse. Review estimate: a perfect detector would score approximately 1/6 dense and 0/6 sparse, making the 2/6 crop scheduling rule 'unattainable by construction' under that assumption. This is not a measured detector bound: spacing alone cannot establish visibility, a perfect-detector score or mathematical impossibility. Human touch timestamps and frame-level visibility labels are still needed."
     },
     {
       "clip_id": "m04-n21-t3011-390297-390800",
@@ -18253,7 +18332,7 @@
     "Reason strings are verbatim audit text and never scored. Failed reads remain failed; comparison metrics use only shared scored IDs. Thresholds are withheld for incomplete coverage or no shared scores.",
     "Wall time includes extraction/drawing and failures, with warm-model effects possible. Thinking rate counts all attempts in full-run reports; comparison rates use shared attempts.",
     "No adoption call: MJ owns that decision. This bench does not wire checks into the production honesty gate.",
-    "Every saved touch answer across the nine runs is no/unclear, but 12 frames spread over a long window leave multi-second gaps while a touch lasts a fraction of a second. The inspected n12 middle crop is clear and contains no nearby ball. Raw 0/6 is not evidence that the model cannot see a touch: these frames rarely contain one, and touch recall is not measurable at this sampling. The on-pitch/sideline failures are unaffected because that distinction is visible in any frame. Follow-up: moment windows — at least 8 frames at at least 4 fps in the 2 s around a human-marked touch time; MJ must mark touch times on the six clips. No new inference in r2.",
+    "Every saved touch answer across the nine runs is no/unclear, but 12 frames spread over a long window leave multi-second gaps while a touch lasts a fraction of a second. The inspected n12 middle crop is clear and contains no nearby ball. Raw 0/6 is not evidence that the model cannot see a touch: these frames rarely contain one, and touch recall is not measurable at this sampling. Wide-frame on-pitch/sideline results retain context; crop on-pitch and ball-near results have a spatial confound. Follow-up: moment windows — at least 8 frames at at least 4 fps in the 2 s around a human-marked touch time; MJ must mark touch times on the six clips. No new inference in r2.",
     "Confidence is uncalibrated and prompt-sensitive: on both pilot clips, touch no/low changed to no/high after the reason instruction changed. Modal share and baseline comparisons expose near-constant priors; low touch false-yes alone is not sensitivity."
   ],
   "touch_recall": {
@@ -18262,14 +18341,18 @@
       "touch_recall_raw": 0.0,
       "touch_recall_reason": "not measurable at this sampling: mean frame spacing exceeds 1.0 s",
       "touch_yes_count": 0,
-      "touch_truth_positive_count": 6
+      "touch_truth_positive_count": 6,
+      "confound": "Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition.",
+      "perfect_detector_estimate": "Reviewed dataset: dense true-touch still spacing is 1.58–6.62 s; run-wide mean spacing is 2.49 s dense and 23.99 s sparse. Review estimate: a perfect detector would score approximately 1/6 dense and 0/6 sparse, making the 2/6 crop scheduling rule 'unattainable by construction' under that assumption. This is not a measured detector bound: spacing alone cannot establish visibility, a perfect-detector score or mathematical impossibility. Human touch timestamps and frame-level visibility labels are still needed."
     },
     "prod30": {
       "touch_recall": null,
       "touch_recall_raw": 0.0,
       "touch_recall_reason": "not measurable at this sampling: mean frame spacing exceeds 1.0 s",
       "touch_yes_count": 0,
-      "touch_truth_positive_count": 6
+      "touch_truth_positive_count": 6,
+      "confound": "Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition.",
+      "perfect_detector_estimate": "Reviewed dataset: dense true-touch still spacing is 1.58–6.62 s; run-wide mean spacing is 2.49 s dense and 23.99 s sparse. Review estimate: a perfect detector would score approximately 1/6 dense and 0/6 sparse, making the 2/6 crop scheduling rule 'unattainable by construction' under that assumption. This is not a measured detector bound: spacing alone cannot establish visibility, a perfect-detector score or mathematical impossibility. Human touch timestamps and frame-level visibility labels are still needed."
     }
   },
   "touch_clips": [
@@ -18488,7 +18571,20 @@
             ]
           }
         }
-      }
+      },
+      "sampling": {
+        "dense": {
+          "distinct_frames": 12,
+          "mean_still_spacing_s": 1.5836363636363702,
+          "confound": "Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition."
+        },
+        "prod30": {
+          "distinct_frames": 1,
+          "mean_still_spacing_s": null,
+          "confound": "Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition."
+        }
+      },
+      "confound": "Temporal sampling; raw no/unclear is not evidence of inability to detect a visible touch. Reviewed dataset: dense true-touch still spacing is 1.58–6.62 s; run-wide mean spacing is 2.49 s dense and 23.99 s sparse. Review estimate: a perfect detector would score approximately 1/6 dense and 0/6 sparse, making the 2/6 crop scheduling rule 'unattainable by construction' under that assumption. This is not a measured detector bound: spacing alone cannot establish visibility, a perfect-detector score or mathematical impossibility. Human touch timestamps and frame-level visibility labels are still needed."
     },
     {
       "clip_id": "m04-n04-t3006-243433-247994",
@@ -18707,7 +18803,20 @@
             ]
           }
         }
-      }
+      },
+      "sampling": {
+        "dense": {
+          "distinct_frames": 12,
+          "mean_still_spacing_s": 4.1372727272727055,
+          "confound": "Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition."
+        },
+        "prod30": {
+          "distinct_frames": 2,
+          "mean_still_spacing_s": 45.50999999999976,
+          "confound": "Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition."
+        }
+      },
+      "confound": "Temporal sampling; raw no/unclear is not evidence of inability to detect a visible touch. Reviewed dataset: dense true-touch still spacing is 1.58–6.62 s; run-wide mean spacing is 2.49 s dense and 23.99 s sparse. Review estimate: a perfect detector would score approximately 1/6 dense and 0/6 sparse, making the 2/6 crop scheduling rule 'unattainable by construction' under that assumption. This is not a measured detector bound: spacing alone cannot establish visibility, a perfect-detector score or mathematical impossibility. Human touch timestamps and frame-level visibility labels are still needed."
     },
     {
       "clip_id": "m04-n12-t1411-237107-242145",
@@ -18924,7 +19033,20 @@
             ]
           }
         }
-      }
+      },
+      "sampling": {
+        "dense": {
+          "distinct_frames": 12,
+          "mean_still_spacing_s": 4.570909090909109,
+          "confound": "Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition."
+        },
+        "prod30": {
+          "distinct_frames": 2,
+          "mean_still_spacing_s": 50.2800000000002,
+          "confound": "Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition."
+        }
+      },
+      "confound": "Temporal sampling; raw no/unclear is not evidence of inability to detect a visible touch. Reviewed dataset: dense true-touch still spacing is 1.58–6.62 s; run-wide mean spacing is 2.49 s dense and 23.99 s sparse. Review estimate: a perfect detector would score approximately 1/6 dense and 0/6 sparse, making the 2/6 crop scheduling rule 'unattainable by construction' under that assumption. This is not a measured detector bound: spacing alone cannot establish visibility, a perfect-detector score or mathematical impossibility. Human touch timestamps and frame-level visibility labels are still needed."
     },
     {
       "clip_id": "m04-n15-t3010-164698-170777",
@@ -19141,7 +19263,20 @@
             ]
           }
         }
-      }
+      },
+      "sampling": {
+        "dense": {
+          "distinct_frames": 12,
+          "mean_still_spacing_s": 5.517272727272732,
+          "confound": "Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition."
+        },
+        "prod30": {
+          "distinct_frames": 3,
+          "mean_still_spacing_s": 30.345000000000027,
+          "confound": "Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition."
+        }
+      },
+      "confound": "Temporal sampling; raw no/unclear is not evidence of inability to detect a visible touch. Reviewed dataset: dense true-touch still spacing is 1.58–6.62 s; run-wide mean spacing is 2.49 s dense and 23.99 s sparse. Review estimate: a perfect detector would score approximately 1/6 dense and 0/6 sparse, making the 2/6 crop scheduling rule 'unattainable by construction' under that assumption. This is not a measured detector bound: spacing alone cannot establish visibility, a perfect-detector score or mathematical impossibility. Human touch timestamps and frame-level visibility labels are still needed."
     },
     {
       "clip_id": "m04-n17-t717-253073-260377",
@@ -19358,7 +19493,20 @@
             ]
           }
         }
-      }
+      },
+      "sampling": {
+        "dense": {
+          "distinct_frames": 12,
+          "mean_still_spacing_s": 6.624545454545444,
+          "confound": "Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition."
+        },
+        "prod30": {
+          "distinct_frames": 3,
+          "mean_still_spacing_s": 36.434999999999945,
+          "confound": "Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition."
+        }
+      },
+      "confound": "Temporal sampling; raw no/unclear is not evidence of inability to detect a visible touch. Reviewed dataset: dense true-touch still spacing is 1.58–6.62 s; run-wide mean spacing is 2.49 s dense and 23.99 s sparse. Review estimate: a perfect detector would score approximately 1/6 dense and 0/6 sparse, making the 2/6 crop scheduling rule 'unattainable by construction' under that assumption. This is not a measured detector bound: spacing alone cannot establish visibility, a perfect-detector score or mathematical impossibility. Human touch timestamps and frame-level visibility labels are still needed."
     },
     {
       "clip_id": "m04-n17-t717-416826-418915",
@@ -19575,11 +19723,24 @@
             ]
           }
         }
-      }
+      },
+      "sampling": {
+        "dense": {
+          "distinct_frames": 12,
+          "mean_still_spacing_s": 1.8836363636363869,
+          "confound": "Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition."
+        },
+        "prod30": {
+          "distinct_frames": 1,
+          "mean_still_spacing_s": null,
+          "confound": "Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition."
+        }
+      },
+      "confound": "Temporal sampling; raw no/unclear is not evidence of inability to detect a visible touch. Reviewed dataset: dense true-touch still spacing is 1.58–6.62 s; run-wide mean spacing is 2.49 s dense and 23.99 s sparse. Review estimate: a perfect detector would score approximately 1/6 dense and 0/6 sparse, making the 2/6 crop scheduling rule 'unattainable by construction' under that assumption. This is not a measured detector bound: spacing alone cannot establish visibility, a perfect-detector score or mathematical impossibility. Human touch timestamps and frame-level visibility labels are still needed."
     }
   ],
   "execution": {
-    "round": "r2; scorer/ledger only; no new inference",
+    "round": "r3; code/ledger only; no new inference",
     "base_commit": "b96e6b2",
     "historical_execution": {
       "state": "complete; final evidence for the lane B local commit",
@@ -20090,7 +20251,8 @@
           }
         ],
         "scope": "Three single requests, identical dense frames and prompt, only format varies. Raw message fields retained. No repairs, retries or shared-transport changes."
-      }
+      },
+      "known_truth_error": "Five explicit rule-derived cells corrected in r2. MJ source notes remain unchanged; no additional specific correction received."
     },
     "previous_truth": {
       "m04-n02-t3005-474114-478131": {
@@ -20550,9 +20712,16 @@
         "prod30": "e1d-checks-prod30"
       },
       "allow_mixed": false,
-      "output_stem": "evidence-bench-2026-09-10-lane-b"
+      "output_stem": "evidence-bench-2026-09-10-lane-b",
+      "baseline_run": "dense"
     },
-    "validation": {
+    "not_done": "No new inference or moment-window bench. MJ touch times and sampled-frame visibility labels are needed; the review perfect-detector estimate/unattainable wording is not a measured bound. No adoption decision or push.",
+    "round_base_commit": "60d5772",
+    "r2_verification": "Before changes, all three JSON/MD pairs regenerated byte-for-byte from committed r2 comparator and execution inputs. Existing null recall and FPS metrics retained.",
+    "positive_touch_caveat": "Temporal confound: dense true-touch mean still spacing is 1.58, 4.14, 4.57, 5.52, 6.62 and 1.88 s; run-wide mean spacing is 2.49 s dense and 23.99 s sparse. Raw 0/6 is not a detector score. Review estimate of perfect-detector 1/6 dense or 0/6 sparse, and 2/6 being unattainable by construction, is an assumption rather than a bound proved by these stills. Running rows share the temporal confound; crop sideline and ball-near rows also have spatial confounds.",
+    "exact_regeneration_command": "/Users/mjjones/Projects/loanarmy/.loan/bin/python spike/video-analysis/bench/compare_checks.py --reports-root /Users/mjjones/Projects/loanarmy-bench-reports --manifest /Users/mjjones/Projects/loanarmy-bench-frozen/manifest.json --execution spike/video-analysis/bench/fixtures/lane-b-execution.json --runs dense=e1d-checks-dense prod30=e1d-checks-prod30 --touch-clips --baseline-run dense --out-json ledgers/research/evidence-bench-2026-09-10-lane-b.json --out-md ledgers/research/evidence-bench-2026-09-10-lane-b.md",
+    "regeneration_cwd": "/Users/mjjones/Projects/loanarmy/.worktrees/lane-b",
+    "validation_r2": {
       "status": "passed",
       "pytest": "333 passed in 1.19s; BENCH_REQUIRE_CV2=1 /Users/mjjones/Projects/loanarmy/.loan/bin/python -m pytest spike/video-analysis/bench -q",
       "ruff_check": "PASS; ruff check spike/video-analysis/bench",
@@ -20562,7 +20731,25 @@
       "preserved": "All nine run.json settings and 180 reads equal b96e6b2 ledger; frozen truth bytes and human note hashes unchanged; contract, prompts, transport, image adapters, runner and lane-A scorer unchanged.",
       "no_inference": true
     },
-    "not_done": "No new model runs, moment windows, production integration or adoption decision. MJ must mark touch times on all six clips. Pilot PROMPT_VERSION was not persisted and remains unconfirmed; final version verified from run.json. No notes-file correction appeared; no lane-A rescore needed. No push."
+    "validation": {
+      "status": "PASS",
+      "worktree_pytest": "BENCH_REQUIRE_CV2=1; 336 passed in 1.35s with isolated Pillow 11.3.0; installed Pillow 12.3.0 also passed 336 tests (six getdata deprecation warnings).",
+      "archive_pytest": "BENCH_REQUIRE_CV2=1; 336 passed in 1.52s with Pillow 11.3.0; installed Pillow 12.3.0 also passed 336 tests in the earlier export. No .git directory.",
+      "python": "/Users/mjjones/Projects/loanarmy/.loan/bin/python, CPython 3.11.16",
+      "pillow_compatibility": "Pillow 11.3.0 installed with uv pip --no-deps --target in an isolated temporary directory and selected with PYTHONPATH; .loan unchanged.",
+      "export": {
+        "tree": "a78a23a12e4c51418d63c613b633dd46d68a8d4c",
+        "directory": "/var/folders/z8/ytqjknls5lz7klz3p2jq7x_00000gn/T/lane-bc-r3-export-gt8g4lea/tree-final",
+        "archive": "/var/folders/z8/ytqjknls5lz7klz3p2jq7x_00000gn/T/lane-bc-r3-export-gt8g4lea/source-final.tar"
+      },
+      "export_note": "Git archive of staged tree before final validation records were stamped; all Python sources byte-identical to tested export. Export uses no Git checkout.",
+      "pytest_command": "BENCH_REQUIRE_CV2=1 /Users/mjjones/Projects/loanarmy/.loan/bin/python -m pytest spike/video-analysis/bench -q",
+      "ruff_check": "PASS; ruff check spike/video-analysis/bench",
+      "ruff_format": "PASS, 35 files; ruff format --check spike/video-analysis/bench",
+      "diff_check": "PASS; git diff --check",
+      "regeneration": "All three ledger pairs regenerate byte-for-byte using each exact_regeneration_command below; six files, zero diff. R2 inputs were independently verified byte-identical before changing code.",
+      "unchanged": "All nine numeric report overalls identical to r2; checks_score.py, truth rules, contract, prompts, image adapters, transport and runner unchanged. No model calls."
+    }
   },
   "thinking_channel_diagnostic": {
     "clip_id": "m04-n12-t1411-237107-242145",
@@ -20963,6 +21150,7 @@
     ],
     "scope": "Three single requests, identical dense frames and prompt, only format varies. Raw message fields retained. No repairs, retries or shared-transport changes."
   },
+  "known_truth_error": "Five explicit rule-derived cells corrected in r2. MJ source notes remain unchanged; no additional specific correction received.",
   "truth_cells_changed": [
     {
       "clip_id": "m04-n03-t1406-157170-158922",
@@ -21185,5 +21373,1479 @@
       }
     }
   },
-  "r2_summary": "5 truth cells corrected. Pooled false-yes gate numbers unchanged. The headline changes: gate 2 now requires measurable recall as well as low false-yes, so its former false-yes-only PASS is WITHHELD at this sampling. Macro accuracies and per-question metrics changed as listed; raw touch counts remain visible. The requested information heuristic can flag selective-abstention outputs despite zero affirmative touches; it is not a calibrated measure of visual information."
+  "r2_summary": "5 truth cells corrected. Pooled false-yes gate numbers unchanged. The headline changes: gate 2 now requires measurable recall as well as low false-yes, so its former false-yes-only PASS is WITHHELD at this sampling. Macro accuracies and per-question metrics changed as listed; raw touch counts remain visible. The requested information heuristic can flag selective-abstention outputs despite zero affirmative touches; it is not a calibrated measure of visual information.",
+  "question_caveats": {
+    "dense": {
+      "player_touches_ball": "Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition.",
+      "player_running": "Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition."
+    },
+    "prod30": {
+      "player_touches_ball": "Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition.",
+      "player_running": "Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition."
+    }
+  },
+  "true_touch_clips": [
+    {
+      "clip_id": "m04-n03-t1406-157170-158922",
+      "reads": {
+        "dense": {
+          "clip_id": "m04-n03-t1406-157170-158922",
+          "status": "scored",
+          "wall_s": 36.173,
+          "error": null,
+          "from_thinking": true,
+          "checks": {
+            "player_on_pitch": {
+              "answer": "yes",
+              "confidence": "high",
+              "reason": "Player visible on field in all frames"
+            },
+            "play_in_progress": {
+              "answer": "yes",
+              "confidence": "medium",
+              "reason": "Ball moving between players"
+            },
+            "ball_near_player": {
+              "answer": "no",
+              "confidence": "low",
+              "reason": "No close ball proximity shown"
+            },
+            "player_touches_ball": {
+              "answer": "no",
+              "confidence": "high",
+              "reason": "No clear touch visible in frames"
+            },
+            "player_running": {
+              "answer": "yes",
+              "confidence": "medium",
+              "reason": "Player moving between frames"
+            },
+            "kit_color_seen": {
+              "answer": "red",
+              "confidence": "high",
+              "reason": "Red jersey clearly seen"
+            }
+          },
+          "metrics": {
+            "questions": {
+              "player_on_pitch": {
+                "truth": "yes",
+                "eligible": true,
+                "answered": true,
+                "abstain": false,
+                "correct": true,
+                "false_yes": false,
+                "false_no": false,
+                "confident_wrong": false
+              },
+              "play_in_progress": {
+                "truth": "yes",
+                "eligible": true,
+                "answered": true,
+                "abstain": false,
+                "correct": true,
+                "false_yes": false,
+                "false_no": false,
+                "confident_wrong": false
+              },
+              "ball_near_player": {
+                "truth": "yes",
+                "eligible": true,
+                "answered": true,
+                "abstain": false,
+                "correct": false,
+                "false_yes": false,
+                "false_no": true,
+                "confident_wrong": false
+              },
+              "player_touches_ball": {
+                "truth": "yes",
+                "eligible": true,
+                "answered": true,
+                "abstain": false,
+                "correct": false,
+                "false_yes": false,
+                "false_no": true,
+                "confident_wrong": true
+              },
+              "player_running": {
+                "truth": null,
+                "eligible": false,
+                "answered": false,
+                "abstain": false,
+                "correct": false,
+                "false_yes": false,
+                "false_no": false,
+                "confident_wrong": false
+              },
+              "kit_color_seen": {
+                "truth": "red",
+                "eligible": true,
+                "answered": true,
+                "abstain": false,
+                "correct": true,
+                "false_yes": false,
+                "false_no": false,
+                "confident_wrong": false
+              }
+            },
+            "truth_activity": [
+              "on_ball_action"
+            ]
+          }
+        },
+        "prod30": {
+          "clip_id": "m04-n03-t1406-157170-158922",
+          "status": "scored",
+          "wall_s": 9.234,
+          "error": null,
+          "from_thinking": true,
+          "checks": {
+            "player_on_pitch": {
+              "answer": "yes",
+              "confidence": "high",
+              "reason": "Player is on field within play area"
+            },
+            "play_in_progress": {
+              "answer": "no",
+              "confidence": "medium",
+              "reason": "No visible ball movement or active play"
+            },
+            "ball_near_player": {
+              "answer": "unclear",
+              "confidence": "low",
+              "reason": "Ball not visible near player in frame"
+            },
+            "player_touches_ball": {
+              "answer": "no",
+              "confidence": "high",
+              "reason": "Player never shown touching ball"
+            },
+            "player_running": {
+              "answer": "yes",
+              "confidence": "medium",
+              "reason": "Player appears to be moving at some point"
+            },
+            "kit_color_seen": {
+              "answer": "red",
+              "confidence": "high",
+              "reason": "Red jersey clearly visible on player"
+            }
+          },
+          "metrics": {
+            "questions": {
+              "player_on_pitch": {
+                "truth": "yes",
+                "eligible": true,
+                "answered": true,
+                "abstain": false,
+                "correct": true,
+                "false_yes": false,
+                "false_no": false,
+                "confident_wrong": false
+              },
+              "play_in_progress": {
+                "truth": "yes",
+                "eligible": true,
+                "answered": true,
+                "abstain": false,
+                "correct": false,
+                "false_yes": false,
+                "false_no": true,
+                "confident_wrong": false
+              },
+              "ball_near_player": {
+                "truth": "yes",
+                "eligible": true,
+                "answered": false,
+                "abstain": true,
+                "correct": false,
+                "false_yes": false,
+                "false_no": false,
+                "confident_wrong": false
+              },
+              "player_touches_ball": {
+                "truth": "yes",
+                "eligible": true,
+                "answered": true,
+                "abstain": false,
+                "correct": false,
+                "false_yes": false,
+                "false_no": true,
+                "confident_wrong": true
+              },
+              "player_running": {
+                "truth": null,
+                "eligible": false,
+                "answered": false,
+                "abstain": false,
+                "correct": false,
+                "false_yes": false,
+                "false_no": false,
+                "confident_wrong": false
+              },
+              "kit_color_seen": {
+                "truth": "red",
+                "eligible": true,
+                "answered": true,
+                "abstain": false,
+                "correct": true,
+                "false_yes": false,
+                "false_no": false,
+                "confident_wrong": false
+              }
+            },
+            "truth_activity": [
+              "on_ball_action"
+            ]
+          }
+        }
+      },
+      "sampling": {
+        "dense": {
+          "distinct_frames": 12,
+          "mean_still_spacing_s": 1.5836363636363702,
+          "confound": "Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition."
+        },
+        "prod30": {
+          "distinct_frames": 1,
+          "mean_still_spacing_s": null,
+          "confound": "Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition."
+        }
+      },
+      "confound": "Temporal sampling; raw no/unclear is not evidence of inability to detect a visible touch. Reviewed dataset: dense true-touch still spacing is 1.58–6.62 s; run-wide mean spacing is 2.49 s dense and 23.99 s sparse. Review estimate: a perfect detector would score approximately 1/6 dense and 0/6 sparse, making the 2/6 crop scheduling rule 'unattainable by construction' under that assumption. This is not a measured detector bound: spacing alone cannot establish visibility, a perfect-detector score or mathematical impossibility. Human touch timestamps and frame-level visibility labels are still needed."
+    },
+    {
+      "clip_id": "m04-n04-t3006-243433-247994",
+      "reads": {
+        "dense": {
+          "clip_id": "m04-n04-t3006-243433-247994",
+          "status": "scored",
+          "wall_s": 47.512,
+          "error": null,
+          "from_thinking": true,
+          "checks": {
+            "player_on_pitch": {
+              "answer": "yes",
+              "confidence": "high",
+              "reason": "Player visible on field in all frames"
+            },
+            "play_in_progress": {
+              "answer": "no",
+              "confidence": "medium",
+              "reason": "Ball not moving between frames"
+            },
+            "ball_near_player": {
+              "answer": "no",
+              "confidence": "low",
+              "reason": "No ball near player shown"
+            },
+            "player_touches_ball": {
+              "answer": "no",
+              "confidence": "high",
+              "reason": "No contact with ball visible"
+            },
+            "player_running": {
+              "answer": "yes",
+              "confidence": "medium",
+              "reason": "Player moving between frames"
+            },
+            "kit_color_seen": {
+              "answer": "red",
+              "confidence": "high",
+              "reason": "Red jersey clearly seen"
+            }
+          },
+          "metrics": {
+            "questions": {
+              "player_on_pitch": {
+                "truth": "yes",
+                "eligible": true,
+                "answered": true,
+                "abstain": false,
+                "correct": true,
+                "false_yes": false,
+                "false_no": false,
+                "confident_wrong": false
+              },
+              "play_in_progress": {
+                "truth": "yes",
+                "eligible": true,
+                "answered": true,
+                "abstain": false,
+                "correct": false,
+                "false_yes": false,
+                "false_no": true,
+                "confident_wrong": false
+              },
+              "ball_near_player": {
+                "truth": "yes",
+                "eligible": true,
+                "answered": true,
+                "abstain": false,
+                "correct": false,
+                "false_yes": false,
+                "false_no": true,
+                "confident_wrong": false
+              },
+              "player_touches_ball": {
+                "truth": "yes",
+                "eligible": true,
+                "answered": true,
+                "abstain": false,
+                "correct": false,
+                "false_yes": false,
+                "false_no": true,
+                "confident_wrong": true
+              },
+              "player_running": {
+                "truth": null,
+                "eligible": false,
+                "answered": false,
+                "abstain": false,
+                "correct": false,
+                "false_yes": false,
+                "false_no": false,
+                "confident_wrong": false
+              },
+              "kit_color_seen": {
+                "truth": "red",
+                "eligible": true,
+                "answered": true,
+                "abstain": false,
+                "correct": true,
+                "false_yes": false,
+                "false_no": false,
+                "confident_wrong": false
+              }
+            },
+            "truth_activity": [
+              "idle_on_pitch",
+              "on_ball_action"
+            ]
+          }
+        },
+        "prod30": {
+          "clip_id": "m04-n04-t3006-243433-247994",
+          "status": "scored",
+          "wall_s": 12.769,
+          "error": null,
+          "from_thinking": true,
+          "checks": {
+            "player_on_pitch": {
+              "answer": "yes",
+              "confidence": "high",
+              "reason": "Player visible on field"
+            },
+            "play_in_progress": {
+              "answer": "no",
+              "confidence": "medium",
+              "reason": "No ball in play"
+            },
+            "ball_near_player": {
+              "answer": "unclear",
+              "confidence": "low",
+              "reason": "Ball not near player"
+            },
+            "player_touches_ball": {
+              "answer": "no",
+              "confidence": "high",
+              "reason": "Player does not touch ball"
+            },
+            "player_running": {
+              "answer": "yes",
+              "confidence": "medium",
+              "reason": "Player running in frame"
+            },
+            "kit_color_seen": {
+              "answer": "blue",
+              "confidence": "high",
+              "reason": "Blue kit visible"
+            }
+          },
+          "metrics": {
+            "questions": {
+              "player_on_pitch": {
+                "truth": "yes",
+                "eligible": true,
+                "answered": true,
+                "abstain": false,
+                "correct": true,
+                "false_yes": false,
+                "false_no": false,
+                "confident_wrong": false
+              },
+              "play_in_progress": {
+                "truth": "yes",
+                "eligible": true,
+                "answered": true,
+                "abstain": false,
+                "correct": false,
+                "false_yes": false,
+                "false_no": true,
+                "confident_wrong": false
+              },
+              "ball_near_player": {
+                "truth": "yes",
+                "eligible": true,
+                "answered": false,
+                "abstain": true,
+                "correct": false,
+                "false_yes": false,
+                "false_no": false,
+                "confident_wrong": false
+              },
+              "player_touches_ball": {
+                "truth": "yes",
+                "eligible": true,
+                "answered": true,
+                "abstain": false,
+                "correct": false,
+                "false_yes": false,
+                "false_no": true,
+                "confident_wrong": true
+              },
+              "player_running": {
+                "truth": null,
+                "eligible": false,
+                "answered": false,
+                "abstain": false,
+                "correct": false,
+                "false_yes": false,
+                "false_no": false,
+                "confident_wrong": false
+              },
+              "kit_color_seen": {
+                "truth": "red",
+                "eligible": true,
+                "answered": true,
+                "abstain": false,
+                "correct": false,
+                "false_yes": false,
+                "false_no": false,
+                "confident_wrong": true
+              }
+            },
+            "truth_activity": [
+              "idle_on_pitch",
+              "on_ball_action"
+            ]
+          }
+        }
+      },
+      "sampling": {
+        "dense": {
+          "distinct_frames": 12,
+          "mean_still_spacing_s": 4.1372727272727055,
+          "confound": "Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition."
+        },
+        "prod30": {
+          "distinct_frames": 2,
+          "mean_still_spacing_s": 45.50999999999976,
+          "confound": "Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition."
+        }
+      },
+      "confound": "Temporal sampling; raw no/unclear is not evidence of inability to detect a visible touch. Reviewed dataset: dense true-touch still spacing is 1.58–6.62 s; run-wide mean spacing is 2.49 s dense and 23.99 s sparse. Review estimate: a perfect detector would score approximately 1/6 dense and 0/6 sparse, making the 2/6 crop scheduling rule 'unattainable by construction' under that assumption. This is not a measured detector bound: spacing alone cannot establish visibility, a perfect-detector score or mathematical impossibility. Human touch timestamps and frame-level visibility labels are still needed."
+    },
+    {
+      "clip_id": "m04-n12-t1411-237107-242145",
+      "reads": {
+        "dense": {
+          "clip_id": "m04-n12-t1411-237107-242145",
+          "status": "scored",
+          "wall_s": 56.948,
+          "error": null,
+          "from_thinking": true,
+          "checks": {
+            "player_on_pitch": {
+              "answer": "yes",
+              "confidence": "high",
+              "reason": "Visible on field in all frames"
+            },
+            "play_in_progress": {
+              "answer": "yes",
+              "confidence": "medium",
+              "reason": "Players moving actively"
+            },
+            "ball_near_player": {
+              "answer": "no",
+              "confidence": "low",
+              "reason": "Ball not visible near player"
+            },
+            "player_touches_ball": {
+              "answer": "no",
+              "confidence": "high",
+              "reason": "No ball contact shown"
+            },
+            "player_running": {
+              "answer": "yes",
+              "confidence": "medium",
+              "reason": "Player moving quickly in frames"
+            },
+            "kit_color_seen": {
+              "answer": "red",
+              "confidence": "high",
+              "reason": "Red jersey visible consistently"
+            }
+          },
+          "metrics": {
+            "questions": {
+              "player_on_pitch": {
+                "truth": "yes",
+                "eligible": true,
+                "answered": true,
+                "abstain": false,
+                "correct": true,
+                "false_yes": false,
+                "false_no": false,
+                "confident_wrong": false
+              },
+              "play_in_progress": {
+                "truth": "yes",
+                "eligible": true,
+                "answered": true,
+                "abstain": false,
+                "correct": true,
+                "false_yes": false,
+                "false_no": false,
+                "confident_wrong": false
+              },
+              "ball_near_player": {
+                "truth": "yes",
+                "eligible": true,
+                "answered": true,
+                "abstain": false,
+                "correct": false,
+                "false_yes": false,
+                "false_no": true,
+                "confident_wrong": false
+              },
+              "player_touches_ball": {
+                "truth": "yes",
+                "eligible": true,
+                "answered": true,
+                "abstain": false,
+                "correct": false,
+                "false_yes": false,
+                "false_no": true,
+                "confident_wrong": true
+              },
+              "player_running": {
+                "truth": null,
+                "eligible": false,
+                "answered": false,
+                "abstain": false,
+                "correct": false,
+                "false_yes": false,
+                "false_no": false,
+                "confident_wrong": false
+              },
+              "kit_color_seen": {
+                "truth": "red",
+                "eligible": true,
+                "answered": true,
+                "abstain": false,
+                "correct": true,
+                "false_yes": false,
+                "false_no": false,
+                "confident_wrong": false
+              }
+            },
+            "truth_activity": [
+              "on_ball_action"
+            ]
+          }
+        },
+        "prod30": {
+          "clip_id": "m04-n12-t1411-237107-242145",
+          "status": "scored",
+          "wall_s": 12.937,
+          "error": null,
+          "from_thinking": true,
+          "checks": {
+            "player_on_pitch": {
+              "answer": "yes",
+              "confidence": "high",
+              "reason": "Player visible on field"
+            },
+            "play_in_progress": {
+              "answer": "no",
+              "confidence": "medium",
+              "reason": "No ball in play view"
+            },
+            "ball_near_player": {
+              "answer": "unclear",
+              "confidence": "low",
+              "reason": "Ball not visible near player"
+            },
+            "player_touches_ball": {
+              "answer": "no",
+              "confidence": "high",
+              "reason": "No touch observed"
+            },
+            "player_running": {
+              "answer": "yes",
+              "confidence": "medium",
+              "reason": "Player moving in frame"
+            },
+            "kit_color_seen": {
+              "answer": "red",
+              "confidence": "high",
+              "reason": "Red jersey visible"
+            }
+          },
+          "metrics": {
+            "questions": {
+              "player_on_pitch": {
+                "truth": "yes",
+                "eligible": true,
+                "answered": true,
+                "abstain": false,
+                "correct": true,
+                "false_yes": false,
+                "false_no": false,
+                "confident_wrong": false
+              },
+              "play_in_progress": {
+                "truth": "yes",
+                "eligible": true,
+                "answered": true,
+                "abstain": false,
+                "correct": false,
+                "false_yes": false,
+                "false_no": true,
+                "confident_wrong": false
+              },
+              "ball_near_player": {
+                "truth": "yes",
+                "eligible": true,
+                "answered": false,
+                "abstain": true,
+                "correct": false,
+                "false_yes": false,
+                "false_no": false,
+                "confident_wrong": false
+              },
+              "player_touches_ball": {
+                "truth": "yes",
+                "eligible": true,
+                "answered": true,
+                "abstain": false,
+                "correct": false,
+                "false_yes": false,
+                "false_no": true,
+                "confident_wrong": true
+              },
+              "player_running": {
+                "truth": null,
+                "eligible": false,
+                "answered": false,
+                "abstain": false,
+                "correct": false,
+                "false_yes": false,
+                "false_no": false,
+                "confident_wrong": false
+              },
+              "kit_color_seen": {
+                "truth": "red",
+                "eligible": true,
+                "answered": true,
+                "abstain": false,
+                "correct": true,
+                "false_yes": false,
+                "false_no": false,
+                "confident_wrong": false
+              }
+            },
+            "truth_activity": [
+              "on_ball_action"
+            ]
+          }
+        }
+      },
+      "sampling": {
+        "dense": {
+          "distinct_frames": 12,
+          "mean_still_spacing_s": 4.570909090909109,
+          "confound": "Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition."
+        },
+        "prod30": {
+          "distinct_frames": 2,
+          "mean_still_spacing_s": 50.2800000000002,
+          "confound": "Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition."
+        }
+      },
+      "confound": "Temporal sampling; raw no/unclear is not evidence of inability to detect a visible touch. Reviewed dataset: dense true-touch still spacing is 1.58–6.62 s; run-wide mean spacing is 2.49 s dense and 23.99 s sparse. Review estimate: a perfect detector would score approximately 1/6 dense and 0/6 sparse, making the 2/6 crop scheduling rule 'unattainable by construction' under that assumption. This is not a measured detector bound: spacing alone cannot establish visibility, a perfect-detector score or mathematical impossibility. Human touch timestamps and frame-level visibility labels are still needed."
+    },
+    {
+      "clip_id": "m04-n15-t3010-164698-170777",
+      "reads": {
+        "dense": {
+          "clip_id": "m04-n15-t3010-164698-170777",
+          "status": "scored",
+          "wall_s": 57.105,
+          "error": null,
+          "from_thinking": true,
+          "checks": {
+            "player_on_pitch": {
+              "answer": "yes",
+              "confidence": "high",
+              "reason": "Visible on field in all frames"
+            },
+            "play_in_progress": {
+              "answer": "yes",
+              "confidence": "medium",
+              "reason": "Ball visible moving between frames"
+            },
+            "ball_near_player": {
+              "answer": "no",
+              "confidence": "low",
+              "reason": "No close proximity shown"
+            },
+            "player_touches_ball": {
+              "answer": "no",
+              "confidence": "high",
+              "reason": "No ball contact observed"
+            },
+            "player_running": {
+              "answer": "yes",
+              "confidence": "medium",
+              "reason": "Movement indicates running"
+            },
+            "kit_color_seen": {
+              "answer": "red",
+              "confidence": "high",
+              "reason": "Red jersey visible consistently"
+            }
+          },
+          "metrics": {
+            "questions": {
+              "player_on_pitch": {
+                "truth": "yes",
+                "eligible": true,
+                "answered": true,
+                "abstain": false,
+                "correct": true,
+                "false_yes": false,
+                "false_no": false,
+                "confident_wrong": false
+              },
+              "play_in_progress": {
+                "truth": "yes",
+                "eligible": true,
+                "answered": true,
+                "abstain": false,
+                "correct": true,
+                "false_yes": false,
+                "false_no": false,
+                "confident_wrong": false
+              },
+              "ball_near_player": {
+                "truth": "yes",
+                "eligible": true,
+                "answered": true,
+                "abstain": false,
+                "correct": false,
+                "false_yes": false,
+                "false_no": true,
+                "confident_wrong": false
+              },
+              "player_touches_ball": {
+                "truth": "yes",
+                "eligible": true,
+                "answered": true,
+                "abstain": false,
+                "correct": false,
+                "false_yes": false,
+                "false_no": true,
+                "confident_wrong": true
+              },
+              "player_running": {
+                "truth": null,
+                "eligible": false,
+                "answered": false,
+                "abstain": false,
+                "correct": false,
+                "false_yes": false,
+                "false_no": false,
+                "confident_wrong": false
+              },
+              "kit_color_seen": {
+                "truth": "red",
+                "eligible": true,
+                "answered": true,
+                "abstain": false,
+                "correct": true,
+                "false_yes": false,
+                "false_no": false,
+                "confident_wrong": false
+              }
+            },
+            "truth_activity": [
+              "on_ball_action"
+            ]
+          }
+        },
+        "prod30": {
+          "clip_id": "m04-n15-t3010-164698-170777",
+          "status": "scored",
+          "wall_s": 16.759,
+          "error": null,
+          "from_thinking": true,
+          "checks": {
+            "player_on_pitch": {
+              "answer": "yes",
+              "confidence": "high",
+              "reason": "Visible on field in all frames"
+            },
+            "play_in_progress": {
+              "answer": "no",
+              "confidence": "medium",
+              "reason": "No ball visible moving"
+            },
+            "ball_near_player": {
+              "answer": "unclear",
+              "confidence": "low",
+              "reason": "Ball not visible near player"
+            },
+            "player_touches_ball": {
+              "answer": "no",
+              "confidence": "high",
+              "reason": "No contact with ball shown"
+            },
+            "player_running": {
+              "answer": "yes",
+              "confidence": "medium",
+              "reason": "Moving in frame 3"
+            },
+            "kit_color_seen": {
+              "answer": "red",
+              "confidence": "high",
+              "reason": "Red jersey visible"
+            }
+          },
+          "metrics": {
+            "questions": {
+              "player_on_pitch": {
+                "truth": "yes",
+                "eligible": true,
+                "answered": true,
+                "abstain": false,
+                "correct": true,
+                "false_yes": false,
+                "false_no": false,
+                "confident_wrong": false
+              },
+              "play_in_progress": {
+                "truth": "yes",
+                "eligible": true,
+                "answered": true,
+                "abstain": false,
+                "correct": false,
+                "false_yes": false,
+                "false_no": true,
+                "confident_wrong": false
+              },
+              "ball_near_player": {
+                "truth": "yes",
+                "eligible": true,
+                "answered": false,
+                "abstain": true,
+                "correct": false,
+                "false_yes": false,
+                "false_no": false,
+                "confident_wrong": false
+              },
+              "player_touches_ball": {
+                "truth": "yes",
+                "eligible": true,
+                "answered": true,
+                "abstain": false,
+                "correct": false,
+                "false_yes": false,
+                "false_no": true,
+                "confident_wrong": true
+              },
+              "player_running": {
+                "truth": null,
+                "eligible": false,
+                "answered": false,
+                "abstain": false,
+                "correct": false,
+                "false_yes": false,
+                "false_no": false,
+                "confident_wrong": false
+              },
+              "kit_color_seen": {
+                "truth": "red",
+                "eligible": true,
+                "answered": true,
+                "abstain": false,
+                "correct": true,
+                "false_yes": false,
+                "false_no": false,
+                "confident_wrong": false
+              }
+            },
+            "truth_activity": [
+              "on_ball_action"
+            ]
+          }
+        }
+      },
+      "sampling": {
+        "dense": {
+          "distinct_frames": 12,
+          "mean_still_spacing_s": 5.517272727272732,
+          "confound": "Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition."
+        },
+        "prod30": {
+          "distinct_frames": 3,
+          "mean_still_spacing_s": 30.345000000000027,
+          "confound": "Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition."
+        }
+      },
+      "confound": "Temporal sampling; raw no/unclear is not evidence of inability to detect a visible touch. Reviewed dataset: dense true-touch still spacing is 1.58–6.62 s; run-wide mean spacing is 2.49 s dense and 23.99 s sparse. Review estimate: a perfect detector would score approximately 1/6 dense and 0/6 sparse, making the 2/6 crop scheduling rule 'unattainable by construction' under that assumption. This is not a measured detector bound: spacing alone cannot establish visibility, a perfect-detector score or mathematical impossibility. Human touch timestamps and frame-level visibility labels are still needed."
+    },
+    {
+      "clip_id": "m04-n17-t717-253073-260377",
+      "reads": {
+        "dense": {
+          "clip_id": "m04-n17-t717-253073-260377",
+          "status": "scored",
+          "wall_s": 57.4,
+          "error": null,
+          "from_thinking": true,
+          "checks": {
+            "player_on_pitch": {
+              "answer": "yes",
+              "confidence": "high",
+              "reason": "Player consistently on field"
+            },
+            "play_in_progress": {
+              "answer": "yes",
+              "confidence": "medium",
+              "reason": "Ball visible moving"
+            },
+            "ball_near_player": {
+              "answer": "no",
+              "confidence": "low",
+              "reason": "No close ball shots"
+            },
+            "player_touches_ball": {
+              "answer": "no",
+              "confidence": "high",
+              "reason": "No clear touch shown"
+            },
+            "player_running": {
+              "answer": "yes",
+              "confidence": "medium",
+              "reason": "Player moving between frames"
+            },
+            "kit_color_seen": {
+              "answer": "red",
+              "confidence": "high",
+              "reason": "Red jersey visible"
+            }
+          },
+          "metrics": {
+            "questions": {
+              "player_on_pitch": {
+                "truth": "yes",
+                "eligible": true,
+                "answered": true,
+                "abstain": false,
+                "correct": true,
+                "false_yes": false,
+                "false_no": false,
+                "confident_wrong": false
+              },
+              "play_in_progress": {
+                "truth": "yes",
+                "eligible": true,
+                "answered": true,
+                "abstain": false,
+                "correct": true,
+                "false_yes": false,
+                "false_no": false,
+                "confident_wrong": false
+              },
+              "ball_near_player": {
+                "truth": "yes",
+                "eligible": true,
+                "answered": true,
+                "abstain": false,
+                "correct": false,
+                "false_yes": false,
+                "false_no": true,
+                "confident_wrong": false
+              },
+              "player_touches_ball": {
+                "truth": "yes",
+                "eligible": true,
+                "answered": true,
+                "abstain": false,
+                "correct": false,
+                "false_yes": false,
+                "false_no": true,
+                "confident_wrong": true
+              },
+              "player_running": {
+                "truth": "yes",
+                "eligible": true,
+                "answered": true,
+                "abstain": false,
+                "correct": true,
+                "false_yes": false,
+                "false_no": false,
+                "confident_wrong": false
+              },
+              "kit_color_seen": {
+                "truth": "red",
+                "eligible": true,
+                "answered": true,
+                "abstain": false,
+                "correct": true,
+                "false_yes": false,
+                "false_no": false,
+                "confident_wrong": false
+              }
+            },
+            "truth_activity": [
+              "on_ball_action"
+            ]
+          }
+        },
+        "prod30": {
+          "clip_id": "m04-n17-t717-253073-260377",
+          "status": "scored",
+          "wall_s": 17.024,
+          "error": null,
+          "from_thinking": true,
+          "checks": {
+            "player_on_pitch": {
+              "answer": "yes",
+              "confidence": "high",
+              "reason": "Player visible on field"
+            },
+            "play_in_progress": {
+              "answer": "no",
+              "confidence": "medium",
+              "reason": "Ball stationary in first frame"
+            },
+            "ball_near_player": {
+              "answer": "no",
+              "confidence": "low",
+              "reason": "No ball proximity shown"
+            },
+            "player_touches_ball": {
+              "answer": "no",
+              "confidence": "high",
+              "reason": "No touch visible in frames"
+            },
+            "player_running": {
+              "answer": "yes",
+              "confidence": "medium",
+              "reason": "Player moving between frames"
+            },
+            "kit_color_seen": {
+              "answer": "red",
+              "confidence": "high",
+              "reason": "Red jersey clearly seen"
+            }
+          },
+          "metrics": {
+            "questions": {
+              "player_on_pitch": {
+                "truth": "yes",
+                "eligible": true,
+                "answered": true,
+                "abstain": false,
+                "correct": true,
+                "false_yes": false,
+                "false_no": false,
+                "confident_wrong": false
+              },
+              "play_in_progress": {
+                "truth": "yes",
+                "eligible": true,
+                "answered": true,
+                "abstain": false,
+                "correct": false,
+                "false_yes": false,
+                "false_no": true,
+                "confident_wrong": false
+              },
+              "ball_near_player": {
+                "truth": "yes",
+                "eligible": true,
+                "answered": true,
+                "abstain": false,
+                "correct": false,
+                "false_yes": false,
+                "false_no": true,
+                "confident_wrong": false
+              },
+              "player_touches_ball": {
+                "truth": "yes",
+                "eligible": true,
+                "answered": true,
+                "abstain": false,
+                "correct": false,
+                "false_yes": false,
+                "false_no": true,
+                "confident_wrong": true
+              },
+              "player_running": {
+                "truth": "yes",
+                "eligible": true,
+                "answered": true,
+                "abstain": false,
+                "correct": true,
+                "false_yes": false,
+                "false_no": false,
+                "confident_wrong": false
+              },
+              "kit_color_seen": {
+                "truth": "red",
+                "eligible": true,
+                "answered": true,
+                "abstain": false,
+                "correct": true,
+                "false_yes": false,
+                "false_no": false,
+                "confident_wrong": false
+              }
+            },
+            "truth_activity": [
+              "on_ball_action"
+            ]
+          }
+        }
+      },
+      "sampling": {
+        "dense": {
+          "distinct_frames": 12,
+          "mean_still_spacing_s": 6.624545454545444,
+          "confound": "Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition."
+        },
+        "prod30": {
+          "distinct_frames": 3,
+          "mean_still_spacing_s": 36.434999999999945,
+          "confound": "Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition."
+        }
+      },
+      "confound": "Temporal sampling; raw no/unclear is not evidence of inability to detect a visible touch. Reviewed dataset: dense true-touch still spacing is 1.58–6.62 s; run-wide mean spacing is 2.49 s dense and 23.99 s sparse. Review estimate: a perfect detector would score approximately 1/6 dense and 0/6 sparse, making the 2/6 crop scheduling rule 'unattainable by construction' under that assumption. This is not a measured detector bound: spacing alone cannot establish visibility, a perfect-detector score or mathematical impossibility. Human touch timestamps and frame-level visibility labels are still needed."
+    },
+    {
+      "clip_id": "m04-n17-t717-416826-418915",
+      "reads": {
+        "dense": {
+          "clip_id": "m04-n17-t717-416826-418915",
+          "status": "scored",
+          "wall_s": 58.486,
+          "error": null,
+          "from_thinking": true,
+          "checks": {
+            "player_on_pitch": {
+              "answer": "yes",
+              "confidence": "high",
+              "reason": "Player visible on field in all frames"
+            },
+            "play_in_progress": {
+              "answer": "yes",
+              "confidence": "medium",
+              "reason": "Players moving actively across pitch"
+            },
+            "ball_near_player": {
+              "answer": "no",
+              "confidence": "low",
+              "reason": "Ball not seen near player in any frame"
+            },
+            "player_touches_ball": {
+              "answer": "no",
+              "confidence": "high",
+              "reason": "No visible ball contact by marked player"
+            },
+            "player_running": {
+              "answer": "yes",
+              "confidence": "medium",
+              "reason": "Player moving at speed across field"
+            },
+            "kit_color_seen": {
+              "answer": "red",
+              "confidence": "high",
+              "reason": "Red jersey clearly visible on player"
+            }
+          },
+          "metrics": {
+            "questions": {
+              "player_on_pitch": {
+                "truth": "yes",
+                "eligible": true,
+                "answered": true,
+                "abstain": false,
+                "correct": true,
+                "false_yes": false,
+                "false_no": false,
+                "confident_wrong": false
+              },
+              "play_in_progress": {
+                "truth": "yes",
+                "eligible": true,
+                "answered": true,
+                "abstain": false,
+                "correct": true,
+                "false_yes": false,
+                "false_no": false,
+                "confident_wrong": false
+              },
+              "ball_near_player": {
+                "truth": "yes",
+                "eligible": true,
+                "answered": true,
+                "abstain": false,
+                "correct": false,
+                "false_yes": false,
+                "false_no": true,
+                "confident_wrong": false
+              },
+              "player_touches_ball": {
+                "truth": "yes",
+                "eligible": true,
+                "answered": true,
+                "abstain": false,
+                "correct": false,
+                "false_yes": false,
+                "false_no": true,
+                "confident_wrong": true
+              },
+              "player_running": {
+                "truth": null,
+                "eligible": false,
+                "answered": false,
+                "abstain": false,
+                "correct": false,
+                "false_yes": false,
+                "false_no": false,
+                "confident_wrong": false
+              },
+              "kit_color_seen": {
+                "truth": "red",
+                "eligible": true,
+                "answered": true,
+                "abstain": false,
+                "correct": true,
+                "false_yes": false,
+                "false_no": false,
+                "confident_wrong": false
+              }
+            },
+            "truth_activity": [
+              "on_ball_action"
+            ]
+          }
+        },
+        "prod30": {
+          "clip_id": "m04-n17-t717-416826-418915",
+          "status": "scored",
+          "wall_s": 8.935,
+          "error": null,
+          "from_thinking": true,
+          "checks": {
+            "player_on_pitch": {
+              "answer": "yes",
+              "confidence": "high",
+              "reason": "Player within field boundaries"
+            },
+            "play_in_progress": {
+              "answer": "no",
+              "confidence": "medium",
+              "reason": "No visible ball movement"
+            },
+            "ball_near_player": {
+              "answer": "unclear",
+              "confidence": "low",
+              "reason": "Ball not visible near player"
+            },
+            "player_touches_ball": {
+              "answer": "no",
+              "confidence": "high",
+              "reason": "No contact with ball shown"
+            },
+            "player_running": {
+              "answer": "yes",
+              "confidence": "medium",
+              "reason": "Player moving across field"
+            },
+            "kit_color_seen": {
+              "answer": "red",
+              "confidence": "high",
+              "reason": "Red jersey visible on player"
+            }
+          },
+          "metrics": {
+            "questions": {
+              "player_on_pitch": {
+                "truth": "yes",
+                "eligible": true,
+                "answered": true,
+                "abstain": false,
+                "correct": true,
+                "false_yes": false,
+                "false_no": false,
+                "confident_wrong": false
+              },
+              "play_in_progress": {
+                "truth": "yes",
+                "eligible": true,
+                "answered": true,
+                "abstain": false,
+                "correct": false,
+                "false_yes": false,
+                "false_no": true,
+                "confident_wrong": false
+              },
+              "ball_near_player": {
+                "truth": "yes",
+                "eligible": true,
+                "answered": false,
+                "abstain": true,
+                "correct": false,
+                "false_yes": false,
+                "false_no": false,
+                "confident_wrong": false
+              },
+              "player_touches_ball": {
+                "truth": "yes",
+                "eligible": true,
+                "answered": true,
+                "abstain": false,
+                "correct": false,
+                "false_yes": false,
+                "false_no": true,
+                "confident_wrong": true
+              },
+              "player_running": {
+                "truth": null,
+                "eligible": false,
+                "answered": false,
+                "abstain": false,
+                "correct": false,
+                "false_yes": false,
+                "false_no": false,
+                "confident_wrong": false
+              },
+              "kit_color_seen": {
+                "truth": "red",
+                "eligible": true,
+                "answered": true,
+                "abstain": false,
+                "correct": true,
+                "false_yes": false,
+                "false_no": false,
+                "confident_wrong": false
+              }
+            },
+            "truth_activity": [
+              "on_ball_action"
+            ]
+          }
+        }
+      },
+      "sampling": {
+        "dense": {
+          "distinct_frames": 12,
+          "mean_still_spacing_s": 1.8836363636363869,
+          "confound": "Temporal confound: mean spacing 2.49 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition."
+        },
+        "prod30": {
+          "distinct_frames": 1,
+          "mean_still_spacing_s": null,
+          "confound": "Temporal confound: mean spacing 23.99 s; touch recall not measurable at this sampling: mean frame spacing exceeds 1.0 s. Running/motion rows also lack continuous evidence; raw accuracy is not proof of motion recognition."
+        }
+      },
+      "confound": "Temporal sampling; raw no/unclear is not evidence of inability to detect a visible touch. Reviewed dataset: dense true-touch still spacing is 1.58–6.62 s; run-wide mean spacing is 2.49 s dense and 23.99 s sparse. Review estimate: a perfect detector would score approximately 1/6 dense and 0/6 sparse, making the 2/6 crop scheduling rule 'unattainable by construction' under that assumption. This is not a measured detector bound: spacing alone cannot establish visibility, a perfect-detector score or mathematical impossibility. Human touch timestamps and frame-level visibility labels are still needed."
+    }
+  ],
+  "crop_geometry": {},
+  "baseline_run": "dense",
+  "per_question_deltas_pp": {
+    "dense": {
+      "player_on_pitch": {
+        "accuracy": 0.0,
+        "abstain_rate": 0.0,
+        "false_yes_rate": 0.0,
+        "recall": 0.0
+      },
+      "play_in_progress": {
+        "accuracy": 0.0,
+        "abstain_rate": 0.0,
+        "false_yes_rate": 0.0,
+        "recall": 0.0
+      },
+      "ball_near_player": {
+        "accuracy": 0.0,
+        "abstain_rate": 0.0,
+        "false_yes_rate": 0.0,
+        "recall": 0.0
+      },
+      "player_touches_ball": {
+        "accuracy": 0.0,
+        "abstain_rate": 0.0,
+        "false_yes_rate": 0.0,
+        "recall": null
+      },
+      "player_running": {
+        "accuracy": 0.0,
+        "abstain_rate": 0.0,
+        "false_yes_rate": 0.0,
+        "recall": 0.0
+      },
+      "kit_color_seen": {
+        "accuracy": 0.0,
+        "abstain_rate": 0.0,
+        "false_yes_rate": null,
+        "recall": null
+      }
+    },
+    "prod30": {
+      "player_on_pitch": {
+        "accuracy": 5.263157894736848,
+        "abstain_rate": 0.0,
+        "false_yes_rate": -14.28571428571429,
+        "recall": 0.0
+      },
+      "play_in_progress": {
+        "accuracy": -47.05882352941176,
+        "abstain_rate": 0.0,
+        "false_yes_rate": 0.0,
+        "recall": -80.0
+      },
+      "ball_near_player": {
+        "accuracy": 20.63492063492064,
+        "abstain_rate": 33.333333333333336,
+        "false_yes_rate": 0.0,
+        "recall": -14.285714285714285
+      },
+      "player_touches_ball": {
+        "accuracy": 0.0,
+        "abstain_rate": 0.0,
+        "false_yes_rate": 0.0,
+        "recall": null
+      },
+      "player_running": {
+        "accuracy": 15.384615384615385,
+        "abstain_rate": 0.0,
+        "false_yes_rate": -22.22222222222222,
+        "recall": 0.0
+      },
+      "kit_color_seen": {
+        "accuracy": -11.111111111111105,
+        "abstain_rate": 0.0,
+        "false_yes_rate": null,
+        "recall": null
+      }
+    }
+  }
 }
