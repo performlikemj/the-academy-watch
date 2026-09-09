@@ -50,16 +50,26 @@ def main():
         parser.error("resolution override requires a positive RF-DETR input side")
     if args.parity_frames and args.candidate != "wasb_2x2":
         parser.error("parity check is for wasb_2x2")
-    import cv2
-    import torch
-
-    cv2.setNumThreads(1)
-    torch.set_num_threads(8)
     manifest, clips = load_dataset(args.manifest, args.source)
     if args.clips != "all":
         clips = [c for c in clips if c["clip_id"] in args.clips.split(",")]
     if not clips:
-        raise ValueError("no clips selected")
+        parser.error("no clips selected")
+    from wasb_parity import plan_parity
+
+    try:
+        parity_plan = (
+            plan_parity(clips, args.parity_frames) if args.parity_frames else None
+        )
+    except ValueError as error:
+        parser.error(str(error))
+    import cv2
+    import torch
+
+    if parity_plan and not torch.backends.mps.is_available():
+        parser.error("MPS must be available for MPS-versus-CPU parity")
+    cv2.setNumThreads(1)
+    torch.set_num_threads(8)
     started = time.perf_counter()
     model: RFDetector | WASBDetector
     if args.candidate.startswith("wasb"):
@@ -72,7 +82,9 @@ def main():
     else:
         grid = {"rf_full": 1, "rf_2x2": 2, "rf_3x3": 3}[args.candidate]
         info = probe(clips[0]["video"])
-        model = RFDetector(grid, (info["width"], info["height"]), args.resolution)
+        model = RFDetector(
+            grid, (info["width"], info["height"]), args.resolution, device=args.device
+        )
 
     def sync():
         if model.device == "mps":
@@ -142,7 +154,7 @@ def main():
     if args.parity_frames:
         from wasb_parity import check_parity
 
-        metadata["parity"] = check_parity(model, clips)
+        metadata["parity"] = check_parity(model, clips, parity_plan)
         dump(out / "run.json", metadata)
 
 

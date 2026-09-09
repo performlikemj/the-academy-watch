@@ -334,6 +334,10 @@ def test_human_scoring_640_labels_no_models_no_media(tmp_path):
     plan = measurements["human_label_plan"]
     assert len(plan["on_ball"]) == 540
     assert len(plan["off_pitch"]) == 100
+    from collections import Counter
+
+    counts = Counter(f["clip"] for f in plan["off_pitch"])
+    assert len(counts) == 7 and min(counts.values()) >= 10
     labels = [
         {
             **f,
@@ -373,6 +377,11 @@ def test_human_scoring_640_labels_no_models_no_media(tmp_path):
         h = r["overall"]["human"]
         assert h["all_onball_labelled"]
         assert h["labelled_offpitch_frames"] == 100
+        assert {
+            c["clip"]: c["human"]["labelled_frames"]
+            for c in r["per_clip"]
+            if c["off_pitch"]
+        } == dict(counts)
         assert h["gate"] in {"PASS (human sample)", "FAIL (human sample)"}
         assert r["overall"]["gate_proxy"] == "UNMEASURABLE (proxy)"
 

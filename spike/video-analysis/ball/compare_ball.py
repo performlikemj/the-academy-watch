@@ -358,7 +358,7 @@ def markdown(data):
         "",
         "## Human-label scoring from saved detections",
         "",
-        "MJ: label the six on-ball clips (**540 frames**) plus approximately **100 off-pitch frames**, spread across seven clips. The 100-frame, model-independent sample plan (every third off-pitch frame plus 26 deterministic top-ups) is in JSON `human_label_plan`. Click the match ball centre or explicitly mark not visible; leave uncertainty unlabelled. This is enough to score ALL five candidates and every saved threshold without inference, models, cv2, or source video.",
+        "MJ: label the six on-ball clips (**540 frames**) plus approximately **100 off-pitch frames**, spread across seven clips. The 100-frame, model-independent sample plan (at least 10 per off-pitch clip, with evenly spaced frames and balanced clip quotas) is in JSON `human_label_plan`. Click the match ball centre or explicitly mark not visible; leave uncertainty unlabelled. This is enough to score ALL five candidates and every saved threshold without inference, models, cv2, or source video.",
         "",
         "```sh",
         "~/Projects/loanarmy/.loan/bin/python spike/video-analysis/ball/score_from_saved.py --human-jsonl ~/Downloads/ball-human-truth.jsonl",

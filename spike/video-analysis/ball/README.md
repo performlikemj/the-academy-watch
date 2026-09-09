@@ -20,9 +20,10 @@ versus suggestion-accepted provenance. Nothing becomes truth until MJ acts.
    cyan ring and source name show an optional suggestion. **Enter/Space accepts**,
    a click overrides, **N** marks no ball, **←/→** change frames, **J/K** change clips.
    Use **Next unlabelled target** to skip optional frames. Suggestions never auto-save.
-2. Label all **540 on-ball frames plus 100 off-pitch samples**. Every third frame
-   from each off-pitch clip yields only **74** samples; a deterministic **26-frame
-   top-up** retains the requested **640 target**. Exact lists and the seven clip
+2. Label all **540 on-ball frames plus 100 off-pitch samples**. The off-pitch plan
+   reserves at least **10 per clip**, then distributes the remaining slots equally
+   with clip-length caps and samples evenly through each window. It retains the
+   **640 target**. Exact lists and the seven clip
    IDs are in `build.json` and `human_label_plan` in the measurement fixture.
    Progress counts labelled target frames, excluding optional frames. The old
    localStorage key stays compatible. Export JSONL regularly as your backup.
@@ -72,7 +73,7 @@ the top rf_3x3 box at >=0.3, or no suggestion. WASB supplies a point. These scor
 are not calibrated across models. Track membership does not prove ball identity.
 Regenerate using `python spike/video-analysis/ball/human_loop.py`; then rebuild
 with `ball_truth_kit.py --suggestions ~/ball-truth-review/suggestions.jsonl`.
-Build version 3 is synced to `~/codex-runs/ball-truth-review-build.json`.
+Build version 4 is synced to `~/codex-runs/ball-truth-review-build.json`.
 
 The original JSONL fields remain `{clip,t,x,y,visible}`: source pixels, absolute
 seconds and null coordinates when invisible. New labels add `source_accepted`;
@@ -146,6 +147,19 @@ so its `suggestions.jsonl` is valid but empty. This proves pipeline execution,
 not detection quality or a useful trained pre-fill. Synthetic labels and model
 outputs are not committed or loaded into MJ's kit. No smoke accuracy numbers are
 reported as ball results.
+
+## Runner device and parity preflight
+
+`run_ball.py --device cpu` now forwards CPU to every RF candidate, including
+tiled variants; `--device mps` forwards MPS. A loader/device mismatch is rejected
+with the requested and actual devices.
+
+`--parity-frames 5` plans five distinct samples before model loading. It spaces
+selected clips across the available `--clips` list, balances the sample counts,
+and spaces frames within each clip. Three clips work (2/2/1 samples); fewer than
+five available frames fail preflight. MPS must be available for the comparison.
+The parity check restores the originally selected device, including on errors.
+Round 4 tested these paths with stub models only; no inference was rerun.
 
 ## Recorded inference and resolution
 

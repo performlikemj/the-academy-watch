@@ -31,9 +31,17 @@ def measured():
 def test_review_targets_and_suggestions(measured, tmp_path):
     frames = frame_catalog(measured)
     plan = review_plan(frames)
+    assert plan == measured["human_label_plan"]
     assert len(plan["on_ball"]) == 540
-    assert len(plan["every_third_offpitch"]) == 74
-    assert len(plan["offpitch_topup"]) == 26
+    assert len(plan["off_pitch"]) == 100
+    assert min(plan["offpitch_counts"].values()) >= 10
+    for cid, count in plan["offpitch_counts"].items():
+        available = sorted(f["t"] for f in frames if f["clip"] == cid)
+        selected = [f["t"] for f in plan["off_pitch"] if f["clip"] == cid]
+        assert selected == [
+            available[round(i * (len(available) - 1) / (count - 1))]
+            for i in range(count)
+        ]
     assert len(plan["offpitch_clips"]) == 7
     assert plan["target"] == 640
     assert (

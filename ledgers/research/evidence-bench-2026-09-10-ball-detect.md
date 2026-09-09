@@ -133,7 +133,7 @@ RF near-rates overlap between on-ball and off-pitch clips: **no separation** dem
 
 ## Human-label scoring from saved detections
 
-MJ: label the six on-ball clips (**540 frames**) plus approximately **100 off-pitch frames**, spread across seven clips. The 100-frame, model-independent sample plan (every third off-pitch frame plus 26 deterministic top-ups) is in JSON `human_label_plan`. Click the match ball centre or explicitly mark not visible; leave uncertainty unlabelled. This is enough to score ALL five candidates and every saved threshold without inference, models, cv2, or source video.
+MJ: label the six on-ball clips (**540 frames**) plus approximately **100 off-pitch frames**, spread across seven clips. The 100-frame, model-independent sample plan (at least 10 per off-pitch clip, with evenly spaced frames and balanced clip quotas) is in JSON `human_label_plan`. Click the match ball centre or explicitly mark not visible; leave uncertainty unlabelled. This is enough to score ALL five candidates and every saved threshold without inference, models, cv2, or source video.
 
 ```sh
 ~/Projects/loanarmy/.loan/bin/python spike/video-analysis/ball/score_from_saved.py --human-jsonl ~/Downloads/ball-human-truth.jsonl
@@ -938,16 +938,17 @@ Current human status: not_labelled; 0 labels.
 
 ```json
 {
-  "base_commit": "d5f37b76f4390bdef6391a32af772bff76722847",
+  "base_commit": "16cc31c17ab8fe27335ea4c9a084912f334be468",
   "branch": "feat/bench-ball-detect",
   "checks": [
-    "Chromium isolated-context assisted kit check PASS: acceptance/override/no-ball, keyboard, no auto-save, legacy storage, JSONL export/import, target navigation.",
-    "Worktree BENCH_REQUIRE_CV2=1 .loan pytest: 358 passed; six existing Pillow deprecation warnings.",
-    "Ruff check and format --check pass: 54 Python files.",
-    "Mypy 2.3.1 checks passed for seven changed/new implementation entrypoints (skip external imports).",
-    "Original five candidate outputs, timings, re-tracks and truth data compare equal to HEAD; only human_label_plan changed in measurement fixture.",
-    "Git archive without cv2, torch, supervision or ultralytics: 355 passed, three expected cv2 skips; six existing Pillow deprecation warnings.",
-    "Ledger JSON/Markdown regenerate byte-for-byte in worktree and archive; archive Ruff check/format pass (54 files)."
+    "Worktree BENCH_REQUIRE_CV2=1 .loan pytest: 375 passed; six existing Pillow deprecation warnings.",
+    "Git archive without cv2, torch, supervision or ultralytics: 372 passed, three expected cv2 skips; six existing Pillow warnings.",
+    "Ruff check and ruff format --check pass in worktree and archive: 55 files.",
+    "Mypy 2.3.1 checks passed for four changed implementation modules; external imports skipped.",
+    "Ledger regenerates byte-for-byte from committed fixtures in worktree and archive.",
+    "Chromium isolated-context kit check passed; kit build 4 and synced copy agree; progress target is 640.",
+    "Original five candidate outputs, timing, tracks and truth unchanged; only human_label_plan changed in measurement fixture.",
+    "Only two requested external archive-r2*.tar files deleted; 133058560 bytes removed."
   ],
   "click_kit": "/Users/mjjones/ball-truth-review/index.html",
   "date": "2026-09-10",
@@ -981,7 +982,12 @@ Current human status: not_labelled; 0 labels.
     "Two-epoch synthetic model produced zero outputs at threshold 0.1: suggestions.jsonl exists but is empty. Saved detections cover all 1105 frames. Do not invent suggestions or present smoke metrics as ball results; MJ kit retains the original saved-detector suggestions.",
     "Trainer output directories must be new or empty. Synthetic labels, weights, datasets, browser test state and trained predictions stay outside git. --init supports continued training from a preceding click-trained run.",
     "Existing evidence ledger keeps original five candidates; trained candidates are scored through --extra-detections with strict source and schedule validation. Training metrics use 20-px matching; common bench uses unchanged 40-px matching, with in-sample versus held-out caveat.",
-    "Normal human-labelled training disables per-epoch validation and always uses last.pt so held-out labels cannot select the checkpoint. The synthetic smoke used best.pt with no independent validation labels, as recorded."
+    "Normal human-labelled training disables per-epoch validation and always uses last.pt so held-out labels cannot select the checkpoint. The synthetic smoke used best.pt with no independent validation labels, as recorded.",
+    "Round 4: code-only fixes for user-supplied PR #1078 review. No detector/training/parity inference. RF now forwards the selected cpu/mps device and rejects mismatched actual devices.",
+    "Parity preflight now chooses five distinct samples from available clips before model loading, spreads selected clips and frame positions, and balances quotas (three clips: 2/2/1). Too few frames or unavailable MPS fail before any model load. Parity restores the original device.",
+    "Review claim about first 100 manifest frames did not match round 3 fixture: n22/n25 already contributed 34/18, but three shorter clips contributed only 7/7/5. Replaced with balanced 100-frame quotas, at least ten per off-pitch clip, and evenly spaced indices including both endpoints.",
+    "Kit build 4 rebuilt in place using existing frame files and unchanged localStorage key; original suggestions retained. Progress still targets 540+100=640; prior labels retained even when outside the revised target.",
+    "Only requested external archive-r2*.tar scratch files deleted; archive directories and later-round tar files retained."
   ],
   "frozen_clip_probe": {
     "count": 20,
@@ -1004,9 +1010,10 @@ Current human status: not_labelled; 0 labels.
       "   cyan ring and source name show an optional suggestion. **Enter/Space accepts**,",
       "   a click overrides, **N** marks no ball, **\u2190/\u2192** change frames, **J/K** change clips.",
       "   Use **Next unlabelled target** to skip optional frames. Suggestions never auto-save.",
-      "2. Label all **540 on-ball frames plus 100 off-pitch samples**. Every third frame",
-      "   from each off-pitch clip yields only **74** samples; a deterministic **26-frame",
-      "   top-up** retains the requested **640 target**. Exact lists and the seven clip",
+      "2. Label all **540 on-ball frames plus 100 off-pitch samples**. The off-pitch plan",
+      "   reserves at least **10 per clip**, then distributes the remaining slots equally",
+      "   with clip-length caps and samples evenly through each window. It retains the",
+      "   **640 target**. Exact lists and the seven clip",
       "   IDs are in `build.json` and `human_label_plan` in the measurement fixture.",
       "   Progress counts labelled target frames, excluding optional frames. The old",
       "   localStorage key stays compatible. Export JSONL regularly as your backup.",
@@ -1056,7 +1063,7 @@ Current human status: not_labelled; 0 labels.
       "are not calibrated across models. Track membership does not prove ball identity.",
       "Regenerate using `python spike/video-analysis/ball/human_loop.py`; then rebuild",
       "with `ball_truth_kit.py --suggestions ~/ball-truth-review/suggestions.jsonl`.",
-      "Build version 3 is synced to `~/codex-runs/ball-truth-review-build.json`.",
+      "Build version 4 is synced to `~/codex-runs/ball-truth-review-build.json`.",
       "",
       "The original JSONL fields remain `{clip,t,x,y,visible}`: source pixels, absolute",
       "seconds and null coordinates when invisible. New labels add `source_accepted`;",
@@ -1129,10 +1136,23 @@ Current human status: not_labelled; 0 labels.
       "so its `suggestions.jsonl` is valid but empty. This proves pipeline execution,",
       "not detection quality or a useful trained pre-fill. Synthetic labels and model",
       "outputs are not committed or loaded into MJ's kit. No smoke accuracy numbers are",
-      "reported as ball results."
+      "reported as ball results.",
+      "",
+      "## Runner device and parity preflight",
+      "",
+      "`run_ball.py --device cpu` now forwards CPU to every RF candidate, including",
+      "tiled variants; `--device mps` forwards MPS. A loader/device mismatch is rejected",
+      "with the requested and actual devices.",
+      "",
+      "`--parity-frames 5` plans five distinct samples before model loading. It spaces",
+      "selected clips across the available `--clips` list, balances the sample counts,",
+      "and spaces frames within each clip. Three clips work (2/2/1 samples); fewer than",
+      "five available frames fail preflight. MPS must be available for the comparison.",
+      "The parity check restores the originally selected device, including on errors.",
+      "Round 4 tested these paths with stub models only; no inference was rerun."
     ],
     "kit": {
-      "build_version": 3,
+      "build_version": 4,
       "clips": 20,
       "frames": 1105,
       "storage_key": "ball-human-v1:1f68e2755002b3598c763532e95c212de9261ffa638c2943ad3769a1be77503f:/Users/mjjones/Projects/loanarmy/spike/video-analysis/footage/youtube/afc-yorkies-full.mp4:fps2",
@@ -1145,7 +1165,6 @@ Current human status: not_labelled; 0 labels.
     },
     "kit_build_path": "/Users/mjjones/ball-truth-review/build.json",
     "review_target": {
-      "every_third_offpitch": 74,
       "off_pitch": 100,
       "off_pitch_clips": [
         "m04-n03-t1406-385962-387137",
@@ -1157,8 +1176,17 @@ Current human status: not_labelled; 0 labels.
         "m04-n25-t3014-530600-532465"
       ],
       "on_ball": 540,
-      "target": 640,
-      "topup": 26
+      "per_clip_counts": {
+        "m04-n03-t1406-385962-387137": 15,
+        "m04-n09-t1409-143096-143834": 15,
+        "m04-n09-t1409-385922-386603": 14,
+        "m04-n12-t1411-679986-681985": 15,
+        "m04-n21-t3011-390297-390800": 11,
+        "m04-n22-t3012-070707-074371": 15,
+        "m04-n25-t3014-530600-532465": 15
+      },
+      "recipe": "Reserve 10 frames per off-pitch clip; distribute remaining 30 equally in manifest order, capped by clip length. Select round(i*(N-1)/(count-1)) within each clip, including both endpoints. Exactly 100 across seven clips; no model selects targets.",
+      "target": 640
     },
     "smoke": {
       "device": "mps",
@@ -1228,7 +1256,8 @@ Current human status: not_labelled; 0 labels.
     "Push (prohibited)",
     "Real human-click training and measured held-out ball accuracy; current trained model is synthetic smoke only",
     "Useful model-trained pre-fill after human training; synthetic two-epoch smoke emits no >=0.1 suggestions",
-    "Full 640-label annotation burden and normal MPS training time are estimates, not measured"
+    "Full 640-label annotation burden and normal MPS training time are estimates, not measured",
+    "Real RF CPU/device execution and new available-clip parity schedule not run in round 4 (code-only request)"
   ],
   "process_guard": "pgrep -f run_bench|qwen_match_analysis matched only this session's telemetry/caffeinate/Codex launch ancestry; no competing runner; no gate file; no process killed",
   "rfdetr": {
@@ -1248,7 +1277,30 @@ Current human status: not_labelled; 0 labels.
     "Ledger JSON and Markdown regenerate byte-for-byte from committed fixtures in both worktree and no-cv2 archive export.",
     "Five-frame WASB tile MPS-versus-CPU parity: maximum absolute heatmap difference 7.748603820800781e-07, below 1e-4 tolerance."
   ],
-  "state": "round 3 complete; worktree/archive/browser gates passed; real human labels and click-trained accuracy pending",
+  "round3_checks": [
+    "Chromium isolated-context assisted kit check PASS: acceptance/override/no-ball, keyboard, no auto-save, legacy storage, JSONL export/import, target navigation.",
+    "Worktree BENCH_REQUIRE_CV2=1 .loan pytest: 358 passed; six existing Pillow deprecation warnings.",
+    "Ruff check and format --check pass: 54 Python files.",
+    "Mypy 2.3.1 checks passed for seven changed/new implementation entrypoints (skip external imports).",
+    "Original five candidate outputs, timings, re-tracks and truth data compare equal to HEAD; only human_label_plan changed in measurement fixture.",
+    "Git archive without cv2, torch, supervision or ultralytics: 355 passed, three expected cv2 skips; six existing Pillow deprecation warnings.",
+    "Ledger JSON/Markdown regenerate byte-for-byte in worktree and archive; archive Ruff check/format pass (54 files)."
+  ],
+  "round4": {
+    "browser_screenshot": "/Users/mjjones/Projects/loanarmy-bench-reports/ball-detect-2026-09-10/assisted-kit-r4.png",
+    "inference": "none; device and parity tests use stub models",
+    "removed_scratch_archives": [
+      {
+        "bytes": 66529280,
+        "path": "/Users/mjjones/Projects/loanarmy-bench-reports/ball-detect-2026-09-10/archive-r2-final.tar"
+      },
+      {
+        "bytes": 66529280,
+        "path": "/Users/mjjones/Projects/loanarmy-bench-reports/ball-detect-2026-09-10/archive-r2.tar"
+      }
+    ]
+  },
+  "state": "round 4 complete; code-only worktree/archive/browser gates passed; no inference",
   "track_examples": [
     "/Users/mjjones/Projects/loanarmy-bench-reports/ball-detect-2026-09-10/tracks/rf_full-n12-track.png",
     "/Users/mjjones/Projects/loanarmy-bench-reports/ball-detect-2026-09-10/tracks/rf_2x2-n12-track.png",
@@ -1276,9 +1328,10 @@ versus suggestion-accepted provenance. Nothing becomes truth until MJ acts.
    cyan ring and source name show an optional suggestion. **Enter/Space accepts**,
    a click overrides, **N** marks no ball, **←/→** change frames, **J/K** change clips.
    Use **Next unlabelled target** to skip optional frames. Suggestions never auto-save.
-2. Label all **540 on-ball frames plus 100 off-pitch samples**. Every third frame
-   from each off-pitch clip yields only **74** samples; a deterministic **26-frame
-   top-up** retains the requested **640 target**. Exact lists and the seven clip
+2. Label all **540 on-ball frames plus 100 off-pitch samples**. The off-pitch plan
+   reserves at least **10 per clip**, then distributes the remaining slots equally
+   with clip-length caps and samples evenly through each window. It retains the
+   **640 target**. Exact lists and the seven clip
    IDs are in `build.json` and `human_label_plan` in the measurement fixture.
    Progress counts labelled target frames, excluding optional frames. The old
    localStorage key stays compatible. Export JSONL regularly as your backup.
@@ -1328,7 +1381,7 @@ the top rf_3x3 box at >=0.3, or no suggestion. WASB supplies a point. These scor
 are not calibrated across models. Track membership does not prove ball identity.
 Regenerate using `python spike/video-analysis/ball/human_loop.py`; then rebuild
 with `ball_truth_kit.py --suggestions ~/ball-truth-review/suggestions.jsonl`.
-Build version 3 is synced to `~/codex-runs/ball-truth-review-build.json`.
+Build version 4 is synced to `~/codex-runs/ball-truth-review-build.json`.
 
 The original JSONL fields remain `{clip,t,x,y,visible}`: source pixels, absolute
 seconds and null coordinates when invisible. New labels add `source_accepted`;
@@ -1403,13 +1456,26 @@ not detection quality or a useful trained pre-fill. Synthetic labels and model
 outputs are not committed or loaded into MJ's kit. No smoke accuracy numbers are
 reported as ball results.
 
+## Runner device and parity preflight
+
+`run_ball.py --device cpu` now forwards CPU to every RF candidate, including
+tiled variants; `--device mps` forwards MPS. A loader/device mismatch is rejected
+with the requested and actual devices.
+
+`--parity-frames 5` plans five distinct samples before model loading. It spaces
+selected clips across the available `--clips` list, balances the sample counts,
+and spaces frames within each clip. Three clips work (2/2/1 samples); fewer than
+five available frames fail preflight. MPS must be available for the comparison.
+The parity check restores the originally selected device, including on errors.
+Round 4 tested these paths with stub models only; no inference was rerun.
+
 Recorded build and training smoke (synthetic; no accuracy result):
 
 ```json
 {
   "browser_screenshot": "/Users/mjjones/Projects/loanarmy-bench-reports/ball-detect-2026-09-10/assisted-kit-r3.png",
   "kit": {
-    "build_version": 3,
+    "build_version": 4,
     "clips": 20,
     "frames": 1105,
     "storage_key": "ball-human-v1:1f68e2755002b3598c763532e95c212de9261ffa638c2943ad3769a1be77503f:/Users/mjjones/Projects/loanarmy/spike/video-analysis/footage/youtube/afc-yorkies-full.mp4:fps2",
@@ -1422,7 +1488,6 @@ Recorded build and training smoke (synthetic; no accuracy result):
   },
   "kit_build_path": "/Users/mjjones/ball-truth-review/build.json",
   "review_target": {
-    "every_third_offpitch": 74,
     "off_pitch": 100,
     "off_pitch_clips": [
       "m04-n03-t1406-385962-387137",
@@ -1434,8 +1499,17 @@ Recorded build and training smoke (synthetic; no accuracy result):
       "m04-n25-t3014-530600-532465"
     ],
     "on_ball": 540,
-    "target": 640,
-    "topup": 26
+    "per_clip_counts": {
+      "m04-n03-t1406-385962-387137": 15,
+      "m04-n09-t1409-143096-143834": 15,
+      "m04-n09-t1409-385922-386603": 14,
+      "m04-n12-t1411-679986-681985": 15,
+      "m04-n21-t3011-390297-390800": 11,
+      "m04-n22-t3012-070707-074371": 15,
+      "m04-n25-t3014-530600-532465": 15
+    },
+    "recipe": "Reserve 10 frames per off-pitch clip; distribute remaining 30 equally in manifest order, capped by clip length. Select round(i*(N-1)/(count-1)) within each clip, including both endpoints. Exactly 100 across seven clips; no model selects targets.",
+    "target": 640
   },
   "smoke": {
     "device": "mps",

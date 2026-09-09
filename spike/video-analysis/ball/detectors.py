@@ -35,16 +35,16 @@ def merge_tiles(detections, iou_threshold=0.5):
 
 
 class RFDetector:
-    def __init__(self, grid, size, resolution=None):
+    def __init__(self, grid, size, resolution=None, device="mps"):
         import supervision as sv
 
         sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
         from run_spike import load_detector, detect_batch, keep_classes
 
-        self.model = load_detector("medium", "mps", resolution)
+        self.model = load_detector("medium", device, resolution)
         self.device = str(self.model.model.device)
-        if self.device != "mps":
-            raise RuntimeError(f"RF-DETR unexpectedly fell back to {self.device}")
+        if self.device != device:
+            raise RuntimeError(f"RF-DETR requested {device}, loaded on {self.device}")
         self.resolution = self.model.model.resolution
         self.predict_batch = detect_batch
         self.keep = keep_classes

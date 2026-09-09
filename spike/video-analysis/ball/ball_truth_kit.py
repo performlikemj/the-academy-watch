@@ -159,7 +159,7 @@ def build(manifest, source, out, suggestions=None):
     dump(
         out / "build.json",
         {
-            "build_version": 3,
+            "build_version": 4,
             "storage_key": key,
             "suggestions": len(suggestion_rows),
             "suggestions_by_source": {

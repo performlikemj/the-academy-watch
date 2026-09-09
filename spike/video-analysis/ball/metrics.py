@@ -262,7 +262,7 @@ def retrack_saved(measurements):
 
 
 def label_plan(measurements):
-    """Human review targets: every third off-pitch sample, topped up to 100."""
+    """Human review targets: 100 spread off-pitch samples, >=10 per clip."""
     from human_loop import frame_catalog, review_plan
 
     return review_plan(frame_catalog(measurements))

@@ -27,29 +27,34 @@ def frame_catalog(measurements):
 def review_plan(frames):
     on = [f for f in frames if f["class"] == "on_ball"]
     off = [f for f in frames if f["class"] == "off_pitch"]
-    third = [f for f in off if f["sample_index"] % 3 == 0]
-    remaining = [f for f in off if f not in third]
-    needed = min(100, len(off)) - len(third)
-    extra = (
-        [
-            remaining[round(i * (len(remaining) - 1) / (needed - 1))]
-            for i in range(needed)
-        ]
-        if needed > 1
-        else remaining[: max(0, needed)]
-    )
+    ids = list(dict.fromkeys(f["clip"] for f in off))
+    groups = [[f for f in off if f["clip"] == cid] for cid in ids]
+    if len(groups) != 7 or any(len(g) < 10 for g in groups) or len(off) < 100:
+        raise ValueError(
+            "review plan requires seven off-pitch clips with >=10 frames each and >=100 total"
+        )
+    counts = [10] * len(groups)
+    while sum(counts) < 100:
+        for i, group in enumerate(groups):
+            if counts[i] < len(group) and sum(counts) < 100:
+                counts[i] += 1
+    selected: list[dict] = []
+    for group, count in zip(groups, counts):
+        group = sorted(group, key=lambda f: f["t"])
+        selected.extend(
+            group[round(i * (len(group) - 1) / (count - 1))] for i in range(count)
+        )
 
     def compact(rows):
         return [{"clip": f["clip"], "t": f["t"]} for f in rows]
 
     return {
         "on_ball": compact(on),
-        "off_pitch": compact(third + extra),
-        "every_third_offpitch": compact(third),
-        "offpitch_topup": compact(extra),
-        "offpitch_clips": list(dict.fromkeys(f["clip"] for f in off)),
-        "target": len(on) + len(third) + len(extra),
-        "recipe": "Every third off-pitch sample starting at index 0; 74 frames in this set. Add 26 evenly spread non-selected samples to reach 100; all 540 on-ball frames. No model selects targets.",
+        "off_pitch": compact(selected),
+        "offpitch_clips": ids,
+        "offpitch_counts": dict(zip(ids, counts)),
+        "target": len(on) + len(selected),
+        "recipe": "Reserve 10 frames per off-pitch clip; distribute remaining 30 equally in manifest order, capped by clip length. Select round(i*(N-1)/(count-1)) within each clip, including both endpoints. Exactly 100 across seven clips; no model selects targets.",
     }
 
 
