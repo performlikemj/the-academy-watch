@@ -5,8 +5,15 @@ import math
 import numpy as np
 
 
-def track(rows, duration_s, sample_fps=2.0, max_gap_s=1.0, pixels_per_metre=20.0):
-    """One ball, nearest gated observation; 3 m per sampled-frame = 60 px.
+def track(
+    rows,
+    duration_s,
+    sample_fps=2.0,
+    max_gap_s=1.0,
+    pixels_per_metre=20.0,
+    max_speed_m_s=30.0,
+):
+    """One hypothesis, nearest observation under 30 m/s * elapsed seconds * px/m.
 
     Short gaps are bridged only when a later observation joins the same track.
     Trailing predictions do not extend continuity. Abrupt jumps start fragments.
@@ -37,7 +44,7 @@ def track(rows, duration_s, sample_fps=2.0, max_gap_s=1.0, pixels_per_metre=20.0
         if state is not None and detections:
             assert last_xy is not None and last_seen is not None
             predicted_xy = state[:2]
-            jump = 3 * pixels_per_metre * max(1.0, (t - last_seen) * sample_fps)
+            jump = max_speed_m_s * pixels_per_metre * (t - last_seen)
             eligible = [d for d in detections if math.dist(d["xy"], last_xy) <= jump]
             if eligible:
                 selected = min(
@@ -63,11 +70,18 @@ def track(rows, duration_s, sample_fps=2.0, max_gap_s=1.0, pixels_per_metre=20.0
             assert state is not None
             last_seen, last_xy = t, selected["xy"]
             points.append(
-                {"t": t, "xy": state[:2].tolist(), "fragment": len(fragments) - 1}
+                {
+                    "t": t,
+                    "xy": state[:2].tolist(),
+                    "observed_xy": selected["xy"],
+                    "fragment": len(fragments) - 1,
+                }
             )
     longest = max((b - a + 1 / sample_fps for a, b in fragments), default=0.0)
     return {
         "continuity": min(1.0, longest / duration_s),
         "fragments": len(fragments),
+        "longest_track_s": min(duration_s, longest),
+        "fragment_intervals": fragments,
         "points": points,
     }

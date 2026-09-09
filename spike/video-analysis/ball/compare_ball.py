@@ -1,63 +1,68 @@
-"""Regenerate evidence byte-for-byte from recorded runs and execution fixture."""
+"""Deterministic diagnostics and separate human-labelled scores from saved outputs."""
 
 from __future__ import annotations
 import argparse
-import json
 import gzip
+import json
 from fractions import Fraction
 from pathlib import Path
 from ball_truth_kit import import_labels
-from common import (
-    DEFAULT_MANIFEST,
-    DEFAULT_REPORT,
-    DEFAULT_SOURCE,
-    HERE,
-    ROOT,
-    dump,
-    load_dataset,
-    sha256,
-    sample_indices,
+from common import DEFAULT_REPORT, HERE, ROOT, dump, sha256, sample_indices
+from metrics import (
+    agreement,
+    pair_decomposition,
+    clip_class,
+    clip_metrics,
+    overall,
+    retrack_saved,
+    label_plan,
 )
-from metrics import agreement, clip_metrics, overall
 
-CANDIDATES = ["rf_full", "rf_2x2", "rf_3x3", "wasb"]
+CANDIDATES = ["rf_full", "rf_2x2", "rf_3x3", "wasb", "wasb_2x2"]
+RF_CANDIDATES = CANDIDATES[:3]
+MEASUREMENTS = HERE / "fixtures/measurements.json.gz"
 
 
-def collect(manifest_path, report_dir):
-    manifest, clips = load_dataset(manifest_path, DEFAULT_SOURCE)
-    runs, outputs = {}, {}
-    for candidate in CANDIDATES:
-        folder = report_dir / candidate
-        runs[candidate] = json.loads((folder / "run.json").read_text())
-        if runs[candidate]["frozen_set_id"] != manifest["frozen_set_id"]:
-            raise ValueError("frozen set mismatch")
-        if set(runs[candidate]["clips"]) != {c["clip_id"] for c in clips}:
-            raise ValueError("incomplete candidate")
-        outputs[candidate] = {
-            c["clip_id"]: json.loads((folder / f"{c['clip_id']}.json").read_text())
-            for c in clips
-        }
-    return {
-        "manifest_sha256": sha256(manifest_path),
-        "frozen_set_id": manifest["frozen_set_id"],
-        "clips": clips,
-        "runs": runs,
-        "outputs": outputs,
+def load_measurements(path=MEASUREMENTS):
+    return json.loads(gzip.decompress(Path(path).read_bytes()))
+
+
+def save_measurements(data, path=MEASUREMENTS):
+    payload = json.dumps(
+        data, sort_keys=True, separators=(",", ":"), allow_nan=False
+    ).encode()
+    Path(path).write_bytes(gzip.compress(payload, mtime=0))
+
+
+def update_saved(report_dir=DEFAULT_REPORT, path=MEASUREMENTS):
+    """Append only wasb_2x2 and derived tracks; preserve all original run records."""
+    data = load_measurements(path)
+    folder = report_dir / "wasb_2x2"
+    run = json.loads((folder / "run.json").read_text())
+    ids = [c["clip_id"] for c in data["clips"]]
+    if run["frozen_set_id"] != data["frozen_set_id"] or set(run["clips"]) != set(ids):
+        raise ValueError("new candidate dataset mismatch")
+    data["runs"]["wasb_2x2"] = run
+    data["outputs"]["wasb_2x2"] = {
+        cid: json.loads((folder / f"{cid}.json").read_text()) for cid in ids
     }
+    data["retracking"] = retrack_saved(data)
+    data["human_label_plan"] = label_plan(data)
+    save_measurements(data, path)
 
 
-def compare(measurements, execution, human_path=None):
-    clips = measurements["clips"]
-    outputs = measurements["outputs"]
-    for c in clips:
+def validate(measurements):
+    for c in measurements["clips"]:
         for name in CANDIDATES:
             run = measurements["runs"][name]
+            if run["frozen_set_id"] != measurements["frozen_set_id"]:
+                raise ValueError("frozen set mismatch")
             rate = float(Fraction(run["source_probe"]["avg_frame_rate"]))
             offset = 0 if c["native_source"] else c["window"]["start_s"]
             _, _, expected = sample_indices(
                 c["window"]["start_s"], c["window"]["end_s"], rate, 2.0, offset
             )
-            raw = outputs[name][c["clip_id"]]
+            raw = measurements["outputs"][name][c["clip_id"]]
             actual = raw["frames"]
             if (
                 raw["wall_s"] <= 0
@@ -66,36 +71,76 @@ def compare(measurements, execution, human_path=None):
                 != [round(offset + i / rate, 6) for i in expected]
             ):
                 raise ValueError("incomplete or invalid sample schedule")
+
+
+def effective_resolution():
+    sources = {
+        "rf_full": [1920, 1080],
+        "rf_2x2": [1010, 590],
+        "rf_3x3": [707, 427],
+        "wasb": [1920, 1080],
+        "wasb_2x2": [960, 540],
+    }
+    return {
+        name: {
+            "source_tile_wh": size,
+            "model_input_wh": [576, 576] if name.startswith("rf") else [512, 288],
+            "effective_ball_px_seen_by_model": [
+                24 * target / source
+                for target, source in zip(
+                    [576, 576] if name.startswith("rf") else [512, 288], size
+                )
+            ],
+            "reference": "Hypothetical 24x24 source-pixel ball, not measured ball truth",
+            "transform": "anisotropic squash to 576x576"
+            if name.startswith("rf")
+            else "aspect-preserving affine to 512x288",
+        }
+        for name, size in sources.items()
+    }
+
+
+def compare(measurements, execution, human_path=None):
+    validate(measurements)
+    clips, outputs = measurements["clips"], measurements["outputs"]
     frames = [
         {"clip": c["clip_id"], "t": f["t"], "source_size": c["source_size"]}
         for c in clips
         for f in outputs["rf_full"][c["clip_id"]]["frames"]
     ]
     human = import_labels(human_path, frames) if human_path else {}
-    proxies = {}
+    proxies: dict[str, dict] = {}
+    pairs = []
     for c in clips:
         cid = c["clip_id"]
-        schedule = [f["t"] for f in outputs["rf_full"][cid]["frames"]]
-        if any(
-            [f["t"] for f in outputs[n][cid]["frames"]] != schedule for n in CANDIDATES
-        ):
-            raise ValueError("candidate sample schedules differ")
-        proxies[cid] = {
-            t: agreement(
-                {
-                    n: outputs[n][cid]["frames"][i]["detections"]
-                    for n in ["rf_full", "rf_2x2", "wasb"]
-                }
-            )
-            for i, t in enumerate(schedule)
+        proxies[cid] = {}
+        counts = dict.fromkeys(
+            ["frames", "any_pair", "rf_pair_only", "with_wasb", "rf_pair"], 0
+        )
+        for i, row in enumerate(outputs["rf_full"][cid]["frames"]):
+            votes = {
+                n: outputs[n][cid]["frames"][i]["detections"]
+                for n in ("rf_full", "rf_2x2", "wasb")
+            }
+            proxies[cid][row["t"]] = agreement(votes)
+            counts["frames"] += 1
+            for key, value in pair_decomposition(votes).items():
+                counts[key] += value
+        pairs.append({"clip": cid, "class": clip_class(c), **counts})
+    groups = {
+        group: {
+            key: sum(c[key] for c in pairs if c["class"] == group)
+            for key in ["frames", "any_pair", "rf_pair_only", "with_wasb", "rf_pair"]
         }
+        for group in ("on_ball", "off_pitch", "other")
+    }
     results = []
-    for candidate in CANDIDATES:
-        for threshold in [0.1, 0.2, 0.3, 0.4, 0.5] if candidate != "wasb" else [0.5]:
+    for name in CANDIDATES:
+        for threshold in [0.1, 0.2, 0.3, 0.4, 0.5] if name in RF_CANDIDATES else [0.5]:
             rows = [
                 clip_metrics(
                     c,
-                    outputs[candidate][c["clip_id"]],
+                    outputs[name][c["clip_id"]],
                     proxies[c["clip_id"]],
                     threshold,
                     human,
@@ -108,105 +153,186 @@ def compare(measurements, execution, human_path=None):
                 row.pop("_confidence")
             results.append(
                 {
-                    "candidate": candidate,
+                    "candidate": name,
                     "threshold": threshold,
                     "overall": total,
                     "per_clip": rows,
                 }
             )
-    winners = [r for r in results if r["overall"]["gate_proxy"] == "PASS"]
-    verdict = (
-        ", ".join(
-            f"{r['candidate']} @{r['threshold']:.1f} ({r['overall']['fps']:.2f} FPS)"
-            for r in winners
+    rf_counts = ", ".join(
+        f"{r['candidate']} {r['overall']['boxes_per_frame']:.2f}"
+        for r in results
+        if r["candidate"] in RF_CANDIDATES and r["threshold"] == 0.1
+    )
+    g = groups["on_ball"]
+    headline = f"UNMEASURABLE (proxy): this bench measures detector self-agreement and box counts ({rf_counts} boxes/frame at 0.1); {g['rf_pair_only']}/{g['any_pair']} on-ball agreement frames are RF-pair-only. Recall against the real match ball is unmeasured until MJ labels frames."
+    if human:
+        headline = headline.replace(
+            "Recall against the real match ball is unmeasured until MJ labels frames.",
+            f"Separate human scores use {len(human)} labels; coverage and sample gate are reported below.",
         )
-        if winners
-        else "No candidate"
-    )
-    speeds = ", ".join(
-        f"{n} {next(r['overall']['fps'] for r in results if r['candidate'] == n):.2f} FPS"
-        for n in CANDIDATES
-    )
-    headline = f"{verdict} passes the proxy gate (measured: {speeds}); MJ must click ball centres or mark no ball visible in ~/ball-truth-review/index.html to establish human-labelled results."
+    retracking = retrack_saved(measurements)
+    if retracking != measurements["retracking"]:
+        raise ValueError(
+            "saved retracking fixture differs from current tracker; update derived fixture"
+        )
     return {
         "headline": headline,
         "execution": execution,
         "environment": measurements["runs"],
         "frozen_set_id": measurements["frozen_set_id"],
         "manifest_sha256": measurements["manifest_sha256"],
-        "ball_visible_proxy": {
-            cid: [
-                {"t": t, "visible": bool(centres), "pair_midpoints_source_px": centres}
-                for t, centres in frames.items()
-            ]
-            for cid, frames in proxies.items()
-        },
         "proxy_voters": {"rf_full": 0.1, "rf_2x2": 0.1, "wasb": 0.5},
-        "proxy_rule": "At least two of three fixed candidate voters agree within 40 source px; detection must fall within 40 px of a qualifying pair midpoint. Denominator fixed across threshold sweeps.",
+        "proxy_rule": "Two of three fixed voters within 40 source px. This is endogenous self-agreement, never visibility truth or a recall/false-positive gate. New tiled WASB is scored without changing the diagnostic denominator.",
+        "agreement_proxy_frames": {
+            cid: [
+                {
+                    "t": t,
+                    "agreement": bool(centres),
+                    "pair_midpoints_source_px": centres,
+                }
+                for t, centres in rows.items()
+            ]
+            for cid, rows in proxies.items()
+        },
+        "pair_decomposition": {
+            "groups": groups,
+            "per_clip": pairs,
+            "definition": "RF-pair-only = rf_full/rf_2x2 agree and neither RF agrees with WASB; with-WASB = either RF agrees with WASB; disjoint counts sum to any_pair. rf_pair is also reported, overlapping with with-WASB.",
+        },
+        "resolution": effective_resolution(),
         "human_truth": {
-            "status": "partial_or_complete_labels_supplied"
-            if human
-            else "not_labelled",
+            "status": "labels_supplied" if human else "not_labelled",
             "labelled_frames": len(human),
             "total_frames": len(frames),
             "sha256": sha256(human_path) if human_path else None,
         },
+        "human_label_plan": measurements["human_label_plan"],
         "results": results,
-        "examples": execution.get("examples", []),
+        "retracking": retracking,
+        "track_examples": execution.get("track_examples", []),
         "click_kit": execution["click_kit"],
     }
 
 
 def number(value, percent=False):
-    if value is None:
-        return "N/A"
-    return f"{value * 100:.1f}%" if percent else f"{value:.2f}"
+    return (
+        "N/A" if value is None else f"{value * 100:.1f}%" if percent else f"{value:.2f}"
+    )
 
 
 def markdown(data):
     lines = [
         data["headline"],
         "",
-        "Proxy results are not human ball truth. Both proxy visibility and off-pitch false-ball counts are surrogates; the fixed RF voters share weights. The 2 fps sample spans every window, not every native frame. FPS includes sequential video decode and inference, excludes one-time model load/warmup, report serialization and tracking. Continuity is duration-weighted; confidence is not calibrated across architectures. Ball pixels are the shortest detected box side, not measured ball diameter; WASB has no size estimate.",
+        "The match ball is usually in frame in these off-pitch clips: the marked player is off pitch, not the entire scene. `boxes_per_10s_offpitch` counts candidate outputs; it is NOT false-ball rate. Heatmap candidates emit points rather than boxes. All proxy verdicts remain UNMEASURABLE (proxy), even with perfect agreement. Only separate human labels can measure recall and unmatched match-ball predictions.",
         "",
-        "## Environment",
+        "## Self-agreement decomposition — PROXY, not truth",
         "",
-        "```json",
-        json.dumps(data["environment"], indent=2, sort_keys=True),
-        "```",
+        "| Clip class | Frames | Any pair | RF-pair-only | With WASB | RF pair (overlapping) |",
+        "|---|---:|---:|---:|---:|---:|",
+    ]
+    for group, c in data["pair_decomposition"]["groups"].items():
+        lines.append(
+            f"| {group} | {c['frames']} | {c['any_pair']} | {c['rf_pair_only']} | {c['with_wasb']} | {c['rf_pair']} |"
+        )
+    lines += [
         "",
-        "## Overall — PROXY",
+        data["pair_decomposition"]["definition"],
         "",
-        "| Candidate | Threshold | Detection proxy | False/10s proxy | Ball px min/median | Mean confidence | FPS | Wall s/clip | Continuity | Fragments | Gate proxy |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|",
+        "| Clip | Class | Any pair/frames | RF-pair-only | With WASB |",
+        "|---|---|---:|---:|---:|",
+    ]
+    for c in data["pair_decomposition"]["per_clip"]:
+        lines.append(
+            f"| {c['clip']} | {c['class']} | {c['any_pair']}/{c['frames']} | {c['rf_pair_only']} | {c['with_wasb']} |"
+        )
+    lines += [
+        "",
+        "## All candidates and thresholds — diagnostic PROXY only",
+        "",
+        "| Candidate | Threshold | Self-agreement proxy | Boxes/frame | boxes_per_10s_offpitch | Confidence | Box px min/median | FPS | Wall s/clip | Verdict |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---|",
     ]
     for r in data["results"]:
         o = r["overall"]
         lines.append(
-            f"| {r['candidate']} | {r['threshold']} | {number(o['detection_rate_proxy'], True)} | {number(o['false_per_10s_proxy'])} | {number(o['ball_px_min'])}/{number(o['ball_px_median'])} | {number(o['mean_confidence'])} | {number(o['fps'])} | {number(o['wall_s_per_clip'])} | {number(o['continuity'], True)} | {o['track_fragments']} | {o['gate_proxy']} |"
+            f"| {r['candidate']} | {r['threshold']} | {number(o['self_agreement_rate_proxy'], True)} | {number(o['boxes_per_frame'])} | {number(o['boxes_per_10s_offpitch'])} | {number(o['mean_confidence'])} | {number(o['box_px_min'])}/{number(o['box_px_median'])} | {number(o['fps'])} | {number(o['wall_s_per_clip'])} | {o['gate_proxy']} |"
         )
-    ref = data["results"][0]["overall"]
     lines += [
         "",
-        f"Proxy-visible on-ball denominator: {ref['proxy_visible_on_ball_frames']} frames ({number(ref['proxy_coverage_on_ball'], True)} of all sampled on-ball frames); six on-ball and seven off-pitch clips. Gate pools visible-frame hits and off-pitch exposure across the relevant clips.",
+        "FPS counts sampled 2 fps outputs including sequential decode of intervening native frames, excludes model startup/warmup, parity, serialization and tracking. RF sweep filters saved 0.1 boxes; no new RF inference. Three-frame WASB inputs are consecutive native frames. RF 3x3 timing variance is retained from the original run. Box dimensions do not establish actual ball size.",
         "",
-        "## Touch proximity PREVIEW — PROXY detections, not touch events",
+        "## Effective ball px seen by model — resolution calculation",
         "",
-        "| Candidate | Threshold | On-ball near/box frames | Off-pitch near/box frames |",
-        "|---|---:|---:|---:|",
+        "Reference is a hypothetical 24x24 px ball in the 1920x1080 source, not a ground-truth measurement. RF medium squashes each input anisotropically to 576x576. These are not 1080p model inputs.",
+        "",
+    ]
+    for name, r in data["resolution"].items():
+        x, y = r["effective_ball_px_seen_by_model"]
+        lines.append(
+            f"- {name}: source tile {r['source_tile_wh']}, model {r['model_input_wh']}, effective ball **{x:.1f}x{y:.1f} px**; {r['transform']}."
+        )
+    lines += [
+        "",
+        "`run_ball.py --resolution <side>` now overrides RF resolution. No resolution-override run was made.",
+        "",
+        "## Saved RF 0.1 boxes re-tracked — unverified trajectories",
+        "",
+        "Kalman association now uses 30 m/s x elapsed seconds x 20 source px/metre: 300 px in 0.5 s, 600 px across a 1.0 s gap. This is an uncalibrated pixel convention, not measured physical speed. Max gap is 1.0 s. Longest duration includes one 0.5 s observation bin; short gaps can be bridged; trailing extrapolation is not counted.",
+        "",
+        "A single speed-bounded hypothesis means exactly one fragment covering at least 80% of a clip. Even that is NOT evidence it is the ball: slow/static false boxes and identity switches can satisfy the speed cap. Human review is required.",
+        "",
+        "| RF candidate @0.1 | Scope | Fragments | Weighted continuity | Longest track s | Single hypothesis clips/total |",
+        "|---|---|---:|---:|---:|---:|",
+    ]
+    for name, r in data["retracking"].items():
+        for group in ("on_ball", "all"):
+            o = r["groups"][group]
+            lines.append(
+                f"| {name} | {group} | {o['fragments']} | {number(o['continuity'], True)} | {number(o['longest_track_s'])} | {o['single_hypothesis_clips']}/{o['clips']} |"
+            )
+    lines += [
+        "",
+        "| Candidate @0.1 | On-ball clip | Fragments | Continuity | Longest s | One speed-bounded hypothesis? |",
+        "|---|---|---:|---:|---:|---|",
+    ]
+    for name, r in data["retracking"].items():
+        for c in r["per_clip"]:
+            if c["class"] == "on_ball":
+                lines.append(
+                    f"| {name} | {c['clip']} | {c['fragments']} | {number(c['continuity'], True)} | {number(c['longest_track_s'])} | {c['single_speed_bounded_hypothesis']} (not ball-confirmed) |"
+                )
+    lines += [
+        "",
+        "## Touch proximity PREVIEW — no separation",
+        "",
+        "RF near-rates overlap between on-ball and off-pitch clips: **no separation** demonstrated by this preview. These rates are from unverified detector outputs, not touch counts. WASB rates do not establish touch detection either.",
+        "",
+        "| Candidate | Threshold | On-ball near/box frames | On-ball near-rate | Off-pitch near/box frames | Off-pitch near-rate |",
+        "|---|---:|---:|---:|---:|---:|",
     ]
     for r in data["results"]:
         t = r["overall"]["touch_preview"]
+        a, b = t["on_ball"], t["off_pitch"]
         lines.append(
-            f"| {r['candidate']} | {r['threshold']} | {t['on_ball']['near_frames']}/{t['on_ball']['box_available_frames']} | {t['off_pitch']['near_frames']}/{t['off_pitch']['box_available_frames']} |"
+            f"| {r['candidate']} | {r['threshold']} | {a['near_frames']}/{a['box_available_frames']} | {number(a['rate'], True)} | {b['near_frames']}/{b['box_available_frames']} | {number(b['rate'], True)} |"
         )
     lines += [
         "",
-        "## Human truth — separate from proxy",
+        "## Human-label scoring from saved detections",
         "",
-        f"Status: {data['human_truth']['status']}; {data['human_truth']['labelled_frames']}/{data['human_truth']['total_frames']} labelled. No unlabelled frame becomes a negative. Human false-ball rate uses only explicitly invisible labelled frame exposure; full human gate requires all relevant samples labelled.",
+        "MJ: label the six on-ball clips (**540 frames**) plus approximately **100 off-pitch frames**, spread across seven clips. The exact 100-frame, model-independent sample plan is in JSON `human_label_plan`. Click the match ball centre or explicitly mark not visible; leave uncertainty unlabelled. This is enough to score ALL five candidates and every saved threshold without inference, models, cv2, or source video.",
         "",
-        "| Candidate | Threshold | Human visible hits/frames | Human detection | Human false/10s | Human gate |",
+        "```sh",
+        "~/Projects/loanarmy/.loan/bin/python spike/video-analysis/ball/score_from_saved.py --human-jsonl ~/Downloads/ball-human-truth.jsonl",
+        "```",
+        "",
+        "The sampled human gate requires all on-ball samples labelled and >=100 off-pitch labels. Recall uses visible on-ball labels; unmatched predictions on ALL labelled off-pitch frames are counted (at most one match within 40 source px; duplicates are unmatched), with 0.5 s exposure per labelled frame. It is an estimate on the selected sample, not an exhaustive full-match gate. Unlabelled frames never become negatives. Proxy verdicts stay UNMEASURABLE regardless of labels.",
+        "",
+        f"Current human status: {data['human_truth']['status']}; {data['human_truth']['labelled_frames']} labels.",
+        "",
+        "| Candidate | Threshold | Human matched/visible | Human recall | Human unmatched/10 s | Human gate |",
         "|---|---:|---:|---:|---:|---|",
     ]
     for r in data["results"]:
@@ -214,59 +340,58 @@ def markdown(data):
         lines.append(
             f"| {r['candidate']} | {r['threshold']} | {h['detected_on_ball_frames']}/{h['visible_on_ball_frames']} | {number(h['detection_rate'], True)} | {number(h['false_per_10s'])} | {h['gate']} |"
         )
-    lines += ["", "## Per clip — PROXY and proximity PREVIEW", ""]
+    lines += ["", "## Per clip — diagnostic PROXY and track/proximity preview", ""]
     for r in data["results"]:
         lines += [
-            f"### {r['candidate']} threshold {r['threshold']}",
+            f"### {r['candidate']} @{r['threshold']}",
             "",
-            "| Clip | Group | Proxy hits/visible | Detection proxy | False/10s proxy | Mean confidence | Ball px min/median | FPS | Wall s | Continuity | Fragments | Near/box PREVIEW |",
-            "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+            "| Clip | Group | Proxy matches/agreement | Self-agreement | Boxes/frame | boxes_per_10s_offpitch | Confidence | Box px min/median | FPS | Wall s | Fragments | Continuity | Longest s | Near-rate |",
+            "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
         ]
         for c in r["per_clip"]:
             group = (
-                "on-ball"
+                "on_ball"
                 if c["on_ball"]
-                else "off-pitch"
+                else "off_pitch"
                 if c["off_pitch"]
                 else "other"
             )
             lines.append(
-                f"| {c['clip']} | {group} | {c['proxy_detected_frames']}/{c['proxy_visible_frames']} | {number(c['detection_rate_proxy'], True)} | {number(c['false_per_10s_proxy'])} | {number(c['mean_confidence'])} | {number(c['ball_px_min'])}/{number(c['ball_px_median'])} | {number(c['fps'])} | {number(c['wall_s'])} | {number(c['continuity'], True)} | {c['track_fragments']} | {c['touch_preview_frames']}/{c['touch_preview_eligible_frames']} |"
+                f"| {c['clip']} | {group} | {c['proxy_matched_frames']}/{c['proxy_agreement_frames']} | {number(c['self_agreement_rate_proxy'], True)} | {number(c['boxes_per_frame'])} | {number(c['boxes_per_10s_offpitch'])} | {number(c['mean_confidence'])} | {number(c['box_px_min'])}/{number(c['box_px_median'])} | {number(c['fps'])} | {number(c['wall_s'])} | {c['track_fragments']} | {number(c['continuity'], True)} | {number(c['longest_track_s'])} | {number(c['touch_preview_rate'], True)} |"
             )
         lines.append("")
-    lines += ["## Example PNGs", ""] + [f"- {p}" for p in data["examples"]]
+    lines += ["## Three track overlays (unverified hypotheses)", ""] + [
+        f"- {p}" for p in data["track_examples"]
+    ]
     lines += [
         "",
-        "## Execution (committed fixture)",
+        "## Environment and WASB 2x2 parity",
+        "",
+        "```json",
+        json.dumps(data["environment"], indent=2, sort_keys=True),
+        "```",
+        "",
+        "## Execution fixture",
         "",
         "```json",
         json.dumps(data["execution"], indent=2, sort_keys=True),
         "```",
         "",
-        "Regenerate: `.loan/bin/python spike/video-analysis/ball/compare_ball.py` (use the repository parent .loan interpreter). Optional `--human-jsonl ~/ball-human-truth.jsonl` computes a separate human section. All measured inputs and the execution block are committed fixtures; PNGs, media, weights and cloned upstream code stay outside git.",
-        "",
-        "WASB model and MIT licence: https://github.com/nttcom/WASB-SBDT ; soccer weights linked by its MODEL_ZOO.md.",
+        "Regenerate byte-for-byte: `.loan/bin/python spike/video-analysis/ball/compare_ball.py` using the parent repository interpreter. All numeric inputs, re-tracks and execution metadata are committed fixtures. Original four candidate run records remain unchanged; only WASB 2x2 ran in this fix round.",
         "",
     ]
     return "\n".join(lines)
 
 
-def load_measurements(path=HERE / "fixtures/measurements.json.gz"):
-    return json.loads(gzip.decompress(Path(path).read_bytes()))
-
-
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument(
-        "--capture",
+        "--update-saved",
         action="store_true",
-        help="Capture local recorded runs into committed measurement fixture",
+        help="Append only local wasb_2x2 outputs and recomputed RF tracks to fixture",
     )
     p.add_argument("--report-dir", type=Path, default=DEFAULT_REPORT)
-    p.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
-    p.add_argument(
-        "--measurements", type=Path, default=HERE / "fixtures/measurements.json.gz"
-    )
+    p.add_argument("--measurements", type=Path, default=MEASUREMENTS)
     p.add_argument("--execution", type=Path, default=HERE / "fixtures/execution.json")
     p.add_argument("--human-jsonl", type=Path)
     p.add_argument(
@@ -275,14 +400,8 @@ def main():
         default=ROOT / "ledgers/research/evidence-bench-2026-09-10-ball-detect",
     )
     a = p.parse_args()
-    if a.capture:
-        payload = json.dumps(
-            collect(a.manifest, a.report_dir),
-            sort_keys=True,
-            separators=(",", ":"),
-            allow_nan=False,
-        ).encode()
-        a.measurements.write_bytes(gzip.compress(payload, mtime=0))
+    if a.update_saved:
+        update_saved(a.report_dir, a.measurements)
     data = compare(
         load_measurements(a.measurements),
         json.loads(a.execution.read_text()),

@@ -25,14 +25,31 @@ from detectors import RFDetector, WASBDetector
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--candidate", choices=["rf_full", "rf_2x2", "rf_3x3", "wasb"], required=True
+        "--candidate",
+        choices=["rf_full", "rf_2x2", "rf_3x3", "wasb", "wasb_2x2"],
+        required=True,
     )
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
     parser.add_argument("--source", type=Path, default=DEFAULT_SOURCE)
     parser.add_argument("--report-dir", type=Path, default=DEFAULT_REPORT)
     parser.add_argument("--clips", default="all")
     parser.add_argument("--device", default="mps", choices=["mps", "cpu"])
+    parser.add_argument(
+        "--resolution", type=int, help="RF-DETR input side override; default 576"
+    )
+    parser.add_argument(
+        "--parity-frames",
+        type=int,
+        choices=[5],
+        help="Five-frame tiled WASB CPU/MPS heatmap parity",
+    )
     args = parser.parse_args()
+    if args.resolution is not None and (
+        args.resolution <= 0 or args.candidate.startswith("wasb")
+    ):
+        parser.error("resolution override requires a positive RF-DETR input side")
+    if args.parity_frames and args.candidate != "wasb_2x2":
+        parser.error("parity check is for wasb_2x2")
     import cv2
     import torch
 
@@ -45,16 +62,17 @@ def main():
         raise ValueError("no clips selected")
     started = time.perf_counter()
     model: RFDetector | WASBDetector
-    if args.candidate == "wasb":
+    if args.candidate.startswith("wasb"):
         model = WASBDetector(
             HERE / "third_party/WASB-SBDT",
             Path.home() / "models/wasb/wasb_soccer_best.pth.tar",
             args.device,
+            grid=2 if args.candidate == "wasb_2x2" else 1,
         )
     else:
         grid = {"rf_full": 1, "rf_2x2": 2, "rf_3x3": 3}[args.candidate]
         info = probe(clips[0]["video"])
-        model = RFDetector(grid, (info["width"], info["height"]))
+        model = RFDetector(grid, (info["width"], info["height"]), args.resolution)
 
     def sync():
         if model.device == "mps":
@@ -94,6 +112,10 @@ def main():
         "source_sha256": sha256(args.source) if args.source.is_file() else None,
         "source_probe": probe(clips[0]["video"]),
     }
+    if args.candidate == "wasb_2x2":
+        metadata["tiling"] = (
+            "2x2 non-overlapping 960x540 source tiles -> 512x288 each; per-tile peak, 40 source-px point NMS"
+        )
     dump(out / "run.json", metadata)
     for clip in clips:
         sync()
@@ -116,6 +138,12 @@ def main():
             f"{args.candidate} {clip['clip_id']} {len(rows)} frames {wall:.2f}s {len(rows) / wall:.2f}fps",
             flush=True,
         )
+
+    if args.parity_frames:
+        from wasb_parity import check_parity
+
+        metadata["parity"] = check_parity(model, clips)
+        dump(out / "run.json", metadata)
 
 
 if __name__ == "__main__":

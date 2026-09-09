@@ -1,14 +1,15 @@
 {
-  "base_commit": "55da4e0268fca6d9dedc2278b988c22985d1a4d8",
+  "base_commit": "4c808a2649689e9cc49c65c84ba2ec1c7e5184a1",
   "branch": "feat/bench-ball-detect",
   "checks": [
-    "BENCH_REQUIRE_CV2=1 ~/Projects/loanarmy/.loan/bin/python -m pytest spike/video-analysis/bench spike/video-analysis/ball -q: 346 passed, no skips; six existing Pillow deprecation warnings.",
-    "Real headless Chromium file:// click-kit smoke: click -> invisible -> JSONL export -> persisted reload -> import PASS; disposable browser profile; synthetic smoke labels never used as human truth",
-    "Mypy --follow-imports=skip --ignore-missing-imports --check-untyped-defs: no issues in 8 bench implementation files (checks our bodies; external model APIs are not statically checked).",
-    "Python compileall: PASS; native-size/fit-width browser controls PASS; fresh browser profile remains entirely unlabelled.",
-    "Actual supervision 0.28.0 InferenceSlicer: 2x2=4 tiles (1010x590), 3x3=9 tiles (707x427); synthetic ball across overlaps merged to one exact source-coordinate box in both grids.",
-    "ruff check spike/video-analysis/bench spike/video-analysis/ball: PASS; ruff format --check: 45 files already formatted.",
-    "compare_ball.py rerun from committed numeric/execution fixtures: JSON and Markdown regenerate byte-for-byte; no inference, local media or network required."
+    "Worktree BENCH_REQUIRE_CV2=1 .loan pytest: 352 passed, six pre-existing Pillow deprecation warnings.",
+    "Original four candidates: all saved per-frame detections, wall timings, metadata and truth context compare equal to HEAD fixture.",
+    "Only one new full inference pass: wasb_2x2, 20/20 clips, 1105 samples; plus five requested MPS/CPU parity samples.",
+    "Git archive export in isolated Python 3.11.16 without cv2, torch or supervision: 349 passed, three expected cv2 skips, six pre-existing Pillow deprecation warnings.",
+    "Ruff check and ruff format --check passed in worktree and archive: 48 files already formatted.",
+    "Mypy 2.3.1 --follow-imports=skip --ignore-missing-imports --check-untyped-defs passed for 11 ball implementation files in worktree and archive.",
+    "Ledger JSON and Markdown regenerate byte-for-byte from committed fixtures in both worktree and no-cv2 archive export.",
+    "Five-frame WASB tile MPS-versus-CPU parity: maximum absolute heatmap difference 7.748603820800781e-07, below 1e-4 tolerance."
   ],
   "click_kit": "/Users/mjjones/ball-truth-review/index.html",
   "date": "2026-09-10",
@@ -17,8 +18,6 @@
     "No torch+rfdetr bench environment found. Created ignored ball/.venv-bench with uv Python 3.11.16; versions recorded by inference runner. Existing .loan remains the required pytest interpreter.",
     "Benchmark and human kit sample every 0.5 seconds across every complete clip window, nearest native frame in half-open window; 1105 sampled frames, not every native video frame. All intervening frames are decoded sequentially inside the wall timer. WASB gets three consecutive native frames ending at each sampled frame; left edge repeats the first frame.",
     "Fixed proxy voters: rf_full at 0.1, rf_2x2 at 0.1, wasb heatmap 0.5; 3x3 is an evaluated variant without an additional vote. Proxy is endogenous and correlated; keep denominator fixed through RF threshold sweep.",
-    "Kalman 3 metres per sampled-frame jump proxy = 60 source pixels using uncalibrated 20 pixels/metre; 1.0 s maximum gap, no trailing extrapolation counted toward continuity.",
-    "Off-pitch false-ball proxy counts all raw ball observations per ten seconds of actual clip duration at the declared 2 fps cadence. Off-pitch player notes do not prove the whole image contains no ball; this is not validated detector precision.",
     "WASB MIT checkout ignored under ball/third_party; bypass upstream CUDA-only runner with direct HRNet loading, identical RGB/ImageNet normalization, affine resizing, sigmoid, weighted connected components and peak mass selection. Ball size unavailable for heatmap-only output; never invent a box.",
     "Optional D skipped: optional model exploration not needed to complete the three requested candidates.",
     "User fence overrides CONTINUITY update protocol; ledger updates only in the two requested evidence files. Include user-supplied local-path plan as the explicitly allowed docs exception. One commit, no push.",
@@ -29,12 +28,13 @@
     "3x3 clip latencies vary substantially. Retain observed wall times rather than substitute ideal throughput; the required process guard still matched only this session. No other process stopped.",
     "Source loader now rejects a native source hash/dimension mismatch before either inference or human-kit extraction. Current measured source was independently verified before every lane.",
     "3x3 tile overlap is 100 source pixels with an extra pixel at some final tile boundaries because of integer rounding.",
-    "Examples use three declared clips (n12 interception, n17 far-side, n09 sideline), the first WASB-positive sampled frame in each, otherwise middle sample; detections shown at >=0.5 with fixed proxy red rings. Examples visually inspected; they are not human labels."
-  ],
-  "examples": [
-    "/Users/mjjones/Projects/loanarmy-bench-reports/ball-detect-2026-09-10/examples/m04-n12-t1411-237107-242145.png",
-    "/Users/mjjones/Projects/loanarmy-bench-reports/ball-detect-2026-09-10/examples/m04-n17-t717-416826-418915.png",
-    "/Users/mjjones/Projects/loanarmy-bench-reports/ball-detect-2026-09-10/examples/m04-n09-t1409-143096-143834.png"
+    "Round 2: all old RF and full-frame WASB detections retained byte-for-byte as numeric records; only new full inference pass is wasb_2x2 plus requested five-frame CPU/MPS parity.",
+    "No PASS/FAIL verdict is derived from correlated detector agreement. Off-pitch observations are box counts: the match ball is usually in frame while the marked player is on the sideline.",
+    "Tracking speed cap corrected to 30 m/s times actual elapsed seconds times uncalibrated 20 source px/metre; max observation gap 1.0 s. A continuous hypothesis does not establish that it follows the match ball.",
+    "WASB 2x2 uses four non-overlapping 960x540 native crops, three consecutive native frames per crop, each mapped to 512x288. Per-tile heatmap-mass peak selection, then 40 source-px point suppression.",
+    "MJ can score all candidates from 540 on-ball labels plus >=100 representative off-pitch labels, including visible ball frames. Human recall and unmatched predictions are separate from all proxy diagnostics.",
+    "Effective input size calculation uses a hypothetical 24x24 source-pixel ball; RF squashes to 576x576, WASB preserves 16:9. No RF resolution-override inference run.",
+    "Three track-overlay contact sheets for n12 visually inspected; raw/filtered hypotheses often follow non-ball scene features. This is qualitative inspection, not fabricated human-labelled truth."
   ],
   "frozen_clip_probe": {
     "count": 20,
@@ -63,7 +63,12 @@
     "weights_sha256": "749ff6071828aaffac63e204c4f4135ed3d6cdae4d702e086c360edc3b5768c8",
     "weights_url": "https://storage.googleapis.com/rfdetr/medium_coco/checkpoint_best_regular.pth"
   },
-  "state": "complete: four candidates x 20 clips, proxy gate FAIL for every tested threshold; human follow-up pending",
+  "state": "round 2 complete; all worktree and archive gates passed; human labels pending",
+  "track_examples": [
+    "/Users/mjjones/Projects/loanarmy-bench-reports/ball-detect-2026-09-10/tracks/rf_full-n12-track.png",
+    "/Users/mjjones/Projects/loanarmy-bench-reports/ball-detect-2026-09-10/tracks/rf_2x2-n12-track.png",
+    "/Users/mjjones/Projects/loanarmy-bench-reports/ball-detect-2026-09-10/tracks/rf_3x3-n12-track.png"
+  ],
   "wasb": {
     "license": "MIT",
     "repository": "https://github.com/nttcom/WASB-SBDT",

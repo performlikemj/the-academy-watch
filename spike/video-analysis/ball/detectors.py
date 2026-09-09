@@ -35,13 +35,13 @@ def merge_tiles(detections, iou_threshold=0.5):
 
 
 class RFDetector:
-    def __init__(self, grid, size):
+    def __init__(self, grid, size, resolution=None):
         import supervision as sv
 
         sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
         from run_spike import load_detector, detect_batch, keep_classes
 
-        self.model = load_detector("medium", "mps", None)
+        self.model = load_detector("medium", "mps", resolution)
         self.device = str(self.model.model.device)
         if self.device != "mps":
             raise RuntimeError(f"RF-DETR unexpectedly fell back to {self.device}")
@@ -85,7 +85,7 @@ class RFDetector:
 
 
 class WASBDetector:
-    def __init__(self, checkout, weights, device="mps"):
+    def __init__(self, checkout, weights, device="mps", grid=1):
         import torch
         from omegaconf import OmegaConf
 
@@ -104,48 +104,95 @@ class WASBDetector:
         self.model.to(device).eval()
         self.device = device
         self.resolution = [512, 288]
+        self.grid = grid
 
-    def __call__(self, stack, source_size):
+    def heatmaps(self, stack):
+        """Return all three sigmoid channels per tile for parity and last-frame reads."""
         import torch
         import cv2
 
-        tensors = []
-        for image in stack:
-            height, width = image.shape[:2]
-            affine = np.array(
-                [[512 / width, 0, 0], [0, 512 / width, 144 - height * 256 / width]],
-                dtype=np.float32,
-            )
-            data = (
-                cv2.warpAffine(
-                    image, affine, (512, 288), flags=cv2.INTER_LINEAR
-                ).astype(np.float32)
-                / 255
-            )
-            data = (
-                data - np.array([0.485, 0.456, 0.406], dtype=np.float32)
-            ) / np.array([0.229, 0.224, 0.225], dtype=np.float32)
-            tensors.append(data.transpose(2, 0, 1))
-        tensor = torch.from_numpy(np.concatenate(tensors)[None]).to(self.device)
-        with torch.inference_mode():
-            # Last output heatmap corresponds to the last of 3 native frames.
-            heatmap = self.model(tensor)[0][0, 2].sigmoid().cpu().numpy()
-        _, binary = cv2.threshold(heatmap, 0.5, 1, cv2.THRESH_BINARY)
-        count, labels = cv2.connectedComponents(binary.astype(np.uint8))
-        blobs: list[dict[str, Any]] = []
-        for label in range(1, count):
-            ys, xs = np.where(labels == label)
-            weights = heatmap[ys, xs]
-            x = float(np.average(xs, weights=weights)) * source_size[0] / 512
-            y = float(np.average(ys, weights=weights)) * source_size[1] / 288
-            blobs.append(
-                {
-                    "xy": [x, y],
-                    "confidence": float(weights.max()),
-                    "box": None,
-                    "size_px": None,
-                    "heatmap_mass": float(weights.sum()),
-                }
-            )
-        # Upstream intra-frame peak uses heatmap-weighted blob mass.
-        return [max(blobs, key=lambda d: d["heatmap_mass"])] if blobs else []
+        height, width = stack[-1].shape[:2]
+        results = []
+        for x1, y1, x2, y2 in tile_bounds(width, height, self.grid):
+            tensors = []
+            scale = 512 / (x2 - x1)
+            pad = 144 - (y2 - y1) * scale / 2
+            affine = np.array([[scale, 0, 0], [0, scale, pad]], dtype=np.float32)
+            for image in stack:
+                data = (
+                    cv2.warpAffine(
+                        image[y1:y2, x1:x2], affine, (512, 288), flags=cv2.INTER_LINEAR
+                    ).astype(np.float32)
+                    / 255
+                )
+                data = (
+                    data - np.array([0.485, 0.456, 0.406], dtype=np.float32)
+                ) / np.array([0.229, 0.224, 0.225], dtype=np.float32)
+                tensors.append(data.transpose(2, 0, 1))
+            tensor = torch.from_numpy(np.concatenate(tensors)[None]).to(self.device)
+            with torch.inference_mode():
+                heatmaps = self.model(tensor)[0][0].sigmoid().cpu().numpy()
+            results.append(((x1, y1, scale, pad), heatmaps))
+        return results
+
+    def __call__(self, stack, source_size):
+        import cv2
+
+        height, width = stack[-1].shape[:2]
+        selected: list[dict[str, Any]] = []
+        for (x1, y1, scale, pad), heatmaps in self.heatmaps(stack):
+            heatmap = heatmaps[2]
+            count, labels = cv2.connectedComponents((heatmap > 0.5).astype(np.uint8))
+            blobs: list[dict[str, Any]] = []
+            for label in range(1, count):
+                ys, xs = np.where(labels == label)
+                weights = heatmap[ys, xs]
+                x = (
+                    (float(np.average(xs, weights=weights)) / scale + x1)
+                    * source_size[0]
+                    / width
+                )
+                y = (
+                    ((float(np.average(ys, weights=weights)) - pad) / scale + y1)
+                    * source_size[1]
+                    / height
+                )
+                if not (0 <= x < source_size[0] and 0 <= y < source_size[1]):
+                    continue
+                blobs.append(
+                    {
+                        "xy": [x, y],
+                        "confidence": float(weights.max()),
+                        "box": None,
+                        "size_px": None,
+                        "heatmap_mass": float(weights.sum()),
+                    }
+                )
+            if blobs:
+                selected.append(max(blobs, key=lambda d: d["heatmap_mass"]))
+        return merge_points(selected)
+
+
+def tile_bounds(width, height, grid):
+    """Non-overlapping WASB tiles; 1080p 2x2 is four 960x540 inputs."""
+    if grid not in (1, 2):
+        raise ValueError("WASB supports full or 2x2")
+    return [
+        (
+            col * width // grid,
+            row * height // grid,
+            (col + 1) * width // grid,
+            (row + 1) * height // grid,
+        )
+        for row in range(grid)
+        for col in range(grid)
+    ]
+
+
+def merge_points(points, radius=40.0):
+    """Suppress duplicate tile peaks by source-pixel distance; no invented boxes."""
+    result: list[dict[str, Any]] = []
+    for point in sorted(points, key=lambda d: (-d["heatmap_mass"], tuple(d["xy"]))):
+        if all(math.dist(point["xy"], existing["xy"]) > radius for existing in result):
+            result.append(point)
+    return result
