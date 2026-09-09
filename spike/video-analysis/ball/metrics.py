@@ -262,33 +262,7 @@ def retrack_saved(measurements):
 
 
 def label_plan(measurements):
-    """All on-ball samples plus 100 evenly spread off-pitch samples, no model cues."""
-    on, off = [], []
-    for c in measurements["clips"]:
-        frames = [
-            {"clip": c["clip_id"], "t": r["t"]}
-            for r in measurements["outputs"]["rf_full"][c["clip_id"]]["frames"]
-        ]
-        if clip_class(c) == "on_ball":
-            on.extend(frames)
-        elif clip_class(c) == "off_pitch":
-            off.append(frames)
-    counts = [0] * len(off)
-    while sum(counts) < 100:
-        progressed = False
-        for i, frames in enumerate(off):
-            if counts[i] < len(frames) and sum(counts) < 100:
-                counts[i] += 1
-                progressed = True
-        if not progressed:
-            raise ValueError("fewer than 100 off-pitch samples")
-    selected: list[dict] = []
-    for frames, count in zip(off, counts):
-        selected.extend(
-            frames[round(i * (len(frames) - 1) / (count - 1))] for i in range(count)
-        )
-    return {
-        "on_ball": on,
-        "off_pitch": selected,
-        "instruction": "Label all 540 on-ball frames and these 100 off-pitch frames (or another representative 100); visible match-ball xy OR explicitly not visible. Uncertain frames remain unlabelled. Human sample gate needs all on-ball plus >=100 off-pitch labels.",
-    }
+    """Human review targets: every third off-pitch sample, topped up to 100."""
+    from human_loop import frame_catalog, review_plan
+
+    return review_plan(frame_catalog(measurements))

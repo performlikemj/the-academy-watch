@@ -24803,17 +24803,16 @@
     }
   },
   "execution": {
-    "base_commit": "4c808a2649689e9cc49c65c84ba2ec1c7e5184a1",
+    "base_commit": "d5f37b76f4390bdef6391a32af772bff76722847",
     "branch": "feat/bench-ball-detect",
     "checks": [
-      "Worktree BENCH_REQUIRE_CV2=1 .loan pytest: 352 passed, six pre-existing Pillow deprecation warnings.",
-      "Original four candidates: all saved per-frame detections, wall timings, metadata and truth context compare equal to HEAD fixture.",
-      "Only one new full inference pass: wasb_2x2, 20/20 clips, 1105 samples; plus five requested MPS/CPU parity samples.",
-      "Git archive export in isolated Python 3.11.16 without cv2, torch or supervision: 349 passed, three expected cv2 skips, six pre-existing Pillow deprecation warnings.",
-      "Ruff check and ruff format --check passed in worktree and archive: 48 files already formatted.",
-      "Mypy 2.3.1 --follow-imports=skip --ignore-missing-imports --check-untyped-defs passed for 11 ball implementation files in worktree and archive.",
-      "Ledger JSON and Markdown regenerate byte-for-byte from committed fixtures in both worktree and no-cv2 archive export.",
-      "Five-frame WASB tile MPS-versus-CPU parity: maximum absolute heatmap difference 7.748603820800781e-07, below 1e-4 tolerance."
+      "Chromium isolated-context assisted kit check PASS: acceptance/override/no-ball, keyboard, no auto-save, legacy storage, JSONL export/import, target navigation.",
+      "Worktree BENCH_REQUIRE_CV2=1 .loan pytest: 358 passed; six existing Pillow deprecation warnings.",
+      "Ruff check and format --check pass: 54 Python files.",
+      "Mypy 2.3.1 checks passed for seven changed/new implementation entrypoints (skip external imports).",
+      "Original five candidate outputs, timings, re-tracks and truth data compare equal to HEAD; only human_label_plan changed in measurement fixture.",
+      "Git archive without cv2, torch, supervision or ultralytics: 355 passed, three expected cv2 skips; six existing Pillow deprecation warnings.",
+      "Ledger JSON/Markdown regenerate byte-for-byte in worktree and archive; archive Ruff check/format pass (54 files)."
     ],
     "click_kit": "/Users/mjjones/ball-truth-review/index.html",
     "date": "2026-09-10",
@@ -24838,7 +24837,16 @@
       "WASB 2x2 uses four non-overlapping 960x540 native crops, three consecutive native frames per crop, each mapped to 512x288. Per-tile heatmap-mass peak selection, then 40 source-px point suppression.",
       "MJ can score all candidates from 540 on-ball labels plus >=100 representative off-pitch labels, including visible ball frames. Human recall and unmatched predictions are separate from all proxy diagnostics.",
       "Effective input size calculation uses a hypothetical 24x24 source-pixel ball; RF squashes to 576x576, WASB preserves 16:9. No RF resolution-override inference run.",
-      "Three track-overlay contact sheets for n12 visually inspected; raw/filtered hypotheses often follow non-ball scene features. This is qualitative inspection, not fabricated human-labelled truth."
+      "Three track-overlay contact sheets for n12 visually inspected; raw/filtered hypotheses often follow non-ball scene features. This is qualitative inspection, not fabricated human-labelled truth.",
+      "Round 3: no detector inference reruns. One explicitly synthetic YOLO11n two-epoch smoke, followed by one all-1105-frame trained-model pass. Original five candidate outputs and run metadata unchanged.",
+      "Every third sample of each of the seven off-pitch clips yields 74, not 100. Include those exact 74 and deterministically top up 26 non-selected frames to preserve 540+100=640 target. Both lists and seven clip IDs recorded in build.json and committed human_label_plan.",
+      "Assisted suggestions require explicit human accept/click/no-ball. Existing ball-human-v1 localStorage key unchanged. New acceptance metadata records source_accepted, accepted_source, accepted_score; no automatic truth or overwrite of confirmed labels.",
+      "YOLO11n chosen under user-authorized AGPL bench-only internal tooling scope, not production integration. Official MPS documentation and AGPL source licence checked. Pinned Ultralytics 8.4.146 added to existing ignored bench venv; other original environment versions retained.",
+      "Normal split is four on-ball train clips (n03,n04,n12,n15) and both n17 on-ball clips held out. Off-pitch clips never train. Size estimation and opt-in pseudo boxes use training clicks only. Smoke uses ONE synthetic clip without a frame split; trainer resubstitution is only a health check, and no held-out accuracy is claimed.",
+      "Two-epoch synthetic model produced zero outputs at threshold 0.1: suggestions.jsonl exists but is empty. Saved detections cover all 1105 frames. Do not invent suggestions or present smoke metrics as ball results; MJ kit retains the original saved-detector suggestions.",
+      "Trainer output directories must be new or empty. Synthetic labels, weights, datasets, browser test state and trained predictions stay outside git. --init supports continued training from a preceding click-trained run.",
+      "Existing evidence ledger keeps original five candidates; trained candidates are scored through --extra-detections with strict source and schedule validation. Training metrics use 20-px matching; common bench uses unchanged 40-px matching, with in-sample versus held-out caveat.",
+      "Normal human-labelled training disables per-epoch validation and always uses last.pt so held-out labels cannot select the checkpoint. The synthetic smoke used best.pt with no independent validation labels, as recorded."
     ],
     "frozen_clip_probe": {
       "count": 20,
@@ -24851,13 +24859,241 @@
       "memory_bytes": 137438953472,
       "memory_gib": 128
     },
+    "human_loop": {
+      "browser_screenshot": "/Users/mjjones/Projects/loanarmy-bench-reports/ball-detect-2026-09-10/assisted-kit-r3.png",
+      "instructions": [
+        "**Click \u2192 train \u2192 pre-fill \u2192 confirm \u2192 re-score.** Each export preserves manual",
+        "versus suggestion-accepted provenance. Nothing becomes truth until MJ acts.",
+        "",
+        "1. Open `~/ball-truth-review/index.html`. Six on-ball clips appear first. A hollow",
+        "   cyan ring and source name show an optional suggestion. **Enter/Space accepts**,",
+        "   a click overrides, **N** marks no ball, **\u2190/\u2192** change frames, **J/K** change clips.",
+        "   Use **Next unlabelled target** to skip optional frames. Suggestions never auto-save.",
+        "2. Label all **540 on-ball frames plus 100 off-pitch samples**. Every third frame",
+        "   from each off-pitch clip yields only **74** samples; a deterministic **26-frame",
+        "   top-up** retains the requested **640 target**. Exact lists and the seven clip",
+        "   IDs are in `build.json` and `human_label_plan` in the measurement fixture.",
+        "   Progress counts labelled target frames, excluding optional frames. The old",
+        "   localStorage key stays compatible. Export JSONL regularly as your backup.",
+        "3. Train from the export, then load the model's suggestions into the same kit.",
+        "   Existing confirmed labels survive rebuilding; suggestions do not replace them.",
+        "   Confirm or correct new suggestions and export again before re-scoring.",
+        "",
+        "First-pass planning estimate: **32\u201364 minutes** at 3\u20136 seconds per target frame,",
+        "plus breaks/uncertainty. This is an estimate, not measured annotation speed.",
+        "Accepting a correct suggestion takes one keypress; finding a tiny ball may take",
+        "longer. Leave uncertain frames unlabelled; do not mark them invisible.",
+        "",
+        "```sh",
+        "# Setup (already installed on basecamp). Ultralytics stays bench-only.",
+        "uv pip install --python spike/video-analysis/ball/.venv-bench/bin/python \\",
+        "  -r spike/video-analysis/ball/requirements-train.txt",
+        "",
+        "# After MJ exports the kit to ~/Downloads/ball-human-truth.jsonl:",
+        "spike/video-analysis/ball/.venv-bench/bin/python spike/video-analysis/ball/train_tiny_ball.py \\",
+        "  --human-jsonl ~/Downloads/ball-human-truth.jsonl --out ~/models/tinyball/mj-r1",
+        "",
+        "# Pre-fill again, retaining existing localStorage labels and image files:",
+        "~/Projects/loanarmy/.loan/bin/python spike/video-analysis/ball/ball_truth_kit.py \\",
+        "  --suggestions ~/models/tinyball/mj-r1/suggestions.jsonl",
+        "",
+        "# MJ confirms/corrects and exports again, then score all saved candidates:",
+        "~/Projects/loanarmy/.loan/bin/python spike/video-analysis/ball/score_from_saved.py \\",
+        "  --human-jsonl ~/Downloads/ball-human-truth.jsonl \\",
+        "  --extra-detections tinyball-r1=$HOME/models/tinyball/mj-r1/detections.json",
+        "",
+        "# A subsequent training run can start from the earlier weights:",
+        "spike/video-analysis/ball/.venv-bench/bin/python spike/video-analysis/ball/train_tiny_ball.py \\",
+        "  --human-jsonl ~/Downloads/ball-human-truth.jsonl --out ~/models/tinyball/mj-r2 \\",
+        "  --init ~/models/tinyball/mj-r1/weights.pt",
+        "```",
+        "",
+        "Use a fresh output directory per run. Weights, datasets and labels stay outside",
+        "git. `score_from_saved.py` needs no torch, cv2, video, model or inference.",
+        "`--extra-detections name=path` can repeat; it validates source hash, frozen set,",
+        "all 20 clips, all 1,105 timestamps/frame indices, geometry and timings.",
+        "`compare_ball.py --human-jsonl` remains available for the original candidates.",
+        "",
+        "The first 1,041 suggestions come solely from saved detections: **683 rf_3x3,",
+        "242 rf_2x2, 116 wasb_2x2**. Choose the highest confidence observation on one of",
+        "those candidates' longest re-tracked fragments at that timestamp; otherwise use",
+        "the top rf_3x3 box at >=0.3, or no suggestion. WASB supplies a point. These scores",
+        "are not calibrated across models. Track membership does not prove ball identity.",
+        "Regenerate using `python spike/video-analysis/ball/human_loop.py`; then rebuild",
+        "with `ball_truth_kit.py --suggestions ~/ball-truth-review/suggestions.jsonl`.",
+        "Build version 3 is synced to `~/codex-runs/ball-truth-review-build.json`.",
+        "",
+        "The original JSONL fields remain `{clip,t,x,y,visible}`: source pixels, absolute",
+        "seconds and null coordinates when invisible. New labels add `source_accepted`;",
+        "accepted suggestions also keep `accepted_source` and `accepted_score`. Old",
+        "five-field exports still import. Suggestion files use `{clip,t,x,y,score,source}`",
+        "and cannot be imported as truth. Re-scoring reports accepted-source counts.",
+        "",
+        "**Training recipe:** YOLO11-nano via Ultralytics 8.4.146, **AGPL-3.0**, used only",
+        "in this local bench. [Upstream licence](https://github.com/ultralytics/ultralytics/blob/main/LICENSE)",
+        "and [MPS training documentation](https://docs.ultralytics.com/modes/train/).",
+        "No production integration or deployment is part of this work.",
+        "",
+        "Each native 1920x1080 frame becomes four non-overlapping 960x540 crops. YOLO",
+        "letterboxes each to 640x640 (640x360 image content). A click belongs to exactly",
+        "one tile; its point-box is clipped at the tile boundary. Box side at model scale",
+        "is `max(12, 2 * median matched RF size * 640/960)`, using only saved RF 2x2 boxes",
+        "within 20 source pixels of **training** clicks. No size matches \u2192 12 model pixels",
+        "(18 source pixels). Sizes remain detector estimates. Non-click tiles and explicit",
+        "no-ball frames supply negatives; unlabelled frames never do. `--pseudo` alone",
+        "adds saved RF 0.1 boxes within 20 source pixels of a training click, with NMS.",
+        "There is no pseudo-label propagation to held-out clips or unclicked frames.",
+        "",
+        "The fixed split is by complete clip, **never by frame**:",
+        "",
+        "| Role | On-ball clips |",
+        "|---|---|",
+        "| Train | n03-157170, n04-243433, n12-237107, n15 |",
+        "| Held out | n17-253073, n17-416826 |",
+        "",
+        "All seven off-pitch clips are reserved for scoring. The run records full IDs.",
+        "Normal runs use the last checkpoint; held-out labels do not select weights.",
+        "Per-epoch validation is disabled; Ultralytics may validate once at the end.",
+        "Default training requests five epochs with MPS and a 15-minute trainer budget;",
+        "Ultralytics' time budget may adjust epoch count and finishes at epoch boundaries.",
+        "Full human-labelled training time is not yet measured. Use `--epochs` to set the",
+        "requested count. `--init` lets later clicks improve the preceding model.",
+        "",
+        "Outputs: `weights.pt`, `dataset.json`, `dataset/`, `metrics.json`,",
+        "`detections.json`, `suggestions.jsonl`, and Ultralytics `fit/` checkpoints.",
+        "Metrics report held-out **20-source-pixel** recall/precision, unmatched predictions",
+        "per labelled off-pitch frame and FPS including decode. At most one prediction",
+        "matches each visible label; duplicates count as unmatched. A single model pass",
+        "covers all 1,105 scheduled frames. Suggestions contain at most one point per",
+        "frame with an output >=0.1; missing predictions produce no suggestion, never an",
+        "invented point. The saved detection file includes those empty frames.",
+        "",
+        "The six-candidate bench uses its existing **40-pixel** matching rule for fair",
+        "comparison. Scores that include training clips are in-sample; consult the separate",
+        "20-pixel held-out metrics for generalisation. Model-assisted confirmation also",
+        "needs careful review; acceptance provenance is available for audits.",
+        "",
+        "The separate human sample gate requires all 540 on-ball labels and >=100 off-pitch",
+        "labels: visible-ball recall >=80%, unmatched predictions <=1/10 s. A visible ball",
+        "on off-pitch frames permits one match; every other prediction is unmatched.",
+        "Exposure is 0.5 s per labelled frame. Partial labels give metrics with the gate",
+        "withheld. **Every proxy verdict stays UNMEASURABLE (proxy).**",
+        "",
+        "Smoke command (already completed; do not rerun for scoring):",
+        "",
+        "```sh",
+        "spike/video-analysis/ball/.venv-bench/bin/python spike/video-analysis/ball/smoke_tiny_ball.py \\",
+        "  --out ~/models/tinyball/a-new-SYNTHETIC-smoke",
+        "```",
+        "",
+        "The actual `~/models/tinyball/round3-synthetic-smoke` used 36 synthetic proxy labels",
+        "from one on-ball clip (144 tiles), two epochs on MPS: **27.21 s training, 50.59 s",
+        "total**. Its trainer health check reuses that clip without splitting frames; no",
+        "independent held-out labels exist, and those scores are null. Weights, metrics",
+        "and all-frame saved detections were produced. **Zero predictions reached 0.1**,",
+        "so its `suggestions.jsonl` is valid but empty. This proves pipeline execution,",
+        "not detection quality or a useful trained pre-fill. Synthetic labels and model",
+        "outputs are not committed or loaded into MJ's kit. No smoke accuracy numbers are",
+        "reported as ball results."
+      ],
+      "kit": {
+        "build_version": 3,
+        "clips": 20,
+        "frames": 1105,
+        "storage_key": "ball-human-v1:1f68e2755002b3598c763532e95c212de9261ffa638c2943ad3769a1be77503f:/Users/mjjones/Projects/loanarmy/spike/video-analysis/footage/youtube/afc-yorkies-full.mp4:fps2",
+        "suggestions": 1041,
+        "suggestions_by_source": {
+          "rf_2x2": 242,
+          "rf_3x3": 683,
+          "wasb_2x2": 116
+        }
+      },
+      "kit_build_path": "/Users/mjjones/ball-truth-review/build.json",
+      "review_target": {
+        "every_third_offpitch": 74,
+        "off_pitch": 100,
+        "off_pitch_clips": [
+          "m04-n03-t1406-385962-387137",
+          "m04-n09-t1409-143096-143834",
+          "m04-n09-t1409-385922-386603",
+          "m04-n12-t1411-679986-681985",
+          "m04-n21-t3011-390297-390800",
+          "m04-n22-t3012-070707-074371",
+          "m04-n25-t3014-530600-532465"
+        ],
+        "on_ball": 540,
+        "target": 640,
+        "topup": 26
+      },
+      "smoke": {
+        "device": "mps",
+        "epochs_requested": 2,
+        "frames_scanned": 1105,
+        "initial_weights": "/Users/mjjones/models/tinyball/yolo11n.pt",
+        "initial_weights_sha256": "0ebbc80d4a7680d14987a577cd21342b65ecfd94632bd9a8da63ae6417644ee1",
+        "licence": "AGPL-3.0; bench-only internal tooling; https://github.com/ultralytics/ultralytics/blob/main/LICENSE",
+        "model": "YOLO11n",
+        "pretrained_url": "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo11n.pt",
+        "split": {
+          "held_out": [],
+          "smoke_resubstitution_only": true,
+          "train": [
+            "m04-n03-t1406-157170-158922"
+          ]
+        },
+        "suggestions": 0,
+        "total_s": 50.5928510830272,
+        "training_s": 27.21225362503901,
+        "versions": {
+          "numpy": "2.4.6",
+          "opencv-python": "5.0.0.93",
+          "torch": "2.14.0",
+          "torchvision": "0.29.0",
+          "ultralytics": "8.4.146"
+        },
+        "weights_sha256": "a9052ea195bf2209085e1f71a3c5d3c937dd80ae55c01940d564dc8a6504cbd9"
+      },
+      "smoke_outputs": {
+        "dataset.json": {
+          "bytes": 1272,
+          "path": "/Users/mjjones/models/tinyball/round3-synthetic-smoke/dataset.json",
+          "sha256": "1e3a53b6516ffe20cf91710f0ae2184fc6b3c9a8c222819b2a91f5183d9ccb73"
+        },
+        "detections.json": {
+          "bytes": 155962,
+          "path": "/Users/mjjones/models/tinyball/round3-synthetic-smoke/detections.json",
+          "sha256": "85331962d94cbc838749df338ffa3d1137b3d6a2d18cfc08fa1ec21587587707"
+        },
+        "metrics.json": {
+          "bytes": 1713,
+          "path": "/Users/mjjones/models/tinyball/round3-synthetic-smoke/metrics.json",
+          "sha256": "476eae44b3b4aa55c778a56de7600da74dc1c6dd82f351a80f061585aee583f9"
+        },
+        "suggestions.jsonl": {
+          "bytes": 0,
+          "path": "/Users/mjjones/models/tinyball/round3-synthetic-smoke/suggestions.jsonl",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "weights.pt": {
+          "bytes": 5442458,
+          "path": "/Users/mjjones/models/tinyball/round3-synthetic-smoke/weights.pt",
+          "sha256": "a9052ea195bf2209085e1f71a3c5d3c937dd80ae55c01940d564dc8a6504cbd9"
+        }
+      },
+      "smoke_status": "SYNTHETIC PIPELINE CHECK ONLY; no held-out labels, no ball accuracy result. Empty suggestions file at >=0.1.",
+      "suggestions_sha256": "5b55b3ce0737f90a7568158dc8cfa00e2d3de9fd5eed1d6157f44ab76454ade7",
+      "synced_build_path": "/Users/mjjones/codex-runs/ball-truth-review-build.json"
+    },
     "mypy_version": "2.3.1",
     "not_done": [
       "MJ human ball labels; proxy gate is not human validation",
       "Homography/metre calibration, touch events, possession attribution and production integration",
       "Optional YOLO/Roboflow candidate D",
       "Every-native-frame detector and tracker benchmark",
-      "Push (prohibited)"
+      "Push (prohibited)",
+      "Real human-click training and measured held-out ball accuracy; current trained model is synthetic smoke only",
+      "Useful model-trained pre-fill after human training; synthetic two-epoch smoke emits no >=0.1 suggestions",
+      "Full 640-label annotation burden and normal MPS training time are estimates, not measured"
     ],
     "process_guard": "pgrep -f run_bench|qwen_match_analysis matched only this session's telemetry/caffeinate/Codex launch ancestry; no competing runner; no gate file; no process killed",
     "rfdetr": {
@@ -24867,7 +25103,17 @@
       "weights_sha256": "749ff6071828aaffac63e204c4f4135ed3d6cdae4d702e086c360edc3b5768c8",
       "weights_url": "https://storage.googleapis.com/rfdetr/medium_coco/checkpoint_best_regular.pth"
     },
-    "state": "round 2 complete; all worktree and archive gates passed; human labels pending",
+    "round2_checks": [
+      "Worktree BENCH_REQUIRE_CV2=1 .loan pytest: 352 passed, six pre-existing Pillow deprecation warnings.",
+      "Original four candidates: all saved per-frame detections, wall timings, metadata and truth context compare equal to HEAD fixture.",
+      "Only one new full inference pass: wasb_2x2, 20/20 clips, 1105 samples; plus five requested MPS/CPU parity samples.",
+      "Git archive export in isolated Python 3.11.16 without cv2, torch or supervision: 349 passed, three expected cv2 skips, six pre-existing Pillow deprecation warnings.",
+      "Ruff check and ruff format --check passed in worktree and archive: 48 files already formatted.",
+      "Mypy 2.3.1 --follow-imports=skip --ignore-missing-imports --check-untyped-defs passed for 11 ball implementation files in worktree and archive.",
+      "Ledger JSON and Markdown regenerate byte-for-byte from committed fixtures in both worktree and no-cv2 archive export.",
+      "Five-frame WASB tile MPS-versus-CPU parity: maximum absolute heatmap difference 7.748603820800781e-07, below 1e-4 tolerance."
+    ],
+    "state": "round 3 complete; worktree/archive/browser gates passed; real human labels and click-trained accuracy pending",
     "track_examples": [
       "/Users/mjjones/Projects/loanarmy-bench-reports/ball-detect-2026-09-10/tracks/rf_full-n12-track.png",
       "/Users/mjjones/Projects/loanarmy-bench-reports/ball-detect-2026-09-10/tracks/rf_2x2-n12-track.png",
@@ -24882,18 +25128,14 @@
       "weights_url": "https://drive.google.com/uc?id=1pg0MpMtKZ6ziYEr4oyfKYPOO3hjLw94l"
     }
   },
+  "extra_candidates": {},
   "frozen_set_id": "1f68e2755002b3598c763532e95c212de9261ffa638c2943ad3769a1be77503f",
   "headline": "UNMEASURABLE (proxy): this bench measures detector self-agreement and box counts (rf_full 4.88, rf_2x2 7.82, rf_3x3 10.88 boxes/frame at 0.1); 387/408 on-ball agreement frames are RF-pair-only. Recall against the real match ball is unmeasured until MJ labels frames.",
   "human_label_plan": {
-    "instruction": "Label all 540 on-ball frames and these 100 off-pitch frames (or another representative 100); visible match-ball xy OR explicitly not visible. Uncertain frames remain unlabelled. Human sample gate needs all on-ball plus >=100 off-pitch labels.",
-    "off_pitch": [
+    "every_third_offpitch": [
       {
         "clip": "m04-n03-t1406-385962-387137",
         "t": 3859.622433
-      },
-      {
-        "clip": "m04-n03-t1406-385962-387137",
-        "t": 3860.623433
       },
       {
         "clip": "m04-n03-t1406-385962-387137",
@@ -24901,19 +25143,11 @@
       },
       {
         "clip": "m04-n03-t1406-385962-387137",
-        "t": 3862.124933
+        "t": 3862.625433
       },
       {
         "clip": "m04-n03-t1406-385962-387137",
-        "t": 3863.125933
-      },
-      {
-        "clip": "m04-n03-t1406-385962-387137",
-        "t": 3863.626433
-      },
-      {
-        "clip": "m04-n03-t1406-385962-387137",
-        "t": 3864.627433
+        "t": 3864.126933
       },
       {
         "clip": "m04-n03-t1406-385962-387137",
@@ -24921,15 +25155,7 @@
       },
       {
         "clip": "m04-n03-t1406-385962-387137",
-        "t": 3866.128933
-      },
-      {
-        "clip": "m04-n03-t1406-385962-387137",
         "t": 3867.129933
-      },
-      {
-        "clip": "m04-n03-t1406-385962-387137",
-        "t": 3867.630433
       },
       {
         "clip": "m04-n03-t1406-385962-387137",
@@ -24937,15 +25163,7 @@
       },
       {
         "clip": "m04-n03-t1406-385962-387137",
-        "t": 3869.632433
-      },
-      {
-        "clip": "m04-n03-t1406-385962-387137",
         "t": 3870.132933
-      },
-      {
-        "clip": "m04-n03-t1406-385962-387137",
-        "t": 3871.133933
       },
       {
         "clip": "m04-n09-t1409-143096-143834",
@@ -24953,23 +25171,7 @@
       },
       {
         "clip": "m04-n09-t1409-143096-143834",
-        "t": 1431.463367
-      },
-      {
-        "clip": "m04-n09-t1409-143096-143834",
-        "t": 1431.963867
-      },
-      {
-        "clip": "m04-n09-t1409-143096-143834",
         "t": 1432.464367
-      },
-      {
-        "clip": "m04-n09-t1409-143096-143834",
-        "t": 1432.964867
-      },
-      {
-        "clip": "m04-n09-t1409-143096-143834",
-        "t": 1433.465367
       },
       {
         "clip": "m04-n09-t1409-143096-143834",
@@ -24977,35 +25179,11 @@
       },
       {
         "clip": "m04-n09-t1409-143096-143834",
-        "t": 1434.466367
-      },
-      {
-        "clip": "m04-n09-t1409-143096-143834",
-        "t": 1434.966867
-      },
-      {
-        "clip": "m04-n09-t1409-143096-143834",
         "t": 1435.467367
       },
       {
         "clip": "m04-n09-t1409-143096-143834",
-        "t": 1435.967867
-      },
-      {
-        "clip": "m04-n09-t1409-143096-143834",
-        "t": 1436.468367
-      },
-      {
-        "clip": "m04-n09-t1409-143096-143834",
         "t": 1436.968867
-      },
-      {
-        "clip": "m04-n09-t1409-143096-143834",
-        "t": 1437.469367
-      },
-      {
-        "clip": "m04-n09-t1409-143096-143834",
-        "t": 1437.969867
       },
       {
         "clip": "m04-n09-t1409-385922-386603",
@@ -25013,23 +25191,7 @@
       },
       {
         "clip": "m04-n09-t1409-385922-386603",
-        "t": 3859.722533
-      },
-      {
-        "clip": "m04-n09-t1409-385922-386603",
-        "t": 3860.223033
-      },
-      {
-        "clip": "m04-n09-t1409-385922-386603",
         "t": 3860.723533
-      },
-      {
-        "clip": "m04-n09-t1409-385922-386603",
-        "t": 3861.224033
-      },
-      {
-        "clip": "m04-n09-t1409-385922-386603",
-        "t": 3861.724533
       },
       {
         "clip": "m04-n09-t1409-385922-386603",
@@ -25037,31 +25199,11 @@
       },
       {
         "clip": "m04-n09-t1409-385922-386603",
-        "t": 3862.725533
-      },
-      {
-        "clip": "m04-n09-t1409-385922-386603",
-        "t": 3863.226033
-      },
-      {
-        "clip": "m04-n09-t1409-385922-386603",
         "t": 3863.726533
       },
       {
         "clip": "m04-n09-t1409-385922-386603",
-        "t": 3864.227033
-      },
-      {
-        "clip": "m04-n09-t1409-385922-386603",
-        "t": 3864.727533
-      },
-      {
-        "clip": "m04-n09-t1409-385922-386603",
         "t": 3865.228033
-      },
-      {
-        "clip": "m04-n09-t1409-385922-386603",
-        "t": 3865.728533
       },
       {
         "clip": "m04-n12-t1411-679986-681985",
@@ -25077,39 +25219,35 @@
       },
       {
         "clip": "m04-n12-t1411-679986-681985",
-        "t": 6803.863733
+        "t": 6804.364233
       },
       {
         "clip": "m04-n12-t1411-679986-681985",
-        "t": 6805.365233
+        "t": 6805.865733
       },
       {
         "clip": "m04-n12-t1411-679986-681985",
-        "t": 6806.866733
+        "t": 6807.367233
       },
       {
         "clip": "m04-n12-t1411-679986-681985",
-        "t": 6808.368233
+        "t": 6808.868733
       },
       {
         "clip": "m04-n12-t1411-679986-681985",
-        "t": 6809.869733
+        "t": 6810.370233
       },
       {
         "clip": "m04-n12-t1411-679986-681985",
-        "t": 6810.870733
+        "t": 6811.871733
       },
       {
         "clip": "m04-n12-t1411-679986-681985",
-        "t": 6812.372233
+        "t": 6813.373233
       },
       {
         "clip": "m04-n12-t1411-679986-681985",
-        "t": 6813.873733
-      },
-      {
-        "clip": "m04-n12-t1411-679986-681985",
-        "t": 6815.375233
+        "t": 6814.874733
       },
       {
         "clip": "m04-n12-t1411-679986-681985",
@@ -25129,23 +25267,7 @@
       },
       {
         "clip": "m04-n21-t3011-390297-390800",
-        "t": 3903.466233
-      },
-      {
-        "clip": "m04-n21-t3011-390297-390800",
-        "t": 3903.966733
-      },
-      {
-        "clip": "m04-n21-t3011-390297-390800",
         "t": 3904.467233
-      },
-      {
-        "clip": "m04-n21-t3011-390297-390800",
-        "t": 3904.967733
-      },
-      {
-        "clip": "m04-n21-t3011-390297-390800",
-        "t": 3905.468233
       },
       {
         "clip": "m04-n21-t3011-390297-390800",
@@ -25153,19 +25275,7 @@
       },
       {
         "clip": "m04-n21-t3011-390297-390800",
-        "t": 3906.469233
-      },
-      {
-        "clip": "m04-n21-t3011-390297-390800",
-        "t": 3906.969733
-      },
-      {
-        "clip": "m04-n21-t3011-390297-390800",
         "t": 3907.470233
-      },
-      {
-        "clip": "m04-n21-t3011-390297-390800",
-        "t": 3907.970733
       },
       {
         "clip": "m04-n22-t3012-070707-074371",
@@ -25173,15 +25283,27 @@
       },
       {
         "clip": "m04-n22-t3012-070707-074371",
-        "t": 709.575533
+        "t": 708.574533
       },
       {
         "clip": "m04-n22-t3012-070707-074371",
-        "t": 712.078033
+        "t": 710.076033
       },
       {
         "clip": "m04-n22-t3012-070707-074371",
-        "t": 715.081033
+        "t": 711.577533
+      },
+      {
+        "clip": "m04-n22-t3012-070707-074371",
+        "t": 713.079033
+      },
+      {
+        "clip": "m04-n22-t3012-070707-074371",
+        "t": 714.580533
+      },
+      {
+        "clip": "m04-n22-t3012-070707-074371",
+        "t": 716.082033
       },
       {
         "clip": "m04-n22-t3012-070707-074371",
@@ -25189,11 +25311,19 @@
       },
       {
         "clip": "m04-n22-t3012-070707-074371",
-        "t": 720.086033
+        "t": 719.085033
       },
       {
         "clip": "m04-n22-t3012-070707-074371",
-        "t": 722.555167
+        "t": 720.586533
+      },
+      {
+        "clip": "m04-n22-t3012-070707-074371",
+        "t": 722.054667
+      },
+      {
+        "clip": "m04-n22-t3012-070707-074371",
+        "t": 723.556167
       },
       {
         "clip": "m04-n22-t3012-070707-074371",
@@ -25201,15 +25331,27 @@
       },
       {
         "clip": "m04-n22-t3012-070707-074371",
+        "t": 726.559167
+      },
+      {
+        "clip": "m04-n22-t3012-070707-074371",
         "t": 728.060667
       },
       {
         "clip": "m04-n22-t3012-070707-074371",
-        "t": 730.563167
+        "t": 729.562167
       },
       {
         "clip": "m04-n22-t3012-070707-074371",
-        "t": 733.065667
+        "t": 731.063667
+      },
+      {
+        "clip": "m04-n22-t3012-070707-074371",
+        "t": 732.565167
+      },
+      {
+        "clip": "m04-n22-t3012-070707-074371",
+        "t": 734.066667
       },
       {
         "clip": "m04-n22-t3012-070707-074371",
@@ -25217,15 +25359,23 @@
       },
       {
         "clip": "m04-n22-t3012-070707-074371",
+        "t": 737.069667
+      },
+      {
+        "clip": "m04-n22-t3012-070707-074371",
         "t": 738.571167
       },
       {
         "clip": "m04-n22-t3012-070707-074371",
-        "t": 741.073667
+        "t": 740.072667
       },
       {
         "clip": "m04-n22-t3012-070707-074371",
-        "t": 743.576167
+        "t": 741.574167
+      },
+      {
+        "clip": "m04-n22-t3012-070707-074371",
+        "t": 743.075667
       },
       {
         "clip": "m04-n25-t3014-530600-532465",
@@ -25237,23 +25387,19 @@
       },
       {
         "clip": "m04-n25-t3014-530600-532465",
-        "t": 5308.5032
+        "t": 5309.0037
       },
       {
         "clip": "m04-n25-t3014-530600-532465",
-        "t": 5310.0047
+        "t": 5310.5052
       },
       {
         "clip": "m04-n25-t3014-530600-532465",
-        "t": 5311.5062
+        "t": 5312.0067
       },
       {
         "clip": "m04-n25-t3014-530600-532465",
-        "t": 5312.5072
-      },
-      {
-        "clip": "m04-n25-t3014-530600-532465",
-        "t": 5314.0087
+        "t": 5313.5082
       },
       {
         "clip": "m04-n25-t3014-530600-532465",
@@ -25269,19 +25415,532 @@
       },
       {
         "clip": "m04-n25-t3014-530600-532465",
-        "t": 5319.0137
+        "t": 5319.5142
       },
       {
         "clip": "m04-n25-t3014-530600-532465",
-        "t": 5320.5152
+        "t": 5321.0157
       },
       {
         "clip": "m04-n25-t3014-530600-532465",
-        "t": 5321.983333
+        "t": 5322.483833
       },
       {
         "clip": "m04-n25-t3014-530600-532465",
-        "t": 5322.984333
+        "t": 5323.985333
+      }
+    ],
+    "off_pitch": [
+      {
+        "clip": "m04-n03-t1406-385962-387137",
+        "t": 3859.622433
+      },
+      {
+        "clip": "m04-n03-t1406-385962-387137",
+        "t": 3861.123933
+      },
+      {
+        "clip": "m04-n03-t1406-385962-387137",
+        "t": 3862.625433
+      },
+      {
+        "clip": "m04-n03-t1406-385962-387137",
+        "t": 3864.126933
+      },
+      {
+        "clip": "m04-n03-t1406-385962-387137",
+        "t": 3865.628433
+      },
+      {
+        "clip": "m04-n03-t1406-385962-387137",
+        "t": 3867.129933
+      },
+      {
+        "clip": "m04-n03-t1406-385962-387137",
+        "t": 3868.631433
+      },
+      {
+        "clip": "m04-n03-t1406-385962-387137",
+        "t": 3870.132933
+      },
+      {
+        "clip": "m04-n09-t1409-143096-143834",
+        "t": 1430.962867
+      },
+      {
+        "clip": "m04-n09-t1409-143096-143834",
+        "t": 1432.464367
+      },
+      {
+        "clip": "m04-n09-t1409-143096-143834",
+        "t": 1433.965867
+      },
+      {
+        "clip": "m04-n09-t1409-143096-143834",
+        "t": 1435.467367
+      },
+      {
+        "clip": "m04-n09-t1409-143096-143834",
+        "t": 1436.968867
+      },
+      {
+        "clip": "m04-n09-t1409-385922-386603",
+        "t": 3859.222033
+      },
+      {
+        "clip": "m04-n09-t1409-385922-386603",
+        "t": 3860.723533
+      },
+      {
+        "clip": "m04-n09-t1409-385922-386603",
+        "t": 3862.225033
+      },
+      {
+        "clip": "m04-n09-t1409-385922-386603",
+        "t": 3863.726533
+      },
+      {
+        "clip": "m04-n09-t1409-385922-386603",
+        "t": 3865.228033
+      },
+      {
+        "clip": "m04-n12-t1411-679986-681985",
+        "t": 6799.8931
+      },
+      {
+        "clip": "m04-n12-t1411-679986-681985",
+        "t": 6801.361233
+      },
+      {
+        "clip": "m04-n12-t1411-679986-681985",
+        "t": 6802.862733
+      },
+      {
+        "clip": "m04-n12-t1411-679986-681985",
+        "t": 6804.364233
+      },
+      {
+        "clip": "m04-n12-t1411-679986-681985",
+        "t": 6805.865733
+      },
+      {
+        "clip": "m04-n12-t1411-679986-681985",
+        "t": 6807.367233
+      },
+      {
+        "clip": "m04-n12-t1411-679986-681985",
+        "t": 6808.868733
+      },
+      {
+        "clip": "m04-n12-t1411-679986-681985",
+        "t": 6810.370233
+      },
+      {
+        "clip": "m04-n12-t1411-679986-681985",
+        "t": 6811.871733
+      },
+      {
+        "clip": "m04-n12-t1411-679986-681985",
+        "t": 6813.373233
+      },
+      {
+        "clip": "m04-n12-t1411-679986-681985",
+        "t": 6814.874733
+      },
+      {
+        "clip": "m04-n12-t1411-679986-681985",
+        "t": 6816.376233
+      },
+      {
+        "clip": "m04-n12-t1411-679986-681985",
+        "t": 6817.844367
+      },
+      {
+        "clip": "m04-n12-t1411-679986-681985",
+        "t": 6819.345867
+      },
+      {
+        "clip": "m04-n21-t3011-390297-390800",
+        "t": 3902.9991
+      },
+      {
+        "clip": "m04-n21-t3011-390297-390800",
+        "t": 3904.467233
+      },
+      {
+        "clip": "m04-n21-t3011-390297-390800",
+        "t": 3905.968733
+      },
+      {
+        "clip": "m04-n21-t3011-390297-390800",
+        "t": 3907.470233
+      },
+      {
+        "clip": "m04-n22-t3012-070707-074371",
+        "t": 707.073033
+      },
+      {
+        "clip": "m04-n22-t3012-070707-074371",
+        "t": 708.574533
+      },
+      {
+        "clip": "m04-n22-t3012-070707-074371",
+        "t": 710.076033
+      },
+      {
+        "clip": "m04-n22-t3012-070707-074371",
+        "t": 711.577533
+      },
+      {
+        "clip": "m04-n22-t3012-070707-074371",
+        "t": 713.079033
+      },
+      {
+        "clip": "m04-n22-t3012-070707-074371",
+        "t": 714.580533
+      },
+      {
+        "clip": "m04-n22-t3012-070707-074371",
+        "t": 716.082033
+      },
+      {
+        "clip": "m04-n22-t3012-070707-074371",
+        "t": 717.583533
+      },
+      {
+        "clip": "m04-n22-t3012-070707-074371",
+        "t": 719.085033
+      },
+      {
+        "clip": "m04-n22-t3012-070707-074371",
+        "t": 720.586533
+      },
+      {
+        "clip": "m04-n22-t3012-070707-074371",
+        "t": 722.054667
+      },
+      {
+        "clip": "m04-n22-t3012-070707-074371",
+        "t": 723.556167
+      },
+      {
+        "clip": "m04-n22-t3012-070707-074371",
+        "t": 725.057667
+      },
+      {
+        "clip": "m04-n22-t3012-070707-074371",
+        "t": 726.559167
+      },
+      {
+        "clip": "m04-n22-t3012-070707-074371",
+        "t": 728.060667
+      },
+      {
+        "clip": "m04-n22-t3012-070707-074371",
+        "t": 729.562167
+      },
+      {
+        "clip": "m04-n22-t3012-070707-074371",
+        "t": 731.063667
+      },
+      {
+        "clip": "m04-n22-t3012-070707-074371",
+        "t": 732.565167
+      },
+      {
+        "clip": "m04-n22-t3012-070707-074371",
+        "t": 734.066667
+      },
+      {
+        "clip": "m04-n22-t3012-070707-074371",
+        "t": 735.568167
+      },
+      {
+        "clip": "m04-n22-t3012-070707-074371",
+        "t": 737.069667
+      },
+      {
+        "clip": "m04-n22-t3012-070707-074371",
+        "t": 738.571167
+      },
+      {
+        "clip": "m04-n22-t3012-070707-074371",
+        "t": 740.072667
+      },
+      {
+        "clip": "m04-n22-t3012-070707-074371",
+        "t": 741.574167
+      },
+      {
+        "clip": "m04-n22-t3012-070707-074371",
+        "t": 743.075667
+      },
+      {
+        "clip": "m04-n25-t3014-530600-532465",
+        "t": 5306.0007
+      },
+      {
+        "clip": "m04-n25-t3014-530600-532465",
+        "t": 5307.5022
+      },
+      {
+        "clip": "m04-n25-t3014-530600-532465",
+        "t": 5309.0037
+      },
+      {
+        "clip": "m04-n25-t3014-530600-532465",
+        "t": 5310.5052
+      },
+      {
+        "clip": "m04-n25-t3014-530600-532465",
+        "t": 5312.0067
+      },
+      {
+        "clip": "m04-n25-t3014-530600-532465",
+        "t": 5313.5082
+      },
+      {
+        "clip": "m04-n25-t3014-530600-532465",
+        "t": 5315.0097
+      },
+      {
+        "clip": "m04-n25-t3014-530600-532465",
+        "t": 5316.5112
+      },
+      {
+        "clip": "m04-n25-t3014-530600-532465",
+        "t": 5318.0127
+      },
+      {
+        "clip": "m04-n25-t3014-530600-532465",
+        "t": 5319.5142
+      },
+      {
+        "clip": "m04-n25-t3014-530600-532465",
+        "t": 5321.0157
+      },
+      {
+        "clip": "m04-n25-t3014-530600-532465",
+        "t": 5322.483833
+      },
+      {
+        "clip": "m04-n25-t3014-530600-532465",
+        "t": 5323.985333
+      },
+      {
+        "clip": "m04-n03-t1406-385962-387137",
+        "t": 3860.122933
+      },
+      {
+        "clip": "m04-n03-t1406-385962-387137",
+        "t": 3864.627433
+      },
+      {
+        "clip": "m04-n03-t1406-385962-387137",
+        "t": 3868.130933
+      },
+      {
+        "clip": "m04-n09-t1409-143096-143834",
+        "t": 1431.963867
+      },
+      {
+        "clip": "m04-n09-t1409-143096-143834",
+        "t": 1436.468367
+      },
+      {
+        "clip": "m04-n09-t1409-385922-386603",
+        "t": 3861.224033
+      },
+      {
+        "clip": "m04-n09-t1409-385922-386603",
+        "t": 3865.728533
+      },
+      {
+        "clip": "m04-n12-t1411-679986-681985",
+        "t": 6803.363233
+      },
+      {
+        "clip": "m04-n12-t1411-679986-681985",
+        "t": 6807.867733
+      },
+      {
+        "clip": "m04-n12-t1411-679986-681985",
+        "t": 6812.372233
+      },
+      {
+        "clip": "m04-n12-t1411-679986-681985",
+        "t": 6815.875733
+      },
+      {
+        "clip": "m04-n21-t3011-390297-390800",
+        "t": 3903.966733
+      },
+      {
+        "clip": "m04-n22-t3012-070707-074371",
+        "t": 707.573533
+      },
+      {
+        "clip": "m04-n22-t3012-070707-074371",
+        "t": 711.077033
+      },
+      {
+        "clip": "m04-n22-t3012-070707-074371",
+        "t": 715.581533
+      },
+      {
+        "clip": "m04-n22-t3012-070707-074371",
+        "t": 720.086033
+      },
+      {
+        "clip": "m04-n22-t3012-070707-074371",
+        "t": 724.056667
+      },
+      {
+        "clip": "m04-n22-t3012-070707-074371",
+        "t": 728.561167
+      },
+      {
+        "clip": "m04-n22-t3012-070707-074371",
+        "t": 733.065667
+      },
+      {
+        "clip": "m04-n22-t3012-070707-074371",
+        "t": 736.569167
+      },
+      {
+        "clip": "m04-n22-t3012-070707-074371",
+        "t": 741.073667
+      },
+      {
+        "clip": "m04-n25-t3014-530600-532465",
+        "t": 5307.0017
+      },
+      {
+        "clip": "m04-n25-t3014-530600-532465",
+        "t": 5311.5062
+      },
+      {
+        "clip": "m04-n25-t3014-530600-532465",
+        "t": 5316.0107
+      },
+      {
+        "clip": "m04-n25-t3014-530600-532465",
+        "t": 5320.0147
+      },
+      {
+        "clip": "m04-n25-t3014-530600-532465",
+        "t": 5324.485833
+      }
+    ],
+    "offpitch_clips": [
+      "m04-n03-t1406-385962-387137",
+      "m04-n09-t1409-143096-143834",
+      "m04-n09-t1409-385922-386603",
+      "m04-n12-t1411-679986-681985",
+      "m04-n21-t3011-390297-390800",
+      "m04-n22-t3012-070707-074371",
+      "m04-n25-t3014-530600-532465"
+    ],
+    "offpitch_topup": [
+      {
+        "clip": "m04-n03-t1406-385962-387137",
+        "t": 3860.122933
+      },
+      {
+        "clip": "m04-n03-t1406-385962-387137",
+        "t": 3864.627433
+      },
+      {
+        "clip": "m04-n03-t1406-385962-387137",
+        "t": 3868.130933
+      },
+      {
+        "clip": "m04-n09-t1409-143096-143834",
+        "t": 1431.963867
+      },
+      {
+        "clip": "m04-n09-t1409-143096-143834",
+        "t": 1436.468367
+      },
+      {
+        "clip": "m04-n09-t1409-385922-386603",
+        "t": 3861.224033
+      },
+      {
+        "clip": "m04-n09-t1409-385922-386603",
+        "t": 3865.728533
+      },
+      {
+        "clip": "m04-n12-t1411-679986-681985",
+        "t": 6803.363233
+      },
+      {
+        "clip": "m04-n12-t1411-679986-681985",
+        "t": 6807.867733
+      },
+      {
+        "clip": "m04-n12-t1411-679986-681985",
+        "t": 6812.372233
+      },
+      {
+        "clip": "m04-n12-t1411-679986-681985",
+        "t": 6815.875733
+      },
+      {
+        "clip": "m04-n21-t3011-390297-390800",
+        "t": 3903.966733
+      },
+      {
+        "clip": "m04-n22-t3012-070707-074371",
+        "t": 707.573533
+      },
+      {
+        "clip": "m04-n22-t3012-070707-074371",
+        "t": 711.077033
+      },
+      {
+        "clip": "m04-n22-t3012-070707-074371",
+        "t": 715.581533
+      },
+      {
+        "clip": "m04-n22-t3012-070707-074371",
+        "t": 720.086033
+      },
+      {
+        "clip": "m04-n22-t3012-070707-074371",
+        "t": 724.056667
+      },
+      {
+        "clip": "m04-n22-t3012-070707-074371",
+        "t": 728.561167
+      },
+      {
+        "clip": "m04-n22-t3012-070707-074371",
+        "t": 733.065667
+      },
+      {
+        "clip": "m04-n22-t3012-070707-074371",
+        "t": 736.569167
+      },
+      {
+        "clip": "m04-n22-t3012-070707-074371",
+        "t": 741.073667
+      },
+      {
+        "clip": "m04-n25-t3014-530600-532465",
+        "t": 5307.0017
+      },
+      {
+        "clip": "m04-n25-t3014-530600-532465",
+        "t": 5311.5062
+      },
+      {
+        "clip": "m04-n25-t3014-530600-532465",
+        "t": 5316.0107
+      },
+      {
+        "clip": "m04-n25-t3014-530600-532465",
+        "t": 5320.0147
       },
       {
         "clip": "m04-n25-t3014-530600-532465",
@@ -27449,12 +28108,241 @@
         "clip": "m04-n17-t717-416826-418915",
         "t": 4188.751233
       }
-    ]
+    ],
+    "recipe": "Every third off-pitch sample starting at index 0; 74 frames in this set. Add 26 evenly spread non-selected samples to reach 100; all 540 on-ball frames. No model selects targets.",
+    "target": 640
+  },
+  "human_loop": {
+    "browser_screenshot": "/Users/mjjones/Projects/loanarmy-bench-reports/ball-detect-2026-09-10/assisted-kit-r3.png",
+    "instructions": [
+      "**Click \u2192 train \u2192 pre-fill \u2192 confirm \u2192 re-score.** Each export preserves manual",
+      "versus suggestion-accepted provenance. Nothing becomes truth until MJ acts.",
+      "",
+      "1. Open `~/ball-truth-review/index.html`. Six on-ball clips appear first. A hollow",
+      "   cyan ring and source name show an optional suggestion. **Enter/Space accepts**,",
+      "   a click overrides, **N** marks no ball, **\u2190/\u2192** change frames, **J/K** change clips.",
+      "   Use **Next unlabelled target** to skip optional frames. Suggestions never auto-save.",
+      "2. Label all **540 on-ball frames plus 100 off-pitch samples**. Every third frame",
+      "   from each off-pitch clip yields only **74** samples; a deterministic **26-frame",
+      "   top-up** retains the requested **640 target**. Exact lists and the seven clip",
+      "   IDs are in `build.json` and `human_label_plan` in the measurement fixture.",
+      "   Progress counts labelled target frames, excluding optional frames. The old",
+      "   localStorage key stays compatible. Export JSONL regularly as your backup.",
+      "3. Train from the export, then load the model's suggestions into the same kit.",
+      "   Existing confirmed labels survive rebuilding; suggestions do not replace them.",
+      "   Confirm or correct new suggestions and export again before re-scoring.",
+      "",
+      "First-pass planning estimate: **32\u201364 minutes** at 3\u20136 seconds per target frame,",
+      "plus breaks/uncertainty. This is an estimate, not measured annotation speed.",
+      "Accepting a correct suggestion takes one keypress; finding a tiny ball may take",
+      "longer. Leave uncertain frames unlabelled; do not mark them invisible.",
+      "",
+      "```sh",
+      "# Setup (already installed on basecamp). Ultralytics stays bench-only.",
+      "uv pip install --python spike/video-analysis/ball/.venv-bench/bin/python \\",
+      "  -r spike/video-analysis/ball/requirements-train.txt",
+      "",
+      "# After MJ exports the kit to ~/Downloads/ball-human-truth.jsonl:",
+      "spike/video-analysis/ball/.venv-bench/bin/python spike/video-analysis/ball/train_tiny_ball.py \\",
+      "  --human-jsonl ~/Downloads/ball-human-truth.jsonl --out ~/models/tinyball/mj-r1",
+      "",
+      "# Pre-fill again, retaining existing localStorage labels and image files:",
+      "~/Projects/loanarmy/.loan/bin/python spike/video-analysis/ball/ball_truth_kit.py \\",
+      "  --suggestions ~/models/tinyball/mj-r1/suggestions.jsonl",
+      "",
+      "# MJ confirms/corrects and exports again, then score all saved candidates:",
+      "~/Projects/loanarmy/.loan/bin/python spike/video-analysis/ball/score_from_saved.py \\",
+      "  --human-jsonl ~/Downloads/ball-human-truth.jsonl \\",
+      "  --extra-detections tinyball-r1=$HOME/models/tinyball/mj-r1/detections.json",
+      "",
+      "# A subsequent training run can start from the earlier weights:",
+      "spike/video-analysis/ball/.venv-bench/bin/python spike/video-analysis/ball/train_tiny_ball.py \\",
+      "  --human-jsonl ~/Downloads/ball-human-truth.jsonl --out ~/models/tinyball/mj-r2 \\",
+      "  --init ~/models/tinyball/mj-r1/weights.pt",
+      "```",
+      "",
+      "Use a fresh output directory per run. Weights, datasets and labels stay outside",
+      "git. `score_from_saved.py` needs no torch, cv2, video, model or inference.",
+      "`--extra-detections name=path` can repeat; it validates source hash, frozen set,",
+      "all 20 clips, all 1,105 timestamps/frame indices, geometry and timings.",
+      "`compare_ball.py --human-jsonl` remains available for the original candidates.",
+      "",
+      "The first 1,041 suggestions come solely from saved detections: **683 rf_3x3,",
+      "242 rf_2x2, 116 wasb_2x2**. Choose the highest confidence observation on one of",
+      "those candidates' longest re-tracked fragments at that timestamp; otherwise use",
+      "the top rf_3x3 box at >=0.3, or no suggestion. WASB supplies a point. These scores",
+      "are not calibrated across models. Track membership does not prove ball identity.",
+      "Regenerate using `python spike/video-analysis/ball/human_loop.py`; then rebuild",
+      "with `ball_truth_kit.py --suggestions ~/ball-truth-review/suggestions.jsonl`.",
+      "Build version 3 is synced to `~/codex-runs/ball-truth-review-build.json`.",
+      "",
+      "The original JSONL fields remain `{clip,t,x,y,visible}`: source pixels, absolute",
+      "seconds and null coordinates when invisible. New labels add `source_accepted`;",
+      "accepted suggestions also keep `accepted_source` and `accepted_score`. Old",
+      "five-field exports still import. Suggestion files use `{clip,t,x,y,score,source}`",
+      "and cannot be imported as truth. Re-scoring reports accepted-source counts.",
+      "",
+      "**Training recipe:** YOLO11-nano via Ultralytics 8.4.146, **AGPL-3.0**, used only",
+      "in this local bench. [Upstream licence](https://github.com/ultralytics/ultralytics/blob/main/LICENSE)",
+      "and [MPS training documentation](https://docs.ultralytics.com/modes/train/).",
+      "No production integration or deployment is part of this work.",
+      "",
+      "Each native 1920x1080 frame becomes four non-overlapping 960x540 crops. YOLO",
+      "letterboxes each to 640x640 (640x360 image content). A click belongs to exactly",
+      "one tile; its point-box is clipped at the tile boundary. Box side at model scale",
+      "is `max(12, 2 * median matched RF size * 640/960)`, using only saved RF 2x2 boxes",
+      "within 20 source pixels of **training** clicks. No size matches \u2192 12 model pixels",
+      "(18 source pixels). Sizes remain detector estimates. Non-click tiles and explicit",
+      "no-ball frames supply negatives; unlabelled frames never do. `--pseudo` alone",
+      "adds saved RF 0.1 boxes within 20 source pixels of a training click, with NMS.",
+      "There is no pseudo-label propagation to held-out clips or unclicked frames.",
+      "",
+      "The fixed split is by complete clip, **never by frame**:",
+      "",
+      "| Role | On-ball clips |",
+      "|---|---|",
+      "| Train | n03-157170, n04-243433, n12-237107, n15 |",
+      "| Held out | n17-253073, n17-416826 |",
+      "",
+      "All seven off-pitch clips are reserved for scoring. The run records full IDs.",
+      "Normal runs use the last checkpoint; held-out labels do not select weights.",
+      "Per-epoch validation is disabled; Ultralytics may validate once at the end.",
+      "Default training requests five epochs with MPS and a 15-minute trainer budget;",
+      "Ultralytics' time budget may adjust epoch count and finishes at epoch boundaries.",
+      "Full human-labelled training time is not yet measured. Use `--epochs` to set the",
+      "requested count. `--init` lets later clicks improve the preceding model.",
+      "",
+      "Outputs: `weights.pt`, `dataset.json`, `dataset/`, `metrics.json`,",
+      "`detections.json`, `suggestions.jsonl`, and Ultralytics `fit/` checkpoints.",
+      "Metrics report held-out **20-source-pixel** recall/precision, unmatched predictions",
+      "per labelled off-pitch frame and FPS including decode. At most one prediction",
+      "matches each visible label; duplicates count as unmatched. A single model pass",
+      "covers all 1,105 scheduled frames. Suggestions contain at most one point per",
+      "frame with an output >=0.1; missing predictions produce no suggestion, never an",
+      "invented point. The saved detection file includes those empty frames.",
+      "",
+      "The six-candidate bench uses its existing **40-pixel** matching rule for fair",
+      "comparison. Scores that include training clips are in-sample; consult the separate",
+      "20-pixel held-out metrics for generalisation. Model-assisted confirmation also",
+      "needs careful review; acceptance provenance is available for audits.",
+      "",
+      "The separate human sample gate requires all 540 on-ball labels and >=100 off-pitch",
+      "labels: visible-ball recall >=80%, unmatched predictions <=1/10 s. A visible ball",
+      "on off-pitch frames permits one match; every other prediction is unmatched.",
+      "Exposure is 0.5 s per labelled frame. Partial labels give metrics with the gate",
+      "withheld. **Every proxy verdict stays UNMEASURABLE (proxy).**",
+      "",
+      "Smoke command (already completed; do not rerun for scoring):",
+      "",
+      "```sh",
+      "spike/video-analysis/ball/.venv-bench/bin/python spike/video-analysis/ball/smoke_tiny_ball.py \\",
+      "  --out ~/models/tinyball/a-new-SYNTHETIC-smoke",
+      "```",
+      "",
+      "The actual `~/models/tinyball/round3-synthetic-smoke` used 36 synthetic proxy labels",
+      "from one on-ball clip (144 tiles), two epochs on MPS: **27.21 s training, 50.59 s",
+      "total**. Its trainer health check reuses that clip without splitting frames; no",
+      "independent held-out labels exist, and those scores are null. Weights, metrics",
+      "and all-frame saved detections were produced. **Zero predictions reached 0.1**,",
+      "so its `suggestions.jsonl` is valid but empty. This proves pipeline execution,",
+      "not detection quality or a useful trained pre-fill. Synthetic labels and model",
+      "outputs are not committed or loaded into MJ's kit. No smoke accuracy numbers are",
+      "reported as ball results."
+    ],
+    "kit": {
+      "build_version": 3,
+      "clips": 20,
+      "frames": 1105,
+      "storage_key": "ball-human-v1:1f68e2755002b3598c763532e95c212de9261ffa638c2943ad3769a1be77503f:/Users/mjjones/Projects/loanarmy/spike/video-analysis/footage/youtube/afc-yorkies-full.mp4:fps2",
+      "suggestions": 1041,
+      "suggestions_by_source": {
+        "rf_2x2": 242,
+        "rf_3x3": 683,
+        "wasb_2x2": 116
+      }
+    },
+    "kit_build_path": "/Users/mjjones/ball-truth-review/build.json",
+    "review_target": {
+      "every_third_offpitch": 74,
+      "off_pitch": 100,
+      "off_pitch_clips": [
+        "m04-n03-t1406-385962-387137",
+        "m04-n09-t1409-143096-143834",
+        "m04-n09-t1409-385922-386603",
+        "m04-n12-t1411-679986-681985",
+        "m04-n21-t3011-390297-390800",
+        "m04-n22-t3012-070707-074371",
+        "m04-n25-t3014-530600-532465"
+      ],
+      "on_ball": 540,
+      "target": 640,
+      "topup": 26
+    },
+    "smoke": {
+      "device": "mps",
+      "epochs_requested": 2,
+      "frames_scanned": 1105,
+      "initial_weights": "/Users/mjjones/models/tinyball/yolo11n.pt",
+      "initial_weights_sha256": "0ebbc80d4a7680d14987a577cd21342b65ecfd94632bd9a8da63ae6417644ee1",
+      "licence": "AGPL-3.0; bench-only internal tooling; https://github.com/ultralytics/ultralytics/blob/main/LICENSE",
+      "model": "YOLO11n",
+      "pretrained_url": "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo11n.pt",
+      "split": {
+        "held_out": [],
+        "smoke_resubstitution_only": true,
+        "train": [
+          "m04-n03-t1406-157170-158922"
+        ]
+      },
+      "suggestions": 0,
+      "total_s": 50.5928510830272,
+      "training_s": 27.21225362503901,
+      "versions": {
+        "numpy": "2.4.6",
+        "opencv-python": "5.0.0.93",
+        "torch": "2.14.0",
+        "torchvision": "0.29.0",
+        "ultralytics": "8.4.146"
+      },
+      "weights_sha256": "a9052ea195bf2209085e1f71a3c5d3c937dd80ae55c01940d564dc8a6504cbd9"
+    },
+    "smoke_outputs": {
+      "dataset.json": {
+        "bytes": 1272,
+        "path": "/Users/mjjones/models/tinyball/round3-synthetic-smoke/dataset.json",
+        "sha256": "1e3a53b6516ffe20cf91710f0ae2184fc6b3c9a8c222819b2a91f5183d9ccb73"
+      },
+      "detections.json": {
+        "bytes": 155962,
+        "path": "/Users/mjjones/models/tinyball/round3-synthetic-smoke/detections.json",
+        "sha256": "85331962d94cbc838749df338ffa3d1137b3d6a2d18cfc08fa1ec21587587707"
+      },
+      "metrics.json": {
+        "bytes": 1713,
+        "path": "/Users/mjjones/models/tinyball/round3-synthetic-smoke/metrics.json",
+        "sha256": "476eae44b3b4aa55c778a56de7600da74dc1c6dd82f351a80f061585aee583f9"
+      },
+      "suggestions.jsonl": {
+        "bytes": 0,
+        "path": "/Users/mjjones/models/tinyball/round3-synthetic-smoke/suggestions.jsonl",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "weights.pt": {
+        "bytes": 5442458,
+        "path": "/Users/mjjones/models/tinyball/round3-synthetic-smoke/weights.pt",
+        "sha256": "a9052ea195bf2209085e1f71a3c5d3c937dd80ae55c01940d564dc8a6504cbd9"
+      }
+    },
+    "smoke_status": "SYNTHETIC PIPELINE CHECK ONLY; no held-out labels, no ball accuracy result. Empty suggestions file at >=0.1.",
+    "suggestions_sha256": "5b55b3ce0737f90a7568158dc8cfa00e2d3de9fd5eed1d6157f44ab76454ade7",
+    "synced_build_path": "/Users/mjjones/codex-runs/ball-truth-review-build.json"
   },
   "human_truth": {
+    "accepted_sources": {},
     "labelled_frames": 0,
     "sha256": null,
     "status": "not_labelled",
+    "suggestions_accepted": 0,
     "total_frames": 1105
   },
   "manifest_sha256": "cfc972a92b6172a5666808ef2e9f20b19580b4c8606719d5b30e6671012069e3",

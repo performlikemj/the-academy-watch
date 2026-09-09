@@ -11,50 +11,141 @@ in frame**. `boxes_per_10s_offpitch` is a count of candidate outputs per ten sec
 not a false-ball rate. WASB emits points rather than boxes. RF near-player rates
 at 0.5 overlap (on-ball 6.8–12.9%, off-pitch 11.7–12.6%): **no separation**.
 
-## MJ: score all five candidates without inference
+## Human loop
 
-Open `~/ball-truth-review/index.html`. Label the match ball centre, or explicitly
-mark **No ball visible**. Leave uncertain frames unlabelled. Export JSONL.
-Label all **540 frames in the six on-ball clips**, plus **approximately 100
-representative off-pitch frames** spread across the seven off-pitch clips:
+**Click → train → pre-fill → confirm → re-score.** Each export preserves manual
+versus suggestion-accepted provenance. Nothing becomes truth until MJ acts.
 
-- `m04-n03-t1406-157170-158922`
-- `m04-n04-t3006-243433-247994`
-- `m04-n12-t1411-237107-242145`
-- `m04-n15-t3010-164698-170777`
-- `m04-n17-t717-253073-260377`
-- `m04-n17-t717-416826-418915`
+1. Open `~/ball-truth-review/index.html`. Six on-ball clips appear first. A hollow
+   cyan ring and source name show an optional suggestion. **Enter/Space accepts**,
+   a click overrides, **N** marks no ball, **←/→** change frames, **J/K** change clips.
+   Use **Next unlabelled target** to skip optional frames. Suggestions never auto-save.
+2. Label all **540 on-ball frames plus 100 off-pitch samples**. Every third frame
+   from each off-pitch clip yields only **74** samples; a deterministic **26-frame
+   top-up** retains the requested **640 target**. Exact lists and the seven clip
+   IDs are in `build.json` and `human_label_plan` in the measurement fixture.
+   Progress counts labelled target frames, excluding optional frames. The old
+   localStorage key stays compatible. Export JSONL regularly as your backup.
+3. Train from the export, then load the model's suggestions into the same kit.
+   Existing confirmed labels survive rebuilding; suggestions do not replace them.
+   Confirm or correct new suggestions and export again before re-scoring.
 
-An exact, model-independent 100-frame off-pitch sample plan is in the ledger JSON
-and compressed measurement fixture under `human_label_plan`. It spreads frames
-through every off-pitch window; no detector output selects the sample. Other
-representative samples of at least 100 frames also work. Labelling only obviously
-ball-free frames would bias the result.
-
-One command scores **all five candidates and all saved RF thresholds**:
+First-pass planning estimate: **32–64 minutes** at 3–6 seconds per target frame,
+plus breaks/uncertainty. This is an estimate, not measured annotation speed.
+Accepting a correct suggestion takes one keypress; finding a tiny ball may take
+longer. Leave uncertain frames unlabelled; do not mark them invisible.
 
 ```sh
+# Setup (already installed on basecamp). Ultralytics stays bench-only.
+uv pip install --python spike/video-analysis/ball/.venv-bench/bin/python \
+  -r spike/video-analysis/ball/requirements-train.txt
+
+# After MJ exports the kit to ~/Downloads/ball-human-truth.jsonl:
+spike/video-analysis/ball/.venv-bench/bin/python spike/video-analysis/ball/train_tiny_ball.py \
+  --human-jsonl ~/Downloads/ball-human-truth.jsonl --out ~/models/tinyball/mj-r1
+
+# Pre-fill again, retaining existing localStorage labels and image files:
+~/Projects/loanarmy/.loan/bin/python spike/video-analysis/ball/ball_truth_kit.py \
+  --suggestions ~/models/tinyball/mj-r1/suggestions.jsonl
+
+# MJ confirms/corrects and exports again, then score all saved candidates:
 ~/Projects/loanarmy/.loan/bin/python spike/video-analysis/ball/score_from_saved.py \
-  --human-jsonl ~/Downloads/ball-human-truth.jsonl
+  --human-jsonl ~/Downloads/ball-human-truth.jsonl \
+  --extra-detections tinyball-r1=$HOME/models/tinyball/mj-r1/detections.json
+
+# A subsequent training run can start from the earlier weights:
+spike/video-analysis/ball/.venv-bench/bin/python spike/video-analysis/ball/train_tiny_ball.py \
+  --human-jsonl ~/Downloads/ball-human-truth.jsonl --out ~/models/tinyball/mj-r2 \
+  --init ~/models/tinyball/mj-r1/weights.pt
 ```
 
-Output defaults to `~/Projects/loanarmy-bench-reports/ball-detect-2026-09-10/human-followup.{json,md}`;
-use `--out-prefix` to change it. No model, torch, cv2, native video, network or new
-inference is needed. `compare_ball.py --human-jsonl` also remains available.
+Use a fresh output directory per run. Weights, datasets and labels stay outside
+git. `score_from_saved.py` needs no torch, cv2, video, model or inference.
+`--extra-detections name=path` can repeat; it validates source hash, frozen set,
+all 20 clips, all 1,105 timestamps/frame indices, geometry and timings.
+`compare_ball.py --human-jsonl` remains available for the original candidates.
 
-The human section reports recall on visible on-ball labels. On **all labelled
-off-pitch frames**, a visible match ball can match at most one prediction within
-40 source pixels; all other predictions (including duplicates or other balls)
-are unmatched for the single-match-ball target. If the match ball is invisible,
-all predictions are unmatched. Exposure is 0.5 s per labelled sampled frame.
+The first 1,041 suggestions come solely from saved detections: **683 rf_3x3,
+242 rf_2x2, 116 wasb_2x2**. Choose the highest confidence observation on one of
+those candidates' longest re-tracked fragments at that timestamp; otherwise use
+the top rf_3x3 box at >=0.3, or no suggestion. WASB supplies a point. These scores
+are not calibrated across models. Track membership does not prove ball identity.
+Regenerate using `python spike/video-analysis/ball/human_loop.py`; then rebuild
+with `ball_truth_kit.py --suggestions ~/ball-truth-review/suggestions.jsonl`.
+Build version 3 is synced to `~/codex-runs/ball-truth-review-build.json`.
 
-A **human sample** gate becomes available after all on-ball frames and >=100
-off-pitch frames are labelled: recall >=80% and unmatched predictions <=1/10 s.
-It is a sample estimate, not exhaustive full-match validation. Partial labels
-still produce metrics and coverage, with the gate withheld. Unlabelled frames
-never become negatives. Proxy verdicts remain UNMEASURABLE even after labels exist.
-The JSONL contract stays `{clip,t,x,y,visible}`: source pixels, absolute seconds,
-null x/y when invisible. Browser storage/export/import and native-size view remain.
+The original JSONL fields remain `{clip,t,x,y,visible}`: source pixels, absolute
+seconds and null coordinates when invisible. New labels add `source_accepted`;
+accepted suggestions also keep `accepted_source` and `accepted_score`. Old
+five-field exports still import. Suggestion files use `{clip,t,x,y,score,source}`
+and cannot be imported as truth. Re-scoring reports accepted-source counts.
+
+**Training recipe:** YOLO11-nano via Ultralytics 8.4.146, **AGPL-3.0**, used only
+in this local bench. [Upstream licence](https://github.com/ultralytics/ultralytics/blob/main/LICENSE)
+and [MPS training documentation](https://docs.ultralytics.com/modes/train/).
+No production integration or deployment is part of this work.
+
+Each native 1920x1080 frame becomes four non-overlapping 960x540 crops. YOLO
+letterboxes each to 640x640 (640x360 image content). A click belongs to exactly
+one tile; its point-box is clipped at the tile boundary. Box side at model scale
+is `max(12, 2 * median matched RF size * 640/960)`, using only saved RF 2x2 boxes
+within 20 source pixels of **training** clicks. No size matches → 12 model pixels
+(18 source pixels). Sizes remain detector estimates. Non-click tiles and explicit
+no-ball frames supply negatives; unlabelled frames never do. `--pseudo` alone
+adds saved RF 0.1 boxes within 20 source pixels of a training click, with NMS.
+There is no pseudo-label propagation to held-out clips or unclicked frames.
+
+The fixed split is by complete clip, **never by frame**:
+
+| Role | On-ball clips |
+|---|---|
+| Train | n03-157170, n04-243433, n12-237107, n15 |
+| Held out | n17-253073, n17-416826 |
+
+All seven off-pitch clips are reserved for scoring. The run records full IDs.
+Normal runs use the last checkpoint; held-out labels do not select weights.
+Per-epoch validation is disabled; Ultralytics may validate once at the end.
+Default training requests five epochs with MPS and a 15-minute trainer budget;
+Ultralytics' time budget may adjust epoch count and finishes at epoch boundaries.
+Full human-labelled training time is not yet measured. Use `--epochs` to set the
+requested count. `--init` lets later clicks improve the preceding model.
+
+Outputs: `weights.pt`, `dataset.json`, `dataset/`, `metrics.json`,
+`detections.json`, `suggestions.jsonl`, and Ultralytics `fit/` checkpoints.
+Metrics report held-out **20-source-pixel** recall/precision, unmatched predictions
+per labelled off-pitch frame and FPS including decode. At most one prediction
+matches each visible label; duplicates count as unmatched. A single model pass
+covers all 1,105 scheduled frames. Suggestions contain at most one point per
+frame with an output >=0.1; missing predictions produce no suggestion, never an
+invented point. The saved detection file includes those empty frames.
+
+The six-candidate bench uses its existing **40-pixel** matching rule for fair
+comparison. Scores that include training clips are in-sample; consult the separate
+20-pixel held-out metrics for generalisation. Model-assisted confirmation also
+needs careful review; acceptance provenance is available for audits.
+
+The separate human sample gate requires all 540 on-ball labels and >=100 off-pitch
+labels: visible-ball recall >=80%, unmatched predictions <=1/10 s. A visible ball
+on off-pitch frames permits one match; every other prediction is unmatched.
+Exposure is 0.5 s per labelled frame. Partial labels give metrics with the gate
+withheld. **Every proxy verdict stays UNMEASURABLE (proxy).**
+
+Smoke command (already completed; do not rerun for scoring):
+
+```sh
+spike/video-analysis/ball/.venv-bench/bin/python spike/video-analysis/ball/smoke_tiny_ball.py \
+  --out ~/models/tinyball/a-new-SYNTHETIC-smoke
+```
+
+The actual `~/models/tinyball/round3-synthetic-smoke` used 36 synthetic proxy labels
+from one on-ball clip (144 tiles), two epochs on MPS: **27.21 s training, 50.59 s
+total**. Its trainer health check reuses that clip without splitting frames; no
+independent held-out labels exist, and those scores are null. Weights, metrics
+and all-frame saved detections were produced. **Zero predictions reached 0.1**,
+so its `suggestions.jsonl` is valid but empty. This proves pipeline execution,
+not detection quality or a useful trained pre-fill. Synthetic labels and model
+outputs are not committed or loaded into MJ's kit. No smoke accuracy numbers are
+reported as ball results.
 
 ## Recorded inference and resolution
 
@@ -80,7 +171,7 @@ and Supervision InferenceSlicer with 100–101 px overlaps and 0.5 IoU NMS.
 `run_ball.py --resolution <side>` now supports a different RF input resolution;
 **no RF inference or resolution-override inference was run in fix round 2**.
 
-The only new full pass was `wasb_2x2`, on MPS, with four non-overlapping 960x540
+Round 2 added the full pass for `wasb_2x2`, on MPS, with four non-overlapping 960x540
 crops mapped to 512x288. Each tile gets its own consecutive native-frame stack,
 ImageNet normalization, last-channel sigmoid, weighted components and peak-mass
 selection. Points within 40 source pixels merge by descending heatmap mass.
@@ -132,7 +223,7 @@ ruff check spike/video-analysis/bench spike/video-analysis/ball
 ruff format --check spike/video-analysis/bench spike/video-analysis/ball
 ```
 
-The one new inference command used in this round (already completed) was:
+The WASB tiled inference command used in round 2 (already completed) was:
 
 ```sh
 spike/video-analysis/ball/.venv-bench/bin/python spike/video-analysis/ball/run_ball.py \

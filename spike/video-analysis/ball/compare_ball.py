@@ -100,9 +100,14 @@ def effective_resolution():
     }
 
 
-def compare(measurements, execution, human_path=None):
+def compare(measurements, execution, human_path=None, extra_detections=None):
     validate(measurements)
     clips, outputs = measurements["clips"], measurements["outputs"]
+    extras = extra_detections or {}
+    outputs = {
+        **outputs,
+        **{name: payload["outputs"] for name, payload in extras.items()},
+    }
     frames = [
         {"clip": c["clip_id"], "t": f["t"], "source_size": c["source_size"]}
         for c in clips
@@ -135,8 +140,15 @@ def compare(measurements, execution, human_path=None):
         for group in ("on_ball", "off_pitch", "other")
     }
     results = []
-    for name in CANDIDATES:
-        for threshold in [0.1, 0.2, 0.3, 0.4, 0.5] if name in RF_CANDIDATES else [0.5]:
+    for name in [*CANDIDATES, *extras]:
+        thresholds = (
+            [extras[name]["threshold"]]
+            if name in extras
+            else [0.1, 0.2, 0.3, 0.4, 0.5]
+            if name in RF_CANDIDATES
+            else [0.5]
+        )
+        for threshold in thresholds:
             rows = [
                 clip_metrics(
                     c,
@@ -148,6 +160,8 @@ def compare(measurements, execution, human_path=None):
                 for c in clips
             ]
             total = overall(rows)
+            if extras.get(name, {}).get("synthetic_smoke"):
+                total["human"]["gate"] = "SYNTHETIC SMOKE — NOT RESULTS"
             for row in rows:
                 row.pop("_sizes")
                 row.pop("_confidence")
@@ -179,6 +193,11 @@ def compare(measurements, execution, human_path=None):
     return {
         "headline": headline,
         "execution": execution,
+        "human_loop": execution.get("human_loop"),
+        "extra_candidates": {
+            name: {k: v for k, v in payload.items() if k != "outputs"}
+            for name, payload in extras.items()
+        },
         "environment": measurements["runs"],
         "frozen_set_id": measurements["frozen_set_id"],
         "manifest_sha256": measurements["manifest_sha256"],
@@ -204,6 +223,23 @@ def compare(measurements, execution, human_path=None):
         "human_truth": {
             "status": "labels_supplied" if human else "not_labelled",
             "labelled_frames": len(human),
+            "suggestions_accepted": sum(
+                r.get("source_accepted", False) for r in human.values()
+            ),
+            "accepted_sources": {
+                source: sum(
+                    r.get("source_accepted", False)
+                    and r.get("accepted_source") == source
+                    for r in human.values()
+                )
+                for source in sorted(
+                    {
+                        r["accepted_source"]
+                        for r in human.values()
+                        if r.get("source_accepted")
+                    }
+                )
+            },
             "total_frames": len(frames),
             "sha256": sha256(human_path) if human_path else None,
         },
@@ -322,7 +358,7 @@ def markdown(data):
         "",
         "## Human-label scoring from saved detections",
         "",
-        "MJ: label the six on-ball clips (**540 frames**) plus approximately **100 off-pitch frames**, spread across seven clips. The exact 100-frame, model-independent sample plan is in JSON `human_label_plan`. Click the match ball centre or explicitly mark not visible; leave uncertainty unlabelled. This is enough to score ALL five candidates and every saved threshold without inference, models, cv2, or source video.",
+        "MJ: label the six on-ball clips (**540 frames**) plus approximately **100 off-pitch frames**, spread across seven clips. The 100-frame, model-independent sample plan (every third off-pitch frame plus 26 deterministic top-ups) is in JSON `human_label_plan`. Click the match ball centre or explicitly mark not visible; leave uncertainty unlabelled. This is enough to score ALL five candidates and every saved threshold without inference, models, cv2, or source video.",
         "",
         "```sh",
         "~/Projects/loanarmy/.loan/bin/python spike/video-analysis/ball/score_from_saved.py --human-jsonl ~/Downloads/ball-human-truth.jsonl",
@@ -377,9 +413,37 @@ def markdown(data):
         json.dumps(data["execution"], indent=2, sort_keys=True),
         "```",
         "",
-        "Regenerate byte-for-byte: `.loan/bin/python spike/video-analysis/ball/compare_ball.py` using the parent repository interpreter. All numeric inputs, re-tracks and execution metadata are committed fixtures. Original four candidate run records remain unchanged; only WASB 2x2 ran in this fix round.",
+        "Regenerate byte-for-byte: `.loan/bin/python spike/video-analysis/ball/compare_ball.py` using the parent repository interpreter. All numeric inputs, re-tracks and execution metadata are committed fixtures. Original four candidate run records remain unchanged; round 2 added WASB 2x2; round 3 adds only the explicitly synthetic training smoke and its trained-model pre-fill pass, kept outside this evidence table.",
         "",
     ]
+    if data.get("extra_candidates"):
+        lines += [
+            "## Additional saved model candidates",
+            "",
+            "These candidates use the same labels and 40 px bench matching as the originals. Scores including training clips are in-sample, not held-out generalisation. The training metrics.json separately reports held-out 20 px scores. Synthetic smoke candidates are never accuracy results.",
+            "",
+            "```json",
+            json.dumps(data["extra_candidates"], indent=2, sort_keys=True),
+            "```",
+            "",
+        ]
+    if data.get("human_loop"):
+        lines += [
+            "## Human loop",
+            "",
+            *data["human_loop"]["instructions"],
+            "",
+            "Recorded build and training smoke (synthetic; no accuracy result):",
+            "",
+            "```json",
+            json.dumps(
+                {k: v for k, v in data["human_loop"].items() if k != "instructions"},
+                indent=2,
+                sort_keys=True,
+            ),
+            "```",
+            "",
+        ]
     return "\n".join(lines)
 
 
