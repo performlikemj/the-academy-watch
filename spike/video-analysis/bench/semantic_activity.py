@@ -31,6 +31,7 @@ ACTIVITY_RULES = {
     "positional_only": r"\b(?:cent(?:er|re) back|touchline|stays wide)\b",
 }
 ON_BALL_TYPES = frozenset(ACTION_TYPES) - {"off_ball", "none", "unclear"}
+HOLDING_BALL = re.compile(r"\bholding (?:the )?ball\b", re.I)
 
 
 def hits(table: dict[str, str], text: str) -> set[str]:
@@ -71,6 +72,8 @@ def sentence_verdict(note: str | None, sentence: str) -> str:
         return "disagree"
     if observed_actions - expected_actions:
         return "disagree"
+    if HOLDING_BALL.search(sentence) and not HOLDING_BALL.search(note or ""):
+        return "undetermined"  # Possession assertion without a matching note detail.
     if observed_actions & expected_actions or observed & expected:
         return "agree"
     return "undetermined"
@@ -83,7 +86,14 @@ def activity_metrics(read, truth: dict) -> dict:
     event_types = {e.event_type for e in read.events}
     on_ball_events = event_types & ON_BALL_TYPES
     sentence_actions = action_classes(read.sentence)
-    model = {"on_ball" if on_ball_events or sentence_actions else "off_ball"}
+    model = {
+        "on_ball"
+        if on_ball_events or sentence_actions or HOLDING_BALL.search(read.sentence)
+        else "off_ball"
+    }
+    lenient_actions = expected_actions | (
+        {"carry"} if expected_actions & {"receive", "turn", "loss"} else set()
+    )
     if any(e.phase == "stoppage" for e in read.events):
         model.add("stoppage")
     if "off_pitch" in truth_activity(read.sentence):
@@ -104,6 +114,12 @@ def activity_metrics(read, truth: dict) -> dict:
         "model_activity": sorted(model),
         "model_on_ball_event_classes": sorted(on_ball_events),
         "matching_on_ball_event_classes": sorted(expected_actions & on_ball_events),
+        "matching_on_ball_event_classes_lenient": sorted(
+            lenient_actions & on_ball_events
+        ),
+        "no_on_ball_claimed_on_ball": bool(on_ball_events)
+        if expected and "on_ball_action" not in expected
+        else None,
         "off_pitch_claimed_on_ball": bool(on_ball_events)
         if "off_pitch" in expected
         else None,
@@ -111,6 +127,9 @@ def activity_metrics(read, truth: dict) -> dict:
         if "idle_on_pitch" in expected
         else None,
         "on_ball_recalled": bool(expected_actions & on_ball_events)
+        if "on_ball_action" in expected
+        else None,
+        "on_ball_recalled_lenient": bool(lenient_actions & on_ball_events)
         if "on_ball_action" in expected
         else None,
         "activity_agreement": agreement,

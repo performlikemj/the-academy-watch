@@ -12,9 +12,11 @@ from pathlib import Path
 try:
     from .contract import normalize_claim, parse_claims
     from .provenance import thinking_rate
+    from .compare_runs import jersey_review
 except ImportError:  # pragma: no cover - direct script/import from bench directory
     from contract import normalize_claim, parse_claims
     from provenance import thinking_rate
+    from compare_runs import jersey_review
 
 VIDEO_ANALYSIS_DIR = Path(__file__).resolve().parent.parent
 if str(VIDEO_ANALYSIS_DIR) not in sys.path:
@@ -87,7 +89,19 @@ def _event_classes(text: str) -> set[str]:
 def fabricated_event_classes(claim: str, human_note: str | None) -> list[str] | None:
     if human_note is None:
         return None
-    return sorted(_event_classes(claim) - _event_classes(human_note))
+    return sorted(_positive_event_classes(claim) - _positive_event_classes(human_note))
+
+
+def _positive_event_classes(text: str) -> set[str]:
+    # Simple clause negation only. Stop at punctuation or a contrast/new action;
+    # never turn "no goal, but then scores" into an absence of a positive goal.
+    positive = re.sub(
+        r"\b(?:no|without)\b(?:(?![.!?;,]|\b(?:but|then|however)\b).)*",
+        " ",
+        text,
+        flags=re.I,
+    )
+    return _event_classes(positive)
 
 
 def _normalize_adapter_claim(claim: dict) -> dict:
@@ -406,10 +420,6 @@ def score_clip(result: dict, truth: dict | None) -> dict:
     ]
     # The legacy geometry scorer did not previously aggregate identity checks.
     # Reuse its comparison review and retain excluded claims for inspection.
-    try:
-        from .compare_runs import jersey_review
-    except ImportError:  # pragma: no cover
-        from compare_runs import jersey_review
     return {
         **base,
         "status": "scored",

@@ -382,7 +382,8 @@ to overwrite an existing form. Never commit populated truth or raw reports.
 When notes exist, re-score via the comparison command below with no new inference
 or code change. The existing conservative keyword mismatch rule examines the
 sentence plus explicit event classes (underscores replaced by spaces); it is
-available only for noted scored clips and does not grade every action class.
+available only for noted scored clips with classifiable activity and does not
+grade every action class. Simple no/without clause negation is handled.
 The comparison fingerprints current human notes and includes five verbatim
 sentences per run, chosen in manifest order, full clip metrics and provenance.
 
@@ -561,7 +562,7 @@ structured events alone, as requested.
 
 | Metric | Rule and denominator |
 |---|---|
-| fabricated_rate | Original unchanged conservative `score.fabricated_event_classes` on sentence plus event classes; any mismatch / all 20 noted scored clips. This even evaluates the identity-only note; it does not prove every mismatch is fabricated. |
+| fabricated_rate | Conservative `score.fabricated_event_classes` with simple no/without negation on sentence plus event classes; any mismatch / 19 activity-classified notes. Excludes the identity-only note; it does not prove every mismatch is fabricated. |
 | off_pitch_claimed_on_ball_rate | Any structured on-ball event / off-pitch notes (7); headline fabrication diagnostic |
 | idle_claimed_on_ball_rate | Any structured on-ball event / idle notes (3); mixed n04 can legitimately have a later on-ball action |
 | on_ball_recall | At least one exact structured event-class match to a note action / on-ball notes (6); not event-level recall and not outcome grading |
@@ -570,8 +571,8 @@ structured events alone, as requested.
 
 These deterministic rules measure limited correctness against MJ's observations.
 Coarse activity agreement can pass a generic carry while exact event recall
-fails. Sentence overlap does not validate every detail (e.g. holding a ball on a
-sideline), resolve arbitrary negation, attribute actions to actors, or establish
+fails. Sentence overlap treats an unsupported holding-ball detail as undetermined. It
+does not resolve arbitrary negation, attribute actions to actors, or establish
 outcome or event timing. The conservative fabricated rule retains its narrow
 vocabulary, including its original missing inflections. These limits are also
 shown in the ledger, alongside every note, both sentences/events, and verdicts.
@@ -622,9 +623,47 @@ Consistency now requires only substantive classes with a shared keyword map.
 It reports ignored off_ball/defensive_action/set_piece/goalkeeping classes in
 `sentence_event_unmapped_classes` and unmatched mapped classes separately.
 A local extension recognises carrying, dribbling and running with (the) ball as
-carry, and passing as pass. The shared fabrication keyword rule is unchanged.
+carry, and passing as pass. The shared fabrication keyword vocabulary is unchanged; round 5 adds simple
+no/without negation handling in the fabrication diagnostic.
 No mapped events still passes consistency vacuously; the presence-plus-event
 metric makes that limitation visible.
 
 Lane A's `number_invented` is stricter than the shared jersey kill: any
 unsupplied “#N / number N / jersey N” flags, while timestamps do not.
+
+## Lane A round 5: strict versus lenient recall
+
+`on_ball_recall` remains the strict, discriminating column. The new
+`on_ball_recall_lenient` also credits carry for receive, half-turn or ball-loss
+notes, using the same six on-ball clips as denominator. It does not substitute
+carry for a header, duel/challenge or interception. A pass can still match a
+pass under either rule. Dense matches 1/6 strictly and 3/6 leniently; prod30
+matches 0/6 strictly and 2/6 leniently.
+
+The saved outputs contain carry on **36/40 reads** (dense 19/20, prod30 17/20),
+not the review's 39/40 estimate. Lenient recall therefore rewards a frequent
+carry prior; it must not replace strict recall or be read as evidence that the
+model recovered the actual receive/turn/loss. No matching outcome is implied.
+
+`fabricated_rate` now excludes unclassifiable notes: n24 is identity-only, leaving
+19 eligible clips. Per-clip keyword lists are retained for audit. Activity subset
+rates appear first in the top table; the keyword fabrication rate follows them.
+Simple `no …` and `without …` scopes end at punctuation or but/then/however;
+negated keywords in either model prose or notes do not count as positive events.
+A semicolon separates prose from explicit event classes so a trailing negation
+cannot suppress the structured events. This is not general negation parsing.
+Prod30 n25's “no ball contact or goal scored” no longer contributes goal, while
+its explicit carry event still contributes to fabrication.
+
+“holding (the) ball” is an on-ball assertion but not an action class. When the
+note does not mention holding, that extra detail blocks a sentence agree verdict
+and gives undetermined unless another explicit contradiction already gives
+disagree. Prod30 n09-143096 now has sentence verdict undetermined.
+
+The requested headline's no-on-ball denominator needs correction: n04-243433
+contains both idle behaviour and a receive/half-turn. Excluding it leaves 13
+classified clips where MJ saw no on-ball action, with inventions on 12/13 dense
+and 10/13 prod30. The idle subset still includes the mixed clip. The headline
+uses the requested “12 frames” and “single-still” shorthand; actual sampling is
+11.9 versus 1.45 frames/attempt, with single stills on 13/20 prod30 clips. This
+single-pass comparison does not prove a general causal effect of frame density.

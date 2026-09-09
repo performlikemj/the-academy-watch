@@ -19,7 +19,7 @@ CAVEATS = [
     "No boxes are requested from the VLM, so rectangle echo is not a model-geometry failure mode in this lane. The supplied jersey label is not proof of number legibility.",
     "Dense samples are spread across the window, capped at 12; 30s/3 is a sparse annotated control. These isolate sampling under the same semantic contract, not a comparison to the old grounding score.",
     "Presence-only and jersey checks are narrow regex rules, not semantic judgments; kit-colour checks compare the explicit field only. Goal and name prohibitions are prompt rules, not verified truth guarantees.",
-    "The original fabricated_rate now evaluates all 20 notes, including the disputed identity-only note; absence of an event keyword is not proof the event never occurred. Activity checks separately grade only notes with an activity classification.",
+    "fabricated_rate evaluates the 19 notes with classifiable activity; n24's identity-only note is excluded from its denominator while per-clip keyword mismatches remain visible for audit. Simple no/without clauses suppress negated event keywords. Activity-subset rates are the primary findings; absence of a keyword is not proof an event never occurred.",
     "Sequential single passes, without repeats or confidence intervals. Wall time includes extraction/drawing and all failed attempts; Ollama may reuse a warm model. Temporary frame paths record provenance but images are removed after each call.",
     "Uniform target samples falling in tracking gaps snap to the nearest recorded track timestamp within 0.5s, remaining distinct and chronological; target_t and sampling_shift_s record every adjustment. Larger gaps fail before inference. Geometry is never extrapolated across gaps.",
     "All 20 frozen kit fields say red and both measured runs used red rectangles. MJ confirms n24 is actually black; its verified black override is now used. The evaluated set has just one verified non-red kit and remains dominated by red, with two uncertain warm-up kits counted as abstentions. Future lane-A model inputs use magenta; these saved outputs were not rerun.",
@@ -27,10 +27,11 @@ CAVEATS = [
     "Sentence-only presence applies the specified verb-stem exclusion literally: moving, interacting and holding are not excluded. The added strict rate excludes hold/holding, with (the) ball, possession, moving and interacting. Consistency adds carrying/passing/dribbling/running-with-ball inflections and excludes unmapped event classes from its requirement; ignored classes remain visible in JSON. Presence-with-substantive-event uses the original sentence-only flag. These are lexical diagnostics, not semantic accuracy.",
     "Truth and note hashes describe the current rescoring snapshot across all manifest truth files. Historical run.json files retain their original launch metadata; absent inference-time hashes are not retroactively asserted.",
     "No adoption recommendation; MJ owns that decision.",
+    "Headline denominator correction: there are 13 clips with classified activity but no on-ball action, not 14. Mixed n04-243433 explicitly includes a receive and half-turn and is excluded from that group; its idle subset flag remains. Headline counts are 12/13 dense and 10/13 prod30. The requested 12-frames/single-still wording is shorthand: actual means are 11.9 versus 1.45 frames, and only 13/20 prod30 attempts send exactly one frame. Single passes do not establish a general causal effect of sampling density.",
     "MJ reports 'some misses as far as boxes are concerned': truth box_track has visible tracker misses. These are geometry/input errors, not model errors, and may affect semantic reads.",
     "m04-n24-t3013-679939-681217 has a disputed truth label: MJ wrote 'wrong number. this is number 12 from the shorts'. The frozen #24 binding is not corrected by inference; this clip remains visible and excluded from jersey denominators, while kit metrics use kit_color_truth_override black. MJ's appended clarification confirms BLACK warm-up kit and black shorts: the earlier fps2 video lane and annotated prod30 read black correctly, while frozen kit_color red is wrong. The original label/colour fields are retained for audit. m04-n22-t3012-070707-074371 and m04-n03-t1406-385962-387137 have kit_color_uncertain true: their kit metrics abstain, neither matching nor wrong.",
-    "Activity agreement is coarse compatibility: all on-ball notes can agree with any on-ball model activity even when event recall fails. A mixed idle/on-ball note is eligible for both subset rates; the idle rate is not itself proof of fabrication on that mixed clip. Header/receive/turn/loss remain distinct note classes absent from ACTION_TYPES, so generic carry earns no event recall credit. Outcomes and event timing are not graded against the notes.",
-    "Sentence verdicts are lexical class overlap, not full entailment: agree requires a shared activity/action class and no detected incompatible assertion; disagree requires an incompatible class/context; otherwise undetermined. They do not validate every detail or robustly resolve negation, actor attribution or temporal order.",
+    "Activity agreement is coarse compatibility: all on-ball notes can agree with any on-ball model activity even when event recall fails. A mixed idle/on-ball note is eligible for both subset rates; the idle rate is not itself proof of fabrication on that mixed clip. Strict recall gives no carry credit for header/receive/turn/loss. Lenient recall additionally permits receive/turn/loss as carry-compatible, never header/duel/interception. Carry appears on 36/40 saved reads (19 dense, 17 prod30), so strict recall is more discriminating. Outcomes and event timing are not graded against the notes.",
+    "Sentence verdicts are lexical class overlap, not full entailment: agree requires a shared activity/action class and no detected incompatible assertion; disagree requires an incompatible class/context; otherwise undetermined. Holding (the) ball is an on-ball assertion without an action-class match: an unsupported holding detail makes an otherwise agreeing sentence undetermined. These checks do not robustly resolve negation, actor attribution or temporal order.",
 ]
 
 
@@ -53,6 +54,7 @@ def comparison_read(clip: dict | None) -> dict | None:
                 "truth_activity",
                 "activity_agreement",
                 "on_ball_recalled",
+                "on_ball_recalled_lenient",
                 "sentence_matches_note",
             )
         },
@@ -124,6 +126,7 @@ def compare(reports_root: Path, runs: dict[str, str], manifest_path: Path) -> di
         **truth_provenance,
         "sentence_selection": "First five scored clips in manifest order, verbatim; no quality selection.",
         "lanes": lanes,
+        "headline": activity_headline(lanes),
         "per_clip_comparison": [
             {
                 "clip_id": cid,
@@ -145,14 +148,54 @@ def compare(reports_root: Path, runs: dict[str, str], manifest_path: Path) -> di
     }
 
 
+def activity_headline(lanes: dict) -> str:
+    dense, sparse = (
+        (lanes[name] for name in ("dense", "prod30"))
+        if {"dense", "prod30"} <= lanes.keys()
+        else lanes.values()
+    )
+    runs = [lane["report"] for lane in (dense, sparse)]
+
+    def count(report, key):
+        return sum(c.get("metrics", {}).get(key) is True for c in report["clips"])
+
+    total = min(r["overall"]["human_noted_scored_clips"] for r in runs)
+    denominators = [r["overall"]["activity_denominators"] for r in runs]
+    if not total or any(
+        not d["no_on_ball_claimed_on_ball"] or not d["on_ball_recalled"]
+        for d in denominators
+    ):
+        return "Insufficient classified human notes for the activity headline."
+    d_count, s_count = (count(r, "no_on_ball_claimed_on_ball") for r in runs)
+    d_total, s_total = (d["no_on_ball_claimed_on_ball"] for d in denominators)
+    strict = max(count(r, "on_ball_recalled") for r in runs)
+    lenient = max(count(r, "on_ball_recalled_lenient") for r in runs)
+    on_ball = denominators[0]["on_ball_recalled"]
+    comparison = (
+        "worse, not better"
+        if d_count / d_total > s_count / s_total
+        else "no better"
+        if d_count / d_total == s_count / s_total
+        else "better"
+    )
+    return (
+        f"On {total} human-noted clips, Qwen3-VL:8b invented on-ball play for {d_count} of {d_total} "
+        f"clips where MJ saw none (dense) and {s_count} of {s_total} (single-still), "
+        f"matched MJ's actual action on at most {strict} of {on_ball} on-ball clips "
+        f"({lenient} of {on_ball} lenient), and 12 frames instead of 1 made the invention {comparison}."
+    )
+
+
 def markdown(result: dict) -> str:
     keys = (
         [
-            "fabricated_rate",
+            "no_on_ball_claimed_on_ball_rate",
             "off_pitch_claimed_on_ball_rate",
             "idle_claimed_on_ball_rate",
             "on_ball_recall",
+            "on_ball_recall_lenient",
             "activity_agreement_rate",
+            "fabricated_rate",
             "sentence_matches_note",
         ]
         + [f"{k}_rate" for k in RATE_KEYS]
@@ -169,6 +212,8 @@ def markdown(result: dict) -> str:
         ]
     )
     lines = [
+        result["headline"],
+        "",
         result["honest_limit"],
         "",
         result["experiment"],
@@ -195,7 +240,7 @@ def markdown(result: dict) -> str:
             )
             if k == "sentence_matches_note"
             else f"{overall[k]:.2%}"
-            if k.endswith("_rate") or k == "on_ball_recall"
+            if k.endswith("_rate") or k in {"on_ball_recall", "on_ball_recall_lenient"}
             else str(overall[k])
             for k in keys
         ]
@@ -209,7 +254,7 @@ def markdown(result: dict) -> str:
         "Sentence counts are agree/disagree/undetermined. Activity and identity denominators per run:",
         "",
         *[
-            f"- {lane['run']}: {lane['report']['overall']['activity_denominators']}; jersey eligible {lane['report']['overall']['identity_evaluated_clips']}; kit eligible {lane['report']['overall']['kit_evaluated_clips']}; noted clips {lane['report']['overall']['human_noted_scored_clips']}"
+            f"- {lane['run']}: {lane['report']['overall']['activity_denominators']}; jersey eligible {lane['report']['overall']['identity_evaluated_clips']}; kit eligible {lane['report']['overall']['kit_evaluated_clips']}; noted clips {lane['report']['overall']['human_noted_scored_clips']}; fabrication eligible {lane['report']['overall']['fabricated_evaluated_clips']}"
             for lane in result["lanes"].values()
         ],
         "",

@@ -94,7 +94,7 @@ def score_read(read: SemanticRead, truth: dict, *, sent_frame_count: int = 0) ->
     # Underscores become spaces; broad classes such as off_ball remain ungraded.
     event_text = " ".join(event.event_type.replace("_", " ") for event in read.events)
     fabricated = fabricated_event_classes(
-        f"{read.sentence} {event_text}", truth.get("human_note")
+        f"{read.sentence}; {event_text}", truth.get("human_note")
     )
     substantive = {event.event_type for event in read.events} - {"none", "unclear"}
     sentence_classes = _event_classes(read.sentence)
@@ -253,11 +253,15 @@ def score_run(
             [
                 bool(m["fabricated_event_classes"])
                 for m in scored
-                if m["fabricated_event_classes"] is not None
+                if m["fabricated_event_classes"] is not None and m["truth_activity"]
             ]
         ),
         "human_noted_scored_clips": sum(
             m["fabricated_event_classes"] is not None for m in scored
+        ),
+        "fabricated_evaluated_clips": sum(
+            m["fabricated_event_classes"] is not None and bool(m["truth_activity"])
+            for m in scored
         ),
         **{
             output: rate([m[key] for m in scored if m[key] is not None])
@@ -265,6 +269,8 @@ def score_run(
                 ("off_pitch_claimed_on_ball_rate", "off_pitch_claimed_on_ball"),
                 ("idle_claimed_on_ball_rate", "idle_claimed_on_ball"),
                 ("on_ball_recall", "on_ball_recalled"),
+                ("on_ball_recall_lenient", "on_ball_recalled_lenient"),
+                ("no_on_ball_claimed_on_ball_rate", "no_on_ball_claimed_on_ball"),
                 ("activity_agreement_rate", "activity_agreement"),
             )
         },
@@ -274,6 +280,8 @@ def score_run(
                 "off_pitch_claimed_on_ball",
                 "idle_claimed_on_ball",
                 "on_ball_recalled",
+                "on_ball_recalled_lenient",
+                "no_on_ball_claimed_on_ball",
                 "activity_agreement",
             )
         },
@@ -291,13 +299,13 @@ def score_run(
     has_notes = any(truth.get("human_note") is not None for truth in truths.values())
     return {
         **(truth_provenance or {}),
-        "schema_version": "film-room-semantic-report-v4",
+        "schema_version": "film-room-semantic-report-v5",
         "generated_at": datetime.now(UTC).isoformat(),
         "adapter": adapter,
         "honest_limit": "Human notes enable deterministic activity and event-class checks. These measure coarse correctness against MJ's observations, not timing/outcome accuracy or exhaustive semantic correctness."
         if has_notes
         else HONEST_LIMIT,
-        "denominators": "Honesty rates and events/clip: scored clips. Jersey rates exclude disputed labels. Kit rates include verified colour overrides and count uncertain kit truth as abstention; disputed kits without an override or uncertainty flag remain excluded. Lane A number_invented is stricter than the shared jersey kill: any unsupplied #N / number N / jersey N flags, while timestamps do not. Activity subset rates use classified notes only; agreement excludes unclassified notes. On-ball recall requires at least one exact event-class match per on-ball note, without credit for unmatched receive/header/turn/loss classes. Sentence verdicts count all scored clips, including undetermined notes. Valid attempt rate and wall/clip: all attempts. Kit match excludes abstentions from the asserted-only rate; match/abstain/wrong rates use kit-eligible scored clips. Time/clip means all event times pass (vacuously true with no events); event-time rate counts events. Fabricated rate: noted scored clips only. Presence-only read retains the original event-gated narrow regex; sentence-only presence ignores events and excludes the specified action-verb stems. Strict presence additionally excludes hold/holding, with (the) ball, possession, moving and interacting. Presence-with-substantive-event uses the original sentence-only presence flag and any event except none/unclear. Consistency requires only event classes with an existing keyword map, adds carrying/passing/dribbling/running-with-ball inflections locally, and records ignored unmapped classes separately; no mapped events pass vacuously. Zero-duration and window-filling rates count events, not clips. Events/sent-frame uses all frames of scored clips. Thinking rate counts recorded true flags across all attempts, including failures.",
+        "denominators": "Honesty rates and events/clip: scored clips. Jersey rates exclude disputed labels. Kit rates include verified colour overrides and count uncertain kit truth as abstention; disputed kits without an override or uncertainty flag remain excluded. Lane A number_invented is stricter than the shared jersey kill: any unsupplied #N / number N / jersey N flags, while timestamps do not. Activity subset rates use classified notes only; agreement excludes unclassified notes. Strict on-ball recall requires an exact event-class match; lenient recall additionally treats receive/turn/loss as carry-compatible, never header/duel/interception. The no-on-ball subset excludes mixed notes containing any on_ball_action. Sentence verdicts count all scored clips, including undetermined notes. Valid attempt rate and wall/clip: all attempts. Kit match excludes abstentions from the asserted-only rate; match/abstain/wrong rates use kit-eligible scored clips. Time/clip means all event times pass (vacuously true with no events); event-time rate counts events. Fabricated rate: noted scored clips with classifiable activity only; identity-only notes are excluded. Simple no/without clause negation suppresses event keywords in that diagnostic. Presence-only read retains the original event-gated narrow regex; sentence-only presence ignores events and excludes the specified action-verb stems. Strict presence additionally excludes hold/holding, with (the) ball, possession, moving and interacting. Presence-with-substantive-event uses the original sentence-only presence flag and any event except none/unclear. Consistency requires only event classes with an existing keyword map, adds carrying/passing/dribbling/running-with-ball inflections locally, and records ignored unmapped classes separately; no mapped events pass vacuously. Zero-duration and window-filling rates count events, not clips. Events/sent-frame uses all frames of scored clips. Thinking rate counts recorded true flags across all attempts, including failures.",
         "overall": overall,
         "clips": clips,
     }

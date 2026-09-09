@@ -307,12 +307,10 @@ def test_note_roundtrip_and_scoring_becomes_live(tmp_path):
     original = (tmp_path / "truth/fixture.json").read_bytes()
     assert apply_notes(form, manifest) == 0
     assert (tmp_path / "truth/fixture.json").read_bytes() == original
-    form.write_text(
-        form.read_text().replace("| note:", "| note: The player stands still.")
-    )
+    form.write_text(form.read_text().replace("| note:", "| note: just walking around."))
     assert apply_notes(form, manifest) == 1
     updated = json.loads((tmp_path / "truth/fixture.json").read_text())
-    assert updated == {**truth(), "human_note": "The player stands still."}
+    assert updated == {**truth(), "human_note": "just walking around."}
     assert (
         score_run([raw(events=[event()])], {"fixture": updated})["overall"][
             "fabricated_rate"
@@ -980,6 +978,8 @@ def test_activity_denominators_empty_and_unclassified_notes():
         "off_pitch_claimed_on_ball": 1,
         "idle_claimed_on_ball": 1,
         "on_ball_recalled": 1,
+        "on_ball_recalled_lenient": 1,
+        "no_on_ball_claimed_on_ball": 2,
         "activity_agreement": 3,
     }
     assert overall["off_pitch_claimed_on_ball_rate"] == 1
@@ -1202,3 +1202,126 @@ def test_default_notes_path_prefers_ledger_then_local_report(monkeypatch, tmp_pa
     ledger.parent.mkdir()
     ledger.write_text("local notes")
     assert intake.default_notes_path() == ledger
+
+
+@pytest.mark.parametrize(
+    "note,compatible",
+    [
+        (
+            "receives ball in midfield. playing as false 9 or 10 spot. loses the ball",
+            True,
+        ),
+        ("receives and does a half turn.", True),
+        ("loses the ball", True),
+        ("heads the ball off defender for a throw-in.", False),
+        ("multiple challenges for the ball", False),
+        ("intercepts a ball but passes to opposite team", False),
+    ],
+)
+def test_lenient_recall_only_adds_receive_turn_loss_carry_compatibility(
+    note, compatible
+):
+    m = score_read(
+        SemanticRead(**read(events=[event(event_type="carry")])), truth(note)
+    )
+    assert m["on_ball_recalled"] is False
+    assert m["on_ball_recalled_lenient"] is compatible
+    assert m["matching_on_ball_event_classes_lenient"] == (
+        ["carry"] if compatible else []
+    )
+
+
+@pytest.mark.parametrize(
+    "claim,expected",
+    [
+        (
+            "Player marked #25 in red kit is visible on the field with no ball contact or goal scored.",
+            [],
+        ),
+        ("The player leaves without a shot or goal scored.", []),
+        ("No goal scored; the player passes.", ["pass"]),
+        ("Without a shot, the player passes.", ["pass"]),
+        ("No goal at first but then scores.", ["goal"]),
+        ("Without a pass then shoots.", ["shot"]),
+        ("The player scores without a pass.", ["goal"]),
+    ],
+)
+def test_fabrication_simple_negation(claim, expected):
+    from score import fabricated_event_classes
+
+    assert fabricated_event_classes(claim, "coming off the pitch.") == expected
+    assert fabricated_event_classes("The player passes.", "without a pass") == ["pass"]
+
+
+def test_sentence_negation_cannot_hide_structured_events():
+    m = score_read(
+        SemanticRead(
+            **read(
+                sentence="Player visible with no goal scored",
+                events=[event(event_type="carry")],
+            )
+        ),
+        truth("coming off the pitch."),
+    )
+    assert m["fabricated_event_classes"] == ["carry"]
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "Player in red kit visible on right sideline holding ball.",
+        "Player in red kit visible on right sideline holding the ball.",
+    ],
+)
+def test_holding_ball_is_assertion_not_action_or_sentence_agreement(sentence):
+    from semantic_activity import action_classes
+
+    assert action_classes(sentence) == set()
+    m = score_read(SemanticRead(**read(sentence=sentence)), truth("on the sideline"))
+    assert m["sentence_matches_note"] == "undetermined"
+    assert "on_ball" in m["model_activity"]
+    assert m["model_on_ball_event_classes"] == []
+
+
+def test_unclassifiable_notes_excluded_from_fabrication_denominator():
+    values = [
+        truth("on the sideline"),
+        truth("wrong number. this is number 12 from the shorts"),
+        truth(None),
+    ]
+    rows = [
+        {**raw(events=[event(event_type="carry")]), "clip_id": str(i)} for i in range(3)
+    ]
+    report = score_run(rows, {str(i): t for i, t in enumerate(values)})
+    assert report["overall"]["human_noted_scored_clips"] == 2
+    assert report["overall"]["fabricated_evaluated_clips"] == 1
+    assert report["overall"]["fabricated_rate"] == 1
+    assert report["clips"][1]["metrics"]["fabricated_event_classes"] == [
+        "carry"
+    ]  # Audit retained.
+    report = score_run([rows[1]], {"1": values[1]})
+    assert report["overall"]["fabricated_rate"] is None
+
+
+def test_headline_excludes_mixed_activity_from_no_on_ball_group():
+    from compare_semantic import activity_headline
+
+    mixed = MJ_ACTIVITY_FIXTURES[3][1]
+    m = score_read(
+        SemanticRead(**read(events=[event(event_type="carry")])), truth(mixed)
+    )
+    assert m["idle_claimed_on_ball"] is True
+    assert m["no_on_ball_claimed_on_ball"] is None
+    truths = {cid: truth(note) for cid, note, _ in MJ_ACTIVITY_FIXTURES}
+    rows = [
+        {**raw(events=[event(event_type="carry")]), "clip_id": cid} for cid in truths
+    ]
+    report = score_run(rows, truths)
+    headline = activity_headline(
+        {"dense": {"report": report}, "prod30": {"report": report}}
+    )
+    assert "13 of 13 clips where MJ saw none" in headline
+    assert "0 of 6 on-ball clips (2 of 6 lenient)" in headline
+    assert (
+        report["overall"]["activity_denominators"]["no_on_ball_claimed_on_ball"] == 13
+    )

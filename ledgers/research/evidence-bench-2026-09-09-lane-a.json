@@ -54,11 +54,11 @@
       "report": {
         "truth_set_sha256_after_notes": "b0701190324ab2527d400b2b176da67291a5efffc11fd314068b343e9f74e8ed",
         "human_notes_sha256": "5944679d0b576bfd8790d9d1206def9485f7618b0c6d53d4c7593c266d51d59f",
-        "schema_version": "film-room-semantic-report-v4",
+        "schema_version": "film-room-semantic-report-v5",
         "generated_at": "2026-09-09T08:07:07.715288+00:00",
         "adapter": "qwen3vl_annotated",
         "honest_limit": "Human notes enable deterministic activity and event-class checks. These measure coarse correctness against MJ's observations, not timing/outcome accuracy or exhaustive semantic correctness.",
-        "denominators": "Honesty rates and events/clip: scored clips. Jersey rates exclude disputed labels. Kit rates include verified colour overrides and count uncertain kit truth as abstention; disputed kits without an override or uncertainty flag remain excluded. Lane A number_invented is stricter than the shared jersey kill: any unsupplied #N / number N / jersey N flags, while timestamps do not. Activity subset rates use classified notes only; agreement excludes unclassified notes. On-ball recall requires at least one exact event-class match per on-ball note, without credit for unmatched receive/header/turn/loss classes. Sentence verdicts count all scored clips, including undetermined notes. Valid attempt rate and wall/clip: all attempts. Kit match excludes abstentions from the asserted-only rate; match/abstain/wrong rates use kit-eligible scored clips. Time/clip means all event times pass (vacuously true with no events); event-time rate counts events. Fabricated rate: noted scored clips only. Presence-only read retains the original event-gated narrow regex; sentence-only presence ignores events and excludes the specified action-verb stems. Strict presence additionally excludes hold/holding, with (the) ball, possession, moving and interacting. Presence-with-substantive-event uses the original sentence-only presence flag and any event except none/unclear. Consistency requires only event classes with an existing keyword map, adds carrying/passing/dribbling/running-with-ball inflections locally, and records ignored unmapped classes separately; no mapped events pass vacuously. Zero-duration and window-filling rates count events, not clips. Events/sent-frame uses all frames of scored clips. Thinking rate counts recorded true flags across all attempts, including failures.",
+        "denominators": "Honesty rates and events/clip: scored clips. Jersey rates exclude disputed labels. Kit rates include verified colour overrides and count uncertain kit truth as abstention; disputed kits without an override or uncertainty flag remain excluded. Lane A number_invented is stricter than the shared jersey kill: any unsupplied #N / number N / jersey N flags, while timestamps do not. Activity subset rates use classified notes only; agreement excludes unclassified notes. Strict on-ball recall requires an exact event-class match; lenient recall additionally treats receive/turn/loss as carry-compatible, never header/duel/interception. The no-on-ball subset excludes mixed notes containing any on_ball_action. Sentence verdicts count all scored clips, including undetermined notes. Valid attempt rate and wall/clip: all attempts. Kit match excludes abstentions from the asserted-only rate; match/abstain/wrong rates use kit-eligible scored clips. Time/clip means all event times pass (vacuously true with no events); event-time rate counts events. Fabricated rate: noted scored clips with classifiable activity only; identity-only notes are excluded. Simple no/without clause negation suppresses event keywords in that diagnostic. Presence-only read retains the original event-gated narrow regex; sentence-only presence ignores events and excludes the specified action-verb stems. Strict presence additionally excludes hold/holding, with (the) ball, possession, moving and interacting. Presence-with-substantive-event uses the original sentence-only presence flag and any event except none/unclear. Consistency requires only event classes with an existing keyword map, adds carrying/passing/dribbling/running-with-ball inflections locally, and records ignored unmapped classes separately; no mapped events pass vacuously. Zero-duration and window-filling rates count events, not clips. Events/sent-frame uses all frames of scored clips. Thinking rate counts recorded true flags across all attempts, including failures.",
         "overall": {
           "attempted_clips": 20,
           "scored_clips": 20,
@@ -89,16 +89,21 @@
           "valid_attempt_rate": 1.0,
           "kit_color_match_when_asserted_rate": 0.9444,
           "time_in_window_event_rate": 1.0,
-          "fabricated_rate": 0.95,
+          "fabricated_rate": 0.9474,
           "human_noted_scored_clips": 20,
+          "fabricated_evaluated_clips": 19,
           "off_pitch_claimed_on_ball_rate": 0.8571,
           "idle_claimed_on_ball_rate": 1.0,
           "on_ball_recall": 0.1667,
+          "on_ball_recall_lenient": 0.5,
+          "no_on_ball_claimed_on_ball_rate": 0.9231,
           "activity_agreement_rate": 0.3684,
           "activity_denominators": {
             "off_pitch_claimed_on_ball": 7,
             "idle_claimed_on_ball": 3,
             "on_ball_recalled": 6,
+            "on_ball_recalled_lenient": 6,
+            "no_on_ball_claimed_on_ball": 13,
             "activity_agreement": 19
           },
           "sentence_matches_note": {
@@ -209,9 +214,12 @@
                 "pass"
               ],
               "matching_on_ball_event_classes": [],
+              "matching_on_ball_event_classes_lenient": [],
+              "no_on_ball_claimed_on_ball": true,
               "off_pitch_claimed_on_ball": null,
               "idle_claimed_on_ball": null,
               "on_ball_recalled": null,
+              "on_ball_recalled_lenient": null,
               "activity_agreement": false,
               "sentence_matches_note": "disagree"
             }
@@ -307,9 +315,14 @@
               "matching_on_ball_event_classes": [
                 "pass"
               ],
+              "matching_on_ball_event_classes_lenient": [
+                "pass"
+              ],
+              "no_on_ball_claimed_on_ball": null,
               "off_pitch_claimed_on_ball": null,
               "idle_claimed_on_ball": null,
               "on_ball_recalled": true,
+              "on_ball_recalled_lenient": true,
               "activity_agreement": true,
               "sentence_matches_note": "undetermined"
             }
@@ -398,9 +411,12 @@
                 "duel"
               ],
               "matching_on_ball_event_classes": [],
+              "matching_on_ball_event_classes_lenient": [],
+              "no_on_ball_claimed_on_ball": true,
               "off_pitch_claimed_on_ball": true,
               "idle_claimed_on_ball": null,
               "on_ball_recalled": null,
+              "on_ball_recalled_lenient": null,
               "activity_agreement": false,
               "sentence_matches_note": "disagree"
             }
@@ -498,9 +514,14 @@
                 "carry"
               ],
               "matching_on_ball_event_classes": [],
+              "matching_on_ball_event_classes_lenient": [
+                "carry"
+              ],
+              "no_on_ball_claimed_on_ball": null,
               "off_pitch_claimed_on_ball": null,
               "idle_claimed_on_ball": true,
               "on_ball_recalled": false,
+              "on_ball_recalled_lenient": true,
               "activity_agreement": true,
               "sentence_matches_note": "undetermined"
             }
@@ -589,9 +610,12 @@
                 "duel"
               ],
               "matching_on_ball_event_classes": [],
+              "matching_on_ball_event_classes_lenient": [],
+              "no_on_ball_claimed_on_ball": true,
               "off_pitch_claimed_on_ball": null,
               "idle_claimed_on_ball": true,
               "on_ball_recalled": null,
+              "on_ball_recalled_lenient": null,
               "activity_agreement": false,
               "sentence_matches_note": "disagree"
             }
@@ -680,9 +704,12 @@
                 "carry"
               ],
               "matching_on_ball_event_classes": [],
+              "matching_on_ball_event_classes_lenient": [],
+              "no_on_ball_claimed_on_ball": true,
               "off_pitch_claimed_on_ball": null,
               "idle_claimed_on_ball": null,
               "on_ball_recalled": null,
+              "on_ball_recalled_lenient": null,
               "activity_agreement": false,
               "sentence_matches_note": "disagree"
             }
@@ -769,9 +796,12 @@
               ],
               "model_on_ball_event_classes": [],
               "matching_on_ball_event_classes": [],
+              "matching_on_ball_event_classes_lenient": [],
+              "no_on_ball_claimed_on_ball": false,
               "off_pitch_claimed_on_ball": false,
               "idle_claimed_on_ball": null,
               "on_ball_recalled": null,
+              "on_ball_recalled_lenient": null,
               "activity_agreement": true,
               "sentence_matches_note": "agree"
             }
@@ -862,9 +892,12 @@
                 "carry"
               ],
               "matching_on_ball_event_classes": [],
+              "matching_on_ball_event_classes_lenient": [],
+              "no_on_ball_claimed_on_ball": true,
               "off_pitch_claimed_on_ball": null,
               "idle_claimed_on_ball": null,
               "on_ball_recalled": null,
+              "on_ball_recalled_lenient": null,
               "activity_agreement": false,
               "sentence_matches_note": "undetermined"
             }
@@ -955,9 +988,12 @@
                 "carry"
               ],
               "matching_on_ball_event_classes": [],
+              "matching_on_ball_event_classes_lenient": [],
+              "no_on_ball_claimed_on_ball": true,
               "off_pitch_claimed_on_ball": true,
               "idle_claimed_on_ball": null,
               "on_ball_recalled": null,
+              "on_ball_recalled_lenient": null,
               "activity_agreement": false,
               "sentence_matches_note": "disagree"
             }
@@ -1057,9 +1093,12 @@
                 "pass"
               ],
               "matching_on_ball_event_classes": [],
+              "matching_on_ball_event_classes_lenient": [],
+              "no_on_ball_claimed_on_ball": true,
               "off_pitch_claimed_on_ball": null,
               "idle_claimed_on_ball": true,
               "on_ball_recalled": null,
+              "on_ball_recalled_lenient": null,
               "activity_agreement": false,
               "sentence_matches_note": "disagree"
             }
@@ -1151,9 +1190,12 @@
                 "carry"
               ],
               "matching_on_ball_event_classes": [],
+              "matching_on_ball_event_classes_lenient": [],
+              "no_on_ball_claimed_on_ball": null,
               "off_pitch_claimed_on_ball": null,
               "idle_claimed_on_ball": null,
               "on_ball_recalled": false,
+              "on_ball_recalled_lenient": false,
               "activity_agreement": true,
               "sentence_matches_note": "disagree"
             }
@@ -1256,9 +1298,12 @@
                 "carry"
               ],
               "matching_on_ball_event_classes": [],
+              "matching_on_ball_event_classes_lenient": [],
+              "no_on_ball_claimed_on_ball": true,
               "off_pitch_claimed_on_ball": true,
               "idle_claimed_on_ball": null,
               "on_ball_recalled": null,
+              "on_ball_recalled_lenient": null,
               "activity_agreement": false,
               "sentence_matches_note": "disagree"
             }
@@ -1358,9 +1403,12 @@
                 "carry"
               ],
               "matching_on_ball_event_classes": [],
+              "matching_on_ball_event_classes_lenient": [],
+              "no_on_ball_claimed_on_ball": null,
               "off_pitch_claimed_on_ball": null,
               "idle_claimed_on_ball": null,
               "on_ball_recalled": false,
+              "on_ball_recalled_lenient": false,
               "activity_agreement": true,
               "sentence_matches_note": "disagree"
             }
@@ -1462,9 +1510,12 @@
                 "carry"
               ],
               "matching_on_ball_event_classes": [],
+              "matching_on_ball_event_classes_lenient": [],
+              "no_on_ball_claimed_on_ball": null,
               "off_pitch_claimed_on_ball": null,
               "idle_claimed_on_ball": null,
               "on_ball_recalled": false,
+              "on_ball_recalled_lenient": false,
               "activity_agreement": true,
               "sentence_matches_note": "disagree"
             }
@@ -1566,9 +1617,12 @@
                 "pass"
               ],
               "matching_on_ball_event_classes": [],
+              "matching_on_ball_event_classes_lenient": [],
+              "no_on_ball_claimed_on_ball": true,
               "off_pitch_claimed_on_ball": null,
               "idle_claimed_on_ball": null,
               "on_ball_recalled": null,
+              "on_ball_recalled_lenient": null,
               "activity_agreement": false,
               "sentence_matches_note": "disagree"
             }
@@ -1663,9 +1717,14 @@
                 "pass"
               ],
               "matching_on_ball_event_classes": [],
+              "matching_on_ball_event_classes_lenient": [
+                "carry"
+              ],
+              "no_on_ball_claimed_on_ball": null,
               "off_pitch_claimed_on_ball": null,
               "idle_claimed_on_ball": null,
               "on_ball_recalled": false,
+              "on_ball_recalled_lenient": true,
               "activity_agreement": true,
               "sentence_matches_note": "disagree"
             }
@@ -1756,9 +1815,12 @@
                 "carry"
               ],
               "matching_on_ball_event_classes": [],
+              "matching_on_ball_event_classes_lenient": [],
+              "no_on_ball_claimed_on_ball": true,
               "off_pitch_claimed_on_ball": true,
               "idle_claimed_on_ball": null,
               "on_ball_recalled": null,
+              "on_ball_recalled_lenient": null,
               "activity_agreement": false,
               "sentence_matches_note": "disagree"
             }
@@ -1847,9 +1909,12 @@
                 "pass"
               ],
               "matching_on_ball_event_classes": [],
+              "matching_on_ball_event_classes_lenient": [],
+              "no_on_ball_claimed_on_ball": true,
               "off_pitch_claimed_on_ball": true,
               "idle_claimed_on_ball": null,
               "on_ball_recalled": null,
+              "on_ball_recalled_lenient": null,
               "activity_agreement": false,
               "sentence_matches_note": "disagree"
             }
@@ -1936,9 +2001,12 @@
                 "carry"
               ],
               "matching_on_ball_event_classes": [],
+              "matching_on_ball_event_classes_lenient": [],
+              "no_on_ball_claimed_on_ball": null,
               "off_pitch_claimed_on_ball": null,
               "idle_claimed_on_ball": null,
               "on_ball_recalled": null,
+              "on_ball_recalled_lenient": null,
               "activity_agreement": null,
               "sentence_matches_note": "undetermined"
             }
@@ -2029,9 +2097,12 @@
                 "carry"
               ],
               "matching_on_ball_event_classes": [],
+              "matching_on_ball_event_classes_lenient": [],
+              "no_on_ball_claimed_on_ball": true,
               "off_pitch_claimed_on_ball": true,
               "idle_claimed_on_ball": null,
               "on_ball_recalled": null,
+              "on_ball_recalled_lenient": null,
               "activity_agreement": false,
               "sentence_matches_note": "disagree"
             }
@@ -8241,11 +8312,11 @@
       "report": {
         "truth_set_sha256_after_notes": "b0701190324ab2527d400b2b176da67291a5efffc11fd314068b343e9f74e8ed",
         "human_notes_sha256": "5944679d0b576bfd8790d9d1206def9485f7618b0c6d53d4c7593c266d51d59f",
-        "schema_version": "film-room-semantic-report-v4",
+        "schema_version": "film-room-semantic-report-v5",
         "generated_at": "2026-09-09T08:10:40.717723+00:00",
         "adapter": "qwen3vl_annotated",
         "honest_limit": "Human notes enable deterministic activity and event-class checks. These measure coarse correctness against MJ's observations, not timing/outcome accuracy or exhaustive semantic correctness.",
-        "denominators": "Honesty rates and events/clip: scored clips. Jersey rates exclude disputed labels. Kit rates include verified colour overrides and count uncertain kit truth as abstention; disputed kits without an override or uncertainty flag remain excluded. Lane A number_invented is stricter than the shared jersey kill: any unsupplied #N / number N / jersey N flags, while timestamps do not. Activity subset rates use classified notes only; agreement excludes unclassified notes. On-ball recall requires at least one exact event-class match per on-ball note, without credit for unmatched receive/header/turn/loss classes. Sentence verdicts count all scored clips, including undetermined notes. Valid attempt rate and wall/clip: all attempts. Kit match excludes abstentions from the asserted-only rate; match/abstain/wrong rates use kit-eligible scored clips. Time/clip means all event times pass (vacuously true with no events); event-time rate counts events. Fabricated rate: noted scored clips only. Presence-only read retains the original event-gated narrow regex; sentence-only presence ignores events and excludes the specified action-verb stems. Strict presence additionally excludes hold/holding, with (the) ball, possession, moving and interacting. Presence-with-substantive-event uses the original sentence-only presence flag and any event except none/unclear. Consistency requires only event classes with an existing keyword map, adds carrying/passing/dribbling/running-with-ball inflections locally, and records ignored unmapped classes separately; no mapped events pass vacuously. Zero-duration and window-filling rates count events, not clips. Events/sent-frame uses all frames of scored clips. Thinking rate counts recorded true flags across all attempts, including failures.",
+        "denominators": "Honesty rates and events/clip: scored clips. Jersey rates exclude disputed labels. Kit rates include verified colour overrides and count uncertain kit truth as abstention; disputed kits without an override or uncertainty flag remain excluded. Lane A number_invented is stricter than the shared jersey kill: any unsupplied #N / number N / jersey N flags, while timestamps do not. Activity subset rates use classified notes only; agreement excludes unclassified notes. Strict on-ball recall requires an exact event-class match; lenient recall additionally treats receive/turn/loss as carry-compatible, never header/duel/interception. The no-on-ball subset excludes mixed notes containing any on_ball_action. Sentence verdicts count all scored clips, including undetermined notes. Valid attempt rate and wall/clip: all attempts. Kit match excludes abstentions from the asserted-only rate; match/abstain/wrong rates use kit-eligible scored clips. Time/clip means all event times pass (vacuously true with no events); event-time rate counts events. Fabricated rate: noted scored clips with classifiable activity only; identity-only notes are excluded. Simple no/without clause negation suppresses event keywords in that diagnostic. Presence-only read retains the original event-gated narrow regex; sentence-only presence ignores events and excludes the specified action-verb stems. Strict presence additionally excludes hold/holding, with (the) ball, possession, moving and interacting. Presence-with-substantive-event uses the original sentence-only presence flag and any event except none/unclear. Consistency requires only event classes with an existing keyword map, adds carrying/passing/dribbling/running-with-ball inflections locally, and records ignored unmapped classes separately; no mapped events pass vacuously. Zero-duration and window-filling rates count events, not clips. Events/sent-frame uses all frames of scored clips. Thinking rate counts recorded true flags across all attempts, including failures.",
         "overall": {
           "attempted_clips": 20,
           "scored_clips": 20,
@@ -8276,22 +8347,27 @@
           "valid_attempt_rate": 1.0,
           "kit_color_match_when_asserted_rate": 0.9444,
           "time_in_window_event_rate": 1.0,
-          "fabricated_rate": 0.85,
+          "fabricated_rate": 0.8421,
           "human_noted_scored_clips": 20,
+          "fabricated_evaluated_clips": 19,
           "off_pitch_claimed_on_ball_rate": 0.5714,
           "idle_claimed_on_ball_rate": 1.0,
           "on_ball_recall": 0.0,
+          "on_ball_recall_lenient": 0.3333,
+          "no_on_ball_claimed_on_ball_rate": 0.7692,
           "activity_agreement_rate": 0.3158,
           "activity_denominators": {
             "off_pitch_claimed_on_ball": 7,
             "idle_claimed_on_ball": 3,
             "on_ball_recalled": 6,
+            "on_ball_recalled_lenient": 6,
+            "no_on_ball_claimed_on_ball": 13,
             "activity_agreement": 19
           },
           "sentence_matches_note": {
-            "agree": 1,
+            "agree": 0,
             "disagree": 12,
-            "undetermined": 7
+            "undetermined": 8
           },
           "events_per_clip": 1.75,
           "wall_s_per_clip": 9.898
@@ -8381,9 +8457,12 @@
                 "duel"
               ],
               "matching_on_ball_event_classes": [],
+              "matching_on_ball_event_classes_lenient": [],
+              "no_on_ball_claimed_on_ball": true,
               "off_pitch_claimed_on_ball": null,
               "idle_claimed_on_ball": null,
               "on_ball_recalled": null,
+              "on_ball_recalled_lenient": null,
               "activity_agreement": false,
               "sentence_matches_note": "disagree"
             }
@@ -8476,9 +8555,12 @@
                 "carry"
               ],
               "matching_on_ball_event_classes": [],
+              "matching_on_ball_event_classes_lenient": [],
+              "no_on_ball_claimed_on_ball": null,
               "off_pitch_claimed_on_ball": null,
               "idle_claimed_on_ball": null,
               "on_ball_recalled": false,
+              "on_ball_recalled_lenient": false,
               "activity_agreement": true,
               "sentence_matches_note": "undetermined"
             }
@@ -8552,9 +8634,12 @@
               ],
               "model_on_ball_event_classes": [],
               "matching_on_ball_event_classes": [],
+              "matching_on_ball_event_classes_lenient": [],
+              "no_on_ball_claimed_on_ball": false,
               "off_pitch_claimed_on_ball": false,
               "idle_claimed_on_ball": null,
               "on_ball_recalled": null,
+              "on_ball_recalled_lenient": null,
               "activity_agreement": false,
               "sentence_matches_note": "disagree"
             }
@@ -8650,9 +8735,14 @@
                 "duel"
               ],
               "matching_on_ball_event_classes": [],
+              "matching_on_ball_event_classes_lenient": [
+                "carry"
+              ],
+              "no_on_ball_claimed_on_ball": null,
               "off_pitch_claimed_on_ball": null,
               "idle_claimed_on_ball": true,
               "on_ball_recalled": false,
+              "on_ball_recalled_lenient": true,
               "activity_agreement": true,
               "sentence_matches_note": "disagree"
             }
@@ -8742,9 +8832,12 @@
                 "carry"
               ],
               "matching_on_ball_event_classes": [],
+              "matching_on_ball_event_classes_lenient": [],
+              "no_on_ball_claimed_on_ball": true,
               "off_pitch_claimed_on_ball": null,
               "idle_claimed_on_ball": true,
               "on_ball_recalled": null,
+              "on_ball_recalled_lenient": null,
               "activity_agreement": false,
               "sentence_matches_note": "undetermined"
             }
@@ -8835,9 +8928,12 @@
                 "carry"
               ],
               "matching_on_ball_event_classes": [],
+              "matching_on_ball_event_classes_lenient": [],
+              "no_on_ball_claimed_on_ball": true,
               "off_pitch_claimed_on_ball": null,
               "idle_claimed_on_ball": null,
               "on_ball_recalled": null,
+              "on_ball_recalled_lenient": null,
               "activity_agreement": false,
               "sentence_matches_note": "undetermined"
             }
@@ -8916,11 +9012,14 @@
                 "carry"
               ],
               "matching_on_ball_event_classes": [],
+              "matching_on_ball_event_classes_lenient": [],
+              "no_on_ball_claimed_on_ball": true,
               "off_pitch_claimed_on_ball": true,
               "idle_claimed_on_ball": null,
               "on_ball_recalled": null,
+              "on_ball_recalled_lenient": null,
               "activity_agreement": false,
-              "sentence_matches_note": "agree"
+              "sentence_matches_note": "undetermined"
             }
           },
           {
@@ -8994,9 +9093,12 @@
                 "carry"
               ],
               "matching_on_ball_event_classes": [],
+              "matching_on_ball_event_classes_lenient": [],
+              "no_on_ball_claimed_on_ball": true,
               "off_pitch_claimed_on_ball": null,
               "idle_claimed_on_ball": null,
               "on_ball_recalled": null,
+              "on_ball_recalled_lenient": null,
               "activity_agreement": false,
               "sentence_matches_note": "disagree"
             }
@@ -9070,9 +9172,12 @@
               ],
               "model_on_ball_event_classes": [],
               "matching_on_ball_event_classes": [],
+              "matching_on_ball_event_classes_lenient": [],
+              "no_on_ball_claimed_on_ball": false,
               "off_pitch_claimed_on_ball": false,
               "idle_claimed_on_ball": null,
               "on_ball_recalled": null,
+              "on_ball_recalled_lenient": null,
               "activity_agreement": false,
               "sentence_matches_note": "disagree"
             }
@@ -9163,9 +9268,12 @@
                 "carry"
               ],
               "matching_on_ball_event_classes": [],
+              "matching_on_ball_event_classes_lenient": [],
+              "no_on_ball_claimed_on_ball": true,
               "off_pitch_claimed_on_ball": null,
               "idle_claimed_on_ball": true,
               "on_ball_recalled": null,
+              "on_ball_recalled_lenient": null,
               "activity_agreement": false,
               "sentence_matches_note": "undetermined"
             }
@@ -9259,9 +9367,12 @@
                 "duel"
               ],
               "matching_on_ball_event_classes": [],
+              "matching_on_ball_event_classes_lenient": [],
+              "no_on_ball_claimed_on_ball": null,
               "off_pitch_claimed_on_ball": null,
               "idle_claimed_on_ball": null,
               "on_ball_recalled": false,
+              "on_ball_recalled_lenient": false,
               "activity_agreement": true,
               "sentence_matches_note": "disagree"
             }
@@ -9352,9 +9463,12 @@
                 "carry"
               ],
               "matching_on_ball_event_classes": [],
+              "matching_on_ball_event_classes_lenient": [],
+              "no_on_ball_claimed_on_ball": true,
               "off_pitch_claimed_on_ball": true,
               "idle_claimed_on_ball": null,
               "on_ball_recalled": null,
+              "on_ball_recalled_lenient": null,
               "activity_agreement": false,
               "sentence_matches_note": "disagree"
             }
@@ -9443,9 +9557,12 @@
                 "carry"
               ],
               "matching_on_ball_event_classes": [],
+              "matching_on_ball_event_classes_lenient": [],
+              "no_on_ball_claimed_on_ball": null,
               "off_pitch_claimed_on_ball": null,
               "idle_claimed_on_ball": null,
               "on_ball_recalled": false,
+              "on_ball_recalled_lenient": false,
               "activity_agreement": true,
               "sentence_matches_note": "disagree"
             }
@@ -9536,9 +9653,12 @@
                 "carry"
               ],
               "matching_on_ball_event_classes": [],
+              "matching_on_ball_event_classes_lenient": [],
+              "no_on_ball_claimed_on_ball": null,
               "off_pitch_claimed_on_ball": null,
               "idle_claimed_on_ball": null,
               "on_ball_recalled": false,
+              "on_ball_recalled_lenient": false,
               "activity_agreement": true,
               "sentence_matches_note": "disagree"
             }
@@ -9629,9 +9749,12 @@
                 "carry"
               ],
               "matching_on_ball_event_classes": [],
+              "matching_on_ball_event_classes_lenient": [],
+              "no_on_ball_claimed_on_ball": true,
               "off_pitch_claimed_on_ball": null,
               "idle_claimed_on_ball": null,
               "on_ball_recalled": null,
+              "on_ball_recalled_lenient": null,
               "activity_agreement": false,
               "sentence_matches_note": "undetermined"
             }
@@ -9728,9 +9851,14 @@
                 "carry"
               ],
               "matching_on_ball_event_classes": [],
+              "matching_on_ball_event_classes_lenient": [
+                "carry"
+              ],
+              "no_on_ball_claimed_on_ball": null,
               "off_pitch_claimed_on_ball": null,
               "idle_claimed_on_ball": null,
               "on_ball_recalled": false,
+              "on_ball_recalled_lenient": true,
               "activity_agreement": true,
               "sentence_matches_note": "undetermined"
             }
@@ -9804,9 +9932,12 @@
               ],
               "model_on_ball_event_classes": [],
               "matching_on_ball_event_classes": [],
+              "matching_on_ball_event_classes_lenient": [],
+              "no_on_ball_claimed_on_ball": false,
               "off_pitch_claimed_on_ball": false,
               "idle_claimed_on_ball": null,
               "on_ball_recalled": null,
+              "on_ball_recalled_lenient": null,
               "activity_agreement": false,
               "sentence_matches_note": "disagree"
             }
@@ -9897,9 +10028,12 @@
                 "carry"
               ],
               "matching_on_ball_event_classes": [],
+              "matching_on_ball_event_classes_lenient": [],
+              "no_on_ball_claimed_on_ball": true,
               "off_pitch_claimed_on_ball": true,
               "idle_claimed_on_ball": null,
               "on_ball_recalled": null,
+              "on_ball_recalled_lenient": null,
               "activity_agreement": false,
               "sentence_matches_note": "disagree"
             }
@@ -9985,9 +10119,12 @@
                 "carry"
               ],
               "matching_on_ball_event_classes": [],
+              "matching_on_ball_event_classes_lenient": [],
+              "no_on_ball_claimed_on_ball": null,
               "off_pitch_claimed_on_ball": null,
               "idle_claimed_on_ball": null,
               "on_ball_recalled": null,
+              "on_ball_recalled_lenient": null,
               "activity_agreement": null,
               "sentence_matches_note": "undetermined"
             }
@@ -10063,8 +10200,7 @@
               "events_per_sent_frame": 2.0,
               "high_confidence_completed_from_one_frame_count": 1,
               "fabricated_event_classes": [
-                "carry",
-                "goal"
+                "carry"
               ],
               "event_count": 2,
               "truth_activity": [
@@ -10079,9 +10215,12 @@
                 "carry"
               ],
               "matching_on_ball_event_classes": [],
+              "matching_on_ball_event_classes_lenient": [],
+              "no_on_ball_claimed_on_ball": true,
               "off_pitch_claimed_on_ball": true,
               "idle_claimed_on_ball": null,
               "on_ball_recalled": null,
+              "on_ball_recalled_lenient": null,
               "activity_agreement": false,
               "sentence_matches_note": "disagree"
             }
@@ -11020,6 +11159,7 @@
       ]
     }
   },
+  "headline": "On 20 human-noted clips, Qwen3-VL:8b invented on-ball play for 12 of 13 clips where MJ saw none (dense) and 10 of 13 (single-still), matched MJ's actual action on at most 1 of 6 on-ball clips (3 of 6 lenient), and 12 frames instead of 1 made the invention worse, not better.",
   "per_clip_comparison": [
     {
       "clip_id": "m04-n02-t3005-474114-478131",
@@ -11050,6 +11190,7 @@
             ],
             "activity_agreement": false,
             "on_ball_recalled": null,
+            "on_ball_recalled_lenient": null,
             "sentence_matches_note": "disagree"
           }
         },
@@ -11073,6 +11214,7 @@
             ],
             "activity_agreement": false,
             "on_ball_recalled": null,
+            "on_ball_recalled_lenient": null,
             "sentence_matches_note": "disagree"
           }
         }
@@ -11103,6 +11245,7 @@
             ],
             "activity_agreement": true,
             "on_ball_recalled": true,
+            "on_ball_recalled_lenient": true,
             "sentence_matches_note": "undetermined"
           }
         },
@@ -11126,6 +11269,7 @@
             ],
             "activity_agreement": true,
             "on_ball_recalled": false,
+            "on_ball_recalled_lenient": false,
             "sentence_matches_note": "undetermined"
           }
         }
@@ -11156,6 +11300,7 @@
             ],
             "activity_agreement": false,
             "on_ball_recalled": null,
+            "on_ball_recalled_lenient": null,
             "sentence_matches_note": "disagree"
           }
         },
@@ -11175,6 +11320,7 @@
             ],
             "activity_agreement": false,
             "on_ball_recalled": null,
+            "on_ball_recalled_lenient": null,
             "sentence_matches_note": "disagree"
           }
         }
@@ -11206,6 +11352,7 @@
             ],
             "activity_agreement": true,
             "on_ball_recalled": false,
+            "on_ball_recalled_lenient": true,
             "sentence_matches_note": "undetermined"
           }
         },
@@ -11230,6 +11377,7 @@
             ],
             "activity_agreement": true,
             "on_ball_recalled": false,
+            "on_ball_recalled_lenient": true,
             "sentence_matches_note": "disagree"
           }
         }
@@ -11260,6 +11408,7 @@
             ],
             "activity_agreement": false,
             "on_ball_recalled": null,
+            "on_ball_recalled_lenient": null,
             "sentence_matches_note": "disagree"
           }
         },
@@ -11283,6 +11432,7 @@
             ],
             "activity_agreement": false,
             "on_ball_recalled": null,
+            "on_ball_recalled_lenient": null,
             "sentence_matches_note": "undetermined"
           }
         }
@@ -11313,6 +11463,7 @@
             ],
             "activity_agreement": false,
             "on_ball_recalled": null,
+            "on_ball_recalled_lenient": null,
             "sentence_matches_note": "disagree"
           }
         },
@@ -11336,6 +11487,7 @@
             ],
             "activity_agreement": false,
             "on_ball_recalled": null,
+            "on_ball_recalled_lenient": null,
             "sentence_matches_note": "undetermined"
           }
         }
@@ -11366,6 +11518,7 @@
             ],
             "activity_agreement": true,
             "on_ball_recalled": null,
+            "on_ball_recalled_lenient": null,
             "sentence_matches_note": "agree"
           }
         },
@@ -11385,7 +11538,8 @@
             ],
             "activity_agreement": false,
             "on_ball_recalled": null,
-            "sentence_matches_note": "agree"
+            "on_ball_recalled_lenient": null,
+            "sentence_matches_note": "undetermined"
           }
         }
       }
@@ -11415,6 +11569,7 @@
             ],
             "activity_agreement": false,
             "on_ball_recalled": null,
+            "on_ball_recalled_lenient": null,
             "sentence_matches_note": "undetermined"
           }
         },
@@ -11434,6 +11589,7 @@
             ],
             "activity_agreement": false,
             "on_ball_recalled": null,
+            "on_ball_recalled_lenient": null,
             "sentence_matches_note": "disagree"
           }
         }
@@ -11464,6 +11620,7 @@
             ],
             "activity_agreement": false,
             "on_ball_recalled": null,
+            "on_ball_recalled_lenient": null,
             "sentence_matches_note": "disagree"
           }
         },
@@ -11483,6 +11640,7 @@
             ],
             "activity_agreement": false,
             "on_ball_recalled": null,
+            "on_ball_recalled_lenient": null,
             "sentence_matches_note": "disagree"
           }
         }
@@ -11517,6 +11675,7 @@
             ],
             "activity_agreement": false,
             "on_ball_recalled": null,
+            "on_ball_recalled_lenient": null,
             "sentence_matches_note": "disagree"
           }
         },
@@ -11540,6 +11699,7 @@
             ],
             "activity_agreement": false,
             "on_ball_recalled": null,
+            "on_ball_recalled_lenient": null,
             "sentence_matches_note": "undetermined"
           }
         }
@@ -11570,6 +11730,7 @@
             ],
             "activity_agreement": true,
             "on_ball_recalled": false,
+            "on_ball_recalled_lenient": false,
             "sentence_matches_note": "disagree"
           }
         },
@@ -11593,6 +11754,7 @@
             ],
             "activity_agreement": true,
             "on_ball_recalled": false,
+            "on_ball_recalled_lenient": false,
             "sentence_matches_note": "disagree"
           }
         }
@@ -11627,6 +11789,7 @@
             ],
             "activity_agreement": false,
             "on_ball_recalled": null,
+            "on_ball_recalled_lenient": null,
             "sentence_matches_note": "disagree"
           }
         },
@@ -11650,6 +11813,7 @@
             ],
             "activity_agreement": false,
             "on_ball_recalled": null,
+            "on_ball_recalled_lenient": null,
             "sentence_matches_note": "disagree"
           }
         }
@@ -11684,6 +11848,7 @@
             ],
             "activity_agreement": true,
             "on_ball_recalled": false,
+            "on_ball_recalled_lenient": false,
             "sentence_matches_note": "disagree"
           }
         },
@@ -11707,6 +11872,7 @@
             ],
             "activity_agreement": true,
             "on_ball_recalled": false,
+            "on_ball_recalled_lenient": false,
             "sentence_matches_note": "disagree"
           }
         }
@@ -11741,6 +11907,7 @@
             ],
             "activity_agreement": true,
             "on_ball_recalled": false,
+            "on_ball_recalled_lenient": false,
             "sentence_matches_note": "disagree"
           }
         },
@@ -11764,6 +11931,7 @@
             ],
             "activity_agreement": true,
             "on_ball_recalled": false,
+            "on_ball_recalled_lenient": false,
             "sentence_matches_note": "disagree"
           }
         }
@@ -11798,6 +11966,7 @@
             ],
             "activity_agreement": false,
             "on_ball_recalled": null,
+            "on_ball_recalled_lenient": null,
             "sentence_matches_note": "disagree"
           }
         },
@@ -11821,6 +11990,7 @@
             ],
             "activity_agreement": false,
             "on_ball_recalled": null,
+            "on_ball_recalled_lenient": null,
             "sentence_matches_note": "undetermined"
           }
         }
@@ -11851,6 +12021,7 @@
             ],
             "activity_agreement": true,
             "on_ball_recalled": false,
+            "on_ball_recalled_lenient": true,
             "sentence_matches_note": "disagree"
           }
         },
@@ -11874,6 +12045,7 @@
             ],
             "activity_agreement": true,
             "on_ball_recalled": false,
+            "on_ball_recalled_lenient": true,
             "sentence_matches_note": "undetermined"
           }
         }
@@ -11904,6 +12076,7 @@
             ],
             "activity_agreement": false,
             "on_ball_recalled": null,
+            "on_ball_recalled_lenient": null,
             "sentence_matches_note": "disagree"
           }
         },
@@ -11923,6 +12096,7 @@
             ],
             "activity_agreement": false,
             "on_ball_recalled": null,
+            "on_ball_recalled_lenient": null,
             "sentence_matches_note": "disagree"
           }
         }
@@ -11953,6 +12127,7 @@
             ],
             "activity_agreement": false,
             "on_ball_recalled": null,
+            "on_ball_recalled_lenient": null,
             "sentence_matches_note": "disagree"
           }
         },
@@ -11976,6 +12151,7 @@
             ],
             "activity_agreement": false,
             "on_ball_recalled": null,
+            "on_ball_recalled_lenient": null,
             "sentence_matches_note": "disagree"
           }
         }
@@ -12004,6 +12180,7 @@
             "truth_activity": [],
             "activity_agreement": null,
             "on_ball_recalled": null,
+            "on_ball_recalled_lenient": null,
             "sentence_matches_note": "undetermined"
           }
         },
@@ -12025,6 +12202,7 @@
             "truth_activity": [],
             "activity_agreement": null,
             "on_ball_recalled": null,
+            "on_ball_recalled_lenient": null,
             "sentence_matches_note": "undetermined"
           }
         }
@@ -12055,6 +12233,7 @@
             ],
             "activity_agreement": false,
             "on_ball_recalled": null,
+            "on_ball_recalled_lenient": null,
             "sentence_matches_note": "disagree"
           }
         },
@@ -12078,6 +12257,7 @@
             ],
             "activity_agreement": false,
             "on_ball_recalled": null,
+            "on_ball_recalled_lenient": null,
             "sentence_matches_note": "disagree"
           }
         }
@@ -12089,7 +12269,7 @@
     "No boxes are requested from the VLM, so rectangle echo is not a model-geometry failure mode in this lane. The supplied jersey label is not proof of number legibility.",
     "Dense samples are spread across the window, capped at 12; 30s/3 is a sparse annotated control. These isolate sampling under the same semantic contract, not a comparison to the old grounding score.",
     "Presence-only and jersey checks are narrow regex rules, not semantic judgments; kit-colour checks compare the explicit field only. Goal and name prohibitions are prompt rules, not verified truth guarantees.",
-    "The original fabricated_rate now evaluates all 20 notes, including the disputed identity-only note; absence of an event keyword is not proof the event never occurred. Activity checks separately grade only notes with an activity classification.",
+    "fabricated_rate evaluates the 19 notes with classifiable activity; n24's identity-only note is excluded from its denominator while per-clip keyword mismatches remain visible for audit. Simple no/without clauses suppress negated event keywords. Activity-subset rates are the primary findings; absence of a keyword is not proof an event never occurred.",
     "Sequential single passes, without repeats or confidence intervals. Wall time includes extraction/drawing and all failed attempts; Ollama may reuse a warm model. Temporary frame paths record provenance but images are removed after each call.",
     "Uniform target samples falling in tracking gaps snap to the nearest recorded track timestamp within 0.5s, remaining distinct and chronological; target_t and sampling_shift_s record every adjustment. Larger gaps fail before inference. Geometry is never extrapolated across gaps.",
     "All 20 frozen kit fields say red and both measured runs used red rectangles. MJ confirms n24 is actually black; its verified black override is now used. The evaluated set has just one verified non-red kit and remains dominated by red, with two uncertain warm-up kits counted as abstentions. Future lane-A model inputs use magenta; these saved outputs were not rerun.",
@@ -12097,9 +12277,10 @@
     "Sentence-only presence applies the specified verb-stem exclusion literally: moving, interacting and holding are not excluded. The added strict rate excludes hold/holding, with (the) ball, possession, moving and interacting. Consistency adds carrying/passing/dribbling/running-with-ball inflections and excludes unmapped event classes from its requirement; ignored classes remain visible in JSON. Presence-with-substantive-event uses the original sentence-only flag. These are lexical diagnostics, not semantic accuracy.",
     "Truth and note hashes describe the current rescoring snapshot across all manifest truth files. Historical run.json files retain their original launch metadata; absent inference-time hashes are not retroactively asserted.",
     "No adoption recommendation; MJ owns that decision.",
+    "Headline denominator correction: there are 13 clips with classified activity but no on-ball action, not 14. Mixed n04-243433 explicitly includes a receive and half-turn and is excluded from that group; its idle subset flag remains. Headline counts are 12/13 dense and 10/13 prod30. The requested 12-frames/single-still wording is shorthand: actual means are 11.9 versus 1.45 frames, and only 13/20 prod30 attempts send exactly one frame. Single passes do not establish a general causal effect of sampling density.",
     "MJ reports 'some misses as far as boxes are concerned': truth box_track has visible tracker misses. These are geometry/input errors, not model errors, and may affect semantic reads.",
     "m04-n24-t3013-679939-681217 has a disputed truth label: MJ wrote 'wrong number. this is number 12 from the shorts'. The frozen #24 binding is not corrected by inference; this clip remains visible and excluded from jersey denominators, while kit metrics use kit_color_truth_override black. MJ's appended clarification confirms BLACK warm-up kit and black shorts: the earlier fps2 video lane and annotated prod30 read black correctly, while frozen kit_color red is wrong. The original label/colour fields are retained for audit. m04-n22-t3012-070707-074371 and m04-n03-t1406-385962-387137 have kit_color_uncertain true: their kit metrics abstain, neither matching nor wrong.",
-    "Activity agreement is coarse compatibility: all on-ball notes can agree with any on-ball model activity even when event recall fails. A mixed idle/on-ball note is eligible for both subset rates; the idle rate is not itself proof of fabrication on that mixed clip. Header/receive/turn/loss remain distinct note classes absent from ACTION_TYPES, so generic carry earns no event recall credit. Outcomes and event timing are not graded against the notes.",
-    "Sentence verdicts are lexical class overlap, not full entailment: agree requires a shared activity/action class and no detected incompatible assertion; disagree requires an incompatible class/context; otherwise undetermined. They do not validate every detail or robustly resolve negation, actor attribution or temporal order."
+    "Activity agreement is coarse compatibility: all on-ball notes can agree with any on-ball model activity even when event recall fails. A mixed idle/on-ball note is eligible for both subset rates; the idle rate is not itself proof of fabrication on that mixed clip. Strict recall gives no carry credit for header/receive/turn/loss. Lenient recall additionally permits receive/turn/loss as carry-compatible, never header/duel/interception. Carry appears on 36/40 saved reads (19 dense, 17 prod30), so strict recall is more discriminating. Outcomes and event timing are not graded against the notes.",
+    "Sentence verdicts are lexical class overlap, not full entailment: agree requires a shared activity/action class and no detected incompatible assertion; disagree requires an incompatible class/context; otherwise undetermined. Holding (the) ball is an on-ball assertion without an action-class match: an unsupported holding detail makes an otherwise agreeing sentence undetermined. These checks do not robustly resolve negation, actor attribution or temporal order."
   ]
 }
