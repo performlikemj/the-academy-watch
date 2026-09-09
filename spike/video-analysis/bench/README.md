@@ -855,3 +855,55 @@ misses. No frozen media, populated truth files or raw reports are staged. The
 explicit note fixtures are committed for the required deterministic unit tests.
 Run the Verify gates above with `BENCH_REQUIRE_CV2=1`; no frontend changes or
 dependency restore are needed.
+
+## Lane C: player-centred checks crops (`qwen3vl_checks_crop`)
+
+Lane C imports lane B's six questions, strict contract, schema transport and
+scorer. The only added prompt sentence is “Each image is a close crop centred
+on the marked player.” With `--crop-context`, the sentence ends “, followed by
+the full frame for context.” Prompt version is lane B's version plus `-crop`.
+The context flag and `player-square-v1` crop version enter the run fingerprint;
+existing lane-B fingerprints are unchanged.
+
+Sampling and decoding reuse the annotated adapter's shared pre-annotation feed:
+`0.5 / 12` dense or `30 / 3` sparse, including its existing spread and bounded gap
+snapping. Geometry is in the **decoded lane-B frame's pixels** (1280×720 on this
+set), after scaling the interpolated source truth box. Crop side is
+`ceil(max(3 * box_height, 4 * box_width, 384))`, capped to the shorter frame
+edge. Its centre starts at the box centre (integer rounding within half a pixel);
+at edges the whole square shifts inside the frame. The crop is resized to
+768×768 with Lanczos, then the shared magenta rectangle and `#N` are drawn.
+Raw frame records include `crop_side_px`, `crop_scale` (=768/side), crop rectangle,
+decoded dimensions, box transforms and timestamps. This enlarges decoded pixels;
+it cannot restore detail lost in the original wide-frame decode.
+
+Crop-only sends one image per sampled instant. `--crop-context` sends each crop
+followed immediately by its 512-wide, aspect-preserving full frame with the same
+magenta identity marker. Thus dense context sends up to 24 images for 12 sampled
+instants. Prompt timestamps remain the same ordered sample instants, with the
+added sentence defining the pair ordering. Comparison frame/anchor counts count
+sent images, including context images; the crop ledger separately records sampled
+instant counts. A second image at the same timestamp is not extra temporal evidence.
+
+```sh
+BENCH_NUM_CTX=65536 ~/Projects/loanarmy/.loan/bin/python spike/video-analysis/bench/run_bench.py \
+  --adapter qwen3vl_checks_crop --model qwen3-vl:8b --timeout 900 \
+  --sample-interval 0.5 --sample-limit 12 --clips all \
+  --manifest ~/Projects/loanarmy-bench-frozen/manifest.json \
+  --report-root ~/Projects/loanarmy-bench-reports --run-id e1e-crop-8b-dense
+```
+
+Use `30 / 3` for `e1e-crop-8b-prod30`; add `--crop-context` to dense for
+`e1e-cropctx-8b-dense`. Run the required n12 true-touch smoke first. Run
+`e1e-crop-32b-dense` only when at least one completed 8B variant answers touch=yes
+on at least **2 of the 6 truth-positive touch clips**. Recall counts yes/6;
+unclear, no and failed reads are misses, independently of answered-only accuracy.
+No touch-recall threshold replaces the existing honesty-gate thresholds.
+
+The crop ledger uses unchanged `compare_checks.py --allow-mixed` alongside all
+six lane-B runs. Existing complete/shared-coverage guards apply. It adds recall,
+geometry, per-instant/image counts, the 32B execution decision and three local crop
+PNG paths/hashes. Examples and raw reports stay outside the repository. Cropping
+can remove the ball or sideline context; provided tracking may miss the player.
+The unchanged note-derived truth includes one known error pending r2. These are
+single passes on 20 clips; adoption remains MJ's decision.

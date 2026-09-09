@@ -28,6 +28,7 @@ ADAPTERS = (
     "qwen3vl_mlx",
     "qwen3vl_annotated",
     "qwen3vl_checks",
+    "qwen3vl_checks_crop",
 )
 MODEL_ENVIRONMENT = {
     "baseline": "BENCH_BASELINE_MODEL",
@@ -35,6 +36,7 @@ MODEL_ENVIRONMENT = {
     "qwen3vl_mlx": "BENCH_MLX_MODEL",
     "qwen3vl_annotated": "BENCH_MODEL",
     "qwen3vl_checks": "BENCH_MODEL",
+    "qwen3vl_checks_crop": "BENCH_MODEL",
 }
 MAX_NUM_PREDICT = 400
 DEFAULT_REPEAT_PENALTY = 1.15
@@ -92,7 +94,11 @@ def _resolve_inference_settings(args: argparse.Namespace, manifest: dict) -> dic
     box_space = requested_box_space or default_box_space
     if box_space not in BOX_SPACES:
         raise ValueError(f"--box-space must be one of {', '.join(BOX_SPACES)}")
-    semantic = args.adapter in {"qwen3vl_annotated", "qwen3vl_checks"}
+    semantic = args.adapter in {
+        "qwen3vl_annotated",
+        "qwen3vl_checks",
+        "qwen3vl_checks_crop",
+    }
     format_mode = "schema" if semantic else getattr(args, "format_mode", "json")
     if format_mode not in FORMAT_MODES:
         raise ValueError(f"--format-mode must be one of {', '.join(FORMAT_MODES)}")
@@ -100,6 +106,7 @@ def _resolve_inference_settings(args: argparse.Namespace, manifest: dict) -> dic
         "qwen3vl_ollama",
         "qwen3vl_annotated",
         "qwen3vl_checks",
+        "qwen3vl_checks_crop",
     }:
         raise ValueError(
             "--format-mode schema is only supported by qwen3vl_ollama, qwen3vl_annotated and qwen3vl_checks"
@@ -127,6 +134,7 @@ def _resolve_inference_settings(args: argparse.Namespace, manifest: dict) -> dic
             "qwen3vl_ollama",
             "qwen3vl_annotated",
             "qwen3vl_checks",
+            "qwen3vl_checks_crop",
         }:
             raise ValueError("sampling overrides require qwen3vl_ollama")
         # Omit legacy defaults so existing v5 metadata/fingerprints remain exact.
@@ -154,7 +162,7 @@ def _resolve_inference_settings(args: argparse.Namespace, manifest: dict) -> dic
             "repetition_context_size": 64,
         }
     checks_settings = {}
-    if args.adapter == "qwen3vl_checks":
+    if args.adapter in {"qwen3vl_checks", "qwen3vl_checks_crop"}:
         module = _adapter_module(args.adapter)
         checks_settings = {
             "contract_version": module.CONTRACT_VERSION,
@@ -165,6 +173,13 @@ def _resolve_inference_settings(args: argparse.Namespace, manifest: dict) -> dic
         }
         if checks_settings["num_ctx"] not in (None, 65536):
             raise ValueError("checks lane requires num_ctx 65536 or omitted")
+    crop_context = getattr(args, "crop_context", False)
+    if crop_context and args.adapter != "qwen3vl_checks_crop":
+        raise ValueError("--crop-context requires qwen3vl_checks_crop")
+    if args.adapter == "qwen3vl_checks_crop":
+        checks_settings.update(
+            crop_context=crop_context, crop_version=module.CROP_VERSION
+        )
     return {
         **checks_settings,
         **({"anchor_color": "magenta"} if semantic else {}),
@@ -292,11 +307,18 @@ def run_benchmark(args: argparse.Namespace) -> tuple[dict, Path]:
         "num_predict": settings["num_predict"],
         "repeat_penalty": settings["repeat_penalty"],
     }
-    if args.adapter in {"qwen3vl_ollama", "qwen3vl_annotated", "qwen3vl_checks"}:
+    if args.adapter in {
+        "qwen3vl_ollama",
+        "qwen3vl_annotated",
+        "qwen3vl_checks",
+        "qwen3vl_checks_crop",
+    }:
         cfg.update(
             sample_interval=settings.get("sample_interval", 5.0),
             sample_limit=settings.get("sample_limit", 6),
         )
+    if args.adapter == "qwen3vl_checks_crop":
+        cfg["crop_context"] = settings["crop_context"]
     if args.adapter == "qwen3vl_mlx":
         cfg.update(
             fps=settings["fps"],
@@ -335,9 +357,11 @@ def run_benchmark(args: argparse.Namespace) -> tuple[dict, Path]:
                 break
 
     scorer, writer = score_run, write_report
-    if args.adapter in {"qwen3vl_annotated", "qwen3vl_checks"}:
+    if args.adapter in {"qwen3vl_annotated", "qwen3vl_checks", "qwen3vl_checks_crop"}:
         score_module = (
-            "checks_score" if args.adapter == "qwen3vl_checks" else "semantic_score"
+            "checks_score"
+            if args.adapter in {"qwen3vl_checks", "qwen3vl_checks_crop"}
+            else "semantic_score"
         )
         module = importlib.import_module(
             f"{__package__}.{score_module}" if __package__ else score_module
@@ -353,7 +377,11 @@ def run_benchmark(args: argparse.Namespace) -> tuple[dict, Path]:
 
 
 def print_summary(report: dict, output_dir: Path) -> None:
-    if report.get("adapter") in {"qwen3vl_annotated", "qwen3vl_checks"}:
+    if report.get("adapter") in {
+        "qwen3vl_annotated",
+        "qwen3vl_checks",
+        "qwen3vl_checks_crop",
+    }:
         print(json.dumps(report["overall"], indent=2))
         print(f"report: {output_dir / 'report.json'}")
         return
@@ -398,6 +426,11 @@ def _parser() -> argparse.ArgumentParser:
         "--ollama-url", default=os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")
     )
     parser.add_argument("--model")
+    parser.add_argument(
+        "--crop-context",
+        action="store_true",
+        help="send each crop followed by a 512-wide context frame",
+    )
     parser.add_argument(
         "--sample-interval",
         type=float,

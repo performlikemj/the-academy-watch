@@ -137,8 +137,8 @@ def call_model(
     return parse_read(raw)
 
 
-def prepare_frames(clip: str | Path, truth: dict, cfg: dict, directory: Path):
-    """Shared annotated feed: spread, bounded gap snapping, and magenta identity."""
+def prepare_sample_frames(clip: str | Path, truth: dict, cfg: dict, directory: Path):
+    """Decode the shared spread samples before drawing any identity annotation."""
     targets = spread_timestamps(
         truth,
         float(cfg.get("sample_interval", 0.5)),
@@ -153,6 +153,12 @@ def prepare_frames(clip: str | Path, truth: dict, cfg: dict, directory: Path):
         frame["sampling_shift_s"] = round(frame["t"] - target_t, 3)
     if not extracted:
         raise RuntimeError("clip yielded no sample frames")
+    return extracted
+
+
+def prepare_frames(clip: str | Path, truth: dict, cfg: dict, directory: Path):
+    """Shared annotated feed: spread, bounded gap snapping, and magenta identity."""
+    extracted = prepare_sample_frames(clip, truth, cfg, directory)
     anchors = apply_anchors(extracted, truth, "all", color=ANCHOR_COLOR)
     return extracted, anchors
 
