@@ -137,6 +137,32 @@ def call_model(
     return parse_read(raw)
 
 
+def prepare_sample_frames(clip: str | Path, truth: dict, cfg: dict, directory: Path):
+    """Decode the shared spread samples before drawing any identity annotation."""
+    targets = spread_timestamps(
+        truth,
+        float(cfg.get("sample_interval", 0.5)),
+        int(cfg.get("sample_limit", 12)),
+    )
+    timestamps = annotated_timestamps(truth, targets)
+    extracted = extract_sample_frames(
+        Path(clip), truth, Path(directory), timestamps=timestamps
+    )
+    for frame, (_, target_t) in zip(extracted, targets):
+        frame["target_t"] = target_t
+        frame["sampling_shift_s"] = round(frame["t"] - target_t, 3)
+    if not extracted:
+        raise RuntimeError("clip yielded no sample frames")
+    return extracted
+
+
+def prepare_frames(clip: str | Path, truth: dict, cfg: dict, directory: Path):
+    """Shared annotated feed: spread, bounded gap snapping, and magenta identity."""
+    extracted = prepare_sample_frames(clip, truth, cfg, directory)
+    anchors = apply_anchors(extracted, truth, "all", color=ANCHOR_COLOR)
+    return extracted, anchors
+
+
 def run(clip: str | Path, truth: dict, cfg: dict) -> dict:
     started = time.monotonic()
     metadata: dict = {}
@@ -145,22 +171,7 @@ def run(clip: str | Path, truth: dict, cfg: dict) -> dict:
     error = None
     try:
         with temp_directory("evidence-annotated-") as directory:
-            targets = spread_timestamps(
-                truth,
-                float(cfg.get("sample_interval", 0.5)),
-                int(cfg.get("sample_limit", 12)),
-            )
-            timestamps = annotated_timestamps(truth, targets)
-            extracted = extract_sample_frames(
-                Path(clip), truth, Path(directory), timestamps=timestamps
-            )
-            for frame, (_, target_t) in zip(extracted, targets):
-                frame["target_t"] = target_t
-                frame["sampling_shift_s"] = round(frame["t"] - target_t, 3)
-            if not extracted:
-                raise RuntimeError("clip yielded no sample frames")
-            anchors = apply_anchors(extracted, truth, "all", color=ANCHOR_COLOR)
-            frames = extracted
+            frames, anchors = prepare_frames(clip, truth, cfg, Path(directory))
             parsed = call_model(
                 build_prompt(truth, [f["t"] for f in frames]), frames, cfg, metadata
             )

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import shutil
 import subprocess
 import sys
@@ -204,3 +205,36 @@ def draw_truth_box(
 
 def temp_directory(prefix: str):
     return tempfile.TemporaryDirectory(prefix=prefix)
+
+
+def crop_player_frame(frame: Path, output: Path, box: list[float]) -> dict:
+    """Crop an unannotated decoded frame; box and returned geometry use pixels."""
+    from PIL import Image
+
+    if len(box) != 4 or not all(math.isfinite(v) for v in box):
+        raise ValueError("crop requires a finite xyxy box")
+    x1, y1, x2, y2 = box
+    if x2 <= x1 or y2 <= y1:
+        raise ValueError("crop requires a positive-area box")
+    with Image.open(frame) as source:
+        width, height = source.size
+        side = min(math.ceil(max(3 * (y2 - y1), 4 * (x2 - x1), 384)), width, height)
+        left = min(max(round((x1 + x2 - side) / 2), 0), width - side)
+        top = min(max(round((y1 + y2 - side) / 2), 0), height - side)
+        source.crop((left, top, left + side, top + side)).resize(
+            (768, 768), Image.Resampling.LANCZOS
+        ).save(output)
+    scale = 768 / side
+    return {
+        "crop_side_px": side,
+        "crop_scale": scale,
+        "crop_rect": [left, top, left + side, top + side],
+        "decoded_frame_size": [width, height],
+        "box_decoded_space": box,
+        "box": [
+            (x1 - left) * scale,
+            (y1 - top) * scale,
+            (x2 - left) * scale,
+            (y2 - top) * scale,
+        ],
+    }
