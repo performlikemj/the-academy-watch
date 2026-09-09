@@ -16,6 +16,13 @@ HEADLINE = (
     "presence sentence."
 )
 VERDICT = "no clear winner on the headline (unboxed grounding is 0 in every lane); frames on cost"
+try:
+    from .provenance import load_truth_snapshot, thinking_rate
+    from .identity_truth import kit_truth
+except ImportError:  # pragma: no cover
+    from provenance import load_truth_snapshot, thinking_rate
+    from identity_truth import kit_truth
+
 COLORS = "red|blue|black|white|yellow|green|orange|purple|pink|grey|gray"
 
 
@@ -44,8 +51,10 @@ def claim_text(claim: dict) -> str:
 
 
 def jersey_review(raw: dict, truth: dict) -> dict:
-    supplied = truth.get("jersey_number")
-    color = truth.get("kit_color")
+    disputed = bool(truth.get("truth_label_disputed"))
+    supplied = None if disputed else truth.get("jersey_number")
+    kit = kit_truth(truth)
+    color = kit["color"]
     claims = []
     malformed_text_count = 0
     for claim in raw_claims(raw):
@@ -103,11 +112,13 @@ def jersey_review(raw: dict, truth: dict) -> dict:
                 "jersey_mentions": mentions,
                 "kit_colours_mentioned": colors,
                 "kit_colour_check": (
-                    "unconfirmed: vague clothing description"
+                    "abstain: uncertain kit truth"
+                    if kit["uncertain"]
+                    else "unconfirmed: vague clothing description"
                     if vague_colors
                     else "not mentioned"
                 )
-                if not colors
+                if not colors or kit["uncertain"]
                 else (
                     "truth unavailable"
                     if color is None
@@ -123,7 +134,7 @@ def jersey_review(raw: dict, truth: dict) -> dict:
         for m in c["jersey_mentions"]
         if m["matches_supplied"] is False
     ]
-    return {
+    result = {
         "adapter_error": raw.get("error"),
         "supplied_jersey_number": supplied,
         "truth_kit_colour": color,
@@ -150,6 +161,25 @@ def jersey_review(raw: dict, truth: dict) -> dict:
         ),
         "kit_colour_mismatch": any(c["kit_colour_check"] == "mismatch" for c in claims),
     }
+    if disputed:
+        result.update(
+            truth_label_disputed=True,
+            truth_label_dispute_note=truth.get("truth_label_dispute_note"),
+            excluded_truth_jersey_number=truth.get("jersey_number"),
+            excluded_truth_kit_colour=truth.get("kit_color"),
+            supplied_number_asserted_as_kit_detail=None,
+            invented_jersey_number_kill=None,
+        )
+        if not kit["eligible"]:
+            result["kit_colour_mismatch"] = None
+    if truth.get("kit_color_truth_override"):
+        result["kit_color_truth_override"] = truth["kit_color_truth_override"]
+        result["kit_truth_correction_note"] = (
+            f"MJ corrected the frozen kit colour to {color}; kit reads of {color} were correct. Jersey binding remains disputed."
+        )
+    if kit["uncertain"]:
+        result["kit_color_uncertain"] = True
+    return result
 
 
 def sent_frames(raw: dict) -> list[dict]:
@@ -158,6 +188,17 @@ def sent_frames(raw: dict) -> list[dict]:
     if "truth box is unavailable" in (raw.get("error") or ""):
         return []
     return raw.get("sent_frames", [])
+
+
+def anchor_only_attempt(raw: dict) -> bool:
+    """Count actual sent stills all at the sole anchor, never nearby video frames."""
+    frames = sent_frames(raw)
+    anchors = raw.get("anchored_frames", [])
+    return bool(
+        frames
+        and len(anchors) == 1
+        and all(abs(float(f["t"]) - float(anchors[0]["t"])) < 0.001 for f in frames)
+    )
 
 
 def claim_evidence(scored: dict, raw: dict) -> dict:
@@ -195,7 +236,7 @@ def experiment_caveats(lanes: dict, reviews: dict) -> list[str]:
         "Ollama GGUF Q4_K_M and MLX's separately converted 4-bit weights, preprocessing, repetition handling and JSON enforcement differ. MLX uses prompt-only JSON instructions and the same strict parser; invalid responses remain failed.",
         "MLX starts a fresh worker/model per clip; Ollama reuses a model server and the 5s smoke warmed one prompt. Sequential single passes have no repeated trials or machine-workload isolation; prod30 ran later after the GPU gate opened.",
         "Rates exclude failed clips; wall and sent-frame means include every attempt. Hollow/malformed=0 among scored claims does not erase failed outputs. Full metrics, available token counts, failures and claim-level jersey/colour review are in JSON.",
-        "Shared anchor lookup fails for m04-n02-t3005-474114-478131 before inference; historical E1 instead counted it unsupported. Frozen truth is unchanged and no human_note is populated, so action semantics are ungraded.",
+        "Shared anchor lookup fails for m04-n02-t3005-474114-478131 before inference; historical E1 instead counted it unsupported. Historical run inputs had no human_note, so their saved action-semantic metrics are ungraded; this comparison refreshes identity/kit review without re-scoring those metrics.",
         "",  # Filled from the complete claim-text review below.
         "Historical MLX runs used ignored report/.worker-deps via PYTHONPATH (preserved in their original run metadata); Jinja2 3.1.6/MarkupSafe 3.0.3 are now installed in the MLX venv. Earlier failed smokes were missing Jinja2 and fenced JSON; no video rerun was requested for this repair.",
     ]
@@ -245,6 +286,15 @@ def experiment_caveats(lanes: dict, reviews: dict) -> list[str]:
             if largest <= 120
             else "See early-stop metadata for cap effects."
         )
+    )
+    notes.append(
+        "Ollama thinking-field fallback despite think=false: "
+        + "; ".join(
+            f"{name} {lane['metrics']['from_thinking_rate']:.0%} of all attempts"
+            for name, lane in lanes.items()
+            if lane["adapter"] == "qwen3vl_ollama"
+        )
+        + ". This does not establish format-grammar enforcement on the thinking field; the transport is unchanged."
     )
     return notes
 
@@ -349,6 +399,7 @@ def compare(
         }
         metrics = report["overall"]
         values = list(raw.values())
+        metrics = {**metrics, "from_thinking_rate": thinking_rate(values)}
         sizes = sorted(
             {(f["sent_w"], f["sent_h"]) for c in values for f in sent_frames(c)},
             key=lambda s: (s[0] * s[1], s),
@@ -370,6 +421,7 @@ def compare(
             "metrics": metrics,
             "fps": config.get("fps"),
             "attempted_clips": len(values),
+            "anchor_only_attempts": sum(anchor_only_attempt(c) for c in values),
             "clips_with_any_supported_claim": sum(
                 any(c.get("supported") for c in row.get("claims", []))
                 for row in report["clips"]
@@ -440,6 +492,7 @@ def compare(
         else f"Across these runs, {grounded_unboxed} claims grounded the player on an unboxed frame."
     )
     return {
+        **(load_truth_snapshot(manifest_path)[1] if manifest_path else {}),
         "experiment": "E1b — Qwen3-VL native-video versus sampled-frame grounded-claim bench",
         "date": min(r["generated_at"][:10] for r in reports.values()),
         "frozen_set": f"{len(selected)} evaluation-only clips (frozen_set_id {frozen_id})",
@@ -520,8 +573,8 @@ def markdown(result: dict) -> str:
         *incomplete_lines,
         f"E1b comparison, {result['date']}. {result['frozen_set']}.",
         "",
-        "| Lane | Scored / failed | Supported | Unboxed supported | Unsupported | Hollow | Wall s/clip | Stills/video frames per attempt | Sent resolution (min–max WxH) |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|---|",
+        "| Lane | Scored / failed | Supported | Unboxed supported | Unsupported | Hollow | Wall s/clip | Stills/video frames per attempt | Sent resolution (min–max WxH) | Anchor-only attempts |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---|---:|",
     ]
     for name in names:
         lane = result[name]
@@ -531,8 +584,13 @@ def markdown(result: dict) -> str:
             for k in ("sent_resolution_min", "sent_resolution_max")
         ]
         lines.append(
-            f"| {name} | {m['scored_clips']} / {m['failed_clips']} | {percent(m['supported_rate'])} | {percent(m['supported_rate_unboxed'])} ({m['unboxed_claim_count']} claims) | {percent(m['unsupported_rate'])} | {percent(m['hollow_rate'])} | {m['wall_s_per_clip']} | {lane['sent_frames_per_clip']} | {'–'.join(sizes)} |"
+            f"| {name} | {m['scored_clips']} / {m['failed_clips']} | {percent(m['supported_rate'])} | {percent(m['supported_rate_unboxed'])} ({m['unboxed_claim_count']} claims) | {percent(m['unsupported_rate'])} | {percent(m['hollow_rate'])} | {m['wall_s_per_clip']} | {lane['sent_frames_per_clip']} | {'–'.join(sizes)} | {lane['anchor_only_attempts']}/{lane['attempted_clips']} |"
         )
+    if "frames_prod30" in names and result["headline"] == HEADLINE:
+        lines += [
+            "",
+            "Prod30's 84% supported rate is single-still anchor echo, not grounding.",
+        ]
     lines += [
         "",
         "E1 thresholds per lane (≥2× a zero-box baseline is vacuous, not evidence of improvement):",

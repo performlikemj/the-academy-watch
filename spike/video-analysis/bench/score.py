@@ -11,8 +11,12 @@ from pathlib import Path
 
 try:
     from .contract import normalize_claim, parse_claims
+    from .provenance import thinking_rate
+    from .compare_runs import jersey_review
 except ImportError:  # pragma: no cover - direct script/import from bench directory
     from contract import normalize_claim, parse_claims
+    from provenance import thinking_rate
+    from compare_runs import jersey_review
 
 VIDEO_ANALYSIS_DIR = Path(__file__).resolve().parent.parent
 if str(VIDEO_ANALYSIS_DIR) not in sys.path:
@@ -85,7 +89,19 @@ def _event_classes(text: str) -> set[str]:
 def fabricated_event_classes(claim: str, human_note: str | None) -> list[str] | None:
     if human_note is None:
         return None
-    return sorted(_event_classes(claim) - _event_classes(human_note))
+    return sorted(_positive_event_classes(claim) - _positive_event_classes(human_note))
+
+
+def _positive_event_classes(text: str) -> set[str]:
+    # Simple clause negation only. Stop at punctuation or a contrast/new action;
+    # never turn "no goal, but then scores" into an absence of a positive goal.
+    positive = re.sub(
+        r"\b(?:no|without)\b(?:(?![.!?;,]|\b(?:but|then|however)\b).)*",
+        " ",
+        text,
+        flags=re.I,
+    )
+    return _event_classes(positive)
 
 
 def _normalize_adapter_claim(claim: dict) -> dict:
@@ -383,6 +399,7 @@ def score_clip(result: dict, truth: dict | None) -> dict:
         "anchor_mode": result.get("anchor_mode"),
         "box_space": result.get("box_space"),
         "error": result.get("error"),
+        "truth_label_disputed": bool((truth or {}).get("truth_label_disputed")),
     }
     if result.get("error"):
         return {**base, "status": "failed", "claims": [], "metrics": _clip_metrics([])}
@@ -401,16 +418,23 @@ def score_clip(result: dict, truth: dict | None) -> dict:
         score_claim(claim, truth, anchored_frames)
         for claim in _claims_from_result(result)
     ]
+    # The legacy geometry scorer did not previously aggregate identity checks.
+    # Reuse its comparison review and retain excluded claims for inspection.
     return {
         **base,
         "status": "scored",
         "claims": scored_claims,
         "metrics": _clip_metrics(scored_claims),
+        "jersey_review": jersey_review(result, truth),
     }
 
 
 def score_run(
-    results: list[dict], truths: dict[str, dict], *, adapter: str | None = None
+    results: list[dict],
+    truths: dict[str, dict],
+    *,
+    adapter: str | None = None,
+    truth_provenance: dict | None = None,
 ) -> dict:
     clips = [
         score_clip(result, truths.get(str(result.get("clip_id")))) for result in results
@@ -434,12 +458,39 @@ def score_run(
     ]
     metrics.update(
         {
+            "disputed_clips": [
+                clip["clip_id"] for clip in clips if clip["truth_label_disputed"]
+            ],
+            "from_thinking_rate": thinking_rate(results),
             "wall_s_per_clip": round(sum(walls) / len(walls), 3) if walls else None,
             "tokens_per_clip": round(sum(tokens) / len(tokens), 3) if tokens else None,
             "failed_clips": sum(clip["status"] == "failed" for clip in clips),
             "observed_clips": sum(clip["status"] == "observed" for clip in clips),
             "scored_clips": len(scored_clips),
         }
+    )
+    identity = [
+        c["jersey_review"] for c in scored_clips if not c["truth_label_disputed"]
+    ]
+    metrics["identity_evaluated_clips"] = len(identity)
+    for key in (
+        "invented_jersey_number_kill",
+        "supplied_number_asserted_as_kit_detail",
+    ):
+        metrics[f"{key}_rate"] = _rate(
+            sum(r[key] is True for r in identity), len(identity)
+        )
+    kit_reviews = [
+        c["jersey_review"]
+        for c in scored_clips
+        if c["jersey_review"]["kit_colour_mismatch"] is not None
+    ]
+    metrics["kit_evaluated_clips"] = len(kit_reviews)
+    metrics["kit_colour_mismatch_rate"] = _rate(
+        sum(r["kit_colour_mismatch"] is True for r in kit_reviews), len(kit_reviews)
+    )
+    metrics["kit_colour_abstain_rate"] = _rate(
+        sum(r.get("kit_color_uncertain") is True for r in kit_reviews), len(kit_reviews)
     )
     anchor_modes = {
         clip["anchor_mode"] for clip in clips if clip.get("anchor_mode") is not None
@@ -448,6 +499,7 @@ def score_run(
         clip["box_space"] for clip in clips if clip.get("box_space") is not None
     }
     return {
+        **(truth_provenance or {}),
         "schema_version": "film-room-evidence-report-v5",
         "generated_at": datetime.now(UTC).isoformat(),
         "adapter": adapter,
@@ -492,6 +544,8 @@ def render_markdown(report: dict) -> str:
         f"Adapter: `{report.get('adapter') or 'unspecified'}`",
         f"Anchor mode: `{report.get('anchor_mode') or 'none'}`",
         f"Box space: `{report.get('box_space') or 'unspecified'}`",
+        "",
+        f"From thinking field / all attempts: {percent(overall.get('from_thinking_rate'))}",
         "",
         "## Overall",
         "",

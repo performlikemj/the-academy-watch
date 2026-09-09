@@ -174,17 +174,23 @@ def ground_normalized_box(
     }
 
 
-def draw_anchor_box(frame: Path, box: list[float], label: str | None = None) -> None:
-    """Draw a thin red identity anchor while preserving image dimensions."""
+def draw_anchor_box(
+    frame: Path,
+    box: list[float],
+    label: str | None = None,
+    *,
+    color: tuple[int, int, int] = (255, 40, 40),
+) -> None:
+    """Draw a thin identity anchor; existing callers retain the red default."""
     try:
         from PIL import Image, ImageDraw
 
         image = Image.open(frame).convert("RGB")
         draw = ImageDraw.Draw(image)
-        draw.rectangle(box, outline=(255, 40, 40), width=3)
+        draw.rectangle(box, outline=color, width=3)
         if label:
             label_box = draw.textbbox((box[0], box[1]), label)
-            draw.rectangle(label_box, fill=(255, 40, 40))
+            draw.rectangle(label_box, fill=color)
             draw.text((box[0], box[1]), label, fill=(255, 255, 255))
         image.save(frame, quality=94)
         return
@@ -197,15 +203,20 @@ def draw_anchor_box(frame: Path, box: list[float], label: str | None = None) -> 
             "Pillow is unavailable and ffmpeg is not on PATH for drawbox fallback"
         )
     output = frame.with_name(f"{frame.stem}-boxed.jpg")
+    ffmpeg_color = (
+        "red"
+        if color == (255, 40, 40)
+        else "0x" + "".join(f"{channel:02x}" for channel in color)
+    )
     filters = [
         f"drawbox=x={box[0]:.3f}:y={box[1]:.3f}:"
-        f"w={box[2] - box[0]:.3f}:h={box[3] - box[1]:.3f}:color=red:t=3"
+        f"w={box[2] - box[0]:.3f}:h={box[3] - box[1]:.3f}:color={ffmpeg_color}:t=3"
     ]
     if label:
         safe_label = label.replace("'", "")
         filters.append(
             f"drawtext=text='{safe_label}':x={box[0]:.3f}:y={box[1]:.3f}:"
-            "fontcolor=white:fontsize=22:box=1:boxcolor=red"
+            f"fontcolor=white:fontsize=22:box=1:boxcolor={ffmpeg_color}"
         )
     subprocess.run(
         [

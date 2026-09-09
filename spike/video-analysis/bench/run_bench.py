@@ -14,17 +14,20 @@ from pathlib import Path
 
 try:
     from .score import score_run, write_report
+    from .provenance import load_truth_snapshot
 except ImportError:  # pragma: no cover - direct script invocation
     from score import score_run, write_report
+    from provenance import load_truth_snapshot
 
 BENCH_DIR = Path(__file__).resolve().parent
 DEFAULT_MANIFEST = BENCH_DIR / "frozen" / "manifest.json"
 DEFAULT_REPORT_ROOT = BENCH_DIR / "report"
-ADAPTERS = ("baseline", "qwen3vl_ollama", "qwen3vl_mlx")
+ADAPTERS = ("baseline", "qwen3vl_ollama", "qwen3vl_mlx", "qwen3vl_annotated")
 MODEL_ENVIRONMENT = {
     "baseline": "BENCH_BASELINE_MODEL",
     "qwen3vl_ollama": "BENCH_MODEL",
     "qwen3vl_mlx": "BENCH_MLX_MODEL",
+    "qwen3vl_annotated": "BENCH_MODEL",
 }
 MAX_NUM_PREDICT = 400
 DEFAULT_REPEAT_PENALTY = 1.15
@@ -82,23 +85,37 @@ def _resolve_inference_settings(args: argparse.Namespace, manifest: dict) -> dic
     box_space = requested_box_space or default_box_space
     if box_space not in BOX_SPACES:
         raise ValueError(f"--box-space must be one of {', '.join(BOX_SPACES)}")
-    format_mode = getattr(args, "format_mode", "json")
+    semantic = args.adapter == "qwen3vl_annotated"
+    format_mode = "schema" if semantic else getattr(args, "format_mode", "json")
     if format_mode not in FORMAT_MODES:
         raise ValueError(f"--format-mode must be one of {', '.join(FORMAT_MODES)}")
-    if format_mode == "schema" and args.adapter != "qwen3vl_ollama":
-        raise ValueError("--format-mode schema is only supported by qwen3vl_ollama")
+    if format_mode == "schema" and args.adapter not in {
+        "qwen3vl_ollama",
+        "qwen3vl_annotated",
+    }:
+        raise ValueError(
+            "--format-mode schema is only supported by qwen3vl_ollama and qwen3vl_annotated"
+        )
     wall_cap = getattr(args, "wall_cap", None)
     if wall_cap is not None and (not math.isfinite(wall_cap) or wall_cap <= 0):
         raise ValueError("--wall-cap must be a positive finite number")
-    sample_interval = float(getattr(args, "sample_interval", 5.0))
-    sample_limit = int(getattr(args, "sample_limit", 6))
+    requested_interval = getattr(args, "sample_interval", None)
+    requested_limit = getattr(args, "sample_limit", None)
+    sample_interval = float(
+        requested_interval
+        if requested_interval is not None
+        else (0.5 if semantic else 5.0)
+    )
+    sample_limit = int(
+        requested_limit if requested_limit is not None else (12 if semantic else 6)
+    )
     if not math.isfinite(sample_interval) or sample_interval <= 0:
         raise ValueError("--sample-interval must be a positive finite number")
     if sample_limit < 1:
         raise ValueError("--sample-limit must be positive")
     sampling_settings = {}
-    if (sample_interval, sample_limit) != (5.0, 6):
-        if args.adapter != "qwen3vl_ollama":
+    if semantic or (sample_interval, sample_limit) != (5.0, 6):
+        if args.adapter not in {"qwen3vl_ollama", "qwen3vl_annotated"}:
             raise ValueError("sampling overrides require qwen3vl_ollama")
         # Omit legacy defaults so existing v5 metadata/fingerprints remain exact.
         sampling_settings = {
@@ -125,6 +142,7 @@ def _resolve_inference_settings(args: argparse.Namespace, manifest: dict) -> dic
             "repetition_context_size": 64,
         }
     return {
+        **({"anchor_color": "magenta"} if semantic else {}),
         **mlx_settings,
         **sampling_settings,
         **({"wall_cap_s": wall_cap} if wall_cap is not None else {}),
@@ -132,7 +150,7 @@ def _resolve_inference_settings(args: argparse.Namespace, manifest: dict) -> dic
         "model": _resolved_model(args.adapter, args.model),
         "ollama_url": str(args.ollama_url),
         "timeout_s": timeout_s,
-        "anchor_mode": args.anchor_mode,
+        "anchor_mode": "all" if semantic else args.anchor_mode,
         "box_space": box_space,
         "format_mode": format_mode,
         "num_predict": max(1, min(int(args.num_predict), MAX_NUM_PREDICT)),
@@ -230,6 +248,8 @@ def run_benchmark(args: argparse.Namespace) -> tuple[dict, Path]:
         if clip["clip_id"] in selected_ids
     }
     settings = _resolve_inference_settings(args, manifest)
+    truth_snapshot, truth_provenance = load_truth_snapshot(manifest_path)
+    settings.update(truth_provenance)
     metadata = _run_metadata(settings, selected_ids)
     output_dir = _output_dir(args, metadata)
     _write_run_metadata(output_dir, metadata, force=args.force)
@@ -247,7 +267,7 @@ def run_benchmark(args: argparse.Namespace) -> tuple[dict, Path]:
         "num_predict": settings["num_predict"],
         "repeat_penalty": settings["repeat_penalty"],
     }
-    if args.adapter == "qwen3vl_ollama":
+    if args.adapter in {"qwen3vl_ollama", "qwen3vl_annotated"}:
         cfg.update(
             sample_interval=settings.get("sample_interval", 5.0),
             sample_limit=settings.get("sample_limit", 6),
@@ -266,9 +286,8 @@ def run_benchmark(args: argparse.Namespace) -> tuple[dict, Path]:
     for clip_id in selected_ids:
         entry = selected[clip_id]
         claims_path = claims_dir / f"{clip_id}.json"
-        truth_path = manifest_path.parent / entry["truth"]
         clip_path = manifest_path.parent / entry["clip"]
-        truth = _load_json(truth_path)
+        truth = truth_snapshot[clip_id]
         truths[clip_id] = truth
         if claims_path.is_file() and not args.force:
             print(f"skip {clip_id} (claims file exists)")
@@ -290,14 +309,26 @@ def run_benchmark(args: argparse.Namespace) -> tuple[dict, Path]:
                 print(stopped_early["reason"])
                 break
 
-    report = score_run(results, truths, adapter=args.adapter)
+    scorer, writer = score_run, write_report
+    if args.adapter == "qwen3vl_annotated":
+        module = importlib.import_module(
+            f"{__package__}.semantic_score" if __package__ else "semantic_score"
+        )
+        scorer, writer = module.score_run, module.write_report
+    report = scorer(
+        results, truths, adapter=args.adapter, truth_provenance=truth_provenance
+    )
     if stopped_early:
         report["stopped_early"] = stopped_early
-    write_report(report, output_dir)
+    writer(report, output_dir)
     return report, output_dir
 
 
 def print_summary(report: dict, output_dir: Path) -> None:
+    if report.get("adapter") == "qwen3vl_annotated":
+        print(json.dumps(report["overall"], indent=2))
+        print(f"report: {output_dir / 'report.json'}")
+        return
     print(
         "\nclip_id                                      status    claims  unboxed  boxed  echo  guard  gap  unsupported  hollow  wall_s"
     )
@@ -342,14 +373,14 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--sample-interval",
         type=float,
-        default=5.0,
-        help="Ollama still interval in seconds (default 5.0)",
+        default=None,
+        help="still interval: annotated default 0.5s; legacy default 5s",
     )
     parser.add_argument(
         "--sample-limit",
         type=int,
-        default=6,
-        help="Ollama maximum still count (default 6)",
+        default=None,
+        help="maximum still count: annotated default 12; legacy default 6",
     )
     parser.add_argument(
         "--fps",

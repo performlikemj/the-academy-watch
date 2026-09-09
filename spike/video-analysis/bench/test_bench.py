@@ -2043,3 +2043,121 @@ def test_unsupplied_kit_number_still_triggers_jersey_kill(text):
     assert review["invented_jersey_number_kill"] is True
     assert review["non_jersey_numbers"] == []
     assert review["claims"][0]["jersey_mentions"][0]["asserted_as_kit_detail"] is True
+
+
+def test_review_kit_renders_every_frame_and_offline_note_template(tmp_path):
+    import html
+    import os
+    import shutil
+    import subprocess
+
+    if os.environ.get("BENCH_REQUIRE_CV2") == "1":
+        import cv2
+    else:
+        cv2 = pytest.importorskip("cv2")
+    if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
+        if os.environ.get("BENCH_REQUIRE_CV2") == "1":
+            pytest.fail("required review kit gate needs ffmpeg and ffprobe")
+        pytest.skip("review kit needs ffmpeg and ffprobe")
+    from apply_notes import template
+    from review_kit import build_kit, probe_video
+
+    frozen = tmp_path / "frozen"
+    (frozen / "clips").mkdir(parents=True)
+    (frozen / "truth").mkdir()
+    source = frozen / "clips/marked.mp4"
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-y",
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=black:s=64x64:r=10:d=2",
+            "-an",
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            str(source),
+        ],
+        check=True,
+    )
+    truths, entries = [], []
+    for cid in ("marked", "not-exported"):
+        truth = {
+            "clip_id": cid,
+            "window": {"start_s": 100.0, "end_s": 102.0},
+            "jersey_number": 12,
+            "kit_color": "red",
+            "frame_size": [64, 64],
+            "box_track": [
+                [100.2, 12, 20, 28, 42],
+                [101.0, 20, 20, 36, 42],
+                [101.7, 28, 20, 44, 42],
+            ],
+            "human_note": None,
+        }
+        truths.append(truth)
+        (frozen / f"truth/{cid}.json").write_text(json.dumps(truth))
+        entries.append(
+            {"clip_id": cid, "clip": "clips/marked.mp4", "truth": f"truth/{cid}.json"}
+        )
+    (frozen / "manifest.json").write_text(
+        json.dumps({"frozen_set_id": "review-fixture", "clips": entries})
+    )
+    out = tmp_path / "review"
+    report = build_kit(frozen, out, clips="marked", scale=64)
+    assert (
+        report["commit"]
+        == subprocess.check_output(
+            ["git", "-C", str(Path(__file__).resolve().parent), "rev-parse", "HEAD"],
+            text=True,
+        ).strip()
+    )
+    output = out / "clips/marked.mp4"
+    assert output.is_file()
+    assert (
+        abs(
+            int(probe_video(output)["nb_frames"])
+            - int(probe_video(source)["nb_frames"])
+        )
+        <= 1
+    )
+    assert report["clips"][0]["frames"] == 20
+    assert report["clips"][0]["no_track_frames"] >= 3
+    capture = cv2.VideoCapture(str(output), cv2.CAP_FFMPEG)
+
+    def red_pixels(image):
+        b, g, r = cv2.split(image)
+        return (
+            (r > 130)
+            & (r.astype("int16") > g.astype("int16") + 60)
+            & (r.astype("int16") > b.astype("int16") + 60)
+        )
+
+    try:
+        capture.set(cv2.CAP_PROP_POS_FRAMES, 10)
+        ok, middle = capture.read()
+        assert ok
+        red = red_pixels(middle)
+        assert red[18:45, 18:40].any()
+        assert not red[48:64, 48:64].any()
+        capture.set(cv2.CAP_PROP_POS_FRAMES, 19)
+        ok, last = capture.read()
+        assert ok
+        assert not red_pixels(last).any()  # No stale box after the track ends.
+        assert last[:27, :].max() > 100  # Visible grayscale "no track" marker.
+    finally:
+        capture.release()
+    page = (out / "index.html").read_text()
+    assert all(truth["clip_id"] in page for truth in truths)
+    for line in template(truths).splitlines():
+        if line.startswith("- `"):
+            assert line in html.unescape(page)
+    assert 'preload="metadata" playsinline src="clips/marked.mp4"' in page
+    assert "localStorage.setItem" in page and "document.execCommand('copy')" in page
+    assert "https://" not in page and "http://" not in page
+    assert len((out / "README.txt").read_text().splitlines()) == 5

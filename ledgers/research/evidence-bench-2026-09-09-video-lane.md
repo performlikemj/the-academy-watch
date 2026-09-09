@@ -1,12 +1,14 @@
 On these 20 clips no lane — sampled stills at 5 s, sampled stills at production's 30 s, or native video at 2/4 fps — ever grounded the player on a frame without the red rectangle; every supported claim is a box at the anchor time plus a presence sentence.
 E1b comparison, 2026-09-09. 20 evaluation-only clips (frozen_set_id 1f68e2755002b3598c763532e95c212de9261ffa638c2943ad3769a1be77503f).
 
-| Lane | Scored / failed | Supported | Unboxed supported | Unsupported | Hollow | Wall s/clip | Stills/video frames per attempt | Sent resolution (min–max WxH) |
-|---|---:|---:|---:|---:|---:|---:|---:|---|
-| frames | 19 / 1 | 73.68% | 0.00% (2 claims) | 26.32% | 0.00% | 12.759 | 4.15 | 1280×720–1280×720 |
-| frames_prod30 | 19 / 1 | 84.21% | 0.00% (1 claims) | 15.79% | 0.00% | 6.367 | 1.35 | 1280×720–1280×720 |
-| video_fps2 | 16 / 4 | 68.75% | 0.00% (1 claims) | 31.25% | 0.00% | 56.017 | 49.6 | 544×288–1920×1088 |
-| video_fps4 | 18 / 2 | 77.78% | N/A (0 claims) | 22.22% | 0.00% | 63.771 | 100.5 | 384×192–1472×832 |
+| Lane | Scored / failed | Supported | Unboxed supported | Unsupported | Hollow | Wall s/clip | Stills/video frames per attempt | Sent resolution (min–max WxH) | Anchor-only attempts |
+|---|---:|---:|---:|---:|---:|---:|---:|---|---:|
+| frames | 19 / 1 | 73.68% | 0.00% (2 claims) | 26.32% | 0.00% | 12.759 | 4.15 | 1280×720–1280×720 | 1/20 |
+| frames_prod30 | 19 / 1 | 84.21% | 0.00% (1 claims) | 15.79% | 0.00% | 6.367 | 1.35 | 1280×720–1280×720 | 13/20 |
+| video_fps2 | 16 / 4 | 68.75% | 0.00% (1 claims) | 31.25% | 0.00% | 56.017 | 49.6 | 544×288–1920×1088 | 0/20 |
+| video_fps4 | 18 / 2 | 77.78% | N/A (0 claims) | 22.22% | 0.00% | 63.771 | 100.5 | 384×192–1472×832 | 0/20 |
+
+Prod30's 84% supported rate is single-still anchor echo, not grounding.
 
 E1 thresholds per lane (≥2× a zero-box baseline is vacuous, not evidence of improvement):
 
@@ -53,8 +55,9 @@ Like-for-like caveats:
 - Ollama GGUF Q4_K_M and MLX's separately converted 4-bit weights, preprocessing, repetition handling and JSON enforcement differ. MLX uses prompt-only JSON instructions and the same strict parser; invalid responses remain failed.
 - MLX starts a fresh worker/model per clip; Ollama reuses a model server and the 5s smoke warmed one prompt. Sequential single passes have no repeated trials or machine-workload isolation; prod30 ran later after the GPU gate opened.
 - Rates exclude failed clips; wall and sent-frame means include every attempt. Hollow/malformed=0 among scored claims does not erase failed outputs. Full metrics, available token counts, failures and claim-level jersey/colour review are in JSON.
-- Shared anchor lookup fails for m04-n02-t3005-474114-478131 before inference; historical E1 instead counted it unsupported. Frozen truth is unchanged and no human_note is populated, so action semantics are ungraded.
-- Supplied numbers restated as kit detail — frames: [3, 9, 17, 21]; frames_prod30: [3, 4, 9, 17, 21]; video_fps2: [3, 9, 17, 21, 24]; video_fps4: [3, 9, 17, 21]; no unsupplied numbers observed. Kit-colour mismatches: video_fps2 m04-n24-t3013-679939-681217: black vs truth red; video_fps4 m04-n15-t3010-164698-170777: blue vs truth red. Geometry scoring does not penalize colour errors or establish number legibility.
+- Shared anchor lookup fails for m04-n02-t3005-474114-478131 before inference; historical E1 instead counted it unsupported. Historical run inputs had no human_note, so their saved action-semantic metrics are ungraded; this comparison refreshes identity/kit review without re-scoring those metrics.
+- Supplied numbers restated as kit detail — frames: [3, 9, 17, 21]; frames_prod30: [3, 4, 9, 17, 21]; video_fps2: [3, 9, 17, 21]; video_fps4: [3, 9, 17, 21]; no unsupplied numbers observed. Kit-colour mismatches: video_fps4 m04-n15-t3010-164698-170777: blue vs truth red. Geometry scoring does not penalize colour errors or establish number legibility.
 - Historical MLX runs used ignored report/.worker-deps via PYTHONPATH (preserved in their original run metadata); Jinja2 3.1.6/MarkupSafe 3.0.3 are now installed in the MLX venv. Earlier failed smokes were missing Jinja2 and fenced JSON; no video rerun was requested for this repair.
+- Ollama thinking-field fallback despite think=false: frames 95% of all attempts; frames_prod30 95% of all attempts. This does not establish format-grammar enforcement on the thinking field; the transport is unchanged.
 
 Verdict: **no clear winner on the headline (unboxed grounding is 0 in every lane); frames on cost** — frames: 14/20 supported clips, 12.759s/attempt; frames_prod30: 16/20 supported clips, 6.367s/attempt; video_fps2: 11/20 supported clips, 56.017s/attempt; video_fps4: 14/20 supported clips, 63.771s/attempt.
