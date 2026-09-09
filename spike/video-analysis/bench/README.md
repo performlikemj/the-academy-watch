@@ -392,3 +392,44 @@ sentences per run, chosen in manifest order, full clip metrics and provenance.
 ```
 
 No adoption call is made; that decision belongs to MJ.
+
+## Offline human-note review kit
+
+`review_kit.py` burns the tracked box into **every decoded frame** of a portable
+review copy, with the same red three-pixel outline and the shared renderer's
+white-on-red `#N` label. The OpenCV decoder, resizing, drawing and libx264 encoder
+run on CPU; no model calls, GPU gate or GPU work is involved. Dependencies are
+OpenCV (`cv2`), Pillow, ffmpeg and ffprobe; no frontend dependency restore is needed.
+Basecamp also provides these Python dependencies in `~/mlx-vlm-venv/bin/python`,
+which can be used as the builder interpreter.
+
+```sh
+~/Projects/loanarmy/.loan/bin/python spike/video-analysis/bench/review_kit.py \
+  --frozen-dir ~/Projects/loanarmy-bench-frozen \
+  --out-dir ~/lane-a-review --clips all --scale 1280
+```
+
+The output contains `clips/<clip_id>.mp4`, `index.html`, a five-line `README.txt`
+and `build.json` with per-clip frame counts, tracking gaps and byte sizes. Copy
+that folder to the laptop and open `index.html` directly. No server is required.
+The videos use H.264/yuv420p with faststart and no audio for Safari/QuickTime.
+If a clip exceeds 40 MB, rerun with `--scale 960`. Outputs replace only the
+selected rendered clips; frozen inputs are never edited. `--clips` also accepts
+comma-separated IDs; the page retains every manifest note line and clearly
+marks videos omitted from a partial export.
+
+Frame timestamps are `window.start_s + frame_index / source_fps` for these
+constant-frame-rate frozen clips. Unlike sparse model sampling, review rendering
+never moves a timestamp to obtain a box. It uses `grounding.interpolated_box`
+with the existing gap rule: frames without a box receive a small **no track**
+marker and no stale rectangle. Geometry is scaled from truth's source size to
+the output size before drawing. The shared file renderer creates the small
+identity-label stamp once per clip; OpenCV draws each frame's changing rectangle.
+
+Notes autosave to localStorage as they are typed. The textarea always reflects
+all template lines, and Copy notes falls back to selection/copy when the browser
+blocks clipboard access from `file://`. Storage restrictions produce an explicit
+message to copy notes before closing. Space plays/pauses the focused clip; J/K
+move between clips, and shortcuts do not intercept note editing. Paste the
+copied lines into `ledgers/lane-a-notes.md`, then use `apply_notes.py` with that
+file when ready. The committed blank template remains unchanged.
