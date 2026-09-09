@@ -38,21 +38,33 @@ def raw_claims(raw: dict) -> list[dict]:
     return raw.get("claims", [])
 
 
+def claim_text(claim: dict) -> str:
+    value = claim.get("claim")
+    return value if isinstance(value, str) else ""
+
+
 def jersey_review(raw: dict, truth: dict) -> dict:
     supplied = truth.get("jersey_number")
     color = truth.get("kit_color")
     claims = []
+    malformed_text_count = 0
     for claim in raw_claims(raw):
-        text = claim.get("claim", "")
+        invalid_text = not isinstance(claim.get("claim"), str)
+        malformed_text_count += invalid_text
+        text = claim_text(claim)
         mentions = []
         for match in re.finditer(
-            r"#\s*(\d+)\b|\bnumber\s+(\d+)\b|\bjersey\s+(\d+)\b", text, re.I
+            r"#\s*(\d+)\b|\bnumber\s+(\d+)\b|\b(?:jersey|shirt|kit)\s+(\d+)\b",
+            text,
+            re.I,
         ):
             number = int(next(g for g in match.groups() if g is not None))
             before = text[max(0, match.start() - 100) : match.start()]
             after = text[match.end() : match.end() + 30]
             kit_detail = bool(
-                re.search(r"jersey\s*(?:(?:with\s+)?(?:the\s+)?)$", before, re.I)
+                re.search(
+                    r"(?:jersey|shirt|kit)\s*(?:(?:with\s+)?(?:the\s+)?)$", before, re.I
+                )
                 or re.match(r"\s+on (?:his|the player's) back", after, re.I)
                 or match.group(3)
             )
@@ -80,6 +92,11 @@ def jersey_review(raw: dict, truth: dict) -> dict:
         claims.append(
             {
                 "claim": text,
+                **(
+                    {"malformed": True, "malformed_fields": ["claim"]}
+                    if invalid_text
+                    else {}
+                ),
                 "vague_clothing_descriptions": [
                     f"{c.lower()} clothing" for c in vague_colors
                 ],
@@ -111,13 +128,26 @@ def jersey_review(raw: dict, truth: dict) -> dict:
         "supplied_jersey_number": supplied,
         "truth_kit_colour": color,
         "claims": claims,
+        "malformed_claim_text_count": malformed_text_count,
+        "non_jersey_numbers": sorted(
+            {
+                m["number"]
+                for c in claims
+                for m in c["jersey_mentions"]
+                if not m["asserted_as_kit_detail"]
+            }
+        ),
         "unsupplied_numbers": sorted(set(unsupplied)),
         "supplied_number_asserted_as_kit_detail": any(
             m["asserted_as_kit_detail"] and m["matches_supplied"] is True
             for c in claims
             for m in c["jersey_mentions"]
         ),
-        "invented_jersey_number_kill": bool(unsupplied),
+        "invented_jersey_number_kill": any(
+            m["matches_supplied"] is False and m["asserted_as_kit_detail"]
+            for c in claims
+            for m in c["jersey_mentions"]
+        ),
         "kit_colour_mismatch": any(c["kit_colour_check"] == "mismatch" for c in claims),
     }
 
@@ -150,7 +180,7 @@ def claim_evidence(scored: dict, raw: dict) -> dict:
             {k: c[k] for k in keys if k in c}
             for c in (scored.get("claims") or raw.get("claims", []))
         ],
-        "raw_claim_texts": [c.get("claim", "") for c in raw_claims(raw)],
+        "raw_claim_texts": [claim_text(c) for c in raw_claims(raw)],
     }
 
 
@@ -220,25 +250,43 @@ def experiment_caveats(lanes: dict, reviews: dict) -> list[str]:
 
 
 def paired_flips(
-    control_name: str, compared_name: str, reports: dict, raw_runs: dict
+    control_name: str,
+    compared_name: str,
+    reports: dict,
+    raw_runs: dict,
+    selected_ids: list[str] | None = None,
 ) -> list[dict]:
     control = {c["clip_id"]: c for c in reports[control_name]["clips"]}
+    compared = {c["clip_id"]: c for c in reports[compared_name]["clips"]}
+    clip_ids = (
+        selected_ids
+        if selected_ids is not None
+        else list(dict.fromkeys([*control, *compared]))
+    )
+    not_attempted = {"status": "not_attempted", "claims": []}
     rows = []
-    for other in reports[compared_name]["clips"]:
-        cid = other["clip_id"]
-        first = control[cid]
+    for cid in clip_ids:
+        first = control.get(cid, not_attempted)
+        other = compared.get(cid, not_attempted)
+        missing = "not_attempted" in (first["status"], other["status"])
         a = any(c.get("supported") for c in first.get("claims", []))
         b = any(c.get("supported") for c in other.get("claims", []))
-        if a != b or first["status"] != other["status"]:
+        if missing or a != b or first["status"] != other["status"]:
             rows.append(
                 {
                     "clip_id": cid,
-                    "winner": compared_name
+                    "winner": None
+                    if missing
+                    else compared_name
                     if b and not a
                     else control_name
                     if a and not b
                     else None,
-                    "kind": "supported_clip" if a != b else "availability_only",
+                    "kind": "not_attempted"
+                    if missing
+                    else "supported_clip"
+                    if a != b
+                    else "availability_only",
                     "control": claim_evidence(
                         first, raw_runs[control_name].get(cid, {})
                     ),
@@ -262,6 +310,7 @@ def compare(
     }
     lanes, reports, raw_runs, reviews = {}, {}, {}, {}
     frozen_id, selected = None, None
+    incomplete = {}
     for name, directory in runs.items():
         path = reports_root / directory
         report, config = read_json(path / "report.json"), read_json(path / "run.json")
@@ -276,6 +325,23 @@ def compare(
             for cid in selected
             if (path / "claims" / f"{cid}.json").exists()
         }
+        # The scored report is authoritative for comparison coverage; a failed
+        # entry is attempted, whereas leftover raw files cannot fill a report gap.
+        covered = {
+            c["clip_id"] for c in report["clips"] if c["status"] != "not_attempted"
+        }
+        missing = [cid for cid in selected if cid not in covered]
+        stop_markers = {
+            f"{source}.{key}": payload[key]
+            for source, payload in (("run", config), ("report", report))
+            for key in ("stopped_early", "wall_cap_exceeded")
+            if key in payload and payload[key] is not None and payload[key] is not False
+        }
+        if missing or stop_markers:
+            incomplete[name] = {
+                "missing_clip_ids": missing,
+                "stop_markers": stop_markers,
+            }
         reports[name], raw_runs[name] = report, raw
         reviews[name] = {
             cid: jersey_review(raw.get(cid, {}), truths.get(cid, {}))
@@ -345,11 +411,11 @@ def compare(
         }
     control_name = next(iter(runs))
     flips = {
-        name: paired_flips(control_name, name, reports, raw_runs)
+        name: paired_flips(control_name, name, reports, raw_runs, selected)
         for name in list(runs)[1:]
     }
     production_flips = {
-        name: paired_flips("frames_prod30", name, reports, raw_runs)
+        name: paired_flips("frames_prod30", name, reports, raw_runs, selected)
         for name, lane in lanes.items()
         if "frames_prod30" in lanes and lane["adapter"] == "qwen3vl_mlx"
     }
@@ -360,13 +426,16 @@ def compare(
         for c in row.get("claims", [])
     )
     historical_shape = (
-        set(runs) == {"frames", "frames_prod30", "video_fps2", "video_fps4"}
+        not incomplete
+        and set(runs) == {"frames", "frames_prod30", "video_fps2", "video_fps4"}
         and len(selected) == 20
         and frozen_id
         == "1f68e2755002b3598c763532e95c212de9261ffa638c2943ad3769a1be77503f"
     )
     headline = (
-        HEADLINE
+        "INCOMPLETE COMPARISON — some selected clips were not attempted or a stop marker is present."
+        if incomplete
+        else HEADLINE
         if historical_shape and grounded_unboxed == 0
         else f"Across these runs, {grounded_unboxed} claims grounded the player on an unboxed frame."
     )
@@ -380,6 +449,7 @@ def compare(
             "MarkupSafe": "3.0.3",
             "location": "installed in MLX venv via requirements-worker.txt; historical video runs used report/.worker-deps",
         },
+        **({"incomplete_lanes": incomplete} if incomplete else {}),
         "lane_order": list(runs),
         **lanes,
         "per_clip_flips": flips,
@@ -393,7 +463,9 @@ def compare(
             "Jersey/kit checks require the optional matching frozen truth manifest; without it comparisons are marked unavailable.",
         ],
         "headline": headline,
-        "verdict": VERDICT
+        "verdict": "incomplete comparison; verdict withheld"
+        if incomplete
+        else VERDICT
         if historical_shape and grounded_unboxed == 0
         else "no clear winner",
         "verdict_evidence": "; ".join(
@@ -409,6 +481,8 @@ def percent(value: float | None) -> str:
 
 
 def evidence_summary(evidence: dict) -> str:
+    if evidence["status"] == "not_attempted":
+        return "not_attempted (no scored report entry)"
     text = " / ".join(evidence["raw_claim_texts"]) or "(no claims)"
     if evidence["status"] != "scored":
         fields = sorted(
@@ -430,8 +504,20 @@ def evidence_summary(evidence: dict) -> str:
 
 def markdown(result: dict) -> str:
     names = result["lane_order"]
+    incomplete_lines = []
+    if result.get("incomplete_lanes"):
+        incomplete_lines = ["", "Missing selected clips / stop markers by lane:", ""]
+        for name in names:
+            details = result["incomplete_lanes"].get(name, {})
+            missing = ", ".join(details.get("missing_clip_ids", [])) or "none"
+            markers = json.dumps(details.get("stop_markers", {}), sort_keys=True)
+            incomplete_lines.append(
+                f"- {name}: missing clip IDs: {missing}; stop markers: {markers}."
+            )
+        incomplete_lines.append("")
     lines = [
         result["headline"],
+        *incomplete_lines,
         f"E1b comparison, {result['date']}. {result['frozen_set']}.",
         "",
         "| Lane | Scored / failed | Supported | Unboxed supported | Unsupported | Hollow | Wall s/clip | Stills/video frames per attempt | Sent resolution (min–max WxH) |",

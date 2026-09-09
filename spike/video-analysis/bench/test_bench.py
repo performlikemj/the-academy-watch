@@ -1892,3 +1892,154 @@ def test_runner_fingerprints_and_passes_production_sampling(monkeypatch, tmp_pat
     metadata = json.loads((output / "run.json").read_text())
     assert metadata["sample_interval"] == 30.0
     assert metadata["sample_limit"] == 3
+
+
+def _comparison_guard_fixture(tmp_path, *, completed=19, stop_marker=None):
+    """Synthetic historical-shaped reports; no adapters or model calls."""
+    names = ["frames", "frames_prod30", "video_fps2", "video_fps4"]
+    ids = [f"clip-{i}" for i in range(20)]
+    for name in names:
+        path = tmp_path / name
+        (path / "claims").mkdir(parents=True)
+        raw = [
+            {
+                "clip_id": cid,
+                "claims": [_claim(box_t=15.0, boxed_frame=True)],
+                "wall_s": 1.0,
+                "error": None,
+            }
+            for cid in ids
+        ]
+        count = completed if name == "video_fps4" else 20
+        report = score_run(raw[:count], {cid: _truth() for cid in ids})
+        report["generated_at"] = "2026-09-09T00:00:00Z"
+        config = {
+            "frozen_set_id": "1f68e2755002b3598c763532e95c212de9261ffa638c2943ad3769a1be77503f",
+            "clips": ids,
+            "model": "fixture",
+            "adapter": name,
+            "wall_cap_s": 120.0,
+        }
+        if name == "video_fps4" and stop_marker:
+            source, key, value = stop_marker
+            (report if source == "report" else config)[key] = value
+        (path / "report.json").write_text(json.dumps(report))
+        (path / "run.json").write_text(json.dumps(config))
+        # Even leftover raw files must not mask a gap in scored report coverage.
+        for row in raw:
+            (path / "claims" / f"{row['clip_id']}.json").write_text(json.dumps(row))
+    return names
+
+
+@pytest.mark.parametrize("partial_first", [True, False])
+def test_incomplete_comparison_with_partial_lane_in_either_order(
+    tmp_path, partial_first
+):
+    from compare_runs import HEADLINE, VERDICT, compare, markdown
+
+    names = _comparison_guard_fixture(tmp_path)
+    if partial_first:
+        names = [names[-1], *names[:-1]]
+    result = compare(tmp_path, {name: name for name in names})
+    assert result["headline"].startswith("INCOMPLETE COMPARISON")
+    assert result["headline"] != HEADLINE
+    assert result["verdict"] != VERDICT
+    assert "withheld" in result["verdict"]
+    assert result["incomplete_lanes"]["video_fps4"]["missing_clip_ids"] == ["clip-19"]
+    rows = (
+        next(iter(result["per_clip_flips"].values()))
+        if partial_first
+        else result["per_clip_flips"]["video_fps4"]
+    )
+    missing = next(row for row in rows if row["clip_id"] == "clip-19")
+    side = "control" if partial_first else "compared"
+    assert missing[side]["status"] == "not_attempted"
+    assert missing["kind"] == "not_attempted"
+    assert missing["winner"] is None
+    text = markdown(result)
+    assert text.startswith("INCOMPLETE COMPARISON")
+    assert "missing clip IDs: clip-19" in text
+    assert "not_attempted" in text
+    assert HEADLINE not in text and VERDICT not in text
+
+
+@pytest.mark.parametrize(
+    "marker",
+    [
+        ("report", "stopped_early", {"reason": "wall cap", "unrun_clips": []}),
+        ("run", "stopped_early", {}),
+        ("report", "wall_cap_exceeded", True),
+    ],
+)
+def test_stop_marker_blocks_verdict_even_with_full_coverage(tmp_path, marker):
+    from compare_runs import compare, markdown
+
+    names = _comparison_guard_fixture(tmp_path, completed=20, stop_marker=marker)
+    result = compare(tmp_path, {name: name for name in names})
+    assert result["headline"].startswith("INCOMPLETE COMPARISON")
+    assert result["incomplete_lanes"]["video_fps4"]["missing_clip_ids"] == []
+    assert result["incomplete_lanes"]["video_fps4"]["stop_markers"] == {
+        f"{marker[0]}.{marker[1]}": marker[2]
+    }
+    assert "missing clip IDs: none" in markdown(result)
+
+
+def test_configured_wall_cap_without_stop_is_complete(tmp_path):
+    from compare_runs import HEADLINE, VERDICT, compare
+
+    names = _comparison_guard_fixture(tmp_path, completed=20)
+    result = compare(tmp_path, {name: name for name in names})
+    assert "incomplete_lanes" not in result
+    assert result["headline"] == HEADLINE and result["verdict"] == VERDICT
+
+
+@pytest.mark.parametrize("value", [None, 42, {"nested": "claim"}])
+def test_non_string_claims_are_reviewed_as_malformed(value):
+    from compare_runs import claim_evidence, evidence_summary, jersey_review
+
+    raw = {
+        "claims_raw": json.dumps({"claims": [{"claim": value}]}),
+        "error": "no parseable claims",
+    }
+    review = jersey_review(raw, {"jersey_number": 12, "kit_color": "red"})
+    assert review["malformed_claim_text_count"] == 1
+    claim = review["claims"][0]
+    assert claim["claim"] == ""
+    assert claim["malformed"] is True and claim["malformed_fields"] == ["claim"]
+    assert claim["jersey_mentions"] == []
+    assert review["invented_jersey_number_kill"] is False
+    evidence = claim_evidence(
+        {"status": "failed", "claims": [], "error": raw["error"]}, raw
+    )
+    assert "(no claims)" in evidence_summary(evidence)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Player #12 is visible in frame number 2.",
+        "Player wearing a red jersey is seen at frame #2 and tracking number 8.",
+        "At time number 2, track #8 identifies the player.",
+    ],
+)
+def test_non_jersey_numbers_do_not_trigger_jersey_kill(text):
+    from compare_runs import jersey_review
+
+    review = jersey_review({"claims": [{"claim": text}]}, {"jersey_number": 12})
+    assert review["invented_jersey_number_kill"] is False
+    assert 2 in review["non_jersey_numbers"]
+    assert (
+        2 in review["unsupplied_numbers"]
+    )  # Legacy candidate-number audit is retained.
+
+
+@pytest.mark.parametrize(
+    "text", ["Wearing jersey #9.", "Wearing shirt number 9.", "Player in kit 9."]
+)
+def test_unsupplied_kit_number_still_triggers_jersey_kill(text):
+    from compare_runs import jersey_review
+
+    review = jersey_review({"claims": [{"claim": text}]}, {"jersey_number": 12})
+    assert review["invented_jersey_number_kill"] is True
+    assert review["non_jersey_numbers"] == []
+    assert review["claims"][0]["jersey_mentions"][0]["asserted_as_kit_detail"] is True

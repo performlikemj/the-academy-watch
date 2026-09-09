@@ -2271,6 +2271,8 @@
         "supplied_jersey_number": 2,
         "truth_kit_colour": "red",
         "claims": [],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": false,
         "invented_jersey_number_kill": false,
@@ -2295,6 +2297,10 @@
             "kit_colours_mentioned": [],
             "kit_colour_check": "not mentioned"
           }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [
+          3
         ],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": false,
@@ -2323,6 +2329,8 @@
             "kit_colour_check": "match"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": true,
         "invented_jersey_number_kill": false,
@@ -2343,6 +2351,8 @@
             "kit_colour_check": "unconfirmed: vague clothing description"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": false,
         "invented_jersey_number_kill": false,
@@ -2363,6 +2373,8 @@
             "kit_colour_check": "match"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": false,
         "invented_jersey_number_kill": false,
@@ -2381,6 +2393,8 @@
             "kit_colour_check": "not mentioned"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": false,
         "invented_jersey_number_kill": false,
@@ -2401,6 +2415,8 @@
             "kit_colour_check": "match"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": false,
         "invented_jersey_number_kill": false,
@@ -2419,6 +2435,8 @@
             "kit_colour_check": "not mentioned"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": false,
         "invented_jersey_number_kill": false,
@@ -2446,6 +2464,8 @@
             "kit_colour_check": "match"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": true,
         "invented_jersey_number_kill": false,
@@ -2470,6 +2490,10 @@
             "kit_colours_mentioned": [],
             "kit_colour_check": "not mentioned"
           }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [
+          10
         ],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": false,
@@ -2496,6 +2520,10 @@
             "kit_colour_check": "not mentioned"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [
+          12
+        ],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": false,
         "invented_jersey_number_kill": false,
@@ -2521,6 +2549,10 @@
             "kit_colour_check": "not mentioned"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [
+          12
+        ],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": false,
         "invented_jersey_number_kill": false,
@@ -2541,6 +2573,8 @@
             "kit_colour_check": "match"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": false,
         "invented_jersey_number_kill": false,
@@ -2568,6 +2602,8 @@
             "kit_colour_check": "match"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": true,
         "invented_jersey_number_kill": false,
@@ -2592,6 +2628,10 @@
             "kit_colours_mentioned": [],
             "kit_colour_check": "not mentioned"
           }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [
+          17
         ],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": false,
@@ -2618,6 +2658,10 @@
             "kit_colour_check": "not mentioned"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [
+          17
+        ],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": false,
         "invented_jersey_number_kill": false,
@@ -2643,6 +2687,8 @@
             "kit_colour_check": "not mentioned"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": true,
         "invented_jersey_number_kill": false,
@@ -2663,6 +2709,8 @@
             "kit_colour_check": "match"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": false,
         "invented_jersey_number_kill": false,
@@ -2687,6 +2735,10 @@
             "kit_colours_mentioned": [],
             "kit_colour_check": "not mentioned"
           }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [
+          24
         ],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": false,
@@ -2713,6 +2765,10 @@
             "kit_colour_check": "not mentioned"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [
+          25
+        ],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": false,
         "invented_jersey_number_kill": false,
@@ -2725,6 +2781,8 @@
         "supplied_jersey_number": 2,
         "truth_kit_colour": "red",
         "claims": [],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": false,
         "invented_jersey_number_kill": false,
@@ -2752,6 +2810,8 @@
             "kit_colour_check": "match"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": true,
         "invented_jersey_number_kill": false,
@@ -2779,6 +2839,8 @@
             "kit_colour_check": "match"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": true,
         "invented_jersey_number_kill": false,
@@ -2797,6 +2859,8 @@
             "kit_colour_check": "not mentioned"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": false,
         "invented_jersey_number_kill": false,
@@ -2824,6 +2888,8 @@
             "kit_colour_check": "match"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": true,
         "invented_jersey_number_kill": false,
@@ -2842,6 +2908,8 @@
             "kit_colour_check": "not mentioned"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": false,
         "invented_jersey_number_kill": false,
@@ -2862,6 +2930,8 @@
             "kit_colour_check": "match"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": false,
         "invented_jersey_number_kill": false,
@@ -2889,6 +2959,8 @@
             "kit_colour_check": "match"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": true,
         "invented_jersey_number_kill": false,
@@ -2916,6 +2988,8 @@
             "kit_colour_check": "match"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": true,
         "invented_jersey_number_kill": false,
@@ -2934,6 +3008,8 @@
             "kit_colour_check": "not mentioned"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": false,
         "invented_jersey_number_kill": false,
@@ -2958,6 +3034,10 @@
             "kit_colours_mentioned": [],
             "kit_colour_check": "not mentioned"
           }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [
+          12
         ],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": false,
@@ -2984,6 +3064,10 @@
             "kit_colour_check": "not mentioned"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [
+          12
+        ],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": false,
         "invented_jersey_number_kill": false,
@@ -3004,6 +3088,8 @@
             "kit_colour_check": "match"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": false,
         "invented_jersey_number_kill": false,
@@ -3031,6 +3117,8 @@
             "kit_colour_check": "match"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": true,
         "invented_jersey_number_kill": false,
@@ -3055,6 +3143,10 @@
             "kit_colours_mentioned": [],
             "kit_colour_check": "not mentioned"
           }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [
+          17
         ],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": false,
@@ -3083,6 +3175,8 @@
             "kit_colour_check": "match"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": true,
         "invented_jersey_number_kill": false,
@@ -3108,6 +3202,8 @@
             "kit_colour_check": "not mentioned"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": true,
         "invented_jersey_number_kill": false,
@@ -3132,6 +3228,10 @@
             "kit_colours_mentioned": [],
             "kit_colour_check": "not mentioned"
           }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [
+          22
         ],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": false,
@@ -3158,6 +3258,10 @@
             "kit_colour_check": "not mentioned"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [
+          24
+        ],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": false,
         "invented_jersey_number_kill": false,
@@ -3183,6 +3287,10 @@
             "kit_colour_check": "not mentioned"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [
+          25
+        ],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": false,
         "invented_jersey_number_kill": false,
@@ -3195,6 +3303,8 @@
         "supplied_jersey_number": 2,
         "truth_kit_colour": "red",
         "claims": [],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": false,
         "invented_jersey_number_kill": false,
@@ -3215,6 +3325,8 @@
             "kit_colour_check": "match"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": false,
         "invented_jersey_number_kill": false,
@@ -3240,6 +3352,8 @@
             "kit_colour_check": "not mentioned"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": true,
         "invented_jersey_number_kill": false,
@@ -3258,6 +3372,8 @@
             "kit_colour_check": "not mentioned"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": false,
         "invented_jersey_number_kill": false,
@@ -3276,6 +3392,8 @@
             "kit_colour_check": "not mentioned"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": false,
         "invented_jersey_number_kill": false,
@@ -3286,6 +3404,8 @@
         "supplied_jersey_number": 5,
         "truth_kit_colour": "red",
         "claims": [],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": false,
         "invented_jersey_number_kill": false,
@@ -3306,6 +3426,8 @@
             "kit_colour_check": "match"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": false,
         "invented_jersey_number_kill": false,
@@ -3333,6 +3455,8 @@
             "kit_colour_check": "match"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": true,
         "invented_jersey_number_kill": false,
@@ -3358,6 +3482,8 @@
             "kit_colour_check": "not mentioned"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": true,
         "invented_jersey_number_kill": false,
@@ -3378,6 +3504,8 @@
             "kit_colour_check": "match"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": false,
         "invented_jersey_number_kill": false,
@@ -3396,6 +3524,8 @@
             "kit_colour_check": "not mentioned"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": false,
         "invented_jersey_number_kill": false,
@@ -3414,6 +3544,8 @@
             "kit_colour_check": "not mentioned"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": false,
         "invented_jersey_number_kill": false,
@@ -3432,6 +3564,8 @@
             "kit_colour_check": "not mentioned"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": false,
         "invented_jersey_number_kill": false,
@@ -3452,6 +3586,8 @@
             "kit_colour_check": "match"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": false,
         "invented_jersey_number_kill": false,
@@ -3470,6 +3606,8 @@
             "kit_colour_check": "not mentioned"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": false,
         "invented_jersey_number_kill": false,
@@ -3497,6 +3635,8 @@
             "kit_colour_check": "match"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": true,
         "invented_jersey_number_kill": false,
@@ -3522,6 +3662,8 @@
             "kit_colour_check": "not mentioned"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": true,
         "invented_jersey_number_kill": false,
@@ -3546,6 +3688,10 @@
             "kit_colours_mentioned": [],
             "kit_colour_check": "not mentioned"
           }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [
+          22
         ],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": false,
@@ -3574,6 +3720,8 @@
             "kit_colour_check": "mismatch"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": true,
         "invented_jersey_number_kill": false,
@@ -3599,6 +3747,10 @@
             "kit_colour_check": "not mentioned"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [
+          25
+        ],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": false,
         "invented_jersey_number_kill": false,
@@ -3611,6 +3763,8 @@
         "supplied_jersey_number": 2,
         "truth_kit_colour": "red",
         "claims": [],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": false,
         "invented_jersey_number_kill": false,
@@ -3631,6 +3785,8 @@
             "kit_colour_check": "match"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": false,
         "invented_jersey_number_kill": false,
@@ -3656,6 +3812,8 @@
             "kit_colour_check": "not mentioned"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": true,
         "invented_jersey_number_kill": false,
@@ -3676,6 +3834,8 @@
             "kit_colour_check": "match"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": false,
         "invented_jersey_number_kill": false,
@@ -3696,6 +3856,8 @@
             "kit_colour_check": "match"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": false,
         "invented_jersey_number_kill": false,
@@ -3714,6 +3876,8 @@
             "kit_colour_check": "not mentioned"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": false,
         "invented_jersey_number_kill": false,
@@ -3734,6 +3898,8 @@
             "kit_colour_check": "match"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": false,
         "invented_jersey_number_kill": false,
@@ -3761,6 +3927,8 @@
             "kit_colour_check": "match"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": true,
         "invented_jersey_number_kill": false,
@@ -3786,6 +3954,8 @@
             "kit_colour_check": "not mentioned"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": true,
         "invented_jersey_number_kill": false,
@@ -3806,6 +3976,8 @@
             "kit_colour_check": "match"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": false,
         "invented_jersey_number_kill": false,
@@ -3833,6 +4005,10 @@
             "kit_colour_check": "match"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [
+          12
+        ],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": false,
         "invented_jersey_number_kill": false,
@@ -3858,6 +4034,10 @@
             "kit_colour_check": "not mentioned"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [
+          12
+        ],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": false,
         "invented_jersey_number_kill": false,
@@ -3878,6 +4058,8 @@
             "kit_colour_check": "mismatch"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": false,
         "invented_jersey_number_kill": false,
@@ -3898,6 +4080,8 @@
             "kit_colour_check": "match"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": false,
         "invented_jersey_number_kill": false,
@@ -3916,6 +4100,8 @@
             "kit_colour_check": "not mentioned"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": false,
         "invented_jersey_number_kill": false,
@@ -3943,6 +4129,8 @@
             "kit_colour_check": "match"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": true,
         "invented_jersey_number_kill": false,
@@ -3968,6 +4156,8 @@
             "kit_colour_check": "not mentioned"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": true,
         "invented_jersey_number_kill": false,
@@ -3986,6 +4176,8 @@
             "kit_colour_check": "not mentioned"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": false,
         "invented_jersey_number_kill": false,
@@ -4004,6 +4196,8 @@
             "kit_colour_check": "not mentioned"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": false,
         "invented_jersey_number_kill": false,
@@ -4022,6 +4216,8 @@
             "kit_colour_check": "not mentioned"
           }
         ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
         "unsupplied_numbers": [],
         "supplied_number_asserted_as_kit_detail": false,
         "invented_jersey_number_kill": false,

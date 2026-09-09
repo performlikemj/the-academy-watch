@@ -251,6 +251,22 @@ The comparison reads existing run metadata, full report metrics, raw claims and
 no model calls or frozen-data writes occur. Jersey/kit review records textual
 assertions, not whether a supplied jersey number was independently legible.
 
+Comparison completeness is checked against the report's per-clip entries for every
+selected ID; failed clips count as attempted, and leftover raw claim files cannot
+fill a report gap. A missing entry or a `stopped_early`/`wall_cap_exceeded` marker
+in run/report metadata produces `INCOMPLETE COMPARISON`, lists missing IDs per lane,
+and withholds the historical headline and verdict. A configured `wall_cap_s`
+alone is not a stop marker. Pair comparisons record absent entries as
+`not_attempted`, without assigning a winner.
+
+The jersey review retains all numeric candidates in the legacy `jersey_mentions`
+and `unsupplied_numbers` audit fields. Only unsupplied numbers asserted as
+jersey/shirt/kit detail trigger `invented_jersey_number_kill`; other numeric labels
+(including frame/time/tracking references) appear in each clip's
+`non_jersey_numbers`. Non-string claim text is replaced with an empty string,
+flagged `malformed` with `malformed_fields: ["claim"]`, and counted in
+`malformed_claim_text_count`. These review fields do not change scorer metrics.
+
 Test blind spots: `prepare_anchor` is monkeypatched in MLX adapter tests;
 the worker test fakes the `mlx_vlm` API, so signature drift is caught only by a
 live smoke. The production single-still test exercises actual anchor drawing,
