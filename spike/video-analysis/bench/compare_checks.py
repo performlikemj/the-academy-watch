@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Deterministic paired checks comparison; incomplete coverage withholds thresholds."""
+"""Deterministic multi-run checks comparison; incomplete coverage withholds thresholds."""
 
 from __future__ import annotations
 
@@ -35,8 +35,8 @@ CAVEATS = [
 def compare(
     reports_root: Path, runs: dict[str, str], manifest_path: Path, *, allow_mixed=False
 ) -> dict:
-    if len(runs) != 2:
-        raise ValueError("provide exactly two runs")
+    if len(runs) < 2:
+        raise ValueError("provide at least two runs")
     manifest = json.loads(manifest_path.read_text())
     truths, provenance = load_truth_snapshot(manifest_path)
     selected, reference = None, None
@@ -203,7 +203,7 @@ def compare(
             name: threshold_results(m, complete=complete and bool(shared))
             for name, m in paired.items()
         },
-        "denominators": "All comparison rates use shared IDs scored in both saved reports and current rescoring. Full-run reports retain every attempt. Frame facts use all raw attempts. Configured wall caps alone do not imply an incomplete run.",
+        "denominators": "All comparison rates use shared IDs scored in every saved report and current rescoring. Full-run reports retain every attempt. Frame facts use all raw attempts. Configured wall caps alone do not imply an incomplete run.",
     }
     ordered = sorted(
         frame_facts,
@@ -309,8 +309,8 @@ def markdown(result: dict) -> str:
             "",
         ]
     lines += [
-        "| Run | Scored/failed | Wall s/clip (all attempts) | Macro accuracy | Macro false-yes | Abstain | From thinking (all attempts) |",
-        "|---|---:|---:|---:|---:|---:|---:|",
+        "| Run | Model | Boxed frames/attempt | Scored/failed | Wall s/clip (all attempts) | Macro accuracy | Macro false-yes | Abstain | From thinking (all attempts) |",
+        "|---|---|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for name, lane in result["lanes"].items():
         full = lane["report"]["overall"]
@@ -321,7 +321,7 @@ def markdown(result: dict) -> str:
             else f"{full['wall_s_per_clip']:.3f}"
         )
         lines.append(
-            f"| {lane['run']} | {full['scored_clips']}/{full['failed_clips']} | {wall} | {pct(m['macro_accuracy'])} | {pct(m['macro_false_yes_rate'])} | {pct(m['abstain_rate'])} | {pct(full['from_thinking_rate'])} |"
+            f"| {lane['run']} | {lane['settings']['model']} | {meta['frame_facts'][name]['mean_boxed_frames_per_clip']} | {full['scored_clips']}/{full['failed_clips']} | {wall} | {pct(m['macro_accuracy'])} | {pct(m['macro_false_yes_rate'])} | {pct(m['abstain_rate'])} | {pct(full['from_thinking_rate'])} |"
         )
     lines += [
         "",
@@ -419,7 +419,7 @@ def markdown(result: dict) -> str:
         "",
         "Caveats:",
         "",
-    ] + [f"- {c}" for c in CAVEATS]
+    ] + [f"- {c}" for c in result.get("caveats", CAVEATS)]
     if result.get("execution"):
         lines += [
             "",
