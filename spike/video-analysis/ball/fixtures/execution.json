@@ -1,0 +1,75 @@
+{
+  "base_commit": "55da4e0268fca6d9dedc2278b988c22985d1a4d8",
+  "branch": "feat/bench-ball-detect",
+  "checks": [
+    "BENCH_REQUIRE_CV2=1 ~/Projects/loanarmy/.loan/bin/python -m pytest spike/video-analysis/bench spike/video-analysis/ball -q: 346 passed, no skips; six existing Pillow deprecation warnings.",
+    "Real headless Chromium file:// click-kit smoke: click -> invisible -> JSONL export -> persisted reload -> import PASS; disposable browser profile; synthetic smoke labels never used as human truth",
+    "Mypy --follow-imports=skip --ignore-missing-imports --check-untyped-defs: no issues in 8 bench implementation files (checks our bodies; external model APIs are not statically checked).",
+    "Python compileall: PASS; native-size/fit-width browser controls PASS; fresh browser profile remains entirely unlabelled.",
+    "Actual supervision 0.28.0 InferenceSlicer: 2x2=4 tiles (1010x590), 3x3=9 tiles (707x427); synthetic ball across overlaps merged to one exact source-coordinate box in both grids.",
+    "ruff check spike/video-analysis/bench spike/video-analysis/ball: PASS; ruff format --check: 45 files already formatted.",
+    "compare_ball.py rerun from committed numeric/execution fixtures: JSON and Markdown regenerate byte-for-byte; no inference, local media or network required."
+  ],
+  "click_kit": "/Users/mjjones/ball-truth-review/index.html",
+  "date": "2026-09-10",
+  "decisions": [
+    "Native source found at ~/Projects/loanarmy/spike/video-analysis/footage/youtube/afc-yorkies-full.mp4; SHA256 baf4de6c86b4b4affc0070c9adb58fb1a231e71192c2e8b6d40f6ba676d3b091 matches frozen manifest prefix. Duration 6921.404082 s; 1920x1080 H.264 30000/1001 fps. Manifest external path is a different SoccerTrack asset, not match 4.",
+    "No torch+rfdetr bench environment found. Created ignored ball/.venv-bench with uv Python 3.11.16; versions recorded by inference runner. Existing .loan remains the required pytest interpreter.",
+    "Benchmark and human kit sample every 0.5 seconds across every complete clip window, nearest native frame in half-open window; 1105 sampled frames, not every native video frame. All intervening frames are decoded sequentially inside the wall timer. WASB gets three consecutive native frames ending at each sampled frame; left edge repeats the first frame.",
+    "Fixed proxy voters: rf_full at 0.1, rf_2x2 at 0.1, wasb heatmap 0.5; 3x3 is an evaluated variant without an additional vote. Proxy is endogenous and correlated; keep denominator fixed through RF threshold sweep.",
+    "Kalman 3 metres per sampled-frame jump proxy = 60 source pixels using uncalibrated 20 pixels/metre; 1.0 s maximum gap, no trailing extrapolation counted toward continuity.",
+    "Off-pitch false-ball proxy counts all raw ball observations per ten seconds of actual clip duration at the declared 2 fps cadence. Off-pitch player notes do not prove the whole image contains no ball; this is not validated detector precision.",
+    "WASB MIT checkout ignored under ball/third_party; bypass upstream CUDA-only runner with direct HRNet loading, identical RGB/ImageNet normalization, affine resizing, sigmoid, weighted connected components and peak mass selection. Ball size unavailable for heatmap-only output; never invent a box.",
+    "Optional D skipped: optional model exploration not needed to complete the three requested candidates.",
+    "User fence overrides CONTINUITY update protocol; ledger updates only in the two requested evidence files. Include user-supplied local-path plan as the explicitly allowed docs exception. One commit, no push.",
+    "RF-DETR initial startup failed before measurement on an incorrect metadata attribute; corrected to model.model.resolution (576). Successful run used cached verified weights.",
+    "Pytest initially collected upstream train_and_test.py; scoped ball/conftest.py excludes ignored third_party and venv, without changing bench tests.",
+    "WASB all 20 clips successfully completed on MPS in well under the two-hour setup cap; CPU fallback not needed.",
+    "2x2 final clip report written 06:58:00 UTC; 3x3 model load began 06:58:02 UTC, so measured candidate inference did not overlap.",
+    "3x3 clip latencies vary substantially. Retain observed wall times rather than substitute ideal throughput; the required process guard still matched only this session. No other process stopped.",
+    "Source loader now rejects a native source hash/dimension mismatch before either inference or human-kit extraction. Current measured source was independently verified before every lane.",
+    "3x3 tile overlap is 100 source pixels with an extra pixel at some final tile boundaries because of integer rounding.",
+    "Examples use three declared clips (n12 interception, n17 far-side, n09 sideline), the first WASB-positive sampled frame in each, otherwise middle sample; detections shown at >=0.5 with fixed proxy red rings. Examples visually inspected; they are not human labels."
+  ],
+  "examples": [
+    "/Users/mjjones/Projects/loanarmy-bench-reports/ball-detect-2026-09-10/examples/m04-n12-t1411-237107-242145.png",
+    "/Users/mjjones/Projects/loanarmy-bench-reports/ball-detect-2026-09-10/examples/m04-n17-t717-416826-418915.png",
+    "/Users/mjjones/Projects/loanarmy-bench-reports/ball-detect-2026-09-10/examples/m04-n09-t1409-143096-143834.png"
+  ],
+  "frozen_clip_probe": {
+    "count": 20,
+    "formats": [
+      "1920x1080 h264 30000/1001"
+    ]
+  },
+  "hardware": {
+    "chip": "Apple M4 Max",
+    "memory_bytes": 137438953472,
+    "memory_gib": 128
+  },
+  "mypy_version": "2.3.1",
+  "not_done": [
+    "MJ human ball labels; proxy gate is not human validation",
+    "Homography/metre calibration, touch events, possession attribution and production integration",
+    "Optional YOLO/Roboflow candidate D",
+    "Every-native-frame detector and tracker benchmark",
+    "Push (prohibited)"
+  ],
+  "process_guard": "pgrep -f run_bench|qwen_match_analysis matched only this session's telemetry/caffeinate/Codex launch ancestry; no competing runner; no gate file; no process killed",
+  "rfdetr": {
+    "device": "mps",
+    "input_resolution": 576,
+    "weights_path": "/Users/mjjones/.roboflow/models/rf-detr-medium.pth",
+    "weights_sha256": "749ff6071828aaffac63e204c4f4135ed3d6cdae4d702e086c360edc3b5768c8",
+    "weights_url": "https://storage.googleapis.com/rfdetr/medium_coco/checkpoint_best_regular.pth"
+  },
+  "state": "complete: four candidates x 20 clips, proxy gate FAIL for every tested threshold; human follow-up pending",
+  "wasb": {
+    "license": "MIT",
+    "repository": "https://github.com/nttcom/WASB-SBDT",
+    "revision": "923462cacdeb3353b84ddebdedb3f4b7a8553b0f",
+    "weights_path": "/Users/mjjones/models/wasb/wasb_soccer_best.pth.tar",
+    "weights_sha256": "d0369572807c2baf751880d6cdf3cce9fc6283fa8d153f18af6baf4e64d2646c",
+    "weights_url": "https://drive.google.com/uc?id=1pg0MpMtKZ6ziYEr4oyfKYPOO3hjLw94l"
+  }
+}
