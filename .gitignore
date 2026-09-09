@@ -60,3 +60,6 @@ PLAN.md
 PROGRESS.md
 .ruff_cache/
 sim/report/
+
+# Local evidence bench outputs and scratch dependencies
+/spike/video-analysis/bench/report/

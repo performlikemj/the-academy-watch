@@ -103,8 +103,60 @@ frame, or an `image_pixels` box whose coordinates all remain at or below 1000
 despite a larger sent image is explicitly malformed. The claim records a
 `box_sanity_reason`, and reports count these under `box_sanity_guard_count`.
 
-`qwen3vl_mlx` is intentionally a fail-fast E0 stub. It documents the native
-video model/path but never substitutes another backend.
+## qwen3vl_mlx native video
+
+```sh
+~/Projects/loanarmy/.loan/bin/python spike/video-analysis/bench/run_bench.py \
+  --adapter qwen3vl_mlx --fps 2.0 --clips all \
+  --manifest ~/Projects/loanarmy-bench-frozen/manifest.json \
+  --report-root ~/Projects/loanarmy-bench-reports --run-id e1b-mlx-video-fps2 \
+  --anchor-mode first --box-space normalized_1000 \
+  --num-predict 400 --repeat-penalty 1.15 --timeout 120 --wall-cap 120
+```
+
+Install the worker's pinned template dependencies into its own venv:
+
+```sh
+uv pip install --python ~/mlx-vlm-venv/bin/python -r spike/video-analysis/bench/requirements-worker.txt
+```
+
+The worker no longer inherits `PYTHONPATH`. The optional, fingerprinted
+`BENCH_MLX_PYTHONPATH` escape hatch defaults to empty; normal runs need none.
+Set `HF_HUB_OFFLINE=1` to use the cached model without network access.
+No dependencies, frozen media, or raw reports should be staged.
+
+The bench stays on Python 3.11 and launches `adapters/mlx_worker.py` with
+`BENCH_MLX_PYTHON` (default `~/mlx-vlm-venv/bin/python`, Python 3.12).
+Each clip uses one JSON stdin/stdout transaction and includes model startup in
+wall time. Optional `--wall-cap 120` stops a slow lane after at least five
+attempts (immediately if the breach occurs later), writes the partial report,
+and records `stopped_early.unrun_clips` in `report.json`. The cap is fingerprinted. Failures and unparseable responses are `failed`; there is no fallback.
+`--model` / `BENCH_MLX_MODEL` defaults to
+`mlx-community/Qwen3-VL-8B-Instruct-4bit`. `--fps` overrides `BENCH_MLX_FPS`
+(default 2.0); FPS, resolved model and worker interpreter are fingerprinted.
+`--num-predict` maps to `max_tokens`, `--repeat-penalty` to
+`repetition_penalty` (64-token repetition context, temperature 0).
+
+“Native video” here means mlx-vlm's dense `fps`-sampled frames with Qwen3-VL's
+video encoding, versus the production 3-still multi-image lane. The frozen E1
+Ollama control actually samples every 5 seconds, up to six stills per clip.
+The MLX loader uniformly samples an even frame count (maximum 768); effective
+FPS can differ from the request. Decoder-read indices supply actual source
+timestamps. The installed mlx-vlm Qwen processor does no second sampling;
+native video tensors and temporal patch grids are passed to `generate`. This
+processor omits HF per-pair timestamp tokens: exact times are supplied in the
+text prompt, while the model uses its native video grid for temporal positions.
+
+One separate first-sample image gets the shared red `#N` anchor; the raw video
+is unlabelled. The image uses the same truth-aware first time as Ollama
+(usually 0.05s), while native video begins at 0s. Model claims must already use
+absolute source seconds; only frame provenance is converted from clip-local
+seconds with the shared helper. No heuristic claim-time correction is applied.
+`sent_frames` records every native frame's absolute time and processor-grid
+pixel dimensions. Anchor dimensions/boxes also reflect processor resizing.
+The existing ±0.5s boxed-frame tolerance remains, so nearby unlabelled video
+frames can still count as boxed controls. Normalized-1000 and anchor-first are
+required; all-frame anchors and image-pixel boxes are rejected.
 
 ## Read the report
 
@@ -168,3 +220,54 @@ on the number-not-reliably-readable clips.
 ruff check spike/video-analysis/bench
 ruff format --check spike/video-analysis/bench
 ```
+
+## Production sampling control and reproducible comparison
+
+`qwen3vl_ollama` accepts `--sample-interval` (seconds, default 5.0) and
+`--sample-limit` (default 6). Nondefault sampling settings enter the fingerprint;
+the legacy defaults omit these fields to preserve existing v5 fingerprints exactly.
+Production's policy is one still every 30 seconds, at most three per call.
+For a short 0.5–7 second window this is one still: only the identity anchor.
+
+```sh
+BENCH_NUM_CTX=65536 ~/Projects/loanarmy/.loan/bin/python spike/video-analysis/bench/run_bench.py \
+  --adapter qwen3vl_ollama --anchor-mode first --box-space normalized_1000 \
+  --model qwen3-vl:8b --num-predict 400 --repeat-penalty 1.15 \
+  --sample-interval 30 --sample-limit 3 --clips all \
+  --manifest ~/Projects/loanarmy-bench-frozen/manifest.json \
+  --report-root ~/Projects/loanarmy-bench-reports --run-id e1b-ollama-frames-prod30
+
+~/Projects/loanarmy/.loan/bin/python spike/video-analysis/bench/compare_runs.py \
+  --reports-root ~/Projects/loanarmy-bench-reports \
+  --runs frames=e1b-ollama-frames frames_prod30=e1b-ollama-frames-prod30 \
+         video_fps2=e1b-mlx-video-fps2 video_fps4=e1b-mlx-video-fps4 \
+  --manifest ~/Projects/loanarmy-bench-frozen/manifest.json \
+  --out-json ledgers/research/evidence-bench-2026-09-09-video-lane.json \
+  --out-md ledgers/research/evidence-bench-2026-09-09-video-lane.md
+```
+
+The comparison reads existing run metadata, full report metrics, raw claims and
+(optional) truth identity/kit colour. Outputs are deterministic for those inputs;
+no model calls or frozen-data writes occur. Jersey/kit review records textual
+assertions, not whether a supplied jersey number was independently legible.
+
+Comparison completeness is checked against the report's per-clip entries for every
+selected ID; failed clips count as attempted, and leftover raw claim files cannot
+fill a report gap. A missing entry or a `stopped_early`/`wall_cap_exceeded` marker
+in run/report metadata produces `INCOMPLETE COMPARISON`, lists missing IDs per lane,
+and withholds the historical headline and verdict. A configured `wall_cap_s`
+alone is not a stop marker. Pair comparisons record absent entries as
+`not_attempted`, without assigning a winner.
+
+The jersey review retains all numeric candidates in the legacy `jersey_mentions`
+and `unsupplied_numbers` audit fields. Only unsupplied numbers asserted as
+jersey/shirt/kit detail trigger `invented_jersey_number_kill`; other numeric labels
+(including frame/time/tracking references) appear in each clip's
+`non_jersey_numbers`. Non-string claim text is replaced with an empty string,
+flagged `malformed` with `malformed_fields: ["claim"]`, and counted in
+`malformed_claim_text_count`. These review fields do not change scorer metrics.
+
+Test blind spots: `prepare_anchor` is monkeypatched in MLX adapter tests;
+the worker test fakes the `mlx_vlm` API, so signature drift is caught only by a
+live smoke. The production single-still test exercises actual anchor drawing,
+frame sizing and boxed-frame tagging, with media extraction and inference faked.

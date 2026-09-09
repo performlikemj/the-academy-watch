@@ -24,6 +24,11 @@ from grounding import (  # noqa: E402
 _REQUEST_PATCH_LOCK = threading.Lock()
 
 
+def absolute_timestamp(truth: dict, local_s: float) -> float:
+    """Convert clip-local seconds to the bench source timeline."""
+    return round(float(truth["window"]["start_s"]) + local_s, 3)
+
+
 def sample_timestamps(
     truth: dict, *, interval_s: float = 5.0, limit: int = 6
 ) -> list[tuple[float, float]]:
@@ -41,10 +46,19 @@ def sample_timestamps(
     while next_time < duration and len(local_times) < limit:
         local_times.append(next_time)
         next_time += interval_s
-    return [(round(local, 3), round(start + local, 3)) for local in local_times]
+    return [
+        (round(local, 3), absolute_timestamp(truth, local)) for local in local_times
+    ]
 
 
-def extract_sample_frames(clip: Path, truth: dict, output_dir: Path) -> list[dict]:
+def extract_sample_frames(
+    clip: Path,
+    truth: dict,
+    output_dir: Path,
+    *,
+    interval_s: float = 5.0,
+    limit: int = 6,
+) -> list[dict]:
     ffmpeg = shutil.which("ffmpeg")
     ffprobe = shutil.which("ffprobe")
     if not ffmpeg or not ffprobe:
@@ -54,7 +68,9 @@ def extract_sample_frames(clip: Path, truth: dict, output_dir: Path) -> list[dic
     qwen_match_analysis.ffprobe_argv(ffprobe, clip)
     frames: list[dict] = []
     output_dir.mkdir(parents=True, exist_ok=True)
-    for index, (local_s, absolute_s) in enumerate(sample_timestamps(truth)):
+    for index, (local_s, absolute_s) in enumerate(
+        sample_timestamps(truth, interval_s=interval_s, limit=limit)
+    ):
         output = output_dir / f"frame-{index:02d}.jpg"
         qwen_match_analysis.extract_frame(
             clip,

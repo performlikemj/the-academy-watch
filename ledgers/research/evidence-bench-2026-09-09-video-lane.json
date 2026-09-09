@@ -1,0 +1,4245 @@
+{
+  "experiment": "E1b — Qwen3-VL native-video versus sampled-frame grounded-claim bench",
+  "date": "2026-09-09",
+  "frozen_set": "20 evaluation-only clips (frozen_set_id 1f68e2755002b3598c763532e95c212de9261ffa638c2943ad3769a1be77503f)",
+  "basecamp": "Apple silicon Mac, 128 GB; Ollama 0.33.2, num_ctx=65536; mlx-vlm 0.6.17; Python 3.12.14 worker, Python 3.11.16 bench",
+  "worker_dependencies": {
+    "Jinja2": "3.1.6",
+    "MarkupSafe": "3.0.3",
+    "location": "installed in MLX venv via requirements-worker.txt; historical video runs used report/.worker-deps"
+  },
+  "lane_order": [
+    "frames",
+    "frames_prod30",
+    "video_fps2",
+    "video_fps4"
+  ],
+  "frames": {
+    "run": "e1b-ollama-frames",
+    "model": "qwen3-vl:8b",
+    "adapter": "qwen3vl_ollama",
+    "settings": {
+      "adapter": "qwen3vl_ollama",
+      "anchor_mode": "first",
+      "box_space": "normalized_1000",
+      "clips": [
+        "m04-n02-t3005-474114-478131",
+        "m04-n03-t1406-157170-158922",
+        "m04-n03-t1406-385962-387137",
+        "m04-n04-t3006-243433-247994",
+        "m04-n04-t3006-307417-310307",
+        "m04-n05-t3007-284945-287898",
+        "m04-n09-t1409-143096-143834",
+        "m04-n09-t1409-297601-298865",
+        "m04-n09-t1409-385922-386603",
+        "m04-n10-t711-186553-188161",
+        "m04-n12-t1411-237107-242145",
+        "m04-n12-t1411-679986-681985",
+        "m04-n15-t3010-164698-170777",
+        "m04-n17-t717-253073-260377",
+        "m04-n17-t717-304624-307834",
+        "m04-n17-t717-416826-418915",
+        "m04-n21-t3011-390297-390800",
+        "m04-n22-t3012-070707-074371",
+        "m04-n24-t3013-679939-681217",
+        "m04-n25-t3014-530600-532465"
+      ],
+      "fingerprint": "2426f5e86cfe705347cd1fc5ff0e59bdff9555e7d2f01aec814d395e86132df8",
+      "format_mode": "json",
+      "frozen_set_id": "1f68e2755002b3598c763532e95c212de9261ffa638c2943ad3769a1be77503f",
+      "model": "qwen3-vl:8b",
+      "num_predict": 400,
+      "ollama_url": "http://127.0.0.1:11434",
+      "repeat_penalty": 1.15,
+      "schema_version": "film-room-evidence-run-v5",
+      "timeout_s": 300.0
+    },
+    "metrics": {
+      "box_grounded_at_midpoint_rate": 0.0,
+      "box_grounded_at_midpoint_rate_boxed": 0.0,
+      "box_grounded_at_midpoint_rate_unboxed": 0.0,
+      "box_grounded_rate": 0.7368,
+      "box_grounded_rate_boxed": 0.8235,
+      "box_grounded_rate_unboxed": 0.0,
+      "box_sanity_guard_count": 0,
+      "boxed_claim_count": 17,
+      "claim_count": 19,
+      "claims_per_clip": 1.0,
+      "echo_suspect_count": 0,
+      "fabricated_rate": null,
+      "failed_clips": 1,
+      "hollow_rate": 0.0,
+      "malformed_rate": 0.0,
+      "observed_clips": 0,
+      "scored_clips": 19,
+      "supported_rate": 0.7368,
+      "supported_rate_boxed": 0.8235,
+      "supported_rate_unboxed": 0.0,
+      "time_only_rate": 0.2632,
+      "tokens_per_clip": null,
+      "unboxed_claim_count": 2,
+      "unsupported_rate": 0.2632,
+      "untracked_gap": 0,
+      "untracked_gap_rate": 0.0,
+      "wall_s_per_clip": 12.759
+    },
+    "fps": null,
+    "attempted_clips": 20,
+    "clips_with_any_supported_claim": 14,
+    "sent_frames_per_clip": 4.15,
+    "recorded_sent_frames_per_clip": 4.45,
+    "sent_frames_mean_denominator": "all attempted clips; pre-inference anchor failures count zero; separate MLX anchor excluded",
+    "sent_sizes": [
+      [
+        1280,
+        720
+      ]
+    ],
+    "sent_resolution_min": [
+      1280,
+      720
+    ],
+    "sent_resolution_max": [
+      1280,
+      720
+    ],
+    "tokens": {
+      "prompt_tokens": {
+        "available_clips": 0,
+        "total": null,
+        "mean": null
+      },
+      "generation_tokens": {
+        "available_clips": 0,
+        "total": null,
+        "mean": null
+      }
+    },
+    "max_wall_s": 22.463,
+    "stopped_early": null,
+    "failures": [
+      {
+        "clip_id": "m04-n02-t3005-474114-478131",
+        "error": "RuntimeError: truth box is unavailable at sampled time 4741.190s",
+        "claims_raw": ""
+      }
+    ],
+    "thresholds": {
+      "unsupported_le_10_percent": false,
+      "supported_ge_2x_historical_baseline_zero": true,
+      "hollow_lt_5_percent": true,
+      "every_attempt_le_120s": true,
+      "kill_unsupported_gt_25_percent": true,
+      "invented_jersey_number_kill": false
+    }
+  },
+  "frames_prod30": {
+    "run": "e1b-ollama-frames-prod30",
+    "model": "qwen3-vl:8b",
+    "adapter": "qwen3vl_ollama",
+    "settings": {
+      "adapter": "qwen3vl_ollama",
+      "anchor_mode": "first",
+      "box_space": "normalized_1000",
+      "clips": [
+        "m04-n02-t3005-474114-478131",
+        "m04-n03-t1406-157170-158922",
+        "m04-n03-t1406-385962-387137",
+        "m04-n04-t3006-243433-247994",
+        "m04-n04-t3006-307417-310307",
+        "m04-n05-t3007-284945-287898",
+        "m04-n09-t1409-143096-143834",
+        "m04-n09-t1409-297601-298865",
+        "m04-n09-t1409-385922-386603",
+        "m04-n10-t711-186553-188161",
+        "m04-n12-t1411-237107-242145",
+        "m04-n12-t1411-679986-681985",
+        "m04-n15-t3010-164698-170777",
+        "m04-n17-t717-253073-260377",
+        "m04-n17-t717-304624-307834",
+        "m04-n17-t717-416826-418915",
+        "m04-n21-t3011-390297-390800",
+        "m04-n22-t3012-070707-074371",
+        "m04-n24-t3013-679939-681217",
+        "m04-n25-t3014-530600-532465"
+      ],
+      "fingerprint": "511cc19a375b0e99ed3ae9db43ae9b66d7a253114467df847eb668c34fd41cc5",
+      "format_mode": "json",
+      "frozen_set_id": "1f68e2755002b3598c763532e95c212de9261ffa638c2943ad3769a1be77503f",
+      "model": "qwen3-vl:8b",
+      "num_predict": 400,
+      "ollama_url": "http://127.0.0.1:11434",
+      "repeat_penalty": 1.15,
+      "sample_interval": 30.0,
+      "sample_limit": 3,
+      "schema_version": "film-room-evidence-run-v5",
+      "timeout_s": 300.0
+    },
+    "metrics": {
+      "box_grounded_at_midpoint_rate": 0.0526,
+      "box_grounded_at_midpoint_rate_boxed": 0.0556,
+      "box_grounded_at_midpoint_rate_unboxed": 0.0,
+      "box_grounded_rate": 0.8421,
+      "box_grounded_rate_boxed": 0.8889,
+      "box_grounded_rate_unboxed": 0.0,
+      "box_sanity_guard_count": 0,
+      "boxed_claim_count": 18,
+      "claim_count": 19,
+      "claims_per_clip": 1.0,
+      "echo_suspect_count": 0,
+      "fabricated_rate": null,
+      "failed_clips": 1,
+      "hollow_rate": 0.0,
+      "malformed_rate": 0.0,
+      "observed_clips": 0,
+      "scored_clips": 19,
+      "supported_rate": 0.8421,
+      "supported_rate_boxed": 0.8889,
+      "supported_rate_unboxed": 0.0,
+      "time_only_rate": 0.1579,
+      "tokens_per_clip": null,
+      "unboxed_claim_count": 1,
+      "unsupported_rate": 0.1579,
+      "untracked_gap": 0,
+      "untracked_gap_rate": 0.0,
+      "wall_s_per_clip": 6.367
+    },
+    "fps": null,
+    "attempted_clips": 20,
+    "clips_with_any_supported_claim": 16,
+    "sent_frames_per_clip": 1.35,
+    "recorded_sent_frames_per_clip": 1.45,
+    "sent_frames_mean_denominator": "all attempted clips; pre-inference anchor failures count zero; separate MLX anchor excluded",
+    "sent_sizes": [
+      [
+        1280,
+        720
+      ]
+    ],
+    "sent_resolution_min": [
+      1280,
+      720
+    ],
+    "sent_resolution_max": [
+      1280,
+      720
+    ],
+    "tokens": {
+      "prompt_tokens": {
+        "available_clips": 0,
+        "total": null,
+        "mean": null
+      },
+      "generation_tokens": {
+        "available_clips": 0,
+        "total": null,
+        "mean": null
+      }
+    },
+    "max_wall_s": 11.958,
+    "stopped_early": null,
+    "failures": [
+      {
+        "clip_id": "m04-n02-t3005-474114-478131",
+        "error": "RuntimeError: truth box is unavailable at sampled time 4741.190s",
+        "claims_raw": ""
+      }
+    ],
+    "thresholds": {
+      "unsupported_le_10_percent": false,
+      "supported_ge_2x_historical_baseline_zero": true,
+      "hollow_lt_5_percent": true,
+      "every_attempt_le_120s": true,
+      "kill_unsupported_gt_25_percent": false,
+      "invented_jersey_number_kill": false
+    }
+  },
+  "video_fps2": {
+    "run": "e1b-mlx-video-fps2",
+    "model": "mlx-community/Qwen3-VL-8B-Instruct-4bit",
+    "adapter": "qwen3vl_mlx",
+    "settings": {
+      "adapter": "qwen3vl_mlx",
+      "anchor_mode": "first",
+      "box_space": "normalized_1000",
+      "clips": [
+        "m04-n02-t3005-474114-478131",
+        "m04-n03-t1406-157170-158922",
+        "m04-n03-t1406-385962-387137",
+        "m04-n04-t3006-243433-247994",
+        "m04-n04-t3006-307417-310307",
+        "m04-n05-t3007-284945-287898",
+        "m04-n09-t1409-143096-143834",
+        "m04-n09-t1409-297601-298865",
+        "m04-n09-t1409-385922-386603",
+        "m04-n10-t711-186553-188161",
+        "m04-n12-t1411-237107-242145",
+        "m04-n12-t1411-679986-681985",
+        "m04-n15-t3010-164698-170777",
+        "m04-n17-t717-253073-260377",
+        "m04-n17-t717-304624-307834",
+        "m04-n17-t717-416826-418915",
+        "m04-n21-t3011-390297-390800",
+        "m04-n22-t3012-070707-074371",
+        "m04-n24-t3013-679939-681217",
+        "m04-n25-t3014-530600-532465"
+      ],
+      "fingerprint": "0d787eb0cf4c0334c4abf085748ddd0530aab8453d7933566779e39984bd4fd9",
+      "format_mode": "json",
+      "fps": 2.0,
+      "frozen_set_id": "1f68e2755002b3598c763532e95c212de9261ffa638c2943ad3769a1be77503f",
+      "mlx_python": "/Users/mjjones/mlx-vlm-venv/bin/python",
+      "mlx_pythonpath": "/Users/mjjones/Projects/loanarmy/.worktrees/video-lane/spike/video-analysis/bench/report/.worker-deps",
+      "model": "mlx-community/Qwen3-VL-8B-Instruct-4bit",
+      "num_predict": 400,
+      "ollama_url": "http://127.0.0.1:11434",
+      "repeat_penalty": 1.15,
+      "repetition_context_size": 64,
+      "schema_version": "film-room-evidence-run-v5",
+      "temperature": 0.0,
+      "timeout_s": 120.0
+    },
+    "metrics": {
+      "box_grounded_at_midpoint_rate": 0.0,
+      "box_grounded_at_midpoint_rate_boxed": 0.0,
+      "box_grounded_at_midpoint_rate_unboxed": 0.0,
+      "box_grounded_rate": 0.6875,
+      "box_grounded_rate_boxed": 0.7333,
+      "box_grounded_rate_unboxed": 0.0,
+      "box_sanity_guard_count": 0,
+      "boxed_claim_count": 15,
+      "claim_count": 16,
+      "claims_per_clip": 1.0,
+      "echo_suspect_count": 0,
+      "fabricated_rate": null,
+      "failed_clips": 4,
+      "hollow_rate": 0.0,
+      "malformed_rate": 0.0,
+      "observed_clips": 0,
+      "scored_clips": 16,
+      "supported_rate": 0.6875,
+      "supported_rate_boxed": 0.7333,
+      "supported_rate_unboxed": 0.0,
+      "time_only_rate": 0.3125,
+      "tokens_per_clip": 85.737,
+      "unboxed_claim_count": 1,
+      "unsupported_rate": 0.3125,
+      "untracked_gap": 0,
+      "untracked_gap_rate": 0.0,
+      "wall_s_per_clip": 56.017
+    },
+    "fps": 2.0,
+    "attempted_clips": 20,
+    "clips_with_any_supported_claim": 11,
+    "sent_frames_per_clip": 49.6,
+    "recorded_sent_frames_per_clip": 49.6,
+    "sent_frames_mean_denominator": "all attempted clips; pre-inference anchor failures count zero; separate MLX anchor excluded",
+    "sent_sizes": [
+      [
+        544,
+        288
+      ],
+      [
+        608,
+        320
+      ],
+      [
+        640,
+        352
+      ],
+      [
+        704,
+        384
+      ],
+      [
+        768,
+        416
+      ],
+      [
+        832,
+        448
+      ],
+      [
+        864,
+        480
+      ],
+      [
+        1056,
+        576
+      ],
+      [
+        1056,
+        608
+      ],
+      [
+        1088,
+        608
+      ],
+      [
+        1120,
+        640
+      ],
+      [
+        1152,
+        640
+      ],
+      [
+        1344,
+        768
+      ],
+      [
+        1408,
+        800
+      ],
+      [
+        1760,
+        992
+      ],
+      [
+        1920,
+        1088
+      ]
+    ],
+    "sent_resolution_min": [
+      544,
+      288
+    ],
+    "sent_resolution_max": [
+      1920,
+      1088
+    ],
+    "tokens": {
+      "prompt_tokens": {
+        "available_clips": 19,
+        "total": 256519,
+        "mean": 13501
+      },
+      "generation_tokens": {
+        "available_clips": 19,
+        "total": 1629,
+        "mean": 85.737
+      }
+    },
+    "max_wall_s": 98.052,
+    "stopped_early": null,
+    "failures": [
+      {
+        "clip_id": "m04-n02-t3005-474114-478131",
+        "error": "RuntimeError: truth box is unavailable at sampled time 4741.190s",
+        "claims_raw": ""
+      },
+      {
+        "clip_id": "m04-n04-t3006-243433-247994",
+        "error": "no parseable claims",
+        "claims_raw": "{\"claims\":[{\"claim\":\"The player marked with a red rectangle in the first frame is visible across multiple subsequent frames.\",\"t0\":2434.38,\"t1\":2479.94,\"box_t\":2434.38,\"box\":[65, 1000, 1000, 1000],\"confidence\":\"high\",\"visibility\":\"clear\"}]}"
+      },
+      {
+        "clip_id": "m04-n05-t3007-284945-287898",
+        "error": "no parseable claims",
+        "claims_raw": "{\"claims\":[]}"
+      },
+      {
+        "clip_id": "m04-n09-t1409-143096-143834",
+        "error": "no parseable claims",
+        "claims_raw": "{\"claims\":[{\"claim\":\"A player in a red jersey and black shorts is standing near the sideline, arms crossed.\",\"t0\":1431.527,\"t1\":1438.334,\"box_t\":1431.010,\"box\":[926, 630, 996, 996],\"confidence\":\"high\",\"visibility\":\"clear\"}]}"
+      }
+    ],
+    "thresholds": {
+      "unsupported_le_10_percent": false,
+      "supported_ge_2x_historical_baseline_zero": true,
+      "hollow_lt_5_percent": true,
+      "every_attempt_le_120s": true,
+      "kill_unsupported_gt_25_percent": true,
+      "invented_jersey_number_kill": false
+    }
+  },
+  "video_fps4": {
+    "run": "e1b-mlx-video-fps4",
+    "model": "mlx-community/Qwen3-VL-8B-Instruct-4bit",
+    "adapter": "qwen3vl_mlx",
+    "settings": {
+      "adapter": "qwen3vl_mlx",
+      "anchor_mode": "first",
+      "box_space": "normalized_1000",
+      "clips": [
+        "m04-n02-t3005-474114-478131",
+        "m04-n03-t1406-157170-158922",
+        "m04-n03-t1406-385962-387137",
+        "m04-n04-t3006-243433-247994",
+        "m04-n04-t3006-307417-310307",
+        "m04-n05-t3007-284945-287898",
+        "m04-n09-t1409-143096-143834",
+        "m04-n09-t1409-297601-298865",
+        "m04-n09-t1409-385922-386603",
+        "m04-n10-t711-186553-188161",
+        "m04-n12-t1411-237107-242145",
+        "m04-n12-t1411-679986-681985",
+        "m04-n15-t3010-164698-170777",
+        "m04-n17-t717-253073-260377",
+        "m04-n17-t717-304624-307834",
+        "m04-n17-t717-416826-418915",
+        "m04-n21-t3011-390297-390800",
+        "m04-n22-t3012-070707-074371",
+        "m04-n24-t3013-679939-681217",
+        "m04-n25-t3014-530600-532465"
+      ],
+      "fingerprint": "fd66d3163071f6749682edefa6326ae4c9c0536c1eee09f284fffeb945f48435",
+      "format_mode": "json",
+      "fps": 4.0,
+      "frozen_set_id": "1f68e2755002b3598c763532e95c212de9261ffa638c2943ad3769a1be77503f",
+      "mlx_python": "/Users/mjjones/mlx-vlm-venv/bin/python",
+      "mlx_pythonpath": "/Users/mjjones/Projects/loanarmy/.worktrees/video-lane/spike/video-analysis/bench/report/.worker-deps",
+      "model": "mlx-community/Qwen3-VL-8B-Instruct-4bit",
+      "num_predict": 400,
+      "ollama_url": "http://127.0.0.1:11434",
+      "repeat_penalty": 1.15,
+      "repetition_context_size": 64,
+      "schema_version": "film-room-evidence-run-v5",
+      "temperature": 0.0,
+      "timeout_s": 120.0,
+      "wall_cap_s": 120.0
+    },
+    "metrics": {
+      "box_grounded_at_midpoint_rate": 0.0,
+      "box_grounded_at_midpoint_rate_boxed": 0.0,
+      "box_grounded_at_midpoint_rate_unboxed": null,
+      "box_grounded_rate": 0.7778,
+      "box_grounded_rate_boxed": 0.7778,
+      "box_grounded_rate_unboxed": null,
+      "box_sanity_guard_count": 0,
+      "boxed_claim_count": 18,
+      "claim_count": 18,
+      "claims_per_clip": 1.0,
+      "echo_suspect_count": 0,
+      "fabricated_rate": null,
+      "failed_clips": 2,
+      "hollow_rate": 0.0,
+      "malformed_rate": 0.0,
+      "observed_clips": 0,
+      "scored_clips": 18,
+      "supported_rate": 0.7778,
+      "supported_rate_boxed": 0.7778,
+      "supported_rate_unboxed": null,
+      "time_only_rate": 0.2222,
+      "tokens_per_clip": 89.684,
+      "unboxed_claim_count": 0,
+      "unsupported_rate": 0.2222,
+      "untracked_gap": 0,
+      "untracked_gap_rate": 0.0,
+      "wall_s_per_clip": 63.771
+    },
+    "fps": 4.0,
+    "attempted_clips": 20,
+    "clips_with_any_supported_claim": 14,
+    "sent_frames_per_clip": 100.5,
+    "recorded_sent_frames_per_clip": 100.5,
+    "sent_frames_mean_denominator": "all attempted clips; pre-inference anchor failures count zero; separate MLX anchor excluded",
+    "sent_sizes": [
+      [
+        384,
+        192
+      ],
+      [
+        416,
+        224
+      ],
+      [
+        448,
+        256
+      ],
+      [
+        480,
+        256
+      ],
+      [
+        544,
+        288
+      ],
+      [
+        576,
+        320
+      ],
+      [
+        608,
+        320
+      ],
+      [
+        608,
+        352
+      ],
+      [
+        736,
+        384
+      ],
+      [
+        736,
+        416
+      ],
+      [
+        768,
+        416
+      ],
+      [
+        768,
+        448
+      ],
+      [
+        832,
+        448
+      ],
+      [
+        928,
+        512
+      ],
+      [
+        960,
+        544
+      ],
+      [
+        1248,
+        704
+      ],
+      [
+        1280,
+        736
+      ],
+      [
+        1472,
+        832
+      ]
+    ],
+    "sent_resolution_min": [
+      384,
+      192
+    ],
+    "sent_resolution_max": [
+      1472,
+      832
+    ],
+    "tokens": {
+      "prompt_tokens": {
+        "available_clips": 19,
+        "total": 263949,
+        "mean": 13892.053
+      },
+      "generation_tokens": {
+        "available_clips": 19,
+        "total": 1704,
+        "mean": 89.684
+      }
+    },
+    "max_wall_s": 95.118,
+    "stopped_early": null,
+    "failures": [
+      {
+        "clip_id": "m04-n02-t3005-474114-478131",
+        "error": "RuntimeError: truth box is unavailable at sampled time 4741.190s",
+        "claims_raw": ""
+      },
+      {
+        "clip_id": "m04-n17-t717-253073-260377",
+        "error": "no parseable claims",
+        "claims_raw": "{ \"claims\": [ { \"claim\": \"The player in the red jersey is running with the ball.\", \"t0\": 2531.497, \"t1\": 2536.736, \"box_t\": 2530.830, \"box\": [100, 600, 150, 650], \"confidence\": \"medium\", \"visibility\": \"clear\" } ] }"
+      }
+    ],
+    "thresholds": {
+      "unsupported_le_10_percent": false,
+      "supported_ge_2x_historical_baseline_zero": true,
+      "hollow_lt_5_percent": true,
+      "every_attempt_le_120s": true,
+      "kill_unsupported_gt_25_percent": false,
+      "invented_jersey_number_kill": false
+    }
+  },
+  "per_clip_flips": {
+    "frames_prod30": [
+      {
+        "clip_id": "m04-n04-t3006-243433-247994",
+        "winner": "frames",
+        "kind": "supported_clip",
+        "control": {
+          "status": "scored",
+          "error": null,
+          "claims": [
+            {
+              "claim": "The player marked with red rectangle in frame 2434.380 is visible as a person wearing dark clothing and standing near the goal area.",
+              "box_t": 2434.38,
+              "supported": true,
+              "boxed_frame": true,
+              "malformed": false,
+              "malformed_fields": [],
+              "time_grounded": true,
+              "box_grounded": true,
+              "iou": 0.5337,
+              "claim_box_containment": 0.7484
+            }
+          ],
+          "raw_claim_texts": [
+            "The player marked with red rectangle in frame 2434.380 is visible as a person wearing dark clothing and standing near the goal area."
+          ]
+        },
+        "compared": {
+          "status": "scored",
+          "error": null,
+          "claims": [
+            {
+              "claim": "The player marked with red rectangle in frame 2434.380 is visible at position (751, 469) in the field.",
+              "box_t": 2434.38,
+              "supported": false,
+              "boxed_frame": true,
+              "malformed": false,
+              "malformed_fields": [],
+              "time_grounded": true,
+              "box_grounded": false,
+              "iou": 0.0686,
+              "claim_box_containment": 0.428
+            }
+          ],
+          "raw_claim_texts": [
+            "The player marked with red rectangle in frame 2434.380 is visible at position (751, 469) in the field."
+          ]
+        }
+      },
+      {
+        "clip_id": "m04-n12-t1411-237107-242145",
+        "winner": "frames_prod30",
+        "kind": "supported_clip",
+        "control": {
+          "status": "scored",
+          "error": null,
+          "claims": [
+            {
+              "claim": "The player marked with #12 in frame 0 is visible running on the field.",
+              "box_t": 2371.12,
+              "supported": false,
+              "boxed_frame": true,
+              "malformed": false,
+              "malformed_fields": [],
+              "time_grounded": true,
+              "box_grounded": false,
+              "iou": 0.2703,
+              "claim_box_containment": 0.4368
+            }
+          ],
+          "raw_claim_texts": [
+            "The player marked with #12 in frame 0 is visible running on the field."
+          ]
+        },
+        "compared": {
+          "status": "scored",
+          "error": null,
+          "claims": [
+            {
+              "claim": "The player marked with #12 in frame 0 is visible running on the field.",
+              "box_t": 2371.12,
+              "supported": true,
+              "boxed_frame": true,
+              "malformed": false,
+              "malformed_fields": [],
+              "time_grounded": true,
+              "box_grounded": true,
+              "iou": 0.5033,
+              "claim_box_containment": 0.6437
+            }
+          ],
+          "raw_claim_texts": [
+            "The player marked with #12 in frame 0 is visible running on the field."
+          ]
+        }
+      },
+      {
+        "clip_id": "m04-n12-t1411-679986-681985",
+        "winner": "frames_prod30",
+        "kind": "supported_clip",
+        "control": {
+          "status": "scored",
+          "error": null,
+          "claims": [
+            {
+              "claim": "The player marked with #12 in frame 0 is visible at the same location across frames 1-3.",
+              "box_t": 6799.91,
+              "supported": false,
+              "boxed_frame": true,
+              "malformed": false,
+              "malformed_fields": [],
+              "time_grounded": true,
+              "box_grounded": false,
+              "iou": 0.4264,
+              "claim_box_containment": 0.5338
+            }
+          ],
+          "raw_claim_texts": [
+            "The player marked with #12 in frame 0 is visible at the same location across frames 1-3."
+          ]
+        },
+        "compared": {
+          "status": "scored",
+          "error": null,
+          "claims": [
+            {
+              "claim": "The player marked with #12 in frame 6799.910 is visible on the field.",
+              "box_t": 6799.91,
+              "supported": true,
+              "boxed_frame": true,
+              "malformed": false,
+              "malformed_fields": [],
+              "time_grounded": true,
+              "box_grounded": true,
+              "iou": 0.7602,
+              "claim_box_containment": 0.8789
+            }
+          ],
+          "raw_claim_texts": [
+            "The player marked with #12 in frame 6799.910 is visible on the field."
+          ]
+        }
+      },
+      {
+        "clip_id": "m04-n17-t717-304624-307834",
+        "winner": "frames",
+        "kind": "supported_clip",
+        "control": {
+          "status": "scored",
+          "error": null,
+          "claims": [
+            {
+              "claim": "The player marked with #17 in frame 3046.340 is visible running on the field.",
+              "box_t": 3046.34,
+              "supported": true,
+              "boxed_frame": true,
+              "malformed": false,
+              "malformed_fields": [],
+              "time_grounded": true,
+              "box_grounded": true,
+              "iou": 0.6323,
+              "claim_box_containment": 0.7909
+            }
+          ],
+          "raw_claim_texts": [
+            "The player marked with #17 in frame 3046.340 is visible running on the field."
+          ]
+        },
+        "compared": {
+          "status": "scored",
+          "error": null,
+          "claims": [
+            {
+              "claim": "The player marked with #17 in frame 3046.340 appears on the field at timestamp 3076.340.",
+              "box_t": 3076.34,
+              "supported": false,
+              "boxed_frame": false,
+              "malformed": false,
+              "malformed_fields": [],
+              "time_grounded": true,
+              "box_grounded": false,
+              "iou": 0.0,
+              "claim_box_containment": 0.0
+            }
+          ],
+          "raw_claim_texts": [
+            "The player marked with #17 in frame 3046.340 appears on the field at timestamp 3076.340."
+          ]
+        }
+      },
+      {
+        "clip_id": "m04-n24-t3013-679939-681217",
+        "winner": "frames_prod30",
+        "kind": "supported_clip",
+        "control": {
+          "status": "scored",
+          "error": null,
+          "claims": [
+            {
+              "claim": "The player marked with #24 in frame 6799.440 is visible at the same location as a referee holding a white object.",
+              "box_t": 6804.44,
+              "supported": false,
+              "boxed_frame": false,
+              "malformed": false,
+              "malformed_fields": [],
+              "time_grounded": true,
+              "box_grounded": false,
+              "iou": 0.0,
+              "claim_box_containment": 0.0
+            }
+          ],
+          "raw_claim_texts": [
+            "The player marked with #24 in frame 6799.440 is visible at the same location as a referee holding a white object."
+          ]
+        },
+        "compared": {
+          "status": "scored",
+          "error": null,
+          "claims": [
+            {
+              "claim": "The player marked with #24 in frame 6799.440 is visible on the field.",
+              "box_t": 6799.44,
+              "supported": true,
+              "boxed_frame": true,
+              "malformed": false,
+              "malformed_fields": [],
+              "time_grounded": true,
+              "box_grounded": true,
+              "iou": 0.8101,
+              "claim_box_containment": 0.9653
+            }
+          ],
+          "raw_claim_texts": [
+            "The player marked with #24 in frame 6799.440 is visible on the field."
+          ]
+        }
+      },
+      {
+        "clip_id": "m04-n25-t3014-530600-532465",
+        "winner": "frames_prod30",
+        "kind": "supported_clip",
+        "control": {
+          "status": "scored",
+          "error": null,
+          "claims": [
+            {
+              "claim": "The player marked with #25 in frame 0 is visible at position (178,349) in the first image.",
+              "box_t": 5306.05,
+              "supported": false,
+              "boxed_frame": true,
+              "malformed": false,
+              "malformed_fields": [],
+              "time_grounded": true,
+              "box_grounded": false,
+              "iou": 0.0,
+              "claim_box_containment": 0.0
+            }
+          ],
+          "raw_claim_texts": [
+            "The player marked with #25 in frame 0 is visible at position (178,349) in the first image."
+          ]
+        },
+        "compared": {
+          "status": "scored",
+          "error": null,
+          "claims": [
+            {
+              "claim": "The player marked #25 in frame 0 is visible on the field.",
+              "box_t": 5306.05,
+              "supported": true,
+              "boxed_frame": true,
+              "malformed": false,
+              "malformed_fields": [],
+              "time_grounded": true,
+              "box_grounded": true,
+              "iou": 0.5925,
+              "claim_box_containment": 0.9084
+            }
+          ],
+          "raw_claim_texts": [
+            "The player marked #25 in frame 0 is visible on the field."
+          ]
+        }
+      }
+    ],
+    "video_fps2": [
+      {
+        "clip_id": "m04-n04-t3006-243433-247994",
+        "winner": "frames",
+        "kind": "supported_clip",
+        "control": {
+          "status": "scored",
+          "error": null,
+          "claims": [
+            {
+              "claim": "The player marked with red rectangle in frame 2434.380 is visible as a person wearing dark clothing and standing near the goal area.",
+              "box_t": 2434.38,
+              "supported": true,
+              "boxed_frame": true,
+              "malformed": false,
+              "malformed_fields": [],
+              "time_grounded": true,
+              "box_grounded": true,
+              "iou": 0.5337,
+              "claim_box_containment": 0.7484
+            }
+          ],
+          "raw_claim_texts": [
+            "The player marked with red rectangle in frame 2434.380 is visible as a person wearing dark clothing and standing near the goal area."
+          ]
+        },
+        "compared": {
+          "status": "failed",
+          "error": "no parseable claims",
+          "claims": [
+            {
+              "claim": "The player marked with a red rectangle in the first frame is visible across multiple subsequent frames.",
+              "box_t": 2434.38,
+              "boxed_frame": true,
+              "malformed": true,
+              "malformed_fields": [
+                "box coordinates are not ordered after conversion (space=normalized_1000)",
+                "box_order"
+              ]
+            }
+          ],
+          "raw_claim_texts": [
+            "The player marked with a red rectangle in the first frame is visible across multiple subsequent frames."
+          ]
+        }
+      },
+      {
+        "clip_id": "m04-n05-t3007-284945-287898",
+        "winner": "frames",
+        "kind": "supported_clip",
+        "control": {
+          "status": "scored",
+          "error": null,
+          "claims": [
+            {
+              "claim": "The player marked with red rectangle in frame 0 (2849.500) is visible in subsequent frames.",
+              "box_t": 2849.5,
+              "supported": true,
+              "boxed_frame": true,
+              "malformed": false,
+              "malformed_fields": [],
+              "time_grounded": true,
+              "box_grounded": true,
+              "iou": 0.5485,
+              "claim_box_containment": 0.9501
+            }
+          ],
+          "raw_claim_texts": [
+            "The player marked with red rectangle in frame 0 (2849.500) is visible in subsequent frames."
+          ]
+        },
+        "compared": {
+          "status": "failed",
+          "error": "no parseable claims",
+          "claims": [],
+          "raw_claim_texts": []
+        }
+      },
+      {
+        "clip_id": "m04-n09-t1409-143096-143834",
+        "winner": "frames",
+        "kind": "supported_clip",
+        "control": {
+          "status": "scored",
+          "error": null,
+          "claims": [
+            {
+              "claim": "The player in red with arms crossed stands near the sideline.",
+              "box_t": 1431.01,
+              "supported": true,
+              "boxed_frame": true,
+              "malformed": false,
+              "malformed_fields": [],
+              "time_grounded": true,
+              "box_grounded": true,
+              "iou": 0.7283,
+              "claim_box_containment": 0.7715
+            }
+          ],
+          "raw_claim_texts": [
+            "The player in red with arms crossed stands near the sideline."
+          ]
+        },
+        "compared": {
+          "status": "failed",
+          "error": "no parseable claims",
+          "claims": [
+            {
+              "claim": "A player in a red jersey and black shorts is standing near the sideline, arms crossed.",
+              "box_t": 1431.01,
+              "boxed_frame": true,
+              "malformed": true,
+              "malformed_fields": [
+                "box_t outside claim span"
+              ]
+            }
+          ],
+          "raw_claim_texts": [
+            "A player in a red jersey and black shorts is standing near the sideline, arms crossed."
+          ]
+        }
+      },
+      {
+        "clip_id": "m04-n10-t711-186553-188161",
+        "winner": "frames",
+        "kind": "supported_clip",
+        "control": {
+          "status": "scored",
+          "error": null,
+          "claims": [
+            {
+              "claim": "The player marked with #10 in frame 1865.580 is visible in subsequent frames.",
+              "box_t": 1865.58,
+              "supported": true,
+              "boxed_frame": true,
+              "malformed": false,
+              "malformed_fields": [],
+              "time_grounded": true,
+              "box_grounded": true,
+              "iou": 0.7748,
+              "claim_box_containment": 0.9415
+            }
+          ],
+          "raw_claim_texts": [
+            "The player marked with #10 in frame 1865.580 is visible in subsequent frames."
+          ]
+        },
+        "compared": {
+          "status": "scored",
+          "error": null,
+          "claims": [
+            {
+              "claim": "A player in a red jersey is visible on the field.",
+              "box_t": 1879.511,
+              "supported": false,
+              "boxed_frame": false,
+              "malformed": false,
+              "malformed_fields": [],
+              "time_grounded": true,
+              "box_grounded": false,
+              "iou": 0.0,
+              "claim_box_containment": 0.0
+            }
+          ],
+          "raw_claim_texts": [
+            "A player in a red jersey is visible on the field."
+          ]
+        }
+      },
+      {
+        "clip_id": "m04-n15-t3010-164698-170777",
+        "winner": "frames",
+        "kind": "supported_clip",
+        "control": {
+          "status": "scored",
+          "error": null,
+          "claims": [
+            {
+              "claim": "The player marked with red rectangle in frame 1647.030 appears to be a footballer wearing a red jersey and black shorts.",
+              "box_t": 1647.03,
+              "supported": true,
+              "boxed_frame": true,
+              "malformed": false,
+              "malformed_fields": [],
+              "time_grounded": true,
+              "box_grounded": true,
+              "iou": 0.5055,
+              "claim_box_containment": 1.0
+            }
+          ],
+          "raw_claim_texts": [
+            "The player marked with red rectangle in frame 1647.030 appears to be a footballer wearing a red jersey and black shorts."
+          ]
+        },
+        "compared": {
+          "status": "scored",
+          "error": null,
+          "claims": [
+            {
+              "claim": "Player with red rectangle in first frame is tracked through the video.",
+              "box_t": 1647.03,
+              "supported": false,
+              "boxed_frame": true,
+              "malformed": false,
+              "malformed_fields": [],
+              "time_grounded": true,
+              "box_grounded": false,
+              "iou": 0.0247,
+              "claim_box_containment": 0.0377
+            }
+          ],
+          "raw_claim_texts": [
+            "Player with red rectangle in first frame is tracked through the video."
+          ]
+        }
+      },
+      {
+        "clip_id": "m04-n17-t717-253073-260377",
+        "winner": "video_fps2",
+        "kind": "supported_clip",
+        "control": {
+          "status": "scored",
+          "error": null,
+          "claims": [
+            {
+              "claim": "The player in red jersey with number 17 is holding a football.",
+              "box_t": 2535.83,
+              "supported": false,
+              "boxed_frame": false,
+              "malformed": false,
+              "malformed_fields": [],
+              "time_grounded": true,
+              "box_grounded": false,
+              "iou": 0.0,
+              "claim_box_containment": 0.0
+            }
+          ],
+          "raw_claim_texts": [
+            "The player in red jersey with number 17 is holding a football."
+          ]
+        },
+        "compared": {
+          "status": "scored",
+          "error": null,
+          "claims": [
+            {
+              "claim": "A player in a red jersey is visible on the field.",
+              "box_t": 2530.83,
+              "supported": true,
+              "boxed_frame": true,
+              "malformed": false,
+              "malformed_fields": [],
+              "time_grounded": true,
+              "box_grounded": true,
+              "iou": 0.7942,
+              "claim_box_containment": 0.923
+            }
+          ],
+          "raw_claim_texts": [
+            "A player in a red jersey is visible on the field."
+          ]
+        }
+      },
+      {
+        "clip_id": "m04-n17-t717-416826-418915",
+        "winner": "frames",
+        "kind": "supported_clip",
+        "control": {
+          "status": "scored",
+          "error": null,
+          "claims": [
+            {
+              "claim": "The player marked with #17 in frame 4168.330 is visible running on the field.",
+              "box_t": 4168.33,
+              "supported": true,
+              "boxed_frame": true,
+              "malformed": false,
+              "malformed_fields": [],
+              "time_grounded": true,
+              "box_grounded": true,
+              "iou": 0.8621,
+              "claim_box_containment": 0.9177
+            }
+          ],
+          "raw_claim_texts": [
+            "The player marked with #17 in frame 4168.330 is visible running on the field."
+          ]
+        },
+        "compared": {
+          "status": "scored",
+          "error": null,
+          "claims": [
+            {
+              "claim": "The player wearing a red jersey with the number 17 is visible in frame t0=4168.330 and continues to be tracked through subsequent frames.",
+              "box_t": 4168.33,
+              "supported": false,
+              "boxed_frame": true,
+              "malformed": false,
+              "malformed_fields": [],
+              "time_grounded": true,
+              "box_grounded": false,
+              "iou": 0.4912,
+              "claim_box_containment": 0.6221
+            }
+          ],
+          "raw_claim_texts": [
+            "The player wearing a red jersey with the number 17 is visible in frame t0=4168.330 and continues to be tracked through subsequent frames."
+          ]
+        }
+      },
+      {
+        "clip_id": "m04-n24-t3013-679939-681217",
+        "winner": "video_fps2",
+        "kind": "supported_clip",
+        "control": {
+          "status": "scored",
+          "error": null,
+          "claims": [
+            {
+              "claim": "The player marked with #24 in frame 6799.440 is visible at the same location as a referee holding a white object.",
+              "box_t": 6804.44,
+              "supported": false,
+              "boxed_frame": false,
+              "malformed": false,
+              "malformed_fields": [],
+              "time_grounded": true,
+              "box_grounded": false,
+              "iou": 0.0,
+              "claim_box_containment": 0.0
+            }
+          ],
+          "raw_claim_texts": [
+            "The player marked with #24 in frame 6799.440 is visible at the same location as a referee holding a white object."
+          ]
+        },
+        "compared": {
+          "status": "scored",
+          "error": null,
+          "claims": [
+            {
+              "claim": "The player wearing a black jersey with the number 24 is walking on the field.",
+              "box_t": 6799.44,
+              "supported": true,
+              "boxed_frame": true,
+              "malformed": false,
+              "malformed_fields": [],
+              "time_grounded": true,
+              "box_grounded": true,
+              "iou": 0.808,
+              "claim_box_containment": 0.9537
+            }
+          ],
+          "raw_claim_texts": [
+            "The player wearing a black jersey with the number 24 is walking on the field."
+          ]
+        }
+      },
+      {
+        "clip_id": "m04-n25-t3014-530600-532465",
+        "winner": "video_fps2",
+        "kind": "supported_clip",
+        "control": {
+          "status": "scored",
+          "error": null,
+          "claims": [
+            {
+              "claim": "The player marked with #25 in frame 0 is visible at position (178,349) in the first image.",
+              "box_t": 5306.05,
+              "supported": false,
+              "boxed_frame": true,
+              "malformed": false,
+              "malformed_fields": [],
+              "time_grounded": true,
+              "box_grounded": false,
+              "iou": 0.0,
+              "claim_box_containment": 0.0
+            }
+          ],
+          "raw_claim_texts": [
+            "The player marked with #25 in frame 0 is visible at position (178,349) in the first image."
+          ]
+        },
+        "compared": {
+          "status": "scored",
+          "error": null,
+          "claims": [
+            {
+              "claim": "Player #25 is visible in the video.",
+              "box_t": 5306.05,
+              "supported": true,
+              "boxed_frame": true,
+              "malformed": false,
+              "malformed_fields": [],
+              "time_grounded": true,
+              "box_grounded": true,
+              "iou": 0.449,
+              "claim_box_containment": 1.0
+            }
+          ],
+          "raw_claim_texts": [
+            "Player #25 is visible in the video."
+          ]
+        }
+      }
+    ],
+    "video_fps4": [
+      {
+        "clip_id": "m04-n04-t3006-243433-247994",
+        "winner": "frames",
+        "kind": "supported_clip",
+        "control": {
+          "status": "scored",
+          "error": null,
+          "claims": [
+            {
+              "claim": "The player marked with red rectangle in frame 2434.380 is visible as a person wearing dark clothing and standing near the goal area.",
+              "box_t": 2434.38,
+              "supported": true,
+              "boxed_frame": true,
+              "malformed": false,
+              "malformed_fields": [],
+              "time_grounded": true,
+              "box_grounded": true,
+              "iou": 0.5337,
+              "claim_box_containment": 0.7484
+            }
+          ],
+          "raw_claim_texts": [
+            "The player marked with red rectangle in frame 2434.380 is visible as a person wearing dark clothing and standing near the goal area."
+          ]
+        },
+        "compared": {
+          "status": "scored",
+          "error": null,
+          "claims": [
+            {
+              "claim": "A player in a red jersey is tracked across multiple frames.",
+              "box_t": 2434.38,
+              "supported": false,
+              "boxed_frame": true,
+              "malformed": false,
+              "malformed_fields": [],
+              "time_grounded": true,
+              "box_grounded": false,
+              "iou": 0.0,
+              "claim_box_containment": 0.0
+            }
+          ],
+          "raw_claim_texts": [
+            "A player in a red jersey is tracked across multiple frames."
+          ]
+        }
+      },
+      {
+        "clip_id": "m04-n15-t3010-164698-170777",
+        "winner": "frames",
+        "kind": "supported_clip",
+        "control": {
+          "status": "scored",
+          "error": null,
+          "claims": [
+            {
+              "claim": "The player marked with red rectangle in frame 1647.030 appears to be a footballer wearing a red jersey and black shorts.",
+              "box_t": 1647.03,
+              "supported": true,
+              "boxed_frame": true,
+              "malformed": false,
+              "malformed_fields": [],
+              "time_grounded": true,
+              "box_grounded": true,
+              "iou": 0.5055,
+              "claim_box_containment": 1.0
+            }
+          ],
+          "raw_claim_texts": [
+            "The player marked with red rectangle in frame 1647.030 appears to be a footballer wearing a red jersey and black shorts."
+          ]
+        },
+        "compared": {
+          "status": "scored",
+          "error": null,
+          "claims": [
+            {
+              "claim": "A player in a blue jersey is tracked across multiple frames.",
+              "box_t": 1647.03,
+              "supported": false,
+              "boxed_frame": true,
+              "malformed": false,
+              "malformed_fields": [],
+              "time_grounded": true,
+              "box_grounded": false,
+              "iou": 0.0,
+              "claim_box_containment": 0.0
+            }
+          ],
+          "raw_claim_texts": [
+            "A player in a blue jersey is tracked across multiple frames."
+          ]
+        }
+      },
+      {
+        "clip_id": "m04-n17-t717-253073-260377",
+        "winner": null,
+        "kind": "availability_only",
+        "control": {
+          "status": "scored",
+          "error": null,
+          "claims": [
+            {
+              "claim": "The player in red jersey with number 17 is holding a football.",
+              "box_t": 2535.83,
+              "supported": false,
+              "boxed_frame": false,
+              "malformed": false,
+              "malformed_fields": [],
+              "time_grounded": true,
+              "box_grounded": false,
+              "iou": 0.0,
+              "claim_box_containment": 0.0
+            }
+          ],
+          "raw_claim_texts": [
+            "The player in red jersey with number 17 is holding a football."
+          ]
+        },
+        "compared": {
+          "status": "failed",
+          "error": "no parseable claims",
+          "claims": [
+            {
+              "claim": "The player in the red jersey is running with the ball.",
+              "box_t": 2530.83,
+              "boxed_frame": true,
+              "malformed": true,
+              "malformed_fields": [
+                "box_t outside claim span"
+              ]
+            }
+          ],
+          "raw_claim_texts": [
+            "The player in the red jersey is running with the ball."
+          ]
+        }
+      },
+      {
+        "clip_id": "m04-n24-t3013-679939-681217",
+        "winner": "video_fps4",
+        "kind": "supported_clip",
+        "control": {
+          "status": "scored",
+          "error": null,
+          "claims": [
+            {
+              "claim": "The player marked with #24 in frame 6799.440 is visible at the same location as a referee holding a white object.",
+              "box_t": 6804.44,
+              "supported": false,
+              "boxed_frame": false,
+              "malformed": false,
+              "malformed_fields": [],
+              "time_grounded": true,
+              "box_grounded": false,
+              "iou": 0.0,
+              "claim_box_containment": 0.0
+            }
+          ],
+          "raw_claim_texts": [
+            "The player marked with #24 in frame 6799.440 is visible at the same location as a referee holding a white object."
+          ]
+        },
+        "compared": {
+          "status": "scored",
+          "error": null,
+          "claims": [
+            {
+              "claim": "The player identified by the red rectangle in frame 0 is visible in subsequent frames.",
+              "box_t": 6799.44,
+              "supported": true,
+              "boxed_frame": true,
+              "malformed": false,
+              "malformed_fields": [],
+              "time_grounded": true,
+              "box_grounded": true,
+              "iou": 0.7162,
+              "claim_box_containment": 0.9537
+            }
+          ],
+          "raw_claim_texts": [
+            "The player identified by the red rectangle in frame 0 is visible in subsequent frames."
+          ]
+        }
+      },
+      {
+        "clip_id": "m04-n25-t3014-530600-532465",
+        "winner": "video_fps4",
+        "kind": "supported_clip",
+        "control": {
+          "status": "scored",
+          "error": null,
+          "claims": [
+            {
+              "claim": "The player marked with #25 in frame 0 is visible at position (178,349) in the first image.",
+              "box_t": 5306.05,
+              "supported": false,
+              "boxed_frame": true,
+              "malformed": false,
+              "malformed_fields": [],
+              "time_grounded": true,
+              "box_grounded": false,
+              "iou": 0.0,
+              "claim_box_containment": 0.0
+            }
+          ],
+          "raw_claim_texts": [
+            "The player marked with #25 in frame 0 is visible at position (178,349) in the first image."
+          ]
+        },
+        "compared": {
+          "status": "scored",
+          "error": null,
+          "claims": [
+            {
+              "claim": "The player identified by the red rectangle in frame 5306.050 is visible in subsequent frames.",
+              "box_t": 5306.05,
+              "supported": true,
+              "boxed_frame": true,
+              "malformed": false,
+              "malformed_fields": [],
+              "time_grounded": true,
+              "box_grounded": true,
+              "iou": 0.5111,
+              "claim_box_containment": 1.0
+            }
+          ],
+          "raw_claim_texts": [
+            "The player identified by the red rectangle in frame 5306.050 is visible in subsequent frames."
+          ]
+        }
+      }
+    ]
+  },
+  "per_clip_flips_vs_production": {
+    "video_fps2": [
+      {
+        "clip_id": "m04-n04-t3006-243433-247994",
+        "winner": null,
+        "kind": "availability_only",
+        "control": {
+          "status": "scored",
+          "error": null,
+          "claims": [
+            {
+              "claim": "The player marked with red rectangle in frame 2434.380 is visible at position (751, 469) in the field.",
+              "box_t": 2434.38,
+              "supported": false,
+              "boxed_frame": true,
+              "malformed": false,
+              "malformed_fields": [],
+              "time_grounded": true,
+              "box_grounded": false,
+              "iou": 0.0686,
+              "claim_box_containment": 0.428
+            }
+          ],
+          "raw_claim_texts": [
+            "The player marked with red rectangle in frame 2434.380 is visible at position (751, 469) in the field."
+          ]
+        },
+        "compared": {
+          "status": "failed",
+          "error": "no parseable claims",
+          "claims": [
+            {
+              "claim": "The player marked with a red rectangle in the first frame is visible across multiple subsequent frames.",
+              "box_t": 2434.38,
+              "boxed_frame": true,
+              "malformed": true,
+              "malformed_fields": [
+                "box coordinates are not ordered after conversion (space=normalized_1000)",
+                "box_order"
+              ]
+            }
+          ],
+          "raw_claim_texts": [
+            "The player marked with a red rectangle in the first frame is visible across multiple subsequent frames."
+          ]
+        }
+      },
+      {
+        "clip_id": "m04-n05-t3007-284945-287898",
+        "winner": "frames_prod30",
+        "kind": "supported_clip",
+        "control": {
+          "status": "scored",
+          "error": null,
+          "claims": [
+            {
+              "claim": "The player with red rectangle in frame 2849.500 is visible on the field.",
+              "box_t": 2849.5,
+              "supported": true,
+              "boxed_frame": true,
+              "malformed": false,
+              "malformed_fields": [],
+              "time_grounded": true,
+              "box_grounded": true,
+              "iou": 0.5958,
+              "claim_box_containment": 0.8314
+            }
+          ],
+          "raw_claim_texts": [
+            "The player with red rectangle in frame 2849.500 is visible on the field."
+          ]
+        },
+        "compared": {
+          "status": "failed",
+          "error": "no parseable claims",
+          "claims": [],
+          "raw_claim_texts": []
+        }
+      },
+      {
+        "clip_id": "m04-n09-t1409-143096-143834",
+        "winner": "frames_prod30",
+        "kind": "supported_clip",
+        "control": {
+          "status": "scored",
+          "error": null,
+          "claims": [
+            {
+              "claim": "The player in red with black sleeves stands near the sideline.",
+              "box_t": 1431.01,
+              "supported": true,
+              "boxed_frame": true,
+              "malformed": false,
+              "malformed_fields": [],
+              "time_grounded": true,
+              "box_grounded": true,
+              "iou": 0.719,
+              "claim_box_containment": 0.7611
+            }
+          ],
+          "raw_claim_texts": [
+            "The player in red with black sleeves stands near the sideline."
+          ]
+        },
+        "compared": {
+          "status": "failed",
+          "error": "no parseable claims",
+          "claims": [
+            {
+              "claim": "A player in a red jersey and black shorts is standing near the sideline, arms crossed.",
+              "box_t": 1431.01,
+              "boxed_frame": true,
+              "malformed": true,
+              "malformed_fields": [
+                "box_t outside claim span"
+              ]
+            }
+          ],
+          "raw_claim_texts": [
+            "A player in a red jersey and black shorts is standing near the sideline, arms crossed."
+          ]
+        }
+      },
+      {
+        "clip_id": "m04-n10-t711-186553-188161",
+        "winner": "frames_prod30",
+        "kind": "supported_clip",
+        "control": {
+          "status": "scored",
+          "error": null,
+          "claims": [
+            {
+              "claim": "The player with red rectangle in frame 1865.580 is visible on the field.",
+              "box_t": 1865.58,
+              "supported": true,
+              "boxed_frame": true,
+              "malformed": false,
+              "malformed_fields": [],
+              "time_grounded": true,
+              "box_grounded": true,
+              "iou": 0.7924,
+              "claim_box_containment": 0.9792
+            }
+          ],
+          "raw_claim_texts": [
+            "The player with red rectangle in frame 1865.580 is visible on the field."
+          ]
+        },
+        "compared": {
+          "status": "scored",
+          "error": null,
+          "claims": [
+            {
+              "claim": "A player in a red jersey is visible on the field.",
+              "box_t": 1879.511,
+              "supported": false,
+              "boxed_frame": false,
+              "malformed": false,
+              "malformed_fields": [],
+              "time_grounded": true,
+              "box_grounded": false,
+              "iou": 0.0,
+              "claim_box_containment": 0.0
+            }
+          ],
+          "raw_claim_texts": [
+            "A player in a red jersey is visible on the field."
+          ]
+        }
+      },
+      {
+        "clip_id": "m04-n12-t1411-237107-242145",
+        "winner": "frames_prod30",
+        "kind": "supported_clip",
+        "control": {
+          "status": "scored",
+          "error": null,
+          "claims": [
+            {
+              "claim": "The player marked with #12 in frame 0 is visible running on the field.",
+              "box_t": 2371.12,
+              "supported": true,
+              "boxed_frame": true,
+              "malformed": false,
+              "malformed_fields": [],
+              "time_grounded": true,
+              "box_grounded": true,
+              "iou": 0.5033,
+              "claim_box_containment": 0.6437
+            }
+          ],
+          "raw_claim_texts": [
+            "The player marked with #12 in frame 0 is visible running on the field."
+          ]
+        },
+        "compared": {
+          "status": "scored",
+          "error": null,
+          "claims": [
+            {
+              "claim": "The player identified by the red rectangle in frame 2371.120 is visible across multiple subsequent frames.",
+              "box_t": 2371.12,
+              "supported": false,
+              "boxed_frame": true,
+              "malformed": false,
+              "malformed_fields": [],
+              "time_grounded": true,
+              "box_grounded": false,
+              "iou": 0.0,
+              "claim_box_containment": 0.0
+            }
+          ],
+          "raw_claim_texts": [
+            "The player identified by the red rectangle in frame 2371.120 is visible across multiple subsequent frames."
+          ]
+        }
+      },
+      {
+        "clip_id": "m04-n12-t1411-679986-681985",
+        "winner": "frames_prod30",
+        "kind": "supported_clip",
+        "control": {
+          "status": "scored",
+          "error": null,
+          "claims": [
+            {
+              "claim": "The player marked with #12 in frame 6799.910 is visible on the field.",
+              "box_t": 6799.91,
+              "supported": true,
+              "boxed_frame": true,
+              "malformed": false,
+              "malformed_fields": [],
+              "time_grounded": true,
+              "box_grounded": true,
+              "iou": 0.7602,
+              "claim_box_containment": 0.8789
+            }
+          ],
+          "raw_claim_texts": [
+            "The player marked with #12 in frame 6799.910 is visible on the field."
+          ]
+        },
+        "compared": {
+          "status": "scored",
+          "error": null,
+          "claims": [
+            {
+              "claim": "The player identified by the red rectangle in frame 6799.910 is visible in subsequent frames.",
+              "box_t": 6799.91,
+              "supported": false,
+              "boxed_frame": true,
+              "malformed": false,
+              "malformed_fields": [],
+              "time_grounded": true,
+              "box_grounded": false,
+              "iou": 0.3713,
+              "claim_box_containment": 0.4325
+            }
+          ],
+          "raw_claim_texts": [
+            "The player identified by the red rectangle in frame 6799.910 is visible in subsequent frames."
+          ]
+        }
+      },
+      {
+        "clip_id": "m04-n15-t3010-164698-170777",
+        "winner": "frames_prod30",
+        "kind": "supported_clip",
+        "control": {
+          "status": "scored",
+          "error": null,
+          "claims": [
+            {
+              "claim": "The player marked with red rectangle in frame 1647.030 appears as a footballer wearing a red jersey and black shorts.",
+              "box_t": 1647.03,
+              "supported": true,
+              "boxed_frame": true,
+              "malformed": false,
+              "malformed_fields": [],
+              "time_grounded": true,
+              "box_grounded": true,
+              "iou": 0.8615,
+              "claim_box_containment": 0.9684
+            }
+          ],
+          "raw_claim_texts": [
+            "The player marked with red rectangle in frame 1647.030 appears as a footballer wearing a red jersey and black shorts."
+          ]
+        },
+        "compared": {
+          "status": "scored",
+          "error": null,
+          "claims": [
+            {
+              "claim": "Player with red rectangle in first frame is tracked through the video.",
+              "box_t": 1647.03,
+              "supported": false,
+              "boxed_frame": true,
+              "malformed": false,
+              "malformed_fields": [],
+              "time_grounded": true,
+              "box_grounded": false,
+              "iou": 0.0247,
+              "claim_box_containment": 0.0377
+            }
+          ],
+          "raw_claim_texts": [
+            "Player with red rectangle in first frame is tracked through the video."
+          ]
+        }
+      },
+      {
+        "clip_id": "m04-n17-t717-253073-260377",
+        "winner": "video_fps2",
+        "kind": "supported_clip",
+        "control": {
+          "status": "scored",
+          "error": null,
+          "claims": [
+            {
+              "claim": "The player in red jersey with number 17 is visible on the field.",
+              "box_t": 2530.83,
+              "supported": false,
+              "boxed_frame": true,
+              "malformed": false,
+              "malformed_fields": [],
+              "time_grounded": true,
+              "box_grounded": false,
+              "iou": 0.4097,
+              "claim_box_containment": 0.7236
+            }
+          ],
+          "raw_claim_texts": [
+            "The player in red jersey with number 17 is visible on the field."
+          ]
+        },
+        "compared": {
+          "status": "scored",
+          "error": null,
+          "claims": [
+            {
+              "claim": "A player in a red jersey is visible on the field.",
+              "box_t": 2530.83,
+              "supported": true,
+              "boxed_frame": true,
+              "malformed": false,
+              "malformed_fields": [],
+              "time_grounded": true,
+              "box_grounded": true,
+              "iou": 0.7942,
+              "claim_box_containment": 0.923
+            }
+          ],
+          "raw_claim_texts": [
+            "A player in a red jersey is visible on the field."
+          ]
+        }
+      },
+      {
+        "clip_id": "m04-n17-t717-304624-307834",
+        "winner": "video_fps2",
+        "kind": "supported_clip",
+        "control": {
+          "status": "scored",
+          "error": null,
+          "claims": [
+            {
+              "claim": "The player marked with #17 in frame 3046.340 appears on the field at timestamp 3076.340.",
+              "box_t": 3076.34,
+              "supported": false,
+              "boxed_frame": false,
+              "malformed": false,
+              "malformed_fields": [],
+              "time_grounded": true,
+              "box_grounded": false,
+              "iou": 0.0,
+              "claim_box_containment": 0.0
+            }
+          ],
+          "raw_claim_texts": [
+            "The player marked with #17 in frame 3046.340 appears on the field at timestamp 3076.340."
+          ]
+        },
+        "compared": {
+          "status": "scored",
+          "error": null,
+          "claims": [
+            {
+              "claim": "The player marked with a red rectangle in the first frame is tracked across subsequent frames.",
+              "box_t": 3046.34,
+              "supported": true,
+              "boxed_frame": true,
+              "malformed": false,
+              "malformed_fields": [],
+              "time_grounded": true,
+              "box_grounded": true,
+              "iou": 0.632,
+              "claim_box_containment": 0.8292
+            }
+          ],
+          "raw_claim_texts": [
+            "The player marked with a red rectangle in the first frame is tracked across subsequent frames."
+          ]
+        }
+      },
+      {
+        "clip_id": "m04-n17-t717-416826-418915",
+        "winner": "frames_prod30",
+        "kind": "supported_clip",
+        "control": {
+          "status": "scored",
+          "error": null,
+          "claims": [
+            {
+              "claim": "The player wearing red jersey number 17 is visible on the field.",
+              "box_t": 4168.33,
+              "supported": true,
+              "boxed_frame": true,
+              "malformed": false,
+              "malformed_fields": [],
+              "time_grounded": true,
+              "box_grounded": true,
+              "iou": 0.7595,
+              "claim_box_containment": 0.9352
+            }
+          ],
+          "raw_claim_texts": [
+            "The player wearing red jersey number 17 is visible on the field."
+          ]
+        },
+        "compared": {
+          "status": "scored",
+          "error": null,
+          "claims": [
+            {
+              "claim": "The player wearing a red jersey with the number 17 is visible in frame t0=4168.330 and continues to be tracked through subsequent frames.",
+              "box_t": 4168.33,
+              "supported": false,
+              "boxed_frame": true,
+              "malformed": false,
+              "malformed_fields": [],
+              "time_grounded": true,
+              "box_grounded": false,
+              "iou": 0.4912,
+              "claim_box_containment": 0.6221
+            }
+          ],
+          "raw_claim_texts": [
+            "The player wearing a red jersey with the number 17 is visible in frame t0=4168.330 and continues to be tracked through subsequent frames."
+          ]
+        }
+      }
+    ],
+    "video_fps4": [
+      {
+        "clip_id": "m04-n12-t1411-237107-242145",
+        "winner": "frames_prod30",
+        "kind": "supported_clip",
+        "control": {
+          "status": "scored",
+          "error": null,
+          "claims": [
+            {
+              "claim": "The player marked with #12 in frame 0 is visible running on the field.",
+              "box_t": 2371.12,
+              "supported": true,
+              "boxed_frame": true,
+              "malformed": false,
+              "malformed_fields": [],
+              "time_grounded": true,
+              "box_grounded": true,
+              "iou": 0.5033,
+              "claim_box_containment": 0.6437
+            }
+          ],
+          "raw_claim_texts": [
+            "The player marked with #12 in frame 0 is visible running on the field."
+          ]
+        },
+        "compared": {
+          "status": "scored",
+          "error": null,
+          "claims": [
+            {
+              "claim": "Player wearing red jersey, tracked as #12 in the first frame, is visible across subsequent frames.",
+              "box_t": 2371.12,
+              "supported": false,
+              "boxed_frame": true,
+              "malformed": false,
+              "malformed_fields": [],
+              "time_grounded": true,
+              "box_grounded": false,
+              "iou": 0.0,
+              "claim_box_containment": 0.0
+            }
+          ],
+          "raw_claim_texts": [
+            "Player wearing red jersey, tracked as #12 in the first frame, is visible across subsequent frames."
+          ]
+        }
+      },
+      {
+        "clip_id": "m04-n12-t1411-679986-681985",
+        "winner": "frames_prod30",
+        "kind": "supported_clip",
+        "control": {
+          "status": "scored",
+          "error": null,
+          "claims": [
+            {
+              "claim": "The player marked with #12 in frame 6799.910 is visible on the field.",
+              "box_t": 6799.91,
+              "supported": true,
+              "boxed_frame": true,
+              "malformed": false,
+              "malformed_fields": [],
+              "time_grounded": true,
+              "box_grounded": true,
+              "iou": 0.7602,
+              "claim_box_containment": 0.8789
+            }
+          ],
+          "raw_claim_texts": [
+            "The player marked with #12 in frame 6799.910 is visible on the field."
+          ]
+        },
+        "compared": {
+          "status": "scored",
+          "error": null,
+          "claims": [
+            {
+              "claim": "Player #12 is walking on the field.",
+              "box_t": 6799.91,
+              "supported": false,
+              "boxed_frame": true,
+              "malformed": false,
+              "malformed_fields": [],
+              "time_grounded": true,
+              "box_grounded": false,
+              "iou": 0.2299,
+              "claim_box_containment": 0.2579
+            }
+          ],
+          "raw_claim_texts": [
+            "Player #12 is walking on the field."
+          ]
+        }
+      },
+      {
+        "clip_id": "m04-n15-t3010-164698-170777",
+        "winner": "frames_prod30",
+        "kind": "supported_clip",
+        "control": {
+          "status": "scored",
+          "error": null,
+          "claims": [
+            {
+              "claim": "The player marked with red rectangle in frame 1647.030 appears as a footballer wearing a red jersey and black shorts.",
+              "box_t": 1647.03,
+              "supported": true,
+              "boxed_frame": true,
+              "malformed": false,
+              "malformed_fields": [],
+              "time_grounded": true,
+              "box_grounded": true,
+              "iou": 0.8615,
+              "claim_box_containment": 0.9684
+            }
+          ],
+          "raw_claim_texts": [
+            "The player marked with red rectangle in frame 1647.030 appears as a footballer wearing a red jersey and black shorts."
+          ]
+        },
+        "compared": {
+          "status": "scored",
+          "error": null,
+          "claims": [
+            {
+              "claim": "A player in a blue jersey is tracked across multiple frames.",
+              "box_t": 1647.03,
+              "supported": false,
+              "boxed_frame": true,
+              "malformed": false,
+              "malformed_fields": [],
+              "time_grounded": true,
+              "box_grounded": false,
+              "iou": 0.0,
+              "claim_box_containment": 0.0
+            }
+          ],
+          "raw_claim_texts": [
+            "A player in a blue jersey is tracked across multiple frames."
+          ]
+        }
+      },
+      {
+        "clip_id": "m04-n17-t717-253073-260377",
+        "winner": null,
+        "kind": "availability_only",
+        "control": {
+          "status": "scored",
+          "error": null,
+          "claims": [
+            {
+              "claim": "The player in red jersey with number 17 is visible on the field.",
+              "box_t": 2530.83,
+              "supported": false,
+              "boxed_frame": true,
+              "malformed": false,
+              "malformed_fields": [],
+              "time_grounded": true,
+              "box_grounded": false,
+              "iou": 0.4097,
+              "claim_box_containment": 0.7236
+            }
+          ],
+          "raw_claim_texts": [
+            "The player in red jersey with number 17 is visible on the field."
+          ]
+        },
+        "compared": {
+          "status": "failed",
+          "error": "no parseable claims",
+          "claims": [
+            {
+              "claim": "The player in the red jersey is running with the ball.",
+              "box_t": 2530.83,
+              "boxed_frame": true,
+              "malformed": true,
+              "malformed_fields": [
+                "box_t outside claim span"
+              ]
+            }
+          ],
+          "raw_claim_texts": [
+            "The player in the red jersey is running with the ball."
+          ]
+        }
+      },
+      {
+        "clip_id": "m04-n17-t717-304624-307834",
+        "winner": "video_fps4",
+        "kind": "supported_clip",
+        "control": {
+          "status": "scored",
+          "error": null,
+          "claims": [
+            {
+              "claim": "The player marked with #17 in frame 3046.340 appears on the field at timestamp 3076.340.",
+              "box_t": 3076.34,
+              "supported": false,
+              "boxed_frame": false,
+              "malformed": false,
+              "malformed_fields": [],
+              "time_grounded": true,
+              "box_grounded": false,
+              "iou": 0.0,
+              "claim_box_containment": 0.0
+            }
+          ],
+          "raw_claim_texts": [
+            "The player marked with #17 in frame 3046.340 appears on the field at timestamp 3076.340."
+          ]
+        },
+        "compared": {
+          "status": "scored",
+          "error": null,
+          "claims": [
+            {
+              "claim": "The player marked with a red rectangle in the first frame is tracked across subsequent frames.",
+              "box_t": 3046.34,
+              "supported": true,
+              "boxed_frame": true,
+              "malformed": false,
+              "malformed_fields": [],
+              "time_grounded": true,
+              "box_grounded": true,
+              "iou": 0.5093,
+              "claim_box_containment": 0.7118
+            }
+          ],
+          "raw_claim_texts": [
+            "The player marked with a red rectangle in the first frame is tracked across subsequent frames."
+          ]
+        }
+      }
+    ]
+  },
+  "jersey_review": {
+    "frames": {
+      "m04-n02-t3005-474114-478131": {
+        "adapter_error": "RuntimeError: truth box is unavailable at sampled time 4741.190s",
+        "supplied_jersey_number": 2,
+        "truth_kit_colour": "red",
+        "claims": [],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": false,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n03-t1406-157170-158922": {
+        "adapter_error": null,
+        "supplied_jersey_number": 3,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "The player marked with #3 in frame 1571.750 is visible on the field.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [
+              {
+                "text": "#3",
+                "number": 3,
+                "matches_supplied": true,
+                "asserted_as_kit_detail": false
+              }
+            ],
+            "kit_colours_mentioned": [],
+            "kit_colour_check": "not mentioned"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [
+          3
+        ],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": false,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n03-t1406-385962-387137": {
+        "adapter_error": null,
+        "supplied_jersey_number": 3,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "The player wearing red jersey number 3 is visible in frame.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [
+              {
+                "text": "number 3",
+                "number": 3,
+                "matches_supplied": true,
+                "asserted_as_kit_detail": true
+              }
+            ],
+            "kit_colours_mentioned": [
+              "red"
+            ],
+            "kit_colour_check": "match"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": true,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n04-t3006-243433-247994": {
+        "adapter_error": null,
+        "supplied_jersey_number": 4,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "The player marked with red rectangle in frame 2434.380 is visible as a person wearing dark clothing and standing near the goal area.",
+            "vague_clothing_descriptions": [
+              "dark clothing"
+            ],
+            "jersey_mentions": [],
+            "kit_colours_mentioned": [],
+            "kit_colour_check": "unconfirmed: vague clothing description"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": false,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n04-t3006-307417-310307": {
+        "adapter_error": null,
+        "supplied_jersey_number": 4,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "The player in red jersey with black shorts runs across the field.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [],
+            "kit_colours_mentioned": [
+              "red"
+            ],
+            "kit_colour_check": "match"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": false,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n05-t3007-284945-287898": {
+        "adapter_error": null,
+        "supplied_jersey_number": 5,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "The player marked with red rectangle in frame 0 (2849.500) is visible in subsequent frames.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [],
+            "kit_colours_mentioned": [],
+            "kit_colour_check": "not mentioned"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": false,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n09-t1409-143096-143834": {
+        "adapter_error": null,
+        "supplied_jersey_number": 9,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "The player in red with arms crossed stands near the sideline.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [],
+            "kit_colours_mentioned": [
+              "red"
+            ],
+            "kit_colour_check": "match"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": false,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n09-t1409-297601-298865": {
+        "adapter_error": null,
+        "supplied_jersey_number": 9,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "The player marked with red rectangle in frame 2976.060 is visible at position (15,483) to (55,690).",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [],
+            "kit_colours_mentioned": [],
+            "kit_colour_check": "not mentioned"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": false,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n09-t1409-385922-386603": {
+        "adapter_error": null,
+        "supplied_jersey_number": 9,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "The player wearing red jersey number 9 is visible on the right side of the frame.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [
+              {
+                "text": "number 9",
+                "number": 9,
+                "matches_supplied": true,
+                "asserted_as_kit_detail": true
+              }
+            ],
+            "kit_colours_mentioned": [
+              "red"
+            ],
+            "kit_colour_check": "match"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": true,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n10-t711-186553-188161": {
+        "adapter_error": null,
+        "supplied_jersey_number": 10,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "The player marked with #10 in frame 1865.580 is visible in subsequent frames.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [
+              {
+                "text": "#10",
+                "number": 10,
+                "matches_supplied": true,
+                "asserted_as_kit_detail": false
+              }
+            ],
+            "kit_colours_mentioned": [],
+            "kit_colour_check": "not mentioned"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [
+          10
+        ],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": false,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n12-t1411-237107-242145": {
+        "adapter_error": null,
+        "supplied_jersey_number": 12,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "The player marked with #12 in frame 0 is visible running on the field.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [
+              {
+                "text": "#12",
+                "number": 12,
+                "matches_supplied": true,
+                "asserted_as_kit_detail": false
+              }
+            ],
+            "kit_colours_mentioned": [],
+            "kit_colour_check": "not mentioned"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [
+          12
+        ],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": false,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n12-t1411-679986-681985": {
+        "adapter_error": null,
+        "supplied_jersey_number": 12,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "The player marked with #12 in frame 0 is visible at the same location across frames 1-3.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [
+              {
+                "text": "#12",
+                "number": 12,
+                "matches_supplied": true,
+                "asserted_as_kit_detail": false
+              }
+            ],
+            "kit_colours_mentioned": [],
+            "kit_colour_check": "not mentioned"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [
+          12
+        ],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": false,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n15-t3010-164698-170777": {
+        "adapter_error": null,
+        "supplied_jersey_number": 15,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "The player marked with red rectangle in frame 1647.030 appears to be a footballer wearing a red jersey and black shorts.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [],
+            "kit_colours_mentioned": [
+              "red"
+            ],
+            "kit_colour_check": "match"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": false,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n17-t717-253073-260377": {
+        "adapter_error": null,
+        "supplied_jersey_number": 17,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "The player in red jersey with number 17 is holding a football.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [
+              {
+                "text": "number 17",
+                "number": 17,
+                "matches_supplied": true,
+                "asserted_as_kit_detail": true
+              }
+            ],
+            "kit_colours_mentioned": [
+              "red"
+            ],
+            "kit_colour_check": "match"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": true,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n17-t717-304624-307834": {
+        "adapter_error": null,
+        "supplied_jersey_number": 17,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "The player marked with #17 in frame 3046.340 is visible running on the field.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [
+              {
+                "text": "#17",
+                "number": 17,
+                "matches_supplied": true,
+                "asserted_as_kit_detail": false
+              }
+            ],
+            "kit_colours_mentioned": [],
+            "kit_colour_check": "not mentioned"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [
+          17
+        ],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": false,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n17-t717-416826-418915": {
+        "adapter_error": null,
+        "supplied_jersey_number": 17,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "The player marked with #17 in frame 4168.330 is visible running on the field.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [
+              {
+                "text": "#17",
+                "number": 17,
+                "matches_supplied": true,
+                "asserted_as_kit_detail": false
+              }
+            ],
+            "kit_colours_mentioned": [],
+            "kit_colour_check": "not mentioned"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [
+          17
+        ],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": false,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n21-t3011-390297-390800": {
+        "adapter_error": null,
+        "supplied_jersey_number": 21,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "The player wearing jersey number 21 is visible on the field.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [
+              {
+                "text": "number 21",
+                "number": 21,
+                "matches_supplied": true,
+                "asserted_as_kit_detail": true
+              }
+            ],
+            "kit_colours_mentioned": [],
+            "kit_colour_check": "not mentioned"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": true,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n22-t3012-070707-074371": {
+        "adapter_error": null,
+        "supplied_jersey_number": 22,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "A player in red jersey with black shorts is visible on the right side of the field.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [],
+            "kit_colours_mentioned": [
+              "red"
+            ],
+            "kit_colour_check": "match"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": false,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n24-t3013-679939-681217": {
+        "adapter_error": null,
+        "supplied_jersey_number": 24,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "The player marked with #24 in frame 6799.440 is visible at the same location as a referee holding a white object.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [
+              {
+                "text": "#24",
+                "number": 24,
+                "matches_supplied": true,
+                "asserted_as_kit_detail": false
+              }
+            ],
+            "kit_colours_mentioned": [],
+            "kit_colour_check": "not mentioned"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [
+          24
+        ],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": false,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n25-t3014-530600-532465": {
+        "adapter_error": null,
+        "supplied_jersey_number": 25,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "The player marked with #25 in frame 0 is visible at position (178,349) in the first image.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [
+              {
+                "text": "#25",
+                "number": 25,
+                "matches_supplied": true,
+                "asserted_as_kit_detail": false
+              }
+            ],
+            "kit_colours_mentioned": [],
+            "kit_colour_check": "not mentioned"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [
+          25
+        ],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": false,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      }
+    },
+    "frames_prod30": {
+      "m04-n02-t3005-474114-478131": {
+        "adapter_error": "RuntimeError: truth box is unavailable at sampled time 4741.190s",
+        "supplied_jersey_number": 2,
+        "truth_kit_colour": "red",
+        "claims": [],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": false,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n03-t1406-157170-158922": {
+        "adapter_error": null,
+        "supplied_jersey_number": 3,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "The player in red jersey with number 3 on his back is visible.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [
+              {
+                "text": "number 3",
+                "number": 3,
+                "matches_supplied": true,
+                "asserted_as_kit_detail": true
+              }
+            ],
+            "kit_colours_mentioned": [
+              "red"
+            ],
+            "kit_colour_check": "match"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": true,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n03-t1406-385962-387137": {
+        "adapter_error": null,
+        "supplied_jersey_number": 3,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "A player wearing red jersey number 3 is visible on the field.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [
+              {
+                "text": "number 3",
+                "number": 3,
+                "matches_supplied": true,
+                "asserted_as_kit_detail": true
+              }
+            ],
+            "kit_colours_mentioned": [
+              "red"
+            ],
+            "kit_colour_check": "match"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": true,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n04-t3006-243433-247994": {
+        "adapter_error": null,
+        "supplied_jersey_number": 4,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "The player marked with red rectangle in frame 2434.380 is visible at position (751, 469) in the field.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [],
+            "kit_colours_mentioned": [],
+            "kit_colour_check": "not mentioned"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": false,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n04-t3006-307417-310307": {
+        "adapter_error": null,
+        "supplied_jersey_number": 4,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "The player wearing red jersey with number 4 is running on the field.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [
+              {
+                "text": "number 4",
+                "number": 4,
+                "matches_supplied": true,
+                "asserted_as_kit_detail": true
+              }
+            ],
+            "kit_colours_mentioned": [
+              "red"
+            ],
+            "kit_colour_check": "match"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": true,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n05-t3007-284945-287898": {
+        "adapter_error": null,
+        "supplied_jersey_number": 5,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "The player with red rectangle in frame 2849.500 is visible on the field.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [],
+            "kit_colours_mentioned": [],
+            "kit_colour_check": "not mentioned"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": false,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n09-t1409-143096-143834": {
+        "adapter_error": null,
+        "supplied_jersey_number": 9,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "The player in red with black sleeves stands near the sideline.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [],
+            "kit_colours_mentioned": [
+              "red"
+            ],
+            "kit_colour_check": "match"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": false,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n09-t1409-297601-298865": {
+        "adapter_error": null,
+        "supplied_jersey_number": 9,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "The player wearing red jersey number 9 is on the left side of the field.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [
+              {
+                "text": "number 9",
+                "number": 9,
+                "matches_supplied": true,
+                "asserted_as_kit_detail": true
+              }
+            ],
+            "kit_colours_mentioned": [
+              "red"
+            ],
+            "kit_colour_check": "match"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": true,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n09-t1409-385922-386603": {
+        "adapter_error": null,
+        "supplied_jersey_number": 9,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "A player in red jersey with number 9 on back stands near sideline.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [
+              {
+                "text": "number 9",
+                "number": 9,
+                "matches_supplied": true,
+                "asserted_as_kit_detail": true
+              }
+            ],
+            "kit_colours_mentioned": [
+              "red"
+            ],
+            "kit_colour_check": "match"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": true,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n10-t711-186553-188161": {
+        "adapter_error": null,
+        "supplied_jersey_number": 10,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "The player with red rectangle in frame 1865.580 is visible on the field.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [],
+            "kit_colours_mentioned": [],
+            "kit_colour_check": "not mentioned"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": false,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n12-t1411-237107-242145": {
+        "adapter_error": null,
+        "supplied_jersey_number": 12,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "The player marked with #12 in frame 0 is visible running on the field.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [
+              {
+                "text": "#12",
+                "number": 12,
+                "matches_supplied": true,
+                "asserted_as_kit_detail": false
+              }
+            ],
+            "kit_colours_mentioned": [],
+            "kit_colour_check": "not mentioned"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [
+          12
+        ],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": false,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n12-t1411-679986-681985": {
+        "adapter_error": null,
+        "supplied_jersey_number": 12,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "The player marked with #12 in frame 6799.910 is visible on the field.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [
+              {
+                "text": "#12",
+                "number": 12,
+                "matches_supplied": true,
+                "asserted_as_kit_detail": false
+              }
+            ],
+            "kit_colours_mentioned": [],
+            "kit_colour_check": "not mentioned"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [
+          12
+        ],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": false,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n15-t3010-164698-170777": {
+        "adapter_error": null,
+        "supplied_jersey_number": 15,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "The player marked with red rectangle in frame 1647.030 appears as a footballer wearing a red jersey and black shorts.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [],
+            "kit_colours_mentioned": [
+              "red"
+            ],
+            "kit_colour_check": "match"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": false,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n17-t717-253073-260377": {
+        "adapter_error": null,
+        "supplied_jersey_number": 17,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "The player in red jersey with number 17 is visible on the field.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [
+              {
+                "text": "number 17",
+                "number": 17,
+                "matches_supplied": true,
+                "asserted_as_kit_detail": true
+              }
+            ],
+            "kit_colours_mentioned": [
+              "red"
+            ],
+            "kit_colour_check": "match"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": true,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n17-t717-304624-307834": {
+        "adapter_error": null,
+        "supplied_jersey_number": 17,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "The player marked with #17 in frame 3046.340 appears on the field at timestamp 3076.340.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [
+              {
+                "text": "#17",
+                "number": 17,
+                "matches_supplied": true,
+                "asserted_as_kit_detail": false
+              }
+            ],
+            "kit_colours_mentioned": [],
+            "kit_colour_check": "not mentioned"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [
+          17
+        ],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": false,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n17-t717-416826-418915": {
+        "adapter_error": null,
+        "supplied_jersey_number": 17,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "The player wearing red jersey number 17 is visible on the field.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [
+              {
+                "text": "number 17",
+                "number": 17,
+                "matches_supplied": true,
+                "asserted_as_kit_detail": true
+              }
+            ],
+            "kit_colours_mentioned": [
+              "red"
+            ],
+            "kit_colour_check": "match"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": true,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n21-t3011-390297-390800": {
+        "adapter_error": null,
+        "supplied_jersey_number": 21,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "The player wearing jersey number 21 is visible on the field.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [
+              {
+                "text": "number 21",
+                "number": 21,
+                "matches_supplied": true,
+                "asserted_as_kit_detail": true
+              }
+            ],
+            "kit_colours_mentioned": [],
+            "kit_colour_check": "not mentioned"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": true,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n22-t3012-070707-074371": {
+        "adapter_error": null,
+        "supplied_jersey_number": 22,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "The player marked with #22 in frame 707.120 appears on the right side of the field.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [
+              {
+                "text": "#22",
+                "number": 22,
+                "matches_supplied": true,
+                "asserted_as_kit_detail": false
+              }
+            ],
+            "kit_colours_mentioned": [],
+            "kit_colour_check": "not mentioned"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [
+          22
+        ],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": false,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n24-t3013-679939-681217": {
+        "adapter_error": null,
+        "supplied_jersey_number": 24,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "The player marked with #24 in frame 6799.440 is visible on the field.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [
+              {
+                "text": "#24",
+                "number": 24,
+                "matches_supplied": true,
+                "asserted_as_kit_detail": false
+              }
+            ],
+            "kit_colours_mentioned": [],
+            "kit_colour_check": "not mentioned"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [
+          24
+        ],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": false,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n25-t3014-530600-532465": {
+        "adapter_error": null,
+        "supplied_jersey_number": 25,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "The player marked #25 in frame 0 is visible on the field.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [
+              {
+                "text": "#25",
+                "number": 25,
+                "matches_supplied": true,
+                "asserted_as_kit_detail": false
+              }
+            ],
+            "kit_colours_mentioned": [],
+            "kit_colour_check": "not mentioned"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [
+          25
+        ],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": false,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      }
+    },
+    "video_fps2": {
+      "m04-n02-t3005-474114-478131": {
+        "adapter_error": "RuntimeError: truth box is unavailable at sampled time 4741.190s",
+        "supplied_jersey_number": 2,
+        "truth_kit_colour": "red",
+        "claims": [],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": false,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n03-t1406-157170-158922": {
+        "adapter_error": null,
+        "supplied_jersey_number": 3,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "A player in a red jersey is tracked across the field.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [],
+            "kit_colours_mentioned": [
+              "red"
+            ],
+            "kit_colour_check": "match"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": false,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n03-t1406-385962-387137": {
+        "adapter_error": null,
+        "supplied_jersey_number": 3,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "Player wearing jersey #3 is visible in the video.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [
+              {
+                "text": "#3",
+                "number": 3,
+                "matches_supplied": true,
+                "asserted_as_kit_detail": true
+              }
+            ],
+            "kit_colours_mentioned": [],
+            "kit_colour_check": "not mentioned"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": true,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n04-t3006-243433-247994": {
+        "adapter_error": "no parseable claims",
+        "supplied_jersey_number": 4,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "The player marked with a red rectangle in the first frame is visible across multiple subsequent frames.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [],
+            "kit_colours_mentioned": [],
+            "kit_colour_check": "not mentioned"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": false,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n04-t3006-307417-310307": {
+        "adapter_error": null,
+        "supplied_jersey_number": 4,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "The player marked with a red rectangle in the first frame is visible running across the field in subsequent frames.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [],
+            "kit_colours_mentioned": [],
+            "kit_colour_check": "not mentioned"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": false,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n05-t3007-284945-287898": {
+        "adapter_error": "no parseable claims",
+        "supplied_jersey_number": 5,
+        "truth_kit_colour": "red",
+        "claims": [],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": false,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n09-t1409-143096-143834": {
+        "adapter_error": "no parseable claims",
+        "supplied_jersey_number": 9,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "A player in a red jersey and black shorts is standing near the sideline, arms crossed.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [],
+            "kit_colours_mentioned": [
+              "red"
+            ],
+            "kit_colour_check": "match"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": false,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n09-t1409-297601-298865": {
+        "adapter_error": null,
+        "supplied_jersey_number": 9,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "The player wearing a red jersey and black shorts, identified by the number 9 on his back in frame t0=2976.060, is visible across multiple subsequent frames.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [
+              {
+                "text": "number 9",
+                "number": 9,
+                "matches_supplied": true,
+                "asserted_as_kit_detail": true
+              }
+            ],
+            "kit_colours_mentioned": [
+              "red"
+            ],
+            "kit_colour_check": "match"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": true,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n09-t1409-385922-386603": {
+        "adapter_error": null,
+        "supplied_jersey_number": 9,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "The player wearing jersey #9 is walking on the field.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [
+              {
+                "text": "#9",
+                "number": 9,
+                "matches_supplied": true,
+                "asserted_as_kit_detail": true
+              }
+            ],
+            "kit_colours_mentioned": [],
+            "kit_colour_check": "not mentioned"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": true,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n10-t711-186553-188161": {
+        "adapter_error": null,
+        "supplied_jersey_number": 10,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "A player in a red jersey is visible on the field.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [],
+            "kit_colours_mentioned": [
+              "red"
+            ],
+            "kit_colour_check": "match"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": false,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n12-t1411-237107-242145": {
+        "adapter_error": null,
+        "supplied_jersey_number": 12,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "The player identified by the red rectangle in frame 2371.120 is visible across multiple subsequent frames.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [],
+            "kit_colours_mentioned": [],
+            "kit_colour_check": "not mentioned"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": false,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n12-t1411-679986-681985": {
+        "adapter_error": null,
+        "supplied_jersey_number": 12,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "The player identified by the red rectangle in frame 6799.910 is visible in subsequent frames.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [],
+            "kit_colours_mentioned": [],
+            "kit_colour_check": "not mentioned"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": false,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n15-t3010-164698-170777": {
+        "adapter_error": null,
+        "supplied_jersey_number": 15,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "Player with red rectangle in first frame is tracked through the video.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [],
+            "kit_colours_mentioned": [],
+            "kit_colour_check": "not mentioned"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": false,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n17-t717-253073-260377": {
+        "adapter_error": null,
+        "supplied_jersey_number": 17,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "A player in a red jersey is visible on the field.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [],
+            "kit_colours_mentioned": [
+              "red"
+            ],
+            "kit_colour_check": "match"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": false,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n17-t717-304624-307834": {
+        "adapter_error": null,
+        "supplied_jersey_number": 17,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "The player marked with a red rectangle in the first frame is tracked across subsequent frames.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [],
+            "kit_colours_mentioned": [],
+            "kit_colour_check": "not mentioned"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": false,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n17-t717-416826-418915": {
+        "adapter_error": null,
+        "supplied_jersey_number": 17,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "The player wearing a red jersey with the number 17 is visible in frame t0=4168.330 and continues to be tracked through subsequent frames.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [
+              {
+                "text": "number 17",
+                "number": 17,
+                "matches_supplied": true,
+                "asserted_as_kit_detail": true
+              }
+            ],
+            "kit_colours_mentioned": [
+              "red"
+            ],
+            "kit_colour_check": "match"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": true,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n21-t3011-390297-390800": {
+        "adapter_error": null,
+        "supplied_jersey_number": 21,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "The player wearing jersey #21 is walking on the field.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [
+              {
+                "text": "#21",
+                "number": 21,
+                "matches_supplied": true,
+                "asserted_as_kit_detail": true
+              }
+            ],
+            "kit_colours_mentioned": [],
+            "kit_colour_check": "not mentioned"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": true,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n22-t3012-070707-074371": {
+        "adapter_error": null,
+        "supplied_jersey_number": 22,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "Player #22 is visible in the video.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [
+              {
+                "text": "#22",
+                "number": 22,
+                "matches_supplied": true,
+                "asserted_as_kit_detail": false
+              }
+            ],
+            "kit_colours_mentioned": [],
+            "kit_colour_check": "not mentioned"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [
+          22
+        ],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": false,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n24-t3013-679939-681217": {
+        "adapter_error": null,
+        "supplied_jersey_number": 24,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "The player wearing a black jersey with the number 24 is walking on the field.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [
+              {
+                "text": "number 24",
+                "number": 24,
+                "matches_supplied": true,
+                "asserted_as_kit_detail": true
+              }
+            ],
+            "kit_colours_mentioned": [
+              "black"
+            ],
+            "kit_colour_check": "mismatch"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": true,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": true
+      },
+      "m04-n25-t3014-530600-532465": {
+        "adapter_error": null,
+        "supplied_jersey_number": 25,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "Player #25 is visible in the video.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [
+              {
+                "text": "#25",
+                "number": 25,
+                "matches_supplied": true,
+                "asserted_as_kit_detail": false
+              }
+            ],
+            "kit_colours_mentioned": [],
+            "kit_colour_check": "not mentioned"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [
+          25
+        ],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": false,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      }
+    },
+    "video_fps4": {
+      "m04-n02-t3005-474114-478131": {
+        "adapter_error": "RuntimeError: truth box is unavailable at sampled time 4741.190s",
+        "supplied_jersey_number": 2,
+        "truth_kit_colour": "red",
+        "claims": [],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": false,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n03-t1406-157170-158922": {
+        "adapter_error": null,
+        "supplied_jersey_number": 3,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "A player in a red jersey is tracked across multiple frames.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [],
+            "kit_colours_mentioned": [
+              "red"
+            ],
+            "kit_colour_check": "match"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": false,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n03-t1406-385962-387137": {
+        "adapter_error": null,
+        "supplied_jersey_number": 3,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "The player wearing jersey #3 is visible in the video.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [
+              {
+                "text": "#3",
+                "number": 3,
+                "matches_supplied": true,
+                "asserted_as_kit_detail": true
+              }
+            ],
+            "kit_colours_mentioned": [],
+            "kit_colour_check": "not mentioned"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": true,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n04-t3006-243433-247994": {
+        "adapter_error": null,
+        "supplied_jersey_number": 4,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "A player in a red jersey is tracked across multiple frames.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [],
+            "kit_colours_mentioned": [
+              "red"
+            ],
+            "kit_colour_check": "match"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": false,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n04-t3006-307417-310307": {
+        "adapter_error": null,
+        "supplied_jersey_number": 4,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "A player in a red jersey is running with the ball.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [],
+            "kit_colours_mentioned": [
+              "red"
+            ],
+            "kit_colour_check": "match"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": false,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n05-t3007-284945-287898": {
+        "adapter_error": null,
+        "supplied_jersey_number": 5,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "The player identified by the red rectangle in frame 2849.500 is visible in subsequent frames.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [],
+            "kit_colours_mentioned": [],
+            "kit_colour_check": "not mentioned"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": false,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n09-t1409-143096-143834": {
+        "adapter_error": null,
+        "supplied_jersey_number": 9,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "A player in a red jersey is standing near the sideline, arms crossed.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [],
+            "kit_colours_mentioned": [
+              "red"
+            ],
+            "kit_colour_check": "match"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": false,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n09-t1409-297601-298865": {
+        "adapter_error": null,
+        "supplied_jersey_number": 9,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "The player wearing a red jersey and black shorts, identified by the number 9 on his back in frame t0=2976.060, is visible across multiple subsequent frames.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [
+              {
+                "text": "number 9",
+                "number": 9,
+                "matches_supplied": true,
+                "asserted_as_kit_detail": true
+              }
+            ],
+            "kit_colours_mentioned": [
+              "red"
+            ],
+            "kit_colour_check": "match"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": true,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n09-t1409-385922-386603": {
+        "adapter_error": null,
+        "supplied_jersey_number": 9,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "The player wearing jersey #9 is walking on the field.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [
+              {
+                "text": "#9",
+                "number": 9,
+                "matches_supplied": true,
+                "asserted_as_kit_detail": true
+              }
+            ],
+            "kit_colours_mentioned": [],
+            "kit_colour_check": "not mentioned"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": true,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n10-t711-186553-188161": {
+        "adapter_error": null,
+        "supplied_jersey_number": 10,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "A player in a red jersey is visible on the field.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [],
+            "kit_colours_mentioned": [
+              "red"
+            ],
+            "kit_colour_check": "match"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": false,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n12-t1411-237107-242145": {
+        "adapter_error": null,
+        "supplied_jersey_number": 12,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "Player wearing red jersey, tracked as #12 in the first frame, is visible across subsequent frames.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [
+              {
+                "text": "#12",
+                "number": 12,
+                "matches_supplied": true,
+                "asserted_as_kit_detail": false
+              }
+            ],
+            "kit_colours_mentioned": [
+              "red"
+            ],
+            "kit_colour_check": "match"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [
+          12
+        ],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": false,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n12-t1411-679986-681985": {
+        "adapter_error": null,
+        "supplied_jersey_number": 12,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "Player #12 is walking on the field.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [
+              {
+                "text": "#12",
+                "number": 12,
+                "matches_supplied": true,
+                "asserted_as_kit_detail": false
+              }
+            ],
+            "kit_colours_mentioned": [],
+            "kit_colour_check": "not mentioned"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [
+          12
+        ],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": false,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n15-t3010-164698-170777": {
+        "adapter_error": null,
+        "supplied_jersey_number": 15,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "A player in a blue jersey is tracked across multiple frames.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [],
+            "kit_colours_mentioned": [
+              "blue"
+            ],
+            "kit_colour_check": "mismatch"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": false,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": true
+      },
+      "m04-n17-t717-253073-260377": {
+        "adapter_error": "no parseable claims",
+        "supplied_jersey_number": 17,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "The player in the red jersey is running with the ball.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [],
+            "kit_colours_mentioned": [
+              "red"
+            ],
+            "kit_colour_check": "match"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": false,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n17-t717-304624-307834": {
+        "adapter_error": null,
+        "supplied_jersey_number": 17,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "The player marked with a red rectangle in the first frame is tracked across subsequent frames.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [],
+            "kit_colours_mentioned": [],
+            "kit_colour_check": "not mentioned"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": false,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n17-t717-416826-418915": {
+        "adapter_error": null,
+        "supplied_jersey_number": 17,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "The player wearing a red jersey with the number 17 is running with the ball.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [
+              {
+                "text": "number 17",
+                "number": 17,
+                "matches_supplied": true,
+                "asserted_as_kit_detail": true
+              }
+            ],
+            "kit_colours_mentioned": [
+              "red"
+            ],
+            "kit_colour_check": "match"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": true,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n21-t3011-390297-390800": {
+        "adapter_error": null,
+        "supplied_jersey_number": 21,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "The player wearing jersey #21 is walking on the field.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [
+              {
+                "text": "#21",
+                "number": 21,
+                "matches_supplied": true,
+                "asserted_as_kit_detail": true
+              }
+            ],
+            "kit_colours_mentioned": [],
+            "kit_colour_check": "not mentioned"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": true,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n22-t3012-070707-074371": {
+        "adapter_error": null,
+        "supplied_jersey_number": 22,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "Player identified by red rectangle in first frame is tracked across subsequent frames.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [],
+            "kit_colours_mentioned": [],
+            "kit_colour_check": "not mentioned"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": false,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n24-t3013-679939-681217": {
+        "adapter_error": null,
+        "supplied_jersey_number": 24,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "The player identified by the red rectangle in frame 0 is visible in subsequent frames.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [],
+            "kit_colours_mentioned": [],
+            "kit_colour_check": "not mentioned"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": false,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      },
+      "m04-n25-t3014-530600-532465": {
+        "adapter_error": null,
+        "supplied_jersey_number": 25,
+        "truth_kit_colour": "red",
+        "claims": [
+          {
+            "claim": "The player identified by the red rectangle in frame 5306.050 is visible in subsequent frames.",
+            "vague_clothing_descriptions": [],
+            "jersey_mentions": [],
+            "kit_colours_mentioned": [],
+            "kit_colour_check": "not mentioned"
+          }
+        ],
+        "malformed_claim_text_count": 0,
+        "non_jersey_numbers": [],
+        "unsupplied_numbers": [],
+        "supplied_number_asserted_as_kit_detail": false,
+        "invented_jersey_number_kill": false,
+        "kit_colour_mismatch": false
+      }
+    }
+  },
+  "jersey_review_method": "All emitted claim texts, including contract failures; explicit #N/number N/jersey N and jersey/shirt/kit colour assertions checked against truth metadata. Supplied numbers are not proof of visual legibility; action semantics are ungraded.",
+  "caveats": [
+    "Policies: 5s/≤6 stills versus production 30s/≤3 stills, versus dense full-clip video; short production windows receive just the anchor. All use a truth-aware first sample, not production's full upstream scheduling/identity pipeline.",
+    "MLX adds a separately marked image while its raw video begins at 0s; still anchors usually begin at 0.05s. The unchanged ±0.5s boxed-frame rule counts nearby unlabelled video frames as boxed. No supported unboxed claim is hidden by the headline denominator: N/A means none was attempted.",
+    "MLX video resolution falls as frame count rises under a fixed pixel budget: the 73s clip at 4fps has 292 frames at 384×192, versus 1280×720 stills. The separate anchor is excluded from video-frame counts; means include pre-inference failures as zero sent frames.",
+    "fps2 run.json wall_cap_s=absent; fps4 wall_cap_s=120.0. Different launch flags; largest video wall time 98.052s. No behavioural effect: every clip finished below the 120s cap.",
+    "MLX uses native temporal patch grids but its installed Qwen processor omits HF per-pair timestamp tokens; decoder timestamps are supplied in text. This is not full HF timestamp-token parity.",
+    "Ollama GGUF Q4_K_M and MLX's separately converted 4-bit weights, preprocessing, repetition handling and JSON enforcement differ. MLX uses prompt-only JSON instructions and the same strict parser; invalid responses remain failed.",
+    "MLX starts a fresh worker/model per clip; Ollama reuses a model server and the 5s smoke warmed one prompt. Sequential single passes have no repeated trials or machine-workload isolation; prod30 ran later after the GPU gate opened.",
+    "Rates exclude failed clips; wall and sent-frame means include every attempt. Hollow/malformed=0 among scored claims does not erase failed outputs. Full metrics, available token counts, failures and claim-level jersey/colour review are in JSON.",
+    "Shared anchor lookup fails for m04-n02-t3005-474114-478131 before inference; historical E1 instead counted it unsupported. Frozen truth is unchanged and no human_note is populated, so action semantics are ungraded.",
+    "Supplied numbers restated as kit detail — frames: [3, 9, 17, 21]; frames_prod30: [3, 4, 9, 17, 21]; video_fps2: [3, 9, 17, 21, 24]; video_fps4: [3, 9, 17, 21]; no unsupplied numbers observed. Kit-colour mismatches: video_fps2 m04-n24-t3013-679939-681217: black vs truth red; video_fps4 m04-n15-t3010-164698-170777: blue vs truth red. Geometry scoring does not penalize colour errors or establish number legibility.",
+    "Historical MLX runs used ignored report/.worker-deps via PYTHONPATH (preserved in their original run metadata); Jinja2 3.1.6/MarkupSafe 3.0.3 are now installed in the MLX venv. Earlier failed smokes were missing Jinja2 and fenced JSON; no video rerun was requested for this repair."
+  ],
+  "headline": "On these 20 clips no lane — sampled stills at 5 s, sampled stills at production's 30 s, or native video at 2/4 fps — ever grounded the player on a frame without the red rectangle; every supported claim is a box at the anchor time plus a presence sentence.",
+  "verdict": "no clear winner on the headline (unboxed grounding is 0 in every lane); frames on cost",
+  "verdict_evidence": "frames: 14/20 supported clips, 12.759s/attempt; frames_prod30: 16/20 supported clips, 6.367s/attempt; video_fps2: 11/20 supported clips, 56.017s/attempt; video_fps4: 14/20 supported clips, 63.771s/attempt."
+}
