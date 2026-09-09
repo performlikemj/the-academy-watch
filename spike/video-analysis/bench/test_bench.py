@@ -543,7 +543,9 @@ def test_qwen_adapter_parses_claims_from_thinking_and_records_origin(
     monkeypatch.setattr(
         qwen_adapter,
         "extract_sample_frames",
-        lambda *_args: [{"path": str(frame), "t": 10.0, "sent_w": 1280, "sent_h": 720}],
+        lambda *_args, **_kwargs: [
+            {"path": str(frame), "t": 10.0, "sent_w": 1280, "sent_h": 720}
+        ],
     )
     monkeypatch.setattr(
         qwen_adapter,
@@ -603,7 +605,9 @@ def test_claims_file_carries_model_and_source_space_boxes(monkeypatch, tmp_path)
     monkeypatch.setattr(
         qwen_adapter,
         "extract_sample_frames",
-        lambda *_args: [{"path": str(frame), "t": 10.0, "sent_w": 1280, "sent_h": 720}],
+        lambda *_args, **_kwargs: [
+            {"path": str(frame), "t": 10.0, "sent_w": 1280, "sent_h": 720}
+        ],
     )
     monkeypatch.setattr(qwen_adapter, "apply_anchors", lambda *_args: [])
     monkeypatch.setattr(
@@ -660,7 +664,9 @@ def test_qwen_adapter_flags_responses_with_no_parseable_claims(
     monkeypatch.setattr(
         qwen_adapter,
         "extract_sample_frames",
-        lambda *_args: [{"path": str(frame), "t": 10.0, "sent_w": 1280, "sent_h": 720}],
+        lambda *_args, **_kwargs: [
+            {"path": str(frame), "t": 10.0, "sent_w": 1280, "sent_h": 720}
+        ],
     )
     monkeypatch.setattr(qwen_adapter, "apply_anchors", lambda *_args: [])
     monkeypatch.setattr(
@@ -695,7 +701,9 @@ def test_qwen_adapter_routes_format_mode(
     monkeypatch.setattr(
         qwen_adapter,
         "extract_sample_frames",
-        lambda *_args: [{"path": str(frame), "t": 10.0, "sent_w": 1280, "sent_h": 720}],
+        lambda *_args, **_kwargs: [
+            {"path": str(frame), "t": 10.0, "sent_w": 1280, "sent_h": 720}
+        ],
     )
     monkeypatch.setattr(qwen_adapter, "apply_anchors", lambda *_args: [])
 
@@ -1269,7 +1277,9 @@ def _fake_mlx(monkeypatch, tmp_path, *, error=None, raw=None):
     captured = {}
 
     def fake_worker(argv, **kwargs):
-        captured.update(argv=argv, request=json.loads(kwargs["input"]))
+        captured.update(
+            argv=argv, request=json.loads(kwargs["input"]), env=kwargs["env"]
+        )
         payload = {
             "text": raw or json.dumps({"claims": [_claim(box_t=15.0)]}),
             "model": mlx_adapter.DEFAULT_MODEL,
@@ -1354,7 +1364,7 @@ def test_mlx_settings_fingerprint_fps_model_and_worker(monkeypatch, tmp_path):
         ("BENCH_MLX_FPS", "4"),
         ("BENCH_MLX_MODEL", "model-two"),
         ("BENCH_MLX_PYTHON", "/venv-two/bin/python"),
-        ("PYTHONPATH", "/different/worker/dependencies"),
+        ("BENCH_MLX_PYTHONPATH", "/different/worker/dependencies"),
     ]:
         with monkeypatch.context() as context:
             context.setenv(env, value)
@@ -1597,3 +1607,288 @@ def test_slow_lane_cap_writes_partial_report_after_five_attempts(
         )
     else:
         assert "stopped_early" not in report
+
+
+def test_legacy_v5_default_fingerprint_golden(monkeypatch):
+    from run_bench import _parser
+
+    # Captured from unedited 5d646c8c before adding sampling options, all 20 IDs.
+    clips = """m04-n02-t3005-474114-478131 m04-n03-t1406-157170-158922
+    m04-n03-t1406-385962-387137 m04-n04-t3006-243433-247994
+    m04-n04-t3006-307417-310307 m04-n05-t3007-284945-287898
+    m04-n09-t1409-143096-143834 m04-n09-t1409-297601-298865
+    m04-n09-t1409-385922-386603 m04-n10-t711-186553-188161
+    m04-n12-t1411-237107-242145 m04-n12-t1411-679986-681985
+    m04-n15-t3010-164698-170777 m04-n17-t717-253073-260377
+    m04-n17-t717-304624-307834 m04-n17-t717-416826-418915
+    m04-n21-t3011-390297-390800 m04-n22-t3012-070707-074371
+    m04-n24-t3013-679939-681217 m04-n25-t3014-530600-532465""".split()
+    args = _parser().parse_args(
+        [
+            "--adapter",
+            "qwen3vl_ollama",
+            "--anchor-mode",
+            "first",
+            "--box-space",
+            "normalized_1000",
+            "--model",
+            "qwen3-vl:8b",
+            "--num-predict",
+            "400",
+            "--repeat-penalty",
+            "1.15",
+            "--ollama-url",
+            "http://127.0.0.1:11434",
+        ]
+    )
+    manifest = {
+        "frozen_set_id": "1f68e2755002b3598c763532e95c212de9261ffa638c2943ad3769a1be77503f"
+    }
+    default = _run_metadata(_resolve_inference_settings(args, manifest), clips)
+    assert (
+        default["fingerprint"]
+        == "2426f5e86cfe705347cd1fc5ff0e59bdff9555e7d2f01aec814d395e86132df8"
+    )
+    assert "sample_interval" not in default and "sample_limit" not in default
+    for interval, limit in [(30, 6), (5, 3), (30, 3)]:
+        args.sample_interval, args.sample_limit = interval, limit
+        changed = _run_metadata(_resolve_inference_settings(args, manifest), clips)
+        assert changed["fingerprint"] != default["fingerprint"]
+        assert changed["sample_interval"] == interval
+        assert changed["sample_limit"] == limit
+
+
+@pytest.mark.parametrize("duration", [0.5, 7.0, 73.0])
+def test_production_sampling_real_anchor_and_tagging(monkeypatch, tmp_path, duration):
+    from PIL import Image
+
+    truth = {
+        **_truth(),
+        "frame_size": [1280, 720],
+        "jersey_number": 12,
+        "window": {"start_s": 10.0, "end_s": 10.0 + duration},
+        "box_track": [
+            [10.0, 100, 100, 200, 200],
+            [10.0 + duration, 100, 100, 200, 200],
+        ],
+    }
+    extracted = []
+
+    def extract(_clip, output, local_s, *_args):
+        extracted.append(local_s)
+        Image.new("RGB", (1280, 720)).save(output)
+
+    def chat(_prompt, *, image_paths, **_kwargs):
+        assert len(image_paths) == (1 if duration < 30 else 3)
+        # Actual shared grounding.draw_anchor_box modifies the first image.
+        with Image.open(image_paths[0]) as image:
+            assert image.getbbox() is not None
+        return json.dumps(
+            {
+                "claims": [
+                    _claim(t0=10.05, t1=10.05, box_t=10.05, box=[78, 139, 156, 278])
+                ]
+            }
+        )
+
+    monkeypatch.setattr(
+        adapter_common.shutil, "which", lambda command: f"/usr/bin/{command}"
+    )
+    monkeypatch.setattr(adapter_common.qwen_match_analysis, "extract_frame", extract)
+    monkeypatch.setattr(qwen_adapter, "ollama_chat_with_options", chat)
+    result = qwen_adapter.run(
+        tmp_path / "clip.mp4", truth, {"sample_interval": 30, "sample_limit": 3}
+    )
+    assert result["error"] is None
+    assert extracted == ([0.05] if duration < 30 else [0.05, 30.05, 60.05])
+    assert len(result["anchored_frames"]) == 1
+    assert result["claims"][0]["boxed_frame"] is True
+    assert qwen_adapter.sent_frame_size(result["sent_frames"]) == (1280, 720)
+    assert score_clip(result, truth)["status"] == "scored"
+
+
+@pytest.mark.parametrize(
+    "option,value",
+    [("--sample-interval", "0"), ("--sample-interval", "nan"), ("--sample-limit", "0")],
+)
+def test_invalid_still_sampling_rejected(option, value):
+    from run_bench import _parser
+
+    args = _parser().parse_args(["--adapter", "qwen3vl_ollama", option, value])
+    with pytest.raises(ValueError, match="sample-"):
+        _resolve_inference_settings(args, {"frozen_set_id": "test"})
+
+
+def test_comparison_fixture_is_complete_and_deterministic(tmp_path):
+    from compare_runs import main
+
+    truth = {**_truth(), "jersey_number": 3, "kit_color": "red"}
+    (tmp_path / "truth.json").write_text(json.dumps(truth))
+    manifest = {
+        "frozen_set_id": "fixture",
+        "clips": [{"clip_id": "clip-1", "truth": "truth.json"}],
+    }
+    (tmp_path / "manifest.json").write_text(json.dumps(manifest))
+    metrics = []
+    for index, name in enumerate(["frames", "video"]):
+        path = tmp_path / name
+        (path / "claims").mkdir(parents=True)
+        claim = _claim(
+            box_t=15.0,
+            boxed_frame=True,
+            box=[145, 145, 255, 255] if index == 0 else [0, 0, 1, 1],
+            claim=(
+                "Player wearing red jersey number 3 is visible."
+                if index == 0
+                else "Player wearing a blue jersey with the number 3 is visible."
+            ),
+        )
+        raw = {
+            "clip_id": "clip-1",
+            "claims_raw": json.dumps({"claims": [claim]}),
+            "claims": [claim],
+            "wall_s": 1.0 + index,
+            "error": None,
+            "sent_frames": [
+                {"t": 15.0, "sent_w": 1280 // (index + 1), "sent_h": 720 // (index + 1)}
+            ],
+        }
+        (path / "claims/clip-1.json").write_text(json.dumps(raw))
+        report = score_run([raw], {"clip-1": truth}, adapter=name)
+        report["generated_at"] = "2026-09-09T00:00:00Z"
+        metrics.append(report["overall"])
+        (path / "report.json").write_text(json.dumps(report))
+        (path / "run.json").write_text(
+            json.dumps(
+                {
+                    "frozen_set_id": "fixture",
+                    "clips": ["clip-1"],
+                    "model": name,
+                    "adapter": name,
+                }
+            )
+        )
+    args = [
+        "--reports-root",
+        str(tmp_path),
+        "--runs",
+        "frames=frames",
+        "video=video",
+        "--manifest",
+        str(tmp_path / "manifest.json"),
+        "--out-json",
+        str(tmp_path / "out.json"),
+        "--out-md",
+        str(tmp_path / "out.md"),
+    ]
+    assert main(args) == 0
+    output = (tmp_path / "out.json").read_bytes(), (tmp_path / "out.md").read_bytes()
+    assert main(args) == 0
+    assert output == (
+        (tmp_path / "out.json").read_bytes(),
+        (tmp_path / "out.md").read_bytes(),
+    )
+    result = json.loads(output[0])
+    for index, name in enumerate(["frames", "video"]):
+        assert result[name]["metrics"] == metrics[index]
+        assert result[name]["sent_frames_per_clip"] == 1
+        review = result["jersey_review"][name]["clip-1"]
+        assert review["supplied_number_asserted_as_kit_detail"] is True
+        assert review["invented_jersey_number_kill"] is False
+        assert review["kit_colour_mismatch"] is bool(index)
+    assert result["frames"]["sent_resolution_min"] == [1280, 720]
+    assert result["video"]["sent_resolution_max"] == [640, 360]
+    flip = result["per_clip_flips"]["video"][0]
+    assert flip["winner"] == "frames"
+    assert flip["kind"] == "supported_clip"
+    assert flip["compared"]["claims"][0]["box_grounded"] is False
+    assert "blue jersey" in flip["compared"]["raw_claim_texts"][0]
+
+
+def test_jersey_review_includes_failed_claims_and_separates_labels_from_kit():
+    from compare_runs import jersey_review
+
+    raw = {
+        "error": "no parseable claims",
+        "claims_raw": json.dumps(
+            {
+                "claims": [
+                    {
+                        "claim": "Player marked #12 at frame 2371.120 wears a red jersey and black shorts."
+                    },
+                    {
+                        "claim": "Player wearing jersey #9, identified by the number 9 on his back."
+                    },
+                ]
+            }
+        ),
+    }
+    review = jersey_review(raw, {"jersey_number": 12, "kit_color": "red"})
+    first, second = review["claims"]
+    assert first["jersey_mentions"] == [
+        {
+            "text": "#12",
+            "number": 12,
+            "matches_supplied": True,
+            "asserted_as_kit_detail": False,
+        }
+    ]
+    assert first["kit_colours_mentioned"] == ["red"]
+    assert [m["number"] for m in second["jersey_mentions"]] == [9, 9]
+    assert all(m["asserted_as_kit_detail"] for m in second["jersey_mentions"])
+    assert review["unsupplied_numbers"] == [9]
+    assert review["invented_jersey_number_kill"] is True
+
+
+def test_mlx_does_not_inherit_pythonpath(monkeypatch, tmp_path):
+    monkeypatch.setenv("PYTHONPATH", "/unrelated/project/dependencies")
+    monkeypatch.delenv("BENCH_MLX_PYTHONPATH", raising=False)
+    from run_bench import _parser
+
+    args = _parser().parse_args(["--adapter", "qwen3vl_mlx"])
+    assert (
+        _resolve_inference_settings(args, {"frozen_set_id": "test"})["mlx_pythonpath"]
+        == ""
+    )
+    result, captured, _truth_value = _fake_mlx(monkeypatch, tmp_path)
+    assert result["error"] is None
+    assert captured["env"]["PYTHONPATH"] == ""
+
+
+def test_runner_fingerprints_and_passes_production_sampling(monkeypatch, tmp_path):
+    from run_bench import _parser
+
+    manifest = {
+        "frozen_set_id": "fixture",
+        "clips": [{"clip_id": "clip-1", "clip": "clip.mp4", "truth": "truth.json"}],
+    }
+    (tmp_path / "manifest.json").write_text(json.dumps(manifest))
+    (tmp_path / "truth.json").write_text(json.dumps(_truth()))
+    captured = {}
+
+    def adapter(_clip, _truth_value, cfg):
+        captured.update(cfg)
+        return {"claims": [_claim()], "error": None, "wall_s": 1.0}
+
+    monkeypatch.setattr(qwen_adapter, "run", adapter)
+    args = _parser().parse_args(
+        [
+            "--adapter",
+            "qwen3vl_ollama",
+            "--sample-interval",
+            "30",
+            "--sample-limit",
+            "3",
+            "--manifest",
+            str(tmp_path / "manifest.json"),
+            "--report-root",
+            str(tmp_path / "runs"),
+        ]
+    )
+    report, output = run_benchmark(args)
+    assert report["overall"]["scored_clips"] == 1
+    assert captured["sample_interval"] == 30.0
+    assert captured["sample_limit"] == 3
+    metadata = json.loads((output / "run.json").read_text())
+    assert metadata["sample_interval"] == 30.0
+    assert metadata["sample_limit"] == 3

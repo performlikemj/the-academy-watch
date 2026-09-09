@@ -111,6 +111,11 @@ def run(clip: str | Path, truth: dict, cfg: dict) -> dict:
                 "repetition_penalty": float(cfg.get("repeat_penalty", 1.15)),
                 "repetition_context_size": 64,
             }
+            worker_env = os.environ.copy()
+            # Explicit opt-in only: never inherit another project's dependency shim.
+            worker_env["PYTHONPATH"] = cfg.get(
+                "mlx_pythonpath", os.getenv("BENCH_MLX_PYTHONPATH", "")
+            )
             completed = subprocess.run(
                 [
                     cfg.get("mlx_python") or resolved_python(),
@@ -123,6 +128,7 @@ def run(clip: str | Path, truth: dict, cfg: dict) -> dict:
                     0.1, float(cfg.get("timeout_s", 120)) - (time.monotonic() - started)
                 ),
                 check=False,
+                env=worker_env,
             )
             worker = json.loads(completed.stdout)
             if completed.returncode or worker.get("error"):

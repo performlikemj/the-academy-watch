@@ -281,7 +281,13 @@ def run(clip: str | Path, truth: dict, cfg: dict) -> dict:
     response_metadata: dict[str, object] = {}
     try:
         with temp_directory("evidence-qwen3vl-") as temp_dir:
-            frames = extract_sample_frames(clip, truth, Path(temp_dir) / "frames")
+            frames = extract_sample_frames(
+                clip,
+                truth,
+                Path(temp_dir) / "frames",
+                interval_s=float(cfg.get("sample_interval", 5.0)),
+                limit=int(cfg.get("sample_limit", 6)),
+            )
             if not frames:
                 raise RuntimeError("clip yielded no sample frames")
             sent_size = sent_frame_size(frames)

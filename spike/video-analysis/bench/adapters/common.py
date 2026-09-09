@@ -51,7 +51,14 @@ def sample_timestamps(
     ]
 
 
-def extract_sample_frames(clip: Path, truth: dict, output_dir: Path) -> list[dict]:
+def extract_sample_frames(
+    clip: Path,
+    truth: dict,
+    output_dir: Path,
+    *,
+    interval_s: float = 5.0,
+    limit: int = 6,
+) -> list[dict]:
     ffmpeg = shutil.which("ffmpeg")
     ffprobe = shutil.which("ffprobe")
     if not ffmpeg or not ffprobe:
@@ -61,7 +68,9 @@ def extract_sample_frames(clip: Path, truth: dict, output_dir: Path) -> list[dic
     qwen_match_analysis.ffprobe_argv(ffprobe, clip)
     frames: list[dict] = []
     output_dir.mkdir(parents=True, exist_ok=True)
-    for index, (local_s, absolute_s) in enumerate(sample_timestamps(truth)):
+    for index, (local_s, absolute_s) in enumerate(
+        sample_timestamps(truth, interval_s=interval_s, limit=limit)
+    ):
         output = output_dir / f"frame-{index:02d}.jpg"
         qwen_match_analysis.extract_frame(
             clip,

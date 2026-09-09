@@ -90,6 +90,21 @@ def _resolve_inference_settings(args: argparse.Namespace, manifest: dict) -> dic
     wall_cap = getattr(args, "wall_cap", None)
     if wall_cap is not None and (not math.isfinite(wall_cap) or wall_cap <= 0):
         raise ValueError("--wall-cap must be a positive finite number")
+    sample_interval = float(getattr(args, "sample_interval", 5.0))
+    sample_limit = int(getattr(args, "sample_limit", 6))
+    if not math.isfinite(sample_interval) or sample_interval <= 0:
+        raise ValueError("--sample-interval must be a positive finite number")
+    if sample_limit < 1:
+        raise ValueError("--sample-limit must be positive")
+    sampling_settings = {}
+    if (sample_interval, sample_limit) != (5.0, 6):
+        if args.adapter != "qwen3vl_ollama":
+            raise ValueError("sampling overrides require qwen3vl_ollama")
+        # Omit legacy defaults so existing v5 metadata/fingerprints remain exact.
+        sampling_settings = {
+            "sample_interval": sample_interval,
+            "sample_limit": sample_limit,
+        }
     mlx_settings = {}
     if args.adapter == "qwen3vl_mlx":
         requested_fps = getattr(args, "fps", None)
@@ -105,12 +120,13 @@ def _resolve_inference_settings(args: argparse.Namespace, manifest: dict) -> dic
         mlx_settings = {
             "fps": fps,
             "mlx_python": _adapter_module(args.adapter).resolved_python(),
-            "mlx_pythonpath": os.getenv("PYTHONPATH", ""),
+            "mlx_pythonpath": os.getenv("BENCH_MLX_PYTHONPATH", ""),
             "temperature": 0.0,
             "repetition_context_size": 64,
         }
     return {
         **mlx_settings,
+        **sampling_settings,
         **({"wall_cap_s": wall_cap} if wall_cap is not None else {}),
         "adapter": args.adapter,
         "model": _resolved_model(args.adapter, args.model),
@@ -231,10 +247,16 @@ def run_benchmark(args: argparse.Namespace) -> tuple[dict, Path]:
         "num_predict": settings["num_predict"],
         "repeat_penalty": settings["repeat_penalty"],
     }
+    if args.adapter == "qwen3vl_ollama":
+        cfg.update(
+            sample_interval=settings.get("sample_interval", 5.0),
+            sample_limit=settings.get("sample_limit", 6),
+        )
     if args.adapter == "qwen3vl_mlx":
         cfg.update(
             fps=settings["fps"],
             mlx_python=settings["mlx_python"],
+            mlx_pythonpath=settings["mlx_pythonpath"],
             scratch_dir=str(output_dir),
         )
     results = []
@@ -317,6 +339,18 @@ def _parser() -> argparse.ArgumentParser:
         "--ollama-url", default=os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")
     )
     parser.add_argument("--model")
+    parser.add_argument(
+        "--sample-interval",
+        type=float,
+        default=5.0,
+        help="Ollama still interval in seconds (default 5.0)",
+    )
+    parser.add_argument(
+        "--sample-limit",
+        type=int,
+        default=6,
+        help="Ollama maximum still count (default 6)",
+    )
     parser.add_argument(
         "--fps",
         type=float,

@@ -1,52 +1,60 @@
-# E1b — native video versus sampled frames, 2026-09-09
+On these 20 clips no lane — sampled stills at 5 s, sampled stills at production's 30 s, or native video at 2/4 fps — ever grounded the player on a frame without the red rectangle; every supported claim is a box at the anchor time plus a presence sentence.
+E1b comparison, 2026-09-09. 20 evaluation-only clips (frozen_set_id 1f68e2755002b3598c763532e95c212de9261ffa638c2943ad3769a1be77503f).
 
-Completed: all three lanes attempted all 20 clips sequentially, after separate one-clip smokes; no wall-cap stop or fallback.
-Frozen set: `1f68e2755002b3598c763532e95c212de9261ffa638c2943ad3769a1be77503f`, all 20 windows; evaluation only.
-Reports: `~/Projects/loanarmy-bench-reports/e1b-{ollama-frames,mlx-video-fps2,mlx-video-fps4}/`.
+| Lane | Scored / failed | Supported | Unboxed supported | Unsupported | Hollow | Wall s/clip | Stills/video frames per attempt | Sent resolution (min–max WxH) |
+|---|---:|---:|---:|---:|---:|---:|---:|---|
+| frames | 19 / 1 | 73.68% | 0.00% (2 claims) | 26.32% | 0.00% | 12.759 | 4.15 | 1280×720–1280×720 |
+| frames_prod30 | 19 / 1 | 84.21% | 0.00% (1 claims) | 15.79% | 0.00% | 6.367 | 1.35 | 1280×720–1280×720 |
+| video_fps2 | 16 / 4 | 68.75% | 0.00% (1 claims) | 31.25% | 0.00% | 56.017 | 49.6 | 544×288–1920×1088 |
+| video_fps4 | 18 / 2 | 77.78% | N/A (0 claims) | 22.22% | 0.00% | 63.771 | 100.5 | 384×192–1472×832 |
 
-| Lane | Scored / failed | Supported overall | Unboxed supported | Unsupported | Hollow | Seconds / attempt |
-|---|---:|---:|---:|---:|---:|---:|
-| Frames | 19 / 1 | 73.68% | 0/2 = 0% | 26.32% | 0% | 12.759 |
-| Video 2 FPS | 16 / 4 | 68.75% | 0/1 = 0% | 31.25% | 0% | 56.017 |
-| Video 4 FPS | 18 / 2 | 77.78% | N/A (0 unboxed) | 22.22% | 0% | 63.771 |
+E1 thresholds per lane (≥2× a zero-box baseline is vacuous, not evidence of improvement):
 
-E1: all lanes fail unsupported ≤10%; frames and 2 FPS exceed the >25% kill threshold, while 4 FPS does not. All pass hollow <5% and every-attempt time ≤120s (maxima 22.463s / 98.052s / 95.118s).
-The 4 FPS unsupported-rate improvement does not increase supported-clip coverage: it has the same 14/20 supported clips and one additional failure excluded from the scored denominator.
-The ≥2× historical baseline threshold is mathematically met but vacuous: the baseline never returned boxes and supported=0%; unboxed support is zero for frames/2 FPS and not measurable for 4 FPS.
+- frames: unsupported ≤10% FAIL; ≥2× zero baseline PASS; hollow <5% PASS; every attempt ≤120s PASS (max 22.463s); >25% unsupported kill yes; invented-number kill no.
+- frames_prod30: unsupported ≤10% FAIL; ≥2× zero baseline PASS; hollow <5% PASS; every attempt ≤120s PASS (max 11.958s); >25% unsupported kill no; invented-number kill no.
+- video_fps2: unsupported ≤10% FAIL; ≥2× zero baseline PASS; hollow <5% PASS; every attempt ≤120s PASS (max 98.052s); >25% unsupported kill yes; invented-number kill no.
+- video_fps4: unsupported ≤10% FAIL; ≥2× zero baseline PASS; hollow <5% PASS; every attempt ≤120s PASS (max 95.118s); >25% unsupported kill no; invented-number kill no.
 
-Mean frames actually sent per attempt: 4.15 / 49.6 / 100.5 (MLX anchor image excluded); frames records 4.45 extracted frames including six never sent on the shared failure. MLX prompt/generated token means per available response: 13,501/85.737 at 2 FPS and 13,892.053/89.684 at 4 FPS; Ollama tokens unavailable.
+Per-clip changes versus frames (all other supported/status outcomes match; action meaning is not scored):
 
-Per-clip 2 FPS changes (full IDs; support is geometry/time, not semantic action verification):
+- frames_prod30 `m04-n04-t3006-243433-247994`: frames; control “The player marked with red rectangle in frame 2434.380 is visible as a person wearing dark clothing and standing near the goal area.” → supported anchor box at 2434.38 (containment 0.7484, IoU 0.5337); compared “The player marked with red rectangle in frame 2434.380 is visible at position (751, 469) in the field.” → unsupported anchor box at 2434.38 (containment 0.428, IoU 0.0686).
+- frames_prod30 `m04-n12-t1411-237107-242145`: frames_prod30; control “The player marked with #12 in frame 0 is visible running on the field.” → unsupported anchor box at 2371.12 (containment 0.4368, IoU 0.2703); compared “The player marked with #12 in frame 0 is visible running on the field.” → supported anchor box at 2371.12 (containment 0.6437, IoU 0.5033).
+- frames_prod30 `m04-n12-t1411-679986-681985`: frames_prod30; control “The player marked with #12 in frame 0 is visible at the same location across frames 1-3.” → unsupported anchor box at 6799.91 (containment 0.5338, IoU 0.4264); compared “The player marked with #12 in frame 6799.910 is visible on the field.” → supported anchor box at 6799.91 (containment 0.8789, IoU 0.7602).
+- frames_prod30 `m04-n17-t717-304624-307834`: frames; control “The player marked with #17 in frame 3046.340 is visible running on the field.” → supported anchor box at 3046.34 (containment 0.7909, IoU 0.6323); compared “The player marked with #17 in frame 3046.340 appears on the field at timestamp 3076.340.” → unsupported unboxed box at 3076.34 (containment 0.0, IoU 0.0).
+- frames_prod30 `m04-n24-t3013-679939-681217`: frames_prod30; control “The player marked with #24 in frame 6799.440 is visible at the same location as a referee holding a white object.” → unsupported unboxed box at 6804.44 (containment 0.0, IoU 0.0); compared “The player marked with #24 in frame 6799.440 is visible on the field.” → supported anchor box at 6799.44 (containment 0.9653, IoU 0.8101).
+- frames_prod30 `m04-n25-t3014-530600-532465`: frames_prod30; control “The player marked with #25 in frame 0 is visible at position (178,349) in the first image.” → unsupported anchor box at 5306.05 (containment 0.0, IoU 0.0); compared “The player marked #25 in frame 0 is visible on the field.” → supported anchor box at 5306.05 (containment 0.9084, IoU 0.5925).
+- video_fps2 `m04-n04-t3006-243433-247994`: frames; control “The player marked with red rectangle in frame 2434.380 is visible as a person wearing dark clothing and standing near the goal area.” → supported anchor box at 2434.38 (containment 0.7484, IoU 0.5337); compared “The player marked with a red rectangle in the first frame is visible across multiple subsequent frames.” → failed (no parseable claims; contract: box coordinates are not ordered after conversion (space=normalized_1000), box_order).
+- video_fps2 `m04-n05-t3007-284945-287898`: frames; control “The player marked with red rectangle in frame 0 (2849.500) is visible in subsequent frames.” → supported anchor box at 2849.5 (containment 0.9501, IoU 0.5485); compared “(no claims)” → failed (no parseable claims).
+- video_fps2 `m04-n09-t1409-143096-143834`: frames; control “The player in red with arms crossed stands near the sideline.” → supported anchor box at 1431.01 (containment 0.7715, IoU 0.7283); compared “A player in a red jersey and black shorts is standing near the sideline, arms crossed.” → failed (no parseable claims; contract: box_t outside claim span).
+- video_fps2 `m04-n10-t711-186553-188161`: frames; control “The player marked with #10 in frame 1865.580 is visible in subsequent frames.” → supported anchor box at 1865.58 (containment 0.9415, IoU 0.7748); compared “A player in a red jersey is visible on the field.” → unsupported unboxed box at 1879.511 (containment 0.0, IoU 0.0).
+- video_fps2 `m04-n15-t3010-164698-170777`: frames; control “The player marked with red rectangle in frame 1647.030 appears to be a footballer wearing a red jersey and black shorts.” → supported anchor box at 1647.03 (containment 1.0, IoU 0.5055); compared “Player with red rectangle in first frame is tracked through the video.” → unsupported anchor box at 1647.03 (containment 0.0377, IoU 0.0247).
+- video_fps2 `m04-n17-t717-253073-260377`: video_fps2; control “The player in red jersey with number 17 is holding a football.” → unsupported unboxed box at 2535.83 (containment 0.0, IoU 0.0); compared “A player in a red jersey is visible on the field.” → supported anchor box at 2530.83 (containment 0.923, IoU 0.7942).
+- video_fps2 `m04-n17-t717-416826-418915`: frames; control “The player marked with #17 in frame 4168.330 is visible running on the field.” → supported anchor box at 4168.33 (containment 0.9177, IoU 0.8621); compared “The player wearing a red jersey with the number 17 is visible in frame t0=4168.330 and continues to be tracked through subsequent frames.” → unsupported anchor box at 4168.33 (containment 0.6221, IoU 0.4912).
+- video_fps2 `m04-n24-t3013-679939-681217`: video_fps2; control “The player marked with #24 in frame 6799.440 is visible at the same location as a referee holding a white object.” → unsupported unboxed box at 6804.44 (containment 0.0, IoU 0.0); compared “The player wearing a black jersey with the number 24 is walking on the field.” → supported anchor box at 6799.44 (containment 0.9537, IoU 0.808).
+- video_fps2 `m04-n25-t3014-530600-532465`: video_fps2; control “The player marked with #25 in frame 0 is visible at position (178,349) in the first image.” → unsupported anchor box at 5306.05 (containment 0.0, IoU 0.0); compared “Player #25 is visible in the video.” → supported anchor box at 5306.05 (containment 1.0, IoU 0.449).
+- video_fps4 `m04-n04-t3006-243433-247994`: frames; control “The player marked with red rectangle in frame 2434.380 is visible as a person wearing dark clothing and standing near the goal area.” → supported anchor box at 2434.38 (containment 0.7484, IoU 0.5337); compared “A player in a red jersey is tracked across multiple frames.” → unsupported anchor box at 2434.38 (containment 0.0, IoU 0.0).
+- video_fps4 `m04-n15-t3010-164698-170777`: frames; control “The player marked with red rectangle in frame 1647.030 appears to be a footballer wearing a red jersey and black shorts.” → supported anchor box at 1647.03 (containment 1.0, IoU 0.5055); compared “A player in a blue jersey is tracked across multiple frames.” → unsupported anchor box at 1647.03 (containment 0.0, IoU 0.0).
+- video_fps4 `m04-n17-t717-253073-260377`: availability only; control “The player in red jersey with number 17 is holding a football.” → unsupported unboxed box at 2535.83 (containment 0.0, IoU 0.0); compared “The player in the red jersey is running with the ball.” → failed (no parseable claims; contract: box_t outside claim span).
+- video_fps4 `m04-n24-t3013-679939-681217`: video_fps4; control “The player marked with #24 in frame 6799.440 is visible at the same location as a referee holding a white object.” → unsupported unboxed box at 6804.44 (containment 0.0, IoU 0.0); compared “The player identified by the red rectangle in frame 0 is visible in subsequent frames.” → supported anchor box at 6799.44 (containment 0.9537, IoU 0.7162).
+- video_fps4 `m04-n25-t3014-530600-532465`: video_fps4; control “The player marked with #25 in frame 0 is visible at position (178,349) in the first image.” → unsupported anchor box at 5306.05 (containment 0.0, IoU 0.0); compared “The player identified by the red rectangle in frame 5306.050 is visible in subsequent frames.” → supported anchor box at 5306.05 (containment 1.0, IoU 0.5111).
 
-- Video gains `m04-n17-t717-253073-260377`: frames say “holding a football” at 2535.83 with an unsupported box; video says “visible on the field” at the supported anchor time 2530.83.
-- Video gains `m04-n24-t3013-679939-681217`: frames describe a “referee holding a white object” at 6804.44 with zero containment; video says “walking on the field” and grounds at the anchor (6799.44).
-- Video gains `m04-n25-t3014-530600-532465`: frames claim first-image position “(178,349)” with zero containment; video says “Player #25 is visible” and grounds at the same anchor time.
-- Video loses `m04-n04-t3006-243433-247994`: “visible across multiple subsequent frames” has a zero-height box; failed contract, versus supported frames “standing near the goal area”.
-- Video loses `m04-n05-t3007-284945-287898`: empty claims versus frames “visible in subsequent frames”; failed by the existing no-parseable-claims rule.
-- Video loses `m04-n09-t1409-143096-143834`: both describe arms crossed near the sideline, but video's box_t is 0.517s before t0, exceeding the 0.5s contract tolerance.
-- Video loses `m04-n10-t711-186553-188161`: “visible on the field” cites an unlabelled later frame with zero box containment; frames cite the supported anchor.
-- Video loses `m04-n15-t3010-164698-170777`: “tracked through the video” has only 3.77% box containment at the anchor; frames locate the marked red-shirted player.
-- Video loses `m04-n17-t717-416826-418915`: “wearing a red jersey with the number 17” has only 62.21% containment and fails IoU; frames “visible running” grounds at the same anchor time.
+Video versus production 30s control (shared-control explanations above; full paired claim/box records in JSON):
 
-Per-clip 4 FPS changes versus frames:
+- video_fps2: gains m04-n17-t717-253073-260377, m04-n17-t717-304624-307834; loses m04-n05-t3007-284945-287898, m04-n09-t1409-143096-143834, m04-n10-t711-186553-188161, m04-n12-t1411-237107-242145, m04-n12-t1411-679986-681985, m04-n15-t3010-164698-170777, m04-n17-t717-416826-418915; availability-only changes m04-n04-t3006-243433-247994.
+- video_fps4: gains m04-n17-t717-304624-307834; loses m04-n12-t1411-237107-242145, m04-n12-t1411-679986-681985, m04-n15-t3010-164698-170777; availability-only changes m04-n17-t717-253073-260377.
 
-- Gains `m04-n24-t3013-679939-681217` and `m04-n25-t3014-530600-532465`: “identified by the red rectangle ... visible in subsequent frames” grounds both boxes at the anchor; the control boxes have zero containment (details above).
-- Loses `m04-n04-t3006-243433-247994`: “A player in a red jersey is tracked across multiple frames” returns an anchor-time box with zero containment, versus the supported control near the goal.
-- Loses `m04-n15-t3010-164698-170777`: video says “blue jersey” and its box has zero containment; the control describes the marked red-shirted player and grounds its box.
-- Contract availability loss on `m04-n17-t717-253073-260377`: “running with the ball” has box_t 0.667s before t0; it fails, while the control was valid but unsupported. This is not an additional grounded-clip win for frames.
-- All other attempted clip support/status outcomes match frames; 4 FPS and frames each support 14/20 attempted clips. The video gains above remain anchor controls.
+Like-for-like caveats:
 
-Like-for-like limitations:
+- Policies: 5s/≤6 stills versus production 30s/≤3 stills, versus dense full-clip video; short production windows receive just the anchor. All use a truth-aware first sample, not production's full upstream scheduling/identity pipeline.
+- MLX adds a separately marked image while its raw video begins at 0s; still anchors usually begin at 0.05s. The unchanged ±0.5s boxed-frame rule counts nearby unlabelled video frames as boxed. No supported unboxed claim is hidden by the headline denominator: N/A means none was attempted.
+- MLX video resolution falls as frame count rises under a fixed pixel budget: the 73s clip at 4fps has 292 frames at 384×192, versus 1280×720 stills. The separate anchor is excluded from video-frame counts; means include pre-inference failures as zero sent frames.
+- fps2 run.json wall_cap_s=absent; fps4 wall_cap_s=120.0. Different launch flags; largest video wall time 98.052s. No behavioural effect: every clip finished below the 120s cap.
+- MLX uses native temporal patch grids but its installed Qwen processor omits HF per-pair timestamp tokens; decoder timestamps are supplied in text. This is not full HF timestamp-token parity.
+- Ollama GGUF Q4_K_M and MLX's separately converted 4-bit weights, preprocessing, repetition handling and JSON enforcement differ. MLX uses prompt-only JSON instructions and the same strict parser; invalid responses remain failed.
+- MLX starts a fresh worker/model per clip; Ollama reuses a model server and the 5s smoke warmed one prompt. Sequential single passes have no repeated trials or machine-workload isolation; prod30 ran later after the GPU gate opened.
+- Rates exclude failed clips; wall and sent-frame means include every attempt. Hollow/malformed=0 among scored claims does not erase failed outputs. Full metrics, available token counts, failures and claim-level jersey/colour review are in JSON.
+- Shared anchor lookup fails for m04-n02-t3005-474114-478131 before inference; historical E1 instead counted it unsupported. Frozen truth is unchanged and no human_note is populated, so action semantics are ungraded.
+- Supplied numbers restated as kit detail — frames: [3, 9, 17, 21]; frames_prod30: [3, 4, 9, 17, 21]; video_fps2: [3, 9, 17, 21, 24]; video_fps4: [3, 9, 17, 21]; no unsupplied numbers observed. Kit-colour mismatches: video_fps2 m04-n24-t3013-679939-681217: black vs truth red; video_fps4 m04-n15-t3010-164698-170777: blue vs truth red. Geometry scoring does not penalize colour errors or establish number legibility.
+- Historical MLX runs used ignored report/.worker-deps via PYTHONPATH (preserved in their original run metadata); Jinja2 3.1.6/MarkupSafe 3.0.3 are now installed in the MLX venv. Earlier failed smokes were missing Jinja2 and fenced JSON; no video rerun was requested for this repair.
 
-- E1 frames sample every 5s, at most six stills; production's ≤3 stills every 30s is a different sampling policy.
-- MLX uses native temporal patch grids, not multi-image stills. Its installed Qwen processor omits HF per-pair timestamp tokens; actual decoder times are supplied in text. This is not full HF timestamp encoding parity.
-- MLX adds a separate marked image at the same truth-aware first time (usually 0.05s); raw video starts at 0s and remains unlabelled. The unchanged ±0.5s rule can count nearby raw video frames as boxed.
-- Spatial resolution and coverage differ: MLX samples the full clip and spends a fixed total video pixel budget; doubling FPS reduces each frame's resolution. Frames are 1280×720.
-- Ollama GGUF Q4_K_M and the MLX 4-bit conversion are different weights/engines; tokenizer, preprocessing, repetition implementations and output formatting can differ despite shared temperature 0, 400-token cap and penalty 1.15. Ollama enforces JSON mode; MLX uses prompt instructions with the same strict parser.
-- MLX includes a fresh Python process/model load for every clip. Ollama keeps a shared server/model and its smoke prompt cache sped the repeated control clip to 2.248s. Single sequential passes, no repeated trials or machine workload isolation.
-- Rates exclude failed clips; 0% hollow/malformed among scored claims hides failed empty/invalid outputs. Count successful grounded clips over all 20 as well: frames 14, 2 FPS 11, 4 FPS 14. Wall means include early failures; token means cover available worker responses only.
-- `m04-n02-t3005-474114-478131` fails the current shared anchor lookup in all lanes at 4741.19s. Historical E1 counted it unsupported; 14 supported claims persist in today's frames control, but the scored denominator is 19 instead of 20.
-- No frozen clip has a human note; action semantics/fabrication are not graded. On the designated unreadable-number clip, both video rates assert jersey 17 as kit detail; 17 was supplied, so new-number invention is UNCONFIRMED, but the wording is flagged for the jersey-number kill criterion. Frames refers to the marked #17 label.
-- Two unsuccessful MLX smoke attempts are retained: missing Jinja2, then fenced JSON. Jinja2 3.1.6/MarkupSafe 3.0.3 were installed only under this worktree's ignored report directory; the final prompt forbids Markdown and the parser was not relaxed.
-
-Verdict: **frames** — frames match 4 FPS at 14/20 supported clips with fewer failures (1 versus 2) and approximately 5× lower wall time (12.759 versus 63.771s); neither video rate demonstrates unboxed grounding. This is a comparison verdict, not an adoption decision.
+Verdict: **no clear winner on the headline (unboxed grounding is 0 in every lane); frames on cost** — frames: 14/20 supported clips, 12.759s/attempt; frames_prod30: 16/20 supported clips, 6.367s/attempt; video_fps2: 11/20 supported clips, 56.017s/attempt; video_fps4: 14/20 supported clips, 63.771s/attempt.

@@ -114,22 +114,16 @@ despite a larger sent image is explicitly malformed. The claim records a
   --num-predict 400 --repeat-penalty 1.15 --timeout 120 --wall-cap 120
 ```
 
-The worker also needs Jinja2 for the cached model's chat template. On this
-machine it was missing; this worktree-local install avoids changing the shared
-venv (using the existing `uv`, since neither interpreter has pip):
+Install the worker's pinned template dependencies into its own venv:
 
 ```sh
-mkdir -p spike/video-analysis/bench/report
-printf '*\n' > spike/video-analysis/bench/report/.gitignore
-uv pip install --python ~/mlx-vlm-venv/bin/python --no-cache \
-  --target spike/video-analysis/bench/report/.worker-deps \
-  Jinja2==3.1.6 MarkupSafe==3.0.3
-export PYTHONPATH="$PWD/spike/video-analysis/bench/report/.worker-deps"
-export HF_HUB_OFFLINE=1
+uv pip install --python ~/mlx-vlm-venv/bin/python -r spike/video-analysis/bench/requirements-worker.txt
 ```
 
-Run that setup before the bench command above. `PYTHONPATH` is fingerprinted;
-no dependencies, frozen media, or raw reports should be staged.
+The worker no longer inherits `PYTHONPATH`. The optional, fingerprinted
+`BENCH_MLX_PYTHONPATH` escape hatch defaults to empty; normal runs need none.
+Set `HF_HUB_OFFLINE=1` to use the cached model without network access.
+No dependencies, frozen media, or raw reports should be staged.
 
 The bench stays on Python 3.11 and launches `adapters/mlx_worker.py` with
 `BENCH_MLX_PYTHON` (default `~/mlx-vlm-venv/bin/python`, Python 3.12).
@@ -226,3 +220,38 @@ on the number-not-reliably-readable clips.
 ruff check spike/video-analysis/bench
 ruff format --check spike/video-analysis/bench
 ```
+
+## Production sampling control and reproducible comparison
+
+`qwen3vl_ollama` accepts `--sample-interval` (seconds, default 5.0) and
+`--sample-limit` (default 6). Nondefault sampling settings enter the fingerprint;
+the legacy defaults omit these fields to preserve existing v5 fingerprints exactly.
+Production's policy is one still every 30 seconds, at most three per call.
+For a short 0.5–7 second window this is one still: only the identity anchor.
+
+```sh
+BENCH_NUM_CTX=65536 ~/Projects/loanarmy/.loan/bin/python spike/video-analysis/bench/run_bench.py \
+  --adapter qwen3vl_ollama --anchor-mode first --box-space normalized_1000 \
+  --model qwen3-vl:8b --num-predict 400 --repeat-penalty 1.15 \
+  --sample-interval 30 --sample-limit 3 --clips all \
+  --manifest ~/Projects/loanarmy-bench-frozen/manifest.json \
+  --report-root ~/Projects/loanarmy-bench-reports --run-id e1b-ollama-frames-prod30
+
+~/Projects/loanarmy/.loan/bin/python spike/video-analysis/bench/compare_runs.py \
+  --reports-root ~/Projects/loanarmy-bench-reports \
+  --runs frames=e1b-ollama-frames frames_prod30=e1b-ollama-frames-prod30 \
+         video_fps2=e1b-mlx-video-fps2 video_fps4=e1b-mlx-video-fps4 \
+  --manifest ~/Projects/loanarmy-bench-frozen/manifest.json \
+  --out-json ledgers/research/evidence-bench-2026-09-09-video-lane.json \
+  --out-md ledgers/research/evidence-bench-2026-09-09-video-lane.md
+```
+
+The comparison reads existing run metadata, full report metrics, raw claims and
+(optional) truth identity/kit colour. Outputs are deterministic for those inputs;
+no model calls or frozen-data writes occur. Jersey/kit review records textual
+assertions, not whether a supplied jersey number was independently legible.
+
+Test blind spots: `prepare_anchor` is monkeypatched in MLX adapter tests;
+the worker test fakes the `mlx_vlm` API, so signature drift is caught only by a
+live smoke. The production single-still test exercises actual anchor drawing,
+frame sizing and boxed-frame tagging, with media extraction and inference faked.
