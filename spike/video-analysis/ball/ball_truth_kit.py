@@ -69,35 +69,38 @@ def import_labels(path, frames):
 PAGE = """<!doctype html><html lang="en"><meta charset="utf-8"><title>Ball truth review</title>
 <style>body{font:16px system-ui;background:#15191d;color:#eee;margin:24px}button,select,input{font:inherit;margin:6px;padding:8px}canvas{width:100%;height:auto;cursor:crosshair}nav{position:sticky;top:0;background:#15191d;padding:8px}#status{color:#ffdc80}</style>
 <h1>Ball truth — confirm or correct suggestions</h1><p>Click the centre of the match ball, or choose No ball visible. Leave uncertain frames unlabelled. Hollow cyan rings are unconfirmed suggestions. Enter/Space accepts; a click overrides; N marks no ball. Arrows change frame; J/K change clip. Suggestions never save themselves. Coordinates export in original source pixels; times are absolute match seconds. Labels save in this browser; export JSONL as a backup.</p>
-<nav><select id="clips" aria-label="Clip"></select><button id="prev">Previous</button><button id="next">Next</button><button id="target">Next unlabelled target</button><button id="accept">Accept suggestion</button><button id="none">No ball visible</button><button id="clear">Clear label</button><button id="zoom">Native size</button><button id="export">Export JSONL</button><label>Import JSONL <input id="import" type="file" accept=".jsonl,.json,.txt"></label><p id="progress"></p><p id="caption"></p><p id="status" role="status"></p></nav>
+<nav><select id="clips" aria-label="Clip"></select><button id="prev">Previous</button><button id="next">Next</button><button id="target">Next unlabelled target</button><button id="unlabelled">Next unlabelled frame</button><button id="accept">Accept suggestion</button><button id="none">No ball visible</button><button id="clear">Clear label</button><button id="zoom">Native size</button><button id="export">Export JSONL</button><label>Import JSONL <input id="import" type="file" accept=".jsonl,.json,.txt"></label><p id="progress"></p><p id="caption"></p><p id="status" role="status"></p></nav>
 <canvas id="canvas" aria-label="Click the ball centre in the frame"></canvas>
 <script>__IO__</script><script>
 const frames=__FRAMES__, suggestions=__SUGGESTIONS__, targets=__TARGETS__, storageKey=__KEY__, api=BallTruth;
 const suggestionMap=Object.fromEntries(suggestions.map(s=>[api.key(s),s])), targetKeys=new Set(targets.map(api.key));
-let labels={}, index=0, generation=0, imageReady=false;
+let labels=Object.fromEntries(__LABELS__.map(row=>[api.key(row),row])), index=0, generation=0, imageReady=false;
+const clearedKey=storageKey+':cleared'; let cleared=new Set();
 const status=document.getElementById('status'), canvas=document.getElementById('canvas'), ctx=canvas.getContext('2d');
 try {for(const row of api.parse(localStorage.getItem(storageKey)||'',frames)) labels[api.key(row)]=row;} catch(e){status.textContent='Saved labels could not be loaded: '+e.message;}
+try {cleared=new Set(JSON.parse(localStorage.getItem(clearedKey)||'[]'));for(const key of cleared)delete labels[key];} catch(e){status.textContent='Cleared-label history could not be loaded: '+e.message;}
 const clips=document.getElementById('clips');
 for(const clip of [...new Set(frames.map(f=>f.clip))]) {const o=document.createElement('option');o.value=clip;o.textContent=clip;clips.appendChild(o);}
-function save(){try{localStorage.setItem(storageKey,api.serialize(Object.values(labels),frames));status.textContent='Saved locally. '+Object.keys(labels).length+'/'+frames.length+' labelled.';}catch(e){status.textContent='Storage unavailable: export JSONL now. '+e.message;}}
-function show(){document.getElementById('progress').textContent=`labelled ${Object.keys(labels).filter(k=>targetKeys.has(k)).length} / ${targetKeys.size} target (540 on-ball + 100 off-pitch sample)`;document.getElementById('accept').disabled=!suggestionMap[api.key(frames[index])];imageReady=false;const f=frames[index], row=labels[api.key(f)], token=++generation;clips.value=f.clip;document.getElementById('caption').textContent=`${f.clip} · ${index+1}/${frames.length} · t=${f.t.toFixed(3)} s · ${row?(row.visible?'ball visible':'no ball visible'):'UNLABELLED'}`;const suggestion=suggestionMap[api.key(f)];document.getElementById('caption').textContent += (targetKeys.has(api.key(f))?' · TARGET':' · optional') + (suggestion?` · suggestion ${suggestion.source} (${suggestion.score.toFixed(3)})`:' · no suggestion');const img=new Image();img.onload=()=>{if(token!==generation)return;canvas.width=img.width;canvas.height=img.height;ctx.drawImage(img,0,0);imageReady=true;if(suggestion){ctx.strokeStyle='#50e8ff';ctx.lineWidth=3;ctx.beginPath();ctx.arc(suggestion.x*img.width/f.source_size[0],suggestion.y*img.height/f.source_size[1],15,0,2*Math.PI);ctx.stroke();ctx.font='20px system-ui';ctx.fillStyle='#50e8ff';ctx.fillText(suggestion.source,suggestion.x*img.width/f.source_size[0]+18,suggestion.y*img.height/f.source_size[1]);}if(row&&row.visible){ctx.strokeStyle='#ff3050';ctx.lineWidth=2;ctx.beginPath();ctx.arc(row.x*img.width/f.source_size[0],row.y*img.height/f.source_size[1],10,0,2*Math.PI);ctx.stroke();}};img.src=f.path;}
-function label(x,y,visible,provenance={source_accepted:false}){const f=frames[index];labels[api.key(f)]=api.validate({clip:f.clip,t:f.t,x,y,visible,...provenance},frames);save();show();}
+function save(){try{localStorage.setItem(clearedKey,JSON.stringify([...cleared]));localStorage.setItem(storageKey,api.serialize(Object.values(labels),frames));status.textContent='Saved locally. '+Object.keys(labels).length+'/'+frames.length+' labelled.';}catch(e){status.textContent='Storage unavailable: export JSONL now. '+e.message;}}
+function show(){document.getElementById('progress').textContent=`labelled ${Object.keys(labels).length} / ${frames.length} (${frames.length-Object.keys(labels).length} remaining) · targets ${Object.keys(labels).filter(k=>targetKeys.has(k)).length} / ${targetKeys.size} (540 on-ball + 100 off-pitch sample)`;document.getElementById('accept').disabled=!suggestionMap[api.key(frames[index])];imageReady=false;const f=frames[index], row=labels[api.key(f)], token=++generation;clips.value=f.clip;document.getElementById('caption').textContent=`${f.clip} · ${index+1}/${frames.length} · t=${f.t.toFixed(3)} s · ${row?(row.visible?'ball visible':'no ball visible'):'UNLABELLED'}`;const suggestion=suggestionMap[api.key(f)];document.getElementById('caption').textContent += (targetKeys.has(api.key(f))?' · TARGET':' · optional') + (suggestion?` · suggestion ${suggestion.source} (${suggestion.score.toFixed(3)})`:' · no suggestion');const img=new Image();img.onload=()=>{if(token!==generation)return;canvas.width=img.width;canvas.height=img.height;ctx.drawImage(img,0,0);imageReady=true;if(suggestion){ctx.strokeStyle='#50e8ff';ctx.lineWidth=3;ctx.beginPath();ctx.arc(suggestion.x*img.width/f.source_size[0],suggestion.y*img.height/f.source_size[1],15,0,2*Math.PI);ctx.stroke();ctx.font='20px system-ui';ctx.fillStyle='#50e8ff';ctx.fillText(suggestion.source,suggestion.x*img.width/f.source_size[0]+18,suggestion.y*img.height/f.source_size[1]);}if(row&&row.visible){ctx.strokeStyle='#ff3050';ctx.lineWidth=2;ctx.beginPath();ctx.arc(row.x*img.width/f.source_size[0],row.y*img.height/f.source_size[1],10,0,2*Math.PI);ctx.stroke();}};img.src=f.path;}
+function label(x,y,visible,provenance={source_accepted:false}){const f=frames[index];cleared.delete(api.key(f));labels[api.key(f)]=api.validate({clip:f.clip,t:f.t,x,y,visible,...provenance},frames);save();show();}
 canvas.onclick=e=>{if(!imageReady)return;const r=canvas.getBoundingClientRect(), f=frames[index];label(Math.min(f.source_size[0]-.001,Math.max(0,(e.clientX-r.left)/r.width*f.source_size[0])),Math.min(f.source_size[1]-.001,Math.max(0,(e.clientY-r.top)/r.height*f.source_size[1])),true);};
 document.getElementById('zoom').onclick=()=>{const native=canvas.style.width!=='1920px';canvas.style.width=native?'1920px':'100%';document.getElementById('zoom').textContent=native?'Fit width':'Native size';};
 document.getElementById('accept').onclick=()=>{if(!imageReady)return;const s=suggestionMap[api.key(frames[index])];if(s)label(s.x,s.y,true,{source_accepted:true,accepted_source:s.source,accepted_score:s.score});};
 document.getElementById('none').onclick=()=>label(null,null,false);
-document.getElementById('clear').onclick=()=>{delete labels[api.key(frames[index])];save();show();};
+document.getElementById('clear').onclick=()=>{cleared.add(api.key(frames[index]));delete labels[api.key(frames[index])];save();show();};
 document.getElementById('prev').onclick=()=>{index=Math.max(0,index-1);show();};
 document.getElementById('target').onclick=()=>{const next=[...frames.keys()].map(i=>(index+1+i)%frames.length).find(i=>targetKeys.has(api.key(frames[i]))&&!labels[api.key(frames[i])]);if(next!==undefined){index=next;show();}};
+document.getElementById('unlabelled').onclick=()=>{const next=[...frames.keys()].map(i=>(index+1+i)%frames.length).find(i=>!labels[api.key(frames[i])]);if(next!==undefined){index=next;show();}};
 document.getElementById('next').onclick=()=>{index=Math.min(frames.length-1,index+1);show();};
 clips.onchange=()=>{index=frames.findIndex(f=>f.clip===clips.value);show();};
 document.getElementById('export').onclick=()=>{const url=URL.createObjectURL(new Blob([api.serialize(Object.values(labels),frames)],{type:'application/x-ndjson'})),a=document.createElement('a');a.href=url;a.download='ball-human-truth.jsonl';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
-document.getElementById('import').onchange=async e=>{try{const rows=api.parse(await e.target.files[0].text(),frames);for(const row of rows)labels[api.key(row)]=row;save();show();}catch(err){status.textContent='Import rejected: '+err.message;}};
+document.getElementById('import').onchange=async e=>{try{const rows=api.parse(await e.target.files[0].text(),frames);for(const row of rows){cleared.delete(api.key(row));labels[api.key(row)]=row;}save();show();}catch(err){status.textContent='Import rejected: '+err.message;}};
 document.addEventListener('keydown',e=>{if(e.target.tagName==='SELECT'||e.target.tagName==='INPUT')return;if(['ArrowRight','ArrowLeft','Enter',' ','n','N','j','J','k','K'].includes(e.key))e.preventDefault();if(e.key==='Enter'||e.key===' ')document.getElementById('accept').click();if(e.key.toLowerCase()==='n')document.getElementById('none').click();if(['j','k'].includes(e.key.toLowerCase())){const ids=[...new Set(frames.map(f=>f.clip))],step=e.key.toLowerCase()==='j'?1:-1;index=frames.findIndex(f=>f.clip===ids[Math.max(0,Math.min(ids.length-1,ids.indexOf(frames[index].clip)+step))]);show();}if(e.key==='ArrowRight')document.getElementById('next').click();if(e.key==='ArrowLeft')document.getElementById('prev').click();});show();
 </script></html>"""
 
 
-def build(manifest, source, out, suggestions=None):
+def build(manifest, source, out, suggestions=None, human_jsonl=None):
     import cv2
 
     data, clips = load_dataset(manifest, source)
@@ -148,8 +151,10 @@ def build(manifest, source, out, suggestions=None):
     key = f"ball-human-v1:{data['frozen_set_id']}:{str(source)}:fps2"
     suggestion_rows = load_suggestions(suggestions, frames)
     plan = review_plan(frames)
+    confirmed = list(import_labels(human_jsonl, frames).values()) if human_jsonl else []
     page = (
         PAGE.replace("__IO__", (HERE / "truth_io.js").read_text())
+        .replace("__LABELS__", json.dumps(confirmed).replace("<", "\\u003c"))
         .replace("__FRAMES__", json.dumps(frames).replace("<", "\\u003c"))
         .replace("__KEY__", json.dumps(key))
         .replace("__SUGGESTIONS__", json.dumps(suggestion_rows).replace("<", "\\u003c"))
@@ -159,7 +164,8 @@ def build(manifest, source, out, suggestions=None):
     dump(
         out / "build.json",
         {
-            "build_version": 4,
+            "build_version": 8,
+            "confirmed_seed_labels": len(confirmed),
             "storage_key": key,
             "suggestions": len(suggestion_rows),
             "suggestions_by_source": {
@@ -182,8 +188,13 @@ if __name__ == "__main__":
     p.add_argument("--source", type=Path, default=DEFAULT_SOURCE)
     p.add_argument("--out", type=Path, default=Path.home() / "ball-truth-review")
     p.add_argument("--suggestions", type=Path)
+    p.add_argument(
+        "--human-jsonl",
+        type=Path,
+        help="Seed validated confirmed labels; newer browser labels take precedence",
+    )
     a = p.parse_args()
-    build(a.manifest, a.source, a.out, a.suggestions)
+    build(a.manifest, a.source, a.out, a.suggestions, a.human_jsonl)
     if a.out == Path.home() / "ball-truth-review":
         dump(
             Path.home() / "codex-runs/ball-truth-review-build.json",

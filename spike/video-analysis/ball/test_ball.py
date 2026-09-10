@@ -372,18 +372,15 @@ def test_human_scoring_640_labels_no_models_no_media(tmp_path):
         "wasb",
         "wasb_2x2",
     }
-    assert result["human_truth"]["labelled_frames"] == 640
+    assert result["labels"]["rows"] == 640
+    assert result["labels"]["coverage"]["on_ball"]["covered"] == 540
     for r in result["results"]:
-        h = r["overall"]["human"]
-        assert h["all_onball_labelled"]
-        assert h["labelled_offpitch_frames"] == 100
+        assert r["groups"]["off_pitch"]["labelled"] == 100
         assert {
-            c["clip"]: c["human"]["labelled_frames"]
-            for c in r["per_clip"]
-            if c["off_pitch"]
+            c["clip"]: c["labelled"] for c in r["per_clip"] if c["class"] == "off_pitch"
         } == dict(counts)
-        assert h["gate"] in {"PASS (human sample)", "FAIL (human sample)"}
-        assert r["overall"]["gate_proxy"] == "UNMEASURABLE (proxy)"
+        assert r["gate"] in {"PASS", "FAIL"}
+        assert r["groups"]["all"]["no_ball_frames"] == 100
 
 
 def test_proxy_perfect_agreement_cannot_pass_gate():

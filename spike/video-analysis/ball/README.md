@@ -1,6 +1,137 @@
-# Local ball bench: self-agreement now, human scoring next
+# Local ball bench: MJ human truth
 
-**All proxy verdicts are `UNMEASURABLE (proxy)`.** The numbers measure detector
+MJ's September 11 product decision: **RF-DETR (Apache-2.0)** is the product model.
+**ultralytics is bench-only and must not enter the serving path; the product model
+is RF-DETR (Apache-2.0).** The YOLO trainer and saved results remain comparison
+evidence for this round. The generated ledger leads with the corrected round-5
+fair comparison: thresholds selected on TRAIN at 1 and 2 false boxes/10s.
+A shared confidence 0.1 is not comparable across model families. See the
+[round-5 workflow](#round-5-fair-calibration-augmentation-and-replay) below.
+Rounds 1–4 retain historical results and their superseded selection statements.
+
+## Historical round 4: trainer swap
+
+Round 4 uses `train_tiny_ball_rfdetr.py`, with no Ultralytics import or dependency.
+`requirements-rfdetr.txt` pins the executed RF environment; install it into a
+separate external venv rather than installing the bench-only YOLO requirements
+into a serving environment. The documented `.venv-bench` was absent on resumption,
+so execution restored `rfdetr[train]==1.7.1` in the existing external training venv.
+
+Both RF-DETR Nano fits are frozen in `fixtures/round4_execution.json`: 640 px from
+COCO, then a 960 px continuation from a's **final** checkpoint, fresh optimizer.
+The floor is 18.6804351807 native px in both; no floor sweep. Every target uses
+`clamp(TRAIN-only affine(image_y), floor, 48)`, superseding the direct matched-size
+override from round 3. Four native 960×540 crops are padded below to 960×960,
+then resized uniformly. No source aspect distortion and no held-out training data.
+
+The RF model/criterion and official layer-wise AdamW groups run in an explicit
+PyTorch loop: TRAIN-loss patience only, no validation loader or EMA, final-step
+export including a time-ended partial epoch. This avoids RF-DETR 1.7.1's obsolete
+callback dict (discarded by its Lightning facade) and its validation-best export.
+Each fit has a 29-minute training budget, leaving export margin under 30 minutes.
+All fits finish before either held-out saved pass; neither thresholds nor recipes
+are changed using the new held-out scores. Model selection then intentionally
+uses held-out top-1 recall under the ≤2 false/10s ceiling and is optimistic.
+An improvement must beat r2-b's 68.03% held-out top-1 without exceeding its
+1.67 false/10s. Only such an RF win permits a kit refresh.
+
+```sh
+# New output directories required; at most these two fits.
+~/models/tinyball/.venv-mj/bin/python spike/video-analysis/ball/run_round4.py
+~/models/tinyball/.venv-mj/bin/python spike/video-analysis/ball/evaluate_round4.py
+# Saved scoring, independent size buckets, null controls and unchanged Kalman:
+~/Projects/loanarmy/.loan/bin/python spike/video-analysis/ball/review_round4.py
+# Byte-for-byte ledgers from aggregate fixtures, no labels/models/source needed:
+~/Projects/loanarmy/.loan/bin/python spike/video-analysis/ball/build_human_report.py
+```
+
+`fixtures/round4_scored_output.json.gz` contains scored aggregates, not click
+coordinates. It retains All / held-out metrics and manual-only recall. Manual
+frames were the harder cases MJ clicked where no suggestion existed; lower
+manual-only recall does not by itself establish model bias. Fresh labelled club
+footage is required for a clean test. Better footage is helpful but has not been
+demonstrated to solve the detection and false-rate gate.
+
+## Historical rounds 1–3
+
+The September 11 human report supersedes proxy verdicts for the labelled sample:
+`ledgers/research/evidence-bench-2026-09-11-ball-human.{json,md}`. All five saved
+baselines and all trained models fail the **top-1** real gate at confidence 0.1.
+Nearest-of-N recall is an oracle over multiple guesses, not pipeline recall.
+Current best is round-2 b under the explicitly evaluation-based selection rule;
+the two scale-aware repeats improve large-ball hits but lose small-ball recall.
+
+MJ's 1,057 validated labels cover 506/540 on-ball targets and 99/100 off-pitch
+targets, plus 452 extra frames. There are 48 unlabelled frames. Missing frames
+remain unknown; a sample PASS/FAIL is not certification of missing labels.
+The source JSONL and all training outputs remain outside git.
+
+`score_from_saved.py` uses **20 source pixels** and the highest-confidence box
+for top-1 recall. Nearest-of-N is separately labelled oracle recall, with duplicate
+predictions penalising oracle precision. The real gate requires top-1 on-ball
+visible-frame recall >=80% and <=1 prediction per
+10 seconds on **all explicitly no-ball frames** (0.5 seconds exposure per sample).
+Trained headline metrics use held-out clips only, with all-clip (including training)
+metrics explicitly separate. It reports on-ball/off-pitch/other groups,
+pooled/manual-only recall, accepted-source bias, matched
+box short-side distributions, and re-tracked Kalman points versus human centres.
+Human clicks confirm association, not detector box boundaries; matched sizes are
+not independently measured ball diameters. Trained point-box sizes are especially
+unsuitable as independent ball-size evidence.
+
+Round 2 uses the committed deterministic **14 train / 6 evaluation** split:
+631 visible training labels / 244 evaluation labels, including two on-ball and
+two off-pitch clips in evaluation. Every evaluation estimate is labelled
+**held-out (mild prior tuning exposure: the 640-vs-960 recipe choice in round 1 saw these clips in aggregate)**.
+The user explicitly accepted that exposure. These 20 clips cannot be a clean test
+set again; new labelled club footage is the real test. All-clip and six-clip
+numbers are paired throughout the generated ledger, including rescored round-1
+models. The original four-train/16-evaluation round-1 records remain in JSON.
+
+`fixtures/round2_execution.json` freezes the split and four-fit protocol. Fits a/b
+use 2×2@960 (COCO / round-1 weights), c uses 2×2@1280 for 33% more effective ball
+pixels within a 23-minute fit budget, and d continues the minimum-TRAIN-loss a–c
+checkpoint. Historically, early stopping, checkpoint selection and the round-2
+kit model used **TRAIN loss only**. Round 3 supersedes model selection with the
+user-authorized held-out top-1/false-rate rule; checkpoint selection remains TRAIN-only. Held-out images never enter fitting or box-size estimation;
+a custom validator reads training loss without evaluating images. All four fits
+finish and selection is frozen before any round-2 saved inference pass. AdamW
+settings are pinned to the optimizer used in round 1. Batch, fit budgets, actual
+epochs/minutes, hashes and MPS nondeterminism caveats are recorded in the ledger.
+
+Build version **7**, with 636 saved suggestions from current-best `mj-r2-b`, accepts `--human-jsonl` to seed MJ's validated export while
+preserving the existing localStorage key and giving newer browser labels priority.
+The new **Next unlabelled frame** button visits optional as well as target frames.
+Suggestions remain unconfirmed and cannot overwrite labels.
+
+```sh
+PY=~/Projects/loanarmy/.loan/bin/python
+$PY spike/video-analysis/ball/score_from_saved.py \
+  --human-jsonl ~/codex-runs/ball-human-truth.jsonl \
+  --extra-detections tinyball-r1=$HOME/models/tinyball/mj-r1/detections.json
+# The four prescribed fits (outputs/logs must be new; preserves existing runs):
+~/models/tinyball/.venv-mj/bin/python spike/video-analysis/ball/run_round2.py
+# Only after all four fits and TRAIN-only selection are frozen:
+~/models/tinyball/.venv-mj/bin/python spike/video-analysis/ball/evaluate_round2.py
+~/models/tinyball/.venv-mj/bin/python spike/video-analysis/ball/round2_people.py
+# Aggregate saved detections, tracks and predeclared error buckets (no inference):
+$PY spike/video-analysis/ball/round2_analysis.py
+# Reproduce committed human ledgers without labels, videos or models:
+$PY spike/video-analysis/ball/build_human_report.py
+```
+
+The aggregate human measurement fixture contains metrics and target coverage keys,
+not click coordinates or label rows. For archive tests, use Python 3.11 and
+NumPy 2.4.6 to match the original strict floating-point retracking fixture;
+Python 3.12 produces small differences in the historical aggregate fixture. `fixtures/human_execution.json` records the
+round-1 training, refresh and verification evidence. Round-2 execution and aggregate
+measurement fixtures add paired scoring, error buckets and the conditional doubled-ball-pixel
+projection without embedding label coordinates. `build_human_report.py --capture`
+freezes a completed score JSON. Tests regenerate both ledgers byte-for-byte.
+
+## Historical proxy bench and recipe background
+
+**Historical proxy verdicts are `UNMEASURABLE (proxy)`.** The numbers measure detector
 self-agreement, candidate box/point counts, throughput and unverified trajectories.
 They do not measure recall against the real match ball. The RF full/2x2 voters
 share weights; 387/408 on-ball and 143/155 off-pitch agreement-positive frames are
@@ -115,7 +246,8 @@ no-ball frames supply negatives; unlabelled frames never do. `--pseudo` alone
 adds saved RF 0.1 boxes within 20 source pixels of a training click, with NMS.
 There is no pseudo-label propagation to held-out clips or unclicked frames.
 
-The fixed split is by complete clip, **never by frame**:
+The fixed training split is by complete clip, **never by frame**; all additional
+labelled clips are held out for evaluation:
 
 | Role | On-ball clips |
 |---|---|
@@ -127,8 +259,8 @@ Normal runs use the last checkpoint; held-out labels do not select weights.
 Per-epoch validation is disabled; Ultralytics may validate once at the end.
 Default training requests five epochs with MPS and a 15-minute trainer budget;
 Ultralytics' time budget may adjust epoch count and finishes at epoch boundaries.
-Full human-labelled training time is not yet measured. Use `--epochs` to set the
-requested count. `--init` lets later clicks improve the preceding model.
+Completed round-1/2/3 training times are recorded in the human ledger. Use `--epochs`
+to set the requested count. `--init` lets later clicks improve the preceding model.
 
 Outputs: `weights.pt`, `dataset.json`, `dataset/`, `metrics.json`,
 `detections.json`, `suggestions.jsonl`, and Ultralytics `fit/` checkpoints.
@@ -139,12 +271,13 @@ covers all 1,105 scheduled frames. Suggestions contain at most one point per
 frame with an output >=0.1; missing predictions produce no suggestion, never an
 invented point. The saved detection file includes those empty frames.
 
-The six-candidate bench uses its existing **40-pixel** matching rule for fair
-comparison. Scores that include training clips are in-sample; consult the separate
+Historical `compare_ball.py` retains its **40-pixel** diagnostic matching rule.
+The human `score_from_saved.py` uses **20 pixels** for every candidate. Scores that include training clips are in-sample; consult the separate
 20-pixel held-out metrics for generalisation. Model-assisted confirmation also
 needs careful review; acceptance provenance is available for audits.
 
-The separate human sample gate requires all 540 on-ball labels and >=100 off-pitch
+The following gate is retired; the current top-1 human-sample gate is defined above.
+The historical human gate required all 540 on-ball labels and >=100 off-pitch
 labels: visible-ball recall >=80%, unmatched predictions <=1/10 s. A visible ball
 on off-pitch frames permits one match; every other prediction is unmatched.
 Exposure is 0.5 s per labelled frame. Partial labels give metrics with the gate
@@ -274,3 +407,170 @@ Archive-export gates also run with a minimal Python environment **without cv2**,
 torch or supervision, with `BENCH_REQUIRE_CV2` unset. CV2-dependent tests use
 `pytest.importorskip`; all saved-score, tracking, schema and proxy tests still run.
 The export has no `.git`, model weights, local media, or third-party checkout.
+
+## Round-3 human review and scale-aware fits
+
+The human gate now uses **highest-confidence top-1 recall**, not nearest-of-N.
+`recall` is retained in JSON only as a historical alias of `oracle_recall`;
+`top1_recall` governs PASS/FAIL. Trained headline rows use held-out-only metrics,
+with explicit training-inclusive columns. Headline boxes/frame divides by visible
+on-ball frames (the reviewer’s denominator); `boxes_per_frame` in JSON instead
+divides by all labelled frames and `boxes_per_visible_frame` records the former.
+Manual-only recall and visible-labelled track-point precision/rates are reported.
+
+`fixtures/human_measurements.json.gz` and `round2_measurements.json.gz` are
+historical filenames for **scored aggregate output**, not raw measurements or
+human labels. `round3_scored_output.json.gz` contains the revised paired scores,
+100-repeat seeded matching controls, path-credit sensitivity and error buckets.
+All three exclude human centres and per-label outcome records. The execution
+fixtures preserve historical decisions; round3 explicitly supersedes model
+selection. The original 4/16 split and common 14/6 split are kept separate.
+
+```sh
+# Regenerate both committed ledgers, without private files or inference.
+~/Projects/loanarmy/.loan/bin/python spike/video-analysis/ball/build_human_report.py
+
+# Re-score existing local saved passes, including the two completed scale runs.
+# No inference; requires MJ's local JSONL and saved local artifacts.
+~/Projects/loanarmy/.loan/bin/python spike/video-analysis/ball/review_round3.py
+```
+
+The two authorized scale fits are scripted in `run_round3.py`, followed once by
+`evaluate_round3.py`. Both refuse to overwrite previous training/prediction
+artifacts. Do not rerun them to regenerate reports. The recipes repeat round2 a/b
+at 2×2@960, with exactly the same budgets, initial checkpoints, optimizer and
+augmentation. `--scale-targets --train-loss-only` replaces the fixed square side
+with each click's nearest matched TRAIN RF 2×2 box short side; an affine size-vs-y
+fit supplies missing sizes, clipped to [6,48] native px. Fit coefficients, R²,
+matching population and fallback count are recorded. No held-out sizes enter
+fitting. Detector extents remain estimates, not human-drawn diameters.
+
+Round3 selects the highest H on-ball top-1 recall among round2 a–d and round3 a–b
+with H no-ball false/10s ≤2. The real gate still requires ≤1. This intentionally
+uses held-out data and produces an optimistic selected estimate; the earlier
+640-vs-960 aggregate choice already exposed these clips. Fresh labelled club
+footage is the true holdout. A 4K/follow-cam export can improve ball pixels but is
+not, by itself, a demonstrated solution to the remaining errors.
+
+Accepted labels already require `accepted_source` and `accepted_score` in Python
+and browser validators. Accept preserves the model source; a hand click clears
+acceptance provenance. Keep those fields in future JSONL exports so model-seeded
+labels can be separated from manual labels during evaluation.
+
+### Round 5: fair calibration, augmentation and replay
+
+The corrected round-5 protocol is `fixtures/round5_execution.json`. The two new
+fits are RF-DETR Nano@960 from COCO, first with native-content zoom/translation
+and step LR decay, then with identical settings plus TRAIN-only hard-negative
+replay. `train_round5.py` uses the existing verified round-4 TRAIN tile cache;
+no validation clips enter training, mining or stopping. `round5_data.py` clips
+transformed targets to actual image content and preserves positive annotations
+on replayed tiles. Every original tile appears once per complete epoch; each
+mined tile appears once more. The final checkpoint is the product candidate.
+
+`round5_inference.py` saves fresh detections to confidence 0.01. The YOLO adapter
+is bench-only. Before runtime/model loading or output creation, the selected
+weights must match the independent fit summary's final SHA256. Diagnostics require
+`--checkpoint-epoch N` and match that declared checkpoint hash instead; the final
+declaration is never overwritten. `run_round5.py` supplies this flag for diagnostics.
+`checkpoint_provenance.py` also binds every capture/finish envelope (historical
+baselines included) to a registered candidate's fit summary. Finish preflights all
+finals and declared diagnostics before writing any artifact. To repeat the private
+six-pass disk audit, call `audit_saved_passes(Path.home() / "models/tinyball")`
+from that module; the aggregate audit is in the ledger execution block.
+`fair_protocol.py` chooses thresholds using TRAIN no-ball frames
+only, at nominal 1 and 2 false boxes/10s, with tied scores handled atomically.
+Held-out curves and exact frame-level McNemar comparisons are diagnostic only.
+The six evaluation clips are **recipe-selected on these clips**, not a clean
+test set: all clips share a match, and held-out on-ball clips share a player with
+training. A new match from a different venue/day is required for a product claim.
+
+`run_round5.py` finishes the second fit only after the first fit completes, then
+runs final and saved-checkpoint inference. `finish_round5.py` captures metrics,
+uses final-checkpoint H metrics at TRAIN-chosen thresholds to choose an RF-only kit source (optimistic selection), and prepares suggestions.
+`throughput_round5.py` benchmarks three interleaved repeats on the same TRAIN
+clips, including decode and batched four-tile inference, after training stops.
+RF throughput uses `optimize_for_inference`; accuracy is scored separately from
+eager FP32 passes, with this distinction explicit in the report.
+
+Private labels, crops, datasets, predictions and weights remain outside git.
+The execution and scored-output fixtures contain aggregate results only. The
+legacy `human_measurements.json.gz` filename also holds **scored aggregates**,
+not raw measurements or clicks. `build_human_report.py` regenerates both ledgers
+without private files; historical hashed protocol snapshots retain their original
+wording while current presentation corrects the evaluation-exposure label.
+
+The round-4 `train_tiny_ball_rfdetr.py` stays frozen for its recorded source-hash
+checks. Use `train_round5.py` for the lifted time budget, decay and replay;
+its protocol replaces the old 29-minute limit. Final and intermediate new-model
+inference refuses to start until both final checkpoint hashes validate, and
+writes an immutable evaluation-start marker. Cross-model selection uses final H
+metrics at TRAIN-chosen thresholds and is explicitly optimistic; intermediate
+learning curves never select a checkpoint. Controlled throughput now measures
+both 2fps sampling and native-rate bursts, so each match projection uses its own
+measured pipeline rate.
+
+`benchmark_activity.py` records macOS media-analysis CPU and AGX GPU utilization
+for every repeat. mediaanalysisd and PhotosReliveWidget are steady background,
+not blockers. The shared quiet-wait budget is 900 seconds across the whole
+session; remaining contention is reported rather than waited on indefinitely.
+The benchmark checks active generators, ComfyUI queues and bench jobs without
+pausing unrelated work. Per-repeat observations accompany the median, including
+any `contended (steady background load)` classification.
+
+The final selection audit recounts raw saved detections independently of the
+scorer: RF a has 76/122 held-out on-ball hits and 6 false boxes on 60 no-ball
+frames (2.00/10s); RF b has 75/122 and 4 (1.33/10s). Both qualify at the declared
+<=2 ceiling, so RF a is selected by one hit. This remains optimistic selection
+on recipe-selected clips, not proof of product superiority.
+
+### Round-5 framing review: no winner at a strict budget
+
+The matched-false-rate table is diagnostic, not a deployed threshold selector.
+The two r5 fits exchange any apparent advantage with only a few false boxes;
+A's selected kit source sits exactly at the ceiling and wins by one hit. The
+formerly disputed 2.17/1.30 rates use the 46-frame **on-ball** no-ball subset;
+strict selection uses all 60 held-out no-ball frames. `round5_framing.py` derives
+matched-rate budgets, n21 visible-ball sensitivity and timing ranges from saved
+aggregates. It retains strict labels and selection. Process IDs, resident model
+memory and per-second process samples remain private; committed timing evidence
+contains per-repeat summaries, with mean mediaanalysisd CPU >=30% flagged as
+contended. This retrospective flag does not change the nonblocking wait policy.
+
+`inspect_n21_adjudication.py` decodes five source frames and draws saved boxes for
+all four models at both TRAIN budgets; it imports no detector. Its private sheet
+is `~/codex-runs/ball-r5-n21/adjudicate-s6-s10.png`. The later decision must cover s0–s10 and
+choose match-ball versus any-ball semantics before labels change.
+
+Canonical historical tracker aggregates were generated under CPython 3.11.16,
+NumPy 2.4.6, with no SciPy installed (`~/Projects/loanarmy/.loan`). The RF runtime
+uses CPython 3.12.14, NumPy 2.3.5 and SciPy 1.18.1. We chose a narrow comparison
+tolerance rather than changing either environment: only duration-weighted group
+continuity permits absolute/relative drift <=1e-12. Per-clip tracks, counts and
+other fields remain exact; validated reports retain canonical saved values.
+The reproduced three differences were about 1e-16; no SciPy function is used on
+this path, so a SciPy-specific cause is unconfirmed. The RF full suite is now
+included in verification.
+
+No further m04 training. Calibrate on TRAIN-disjoint clips; budget future fits by
+optimizer steps; publish matched-rate curves and per-clip counts beside TRAIN
+operating points. Fresh labels from a different venue/day are the next evidence.
+
+N21 follow-up: `inspect_n21_adjudication.py --all-frames` renders all eleven frames,
+current MJ labels (including accepted-source/manual provenance), background zoom
+and saved boxes from every candidate at both TRAIN budgets. The output is
+`~/codex-runs/ball-r5-n21/adjudicate-s0-s10.png`. s8–s10 show a football, s6 none,
+and s7 is ambiguous. YOLO has no boxes on these five no-ball frames, but does
+box the background ball among the six visible frames. The click-distance sequence
+86,142,164,158,118,77px (reviewer's flagged spot) moves away, then back.
+
+`n21_rule_sensitivity.py` verifies saved-pass/label hashes and captures aggregate
+counterfactuals without editing labels. Match-ball-only removes six visible
+background-ball labels and expands the held-out no-ball denominator to66. The
+any-visible-ball false column retains the prior fixed60-frame credit convention;
+its overall recall adds three provisional references from inspected old RF box
+centres, not MJ-confirmed clicks. The20px tolerance can include nearby footwear;
+this limitation is explicit. On-ball recall is unchanged because n21 is off_pitch.
+One MJ decision must cover s0–s10: any visible ball or match ball only; current
+labels follow neither rule consistently. The pending decision is not applied to
+the real labels, gate, thresholds or kit selection.

@@ -1,0 +1,161 @@
+{
+  "decisions": [
+    "Exactly two fits, both specified before any new held-out inference. No floor sweep: use the brief\u2019s 18.68px starting floor and fit the affine relationship on TRAIN labels only.",
+    "RFDETRNano at 640 first to obtain more updates within the MPS budget; then continue its final weights at 960 for 1.5\u00d7 effective ball pixels. Native 960\u00d7540 crops are padded below to 960 square and resized uniformly, without anisotropic squash.",
+    "Use the RF-DETR model/criterion and official layer-wise AdamW groups in an explicit PyTorch loop. No Lightning validation callback, EMA or held-out loader. Only complete TRAIN-epoch losses affect patience 6; the time budget stops at an optimizer-step boundary. Export final parameters.",
+    "The documented .venv-bench environments were missing. Restored rfdetr[train]==1.7.1 in external ~/models/tinyball/.venv-mj; pinned RF requirements are separate from bench-only YOLO requirements.",
+    "Name the RF run with highest H on-ball top-1 recall subject to H no-ball false/10s\u22642 as current best licence-clean model. This selects on reused held-out data and is optimistic. If none qualifies, report no eligible model and label the recall leader diagnostic.",
+    "An RF run only improves on r2-b when H on-ball top-1 recall exceeds 68.0327868852459% and H false/10s does not exceed 1.6666666666666667. The real gate is separately \u226580% and \u22641. Refresh the kit only for an RF improvement.",
+    "Manual-labelled frames are harder: MJ hand-clicked where no suggestion existed. Lower manual-only recall is expected difficulty confounding, not by itself evidence of model bias. Preserve accepted-source provenance for future analysis.",
+    "These 20 clips are no longer a clean test set; fresh labelled club footage is the true holdout. Better footage may help but has not been shown to solve the gate.",
+    "RF versus historical YOLO also changes architecture, optimizer schedule, augmentation (horizontal flips only), and final versus minimum-TRAIN-loss checkpoint selection. This is a pipeline comparison, not an isolated target-floor ablation.",
+    "Run b adds up to 29 minutes after run a. Report its additional and cumulative training cost; it is not an independent COCO fit.",
+    "Run a completed 29.01min and 1129 optimizer steps: two complete epochs plus 3000/3012 tiles in the third. Epoch means 15.1164 and 3.8186; final partial 3.6290. Time-capped RF sees fewer passes than historical r2-b\u2019s 10 epochs; this is not an architecture ceiling.",
+    "Run b first complete epoch mean TRAIN loss 3.6718; final checkpoint remains budget-ended parameters, not a comparison of minima across the two resolutions.",
+    "Measured RF inference uses eager FP32 MPS, batch of four padded tiles per frame, and NMS 0.5; optimize_for_inference was not called. FPS includes source decoding and padding, excludes loading/warmup, scoring and tracking. No own training overlaps these timed passes.",
+    "Exactly two fits completed. No further training, threshold search or inference optimization after evaluation; saved scoring adds only a post-fit affine-scale diagnostic, without changing any target or checkpoint."
+  ],
+  "delivery": {
+    "base_commit": "8e949fcd60b53d3e44e18da2107855832fe66051",
+    "commit_message": "feat(ball): fine-tune RF-DETR as the licence-clean tiny-ball model and compare against YOLO11-nano\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>",
+    "new_commits": 1,
+    "push": false
+  },
+  "evaluation_label": "held-out (mild prior tuning exposure: the 640-vs-960 recipe choice in round 1 saw these clips in aggregate)",
+  "experiments": [
+    {
+      "batch": 8,
+      "budget_minutes": 29,
+      "class": "RFDETRNano",
+      "floor_px": 18.680435180664062,
+      "init": "COCO rf-detr-nano.pth",
+      "lr": 0.0001,
+      "resolution": 640,
+      "run": "a"
+    },
+    {
+      "batch": 8,
+      "budget_minutes": 29,
+      "class": "RFDETRNano",
+      "floor_px": 18.680435180664062,
+      "init": "run a FINAL checkpoint",
+      "lr": 5e-05,
+      "resolution": 960,
+      "run": "b"
+    }
+  ],
+  "fit_state_sha256": "f4791fea4c3160e9f2ff943c17dd474940bfaf7724cc4560139d4e21226d3011",
+  "installed_rf_source_sha256": {
+    "config.py": "82530100c3c5aab9b8c03a4c0863b5b1345c84779dab1fec9bfd09fc328f64ae",
+    "detr.py": "d90cf69233cc57723ea68b03b416229fe7f4e561bd3022036e948c96ed07d873",
+    "models/weights.py": "b4b7f5d478a2d108f73a4d08ef6b4576edb17d558587f552f88fa671e1b14e52",
+    "training/module_model.py": "07bacd9d2b0d19300754dc3e3dd00e74f0caf5b84b454cf505f4a077215730c2",
+    "training/param_groups.py": "5199febe55604744fee15a8b954288fd5ab19158ed27b3482e632393d74de70b"
+  },
+  "interim_verification": {
+    "data_path": "Real TRAIN dataset CPU tensor check passed: square640 images, normalized centres, horizontal flip and empty negatives; no model inference.",
+    "new_trainer_unit_tests": 7,
+    "tests": "406 passed, 6 existing Pillow deprecation warnings; excluded two execution-fixture tests until saved passes exist",
+    "typecheck": "mypy2.3.1 passed six new source modules"
+  },
+  "kit": {
+    "before": {
+      "build": 7,
+      "model": "mj-r2-b",
+      "sha256": {
+        "/Users/mjjones/ball-truth-review/index.html": "4f41098c29bd32cbb8867a1a6e5462872855c3282ebc12a7a7c95e9ababb9a28",
+        "/Users/mjjones/ball-truth-review/suggestions.jsonl": "5420305fa5dd730ba30856df3015d1fd0ecb513685b3ebd421324b36144fc820",
+        "/Users/mjjones/codex-runs/ball-human-truth.jsonl": "a0f51b42cb95e5327bf45fd353fd46f50495f99c096709b8836c7309ed2373ff"
+      },
+      "unlabelled": 48
+    },
+    "refresh_condition": "RF beats r2-b held-out top1 without increasing strict false/10s",
+    "status": "Unchanged: neither RF model satisfies the improvement rule. Build 7 retains 636 bench-only mj-r2-b suggestions and all 1057 seed labels; 48 frames remain unlabelled. MJ can finish those frames, but fresh labelled club clips must form the true holdout. No kit regeneration or suggestion copy was performed this round.",
+    "unchanged_hash_check": "PASS: index.html, suggestions.jsonl and original human JSONL hashes unchanged"
+  },
+  "licence_evidence": {
+    "installed_LICENSE_sha256": "8cabf52c61130fc97a7e5da5e3685ccf44841c0c53d6f881189369b136603cca",
+    "installed_metadata": "Apache License 2.0",
+    "model_weights_note": "Upstream explicitly lists RF-DETR-N / RFDETRNano model weights as Apache2.0; no Plus components/models used.",
+    "model_weights_source": "https://github.com/roboflow/rf-detr#license",
+    "note": "The package exists at1.7.1 but GitHub v1.7.1 tag URL returns404. Corrected metadata-only URL during run a; its original training-code hash is retained. No training behavior changed. Run a fit summary URL will be normalized before the two-fit evaluation snapshot.",
+    "package": "rfdetr==1.7.1",
+    "upstream_url": "https://github.com/roboflow/rf-detr/blob/develop/LICENSE"
+  },
+  "next_step": "Next RF experiment: retain Nano at 960 and train longer with TRAIN-only hard-negative replay and stronger large/near-ball supervision; freeze the protocol before evaluating fresh club footage. RF b still makes 8 false detections on 122 TRAIN no-ball frames (1.31/10s), so negative fitting is unfinished; H false rate is 4.67. Merely increasing input resolution did not fix the large-ball bucket (12/22\u219211/22) while small-ball hits improved 28/39\u219233/39. The training split contains only one independently estimated \u226524px on-ball label, and the affine-floor rule assigns it 18.68px; H has 22 such labels with observed median 31.07px versus rule median 23.11px. This supports collecting accurate large-ball boxes and hard negatives before choosing a bigger backbone. Longer training is a next experiment, not a claimed cure; the All/H gap means more epochs alone may overfit.",
+  "not_done": [
+    "RF-DETR does not match the full YOLO operating point; no RF run qualifies at \u22642 false/10s and no model passes the real gate.",
+    "No serving deployment, threshold tuning, inference optimization or third fit. Ultralytics remains bench-only.",
+    "48 frozen frames remain unlabelled; no fresh labelled club-footage holdout or measured 4K/follow-cam test.",
+    "Large-ball supervision remains weak; more epochs, hard-negative replay and accurate large-ball boxes are proposed, not executed."
+  ],
+  "product_policy": "ultralytics is bench-only and must not enter the serving path; the product model is RF-DETR (Apache-2.0).",
+  "run_a_code_sha256_at_start": {
+    "rfdetr_data.py": "6fb2e773d9110d91f441a8712481fd16ab5b2e6c11d5102fad25571ceb0411b4",
+    "train_tiny_ball_rfdetr.py": "3df5ae302b396451a9791f78175f81ae06286058da72ffdcc3d856a4d7854bd4"
+  },
+  "scale_findings": "H top-1 size hits, r2-b / RF a / RF b: <6px0/1 /0/1 /0/1;6\u2013<10px27/39 /28/39 /33/39;10\u2013<16px34/46 /41/46 /42/46;16\u2013<24px3/3 /3/3 /3/3;\u226524px18/22 /12/22 /11/22;unknown1/11 /3/11 /2/11. Thus the floor/higher-resolution pipeline improves small and medium cases but fails to preserve the large-ball bucket. Architecture, training time and target rule all changed, so this is not a causal floor-only ablation.",
+  "scoring_code_sha256": {
+    "build_human_report.py": "44ef9e5a442d25ab708c5314b6fd9f06224fe9d8061de1069370b756567d0e34",
+    "evaluate_round4.py": "720d0958a0bd60a1ee63050579277389c745b7ba14cb76f8ebea4b006bafbf69",
+    "review_round4.py": "972ba7274909c1dbd04b463e6af1f759b67931c7e67078c77ac89e896e4b60d5",
+    "round4_report.py": "175d7cc3575b1b2325241316bff0c3af8ef714f97190965ea8b40890414d2826"
+  },
+  "split": {
+    "feasible_partitions": 65,
+    "held_out": [
+      "m04-n05-t3007-284945-287898",
+      "m04-n12-t1411-679986-681985",
+      "m04-n17-t717-253073-260377",
+      "m04-n17-t717-416826-418915",
+      "m04-n21-t3011-390297-390800",
+      "m04-n24-t3013-679939-681217"
+    ],
+    "previously_untouched_holdout": false,
+    "prior_tuning_exposed_holdout": [
+      "m04-n05-t3007-284945-287898",
+      "m04-n12-t1411-679986-681985",
+      "m04-n17-t717-253073-260377",
+      "m04-n17-t717-416826-418915",
+      "m04-n21-t3011-390297-390800",
+      "m04-n24-t3013-679939-681217"
+    ],
+    "rank": "03edd675929948d82afddb0b5b17bd987a1aff05695bfc5bf812ca9a8f3c300f",
+    "seed": "ball-human-r2-split-v1",
+    "smoke_resubstitution_only": false,
+    "train": [
+      "m04-n02-t3005-474114-478131",
+      "m04-n03-t1406-157170-158922",
+      "m04-n03-t1406-385962-387137",
+      "m04-n04-t3006-243433-247994",
+      "m04-n04-t3006-307417-310307",
+      "m04-n09-t1409-143096-143834",
+      "m04-n09-t1409-297601-298865",
+      "m04-n09-t1409-385922-386603",
+      "m04-n10-t711-186553-188161",
+      "m04-n12-t1411-237107-242145",
+      "m04-n15-t3010-164698-170777",
+      "m04-n17-t717-304624-307834",
+      "m04-n22-t3012-070707-074371",
+      "m04-n25-t3014-530600-532465"
+    ]
+  },
+  "status": "Complete: two RF-DETR fits, saved all-frame passes, paired scoring, unchanged kit, worktree and archive verification",
+  "training_code_sha256": {
+    "rfdetr_data.py": "6fb2e773d9110d91f441a8712481fd16ab5b2e6c11d5102fad25571ceb0411b4",
+    "train_tiny_ball_rfdetr.py": "a1a2a9f95d26bc57537410716af8134739a38f0e7773411824097fd73affe220"
+  },
+  "verdict": "RF-DETR b exceeds YOLO r2-b on H top-1 recall: 74.59% versus 68.03% (+6.56pp), and manual-only 64% versus 44% (+20pp). It does not match the full operating point: strict H false/10s is 4.67 versus 1.67 (+3.00,2.8\u00d7), top-1 on-ball precision 90.10% versus 94.32%, and measured H FPS 3.72 versus 11.51 (historical YOLO timing). Path credit only reduces RF b to 4.33. Both RF runs FAIL the \u226580%/\u22641 gate and exceed the \u22642 selection ceiling; no qualifying current best licence-clean model and no improvement under the specified rule. RF b is the diagnostic recall leader, not a selected product-ready checkpoint. The product path remains RF-DETR; YOLO remains bench-only.",
+  "verification": {
+    "archive_tests": 409,
+    "checkpoint_inspection": "PASS: CPU read only, final-step metadata1129/504, all finite parameters, no extra fits/inference",
+    "minimal_archive_skips": 3,
+    "minimal_archive_tests": 406,
+    "mypy": "PASS",
+    "regeneration": "byte-for-byte JSON and Markdown",
+    "ruff_check": "PASS",
+    "ruff_format": "PASS",
+    "summary": "PASS: pytest409 worktree /409 git-archive export; minimal Python3.11 archive406 passed +3 expected OpenCV skips. Ruff check and ruff format --check passed in worktree and archive; mypy passed. JSON and Markdown regenerate byte-for-byte from committed aggregates with no labels, footage or weights. Both actual final checkpoints verified (a step1129, b step504; finite parameters and correct resolution/class metadata). Final staged-tree verification repeats after recording these results; commit/clean-status receipt stays outside git.",
+    "worktree_tests": 409
+  }
+}

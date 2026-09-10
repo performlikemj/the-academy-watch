@@ -1,0 +1,350 @@
+{
+  "base_commit": "8da3390d6c045bc077ebd0d607b0f53478b12056",
+  "checks": [
+    "Final worktree ball+bench pytest: 399 passed, six pre-existing Pillow deprecation warnings.",
+    "Completed-evidence git archive export: 399 passed with full Python 3.11/OpenCV environment; 396 passed plus three OpenCV-dependent skips in the minimal Python 3.11 environment. Export has no .git, labels, weights or footage.",
+    "Ruff check and ruff format --check pass across all 76 ball/bench Python files; mypy --check-untyped-defs passes ten changed implementation modules.",
+    "Both JSON and Markdown ledgers regenerate byte-for-byte from committed aggregate fixtures in worktree and archive. Fixtures contain no human coordinates, per-label outcomes or weights.",
+    "CLI score_from_saved.py --extra-detections for both new models agrees exactly with every All/H group and held-out headline gate in the paired report.",
+    "Adversarial regression checks reproduce all supplied round1 top-1/boxes-per-visible-frame figures, r1-960 held-out 71/122 top-1 and 72/122 oracle hits with 72/86 oracle precision, and the supplied track-point denominators.",
+    "Every pre-existing round1/round2 group, track and provenance metric matches parent 8da3390 exactly; no unexplained historical numeric changes.",
+    "Kit build7 isolated Chromium check passes: 1057 exact seeds, no auto-save, newer labels/clears persist, accepting records actual model source/score, manual clicking clears acceptance provenance. Screenshot visually inspected.",
+    "Staged paths are inside the requested ball/ledger fence; no .pt or .jsonl is staged. Labels SHA256 unchanged; training outputs and predictions remain local. One commit, no push; clean status is checked after commit."
+  ],
+  "commands": [
+    "caffeinate -is ~/models/tinyball/.venv-mj/bin/python spike/video-analysis/ball/run_round3.py",
+    "caffeinate -is ~/models/tinyball/.venv-mj/bin/python spike/video-analysis/ball/evaluate_round3.py",
+    "~/Projects/loanarmy/.loan/bin/python spike/video-analysis/ball/review_round3.py",
+    "~/Projects/loanarmy/.loan/bin/python spike/video-analysis/ball/ball_truth_kit.py --suggestions ~/models/tinyball/mj-r2-b/suggestions.jsonl --human-jsonl ~/codex-runs/ball-human-truth.jsonl",
+    "~/Projects/loanarmy/.loan/bin/python spike/video-analysis/ball/build_human_report.py"
+  ],
+  "completed_fits": {
+    "a": {
+      "batch": 16,
+      "best_epoch": 11,
+      "best_train_loss": 5.10102,
+      "device": "mps",
+      "epochs_recorded": 11,
+      "epochs_requested": 100,
+      "fit_budget_minutes": 20.0,
+      "initial_weights": "/Users/mjjones/models/tinyball/yolo11n.pt",
+      "initial_weights_sha256": "0ebbc80d4a7680d14987a577cd21342b65ecfd94632bd9a8da63ae6417644ee1",
+      "labels_sha256": "a0f51b42cb95e5327bf45fd353fd46f50495f99c096709b8836c7309ed2373ff",
+      "last_train_loss": 5.10102,
+      "model_input_px": 960,
+      "patience": 6,
+      "selection": "Minimum mean augmented training-batch box+cls+dfl loss; early stopping sees only reciprocal training loss fitness. No held-out validation or inference during fitting.",
+      "source_sha256": "baf4de6c86b4b4affc0070c9adb58fb1a231e71192c2e8b6d40f6ba676d3b091",
+      "split": {
+        "feasible_partitions": 65,
+        "held_out": [
+          "m04-n05-t3007-284945-287898",
+          "m04-n12-t1411-679986-681985",
+          "m04-n17-t717-253073-260377",
+          "m04-n17-t717-416826-418915",
+          "m04-n21-t3011-390297-390800",
+          "m04-n24-t3013-679939-681217"
+        ],
+        "previously_untouched_holdout": false,
+        "prior_tuning_exposed_holdout": [
+          "m04-n05-t3007-284945-287898",
+          "m04-n12-t1411-679986-681985",
+          "m04-n17-t717-253073-260377",
+          "m04-n17-t717-416826-418915",
+          "m04-n21-t3011-390297-390800",
+          "m04-n24-t3013-679939-681217"
+        ],
+        "rank": "03edd675929948d82afddb0b5b17bd987a1aff05695bfc5bf812ca9a8f3c300f",
+        "seed": "ball-human-r2-split-v1",
+        "smoke_resubstitution_only": false,
+        "train": [
+          "m04-n02-t3005-474114-478131",
+          "m04-n03-t1406-157170-158922",
+          "m04-n03-t1406-385962-387137",
+          "m04-n04-t3006-243433-247994",
+          "m04-n04-t3006-307417-310307",
+          "m04-n09-t1409-143096-143834",
+          "m04-n09-t1409-297601-298865",
+          "m04-n09-t1409-385922-386603",
+          "m04-n10-t711-186553-188161",
+          "m04-n12-t1411-237107-242145",
+          "m04-n15-t3010-164698-170777",
+          "m04-n17-t717-304624-307834",
+          "m04-n22-t3012-070707-074371",
+          "m04-n25-t3014-530600-532465"
+        ]
+      },
+      "status": "fit complete; evaluation deferred",
+      "train_loss_history": [
+        89.2384,
+        33.4438,
+        12.2676,
+        7.87507,
+        6.70586,
+        6.1835,
+        5.81734,
+        5.50852,
+        5.15678,
+        5.23908,
+        5.10102
+      ],
+      "training_s": 1209.9948789579794,
+      "versions": {
+        "numpy": "2.4.6",
+        "opencv-python": "5.0.0.93",
+        "torch": "2.14.0",
+        "torchvision": "0.29.0",
+        "ultralytics": "8.4.146"
+      },
+      "weights_sha256": "896f7e47dc10fac53251e7739ba73e95ac6f1ff5b9bde783eab990cf04e73044"
+    },
+    "b": {
+      "batch": 16,
+      "best_epoch": 10,
+      "best_train_loss": 4.65844,
+      "device": "mps",
+      "epochs_recorded": 10,
+      "epochs_requested": 100,
+      "fit_budget_minutes": 20.0,
+      "initial_weights": "/Users/mjjones/models/tinyball/mj-r1-960/weights.pt",
+      "initial_weights_sha256": "fa7a6bca35426ed1c8d1b5ab0fea9c4a140e5e39357ca4895553f0e5adb1c9bf",
+      "labels_sha256": "a0f51b42cb95e5327bf45fd353fd46f50495f99c096709b8836c7309ed2373ff",
+      "last_train_loss": 4.65844,
+      "model_input_px": 960,
+      "patience": 6,
+      "selection": "Minimum mean augmented training-batch box+cls+dfl loss; early stopping sees only reciprocal training loss fitness. No held-out validation or inference during fitting.",
+      "source_sha256": "baf4de6c86b4b4affc0070c9adb58fb1a231e71192c2e8b6d40f6ba676d3b091",
+      "split": {
+        "feasible_partitions": 65,
+        "held_out": [
+          "m04-n05-t3007-284945-287898",
+          "m04-n12-t1411-679986-681985",
+          "m04-n17-t717-253073-260377",
+          "m04-n17-t717-416826-418915",
+          "m04-n21-t3011-390297-390800",
+          "m04-n24-t3013-679939-681217"
+        ],
+        "previously_untouched_holdout": false,
+        "prior_tuning_exposed_holdout": [
+          "m04-n05-t3007-284945-287898",
+          "m04-n12-t1411-679986-681985",
+          "m04-n17-t717-253073-260377",
+          "m04-n17-t717-416826-418915",
+          "m04-n21-t3011-390297-390800",
+          "m04-n24-t3013-679939-681217"
+        ],
+        "rank": "03edd675929948d82afddb0b5b17bd987a1aff05695bfc5bf812ca9a8f3c300f",
+        "seed": "ball-human-r2-split-v1",
+        "smoke_resubstitution_only": false,
+        "train": [
+          "m04-n02-t3005-474114-478131",
+          "m04-n03-t1406-157170-158922",
+          "m04-n03-t1406-385962-387137",
+          "m04-n04-t3006-243433-247994",
+          "m04-n04-t3006-307417-310307",
+          "m04-n09-t1409-143096-143834",
+          "m04-n09-t1409-297601-298865",
+          "m04-n09-t1409-385922-386603",
+          "m04-n10-t711-186553-188161",
+          "m04-n12-t1411-237107-242145",
+          "m04-n15-t3010-164698-170777",
+          "m04-n17-t717-304624-307834",
+          "m04-n22-t3012-070707-074371",
+          "m04-n25-t3014-530600-532465"
+        ]
+      },
+      "status": "fit complete; evaluation deferred",
+      "train_loss_history": [
+        5.86327,
+        5.48319,
+        5.39244,
+        5.34382,
+        5.34547,
+        5.288,
+        4.97536,
+        4.80052,
+        4.67367,
+        4.65844
+      ],
+      "training_s": 1211.713777457946,
+      "versions": {
+        "numpy": "2.4.6",
+        "opencv-python": "5.0.0.93",
+        "torch": "2.14.0",
+        "torchvision": "0.29.0",
+        "ultralytics": "8.4.146"
+      },
+      "weights_sha256": "d8f5d76d3e56e068638fc18ca2378ed57427cd6a8f5a25f0f0fcf8efe3218e09"
+    }
+  },
+  "current_best": "tinyball-r2-b",
+  "decisions": [
+    "Initial scoring-only scope extended by the same user request to exactly two scale-aware fits and their saved all-frame inference passes. Baseline and previous model scoring uses saved detections only.",
+    "Use each training click nearest RF 2x2 short side when available; affine image-y fit supplies missing sizes. Fit and all targets use train clips only, clipped [6,48] native px. Same 20-minute budget/100 requested epochs, batch16, AdamW and train-only patience6 as round2 a/b.",
+    "Preserve historical execution decisions as historical; supersede their oracle gate and TRAIN-loss model-selection ranking in current reporting.",
+    "Completed exactly two new scale fits: a 20.17 minutes / 11 epochs, b 20.20 minutes / 10 epochs. These equal the original a/b recorded epoch counts; best checkpoints are new a11/b10 versus old a10/b10, under the same TRAIN-loss rule. Time-budget partial epochs and MPS nondeterminism remain potential run-to-run confounders.",
+    "Current best is r2-b under the explicitly authorized held-out top-1/false-ceiling rule, superseding historical TRAIN-loss selection of r2-d. New scale a/b do not qualify. All six trained contenders and their failures remain visible; no third fit or threshold search.",
+    "New saved-pass FPS All/H: a 51.49/51.01, b 51.12/50.85. Inputs/architecture are unchanged from old 960 recipes; the large difference versus historical ~11.5 FPS is runtime variability, not an established effect of target scale. Cause UNCONFIRMED; no earlier-model inference was rerun.",
+    "Exact audit against parent 8da3390: every pre-existing oracle group metric, track count/rate and provenance metric in round1 and round2 fixtures is unchanged. Added metrics and corrected top-1 gates/bounds are intentional; reviewer top-1 and visible-frame boxes averages reproduce exactly.",
+    "Permanent null controls use seed 20260911 and 100 repetitions, explicitly differing from reviewer seed-unspecified ranges. The 50px near-path sensitivity with <=1.01s bracketing reproduces two r1-960 credits, one in its original 16-clip H subset and neither in the common six H clips."
+  ],
+  "delivery": {
+    "base_commit": "8da3390d6c045bc077ebd0d607b0f53478b12056",
+    "commit_message": "fix(ball): top-1 recall, held-out-only headline, matching-rule controls, bias and track-rate caveats\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>",
+    "new_commits": 1,
+    "post_commit_requirements": [
+      "clean git status",
+      "exactly one commit above round2 8da3390"
+    ],
+    "push": false
+  },
+  "error_findings": [
+    "Current-best r2-b size misses (All / H): <6px 2/11 / 1/1; 6-<10px 48/210 / 12/39; 10-<16px 25/122 / 12/46; 16-<24px 0/22 / 0/3; >=24px 4/23 / 4/22; unknown 21/34 / 10/11. H has 39 total top-1 misses.",
+    "Image-y misses (All / H): upper third 11/37 / 6/8; middle 86/373 / 30/102; lower 3/12 / 3/12. Far-side cases are weaker, but small upper/lower samples prevent a calibrated distance claim.",
+    "Motion-proxy misses (All / H): <10px/sample 11/64 / 2/7; 10-<50px 37/163 / 15/43; >=50px 30/141 / 9/49; unknown predecessor 22/54 / 13/23. The fastest sampled displacement bucket is not worst; this is not direct blur measurement.",
+    "Player-overlap misses (All / H): inside a saved person box 60/160 / 25/47, outside 40/262 / 14/75. H top-1 recall is 46.8% inside versus 81.3% outside. Projected overlap is not verified occlusion, and these buckets overlap the size/motion buckets."
+  ],
+  "evaluation_label": "held-out (mild prior tuning exposure: the 640-vs-960 recipe choice in round 1 saw these clips in aggregate)",
+  "experiments": [
+    "a: repeat round2 a COCO 2x2@960, only target scale changed",
+    "b: repeat round2 b r1-960 continuation 2x2@960, only target scale changed"
+  ],
+  "footage_finding": "Historical r2-d oracle extrapolation remains 60.66% -> 66.37% H (All 76.30% -> 75.50%): better footage helps but is not a fix on its own. Current-best r2-b top-1 bucket extrapolation is 68.03% -> 82.96% H (All 76.30% -> 87.33%), but relies partly on a three-example perfect 16-24px H bucket, uses selected/reused H data, and does not project the failing 1.67 false/10s. Neither is measured 4K performance or a demonstrated gate pass; fresh labelled club footage is the true test.",
+  "kit": {
+    "best_model": "mj-r2-b",
+    "browser_check": "PASS in isolated Chromium: exact 1057 seeds, no auto-save, newer labels and explicit clears survive reload, accepted-source/score export and manual-clear provenance checked.",
+    "build_version": 7,
+    "confirmed_seed_labels": 1057,
+    "labels_sha256": "a0f51b42cb95e5327bf45fd353fd46f50495f99c096709b8836c7309ed2373ff",
+    "screenshot": "/Users/mjjones/codex-runs/ball-mj-r3-kit-final.png",
+    "storage_key_preserved": true,
+    "suggestion_copies": [
+      "/Users/mjjones/ball-truth-review/suggestions.jsonl",
+      "/Users/mjjones/codex-runs/suggestions.jsonl",
+      "/Users/mjjones/codex-runs/ball-human-round3-suggestions.jsonl",
+      "/Users/mjjones/codex-runs/ball-human-mj-r2-b-suggestions.jsonl"
+    ],
+    "suggestions": 636,
+    "suggestions_sha256": "5420305fa5dd730ba30856df3015d1fd0ecb513685b3ebd421324b36144fc820",
+    "unlabelled": 48,
+    "unlabelled_with_suggestion": 7
+  },
+  "kit_notes": [
+    "Build 7 at ~/ball-truth-review/index.html uses current-best mj-r2-b saved suggestions: 636 unconfirmed points. All 1057 seed labels and the localStorage key are preserved; original label SHA256 is unchanged. Prior build 6 with 663 r2-d suggestions is recorded as historical.",
+    "48 frames remain unlabelled: seven have a suggestion and 41 have none. MJ: use Next unlabelled frame, confirm/correct or mark No ball visible; leave uncertain frames unlabelled, then export JSONL with accepted_source intact. Reserve a fresh labelled club-clip set as the true test.",
+    "Copied suggestions to ~/ball-truth-review/suggestions.jsonl and ~/codex-runs/{suggestions.jsonl,ball-human-round3-suggestions.jsonl,ball-human-mj-r2-b-suggestions.jsonl}.",
+    "Isolated Chromium acceptance/provenance/persistence check passed after refresh; screenshot visually inspected. MJ's actual browser profile was not used."
+  ],
+  "not_done": [
+    "No candidate passes the top-1 real gate; current-best r2-b remains below 80% H recall and above one false/10s.",
+    "48 frames remain unlabelled.",
+    "No fresh labelled club-footage test set or measured 4K/follow-cam performance; these 20 clips are no longer clean test data.",
+    "The proposed small-ball target floor is not trained: exactly two scale fits were authorized and completed.",
+    "The cause of cross-run FPS variation is unconfirmed."
+  ],
+  "scale_findings": "The per-label scale change recovers large balls but loses small balls in both repeats. Held-out >=24px top-1 matches: a 14/22 -> 19/22; b 18/22 -> 19/22 (All a 15/23 -> 20/23; b 19/23 -> 20/23). Held-out 6-<10px: a 32/39 -> 24/39, b 27/39 -> 20/39 (All a 172/210 -> 142/210; b 162/210 -> 149/210). H top-1 falls a 69.67% -> 65.57%, b 68.03% -> 62.30%; H no-ball false/10s is 2.33 and 3.00. Neither new run qualifies at <=2, and both FAIL the real gate. Current best remains r2-b: H top-1 68.03%, oracle precision 93.26%, false/10s 1.67. This supports a scale tradeoff, not a claim that target correction alone solves detection.",
+  "scale_fit": {
+    "clip_px": [
+      6,
+      48
+    ],
+    "definition": "One nearest saved RF 2x2 box per visible TRAIN click within inclusive 20 native px at confidence >=0.1. OLS short side = intercept + slope * native image y; R-squared before clipping. Per-label target uses its matched short side when present, otherwise the fitted value; all sides clipped to [6,48] native px. No fixed doubling. Held-out labels/boxes never enter fitting or targets. Detector extents are estimates, not human-drawn boundaries; image y is an imperfect perspective proxy.",
+    "fallback_labels": 86,
+    "fit_clips": [
+      "m04-n02-t3005-474114-478131",
+      "m04-n03-t1406-157170-158922",
+      "m04-n03-t1406-385962-387137",
+      "m04-n04-t3006-243433-247994",
+      "m04-n04-t3006-307417-310307",
+      "m04-n09-t1409-143096-143834",
+      "m04-n09-t1409-297601-298865",
+      "m04-n09-t1409-385922-386603",
+      "m04-n10-t711-186553-188161",
+      "m04-n12-t1411-237107-242145",
+      "m04-n15-t3010-164698-170777",
+      "m04-n17-t717-304624-307834",
+      "m04-n22-t3012-070707-074371",
+      "m04-n25-t3014-530600-532465"
+    ],
+    "intercept_px": -12.42057568075575,
+    "mode": "matched_size_with_train_affine_fallback",
+    "observations": 545,
+    "observed_short_side_px": {
+      "max": 50.5751953125,
+      "median": 9.91533374786377,
+      "min": 4.713165283203125
+    },
+    "r_squared": 0.49435065660963573,
+    "slope_px_per_image_y_px": 0.04820986554961744,
+    "visible_train_labels": 631
+  },
+  "selection_rule": "Highest held-out on-ball top-1 recall among round2 a-d and round3 a-b with held-out all-no-ball false/10s <=2; ties lower false rate then candidate name. Gate remains top-1 >=80% AND <=1 false/10s. This intentionally selects using held-out data: selected estimate is optimistic. Fresh labelled club footage is the true test. No threshold search or additional fits.",
+  "single_next_change": "Single next experiment: retain per-label sizing for large balls but restore an approximately 18.68px minimum point-target side for small balls; both controlled recipe repeats gained large-ball hits while losing 7-8 of 39 small-ball held-out hits. This is an evidence-based hypothesis for a future fit, not a third experiment in this round.",
+  "split": {
+    "feasible_partitions": 65,
+    "held_out": [
+      "m04-n05-t3007-284945-287898",
+      "m04-n12-t1411-679986-681985",
+      "m04-n17-t717-253073-260377",
+      "m04-n17-t717-416826-418915",
+      "m04-n21-t3011-390297-390800",
+      "m04-n24-t3013-679939-681217"
+    ],
+    "previously_untouched_holdout": false,
+    "prior_tuning_exposed_holdout": [
+      "m04-n05-t3007-284945-287898",
+      "m04-n12-t1411-679986-681985",
+      "m04-n17-t717-253073-260377",
+      "m04-n17-t717-416826-418915",
+      "m04-n21-t3011-390297-390800",
+      "m04-n24-t3013-679939-681217"
+    ],
+    "rank": "03edd675929948d82afddb0b5b17bd987a1aff05695bfc5bf812ca9a8f3c300f",
+    "seed": "ball-human-r2-split-v1",
+    "smoke_resubstitution_only": false,
+    "train": [
+      "m04-n02-t3005-474114-478131",
+      "m04-n03-t1406-157170-158922",
+      "m04-n03-t1406-385962-387137",
+      "m04-n04-t3006-243433-247994",
+      "m04-n04-t3006-307417-310307",
+      "m04-n09-t1409-143096-143834",
+      "m04-n09-t1409-297601-298865",
+      "m04-n09-t1409-385922-386603",
+      "m04-n10-t711-186553-188161",
+      "m04-n12-t1411-237107-242145",
+      "m04-n15-t3010-164698-170777",
+      "m04-n17-t717-304624-307834",
+      "m04-n22-t3012-070707-074371",
+      "m04-n25-t3014-530600-532465"
+    ]
+  },
+  "status": "complete: review fixes, exactly two scale fits, paired scoring and controls, current-best selection, kit refresh and verification",
+  "target_distribution": {
+    "at_lower_clip": 37,
+    "at_upper_clip": 1,
+    "by_clip_class": {
+      "off_pitch": {
+        "targets_ge24": 32,
+        "visible": 114
+      },
+      "on_ball": {
+        "targets_ge24": 1,
+        "visible": 300
+      },
+      "other": {
+        "targets_ge24": 4,
+        "visible": 217
+      }
+    },
+    "count": 631,
+    "median_px": 10.0947265625,
+    "p95_px": 27.721237182617188
+  },
+  "training_code_sha256": {
+    "run_round3.py": "8bdb62612b685584e1d81f676d6e35f0f7cbc93401c33c4a966ea4c3c155c1f9",
+    "scale_targets.py": "a6b8927cb21201b79c43310f962fec4f18c58be006e3a88f4b78fbb711e1e039",
+    "train_loss_trainer.py": "be629b26d142a130704cd3006933a3ce0d3797d097ed1cebe085ddfe1c1d0f86",
+    "train_tiny_ball.py": "8215416f7e3730f68c4e98e785efe68b1db2dcb3a46682bafc81a3f0ac4cf184"
+  }
+}

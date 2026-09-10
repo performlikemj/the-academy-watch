@@ -1,0 +1,490 @@
+{
+  "base_commit": "b95daad2deed14c9dc62e76373173a81bbbc21a2",
+  "checks": [
+    "Worktree pytest ball+bench: 391 passed, six pre-existing Pillow deprecation warnings.",
+    "git archive export with full Python 3.11 environment: 391 passed, no skips; minimal Python 3.11 archive environment without torch/OpenCV: 388 passed, three OpenCV-dependent tests skipped. Saved scoring, tracking and byte-for-byte ledger generation run in both.",
+    "Ruff check and ruff format --check pass across all 68 ball/bench Python files.",
+    "Mypy --check-untyped-defs passes for all nine changed implementation modules.",
+    "Isolated Chromium kit check passes; all 1057 labels exact, storage key preserved, no automatic save, new browser labels and explicit clears survive reload. Screenshot visually inspected.",
+    "Both ledgers regenerate byte-for-byte from committed aggregate fixtures; no label coordinates or weights in fixtures. All staged paths are inside the requested fence; no .pt or .jsonl staged."
+  ],
+  "completed_fits": {
+    "a": {
+      "batch": 16,
+      "best_epoch": 10,
+      "best_train_loss": 4.48029,
+      "device": "mps",
+      "epochs_recorded": 11,
+      "epochs_requested": 100,
+      "fit_budget_minutes": 20.0,
+      "initial_weights": "/Users/mjjones/models/tinyball/yolo11n.pt",
+      "initial_weights_sha256": "0ebbc80d4a7680d14987a577cd21342b65ecfd94632bd9a8da63ae6417644ee1",
+      "labels_sha256": "a0f51b42cb95e5327bf45fd353fd46f50495f99c096709b8836c7309ed2373ff",
+      "last_train_loss": 4.76729,
+      "model_input_px": 960,
+      "patience": 6,
+      "selection": "Minimum mean augmented training-batch box+cls+dfl loss; early stopping sees only reciprocal training loss fitness. No held-out validation or inference during fitting.",
+      "source_sha256": "baf4de6c86b4b4affc0070c9adb58fb1a231e71192c2e8b6d40f6ba676d3b091",
+      "split": {
+        "feasible_partitions": 65,
+        "held_out": [
+          "m04-n05-t3007-284945-287898",
+          "m04-n12-t1411-679986-681985",
+          "m04-n17-t717-253073-260377",
+          "m04-n17-t717-416826-418915",
+          "m04-n21-t3011-390297-390800",
+          "m04-n24-t3013-679939-681217"
+        ],
+        "previously_untouched_holdout": false,
+        "prior_tuning_exposed_holdout": [
+          "m04-n05-t3007-284945-287898",
+          "m04-n12-t1411-679986-681985",
+          "m04-n17-t717-253073-260377",
+          "m04-n17-t717-416826-418915",
+          "m04-n21-t3011-390297-390800",
+          "m04-n24-t3013-679939-681217"
+        ],
+        "rank": "03edd675929948d82afddb0b5b17bd987a1aff05695bfc5bf812ca9a8f3c300f",
+        "seed": "ball-human-r2-split-v1",
+        "smoke_resubstitution_only": false,
+        "train": [
+          "m04-n02-t3005-474114-478131",
+          "m04-n03-t1406-157170-158922",
+          "m04-n03-t1406-385962-387137",
+          "m04-n04-t3006-243433-247994",
+          "m04-n04-t3006-307417-310307",
+          "m04-n09-t1409-143096-143834",
+          "m04-n09-t1409-297601-298865",
+          "m04-n09-t1409-385922-386603",
+          "m04-n10-t711-186553-188161",
+          "m04-n12-t1411-237107-242145",
+          "m04-n15-t3010-164698-170777",
+          "m04-n17-t717-304624-307834",
+          "m04-n22-t3012-070707-074371",
+          "m04-n25-t3014-530600-532465"
+        ]
+      },
+      "status": "fit complete; evaluation deferred",
+      "train_loss_history": [
+        61.2493,
+        22.7997,
+        9.54031,
+        6.62614,
+        5.80762,
+        5.38344,
+        5.01446,
+        4.92226,
+        4.74042,
+        4.48029,
+        4.76729
+      ],
+      "training_s": 1210.845306916046,
+      "versions": {
+        "numpy": "2.4.6",
+        "opencv-python": "5.0.0.93",
+        "torch": "2.14.0",
+        "torchvision": "0.29.0",
+        "ultralytics": "8.4.146"
+      },
+      "weights_sha256": "cd20e78f1592267ff16cabb3b3637780ded1fb4fb9eb123709e3c857118cb526"
+    },
+    "b": {
+      "batch": 16,
+      "best_epoch": 10,
+      "best_train_loss": 3.98813,
+      "device": "mps",
+      "epochs_recorded": 10,
+      "epochs_requested": 100,
+      "fit_budget_minutes": 20.0,
+      "initial_weights": "/Users/mjjones/models/tinyball/mj-r1-960/weights.pt",
+      "initial_weights_sha256": "fa7a6bca35426ed1c8d1b5ab0fea9c4a140e5e39357ca4895553f0e5adb1c9bf",
+      "labels_sha256": "a0f51b42cb95e5327bf45fd353fd46f50495f99c096709b8836c7309ed2373ff",
+      "last_train_loss": 3.98813,
+      "model_input_px": 960,
+      "patience": 6,
+      "selection": "Minimum mean augmented training-batch box+cls+dfl loss; early stopping sees only reciprocal training loss fitness. No held-out validation or inference during fitting.",
+      "source_sha256": "baf4de6c86b4b4affc0070c9adb58fb1a231e71192c2e8b6d40f6ba676d3b091",
+      "split": {
+        "feasible_partitions": 65,
+        "held_out": [
+          "m04-n05-t3007-284945-287898",
+          "m04-n12-t1411-679986-681985",
+          "m04-n17-t717-253073-260377",
+          "m04-n17-t717-416826-418915",
+          "m04-n21-t3011-390297-390800",
+          "m04-n24-t3013-679939-681217"
+        ],
+        "previously_untouched_holdout": false,
+        "prior_tuning_exposed_holdout": [
+          "m04-n05-t3007-284945-287898",
+          "m04-n12-t1411-679986-681985",
+          "m04-n17-t717-253073-260377",
+          "m04-n17-t717-416826-418915",
+          "m04-n21-t3011-390297-390800",
+          "m04-n24-t3013-679939-681217"
+        ],
+        "rank": "03edd675929948d82afddb0b5b17bd987a1aff05695bfc5bf812ca9a8f3c300f",
+        "seed": "ball-human-r2-split-v1",
+        "smoke_resubstitution_only": false,
+        "train": [
+          "m04-n02-t3005-474114-478131",
+          "m04-n03-t1406-157170-158922",
+          "m04-n03-t1406-385962-387137",
+          "m04-n04-t3006-243433-247994",
+          "m04-n04-t3006-307417-310307",
+          "m04-n09-t1409-143096-143834",
+          "m04-n09-t1409-297601-298865",
+          "m04-n09-t1409-385922-386603",
+          "m04-n10-t711-186553-188161",
+          "m04-n12-t1411-237107-242145",
+          "m04-n15-t3010-164698-170777",
+          "m04-n17-t717-304624-307834",
+          "m04-n22-t3012-070707-074371",
+          "m04-n25-t3014-530600-532465"
+        ]
+      },
+      "status": "fit complete; evaluation deferred",
+      "train_loss_history": [
+        4.32969,
+        4.59867,
+        4.51441,
+        4.51445,
+        4.50652,
+        4.2748,
+        4.23342,
+        4.11659,
+        3.98852,
+        3.98813
+      ],
+      "training_s": 1208.5711858749855,
+      "versions": {
+        "numpy": "2.4.6",
+        "opencv-python": "5.0.0.93",
+        "torch": "2.14.0",
+        "torchvision": "0.29.0",
+        "ultralytics": "8.4.146"
+      },
+      "weights_sha256": "5571f285a1303fd0fb22c0e0049dbe752b7b469cffa99a5f7298377828d87148"
+    },
+    "c": {
+      "batch": 8,
+      "best_epoch": 6,
+      "best_train_loss": 3.71372,
+      "device": "mps",
+      "epochs_recorded": 6,
+      "epochs_requested": 100,
+      "fit_budget_minutes": 23.0,
+      "initial_weights": "/Users/mjjones/models/tinyball/mj-r1-960/weights.pt",
+      "initial_weights_sha256": "fa7a6bca35426ed1c8d1b5ab0fea9c4a140e5e39357ca4895553f0e5adb1c9bf",
+      "labels_sha256": "a0f51b42cb95e5327bf45fd353fd46f50495f99c096709b8836c7309ed2373ff",
+      "last_train_loss": 3.71372,
+      "model_input_px": 1280,
+      "patience": 6,
+      "selection": "Minimum mean augmented training-batch box+cls+dfl loss; early stopping sees only reciprocal training loss fitness. No held-out validation or inference during fitting.",
+      "source_sha256": "baf4de6c86b4b4affc0070c9adb58fb1a231e71192c2e8b6d40f6ba676d3b091",
+      "split": {
+        "feasible_partitions": 65,
+        "held_out": [
+          "m04-n05-t3007-284945-287898",
+          "m04-n12-t1411-679986-681985",
+          "m04-n17-t717-253073-260377",
+          "m04-n17-t717-416826-418915",
+          "m04-n21-t3011-390297-390800",
+          "m04-n24-t3013-679939-681217"
+        ],
+        "previously_untouched_holdout": false,
+        "prior_tuning_exposed_holdout": [
+          "m04-n05-t3007-284945-287898",
+          "m04-n12-t1411-679986-681985",
+          "m04-n17-t717-253073-260377",
+          "m04-n17-t717-416826-418915",
+          "m04-n21-t3011-390297-390800",
+          "m04-n24-t3013-679939-681217"
+        ],
+        "rank": "03edd675929948d82afddb0b5b17bd987a1aff05695bfc5bf812ca9a8f3c300f",
+        "seed": "ball-human-r2-split-v1",
+        "smoke_resubstitution_only": false,
+        "train": [
+          "m04-n02-t3005-474114-478131",
+          "m04-n03-t1406-157170-158922",
+          "m04-n03-t1406-385962-387137",
+          "m04-n04-t3006-243433-247994",
+          "m04-n04-t3006-307417-310307",
+          "m04-n09-t1409-143096-143834",
+          "m04-n09-t1409-297601-298865",
+          "m04-n09-t1409-385922-386603",
+          "m04-n10-t711-186553-188161",
+          "m04-n12-t1411-237107-242145",
+          "m04-n15-t3010-164698-170777",
+          "m04-n17-t717-304624-307834",
+          "m04-n22-t3012-070707-074371",
+          "m04-n25-t3014-530600-532465"
+        ]
+      },
+      "status": "fit complete; evaluation deferred",
+      "train_loss_history": [
+        4.26453,
+        4.19992,
+        4.19418,
+        3.98434,
+        3.9817,
+        3.71372
+      ],
+      "training_s": 1390.788652832969,
+      "versions": {
+        "numpy": "2.4.6",
+        "opencv-python": "5.0.0.93",
+        "torch": "2.14.0",
+        "torchvision": "0.29.0",
+        "ultralytics": "8.4.146"
+      },
+      "weights_sha256": "9793a41d60d3efcbcdd60e67ff14b456b818d992cac6882b3d787c2db40a73de"
+    },
+    "d": {
+      "batch": 8,
+      "best_epoch": 1,
+      "best_train_loss": 3.64641,
+      "device": "mps",
+      "epochs_recorded": 7,
+      "epochs_requested": 200,
+      "fit_budget_minutes": 40.0,
+      "initial_weights": "/Users/mjjones/models/tinyball/mj-r2-c/weights.pt",
+      "initial_weights_sha256": "9793a41d60d3efcbcdd60e67ff14b456b818d992cac6882b3d787c2db40a73de",
+      "labels_sha256": "a0f51b42cb95e5327bf45fd353fd46f50495f99c096709b8836c7309ed2373ff",
+      "last_train_loss": 3.84259,
+      "model_input_px": 1280,
+      "patience": 6,
+      "selection": "Minimum mean augmented training-batch box+cls+dfl loss; early stopping sees only reciprocal training loss fitness. No held-out validation or inference during fitting.",
+      "source_sha256": "baf4de6c86b4b4affc0070c9adb58fb1a231e71192c2e8b6d40f6ba676d3b091",
+      "split": {
+        "feasible_partitions": 65,
+        "held_out": [
+          "m04-n05-t3007-284945-287898",
+          "m04-n12-t1411-679986-681985",
+          "m04-n17-t717-253073-260377",
+          "m04-n17-t717-416826-418915",
+          "m04-n21-t3011-390297-390800",
+          "m04-n24-t3013-679939-681217"
+        ],
+        "previously_untouched_holdout": false,
+        "prior_tuning_exposed_holdout": [
+          "m04-n05-t3007-284945-287898",
+          "m04-n12-t1411-679986-681985",
+          "m04-n17-t717-253073-260377",
+          "m04-n17-t717-416826-418915",
+          "m04-n21-t3011-390297-390800",
+          "m04-n24-t3013-679939-681217"
+        ],
+        "rank": "03edd675929948d82afddb0b5b17bd987a1aff05695bfc5bf812ca9a8f3c300f",
+        "seed": "ball-human-r2-split-v1",
+        "smoke_resubstitution_only": false,
+        "train": [
+          "m04-n02-t3005-474114-478131",
+          "m04-n03-t1406-157170-158922",
+          "m04-n03-t1406-385962-387137",
+          "m04-n04-t3006-243433-247994",
+          "m04-n04-t3006-307417-310307",
+          "m04-n09-t1409-143096-143834",
+          "m04-n09-t1409-297601-298865",
+          "m04-n09-t1409-385922-386603",
+          "m04-n10-t711-186553-188161",
+          "m04-n12-t1411-237107-242145",
+          "m04-n15-t3010-164698-170777",
+          "m04-n17-t717-304624-307834",
+          "m04-n22-t3012-070707-074371",
+          "m04-n25-t3014-530600-532465"
+        ]
+      },
+      "status": "fit complete; evaluation deferred",
+      "train_loss_history": [
+        3.64641,
+        4.04971,
+        3.8857,
+        3.95478,
+        3.84838,
+        3.87052,
+        3.84259
+      ],
+      "training_s": 2027.3528112079948,
+      "versions": {
+        "numpy": "2.4.6",
+        "opencv-python": "5.0.0.93",
+        "torch": "2.14.0",
+        "torchvision": "0.29.0",
+        "ultralytics": "8.4.146"
+      },
+      "weights_sha256": "ea465c2ec5f30b28a748e56b90f70047710d389cb8eae2879914ebe16fd0ca34"
+    }
+  },
+  "decision": "Proceed with fixed 14/6, authorised by user message; no further methodology questions.",
+  "decisions": [
+    "Round 1 trained on 300/875 visible labels (34.3%); round 2 trains on 631/875 (72.1%).",
+    "a: COCO YOLO11n, 2x2@960, 20-minute fit budget. b: same from mj-r1-960 weights, 20-minute budget. c: 2x2@1280 from same round-1 weights, batch 8 and 23-minute fit budget (<25 minutes target). All request 100 epochs; budget/patience may stop earlier.",
+    "For a-c, early-stop after six epochs without TRAIN-loss improvement; select best.pt only by minimum epoch mean augmented training box+cls+dfl loss. Validator overridden to consume no images or held-out metrics; final validation disabled.",
+    "d is fixed in advance: continue the lowest-TRAIN-loss a-c checkpoint at its same resolution, up to 40 minutes / 200 requested epochs, TRAIN-only patience six. No evaluation is run until d and final model selection are fixed.",
+    "Final best = lowest minimum TRAIN loss across a-d; no choice uses evaluation recall, precision or gate results. Comparing augmented training losses across input sizes is imperfect and can favour overfitting; disclose this risk.",
+    "The real test is new club footage, ideally native 4K / follow-cam. These 20 clips cannot serve as a clean test set; future work requires a fresh labelled clip set as the true holdout.",
+    "A native 4K export at identical FOV doubles source ball diameter, but fixed 2x2 tiles resized to the same model input erase that scale gain. Preserve effective pixels with more tiles/larger inputs or a tighter follow-cam view. A 2x-ball recall projection is conditional extrapolation, not measured 4K performance.",
+    "Pin AdamW lr0=0.002, momentum=0.9, warmup_bias_lr=0.0 to match round-1 auto-selected optimizer. A larger requested epoch count would otherwise silently choose MuSGD. Seeds fixed, but MPS warns some scatter/index operations are nondeterministic.",
+    "Training tiles: 3,012 from 753 labelled frames, with 631 positive tiles and 2,381 negative tiles. No held-out images are decoded into fitting datasets. Ultralytics time-budget mode adjusts its epoch count and learning-rate schedule; epochs requested are caps/inputs, not promises of completed epochs.",
+    "The training-only RF 2x2 apparent-size median is 9.34022 native px. Effective median is the same at 2x2@960 or 3x3@640, and 12.45362 px at 2x2@1280. This sizing sample contains matched RF detections (including multiple matches), not manually drawn ball extents. Point supervision uses a fixed 18.68044 native-px target side.",
+    "Observed a-c TRAIN losses: a=4.48029, b=3.98813, c=3.71372. The predeclared rule therefore starts d from c at 1280. c took 23.18 MPS minutes, satisfying <=25 minutes. No round-2 evaluation predictions existed at this choice.",
+    "d early-stopped after seven epochs / 33.79 minutes: six epochs did not beat epoch one. Final selected model d has minimum TRAIN loss 3.64641. Selection was frozen in round2-selection.json before any round-2 inference; no fifth fit or evaluation-based model/threshold choice.",
+    "No candidate passes either scope. among round-2 fits, c alone exceeds 80% All on-ball recall (80.57%) but fails the false-rate gate (2.09/10s); H recall is 65.57%. d remains the kit model because it was preselected on TRAIN loss; it is not the best evaluation-ranked model. b has the cleanest round-2 predictions; a has the highest H recall. No choice or extra fit was made from these evaluation numbers.",
+    "Current saved-pass FPS: a 11.85, b 11.55, c 8.53, d 4.65; c/d have identical 2,590,035-parameter architectures. Timing varied substantially during d; AC power and no recorded OS thermal/performance warning were observed, but cause is UNCONFIRMED. Baseline/round-1 FPS is historical, not a contemporaneous speed control."
+  ],
+  "delivery": {
+    "base_commit": "b95daad2deed14c9dc62e76373173a81bbbc21a2",
+    "commit_message": "feat(ball): retrain the tiny-ball model on 14 clips, error analysis, footage-quality projection\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>",
+    "new_commits": 1,
+    "post_commit_requirements": [
+      "clean git status",
+      "exactly one commit above b95daad2"
+    ],
+    "push": false
+  },
+  "error_analysis_protocol": {
+    "image_y_bins_px": [
+      360,
+      720
+    ],
+    "motion": "Distance to the immediately preceding scheduled sample only if both labels visible; 2fps displacement is not direct blur and includes camera motion.",
+    "motion_bins_px_per_sample": [
+      10,
+      50
+    ],
+    "occlusion": "Point inside any fixed COCO YOLO11n person box (full native frame, imgsz=1280, conf=0.25); projected player overlap is not verified physical occlusion. Predictions do not train ball models.",
+    "projection": "Map each independently measurable ball size to its doubled-size bucket and apply that bucket empirical recall. Unknown sizes and unsupported doubled-size bins retain observed outcomes; report support and associations, not a causal or measured 4K gain.",
+    "size": "Median of nearest RF full/2x2/3x3 detector short sides independently matched within 20 source px to the human centre at confidence >=0.1; unknown if none. Exclude trained pseudo-box extents. Association is human-confirmed but extents are detector estimates, not manual diameter truth.",
+    "size_bins_px": [
+      6,
+      10,
+      16,
+      24
+    ]
+  },
+  "error_findings": [
+    "Size (All / H): <6 px misses 2/11 / 1/1; 6\u2013<10 px 36/210 / 12/39; 10\u2013<16 px 26/122 / 11/46; 16\u2013<24 px 1/22 / 0/3; >=24 px 14/23 / 14/22; unknown size 21/34 / 10/11. Recall is not monotonic in size. Only one >=24 px on-ball training label has an independent RF size estimate, versus 22 in H.",
+    "Image y (All / H): upper third misses 18/37 / 7/8, middle third 73/373 / 32/102, lower third 9/12 / 9/12. Both far-side and close-touchline views fail; image y alone is not a reliable distance explanation.",
+    "Motion proxy (All / H): <10 px/sample misses 8/64 / 2/7; 10\u2013<50 px 40/163 / 18/43; >=50 px 36/141 / 16/49; unknown predecessor 16/54 / 12/23. H recall is 71.4%, 58.1%, 67.3% in the three measured bins; this is not a monotonic blur relationship.",
+    "Player-box overlap (All / H): inside misses 54/160 / 25/47 versus outside 46/262 / 23/75. H recall is 46.8% inside versus 69.3% outside. Two post-selection visual spot checks of >=24 px misses show clear roughly 29 px touchline balls; projected overlap and scale mismatch remain plausible failure factors, not proven causes."
+  ],
+  "evaluation_label": "held-out (mild prior tuning exposure: the 640-vs-960 recipe choice in round 1 saw these clips in aggregate)",
+  "experiments_planned": [
+    {
+      "fit_budget_minutes": 20,
+      "grid": 2,
+      "id": "a",
+      "imgsz": 960,
+      "init": "yolo11n.pt"
+    },
+    {
+      "fit_budget_minutes": 20,
+      "grid": 2,
+      "id": "b",
+      "imgsz": 960,
+      "init": "mj-r1-960/weights.pt"
+    },
+    {
+      "fit_budget_minutes": 23,
+      "grid": 2,
+      "id": "c",
+      "imgsz": 1280,
+      "init": "mj-r1-960/weights.pt"
+    },
+    {
+      "fit_budget_minutes": 40,
+      "id": "d",
+      "parent": "lowest TRAIN-loss a-c",
+      "patience": 6
+    }
+  ],
+  "footage_finding": "At 2x apparent ball pixels, the fixed bucket extrapolation gives 75.50% All (observed 76.30%) and 66.37% H (observed 60.66%); not measured 4K recall and not evidence that pixels alone reach 80%. Non-monotonic size recall, three H examples in 16\u201324 px, and 11 unknown-size H labels make this an unstable associational projection.",
+  "issue": "Prior tuning exposure explicitly accepted by the orchestrator; all tables must disclose it. No further recipe selection uses evaluation numbers.",
+  "kit": {
+    "best_model": "mj-r2-d",
+    "browser_check": "PASS: 1057 exact labels; no automatic saves; newer browser labels and explicit clears survive reload; next unlabelled navigation works. Isolated Chromium.",
+    "build_version": 6,
+    "confirmed_seed_labels": 1057,
+    "labels_sha256": "a0f51b42cb95e5327bf45fd353fd46f50495f99c096709b8836c7309ed2373ff",
+    "screenshot": "/Users/mjjones/codex-runs/ball-mj-r2-kit-final.png",
+    "selection": "frozen TRAIN-loss rule, not evaluation ranking",
+    "storage_key_preserved": true,
+    "suggestion_copies": [
+      "/Users/mjjones/ball-truth-review/suggestions.jsonl",
+      "/Users/mjjones/codex-runs/suggestions.jsonl",
+      "/Users/mjjones/codex-runs/ball-human-round2-suggestions.jsonl",
+      "/Users/mjjones/codex-runs/ball-human-mj-r2-d-suggestions.jsonl"
+    ],
+    "suggestions": 663,
+    "suggestions_sha256": "771b89b328929c4605c1b4ff5e3e48d9fa7b42131c54de866bf71876cab5e4f2",
+    "unlabelled": 48,
+    "unlabelled_with_suggestion": 10,
+    "unlabelled_without_suggestion": 38
+  },
+  "kit_notes": [
+    "Build 6 at ~/ball-truth-review/index.html, refreshed from frozen selected model mj-r2-d; 663 unconfirmed suggestions. Existing localStorage key and all 1,057 seed labels preserved; original label SHA256 unchanged.",
+    "48 frames remain unlabelled: 10 with a model suggestion and 38 without. MJ: use Next unlabelled frame, confirm/correct or mark No ball only when no ball is visible; leave uncertain frames unknown, then export JSONL. Fresh labelled club clips are needed for the next true test.",
+    "Suggestion copies updated at ~/ball-truth-review/suggestions.jsonl, ~/codex-runs/suggestions.jsonl, ~/codex-runs/ball-human-round2-suggestions.jsonl and ~/codex-runs/ball-human-mj-r2-d-suggestions.jsonl.",
+    "Isolated Chromium check passed: exact seed labels, no automatic saves, new labels/clears survive reload, next-unlabelled navigation works. Screenshot: ~/codex-runs/ball-mj-r2-kit-final.png."
+  ],
+  "label_counts": {
+    "held_out": {
+      "labels": 304,
+      "visible": 244
+    },
+    "train": {
+      "labels": 753,
+      "visible": 631
+    }
+  },
+  "next": "Fresh labelled club footage is the true test set; complete the remaining 48 labels and collect scale-diverse ball-box supervision before another training round.",
+  "not_done": [
+    "No candidate reaches the real gate in either All or H scope.",
+    "48 frozen frames remain unlabelled (10 have suggestions).",
+    "A fresh labelled club-footage test set, ideally 4K/follow-cam, has not been collected; these 20 clips are no longer a clean test set.",
+    "The cause of variable MPS throughput is UNCONFIRMED; reported FPS is measured single-pass throughput, with historical baseline timings clearly separated."
+  ],
+  "resolution_reason": "2x2@1280 scales source ball pixels by 1280/960=1.333; 3x3@640 scales by 640/640=1.0. 1280 is 33.3% larger effective ball diameter than either 3x3@640 or 2x2@960; use a 23-minute fit budget with train-only validation to leave room below 25 minutes.",
+  "single_next_change": "Single next change (inference from the error buckets): add scale-diverse human ball-box supervision from fresh close-touchline/player-overlap clips, replacing the fixed 18.68 px point targets; clear large balls and overlapping-player cases account for substantial misses, while more epochs did not improve the selected model\u2019s evaluation results. Categories overlap; their miss counts must not be added.",
+  "split": {
+    "feasible_partitions": 65,
+    "held_out": [
+      "m04-n05-t3007-284945-287898",
+      "m04-n12-t1411-679986-681985",
+      "m04-n17-t717-253073-260377",
+      "m04-n17-t717-416826-418915",
+      "m04-n21-t3011-390297-390800",
+      "m04-n24-t3013-679939-681217"
+    ],
+    "previously_untouched_holdout": false,
+    "prior_tuning_exposed_holdout": [
+      "m04-n05-t3007-284945-287898",
+      "m04-n12-t1411-679986-681985",
+      "m04-n17-t717-253073-260377",
+      "m04-n17-t717-416826-418915",
+      "m04-n21-t3011-390297-390800",
+      "m04-n24-t3013-679939-681217"
+    ],
+    "rank": "03edd675929948d82afddb0b5b17bd987a1aff05695bfc5bf812ca9a8f3c300f",
+    "seed": "ball-human-r2-split-v1",
+    "smoke_resubstitution_only": false,
+    "train": [
+      "m04-n02-t3005-474114-478131",
+      "m04-n03-t1406-157170-158922",
+      "m04-n03-t1406-385962-387137",
+      "m04-n04-t3006-243433-247994",
+      "m04-n04-t3006-307417-310307",
+      "m04-n09-t1409-143096-143834",
+      "m04-n09-t1409-297601-298865",
+      "m04-n09-t1409-385922-386603",
+      "m04-n10-t711-186553-188161",
+      "m04-n12-t1411-237107-242145",
+      "m04-n15-t3010-164698-170777",
+      "m04-n17-t717-304624-307834",
+      "m04-n22-t3012-070707-074371",
+      "m04-n25-t3014-530600-532465"
+    ]
+  },
+  "status": "complete: four fits, frozen selection, paired scoring, tracking, error analysis, footage projection, kit refresh and verification"
+}

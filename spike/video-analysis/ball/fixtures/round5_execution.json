@@ -1,0 +1,309 @@
+{
+  "base_commit": "d2268bd90c7f7ec2cd2692c6286c0c2809e7bb3d",
+  "baseline_review_reproduced": {
+    "fixed_0.1_RF_vs_YOLO_H_McNemar": {
+      "RF_only": 16,
+      "YOLO_only": 8,
+      "exact_two_sided_p": 0.15158963203430176
+    },
+    "n21_correction_verified_against_original_saved_pass": true,
+    "reviewer_matched_error_example": "At H 1.67 false/10s, RF b 63.93% top1 versus YOLO r2-b 68.03%; H-chosen thresholds are diagnostic only. Full fresh curves cross at stricter error rates, so neither dominates everywhere."
+  },
+  "benchmark_guard_execution_note": "Measured session used capped900s wait, nonblocking media processes, Comfy/active-generator/ball training-inference checks, and per-repeat CPU/GPU capture. Process recognition was broadened during that session to legacy run_round*/run_bench and relative-directory invocations; an independent Python process census found no such competing job. Timing samples report no blocking clients.",
+  "checkpoint_integrity_review": {
+    "audit_reproduction": "checkpoint_provenance.audit_saved_passes(Path.home() / \"models/tinyball\"); hashes recomputed from all six on-disk checkpoints; final hashes read from fit_summary.json and epoch-2 hashes from its checkpoint declarations.",
+    "base": "c8eb5e67463ad2b2e9c48ae0de0d2989626aa0a6",
+    "changed_table_cells": [],
+    "inference": false,
+    "passes": [
+      {
+        "declared_sha256": "5571f285a1303fd0fb22c0e0049dbe752b7b469cffa99a5f7298377828d87148",
+        "on_disk_sha256": "5571f285a1303fd0fb22c0e0049dbe752b7b469cffa99a5f7298377828d87148",
+        "pass_id": "yolo-r2-b",
+        "recorded_sha256": "5571f285a1303fd0fb22c0e0049dbe752b7b469cffa99a5f7298377828d87148",
+        "status": "MATCH",
+        "weights_path": "/Users/mjjones/models/tinyball/mj-r2-b/weights.pt"
+      },
+      {
+        "declared_sha256": "8c94d8e80c910d74e42d0efd53e40e15bb5634ce11e64417938af64119450def",
+        "on_disk_sha256": "8c94d8e80c910d74e42d0efd53e40e15bb5634ce11e64417938af64119450def",
+        "pass_id": "rf-b",
+        "recorded_sha256": "8c94d8e80c910d74e42d0efd53e40e15bb5634ce11e64417938af64119450def",
+        "status": "MATCH",
+        "weights_path": "/Users/mjjones/models/tinyball/mj-r4-rf-b/weights.pt"
+      },
+      {
+        "declared_sha256": "9dfafa1c3faa30623532ada5252b4a5e3ad6b3012dc9f28514347d75f1bae46d",
+        "on_disk_sha256": "9dfafa1c3faa30623532ada5252b4a5e3ad6b3012dc9f28514347d75f1bae46d",
+        "pass_id": "rf-r5-a",
+        "recorded_sha256": "9dfafa1c3faa30623532ada5252b4a5e3ad6b3012dc9f28514347d75f1bae46d",
+        "status": "MATCH",
+        "weights_path": "/Users/mjjones/models/tinyball/mj-r5-rf-a/weights.pt"
+      },
+      {
+        "declared_sha256": "da08669e538e397582cef34f4a8b4712de9ad9d0aba727db73b13d678cd0c299",
+        "on_disk_sha256": "da08669e538e397582cef34f4a8b4712de9ad9d0aba727db73b13d678cd0c299",
+        "pass_id": "rf-r5-a / epoch-2",
+        "recorded_sha256": "da08669e538e397582cef34f4a8b4712de9ad9d0aba727db73b13d678cd0c299",
+        "status": "MATCH",
+        "weights_path": "/Users/mjjones/models/tinyball/mj-r5-rf-a/epoch-02.pt"
+      },
+      {
+        "declared_sha256": "5cb57f0cc26276eb9b6fe0ee9e11ef34f76873b9febdd244fdefd5032f2120d1",
+        "on_disk_sha256": "5cb57f0cc26276eb9b6fe0ee9e11ef34f76873b9febdd244fdefd5032f2120d1",
+        "pass_id": "rf-r5-b",
+        "recorded_sha256": "5cb57f0cc26276eb9b6fe0ee9e11ef34f76873b9febdd244fdefd5032f2120d1",
+        "status": "MATCH",
+        "weights_path": "/Users/mjjones/models/tinyball/mj-r5-rf-b/weights.pt"
+      },
+      {
+        "declared_sha256": "23cc6605333182345c78ff5f889df20815d05e730a9a86bc45be7ee47049e28b",
+        "on_disk_sha256": "23cc6605333182345c78ff5f889df20815d05e730a9a86bc45be7ee47049e28b",
+        "pass_id": "rf-r5-b / epoch-2",
+        "recorded_sha256": "23cc6605333182345c78ff5f889df20815d05e730a9a86bc45be7ee47049e28b",
+        "status": "MATCH",
+        "weights_path": "/Users/mjjones/models/tinyball/mj-r5-rf-b/epoch-02.pt"
+      }
+    ],
+    "push": false,
+    "rerun_passes": [],
+    "result": "all saved passes verified against their declared weights; no result changes",
+    "status": "Complete: all six passes MATCH; regression, worktree/export and byte-rebuild gates pass",
+    "training": false,
+    "validation_rule": "Before runtime/model loading or output creation, compare --model SHA256 to the independent fit final hash (default) or the checkpoint hash selected explicitly with --checkpoint-epoch N, without overwriting the final declaration. Capture and finish validate every saved final and diagnostic envelope against the registered candidate fit summary before scoring or artifact writes."
+  },
+  "evaluation_label": "held-out (recipe-selected on these clips)",
+  "fit_a_training_code_at_launch": {
+    "round5_data.py": "f1aebd9ce8d91897902ecabb01340efd95e6dacc4c00631318bcd6dcb1341bd3",
+    "train_round5.py": "6178b89cca8eede445e4a0e1444c92051b54e14db86796a7f8dd5132dabcbc41"
+  },
+  "framing_review": {
+    "base_commit": "fae974a7e410887473b31128aba7c61ca3f8d883",
+    "code_sha256": {
+      "compare_ball.py": "39d166d6fb891fc59bd788c98c16178309bf7b84fbb48e7154e35ee050ac6592",
+      "inspect_n21_adjudication.py": "a64a3dfc066b1b63668609cc49db34145737aa9221d43e44964428202cce2000",
+      "round5_framing.py": "31c5d5918575da2abd8f6818ff8c24e1950ddff5da3e64e5a59fbc1f243434f2",
+      "round5_report.py": "2f7c4c22148a48c0fc445e82f68883edc1d93c0b1d4dc0509e0267767ab687c3"
+    },
+    "future_method": "Calibrate thresholds on TRAIN-disjoint clips; budget fits by optimizer steps; always show matched-false-rate curves and per-clip counts beside TRAIN operating points. No further m04 training. The next real evidence is a fresh labelled match from a different venue and day.",
+    "n21_review": {
+      "adjudication": "one MJ decision covering n21 s0-s10: count any visible ball, or the match ball only; the current labels follow neither rule consistently",
+      "classification_source": "MJ's note, existing scorer class",
+      "frames": 11,
+      "model_inference": false,
+      "new_fit_budget_crops": 8,
+      "previous_sheet": "~/codex-runs/ball-r5-n21/adjudicate-s6-s10.png",
+      "scorer_class": "off_pitch",
+      "sheet": "~/codex-runs/ball-r5-n21/adjudicate-s0-s10.png",
+      "sheet_sha256": "766bcc7a6ce51b29d26e7ef512b0821f1822c5fa1d2ed1dbf16a9a17add31e60",
+      "visible_ball_boxes_by_budget": {
+        "rf-b": [
+          2,
+          3
+        ],
+        "rf-r5-a": [
+          1,
+          2
+        ],
+        "rf-r5-b": [
+          1,
+          2
+        ],
+        "yolo-r2-b": [
+          0,
+          0
+        ]
+      }
+    },
+    "push": false,
+    "scope": "No training, no new model inference. Only saved-detection scoring, source-frame decoding/crops, fixture framing and numeric-comparison tolerance. Labels and selected kit unchanged.",
+    "test_environment": "Canonical tracker fixture environment: CPython3.11.16 / NumPy2.4.6, no SciPy installed (~/Projects/loanarmy/.loan). RF environment: CPython3.12.14 / NumPy2.3.5 / SciPy1.18.1 (~/models/tinyball/.venv-mj). Chosen fix: only duration-weighted group-continuity comparisons allow rel/abs tolerance1e-12; per-clip tracks and all counts remain exact. The reproduced failure involved three aggregate float differences of5.6e-17\u20131.1e-16. Canonical saved values are returned after validation, preserving report bytes. No SciPy function is called on this path; attributing the discrepancy to SciPy itself is unconfirmed. RF full suite passes429 tests including the framing regressions, in the worktree and git-archive export."
+  },
+  "n21_full_relabel_note": "The any-visible-ball false column is credit-only: s8-s10 remain among the original 60 no-ball frames. A full relabel removes those three frames from false exposure (57 no-ball frames) and all their detections from false counts. Strict false/10s after full relabelling, in order YOLO r2-b / rf-b / r5-a / r5-b: TRAIN-1 1.75 / 2.11 / 1.75 / 1.05; TRAIN-2 3.16 / 5.26 / 2.46 / 3.16. At TRAIN-2 r5-b ties YOLO under full relabelling: its higher-false direction under all three displayed rules applies only to the credit-only version. R5-a has fewer false alarms than YOLO under either visible-ball interpretation. These are sensitivities only; no label or primary result changed.",
+  "n21_rule_review": {
+    "any_rule_recall": "Provisional 20px references from visually inspected old RF boxes on s8-s10; not new MJ labels. Existing credit-only false exposure remains60. Exact definitions and all counts in fixtures/n21_rule_sensitivity.json.",
+    "base_commit": "cda4186e4831ab1559242632f112a30cdcd557d4",
+    "code_sha256": {
+      "inspect_n21_adjudication.py": "2c169fbdb8633edf08e2fd0d4756b52aee94dbae57fdaeb2db80648c2c0778e2",
+      "n21_rule_sensitivity.py": "3730cea94481d3b76e8dbda6e0f7ff92635a40caa11c8646ac1d926b010958e7",
+      "round5_framing.py": "8c36370f3be37cc6c5c54550219f5fc9384a681341ea4eaa36d0038246425508",
+      "round5_report.py": "3cf4688cfb1c3175d4e21eba892abc6cc8280c9bf2a1efc5c0de23b66c61c3f6",
+      "test_round5_evidence.py": "55c2354e223a15989526c107c502c2eb79d6a3f55b7cc98a24384cd56b26ae92"
+    },
+    "labels_changed": false,
+    "model_inference": false,
+    "pending": "one MJ decision covering n21 s0-s10: count any visible ball, or the match ball only; the current labels follow neither rule consistently",
+    "push": false,
+    "status": "N1-N4 complete: saved-box recount, three-rule sensitivities, all11 labelled-frame sheet, historical wording and restored contention invariant.",
+    "training": false
+  },
+  "n21_visual_review": {
+    "description": "N21 is scorer class off_pitch, based on MJ's note. s8-s10 show a football; s6 none visible; s7 ambiguous. YOLO has no retained boxes on these no-ball frames. The RF models' s9 boxes cover the visible ball; at TRAIN-2 two of each r5 fit's three boxes cover the ball and one covers footwear. MJ's s0-s5 click distances to the reviewer's flagged spot are86,142,164,158,118,77px: away, then back, not a monotonic approach. s0-s5 label the same background ball VISIBLE: s0 accepted rf_3x3, s1-s4 accepted rf_2x2, s5 manual. Their clicks sit68\u2013149px left and37\u201369px above the reviewer's s8 spot. Every candidate, including YOLO, has retained boxes in s0-s5 (not necessarily every frame); then s6-s10 are labelled no-ball. No labels, thresholds, selection or strict gate were changed.",
+    "fresh_pass": "Original RF b fixed0.1 inspection: five boxes on s8-s10, three on a ball and two on footwear. The new s0-s10 sheet covers all four models at both TRAIN budgets, including the six currently visible labels.",
+    "policy": "TRAIN replay must not mine these held-out frames. No relabelling or kit change in this round.",
+    "private_evidence": "~/codex-runs/ball-r5-n21/adjudicate-s0-s10.png; current labels and saved boxes only, no model inference."
+  },
+  "not_done": [
+    "N21 ball-identity adjudication remains outstanding.",
+    "No further m04 training; fresh venue/day match labels and TRAIN-disjoint calibration remain outstanding.",
+    "No labels changed, model inference, timing repeats, training, kit reselection or push."
+  ],
+  "pre_replay_correction": "Before fit b: defer first hard-negative mining until trained epoch2; the reset COCO ball classifier is not informative. This removes only an unexecuted replay branch from fit a; its training path and parameters are unchanged. No held-out results informed the correction.",
+  "prior_push": "User reports orchestrator pushed d2268bd; round-4 agent did not push.",
+  "private_artifacts": {
+    "kit": "~/ball-truth-review/",
+    "low_confidence_passes": "~/models/tinyball/r5-*-low/detections.json",
+    "models": "~/models/tinyball/mj-r5-rf-{a,b}",
+    "n21_crops": "~/codex-runs/ball-r5-n21/",
+    "suggestions": "~/codex-runs/ball-human-round5-suggestions.jsonl"
+  },
+  "protocol": {
+    "confidence_save_floor": 0.01,
+    "config": {
+      "augmentation": "Uniform zoom [0.8,1.2] about native content centre (480,270), translation +/-5% of native width/height, horizontal flip p=0.5; pad to 960 square; no squash",
+      "batch": 8,
+      "checkpoint_every_epochs": 2,
+      "checkpoint_selection": "FINAL parameters, never checkpoint selected on held-out",
+      "lr": 0.0001,
+      "lr_encoder": 0.00015,
+      "max_epochs": 12,
+      "max_minutes_per_fit": 90,
+      "model_selection": "At TRAIN-1.0 operating point, highest final-checkpoint H on-ball top1 recall among RF candidates with H false/10s <=2; ties lower H false then id. If none qualify, lowest H false then highest H recall, explicitly unqualified kit fallback. Thresholds TRAIN-only; intermediate checkpoints never selected. Final cross-model H selection is optimistic.",
+      "replay": "Mine original unaugmented TRAIN tiles at >=0.3, centre in content and no human click within 20 native px. Start empty; refresh after each 2 complete epochs (first from trained epoch2, never the reset COCO head); add one extra copy per hard tile per epoch, retaining all original annotations.",
+      "resolution": 960,
+      "scale_targets": "Round-4 affine+floor 18.680435180664062; no new observed-box override from superseded brief.",
+      "schedule": "100-step linear warmup; step decay x0.1 after epochs 2 and 4",
+      "seed": 42,
+      "train_stopping": "3 complete epochs without >1% improvement in base TRAIN epoch mean loss; partial epochs never advance patience"
+    },
+    "corrections": "Round4 calibration effect superseded; RF a+b 4.33 passes/13052 views/58 min; YOLO r2-b 10 epochs/30120 views/20.1 min, r2-a/r3-a 11, r3-b 10. Historical round-4 interpretation only, superseded by the current epoch/budget framing: RF flat train loss plus train/held gap suggested generalisation, not proven undertraining. Floor recipe also selected using these held-out clips.",
+    "diagnostics": "Full confidence curves and intermediate checkpoint H scores are diagnostic only, not used to alter fitting, thresholds, or checkpoint choice. Final-checkpoint H metrics select the RF model after all predeclared fits, explicitly optimistic.",
+    "fits": [
+      {
+        "id": "r5-rf-a",
+        "init": "COCO Nano",
+        "replay": false
+      },
+      {
+        "id": "r5-rf-b",
+        "init": "COCO Nano",
+        "replay": true
+      }
+    ],
+    "independence": "All 20 clips are match m04; two held-out on-ball clips share player n17-t717 with a TRAIN clip. Two clips from one match cannot establish a winner. Fresh labelled match from different venue/day required.",
+    "primary": "Held-out on-ball highest-confidence-box recall within 20 native pixels at each TRAIN-chosen threshold.",
+    "threshold_selection": "Lowest threshold retaining at most floor(target * TRAIN no-ball frames / 20) false boxes; >= comparison, tied scores removed together. TRAIN only. Targets 1.0 and 2.0 false/10s."
+  },
+  "push": false,
+  "resume_decisions": {
+    "kit": "RF a remains the selected kit source; one extra strict false box would select B. This is a knife-edge rule outcome, not evidence of superiority.",
+    "timing": "macOS mediaanalysisd and PhotosReliveWidget are recorded nonblocking steady background. Active generators, ComfyUI queue and bench training/inference block quiet entry. Shared total wait cap900s, then proceed labelled contended (steady background load); each repeat records media CPU and AGX GPU utilization.",
+    "training": "No evidence more epochs help at strict budgets; do not plan longer m04 training. Epoch-2 curves are censored at confidence0.01: TRAIN false/10s reaches only1.48 (A) and1.64 (B), not the requested2.0 budget. Their H endpoints are3.00 and2.00 respectively (the approximate2/10s censoring description applies to B). At TRAIN-2 H hits ROSE epoch-2\u2192FINAL: A84\u219293 with false/10s3.00\u21923.33; B87\u219294 with2.00\u21924.00. Only the first of the two declared LR decays took effect: epoch3 uses0.1\u00d7 LR, and training stops during epoch4 before the epoch5 0.01\u00d7 stage. Intermediate checkpoints remain diagnostic, never selected."
+  },
+  "scoring_code_sha256": {
+    "benchmark_activity.py": "498c0d455bfd7be94b0a2dc0a010f5187d62ba79dc1f7e03303738d10ca7e6ab",
+    "checkpoint_provenance.py": "f315b420823b28602db5bba78bccd5fcbf67ad034d27dbdc86a4d5a2601f6cab",
+    "fair_protocol.py": "c058f94739d4ceb2c974f73df772916a2676e6a240b0a6af1a517010052a3d61",
+    "finish_round5.py": "ee3975f43d5161bc06d54c0e13b7054ec9fc0854837220ef41a8c0f8996b6101",
+    "review_round5.py": "01d16176175fc07414911678e37ec2587107e4cd850df74e8172176922dfb2b5",
+    "round5_inference.py": "537e24c174c6dcad7e4c9e8f0d47232cb58e2aee1e65b9a80f6a2cece03e5a14",
+    "run_round5.py": "02209a4c8017a46b21cadf3ce82849a0b84f636975b2cba5d591e81d57ecee8e",
+    "throughput_round5.py": "48dac55b80488a1663fef93e7e042ce2e8dad72ac2d61e6b00bb1cda4352db58"
+  },
+  "selection_amendment_before_new_evaluation": "During fit a epoch1, before either new fit had any held-out evaluation: replace preliminary TRAIN-ranked model choice with the primary final-checkpoint H metric. This is explicitly optimistic selection on recipe-selected clips; no fit, checkpoint stopping, or TRAIN calibration changes.",
+  "selection_audit": {
+    "method": "Independent raw JSONL/detection count, without scorer helpers; full scorer recapture also byte-equivalent in model aggregates. Both final fits completed.",
+    "preview_discrepancy": "The cited 2.17 / 1.30 / 2.61 / 3.04 rates DO reproduce as groups.on_ball.false_per_10s: 5 / 3 / 6 / 7 false boxes \u00d720/46, using the 46 no-ball frames in the two n17 on-ball clips. Strict selection uses groups.all and all 60 held-out no-ball frames. At TRAIN-1 A has 6/60\u00d720=2.000 and B 4/60\u00d720=1.333. The earlier claim that these rates did not reproduce was wrong: it confused denominators.",
+    "rows": {
+      "rf-b": {
+        "eligible": false,
+        "false_boxes": 9,
+        "false_per_10s": 3.0,
+        "no_ball_frames": 60,
+        "on_ball_hits": 91,
+        "on_ball_visible": 122,
+        "threshold": 0.19124995172023776
+      },
+      "rf-r5-a": {
+        "eligible": true,
+        "false_boxes": 6,
+        "false_per_10s": 2.0,
+        "no_ball_frames": 60,
+        "on_ball_hits": 76,
+        "on_ball_visible": 122,
+        "threshold": 0.303143322467804
+      },
+      "rf-r5-b": {
+        "eligible": true,
+        "false_boxes": 4,
+        "false_per_10s": 1.3333333333333333,
+        "no_ball_frames": 60,
+        "on_ball_hits": 75,
+        "on_ball_visible": 122,
+        "threshold": 0.49416390061378485
+      }
+    },
+    "rule_unchanged": true,
+    "selected": "rf-r5-a"
+  },
+  "split": {
+    "feasible_partitions": 65,
+    "held_out": [
+      "m04-n05-t3007-284945-287898",
+      "m04-n12-t1411-679986-681985",
+      "m04-n17-t717-253073-260377",
+      "m04-n17-t717-416826-418915",
+      "m04-n21-t3011-390297-390800",
+      "m04-n24-t3013-679939-681217"
+    ],
+    "previously_untouched_holdout": false,
+    "prior_tuning_exposed_holdout": [
+      "m04-n05-t3007-284945-287898",
+      "m04-n12-t1411-679986-681985",
+      "m04-n17-t717-253073-260377",
+      "m04-n17-t717-416826-418915",
+      "m04-n21-t3011-390297-390800",
+      "m04-n24-t3013-679939-681217"
+    ],
+    "rank": "03edd675929948d82afddb0b5b17bd987a1aff05695bfc5bf812ca9a8f3c300f",
+    "seed": "ball-human-r2-split-v1",
+    "smoke_resubstitution_only": false,
+    "train": [
+      "m04-n02-t3005-474114-478131",
+      "m04-n03-t1406-157170-158922",
+      "m04-n03-t1406-385962-387137",
+      "m04-n04-t3006-243433-247994",
+      "m04-n04-t3006-307417-310307",
+      "m04-n09-t1409-143096-143834",
+      "m04-n09-t1409-297601-298865",
+      "m04-n09-t1409-385922-386603",
+      "m04-n10-t711-186553-188161",
+      "m04-n12-t1411-237107-242145",
+      "m04-n15-t3010-164698-170777",
+      "m04-n17-t717-304624-307834",
+      "m04-n22-t3012-070707-074371",
+      "m04-n25-t3014-530600-532465"
+    ]
+  },
+  "status": "Executed: both predeclared fits, final/checkpoint fair scoring, controlled throughput and RF-only kit refresh complete",
+  "training_code_sha256": {
+    "round5_data.py": "f1aebd9ce8d91897902ecabb01340efd95e6dacc4c00631318bcd6dcb1341bd3",
+    "train_round5.py": "efd4f637c4317fc2aba9fbdb234e1bd6d2914cc38efd2fe8b4cf2f18f5360e8a"
+  },
+  "verification": {
+    "git_archive_pytest": {
+      "canonical": 455,
+      "minimal_passed": 452,
+      "minimal_skipped": 3,
+      "rf_venv": 455
+    },
+    "rebuild": "JSON and Markdown byte-for-byte from committed fixtures in minimal git-archive export",
+    "round": "P1 checkpoint integrity on c8eb5e67 (PR #1081)",
+    "ruff": "check and format --check PASS in worktree and archive",
+    "summary": "All gates passed in .loan and RF environments, including 23 checkpoint-integrity regressions. Final staged-tree verification repeats after recording this result; external receipt records exact tree/ledger hashes, one commit and clean status. All six on-disk checkpoint hashes match fit declarations and saved envelopes; model, learning-curve, selection, throughput and kit aggregates are unchanged from c8eb5e67. No labels, weights, detections, images or crops committed. No training, inference, kit changes or push.",
+    "worktree_pytest": {
+      "canonical": 455,
+      "rf_venv": 455
+    }
+  }
+}

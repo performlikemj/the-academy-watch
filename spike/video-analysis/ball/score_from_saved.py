@@ -2,17 +2,13 @@
 
 from __future__ import annotations
 import argparse
-import json
 from pathlib import Path
-from common import DEFAULT_REPORT, HERE, dump
+from ball_truth_kit import import_labels
+from common import DEFAULT_REPORT, dump, sha256
 from extra_detections import load_extra
-from compare_ball import (
-    MEASUREMENTS,
-    candidate_label,
-    compare,
-    load_measurements,
-    markdown,
-)
+from compare_ball import MEASUREMENTS, load_measurements
+from human_loop import frame_catalog
+from human_score import score, markdown
 
 
 def main():
@@ -26,26 +22,31 @@ def main():
     p.add_argument(
         "--allow-synthetic",
         action="store_true",
-        help="Allow synthetic extras, badged SYNTHETIC in every result row",
+        help="Allow explicitly badged synthetic diagnostics",
     )
     a = p.parse_args()
     measurements = load_measurements(a.measurements)
     try:
+        labels = import_labels(a.human_jsonl, frame_catalog(measurements))
         extras = load_extra(
             a.extra_detections, measurements, allow_synthetic=a.allow_synthetic
         )
     except ValueError as error:
         p.error(str(error))
-    data = compare(
-        measurements,
-        json.loads((HERE / "fixtures/execution.json").read_text()),
-        a.human_jsonl,
-        extras,
-    )
+    data = score(measurements, labels, extras)
+    data["labels"]["sha256"] = sha256(a.human_jsonl)
     dump(a.out_prefix.with_suffix(".json"), data)
     a.out_prefix.with_suffix(".md").write_text(markdown(data))
     for r in data["results"]:
-        print(candidate_label(r), r["threshold"], r["overall"]["human"])
+        name = r["candidate"] + (" [SYNTHETIC]" if r["synthetic_smoke"] else "")
+        print(
+            name,
+            r["gate"],
+            r["headline_scope"],
+            (r["held_out_groups"] or r["groups"])["on_ball"],
+            "no-ball",
+            (r["held_out_groups"] or r["groups"])["all"]["false_per_10s"],
+        )
     print("Wrote", a.out_prefix.with_suffix(".json"), a.out_prefix.with_suffix(".md"))
 
 

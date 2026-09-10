@@ -1,0 +1,152 @@
+{
+  "base_commit": "325118376767a6218889c2ce3a76b36368762b20",
+  "baseline_measurements_sha256": "ea7bce39174ffcac61339d98fe46151952f313d98e37320f3d735148f3c23855",
+  "box_recipe": {
+    "box_side_at_640_px": 12.0,
+    "box_side_source_px": 18.0,
+    "definition": "Train-clip-only RF 2x2 saved 0.1 boxes within 20 source px of a click; size_px is shorter box side, mapped by 640/960. Side=max(12,2*median) in model pixels. No matched size: 12 model px fallback. Unverified detector sizes, not ball-size truth.",
+    "median_detected_size_at_640_px": 5.758939107259114,
+    "size_samples": 337
+  },
+  "branch": "feat/ball-human-truth",
+  "checks": [
+    "Worktree: BENCH_REQUIRE_CV2=1 ~/Projects/loanarmy/.loan/bin/python -m pytest spike/video-analysis/bench spike/video-analysis/ball -q: 382 passed; six pre-existing Pillow deprecation warnings.",
+    "Git archive export, no .git, media, labels, weights, cv2, torch or supervision: Python 3.11.16 / NumPy 2.4.6 pytest: 379 passed, three expected OpenCV skips; six pre-existing Pillow warnings.",
+    "Ruff check and ruff format --check pass in worktree and archive for all 59 bench/ball Python files.",
+    "Mypy 2.3.1 --check-untyped-defs --follow-imports=skip --ignore-missing-imports passes for all seven changed implementation/check modules.",
+    "Human ledger JSON and Markdown regenerate byte-for-byte from committed aggregate and execution fixtures in worktree and archive.",
+    "Isolated Chromium browser: exact 1057 seed labels preserved, zero auto-saves while browsing, newer labels and explicit clears survive reload, Next unlabelled frame works; final screenshot inspected.",
+    "Best-model suggestion file and all three kit/codex-runs copies are byte-identical; original MJ JSONL SHA256 unchanged.",
+    "Staged scope guard passes: only ball/** and the requested ledger pair; no JSONL labels or model weights staged. No baseline inference rerun. One local commit, no push."
+  ],
+  "dataset_counts": {
+    "negative_tiles": 3353,
+    "positive_tiles": 875,
+    "train": 1352,
+    "val": 2876
+  },
+  "decisions": [
+    "No baseline inference; strict committed JSONL validator accepts all 1057 rows.",
+    "All six on-ball clips are represented but 34 on-ball targets remain unknown; sample gate uses only human-labelled frames, not invented complete coverage.",
+    "Retain fixed first four on-ball clips for training; all remaining 16 labelled clips held out. No per-frame split, pseudo labels or threshold search.",
+    "Create external /Users/mjjones/models/tinyball/.venv-mj because prior ignored bench environment was not present in this worktree; pinned training recipe restored successfully.",
+    "Master CONTINUITY.md read but not edited because the explicit task fences limit ledgers to this report pair.",
+    "First run held-out recall 46.09% (<80%): run exactly one continuation from mj-r1/weights.pt at imgsz=960 and requested epochs=20 under the same 15-minute budget, same frozen 4/16 clip split. No third experiment or confidence threshold tuning.",
+    "Archive preflight reproduced with Python 3.11.16 and NumPy 2.4.6; Python 3.12 failed the older exact-float retracking fixture even with identical NumPy. Training remains Python 3.12/MPS; human score and reports use Python 3.11.",
+    "Variant selected by held-out recall (49.39% >46.09%) with precision as tie-breaker; two final trained checkpoints evaluated, no additional hyperparameter or threshold tuning.",
+    "Training minutes measure model.train wall time including trainer final validation; decoding/dataset preparation and the all-frame prediction pass are excluded. Ultralytics time=0.25 hours expanded five requested epochs to 33 in run 1; variant requested 20 and recorded 18.",
+    "New round-2 kit seeds exactly 1057 validated labels without touching MJ browser storage. Browser labels override seed values; explicit clears persist in a companion localStorage key. Suggestions never label automatically."
+  ],
+  "held_out_experiments": 2,
+  "kit": {
+    "best_model": "mj-r1-960",
+    "browser_check": "PASS: all 1057 labels exact; no automatic saves; new browser labels and explicit clears survive reload; all-frame navigation reaches unlabelled frames. Isolated Chromium via Playwright 1.62.0.",
+    "build_version": 5,
+    "confirmed_seed_labels": 1057,
+    "next_action": "Open ~/ball-truth-review/index.html, use Next unlabelled frame for the remaining 48; confirm/correct suggestions, use N only for no visible ball, leave uncertain frames unknown. Spot-check accepted suggestions for bias, then export a new JSONL.",
+    "original_labels_sha256_unchanged": "a0f51b42cb95e5327bf45fd353fd46f50495f99c096709b8836c7309ed2373ff",
+    "screenshot": "/Users/mjjones/codex-runs/ball-round2-kit-final.png",
+    "storage_key_preserved": true,
+    "suggestion_copies": [
+      "/Users/mjjones/ball-truth-review/suggestions.jsonl",
+      "/Users/mjjones/codex-runs/suggestions.jsonl",
+      "/Users/mjjones/codex-runs/ball-human-round2-suggestions.jsonl"
+    ],
+    "suggestions": 606,
+    "suggestions_sha256": "8012daaa298edb44f95d643d9a16ac85bd5c6b9c8b638080e710f48e0bccd045",
+    "unlabelled": 48,
+    "unlabelled_with_suggestion": 9,
+    "unlabelled_without_suggestion": 39
+  },
+  "next": "MJ reviews the remaining 48 frames and exports the next label round",
+  "not_done": [
+    "No candidate passes the real gate; even optimistic completion of all 48 missing labels cannot rescue the frozen-schedule verdicts.",
+    "MJ still has 48 unlabelled frames, including 34 on-ball targets and one off-pitch target; uncertain frames remain unknown.",
+    "No third training experiment, no production integration, no push; labels, weights and datasets stay outside git."
+  ],
+  "now": "All seven candidates scored, two MPS training runs finished, best trained model installed in the click kit, verification passed",
+  "selected_model": "tinyball-r1-960",
+  "source_sha256": "baf4de6c86b4b4affc0070c9adb58fb1a231e71192c2e8b6d40f6ba676d3b091",
+  "split": {
+    "held_out": [
+      "m04-n02-t3005-474114-478131",
+      "m04-n03-t1406-385962-387137",
+      "m04-n04-t3006-307417-310307",
+      "m04-n05-t3007-284945-287898",
+      "m04-n09-t1409-143096-143834",
+      "m04-n09-t1409-297601-298865",
+      "m04-n09-t1409-385922-386603",
+      "m04-n10-t711-186553-188161",
+      "m04-n12-t1411-679986-681985",
+      "m04-n17-t717-253073-260377",
+      "m04-n17-t717-304624-307834",
+      "m04-n17-t717-416826-418915",
+      "m04-n21-t3011-390297-390800",
+      "m04-n22-t3012-070707-074371",
+      "m04-n24-t3013-679939-681217",
+      "m04-n25-t3014-530600-532465"
+    ],
+    "smoke_resubstitution_only": false,
+    "train": [
+      "m04-n03-t1406-157170-158922",
+      "m04-n04-t3006-243433-247994",
+      "m04-n12-t1411-237107-242145",
+      "m04-n15-t3010-164698-170777"
+    ]
+  },
+  "status": "complete",
+  "training": [
+    {
+      "candidate": "tinyball-r1",
+      "command": "~/models/tinyball/.venv-mj/bin/python spike/video-analysis/ball/train_tiny_ball.py --human-jsonl ~/codex-runs/ball-human-truth.jsonl --out ~/models/tinyball/mj-r1",
+      "detections_sha256": "4831e616039aed3001db52a55edf72320c5a0ade8fd6c3a74111cb955404c969",
+      "epochs_completed": 33,
+      "epochs_requested": 5,
+      "fps": 51.51135800658537,
+      "frames_scanned": 1105,
+      "held_out_no_ball_false_per_frame": 0.2013888888888889,
+      "held_out_precision": 0.6760204081632653,
+      "held_out_recall": 0.4608695652173913,
+      "metrics_sha256": "5c5390aacd4d515682ca86f613dab64c0be571257fe71c1393f2c66d653e8c13",
+      "model_input_px": 640,
+      "out": "/Users/mjjones/models/tinyball/mj-r1",
+      "suggestions": 608,
+      "training_minutes": 15.714647890982452,
+      "training_s": 942.878873458947,
+      "versions": {
+        "numpy": "2.4.6",
+        "opencv-python": "5.0.0.93",
+        "torch": "2.14.0",
+        "torchvision": "0.29.0",
+        "ultralytics": "8.4.146"
+      },
+      "weights_sha256": "718b1fcbd99c6391655d1614f2566f22235d8599a2361ea94010b814f21c5001"
+    },
+    {
+      "candidate": "tinyball-r1-960",
+      "command": "~/models/tinyball/.venv-mj/bin/python spike/video-analysis/ball/train_tiny_ball.py --human-jsonl ~/codex-runs/ball-human-truth.jsonl --out ~/models/tinyball/mj-r1-960 --init ~/models/tinyball/mj-r1/weights.pt --imgsz 960 --epochs 20",
+      "detections_sha256": "237d8e48cbd7519e19cb5a8c454509cb0d94ffeaf1549f3580fab5cc44f34059",
+      "epochs_completed": 18,
+      "epochs_requested": 20,
+      "fps": 37.897593670039356,
+      "frames_scanned": 1105,
+      "held_out_no_ball_false_per_frame": 0.13194444444444445,
+      "held_out_precision": 0.7300771208226221,
+      "held_out_recall": 0.49391304347826087,
+      "metrics_sha256": "b4d4c9511b03ee58399434e32b578a50b47e99172234cf469126f3d2699b154a",
+      "model_input_px": 960,
+      "out": "/Users/mjjones/models/tinyball/mj-r1-960",
+      "suggestions": 606,
+      "training_minutes": 15.803544186100286,
+      "training_s": 948.2126511660172,
+      "versions": {
+        "numpy": "2.4.6",
+        "opencv-python": "5.0.0.93",
+        "torch": "2.14.0",
+        "torchvision": "0.29.0",
+        "ultralytics": "8.4.146"
+      },
+      "weights_sha256": "fa7a6bca35426ed1c8d1b5ab0fea9c4a140e5e39357ca4895553f0e5adb1c9bf"
+    }
+  ]
+}

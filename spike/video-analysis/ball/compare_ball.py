@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import gzip
 import json
+import math
 from fractions import Fraction
 from pathlib import Path
 from ball_truth_kit import import_labels
@@ -21,6 +22,33 @@ from metrics import (
 CANDIDATES = ["rf_full", "rf_2x2", "rf_3x3", "wasb", "wasb_2x2"]
 RF_CANDIDATES = CANDIDATES[:3]
 MEASUREMENTS = HERE / "fixtures/measurements.json.gz"
+
+
+def same_retracking(actual, saved):
+    """Allow only roundoff in duration-weighted group continuity, not track changes."""
+    if actual.keys() != saved.keys():
+        return False
+    for name, row in actual.items():
+        old = saved[name]
+        if {k: v for k, v in row.items() if k != "groups"} != {
+            k: v for k, v in old.items() if k != "groups"
+        }:
+            return False
+        if row["groups"].keys() != old["groups"].keys():
+            return False
+        for group, values in row["groups"].items():
+            before = old["groups"][group]
+            if values.keys() != before.keys():
+                return False
+            for key, value in values.items():
+                if key == "continuity":
+                    if not math.isclose(
+                        value, before[key], rel_tol=1e-12, abs_tol=1e-12
+                    ):
+                        return False
+                elif value != before[key]:
+                    return False
+    return True
 
 
 def load_measurements(path=MEASUREMENTS):
@@ -190,10 +218,12 @@ def compare(measurements, execution, human_path=None, extra_detections=None):
             f"Separate human scores use {len(human)} labels; coverage and sample gate are reported below.",
         )
     retracking = retrack_saved(measurements)
-    if retracking != measurements["retracking"]:
+    if not same_retracking(retracking, measurements["retracking"]):
         raise ValueError(
             "saved retracking fixture differs from current tracker; update derived fixture"
         )
+    # Keep byte-stable canonical aggregates after validating track identity.
+    retracking = measurements["retracking"]
     return {
         "headline": headline,
         "execution": execution,
