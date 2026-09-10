@@ -2,7 +2,7 @@
 (function (root) {
   function key(row) { return `${row.clip}|${row.t.toFixed(6)}`; }
   function validate(row, frames) {
-    if (!row || ['clip','t','visible','x','y'].some(k=>!(k in row)) || Object.keys(row).some(k=>!['clip','t','visible','x','y','source_accepted','accepted_source','accepted_score'].includes(k)) ||
+    if (!row || ['clip','t','visible','x','y'].some(k=>!(k in row)) || Object.keys(row).some(k=>!['clip','t','visible','x','y','source_accepted','accepted_source','accepted_score','schema_version','match_ball','review_frame','review_confirmed','needs_any_ball_review','needs_confirmation'].includes(k)) ||
         typeof row.clip !== 'string' || !Number.isFinite(row.t) || typeof row.visible !== 'boolean')
       throw new Error('Expected {clip,t,x,y,visible}');
     const frame = frames.find(f => key(f) === key(row));
@@ -16,7 +16,23 @@
     if(row.source_accepted) {
       if(!row.visible || typeof row.accepted_source !== 'string' || !row.accepted_source || !Number.isFinite(row.accepted_score) || row.accepted_score < 0 || row.accepted_score > 1) throw new Error('Accepted suggestion provenance required');
     } else if ('accepted_source' in row || 'accepted_score' in row) throw new Error('Provenance requires acceptance');
-    return {...row, t: frame.t};
+    row = {...row, t: frame.t};
+    const version = 'schema_version' in row ? row.schema_version : ('match_ball' in row ? 2 : 1);
+    if (![1,2].includes(version)) throw new Error('Unsupported schema version');
+    if (version === 2 && !('match_ball' in row)) throw new Error('v2 requires match_ball');
+    if (version === 1) {
+      row.match_ball = row.visible ? true : null;
+      if (!row.visible) Object.assign(row,{review_frame:true,review_confirmed:false,needs_any_ball_review:true});
+      if (row.visible && row.clip === 'm04-n21-t3011-390297-390800' && frame.sample_index < 6)
+        Object.assign(row,{match_ball:false,needs_confirmation:true,review_frame:true,review_confirmed:false});
+    }
+    row.schema_version = 2;
+    if (row.match_ball !== null && typeof row.match_ball !== 'boolean') throw new Error('Invalid match_ball');
+    if (!row.visible && row.match_ball !== null) throw new Error('No-ball match_ball must be null');
+    for (const k of ['review_frame','review_confirmed','needs_any_ball_review','needs_confirmation'])
+      if (k in row && typeof row[k] !== 'boolean') throw new Error(k+' must be boolean');
+    if (row.review_confirmed && (!row.review_frame || row.needs_any_ball_review || row.needs_confirmation)) throw new Error('Confirmed review cannot remain pending');
+    return row;
   }
   function parse(text, frames) {
     const seen = new Set();

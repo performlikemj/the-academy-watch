@@ -7,6 +7,7 @@ from pathlib import Path
 import subprocess
 import sys
 import pytest
+from label_rule import migrate_row
 from ball_truth_kit import import_labels
 from common import dump
 from compare_ball import load_measurements, compare
@@ -95,7 +96,7 @@ def test_accepted_provenance_browser_python_roundtrip(tmp_path):
         )
         p = tmp_path / "labels.jsonl"
         p.write_text(out)
-        assert import_labels(p, frames)[("c", 1.0)] == row
+        assert import_labels(p, frames)[("c", 1.0)] == migrate_row(row, frames[0])
     for bad in [
         {**old, "source_accepted": True},
         {**accepted, "visible": False, "x": None, "y": None},

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 from fair_protocol import BUCKETS
+from label_rule import banner_tables, RULES
 from round5_framing import (
     HEADLINE,
     BIG_BALL,
@@ -30,7 +31,14 @@ def relabel(data):
     return data
 
 
-def markdown(data, historical):
+def markdown(data, historical, label_rule="as_labelled"):
+    if label_rule == "any_ball":
+        evidence = data["round5"]["measurements"]
+        if evidence.get("label_rule") != "any_ball":
+            raise ValueError(
+                "any_ball requires newly scored labels, not historical aggregates"
+            )
+        return saved_rule_markdown(evidence)
     p = data["round5"]
     e = p["measurements"]
     order = ["yolo-r2-b", "rf-b"] + sorted(
@@ -54,6 +62,8 @@ def markdown(data, historical):
         "# Fair comparison — no winner at a strict budget",
         "",
         HEADLINE,
+        "",
+        p.get("rule_a_adoption", ""),
         "",
         "Gate on recipe-selected clips: **"
         + (", ".join(passing) or "no candidate passes either operating point")
@@ -505,3 +515,53 @@ def markdown(data, historical):
         historical.replace(OLD_LABEL, NEW_LABEL),
     ]
     return "\n".join(lines).rstrip() + "\n"
+
+
+def saved_rule_markdown(evidence):
+    """Current saved-label report; never reuse historical denominators/framing."""
+    lines = [
+        f"# Round 5 saved scoring — {evidence['label_rule']}",
+        "",
+        evidence["match_ball_note"],
+        "",
+        "TRAIN-chosen thresholds; recipe-selected held-out clips. This report does not update the committed headline or kit model selection.",
+        "",
+        "| Model | TRAIN budget | Threshold | Scope | Visible / no-ball | On-ball top-1 | False/10s |",
+        "|---|---|---|---|---|---|---|",
+    ]
+    for name, model in evidence["models"].items():
+        for budget, op in model["operating_points"].items():
+            for scope in ("train", "held"):
+                g = op[scope]["groups"]
+                lines.append(
+                    f"| {name} | {budget} | {op['threshold']:.17g} | {scope} | {g['all']['visible']} / {g['all']['no_ball_frames']} | {f(g['on_ball']['top1_recall'], True)} | {f(g['all']['false_per_10s'])} |"
+                )
+    return banner_tables("\n".join(lines), evidence)
+
+
+def main():
+    import argparse
+    from pathlib import Path
+    from checkpoint_provenance import FINAL_PASSES
+    from common import dump
+    from review_round5 import capture
+
+    p = argparse.ArgumentParser(description="Round-5 report from saved detections only")
+    p.add_argument("--human-jsonl", type=Path, required=True)
+    p.add_argument("--label-rule", choices=RULES, default="as_labelled")
+    p.add_argument("--out-prefix", type=Path, required=True)
+    a = p.parse_args()
+    root = Path.home() / "models/tinyball"
+    evidence = capture(
+        {k: root / v / "detections.json" for k, v in FINAL_PASSES.items()},
+        label_path=a.human_jsonl,
+        label_rule=a.label_rule,
+    )
+    dump(a.out_prefix.with_suffix(".json"), evidence)
+    report = saved_rule_markdown(evidence)
+    a.out_prefix.with_suffix(".md").write_text(report)
+    print(report)
+
+
+if __name__ == "__main__":
+    main()

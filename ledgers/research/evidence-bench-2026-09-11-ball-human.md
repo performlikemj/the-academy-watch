@@ -2,6 +2,8 @@
 
 On these recipe-selected m04 clips no detector wins: RF-DETR and YOLO swap the lead every one or two false boxes, the unselected RF fit matches YOLO at equal held-out false rates, the large-ball result rests on one 12-second sequence, three of the n21 'false' boxes may be mislabelled real balls, and RF-DETR Nano@960 is about 8x slower at 2 fps (about 36 min per match) and 10-11x at native rate (about 8-9 h).
 
+Rule A adopted 2026-09-11; re-score pending MJ review of 188 frames
+
 Gate on recipe-selected clips: **no candidate passes either operating point**.
 
 This section supersedes the round-4 head-to-head headline. **A shared confidence threshold is not a fair operating point across model families.** Product direction remains RF-DETR (Apache-2.0); ultralytics is bench-only and must not enter the serving path.
@@ -154,7 +156,7 @@ Each cell: false/10s; overall top-1 recall (hits/visible). Directions are false/
 
 At TRAIN-2 r5-a changes from more false alarms than YOLO under as-labelled and match-ball-only rules to fewer under visible-ball credits; r5-b remains higher under all three displayed rules only with credit-only false counting. All RF models have higher overall recall than YOLO under each displayed sensitivity, but these are recipe-selected clips with provisional semantics, not evidence of a winner.
 
-The any-visible-ball false column is credit-only: s8-s10 remain among the original 60 no-ball frames. A full relabel removes those three frames from false exposure (57 no-ball frames) and all their detections from false counts. Strict false/10s after full relabelling, in order YOLO r2-b / rf-b / r5-a / r5-b: TRAIN-1 1.75 / 2.11 / 1.75 / 1.05; TRAIN-2 3.16 / 5.26 / 2.46 / 3.16. At TRAIN-2 r5-b ties YOLO under full relabelling: its higher-false direction under all three displayed rules applies only to the credit-only version. R5-a has fewer false alarms than YOLO under either visible-ball interpretation. These are sensitivities only; no label or primary result changed.
+The any-visible-ball false column is credit-only: s8-s10 remain among the original 60 no-ball frames. A full relabel removes those three frames from false exposure (57 no-ball frames) and all their detections from false counts. Strict false/10s after full relabelling, in order YOLO r2-b / rf-b / r5-a / r5-b: TRAIN-1 1.75 / 2.11 / 1.75 / 1.05; TRAIN-2 3.16 / 5.26 / 2.46 / 3.16. At TRAIN-2 r5-b ties YOLO under full relabelling: its higher-false direction under all three displayed rules applies only to the credit-only version. R5-a has fewer false alarms than YOLO under either visible-ball interpretation at TRAIN-2 (TRAIN-1 ties: 1.67 = 1.67 credit-only, 1.75 = 1.75 fully relabelled). These are sensitivities only; no label or primary result changed.
 
 One MJ decision covering n21 s0-s10: count any visible ball, or the match ball only; the current labels follow neither rule consistently. Adjudication sheet: ~/codex-runs/ball-r5-n21/adjudicate-s0-s10.png. No label was changed. The new sheet includes all11 current labels, source context, an enlarged background region and retained boxes from all four models at both budgets.
 
@@ -370,7 +372,7 @@ Canonical tracker fixture environment: CPython3.11.16 / NumPy2.4.6, no SciPy ins
 
 Before runtime/model loading or output creation, compare --model SHA256 to the independent fit final hash (default) or the checkpoint hash selected explicitly with --checkpoint-epoch N, without overwriting the final declaration. Capture and finish validate every saved final and diagnostic envelope against the registered candidate fit summary before scoring or artifact writes.
 
-all saved passes verified against their declared weights; no result changes
+All saved passes verified against their declared weights; no result changes
 
 SHA256 prefixes below; full hashes and audit reproduction are in the execution fixture. No passes rerun; no table cells changed.
 

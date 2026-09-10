@@ -70749,7 +70749,7 @@
       ],
       "push": false,
       "rerun_passes": [],
-      "result": "all saved passes verified against their declared weights; no result changes",
+      "result": "All saved passes verified against their declared weights; no result changes",
       "status": "Complete: all six passes MATCH; regression, worktree/export and byte-rebuild gates pass",
       "training": false,
       "validation_rule": "Before runtime/model loading or output creation, compare --model SHA256 to the independent fit final hash (default) or the checkpoint hash selected explicitly with --checkpoint-epoch N, without overwriting the final declaration. Capture and finish validate every saved final and diagnostic envelope against the registered candidate fit summary before scoring or artifact writes."
@@ -141747,7 +141747,7 @@
         "total_quiet_wait_s": 73.70568937598728
       }
     },
-    "n21_full_relabel_note": "The any-visible-ball false column is credit-only: s8-s10 remain among the original 60 no-ball frames. A full relabel removes those three frames from false exposure (57 no-ball frames) and all their detections from false counts. Strict false/10s after full relabelling, in order YOLO r2-b / rf-b / r5-a / r5-b: TRAIN-1 1.75 / 2.11 / 1.75 / 1.05; TRAIN-2 3.16 / 5.26 / 2.46 / 3.16. At TRAIN-2 r5-b ties YOLO under full relabelling: its higher-false direction under all three displayed rules applies only to the credit-only version. R5-a has fewer false alarms than YOLO under either visible-ball interpretation. These are sensitivities only; no label or primary result changed.",
+    "n21_full_relabel_note": "The any-visible-ball false column is credit-only: s8-s10 remain among the original 60 no-ball frames. A full relabel removes those three frames from false exposure (57 no-ball frames) and all their detections from false counts. Strict false/10s after full relabelling, in order YOLO r2-b / rf-b / r5-a / r5-b: TRAIN-1 1.75 / 2.11 / 1.75 / 1.05; TRAIN-2 3.16 / 5.26 / 2.46 / 3.16. At TRAIN-2 r5-b ties YOLO under full relabelling: its higher-false direction under all three displayed rules applies only to the credit-only version. R5-a has fewer false alarms than YOLO under either visible-ball interpretation at TRAIN-2 (TRAIN-1 ties: 1.67 = 1.67 credit-only, 1.75 = 1.75 fully relabelled). These are sensitivities only; no label or primary result changed.",
     "n21_rule_review": {
       "any_rule_recall": "Provisional 20px references from visually inspected old RF boxes on s8-s10; not new MJ labels. Existing credit-only false exposure remains60. Exact definitions and all counts in fixtures/n21_rule_sensitivity.json.",
       "base_commit": "cda4186e4831ab1559242632f112a30cdcd557d4",
@@ -141828,6 +141828,7 @@
       "timing": "macOS mediaanalysisd and PhotosReliveWidget are recorded nonblocking steady background. Active generators, ComfyUI queue and bench training/inference block quiet entry. Shared total wait cap900s, then proceed labelled contended (steady background load); each repeat records media CPU and AGX GPU utilization.",
       "training": "No evidence more epochs help at strict budgets; do not plan longer m04 training. Epoch-2 curves are censored at confidence0.01: TRAIN false/10s reaches only1.48 (A) and1.64 (B), not the requested2.0 budget. Their H endpoints are3.00 and2.00 respectively (the approximate2/10s censoring description applies to B). At TRAIN-2 H hits ROSE epoch-2\u2192FINAL: A84\u219293 with false/10s3.00\u21923.33; B87\u219294 with2.00\u21924.00. Only the first of the two declared LR decays took effect: epoch3 uses0.1\u00d7 LR, and training stops during epoch4 before the epoch5 0.01\u00d7 stage. Intermediate checkpoints remain diagnostic, never selected."
     },
+    "rule_a_adoption": "Rule A adopted 2026-09-11; re-score pending MJ review of 188 frames",
     "scoring_code_sha256": {
       "benchmark_activity.py": "498c0d455bfd7be94b0a2dc0a010f5187d62ba79dc1f7e03303738d10ca7e6ab",
       "checkpoint_provenance.py": "f315b420823b28602db5bba78bccd5fcbf67ad034d27dbdc86a4d5a2601f6cab",

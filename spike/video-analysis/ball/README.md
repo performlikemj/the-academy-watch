@@ -574,3 +574,81 @@ this limitation is explicit. On-ball recall is unchanged because n21 is off_pitc
 One MJ decision must cover s0–s10: any visible ball or match ball only; current
 labels follow neither rule consistently. The pending decision is not applied to
 the real labels, gate, thresholds or kit selection.
+
+### Rule A — build 9 (2026-09-11)
+
+MJ adopted **every visible ball counts**: match, spare and kick-about balls are
+all detector positives. `visible:false` means no visible ball of any kind.
+`match_ball` is a separate tracker flag, unused by detector metrics.
+The committed headline remains as labelled; re-scoring awaits MJ's 188-frame review.
+The preceding n21 decision requests and build descriptions are historical.
+
+Label schema v2 retains `clip,t,x,y,visible` and optional `source_accepted`,
+`accepted_source`, `accepted_score`, adding `schema_version:2` and
+`match_ball:true|false|null` (null for no-ball or unknown match identity).
+Import accepts five-field v1, provenance v1 and v2. Visible v1 rows default to
+`match_ball:true`; v1 no-ball rows gain `needs_any_ball_review:true`.
+N21 s0–s5 retain their original coordinates/provenance and default to
+`match_ball:false,needs_confirmation:true`; these are not final adjudications.
+`review_frame` persists queue membership; `review_confirmed` records an explicit
+review action. Pending flags are cleared only by Enter/click/N in review mode.
+M changes identity without confirming visibility. Clearing a label resets progress.
+Normal-mode edits to queued frames require review again.
+
+`any_ball_review.py` writes a **new** `~/codex-runs/ball-human-truth-v2.jsonl`,
+refuses existing output, hashes both files and leaves the original unchanged.
+It ranks all 182 old no-ball frames plus six n21 confirmations by the highest
+saved box confidence ≥0.3 from five baselines and r5-a/r5-b final low passes.
+Source-name ties are deterministic; queue ties use clip/time; remaining frames
+come last. WASB points are inspected but cannot provide a box suggestion.
+Raw scores are uncalibrated suggestion priorities, never evidence of accuracy.
+No model inference, training or new frame extraction is needed.
+
+Build 9 embeds the v2 seed and queue in `index.html`. The unchanged localStorage
+key remains importable; browser labels take priority and keep provenance. New
+exports are v2. **Review: any visible ball?** shows `reviewed X / 188`:
+
+- Enter/Space accepts the displayed saved suggestion as visible, NOT match ball.
+- Click places a visible ball, NOT match ball; it clears acceptance provenance.
+- N confirms no ball at all; M toggles the current visible label's match-ball flag.
+- Arrows move through ranked queue entries; J/K move between clips in the queue.
+- Normal mode retains frame/clip navigation; new clicks/accepts default match ball.
+
+Nothing auto-saves a suggestion. The private queue has 126 suggestions, 62 frames
+without one, and 0 confirmations at delivery. Full ranking/source scores and
+hashes are in `~/ball-truth-review/migration.json` and `any-ball-review.json`.
+Sync **only** the contents of `~/codex-runs/ball-truth-review-build9/` over the
+existing laptop kit: `index.html`, `build.json`, `any-ball-review.json`,
+`migration.json`. Existing JPEGs are reused; none are included in the sync folder.
+
+`human_score.py`, `score_from_saved.py`, `review_round5.py` and `round5_report.py`
+accept `--label-rule {as_labelled,any_ball}` (default `as_labelled`). Both use
+supplied visibility: the switch does not hallucinate additional balls or use
+`match_ball` to exclude positives. Rule A declares the adopted semantics and
+badges **every table header** `PROVISIONAL: N of 188 review frames confirmed`
+until all 188 are explicitly confirmed. Round-5 saved scoring recomputes TRAIN
+thresholds and current denominators; it never reuses old framing/denominators as
+new rule-A results. Its CLI writes separate local files and never updates the
+headline or kit selection. No new headline scores are published in this change.
+
+```sh
+# One-time migration/build (refuses to overwrite an existing v2 output):
+~/Projects/loanarmy/.loan/bin/python spike/video-analysis/ball/any_ball_review.py
+# Refresh HTML after code edits, reusing the private seed and queue:
+~/Projects/loanarmy/.loan/bin/python spike/video-analysis/ball/ball_truth_kit.py \
+  --human-jsonl ~/codex-runs/ball-human-truth-v2.jsonl \
+  --suggestions ~/ball-truth-review/suggestions.jsonl \
+  --review ~/ball-truth-review/any-ball-review.json
+# Isolated real-browser verification; never uses MJ's browser profile:
+~/models/tinyball/.venv-mj/bin/python spike/video-analysis/ball/check_any_ball_kit.py
+# Machinery for after MJ exports reviewed v2 labels (saved detections only):
+~/Projects/loanarmy/.loan/bin/python spike/video-analysis/ball/round5_report.py \
+  --human-jsonl ~/codex-runs/ball-human-truth-v2.jsonl --label-rule any_ball \
+  --out-prefix ~/codex-runs/ball-rule-a-provisional
+```
+
+`throughput_round5.py` now validates every selected checkpoint against its fit
+summary **before any model/runtime load or quiet wait**, outside timing. Recorded
+throughput results are unchanged. Historical `train_tiny_ball.py:585` stamps the
+observed weights hash in the same run that trained those weights; it is historical
+and unused here, not an independent post-training integrity declaration.
