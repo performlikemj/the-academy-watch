@@ -44,8 +44,11 @@ watch-deploy sequence on **every** change — never a direct push to main.
   (pydantic pins it exactly — breaks the deploy; debugging.md). **numpy stays <2.5**
   (needs py≥3.12; the image is 3.11) — `dependabot.yml` already ignores it, don't override.
 - **Frontend** bumps (`package.json`/`pnpm-lock.yaml`) are independent — merge directly.
-- Dependabot PRs auto-merge (`dependabot-auto-merge.yml`, squash). The only red check is
-  usually the non-gating `auto-merge` job; real CI (Lint+Build) is green.
+- Dependabot PRs auto-merge (`dependabot-auto-merge.yml`, squash) only when every
+  commit is authored by Dependabot and the head commit's update types are all
+  patch/minor. Majors and missing or unrecognized metadata require human review;
+  denied PRs have auto-merge disabled. Version updates run weekly on Monday at
+  06:00 Asia/Tokyo, with patch/minor updates grouped per ecosystem.
 
 ## Merging & watching
 

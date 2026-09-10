@@ -3,12 +3,23 @@ updates:
   - package-ecosystem: "npm"
     directory: "/academy-watch-frontend"
     schedule:
-      interval: "daily"
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Asia/Tokyo"
     open-pull-requests-limit: 10
+    groups:
+      npm-minor-patch:
+        applies-to: version-updates
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
   - package-ecosystem: "pip"
     directory: "/academy-watch-backend"
     schedule:
-      interval: "daily"
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Asia/Tokyo"
     open-pull-requests-limit: 10
     ignore:
       # numpy >= 2.5 requires Python >= 3.12; the backend image is
@@ -25,3 +36,8 @@ updates:
       # Standalone pydantic-core bumps broke the ACR build in #832 (and twice before).
       # (Security updates bypass this ignore — the CI dry-run fails them, so they cannot auto-merge.)
       - dependency-name: "pydantic-core"
+    groups:
+      pip-minor-patch:
+        applies-to: version-updates
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
