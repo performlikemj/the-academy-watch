@@ -10,10 +10,13 @@ from fair_protocol import evaluate
 from extra_detections import load_extra
 from human_loop import frame_catalog, write_jsonl
 from review_round5 import capture, select_rf
+from checkpoint_provenance import declared_passes, validate_saved_passes
 
 
 def main():
     root = Path.home() / "models/tinyball"
+    # Check every final and diagnostic before scoring or writing any artifacts.
+    validate_saved_passes(declared_passes(root), root)
     paths = {
         "yolo-r2-b": root / "r5-yolo-low/detections.json",
         "rf-b": root / "r5-rfb-low/detections.json",

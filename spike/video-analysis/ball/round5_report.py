@@ -226,7 +226,7 @@ def markdown(data, historical):
         "",
         "Each cell: false/10s; overall top-1 recall (hits/visible). Directions are false/recall versus YOLO at the same TRAIN budget. On-ball recall is unchanged: n21 is off_pitch.",
         "",
-        "| Model / TRAIN budget | As labelled | Any visible ball (provisional recall) | Match ball only | Directions vs YOLO: labelled / any / match |",
+        "| Model / TRAIN budget | As labelled | Any visible ball (credit-only false; provisional recall) | Match ball only | Directions vs YOLO: labelled / any / match |",
         "|---|---:|---:|---:|---|",
     ]
     for r in e["framing"]["n21_three_rules"]["rows"]:
@@ -249,9 +249,12 @@ def markdown(data, historical):
         )
     lines += [
         "",
-        "At TRAIN-2 r5-a changes from more false alarms than YOLO under as-labelled and match-ball-only rules to fewer under visible-ball credits; r5-b remains higher under all three rules. All RF models have higher overall recall than YOLO under each sensitivity, but these are recipe-selected clips with provisional semantics, not evidence of a winner.",
+        "At TRAIN-2 r5-a changes from more false alarms than YOLO under as-labelled and match-ball-only rules to fewer under visible-ball credits; r5-b remains higher under all three displayed rules only with credit-only false counting. All RF models have higher overall recall than YOLO under each displayed sensitivity, but these are recipe-selected clips with provisional semantics, not evidence of a winner.",
         "",
-        e["framing"]["n21_three_rules"]["pending"]
+        p.get("n21_full_relabel_note", ""),
+        "",
+        e["framing"]["n21_three_rules"]["pending"][:1].upper()
+        + e["framing"]["n21_three_rules"]["pending"][1:]
         + ". Adjudication sheet: ~/codex-runs/ball-r5-n21/adjudicate-s0-s10.png. No label was changed. The new sheet includes all11 current labels, source context, an enlarged background region and retained boxes from all four models at both budgets.",
         "",
         "## Size buckets: top-1 hits / visible labels",
@@ -470,6 +473,29 @@ def markdown(data, historical):
         "",
         str(p.get("verification", {})),
         "",
+    ]
+    audit = p.get("checkpoint_integrity_review")
+    if audit:
+        lines += [
+            "### Checkpoint integrity verification",
+            "",
+            audit["validation_rule"],
+            "",
+            audit["result"],
+            "",
+            "SHA256 prefixes below; full hashes and audit reproduction are in the execution fixture. No passes rerun; no table cells changed.",
+            "",
+            "| Pass | Weights path (private) | Declared | Recorded | On disk | Status |",
+            "|---|---|---|---|---|---|",
+        ]
+        for row in audit["passes"]:
+            lines.append(
+                f"| {row['pass_id']} | {row['weights_path']} | "
+                f"{row['declared_sha256'][:12]} | {row['recorded_sha256'][:12]} | "
+                f"{row['on_disk_sha256'][:12]} | {row['status']} |"
+            )
+        lines += [""]
+    lines += [
         "Outstanding limits: " + " ".join(p.get("not_done", [])),
         "",
         "# Historical rounds 1–4 — fixed 0.1, not comparable across model families",

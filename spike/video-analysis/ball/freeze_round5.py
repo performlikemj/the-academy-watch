@@ -45,6 +45,7 @@ def main():
         name: sha256(HERE / name)
         for name in (
             "fair_protocol.py",
+            "checkpoint_provenance.py",
             "review_round5.py",
             "finish_round5.py",
             "round5_inference.py",

@@ -12,9 +12,11 @@ from fair_protocol import evaluate, hits, mcnemar
 from human_loop import frame_catalog
 from metrics import clip_class
 from review_round3 import freeze
+from checkpoint_provenance import validate_saved_passes
 
 
-def capture(paths):
+def capture(paths, root=None):
+    validate_saved_passes(paths, root)
     m = load_measurements()
     label_path = Path.home() / "codex-runs/ball-human-truth.jsonl"
     labels = import_labels(label_path, frame_catalog(m))

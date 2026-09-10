@@ -55,6 +55,11 @@ def main():
                         str(path),
                         "--out",
                         str(target),
+                        *(
+                            ["--checkpoint-epoch", str(int(tag.split("-")[1]))]
+                            if tag != "final"
+                            else []
+                        ),
                     ],
                     stdout=log,
                     stderr=subprocess.STDOUT,

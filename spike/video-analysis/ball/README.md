@@ -469,7 +469,16 @@ on replayed tiles. Every original tile appears once per complete epoch; each
 mined tile appears once more. The final checkpoint is the product candidate.
 
 `round5_inference.py` saves fresh detections to confidence 0.01. The YOLO adapter
-is bench-only. `fair_protocol.py` chooses thresholds using TRAIN no-ball frames
+is bench-only. Before runtime/model loading or output creation, the selected
+weights must match the independent fit summary's final SHA256. Diagnostics require
+`--checkpoint-epoch N` and match that declared checkpoint hash instead; the final
+declaration is never overwritten. `run_round5.py` supplies this flag for diagnostics.
+`checkpoint_provenance.py` also binds every capture/finish envelope (historical
+baselines included) to a registered candidate's fit summary. Finish preflights all
+finals and declared diagnostics before writing any artifact. To repeat the private
+six-pass disk audit, call `audit_saved_passes(Path.home() / "models/tinyball")`
+from that module; the aggregate audit is in the ledger execution block.
+`fair_protocol.py` chooses thresholds using TRAIN no-ball frames
 only, at nominal 1 and 2 false boxes/10s, with tied scores handled atomically.
 Held-out curves and exact frame-level McNemar comparisons are diagnostic only.
 The six evaluation clips are **recipe-selected on these clips**, not a clean

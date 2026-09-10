@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from common import DEFAULT_MANIFEST, DEFAULT_SOURCE, load_dataset, sha256
 from compare_ball import load_measurements
+from checkpoint_provenance import validate_model
 
 import time
 
@@ -63,7 +64,7 @@ def load_model(weights, kind, optimize=False, half=False):
     return model
 
 
-def predict_all(model, clips, out, frozen_set_id, fit):
+def predict_all(model, clips, out, frozen_set_id, fit, checkpoint_sha256):
     import numpy as np
     import torch
 
@@ -136,7 +137,7 @@ def predict_all(model, clips, out, frozen_set_id, fit):
             "source_size": [1920, 1080],
             "training_split": fit["split"],
             "training_labels_sha256": fit["labels_sha256"],
-            "weights_sha256": fit["weights_sha256"],
+            "weights_sha256": checkpoint_sha256,
             "licence": fit.get("licence", "AGPL-3.0 bench-only"),
             "outputs": outputs,
         },
@@ -180,23 +181,27 @@ def evaluation_marker(root):
 
 
 def main():
-    import cv2
-    import torch
-
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--model", type=Path, required=True)
     p.add_argument("--out", type=Path, required=True)
     p.add_argument("--kind", choices=["rf", "yolo"], default="rf")
+    p.add_argument(
+        "--checkpoint-epoch",
+        type=int,
+        help="Declared diagnostic epoch; omitted means the fit's FINAL checkpoint",
+    )
     a = p.parse_args()
+    fit, checkpoint_sha256 = validate_model(a.model, a.checkpoint_epoch)
     if a.model.parent.name in {"mj-r5-rf-a", "mj-r5-rf-b"}:
         evaluation_marker(a.model.parent.parent)
     if a.out.exists():
         raise ValueError("preserve existing passes")
+    import cv2
+    import torch
+
     a.out.mkdir(parents=True)
     cv2.setNumThreads(1)
     torch.set_num_threads(8)
-    fit = json.loads((a.model.parent / "fit_summary.json").read_text())
-    fit["weights_sha256"] = sha256(a.model)
     if "labels_sha256" not in fit:
         fit["labels_sha256"] = sha256(Path.home() / "codex-runs/ball-human-truth.jsonl")
     if "split" not in fit:
@@ -210,6 +215,7 @@ def main():
         a.out,
         load_measurements()["frozen_set_id"],
         fit,
+        checkpoint_sha256,
     )
 
 
