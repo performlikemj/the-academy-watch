@@ -1,233 +1,361 @@
-Human gate, all clips: no candidate passes. held-out (mild prior tuning exposure: the 640-vs-960 recipe choice in round 1 saw these clips in aggregate): no candidate passes. Proxy verdicts retire for this human-labelled sample.
+Human top-1 gate: **no candidate passes**. Proxy verdicts retire for this labelled sample.
 
-Selected by TRAIN loss: **tinyball-r2-d**, 4.65 FPS all clips; held-out (mild prior tuning exposure: the 640-vs-960 recipe choice in round 1 saw these clips in aggregate): on-ball recall/precision **60.7% / 84.1%**, overall **41.8% / 72.9%**, **3.33 false/10 s**, **FAIL**.
+Current best under the authorized ≤2 false/10s selection rule: **tinyball-r2-b**. H on-ball top-1 **68.03%**, oracle over N boxes 68.03%, oracle precision 93.26%, **1.67 false/10s**, 11.51 FPS; real gate **FAIL**.
 
-# Ball human truth — round 2
+held-out (mild prior tuning exposure: the 640-vs-960 recipe choice in round 1 saw these clips in aggregate). **Current-best selection now uses held-out results and is optimistic beyond that prior exposure.** Fresh labelled club footage is the true test; these 20 clips are no longer a clean test set.
 
-All = 20 clips, including fitted clips. H = held-out (mild prior tuning exposure: the 640-vs-960 recipe choice in round 1 saw these clips in aggregate). Every paired metric below uses this same fixed six-clip evaluation subset, including rescored round-1 baselines. H is mildly optimistic; these clips are no longer a clean test set.
+# Ball human truth — round 3 review and scale targets
 
-## Split and experiment protocol
+Gate = highest-confidence top-1 on-ball recall ≥80% AND ≤1 detection/10s on explicit no-ball frames. Model eligibility at ≤2 false/10s is a separate selection rule, not a PASS. Matching is inclusive 20 native px at confidence ≥0.1; ties use saved order. Oracle precision credits at most one nearest box per visible label and penalises all duplicate guesses. Top-1 precision is reported separately below. Boxes/frame in headlines uses visible on-ball frames, matching the reviewer; JSON also retains boxes per all labelled frames.
 
-14 train / 6 H; 753 / 304 labels, 631 / 244 visible, 122 / 60 no-ball. Training uses 72.1% of the 875 visible labels, versus round 1's 300/875 (34.3%).
+## Corrected round-1 headline (original 4/16 split)
 
-Deterministic rule: enumerate two on-ball, two off-pitch and two other holdout clips; retain round-1 fitted clips in train and reject train/holdout source-time overlap. Rank 65 feasible partitions by SHA256(seed + newline + sorted holdout IDs); seed `ball-human-r2-split-v1`, winning hash `03edd675929948d82afddb0b5b17bd987a1aff05695bfc5bf812ca9a8f3c300f`. Two overlapping held-out windows stay together; none crosses the fitting boundary.
+H = held-out (mild prior tuning exposure: the 640-vs-960 recipe choice in round 1 saw these clips in aggregate): original 16 evaluation clips for this table, 575 visible / 144 no-ball. On-ball H is the same two clips and 122 visible labels used below. Baselines are filtered to those same clips for comparability; none was fitted on this dataset. The All column preserves the reviewer’s six-on-ball-clip ranking.
 
-Train IDs:
+| Candidate | H top-1 (manual-only) | H oracle over N boxes (manual-only) | H oracle precision | H boxes/visible on frame | H false/10s | H FPS | H gate | Incl. training clips: top-1 (manual) / oracle | All boxes / false/10s / FPS / gate |
+|---|---:|---:|---:|---:|---:|---:|---|---:|---:|
+| rf_full | 53.28% (24.00%) | 62.30% (36.00%) | 10.94% | 4.20 | 72.64 | 26.63 | FAIL | 43.36% (32.09%) / 57.58% (49.32%) | 4.73 / 72.75 / 26.88 / FAIL |
+| rf_2x2 | 76.23% (50.00%) | 84.43% (64.00%) | 9.17% | 6.53 | 117.64 | 8.30 | FAIL | 67.77% (56.76%) / 83.18% (76.35%) | 7.80 / 118.35 / 8.33 / FAIL |
+| rf_3x3 | 80.33% (56.00%) | 86.89% (70.00%) | 6.23% | 9.84 | 186.53 | 1.53 | FAIL | 74.17% (64.19%) / 87.20% (82.43%) | 10.81 / 192.42 / 1.57 / FAIL |
+| wasb | 3.28% (2.00%) | 3.28% (2.00%) | 6.56% | 0.38 | 5.83 | 37.39 | FAIL | 3.55% (3.04%) / 3.55% (3.04%) | 0.28 / 5.38 / 37.90 / FAIL |
+| wasb_2x2 | 10.66% (14.00%) | 22.13% (20.00%) | 9.96% | 1.64 | 22.92 | 12.83 | FAIL | 11.37% (10.81%) / 18.25% (15.88%) | 1.33 / 22.86 / 12.90 / FAIL |
+| tinyball-r1 | 54.10% (50.00%) | 54.10% (50.00%) | 78.57% | 0.64 | 4.03 | 49.92 | FAIL | 75.36% (77.36%) / 75.36% (77.36%) | 0.84 / 3.74 / 51.51 / FAIL |
+| tinyball-r1-960 | 58.20% (46.00%) | 59.02% (46.00%) | 83.72% | 0.64 | 2.64 | 37.35 | FAIL | 77.49% (78.04%) / 77.73% (78.04%) | 0.83 / 2.42 / 37.90 / FAIL |
 
-- `m04-n02-t3005-474114-478131` (other; 70 visible / 6 no-ball)
-- `m04-n03-t1406-157170-158922` (on_ball; 30 visible / 6 no-ball)
-- `m04-n03-t1406-385962-387137` (off_pitch; 0 visible / 24 no-ball)
-- `m04-n04-t3006-243433-247994` (on_ball; 86 visible / 4 no-ball)
-- `m04-n04-t3006-307417-310307` (other; 44 visible / 12 no-ball)
-- `m04-n09-t1409-143096-143834` (off_pitch; 14 visible / 1 no-ball)
-- `m04-n09-t1409-297601-298865` (other; 23 visible / 3 no-ball)
-- `m04-n09-t1409-385922-386603` (off_pitch; 0 visible / 13 no-ball)
-- `m04-n10-t711-186553-188161` (other; 33 visible / 0 no-ball)
-- `m04-n12-t1411-237107-242145` (on_ball; 77 visible / 18 no-ball)
-- `m04-n15-t3010-164698-170777` (on_ball; 107 visible / 10 no-ball)
-- `m04-n17-t717-304624-307834` (other; 47 visible / 15 no-ball)
-- `m04-n22-t3012-070707-074371` (off_pitch; 71 visible / 1 no-ball)
-- `m04-n25-t3014-530600-532465` (off_pitch; 29 visible / 9 no-ball)
+Round-1 r1-960 was previously presented using 300 training on-ball labels plus 122 held-out labels. Its honest pipeline recall is **58.20% top-1 held-out**, versus 59.02% oracle; oracle precision on those same on-ball labels is 83.72%. All-clip 77.49% top-1 and 77.73% oracle are resubstitution-contaminated. Among round-1 candidates, r1-960 has the highest All on-ball top-1 recall; rf_3x3 falls from 87.20% oracle to 74.17% top-1 and fails the recall leg on all six on-ball clips.
 
-H IDs (held-out (mild prior tuning exposure: the 640-vs-960 recipe choice in round 1 saw these clips in aggregate)):
+## Corrected round-2 and new scale-run headline (common 14/6 split)
 
-- `m04-n05-t3007-284945-287898` (other; 50 visible / 9 no-ball)
-- `m04-n12-t1411-679986-681985` (off_pitch; 40 visible / 0 no-ball)
-- `m04-n17-t717-253073-260377` (on_ball; 102 visible / 29 no-ball)
-- `m04-n17-t717-416826-418915` (on_ball; 20 visible / 17 no-ball)
-- `m04-n21-t3011-390297-390800` (off_pitch; 6 visible / 5 no-ball)
-- `m04-n24-t3013-679939-681217` (other; 26 visible / 0 no-ball)
+All = all 20 clips (incl. training clips); H = held-out (mild prior tuning exposure: the 640-vs-960 recipe choice in round 1 saw these clips in aggregate), using the fixed six clips unless explicitly stated otherwise. Paired cells are All / H.
 
-- Round 1 trained on 300/875 visible labels (34.3%); round 2 trains on 631/875 (72.1%).
-- a: COCO YOLO11n, 2x2@960, 20-minute fit budget. b: same from mj-r1-960 weights, 20-minute budget. c: 2x2@1280 from same round-1 weights, batch 8 and 23-minute fit budget (<25 minutes target). All request 100 epochs; budget/patience may stop earlier.
-- For a-c, early-stop after six epochs without TRAIN-loss improvement; select best.pt only by minimum epoch mean augmented training box+cls+dfl loss. Validator overridden to consume no images or held-out metrics; final validation disabled.
-- d is fixed in advance: continue the lowest-TRAIN-loss a-c checkpoint at its same resolution, up to 40 minutes / 200 requested epochs, TRAIN-only patience six. No evaluation is run until d and final model selection are fixed.
-- Final best = lowest minimum TRAIN loss across a-d; no choice uses evaluation recall, precision or gate results. Comparing augmented training losses across input sizes is imperfect and can favour overfitting; disclose this risk.
-- The real test is new club footage, ideally native 4K / follow-cam. These 20 clips cannot serve as a clean test set; future work requires a fresh labelled clip set as the true holdout.
-- A native 4K export at identical FOV doubles source ball diameter, but fixed 2x2 tiles resized to the same model input erase that scale gain. Preserve effective pixels with more tiles/larger inputs or a tighter follow-cam view. A 2x-ball recall projection is conditional extrapolation, not measured 4K performance.
-- Pin AdamW lr0=0.002, momentum=0.9, warmup_bias_lr=0.0 to match round-1 auto-selected optimizer. A larger requested epoch count would otherwise silently choose MuSGD. Seeds fixed, but MPS warns some scatter/index operations are nondeterministic.
-- Training tiles: 3,012 from 753 labelled frames, with 631 positive tiles and 2,381 negative tiles. No held-out images are decoded into fitting datasets. Ultralytics time-budget mode adjusts its epoch count and learning-rate schedule; epochs requested are caps/inputs, not promises of completed epochs.
-- The training-only RF 2x2 apparent-size median is 9.34022 native px. Effective median is the same at 2x2@960 or 3x3@640, and 12.45362 px at 2x2@1280. This sizing sample contains matched RF detections (including multiple matches), not manually drawn ball extents. Point supervision uses a fixed 18.68044 native-px target side.
-- Observed a-c TRAIN losses: a=4.48029, b=3.98813, c=3.71372. The predeclared rule therefore starts d from c at 1280. c took 23.18 MPS minutes, satisfying <=25 minutes. No round-2 evaluation predictions existed at this choice.
-- d early-stopped after seven epochs / 33.79 minutes: six epochs did not beat epoch one. Final selected model d has minimum TRAIN loss 3.64641. Selection was frozen in round2-selection.json before any round-2 inference; no fifth fit or evaluation-based model/threshold choice.
-- No candidate passes either scope. among round-2 fits, c alone exceeds 80% All on-ball recall (80.57%) but fails the false-rate gate (2.09/10s); H recall is 65.57%. d remains the kit model because it was preselected on TRAIN loss; it is not the best evaluation-ranked model. b has the cleanest round-2 predictions; a has the highest H recall. No choice or extra fit was made from these evaluation numbers.
-- Current saved-pass FPS: a 11.85, b 11.55, c 8.53, d 4.65; c/d have identical 2,590,035-parameter architectures. Timing varied substantially during d; AC power and no recorded OS thermal/performance warning were observed, but cause is UNCONFIRMED. Baseline/round-1 FPS is historical, not a contemporaneous speed control.
+| Candidate | H top-1 (manual-only) | H oracle over N boxes (manual-only) | H oracle precision | H boxes/visible on frame | H false/10s | H FPS | H gate | Incl. training clips: top-1 (manual) / oracle | All boxes / false/10s / FPS / gate |
+|---|---:|---:|---:|---:|---:|---:|---|---:|---:|
+| rf_full | 53.28% (24.00%) | 62.30% (36.00%) | 10.94% | 4.20 | 87.67 | 26.86 | FAIL | 43.36% (32.09%) / 57.58% (49.32%) | 4.73 / 72.75 / 26.88 / FAIL |
+| rf_2x2 | 76.23% (50.00%) | 84.43% (64.00%) | 9.17% | 6.53 | 153.33 | 8.28 | FAIL | 67.77% (56.76%) / 83.18% (76.35%) | 7.80 / 118.35 / 8.33 / FAIL |
+| rf_3x3 | 80.33% (56.00%) | 86.89% (70.00%) | 6.23% | 9.84 | 233.67 | 1.33 | FAIL | 74.17% (64.19%) / 87.20% (82.43%) | 10.81 / 192.42 / 1.57 / FAIL |
+| wasb | 3.28% (2.00%) | 3.28% (2.00%) | 6.56% | 0.38 | 8.33 | 37.71 | FAIL | 3.55% (3.04%) / 3.55% (3.04%) | 0.28 / 5.38 / 37.90 / FAIL |
+| wasb_2x2 | 10.66% (14.00%) | 22.13% (20.00%) | 9.96% | 1.64 | 29.67 | 12.82 | FAIL | 11.37% (10.81%) / 18.25% (15.88%) | 1.33 / 22.86 / 12.90 / FAIL |
+| tinyball-r1 | 54.10% (50.00%) | 54.10% (50.00%) | 78.57% | 0.64 | 2.33 | 49.90 | FAIL | 75.36% (77.36%) / 75.36% (77.36%) | 0.84 / 3.74 / 51.51 / FAIL |
+| tinyball-r1-960 | 58.20% (46.00%) | 59.02% (46.00%) | 83.72% | 0.64 | 3.00 | 38.18 | FAIL | 77.49% (78.04%) / 77.73% (78.04%) | 0.83 / 2.42 / 37.90 / FAIL |
+| tinyball-r2-a | 69.67% (56.00%) | 71.31% (56.00%) | 82.86% | 0.83 | 3.00 | 11.92 | FAIL | 74.64% (71.28%) / 75.12% (71.28%) | 0.86 / 2.97 / 11.85 / FAIL |
+| tinyball-r2-b | 68.03% (44.00%) | 68.03% (44.00%) | 93.26% | 0.70 | 1.67 | 11.51 | FAIL | 76.30% (72.97%) / 76.54% (73.31%) | 0.80 / 1.32 / 11.55 / FAIL |
+| tinyball-r2-c | 65.57% (56.00%) | 65.57% (56.00%) | 86.96% | 0.71 | 2.33 | 8.58 | FAIL | 80.57% (80.07%) / 80.57% (80.07%) | 0.86 / 2.09 / 8.53 / FAIL |
+| tinyball-r2-d | 60.66% (46.00%) | 60.66% (46.00%) | 84.09% | 0.68 | 3.33 | 5.95 | FAIL | 75.83% (73.99%) / 76.30% (74.32%) | 0.83 / 1.98 / 4.65 / FAIL |
+| tinyball-r3-a | 65.57% (44.00%) | 65.57% (44.00%) | 93.02% | 0.68 | 2.33 | 51.01 | FAIL | 62.56% (55.41%) / 62.80% (55.41%) | 0.74 / 1.43 / 51.49 / FAIL |
+| tinyball-r3-b | 62.30% (34.00%) | 62.30% (34.00%) | 89.41% | 0.66 | 3.00 | 50.85 | FAIL | 70.85% (64.86%) / 70.85% (64.86%) | 0.89 / 1.54 / 51.12 / FAIL |
 
-2x2@1280 scales source ball pixels by 1280/960=1.333; 3x3@640 scales by 640/640=1.0. 1280 is 33.3% larger effective ball diameter than either 3x3@640 or 2x2@960; use a 23-minute fit budget with train-only validation to leave room below 25 minutes.
+The all-clip columns are descriptive training-inclusive numbers. H false rates use 60 no-ball labels across all six H clips, while H recall/precision in the headline use the two on-ball clips. This is the predefined gate scope, not a mixture of training/test precision. FPS includes decode + inference and excludes loading, warmup, scoring and tracking. Baseline/R1/R2 timings are historical saved-pass measurements, not contemporaneous speed controls.
 
-Exactly four ball-model fits, a–d; no recipe, checkpoint, threshold or kit-model choice used their evaluation scores. Best-checkpoint loss is the mean augmented training box+cls+dfl loss, not validation loss. All share confidence 0.1 and inclusive 20 native-pixel centre matching. The table below describes fits shared by both reported evaluation scopes; it contains no evaluation metric.
+## Precision, localisation and no-ball exposure
 
-| Fit | Tile input | Initial weights | MPS minutes | Recorded epochs / best epoch | Best TRAIN loss |
-|---|---:|---|---:|---:|---:|
-| a | 2×2@960 | yolo11n.pt | 20.18 | 11 / 10 | 4.48029 |
-| b | 2×2@960 | mj-r1-960/weights.pt | 20.14 | 10 / 10 | 3.98813 |
-| c | 2×2@1280 | mj-r1-960/weights.pt | 23.18 | 6 / 6 | 3.71372 |
-| d | 2×2@1280 | mj-r2-c/weights.pt | 33.79 | 7 / 1 | 3.64641 |
+All = all 20 clips (incl. training clips); H = held-out (mild prior tuning exposure: the 640-vs-960 recipe choice in round 1 saw these clips in aggregate), using the fixed six clips unless explicitly stated otherwise. Paired cells are All / H.
 
-A time limit can finish on a partial last epoch. Actual minutes include trainer setup; all fit histories and checkpoint hashes are retained in JSON. TRAIN-loss comparisons across resolutions/initialisations can favour overfitting and are not a guarantee of best generalisation.
+| Candidate | On top-1 precision All / H | On oracle precision All / H | On top-1 median error px All / H | On oracle median error px All / H | No-ball false/frame All / H | No-ball counts All / H |
+|---|---:|---:|---:|---:|---:|---:|
+| rf_full | 37.42% / 40.37% | 10.49% / 10.94% | 1.59 / 1.07 | 1.86 / 1.25 | 3.6374 / 4.3833 | 662/182 / 263/60 |
+| rf_2x2 | 56.97% / 56.02% | 9.13% / 9.17% | 1.20 / 0.46 | 1.43 / 0.52 | 5.9176 / 7.6667 | 1077/182 / 460/60 |
+| rf_3x3 | 61.86% / 58.33% | 6.73% / 6.23% | 1.24 / 0.00 | 1.49 / 0.00 | 9.6209 / 11.6833 | 1751/182 / 701/60 |
+| wasb | 10.56% / 6.56% | 10.56% / 6.56% | 3.44 / 5.38 | 3.44 / 5.38 | 0.2692 / 0.4167 | 49/182 / 25/60 |
+| wasb_2x2 | 12.28% / 9.09% | 11.41% / 9.96% | 2.09 / 2.10 | 2.08 / 1.81 | 1.1429 / 1.4833 | 208/182 / 89/60 |
+| tinyball-r1 | 93.53% / 84.62% | 86.89% / 78.57% | 1.79 / 1.30 | 1.79 / 1.30 | 0.1868 / 0.1167 | 34/182 / 7/60 |
+| tinyball-r1-960 | 94.78% / 84.52% | 90.36% / 83.72% | 1.84 / 1.42 | 1.82 / 1.46 | 0.1209 / 0.1500 | 22/182 / 9/60 |
+| tinyball-r2-a | 94.59% / 89.47% | 86.14% / 82.86% | 1.87 / 1.20 | 1.87 / 1.25 | 0.1484 / 0.1500 | 27/182 / 9/60 |
+| tinyball-r2-b | 96.99% / 94.32% | 93.62% / 93.26% | 1.77 / 1.33 | 1.77 / 1.33 | 0.0659 / 0.0833 | 12/182 / 5/60 |
+| tinyball-r2-c | 97.42% / 94.12% | 91.40% / 86.96% | 1.78 / 1.48 | 1.77 / 1.48 | 0.1044 / 0.1167 | 19/182 / 7/60 |
+| tinyball-r2-d | 95.81% / 91.36% | 89.44% / 84.09% | 1.79 / 1.15 | 1.77 / 1.15 | 0.0989 / 0.1667 | 18/182 / 10/60 |
+| tinyball-r3-a | 97.06% / 95.24% | 83.33% / 93.02% | 1.51 / 1.12 | 1.43 / 1.12 | 0.0714 / 0.1167 | 13/182 / 7/60 |
+| tinyball-r3-b | 98.36% / 93.83% | 78.89% / 89.41% | 1.46 / 0.97 | 1.38 / 0.97 | 0.0769 / 0.1500 | 14/182 / 9/60 |
 
-## Detection results: round 1 retained alongside round 2
+| Candidate / group | Pooled top-1 All / H | Manual-only top-1 All / H | Oracle over N boxes All / H | Manual-only oracle All / H | Oracle precision All / H | False/10s All / H |
+|---|---:|---:|---:|---:|---:|---:|
+| rf_full / all | 45.37% / 53.69% | 33.84% / 25.97% | 62.51% / 67.62% | 52.01% / 36.36% | 10.55% / 11.04% | 72.75 / 87.67 |
+| rf_full / off_pitch | 63.75% / 82.61% | 42.59% / 0.00% | 80.00% / 93.48% | 66.67% / 0.00% | 15.63% / 19.82% | 39.62 / 24.00 |
+| rf_2x2 / all | 65.71% / 71.31% | 54.68% / 50.65% | 86.51% / 86.89% | 80.31% / 70.13% | 9.19% / 9.87% | 118.35 / 153.33 |
+| rf_2x2 / off_pitch | 77.50% / 91.30% | 51.85% / 100.00% | 96.25% / 100.00% | 90.74% / 100.00% | 13.65% / 22.22% | 37.74 / 32.00 |
+| rf_3x3 / all | 71.09% / 78.28% | 59.85% / 57.14% | 89.37% / 90.57% | 83.75% / 75.32% | 6.80% / 7.04% | 192.42 / 233.67 |
+| rf_3x3 / off_pitch | 80.00% / 100.00% | 46.30% / 100.00% | 93.75% / 100.00% | 81.48% / 100.00% | 8.68% / 14.56% | 129.43 / 188.00 |
+| wasb / all | 4.69% / 2.46% | 4.40% / 2.60% | 4.69% / 2.46% | 4.40% / 2.60% | 10.17% / 4.29% | 5.38 / 8.33 |
+| wasb / off_pitch | 3.75% / 2.17% | 1.85% / 0.00% | 3.75% / 2.17% | 1.85% / 0.00% | 6.59% / 3.33% | 5.28 / 16.00 |
+| wasb_2x2 / all | 9.94% / 6.56% | 9.18% / 9.09% | 15.77% / 13.52% | 13.77% / 15.58% | 11.38% / 8.07% | 22.86 / 29.67 |
+| wasb_2x2 / off_pitch | 4.38% / 0.00% | 3.70% / 0.00% | 6.25% / 0.00% | 7.41% / 0.00% | 6.54% / 0.00% | 14.34 / 32.00 |
+| tinyball-r1 / all | 58.51% / 33.20% | 65.39% / 41.56% | 59.09% / 33.61% | 66.16% / 41.56% | 76.71% / 73.21% | 3.74 / 2.33 |
+| tinyball-r1 / off_pitch | 35.00% / 6.52% | 35.19% / 100.00% | 36.25% / 6.52% | 38.89% / 100.00% | 61.70% / 42.86% | 4.15 / 0.00 |
+| tinyball-r1-960 / all | 60.57% / 36.48% | 65.58% / 38.96% | 61.71% / 36.89% | 66.35% / 38.96% | 81.08% / 82.57% | 2.42 / 3.00 |
+| tinyball-r1-960 / off_pitch | 38.75% / 8.70% | 44.44% / 100.00% | 42.50% / 8.70% | 51.85% / 100.00% | 67.33% / 80.00% | 1.89 / 4.00 |
+| tinyball-r2-a / all | 71.66% / 52.87% | 71.70% / 49.35% | 73.60% / 54.92% | 73.23% / 50.65% | 72.20% / 67.68% | 2.97 / 3.00 |
+| tinyball-r2-a / off_pitch | 73.75% / 47.83% | 81.48% / 100.00% | 78.75% / 52.17% | 87.04% / 100.00% | 64.95% / 58.54% | 1.89 / 12.00 |
+| tinyball-r2-b / all | 67.77% / 45.49% | 69.02% / 42.86% | 69.26% / 45.49% | 70.55% / 42.86% | 86.70% / 88.80% | 1.32 / 1.67 |
+| tinyball-r2-b / off_pitch | 63.75% / 15.22% | 79.63% / 100.00% | 66.25% / 15.22% | 85.19% / 100.00% | 84.80% / 77.78% | 0.00 / 0.00 |
+| tinyball-r2-c / all | 69.49% / 43.03% | 75.53% / 53.25% | 70.40% / 43.44% | 76.48% / 53.25% | 86.15% / 80.92% | 2.09 / 2.33 |
+| tinyball-r2-c / off_pitch | 53.12% / 8.70% | 68.52% / 100.00% | 55.62% / 8.70% | 75.93% / 100.00% | 81.65% / 44.44% | 0.75 / 8.00 |
+| tinyball-r2-d / all | 68.00% / 40.98% | 72.08% / 46.75% | 69.83% / 41.80% | 73.80% / 46.75% | 80.71% / 72.86% | 1.98 / 3.33 |
+| tinyball-r2-d / off_pitch | 58.75% / 10.87% | 75.93% / 100.00% | 64.38% / 13.04% | 87.04% / 100.00% | 67.32% / 46.15% | 1.51 / 8.00 |
+| tinyball-r3-a / all | 59.89% / 52.46% | 53.15% / 37.66% | 62.29% / 54.92% | 55.83% / 40.26% | 74.25% / 71.66% | 1.43 / 2.33 |
+| tinyball-r3-a / off_pitch | 73.12% / 58.70% | 64.81% / 100.00% | 78.75% / 67.39% | 74.07% / 100.00% | 74.12% / 72.09% | 0.38 / 0.00 |
+| tinyball-r3-b / all | 67.43% / 53.28% | 62.33% / 35.06% | 68.57% / 54.51% | 63.48% / 36.36% | 74.53% / 72.68% | 1.54 / 3.00 |
+| tinyball-r3-b / off_pitch | 74.38% / 60.87% | 64.81% / 0.00% | 77.50% / 65.22% | 70.37% / 0.00% | 73.37% / 65.22% | 1.13 / 4.00 |
 
-H = held-out (mild prior tuning exposure: the 640-vs-960 recipe choice in round 1 saw these clips in aggregate). R/P = recall / precision; all rates use confirmed labels only.
+## Permanent matching-rule controls
 
-| Candidate | All on-ball R/P | H on-ball R/P | All overall R/P | H overall R/P | All gate | H gate |
-|---|---:|---:|---:|---:|---|---|
-| rf_2x2 | 83.2% / 9.1% | 84.4% / 9.2% | 86.5% / 9.2% | 86.9% / 9.9% | FAIL | FAIL |
-| rf_3x3 | 87.2% / 6.7% | 86.9% / 6.2% | 89.4% / 6.8% | 90.6% / 7.0% | FAIL | FAIL |
-| rf_full | 57.6% / 10.5% | 62.3% / 10.9% | 62.5% / 10.6% | 67.6% / 11.0% | FAIL | FAIL |
-| wasb | 3.6% / 10.6% | 3.3% / 6.6% | 4.7% / 10.2% | 2.5% / 4.3% | FAIL | FAIL |
-| wasb_2x2 | 18.2% / 11.4% | 22.1% / 10.0% | 15.8% / 11.4% | 13.5% / 8.1% | FAIL | FAIL |
-| tinyball-r1 | 75.4% / 86.9% | 54.1% / 78.6% | 59.1% / 76.7% | 33.6% / 73.2% | FAIL | FAIL |
-| tinyball-r1-960 | 77.7% / 90.4% | 59.0% / 83.7% | 61.7% / 81.1% | 36.9% / 82.6% | FAIL | FAIL |
-| tinyball-r2-a | 75.1% / 86.1% | 71.3% / 82.9% | 73.6% / 72.2% | 54.9% / 67.7% | FAIL | FAIL |
-| tinyball-r2-b | 76.5% / 93.6% | 68.0% / 93.3% | 69.3% / 86.7% | 45.5% / 88.8% | FAIL | FAIL |
-| tinyball-r2-c | 80.6% / 91.4% | 65.6% / 87.0% | 70.4% / 86.2% | 43.4% / 80.9% | FAIL | FAIL |
-| tinyball-r2-d | 76.3% / 89.4% | 60.7% / 84.1% | 69.8% / 80.7% | 41.8% / 72.9% | FAIL | FAIL |
+All = all 20 clips (incl. training clips); H = held-out (mild prior tuning exposure: the 640-vs-960 recipe choice in round 1 saw these clips in aggregate), using the fixed six clips unless explicitly stated otherwise. Paired cells are All / H.
 
-H = held-out (mild prior tuning exposure: the 640-vs-960 recipe choice in round 1 saw these clips in aggregate). False rates use only explicit no-ball labels (182 All / 60 H); 2 fps gives false/10 s = 20 × false/frame. Median error uses matched visible labels. FPS includes native decoding plus inference, excludes loading/warmup/scoring/tracking; paired H timing uses only those six clips. Baseline/round-1 FPS is historical; round-2 FPS is newly measured, so cross-round speed differences include runtime conditions and are not an isolated resolution effect.
+Corrupt visible human centres only; keep detections/confidences/timestamps/no-ball labels fixed. Ordinary within-clip permutation (fixed points allowed) or independent uniform native 1920x1080 centres. Same seeded draws for every candidate. Report mean/min/max across 100 repeats; oracle over N boxes and top-1 separately. No tracks or model inference. Reviewer gave ranges without a seed; these newly specified controls may differ.
 
-| Candidate | All false/frame | H false/frame | All false/10 s | H false/10 s | All median error px | H median error px | All FPS | H FPS |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| rf_2x2 | 5.9176 | 7.6667 | 118.35 | 153.33 | 1.23 | 0.41 | 8.33 | 8.28 |
-| rf_3x3 | 9.6209 | 11.6833 | 192.42 | 233.67 | 1.06 | 0.00 | 1.57 | 1.33 |
-| rf_full | 3.6374 | 4.3833 | 72.75 | 87.67 | 1.65 | 1.00 | 26.88 | 26.86 |
-| wasb | 0.2692 | 0.4167 | 5.38 | 8.33 | 3.44 | 5.77 | 37.90 | 37.71 |
-| wasb_2x2 | 1.1429 | 1.4833 | 22.86 | 29.67 | 2.15 | 1.71 | 12.90 | 12.82 |
-| tinyball-r1 | 0.1868 | 0.1167 | 3.74 | 2.33 | 1.80 | 1.33 | 51.51 | 49.90 |
-| tinyball-r1-960 | 0.1209 | 0.1500 | 2.42 | 3.00 | 1.92 | 1.55 | 37.90 | 38.18 |
-| tinyball-r2-a | 0.1484 | 0.1500 | 2.97 | 3.00 | 1.85 | 1.68 | 11.85 | 11.92 |
-| tinyball-r2-b | 0.0659 | 0.0833 | 1.32 | 1.67 | 1.72 | 1.45 | 11.55 | 11.51 |
-| tinyball-r2-c | 0.1044 | 0.1167 | 2.09 | 2.33 | 1.71 | 1.57 | 8.53 | 8.58 |
-| tinyball-r2-d | 0.0989 | 0.1667 | 1.98 | 3.33 | 1.73 | 1.18 | 4.65 | 5.95 |
+Reviewer reference: shuffled-within-clip oracle recall about 4.0–5.5%, uniform random 0.2–1.2%, median hit error 1.4–1.9 px and <1.1% of hits beyond 10 px. The reviewer did not supply RNG seed/repetition/population details. The permanent controls below explicitly use seed 20260911, 100 ordinary permutations or random-centre replicates; differences are disclosed, not forced to those reference ranges. They are sanity floors, never gate candidates or training data. The reviewer’s hit-error range concerns the useful RF/YOLO matches, not every WASB result; exact hit counts below also expose RF2x2 on-ball 4/351 beyond 10px (1.14%), versus 7/757 overall (0.92%).
 
-Gate = pooled on-ball visible-label recall ≥80% AND ≤1 predicted ball/10 s on explicit no-ball labels across that scope. All uses six on-ball clips; H uses two. A sample gate is legitimate, but does not certify unlabelled frames, continuous false-event frequency or unseen matches.
+| Candidate / sanity floor | On-ball top-1 mean All / H | On-ball oracle over N boxes mean All / H |
+|---|---:|---:|
+| rf_full / shuffled_within_clip | 2.18% / 1.50% | 3.75% / 2.63% |
+| rf_full / uniform_random | 0.06% / 0.06% | 0.28% / 0.20% |
+| rf_2x2 / shuffled_within_clip | 3.11% / 2.30% | 5.52% / 3.86% |
+| rf_2x2 / uniform_random | 0.07% / 0.01% | 0.35% / 0.25% |
+| rf_3x3 / shuffled_within_clip | 3.56% / 2.47% | 6.02% / 4.07% |
+| rf_3x3 / uniform_random | 0.06% / 0.02% | 0.55% / 0.52% |
+| wasb / shuffled_within_clip | 0.11% / 0.11% | 0.11% / 0.11% |
+| wasb / uniform_random | 0.00% / 0.02% | 0.00% / 0.02% |
+| wasb_2x2 / shuffled_within_clip | 0.50% / 0.26% | 0.80% / 0.70% |
+| wasb_2x2 / uniform_random | 0.05% / 0.10% | 0.08% / 0.15% |
+| tinyball-r1 / shuffled_within_clip | 3.69% / 1.66% | 3.74% / 1.71% |
+| tinyball-r1 / uniform_random | 0.05% / 0.02% | 0.05% / 0.02% |
+| tinyball-r1-960 / shuffled_within_clip | 3.58% / 1.71% | 3.61% / 1.74% |
+| tinyball-r1-960 / uniform_random | 0.05% / 0.01% | 0.05% / 0.01% |
+| tinyball-r2-a / shuffled_within_clip | 3.56% / 2.17% | 3.58% / 2.18% |
+| tinyball-r2-a / uniform_random | 0.05% / 0.02% | 0.05% / 0.02% |
+| tinyball-r2-b / shuffled_within_clip | 3.49% / 1.88% | 3.52% / 1.88% |
+| tinyball-r2-b / uniform_random | 0.05% / 0.01% | 0.05% / 0.01% |
+| tinyball-r2-c / shuffled_within_clip | 3.74% / 1.95% | 3.76% / 1.97% |
+| tinyball-r2-c / uniform_random | 0.05% / 0.02% | 0.06% / 0.02% |
+| tinyball-r2-d / shuffled_within_clip | 3.61% / 1.95% | 3.64% / 1.97% |
+| tinyball-r2-d / uniform_random | 0.05% / 0.02% | 0.05% / 0.02% |
+| tinyball-r3-a / shuffled_within_clip | 3.10% / 1.84% | 3.15% / 1.84% |
+| tinyball-r3-a / uniform_random | 0.04% / 0.02% | 0.04% / 0.02% |
+| tinyball-r3-b / shuffled_within_clip | 3.28% / 1.78% | 3.33% / 1.78% |
+| tinyball-r3-b / uniform_random | 0.05% / 0.02% | 0.05% / 0.02% |
 
-Off-pitch clips can contain visible balls; their visible/no-ball labels are scored literally. H = held-out (mild prior tuning exposure: the 640-vs-960 recipe choice in round 1 saw these clips in aggregate).
+| Candidate | Actual on-ball oracle median error px All / H | Hits beyond 10px / hits All / H |
+|---|---:|---:|
+| rf_full | 1.86 / 1.25 | 2/243 / 1/76 |
+| rf_2x2 | 1.43 / 0.52 | 4/351 / 0/103 |
+| rf_3x3 | 1.49 / 0.00 | 2/368 / 0/106 |
+| wasb | 3.44 / 5.38 | 1/15 / 1/4 |
+| wasb_2x2 | 2.08 / 1.81 | 0/77 / 0/27 |
+| tinyball-r1 | 1.79 / 1.30 | 0/318 / 0/66 |
+| tinyball-r1-960 | 1.82 / 1.46 | 0/328 / 0/72 |
+| tinyball-r2-a | 1.87 / 1.25 | 0/317 / 0/87 |
+| tinyball-r2-b | 1.77 / 1.33 | 0/323 / 0/83 |
+| tinyball-r2-c | 1.77 / 1.48 | 0/340 / 0/80 |
+| tinyball-r2-d | 1.77 / 1.15 | 0/322 / 0/74 |
+| tinyball-r3-a | 1.43 / 1.12 | 0/265 / 0/80 |
+| tinyball-r3-b | 1.38 / 0.97 | 0/299 / 0/76 |
 
-| Candidate | All off-pitch R/P | H off-pitch R/P | All off-pitch false/10 s | H off-pitch false/10 s |
-|---|---:|---:|---:|---:|
-| rf_2x2 | 96.2% / 13.7% | 100.0% / 22.2% | 37.74 | 32.00 |
-| rf_3x3 | 93.8% / 8.7% | 100.0% / 14.6% | 129.43 | 188.00 |
-| rf_full | 80.0% / 15.6% | 93.5% / 19.8% | 39.62 | 24.00 |
-| wasb | 3.8% / 6.6% | 2.2% / 3.3% | 5.28 | 16.00 |
-| wasb_2x2 | 6.2% / 6.5% | 0.0% / 0.0% | 14.34 | 32.00 |
-| tinyball-r1 | 36.2% / 61.7% | 6.5% / 42.9% | 4.15 | 0.00 |
-| tinyball-r1-960 | 42.5% / 67.3% | 8.7% / 80.0% | 1.89 | 4.00 |
-| tinyball-r2-a | 78.8% / 64.9% | 52.2% / 58.5% | 1.89 | 12.00 |
-| tinyball-r2-b | 66.2% / 84.8% | 15.2% / 77.8% | 0.00 | 0.00 |
-| tinyball-r2-c | 55.6% / 81.7% | 8.7% / 44.4% | 0.75 | 8.00 |
-| tinyball-r2-d | 64.4% / 67.3% | 13.0% / 46.2% | 1.51 | 8.00 |
+## No-ball visibility sensitivity
 
-## Track vs human truth
+**No-ball = no ball visible to the labeller.** Every detection on those frames counts false, even if it is a real ball MJ could not see. The reviewer classified 129 of 182 no-ball frames as mid-play; this is reviewer-supplied context, not a new occlusion annotation.
 
-Unchanged Kalman tracker rerun independently of labels. Coverage means a filtered track point within 20 px on a visible label; >50 px is a wrong-object frame. Correct runs and wrong episodes break at missing/no-ball labels and fragment changes; longest run is sample-count/2 seconds, not native-frame continuity. H = held-out (mild prior tuning exposure: the 640-vs-960 recipe choice in round 1 saw these clips in aggregate).
+Sensitivity only, not verified invisible balls: credit detections within 50 native px of linear interpolation between visible clicks bracketing a no-ball frame, with total bracket gap <=1.01s (two 0.5005s samples). This explicitly specified reconstruction finds the reviewer two r1-960 near-path detections, including one 26.4px away (outside the 20px visible matching radius). The real gate always uses zero credits.
 
-| Candidate | All coverage | H coverage | All longest s | H longest s | All wrong frames | H wrong frames | All wrong episodes | H wrong episodes |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| rf_2x2 | 32.9% | 39.3% | 12.50 | 8.00 | 491 | 121 | 132 | 46 |
-| rf_3x3 | 27.2% | 35.7% | 12.50 | 7.50 | 557 | 140 | 122 | 45 |
-| rf_full | 23.2% | 27.0% | 8.00 | 8.00 | 591 | 155 | 193 | 60 |
-| wasb | 4.7% | 2.5% | 3.50 | 0.50 | 311 | 108 | 151 | 60 |
-| wasb_2x2 | 8.6% | 4.5% | 2.00 | 1.00 | 531 | 163 | 266 | 87 |
-| tinyball-r1 | 51.2% | 27.5% | 24.50 | 3.00 | 77 | 22 | 54 | 19 |
-| tinyball-r1-960 | 52.0% | 31.1% | 24.50 | 2.50 | 58 | 11 | 43 | 10 |
-| tinyball-r2-a | 59.8% | 47.1% | 23.50 | 3.00 | 84 | 32 | 45 | 18 |
-| tinyball-r2-b | 58.3% | 36.9% | 24.00 | 2.50 | 39 | 14 | 28 | 9 |
-| tinyball-r2-c | 60.2% | 36.9% | 24.50 | 2.50 | 40 | 14 | 30 | 10 |
-| tinyball-r2-d | 60.2% | 35.2% | 24.50 | 2.50 | 46 | 19 | 39 | 15 |
+| r1-960 sensitivity scope | Strict false/10s All / H | Path-credited false/10s All / H | Credited detections All / H | Gate All / H |
+|---|---:|---:|---:|---|
+| Original R1 16-clip H | 2.42 / 2.64 | 2.20 / 2.50 | 2 / 1 | FAIL / FAIL |
+| Common six-clip H | 2.42 / 3.00 | 2.20 / 3.00 | 2 / 0 | FAIL / FAIL |
 
-## Ball pixels and error analysis
+The two credits reproduce 2.42 → 2.20 false/10s All, still failing. One is in the original R1 holdout; both are in the R2/R3 train set. No labels are changed.
 
-Independent RF matched boxes below measure native shorter box sides associated with MJ's centres; centres do not establish true ball boundaries. No size exists for an unmatched ball. Trained boxes reflect fixed roughly 18–19 px point-supervision targets and are excluded from independent size analysis. H = held-out (mild prior tuning exposure: the 640-vs-960 recipe choice in round 1 saw these clips in aggregate).
+## Track vs truth
 
-| Candidate | All matched sizes | H matched sizes | All median / p95 px | H median / p95 px |
-|---|---:|---:|---:|---:|
-| rf_2x2 | 757 | 212 | 10.41 / 43.88 | 13.19 / 47.44 |
-| rf_3x3 | 782 | 221 | 10.29 / 42.17 | 12.69 / 47.03 |
-| rf_full | 547 | 165 | 13.09 / 46.34 | 25.12 / 50.78 |
+All = all 20 clips (incl. training clips); H = held-out (mild prior tuning exposure: the 640-vs-960 recipe choice in round 1 saw these clips in aggregate), using the fixed six clips unless explicitly stated otherwise. Paired cells are All / H.
 
-Error buckets concern the selected model on on-ball clips only. Size per label is the median of nearest matching RF full/2×2/3×3 sizes; this provides independent size estimates for some model misses, with an explicit unknown bucket. H = held-out (mild prior tuning exposure: the 640-vs-960 recipe choice in round 1 saw these clips in aggregate).
+Unchanged Kalman association reruns on saved detections without truth guidance. Track precision = points within 20px / track points where a visible label exists. Wrong rate = >50px points / that same denominator; report coverage alongside it so silence cannot look successful. Points on explicit no-ball and unlabelled frames are outside this precision denominator. Longest runs and episodes break on missing/no-ball/incorrect samples or fragment changes; seconds = correct samples/2.
 
-| Bucket | All misses / visible | H misses / visible | All recall | H recall |
-|---|---:|---:|---:|---:|
-| size <6 px | 2 / 11 | 1 / 1 | 81.8% | 0.0% |
-| size 6–<10 px | 36 / 210 | 12 / 39 | 82.9% | 69.2% |
-| size 10–<16 px | 26 / 122 | 11 / 46 | 78.7% | 76.1% |
-| size 16–<24 px | 1 / 22 | 0 / 3 | 95.5% | 100.0% |
-| size ≥24 px | 14 / 23 | 14 / 22 | 39.1% | 36.4% |
-| size unknown | 21 / 34 | 10 / 11 | 38.2% | 9.1% |
-| image y <360 | 18 / 37 | 7 / 8 | 51.4% | 12.5% |
-| image y 360–<720 | 73 / 373 | 32 / 102 | 80.4% | 68.6% |
-| image y ≥720 | 9 / 12 | 9 / 12 | 25.0% | 25.0% |
-| displacement <10 px/sample | 8 / 64 | 2 / 7 | 87.5% | 71.4% |
-| displacement 10–<50 px/sample | 40 / 163 | 18 / 43 | 75.5% | 58.1% |
-| displacement ≥50 px/sample | 36 / 141 | 16 / 49 | 74.5% | 67.3% |
-| displacement unknown | 16 / 54 | 12 / 23 | 70.4% | 47.8% |
-| inside person box | 54 / 160 | 25 / 47 | 66.2% | 46.8% |
-| outside detected person boxes | 46 / 262 | 23 / 75 | 82.4% | 69.3% |
-| person pass missing | 0 / 0 | 0 / 0 | — | — |
+| Candidate | Coverage All / H | Track precision All / H | Longest correct s All / H | Wrong frames / track points All / H | Wrong per track point All / H | Wrong per visible All / H | Episodes All / H |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| rf_full | 23.20% / 27.05% | 24.02% / 27.85% | 8.00 / 8.00 | 591/845 / 155/237 | 69.94% / 65.40% | 67.54% / 63.52% | 193 / 60 |
+| rf_2x2 | 32.91% / 39.34% | 32.95% / 39.34% | 12.50 / 8.00 | 491/874 / 121/244 | 56.18% / 49.59% | 56.11% / 49.59% | 132 / 46 |
+| rf_3x3 | 27.20% / 35.66% | 27.20% / 35.66% | 12.50 / 7.50 | 557/875 / 140/244 | 63.66% / 57.38% | 63.66% / 57.38% | 122 / 45 |
+| wasb | 4.69% / 2.46% | 11.58% / 5.22% | 3.50 / 0.50 | 311/354 / 108/115 | 87.85% / 93.91% | 35.54% / 44.26% | 151 / 60 |
+| wasb_2x2 | 8.57% / 4.51% | 12.25% / 6.25% | 2.00 / 1.00 | 531/612 / 163/176 | 86.76% / 92.61% | 60.69% / 66.80% | 266 / 87 |
+| tinyball-r1 | 51.20% / 27.46% | 79.01% / 68.37% | 24.50 / 3.00 | 77/567 / 22/98 | 13.58% / 22.45% | 8.80% / 9.02% | 54 / 19 |
+| tinyball-r1-960 | 52.00% / 31.15% | 78.99% / 77.55% | 24.50 / 2.50 | 58/576 / 11/98 | 10.07% / 11.22% | 6.63% / 4.51% | 43 / 10 |
+| tinyball-r2-a | 59.77% / 47.13% | 76.57% / 72.78% | 23.50 / 3.00 | 84/683 / 32/158 | 12.30% / 20.25% | 9.60% / 13.11% | 45 / 18 |
+| tinyball-r2-b | 58.29% / 36.89% | 82.52% / 76.27% | 24.00 / 2.50 | 39/618 / 14/118 | 6.31% / 11.86% | 4.46% / 5.74% | 28 / 9 |
+| tinyball-r2-c | 60.23% / 36.89% | 83.52% / 78.26% | 24.50 / 2.50 | 40/631 / 14/115 | 6.34% / 12.17% | 4.57% / 5.74% | 30 / 10 |
+| tinyball-r2-d | 60.23% / 35.25% | 82.86% / 74.78% | 24.50 / 2.50 | 46/636 / 19/115 | 7.23% / 16.52% | 5.26% / 7.79% | 39 / 15 |
+| tinyball-r3-a | 52.00% / 44.67% | 77.65% / 68.12% | 24.00 / 3.00 | 72/586 / 32/160 | 12.29% / 20.00% | 8.23% / 13.11% | 25 / 11 |
+| tinyball-r3-b | 56.46% / 46.31% | 79.29% / 75.33% | 14.50 / 3.50 | 59/623 / 25/150 | 9.47% / 16.67% | 6.74% / 10.25% | 29 / 14 |
 
-Image y is a camera-dependent distance proxy. Displacement uses the immediately preceding visible scheduled sample and includes camera motion; it is not measured shutter blur. A point inside a COCO person box is projected overlap, not proven physical occlusion; missed people can appear outside. Unknown labels break motion pairs. Correlated samples and size-conditioned RF availability limit causal interpretation.
+## Split, scale fit and the two new experiments
 
-- Size (All / H): <6 px misses 2/11 / 1/1; 6–<10 px 36/210 / 12/39; 10–<16 px 26/122 / 11/46; 16–<24 px 1/22 / 0/3; >=24 px 14/23 / 14/22; unknown size 21/34 / 10/11. Recall is not monotonic in size. Only one >=24 px on-ball training label has an independent RF size estimate, versus 22 in H.
-- Image y (All / H): upper third misses 18/37 / 7/8, middle third 73/373 / 32/102, lower third 9/12 / 9/12. Both far-side and close-touchline views fail; image y alone is not a reliable distance explanation.
-- Motion proxy (All / H): <10 px/sample misses 8/64 / 2/7; 10–<50 px 40/163 / 18/43; >=50 px 36/141 / 16/49; unknown predecessor 16/54 / 12/23. H recall is 71.4%, 58.1%, 67.3% in the three measured bins; this is not a monotonic blur relationship.
-- Player-box overlap (All / H): inside misses 54/160 / 25/47 versus outside 46/262 / 23/75. H recall is 46.8% inside versus 69.3% outside. Two post-selection visual spot checks of >=24 px misses show clear roughly 29 px touchline balls; projected overlap and scale mismatch remain plausible failure factors, not proven causes.
+Same deterministic 14/6 split as round 2: 753 training labels (631 visible, 122 no-ball), 304 H labels (244 visible, 60 no-ball). H contains two on-ball, two off-pitch and two other clips. Round 1 fitted only its four on-ball training clips (300 visible labels). Exact original and current split IDs and source hashes remain in JSON.
 
-Single next change (inference from the error buckets): add scale-diverse human ball-box supervision from fresh close-touchline/player-overlap clips, replacing the fixed 18.68 px point targets; clear large balls and overlapping-player cases account for substantial misses, while more epochs did not improve the selected model’s evaluation results. Categories overlap; their miss counts must not be added.
+| Role | Clip IDs |
+|---|---|
+| train | m04-n02-t3005-474114-478131<br>m04-n03-t1406-157170-158922<br>m04-n03-t1406-385962-387137<br>m04-n04-t3006-243433-247994<br>m04-n04-t3006-307417-310307<br>m04-n09-t1409-143096-143834<br>m04-n09-t1409-297601-298865<br>m04-n09-t1409-385922-386603<br>m04-n10-t711-186553-188161<br>m04-n12-t1411-237107-242145<br>m04-n15-t3010-164698-170777<br>m04-n17-t717-304624-307834<br>m04-n22-t3012-070707-074371<br>m04-n25-t3014-530600-532465 |
+| held_out | m04-n05-t3007-284945-287898<br>m04-n12-t1411-679986-681985<br>m04-n17-t717-253073-260377<br>m04-n17-t717-416826-418915<br>m04-n21-t3011-390297-390800<br>m04-n24-t3013-679939-681217 |
+
+Actual TRAIN targets: median 10.09px, p95 27.72px; 37 clipped at 6px and 1 at 48px. There are 37 targets ≥24px: one on-ball, four other and 32 off-pitch. Large-ball supervision remains weak in the on-ball training domain; size correction does not add missing examples.
+
+
+Affine native size estimate: **side = -12.42058 + 0.04820987 × image_y**; **R² 0.4944**, 545 nearest matched TRAIN boxes. 86 of 631 visible train clicks need the affine fallback. Both recipes use the same train-only geometry fit. Matched apparent sizes are used directly where present; missing sizes use the fitted value, all clipped to [6,48] px. This replaces the fixed 18.68044 px side and removes its fixed doubling. Image y explains only part of scale variation; these detector extents are estimates, not human-drawn boxes.
+
+Exactly two new neural fits: r3-a repeats COCO-initialised r2-a; r3-b repeats r1-960-initialised r2-b. Both use 2×2@960, 100 requested epochs, 20-minute budget, batch 16, patience 6, seed 42 and the same AdamW/augmentation settings. Only target sizing changes. Checkpoint selection and early stopping use TRAIN loss only; no held-out images enter fitting. Time-budget mode can finish partial epochs and alter the effective schedule; MPS is not guaranteed bitwise deterministic.
+
+| Fit | Recipe / initial weights | MPS minutes | Recorded / selected epoch | Best TRAIN loss |
+|---|---|---:|---:|---:|
+| r2-a | 2×2@960 / yolo11n.pt | 20.18 | 11 / 10 | 4.48029 |
+| r2-b | 2×2@960 / mj-r1-960/weights.pt | 20.14 | 10 / 10 | 3.98813 |
+| r2-c | 2×2@1280 / mj-r1-960/weights.pt | 23.18 | 6 / 6 | 3.71372 |
+| r2-d | 2×2@1280 / mj-r2-c/weights.pt | 33.79 | 7 / 1 | 3.64641 |
+| r3-a | 2×2@960 / yolo11n.pt | 20.17 | 11 / 11 | 5.10102 |
+| r3-b | 2×2@960 / mj-r1-960/weights.pt | 20.20 | 10 / 10 | 4.65844 |
+
+Round-1 recipes and timings remain visible for comparison:
+
+| Fit | Tile input | MPS minutes | Completed / requested epochs |
+|---|---:|---:|---:|
+| tinyball-r1 | 640 | 15.71 | 33 / 5 |
+| tinyball-r1-960 | 960 | 15.80 | 18 / 20 |
+
+Highest held-out on-ball top-1 recall among round2 a-d and round3 a-b with held-out all-no-ball false/10s <=2; ties lower false rate then candidate name. Gate remains top-1 >=80% AND <=1 false/10s. This intentionally selects using held-out data: selected estimate is optimistic. Fresh labelled club footage is the true test. No threshold search or additional fits.
+
+Round 2 historically preselected d by TRAIN loss; that rule is superseded for current-best selection, not rewritten as if it had used evaluation. Its historical fit/selection snapshot remains in the execution fixture. The scale hypothesis itself was prompted by held-out error analysis, adding another source of optimism. Selection across R2 a–d and R3 a–b uses the common six-clip H subset; all runs and thresholds are reported.
+
+## Size-bucket recall: old versus scale-aware targets
+
+All = all 20 clips (incl. training clips); H = held-out (mild prior tuning exposure: the 640-vs-960 recipe choice in round 1 saw these clips in aggregate), using the fixed six clips unless explicitly stated otherwise. Paired cells are All / H.
+
+Independent size = median of nearest matched RF full/2×2/3×3 shorter sides within 20px. Trained box sizes never define these buckets. Some model misses can therefore receive an independent estimate; unmatched labels retain an unknown-size bucket. Sizes are association-confirmed detector extents, not true human-measured diameters.
+
+| RF size estimator | Matched sizes All / H | Median / p95 native px All | Median / p95 native px H |
+|---|---:|---:|---:|
+| rf_full | 547 / 165 | 13.09 / 46.34 | 25.12 / 50.78 |
+| rf_2x2 | 757 / 212 | 10.41 / 43.88 | 13.19 / 47.44 |
+| rf_3x3 | 782 / 221 | 10.29 / 42.17 | 12.69 / 47.03 |
+
+| Recipe / size px | Visible All / H | Old top-1 All / H | New top-1 All / H | Old oracle All / H | New oracle All / H |
+|---|---:|---:|---:|---:|---:|
+| a / <6 | 11 / 1 | 54.55% / 0.00% | 54.55% / 0.00% | 54.55% / 0.00% | 54.55% / 0.00% |
+| a / 6–<10 | 210 / 39 | 81.90% / 82.05% | 67.62% / 61.54% | 81.90% / 82.05% | 67.62% / 61.54% |
+| a / 10–<16 | 122 / 46 | 75.41% / 76.09% | 64.75% / 73.91% | 75.41% / 76.09% | 65.57% / 73.91% |
+| a / 16–<24 | 22 / 3 | 95.45% / 100.00% | 77.27% / 100.00% | 95.45% / 100.00% | 77.27% / 100.00% |
+| a / ≥24 | 23 / 22 | 65.22% / 63.64% | 86.96% / 86.36% | 73.91% / 72.73% | 86.96% / 86.36% |
+| a / unknown | 34 / 11 | 26.47% / 9.09% | 0.00% / 0.00% | 26.47% / 9.09% | 0.00% / 0.00% |
+| b / <6 | 11 / 1 | 81.82% / 0.00% | 72.73% / 0.00% | 81.82% / 0.00% | 72.73% / 0.00% |
+| b / 6–<10 | 210 / 39 | 77.14% / 69.23% | 70.95% / 51.28% | 77.62% / 69.23% | 70.95% / 51.28% |
+| b / 10–<16 | 122 / 46 | 79.51% / 73.91% | 74.59% / 73.91% | 79.51% / 73.91% | 74.59% / 73.91% |
+| b / 16–<24 | 22 / 3 | 100.00% / 100.00% | 100.00% / 100.00% | 100.00% / 100.00% | 100.00% / 100.00% |
+| b / ≥24 | 23 / 22 | 82.61% / 81.82% | 86.96% / 86.36% | 82.61% / 81.82% | 86.96% / 86.36% |
+| b / unknown | 34 / 11 | 38.24% / 9.09% | 26.47% / 0.00% | 38.24% / 9.09% | 26.47% / 0.00% |
+
+The per-label scale change recovers large balls but loses small balls in both repeats. Held-out >=24px top-1 matches: a 14/22 -> 19/22; b 18/22 -> 19/22 (All a 15/23 -> 20/23; b 19/23 -> 20/23). Held-out 6-<10px: a 32/39 -> 24/39, b 27/39 -> 20/39 (All a 172/210 -> 142/210; b 162/210 -> 149/210). H top-1 falls a 69.67% -> 65.57%, b 68.03% -> 62.30%; H no-ball false/10s is 2.33 and 3.00. Neither new run qualifies at <=2, and both FAIL the real gate. Current best remains r2-b: H top-1 68.03%, oracle precision 93.26%, false/10s 1.67. This supports a scale tradeoff, not a claim that target correction alone solves detection.
+
+
+Current best tinyball-r2-b: **top-1** error buckets on on-ball clips. All = all 20 clips (incl. training clips); H = held-out (mild prior tuning exposure: the 640-vs-960 recipe choice in round 1 saw these clips in aggregate), using the fixed six clips unless explicitly stated otherwise. Paired cells are All / H.
+
+| Bucket | Misses / visible All | Misses / visible H | Top-1 recall All / H |
+|---|---:|---:|---:|
+| <6 | 2/11 | 1/1 | 81.82% / 0.00% |
+| 6–<10 | 48/210 | 12/39 | 77.14% / 69.23% |
+| 10–<16 | 25/122 | 12/46 | 79.51% / 73.91% |
+| 16–<24 | 0/22 | 0/3 | 100.00% / 100.00% |
+| ≥24 | 4/23 | 4/22 | 82.61% / 81.82% |
+| unknown | 21/34 | 10/11 | 38.24% / 9.09% |
+| image y <360 | 11/37 | 6/8 | 70.27% / 25.00% |
+| image y 360–<720 | 86/373 | 30/102 | 76.94% / 70.59% |
+| image y ≥720 | 3/12 | 3/12 | 75.00% / 75.00% |
+| motion <10 px/sample | 11/64 | 2/7 | 82.81% / 71.43% |
+| motion 10–<50 | 37/163 | 15/43 | 77.30% / 65.12% |
+| motion ≥50 | 30/141 | 9/49 | 78.72% / 81.63% |
+| motion unknown | 22/54 | 13/23 | 59.26% / 43.48% |
+| inside player box | 60/160 | 25/47 | 62.50% / 46.81% |
+| outside detected player boxes | 40/262 | 14/75 | 84.73% / 81.33% |
+| player pass unknown | 0/0 | 0/0 | — / — |
+
+Image y is an imperfect distance proxy; 2fps displacement includes camera movement and is not measured blur. A click inside a saved COCO person box is projected overlap, not verified occlusion. Error categories overlap and their miss counts must not be added.
+
+- Current-best r2-b size misses (All / H): <6px 2/11 / 1/1; 6-<10px 48/210 / 12/39; 10-<16px 25/122 / 12/46; 16-<24px 0/22 / 0/3; >=24px 4/23 / 4/22; unknown 21/34 / 10/11. H has 39 total top-1 misses.
+- Image-y misses (All / H): upper third 11/37 / 6/8; middle 86/373 / 30/102; lower 3/12 / 3/12. Far-side cases are weaker, but small upper/lower samples prevent a calibrated distance claim.
+- Motion-proxy misses (All / H): <10px/sample 11/64 / 2/7; 10-<50px 37/163 / 15/43; >=50px 30/141 / 9/49; unknown predecessor 22/54 / 13/23. The fastest sampled displacement bucket is not worst; this is not direct blur measurement.
+- Player-overlap misses (All / H): inside a saved person box 60/160 / 25/47, outside 40/262 / 14/75. H top-1 recall is 46.8% inside versus 81.3% outside. Projected overlap is not verified occlusion, and these buckets overlap the size/motion buckets.
+
+Single next experiment: retain per-label sizing for large balls but restore an approximately 18.68px minimum point-target side for small balls; both controlled recipe repeats gained large-ball hits while losing 7-8 of 39 small-ball held-out hits. This is an evidence-based hypothesis for a future fit, not a third experiment in this round.
 
 ## What better footage would change
 
-The frozen clips are a 1080p wide Veo export. A native 4K export at the same field of view doubles source ball diameter; follow-cam crops can also increase ball pixels. To preserve that gain at the detector, increase tile count/model input or tighten the field of view: resizing fixed 2×2 4K crops to the same 960/1280 input would erase the scale gain. Merely upscaling this 1080p video adds no detail.
+The frozen footage is a 1080p wide Veo export. Native 4K at the same field of view would double source ball diameter; follow-cam can put more pixels on the ball. Preserve those pixels through tile count/input resolution or a tighter field of view: resizing fixed 4K tiles to the same input can erase the gain. Upscaling the current video adds no detail.
 
-The table maps each measured ball size to twice its size and uses observed recall in that destination bucket. Unknown sizes or unsupported destination bins retain observed outcomes. This is an **associational extrapolation, not measured recall on better footage**, and inherits sparse-bucket and RF-detection bias. H = held-out (mild prior tuning exposure: the 640-vs-960 recipe choice in round 1 saw these clips in aggregate).
+**Better footage helps, but is not a fix on its own.** The historical r2-d oracle extrapolation was 60.7% → 66.4% H at 2× ball pixels, still below 80%; it is not measured 4K performance. Non-monotonic size recall and clear large-ball misses rule out presenting 4K as a solution by itself.
 
-| All observed recall | H observed recall | All projected at 2× px | H projected at 2× px | All supported / unchanged | H supported / unchanged |
-|---:|---:|---:|---:|---:|---:|
-| 76.3% | 60.7% | 75.5% | 66.4% | 388 / 34 | 111 / 11 |
+| Projection / matching rule | Observed All / H | Extrapolated at 2× px All / H | Supported frames All / H |
+|---|---:|---:|---:|
+| tinyball-r2-d / oracle | 76.30% / 60.66% | 75.50% / 66.37% | 388 / 111 |
+| tinyball-r2-b / top1 | 76.30% / 68.03% | 87.33% / 82.96% | 388 / 111 |
 
-At 2x apparent ball pixels, the fixed bucket extrapolation gives 75.50% All (observed 76.30%) and 66.37% H (observed 60.66%); not measured 4K recall and not evidence that pixels alone reach 80%. Non-monotonic size recall, three H examples in 16–24 px, and 11 unknown-size H labels make this an unstable associational projection.
+Historical r2-d oracle extrapolation remains 60.66% -> 66.37% H (All 76.30% -> 75.50%): better footage helps but is not a fix on its own. Current-best r2-b top-1 bucket extrapolation is 68.03% -> 82.96% H (All 76.30% -> 87.33%), but relies partly on a three-example perfect 16-24px H bucket, uses selected/reused H data, and does not project the failing 1.67 false/10s. Neither is measured 4K performance or a demonstrated gate pass; fresh labelled club footage is the true test.
 
-The real test is fresh labelled club footage, ideally native 4K / follow-cam, held out before any recipe choice. These 20 clips can no longer serve as a clean test set.
+Projection maps each measurable ball to its doubled-size bucket and assigns that bucket’s empirical recall; unknown/unsupported bins retain observed outcomes. This is a fragile association, not a causal estimate. Sparse buckets, RF-conditioned size availability and reused evaluation clips limit it. The real test is new labelled club footage reserved before any tuning.
 
-## Label provenance and suggestion bias
+## Label provenance and forward bias
 
-1,057 validated rows: 875 visible / 182 no-ball; 352 accepted suggestions / 705 hand decisions, zero rejected. Coverage is 506/540 planned on-ball targets, 99/100 off-pitch targets, plus 452 extra labels; 48 of the 1,105 scheduled frames remain unlabelled (35 planned targets plus 13 extras). The JSON retains every covered/missing target and per-clip count. No labels or weights are committed.
+All = all 20 clips (incl. training clips); H = held-out (mild prior tuning exposure: the 640-vs-960 recipe choice in round 1 saw these clips in aggregate), using the fixed six clips unless explicitly stated otherwise. Paired cells are All / H.
 
-Accepted/manual comparisons are descriptive, confounded by suggestion source and frame difficulty; manual includes no-ball decisions. H = held-out (mild prior tuning exposure: the 640-vs-960 recipe choice in round 1 saw these clips in aggregate).
+1,057 validated labels: 875 visible / 182 no-ball, 352 accepted / 705 manual, zero rejected. Coverage: 506/540 on-ball targets, 99/100 off-pitch targets, plus 452 extras. 48 frames remain unlabelled. Exact coverage keys, per-clip counts and label SHA256 remain in JSON; labels and weights stay outside Git.
 
-| Candidate | All accepted R/P | H accepted R/P | All manual R/P | H manual R/P |
-|---|---:|---:|---:|---:|
-| rf_2x2 | 95.7% / 13.2% | 94.6% / 15.3% | 80.3% / 7.4% | 70.1% / 4.8% |
-| rf_3x3 | 97.7% / 9.4% | 97.6% / 10.7% | 83.7% / 5.6% | 75.3% / 3.6% |
-| rf_full | 78.1% / 14.8% | 82.0% / 15.5% | 52.0% / 8.2% | 36.4% / 4.6% |
-| wasb | 5.1% / 11.2% | 2.4% / 5.0% | 4.4% / 9.5% | 2.6% / 3.3% |
-| wasb_2x2 | 18.8% / 17.6% | 12.6% / 11.0% | 13.8% / 8.6% | 15.6% / 5.5% |
-| tinyball-r1 | 48.6% / 81.4% | 29.9% / 74.6% | 66.2% / 74.6% | 41.6% / 71.1% |
-| tinyball-r1-960 | 54.8% / 81.4% | 35.9% / 90.9% | 66.3% / 80.9% | 39.0% / 69.8% |
-| tinyball-r2-a | 74.1% / 71.9% | 56.9% / 66.9% | 73.2% / 72.4% | 50.6% / 69.6% |
-| tinyball-r2-b | 67.3% / 91.2% | 46.7% / 92.9% | 70.6% / 84.1% | 42.9% / 80.5% |
-| tinyball-r2-c | 61.4% / 87.8% | 38.9% / 81.2% | 76.5% / 85.3% | 53.2% / 80.4% |
-| tinyball-r2-d | 63.9% / 81.2% | 39.5% / 75.0% | 73.8% / 80.4% | 46.8% / 69.2% |
+Manual-only recall is beside pooled recall in every detection headline and group table. Acceptance records already require source_accepted, accepted_source and accepted_score in both Python and browser validation; Accept records the specific model source, and a hand click clears acceptance provenance. These fields survive import/export and allow next-round source-stratified scoring. Accepted/manual differences remain confounded by difficulty and source; they are not causal bias estimates.
 
-## Kit, reproducibility and caveats
+| Candidate | Pooled top-1 All / H | Manual top-1 All / H | Accepted top-1 All / H | Manual oracle All / H | Accepted oracle All / H |
+|---|---:|---:|---:|---:|---:|
+| rf_full | 45.37% / 53.69% | 33.84% / 25.97% | 62.50% / 66.47% | 52.01% / 36.36% | 78.12% / 82.04% |
+| rf_2x2 | 65.71% / 71.31% | 54.68% / 50.65% | 82.10% / 80.84% | 80.31% / 70.13% | 95.74% / 94.61% |
+| rf_3x3 | 71.09% / 78.28% | 59.85% / 57.14% | 87.78% / 88.02% | 83.75% / 75.32% | 97.73% / 97.60% |
+| wasb | 4.69% / 2.46% | 4.40% / 2.60% | 5.11% / 2.40% | 4.40% / 2.60% | 5.11% / 2.40% |
+| wasb_2x2 | 9.94% / 6.56% | 9.18% / 9.09% | 11.08% / 5.39% | 13.77% / 15.58% | 18.75% / 12.57% |
+| tinyball-r1 | 58.51% / 33.20% | 65.39% / 41.56% | 48.30% / 29.34% | 66.16% / 41.56% | 48.58% / 29.94% |
+| tinyball-r1-960 | 60.57% / 36.48% | 65.58% / 38.96% | 53.12% / 35.33% | 66.35% / 38.96% | 54.83% / 35.93% |
+| tinyball-r2-a | 71.66% / 52.87% | 71.70% / 49.35% | 71.59% / 54.49% | 73.23% / 50.65% | 74.15% / 56.89% |
+| tinyball-r2-b | 67.77% / 45.49% | 69.02% / 42.86% | 65.91% / 46.71% | 70.55% / 42.86% | 67.33% / 46.71% |
+| tinyball-r2-c | 69.49% / 43.03% | 75.53% / 53.25% | 60.51% / 38.32% | 76.48% / 53.25% | 61.36% / 38.92% |
+| tinyball-r2-d | 68.00% / 40.98% | 72.08% / 46.75% | 61.93% / 38.32% | 73.80% / 46.75% | 63.92% / 39.52% |
+| tinyball-r3-a | 59.89% / 52.46% | 53.15% / 37.66% | 69.89% / 59.28% | 55.83% / 40.26% | 71.88% / 61.68% |
+| tinyball-r3-b | 67.43% / 53.28% | 62.33% / 35.06% | 75.00% / 61.68% | 63.48% / 36.36% | 76.14% / 62.87% |
 
-- Build 6 at ~/ball-truth-review/index.html, refreshed from frozen selected model mj-r2-d; 663 unconfirmed suggestions. Existing localStorage key and all 1,057 seed labels preserved; original label SHA256 unchanged.
-- 48 frames remain unlabelled: 10 with a model suggestion and 38 without. MJ: use Next unlabelled frame, confirm/correct or mark No ball only when no ball is visible; leave uncertain frames unknown, then export JSONL. Fresh labelled club clips are needed for the next true test.
-- Suggestion copies updated at ~/ball-truth-review/suggestions.jsonl, ~/codex-runs/suggestions.jsonl, ~/codex-runs/ball-human-round2-suggestions.jsonl and ~/codex-runs/ball-human-mj-r2-d-suggestions.jsonl.
-- Isolated Chromium check passed: exact seed labels, no automatic saves, new labels/clears survive reload, next-unlabelled navigation works. Screenshot: ~/codex-runs/ball-mj-r2-kit-final.png.
+RF3x3’s accepted-suggestion oracle recall was 97.73% versus 83.75% manual across visible labels. Round-1 kit build 5 seeded 606 suggestions from r1-960; round-2 build 6 actually seeded 663 from r2-d. Both can bias future acceptance toward the supplying model. Manual-only reporting and source recording expose this risk but cannot make reused clips a clean test set.
 
-- Worktree pytest ball+bench: 391 passed, six pre-existing Pillow deprecation warnings.
-- git archive export with full Python 3.11 environment: 391 passed, no skips; minimal Python 3.11 archive environment without torch/OpenCV: 388 passed, three OpenCV-dependent tests skipped. Saved scoring, tracking and byte-for-byte ledger generation run in both.
-- Ruff check and ruff format --check pass across all 68 ball/bench Python files.
-- Mypy --check-untyped-defs passes for all nine changed implementation modules.
-- Isolated Chromium kit check passes; all 1057 labels exact, storage key preserved, no automatic save, new browser labels and explicit clears survive reload. Screenshot visually inspected.
-- Both ledgers regenerate byte-for-byte from committed aggregate fixtures; no label coordinates or weights in fixtures. All staged paths are inside the requested fence; no .pt or .jsonl staged.
+## Execution, kit and caveats
 
-- Evaluation disclosure: held-out (mild prior tuning exposure: the 640-vs-960 recipe choice in round 1 saw these clips in aggregate). Prior exposure was the single aggregate binary 640-vs-960 recipe decision in round 1. No further recipe selection used H scores; round-2 model selection was frozen before inference. This does not make the subset a clean test set.
-- All clips come from one match; neither split measures cross-club or cross-camera generalisation. The All/H gap exposes resubstitution optimism.
-- Independent RF boxes estimate apparent size but can still associate a nearby wrong object within 20 px. Size/height/displacement/person-overlap buckets are correlated proxies, not causal diagnoses.
-- MPS deterministic mode warns about unsupported deterministic scatter/index operations. Saved measurements reproduce exactly; retraining is not promised bitwise identical.
-- Round-1 full-corpus numbers are preserved above and in the original JSON results. Its original 16-clip evaluation split and fit records remain under execution/results; those historical estimates also have the same prior tuning exposure and must not be confused with the six-clip H columns here.
-- Ledger generation uses committed aggregate fixtures without labels, weights, footage, torch or .git. Model files, predictions, suggestions and detailed logs remain local under ~/models/tinyball/ and ~/codex-runs/.
-- Scope: ball tooling and the two requested ledgers only; no push; one commit. CONTINUITY.md remains outside the user-authorised fence.
+- Build 7 at ~/ball-truth-review/index.html uses current-best mj-r2-b saved suggestions: 636 unconfirmed points. All 1057 seed labels and the localStorage key are preserved; original label SHA256 is unchanged. Prior build 6 with 663 r2-d suggestions is recorded as historical.
+- 48 frames remain unlabelled: seven have a suggestion and 41 have none. MJ: use Next unlabelled frame, confirm/correct or mark No ball visible; leave uncertain frames unlabelled, then export JSONL with accepted_source intact. Reserve a fresh labelled club-clip set as the true test.
+- Copied suggestions to ~/ball-truth-review/suggestions.jsonl and ~/codex-runs/{suggestions.jsonl,ball-human-round3-suggestions.jsonl,ball-human-mj-r2-b-suggestions.jsonl}.
+- Isolated Chromium acceptance/provenance/persistence check passed after refresh; screenshot visually inspected. MJ's actual browser profile was not used.
+
+- Initial scoring-only scope extended by the same user request to exactly two scale-aware fits and their saved all-frame inference passes. Baseline and previous model scoring uses saved detections only.
+- Use each training click nearest RF 2x2 short side when available; affine image-y fit supplies missing sizes. Fit and all targets use train clips only, clipped [6,48] native px. Same 20-minute budget/100 requested epochs, batch16, AdamW and train-only patience6 as round2 a/b.
+- Preserve historical execution decisions as historical; supersede their oracle gate and TRAIN-loss model-selection ranking in current reporting.
+- Completed exactly two new scale fits: a 20.17 minutes / 11 epochs, b 20.20 minutes / 10 epochs. These equal the original a/b recorded epoch counts; best checkpoints are new a11/b10 versus old a10/b10, under the same TRAIN-loss rule. Time-budget partial epochs and MPS nondeterminism remain potential run-to-run confounders.
+- Current best is r2-b under the explicitly authorized held-out top-1/false-ceiling rule, superseding historical TRAIN-loss selection of r2-d. New scale a/b do not qualify. All six trained contenders and their failures remain visible; no third fit or threshold search.
+- New saved-pass FPS All/H: a 51.49/51.01, b 51.12/50.85. Inputs/architecture are unchanged from old 960 recipes; the large difference versus historical ~11.5 FPS is runtime variability, not an established effect of target scale. Cause UNCONFIRMED; no earlier-model inference was rerun.
+- Exact audit against parent 8da3390: every pre-existing oracle group metric, track count/rate and provenance metric in round1 and round2 fixtures is unchanged. Added metrics and corrected top-1 gates/bounds are intentional; reviewer top-1 and visible-frame boxes averages reproduce exactly.
+- Permanent null controls use seed 20260911 and 100 repetitions, explicitly differing from reviewer seed-unspecified ranges. The 50px near-path sensitivity with <=1.01s bracketing reproduces two r1-960 credits, one in its original 16-clip H subset and neither in the common six H clips.
+
+- Prior exposure: held-out (mild prior tuning exposure: the 640-vs-960 recipe choice in round 1 saw these clips in aggregate). The r1-960 49.39% original held-out overall oracle recall also served as its own 640-vs-960 selection statistic: one binary aggregate choice. Round3 additionally uses held-out error analysis and explicit held-out model selection, so its selected estimate is more optimistic.
+- Round-1 exported last.pt; no held-out-selected best.pt leak. Round2/3 best.pt is selected only by augmented TRAIN loss, with held-out validation and final validation disabled. Model selection after these fits is separate and explicitly evaluation-based in round3.
+- The 20 clips come from one match; adjacent samples are correlated. Sample gate PASS/FAIL is legitimate under the stated labels and rules, but does not certify unseen matches or continuous event rates. False/10s is exposure-normalised from 2fps no-ball samples.
+- human_measurements.json.gz and round2_measurements.json.gz are historical filenames for scored aggregate output, not raw measurements or human labels. round3_scored_output.json.gz follows the clearer naming. Ledger rendering requires no labels, weights, footage, torch or .git.
+- All frozen numeric scoring is reproduced from saved detections; only the two newly authorized scale fits received new inference. The saved person pass is reused. No threshold search or third scale fit.
+
+- Final worktree ball+bench pytest: 399 passed, six pre-existing Pillow deprecation warnings.
+- Completed-evidence git archive export: 399 passed with full Python 3.11/OpenCV environment; 396 passed plus three OpenCV-dependent skips in the minimal Python 3.11 environment. Export has no .git, labels, weights or footage.
+- Ruff check and ruff format --check pass across all 76 ball/bench Python files; mypy --check-untyped-defs passes ten changed implementation modules.
+- Both JSON and Markdown ledgers regenerate byte-for-byte from committed aggregate fixtures in worktree and archive. Fixtures contain no human coordinates, per-label outcomes or weights.
+- CLI score_from_saved.py --extra-detections for both new models agrees exactly with every All/H group and held-out headline gate in the paired report.
+- Adversarial regression checks reproduce all supplied round1 top-1/boxes-per-visible-frame figures, r1-960 held-out 71/122 top-1 and 72/122 oracle hits with 72/86 oracle precision, and the supplied track-point denominators.
+- Every pre-existing round1/round2 group, track and provenance metric matches parent 8da3390 exactly; no unexplained historical numeric changes.
+- Kit build7 isolated Chromium check passes: 1057 exact seeds, no auto-save, newer labels/clears persist, accepting records actual model source/score, manual clicking clears acceptance provenance. Screenshot visually inspected.
+- Staged paths are inside the requested ball/ledger fence; no .pt or .jsonl is staged. Labels SHA256 unchanged; training outputs and predictions remain local. One commit, no push; clean status is checked after commit.
+
+Not done:
+
+- No candidate passes the top-1 real gate; current-best r2-b remains below 80% H recall and above one false/10s.
+- 48 frames remain unlabelled.
+- No fresh labelled club-footage test set or measured 4K/follow-cam performance; these 20 clips are no longer clean test data.
+- The proposed small-ball target floor is not trained: exactly two scale fits were authorized and completed.
+- The cause of cross-run FPS variation is unconfirmed.

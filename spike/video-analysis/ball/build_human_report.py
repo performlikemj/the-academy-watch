@@ -40,6 +40,16 @@ def generate(out_prefix=PREFIX):
         rendered = complete_round2_markdown(data)
     else:
         rendered = prefix + markdown(data)
+    round3_path = HERE / "fixtures/round3_execution.json"
+    round3_scored = HERE / "fixtures/round3_scored_output.json.gz"
+    if round3_path.exists() and round3_scored.exists():
+        from round3_report import markdown as round3_markdown
+
+        data["round3"] = json.loads(round3_path.read_text())
+        data["round3"]["measurements"] = json.loads(
+            gzip.decompress(round3_scored.read_bytes())
+        )
+        rendered = round3_markdown(data)
     dump(out_prefix.with_suffix(".json"), data)
     out_prefix.with_suffix(".md").write_text(rendered)
     return data

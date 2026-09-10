@@ -114,11 +114,26 @@ def tile_labels(label, bounds, side, rf_boxes=(), pseudo=False):
 
 
 def prepare_dataset(
-    measurements, clips, labels, out, split, pseudo=False, train_only=False
+    measurements,
+    clips,
+    labels,
+    out,
+    split,
+    pseudo=False,
+    train_only=False,
+    scale_targets=False,
 ):
     import cv2
 
-    recipe = box_recipe(measurements, labels, split["train"])
+    from scale_targets import fit_scale, target_side
+
+    if scale_targets and not train_only:
+        raise ValueError("scale-aware fitting requires train-only datasets")
+    recipe = (
+        fit_scale(measurements, labels, split["train"])
+        if scale_targets
+        else box_recipe(measurements, labels, split["train"])
+    )
     counts = {"train": 0, "val": 0, "positive_tiles": 0, "negative_tiles": 0}
     for c in clips:
         cid = c["clip_id"]
@@ -148,7 +163,11 @@ def prepare_dataset(
                 boxes = tile_labels(
                     label,
                     bounds,
-                    recipe["box_side_source_px"],
+                    target_side(label, saved[sample["t"]], recipe)
+                    if scale_targets and label["visible"]
+                    else 0
+                    if scale_targets
+                    else recipe["box_side_source_px"],
                     saved[sample["t"]],
                     pseudo and role == "train",
                 )
@@ -340,6 +359,7 @@ def main():
     p.add_argument("--split-json", type=Path)
     p.add_argument("--allow-prior-tuning", action="store_true")
     p.add_argument("--train-loss-only", action="store_true")
+    p.add_argument("--scale-targets", action="store_true")
     p.add_argument("--train-minutes", type=float, default=15)
     p.add_argument("--patience", type=int, default=6)
     p.add_argument("--batch", type=int, default=16)
@@ -410,7 +430,14 @@ def main():
         raise RuntimeError("MPS requested but unavailable")
     start = time.perf_counter()
     dataset = prepare_dataset(
-        m, clips, labels, a.out / "dataset", split, a.pseudo, a.train_loss_only
+        m,
+        clips,
+        labels,
+        a.out / "dataset",
+        split,
+        a.pseudo,
+        a.train_loss_only,
+        a.scale_targets,
     )
     dataset["model_input_px"] = a.imgsz
     dataset["tiling"] = (

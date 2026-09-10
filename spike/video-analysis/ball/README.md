@@ -2,19 +2,24 @@
 
 The September 11 human report supersedes proxy verdicts for the labelled sample:
 `ledgers/research/evidence-bench-2026-09-11-ball-human.{json,md}`. All five saved
-baselines fail the real gate at confidence 0.1. RF 2x2/3x3 exceed 80% on-ball
-recall but emit far too many predictions on MJ's explicit no-ball frames.
+baselines and all trained models fail the **top-1** real gate at confidence 0.1.
+Nearest-of-N recall is an oracle over multiple guesses, not pipeline recall.
+Current best is round-2 b under the explicitly evaluation-based selection rule;
+the two scale-aware repeats improve large-ball hits but lose small-ball recall.
 
 MJ's 1,057 validated labels cover 506/540 on-ball targets and 99/100 off-pitch
 targets, plus 452 extra frames. There are 48 unlabelled frames. Missing frames
 remain unknown; a sample PASS/FAIL is not certification of missing labels.
 The source JSONL and all training outputs remain outside git.
 
-`score_from_saved.py` now uses **20 source pixels**, one nearest match per visible
-label, with duplicate predictions penalising precision. The real gate requires
-pooled visible-frame recall >=80% on the six on-ball clips and <=1 prediction per
+`score_from_saved.py` uses **20 source pixels** and the highest-confidence box
+for top-1 recall. Nearest-of-N is separately labelled oracle recall, with duplicate
+predictions penalising oracle precision. The real gate requires top-1 on-ball
+visible-frame recall >=80% and <=1 prediction per
 10 seconds on **all explicitly no-ball frames** (0.5 seconds exposure per sample).
-It reports on-ball/off-pitch/other groups, accepted/manual provenance bias, matched
+Trained headline metrics use held-out clips only, with all-clip (including training)
+metrics explicitly separate. It reports on-ball/off-pitch/other groups,
+pooled/manual-only recall, accepted-source bias, matched
 box short-side distributions, and re-tracked Kalman points versus human centres.
 Human clicks confirm association, not detector box boundaries; matched sizes are
 not independently measured ball diameters. Trained point-box sizes are especially
@@ -32,14 +37,15 @@ models. The original four-train/16-evaluation round-1 records remain in JSON.
 `fixtures/round2_execution.json` freezes the split and four-fit protocol. Fits a/b
 use 2×2@960 (COCO / round-1 weights), c uses 2×2@1280 for 33% more effective ball
 pixels within a 23-minute fit budget, and d continues the minimum-TRAIN-loss a–c
-checkpoint. Early stopping, checkpoint selection and the final kit model use
-**TRAIN loss only**. Held-out images never enter fitting or box-size estimation;
+checkpoint. Historically, early stopping, checkpoint selection and the round-2
+kit model used **TRAIN loss only**. Round 3 supersedes model selection with the
+user-authorized held-out top-1/false-rate rule; checkpoint selection remains TRAIN-only. Held-out images never enter fitting or box-size estimation;
 a custom validator reads training loss without evaluating images. All four fits
 finish and selection is frozen before any round-2 saved inference pass. AdamW
 settings are pinned to the optimizer used in round 1. Batch, fit budgets, actual
 epochs/minutes, hashes and MPS nondeterminism caveats are recorded in the ledger.
 
-Build version **6** accepts `--human-jsonl` to seed MJ's validated export while
+Build version **7**, with 636 saved suggestions from current-best `mj-r2-b`, accepts `--human-jsonl` to seed MJ's validated export while
 preserving the existing localStorage key and giving newer browser labels priority.
 The new **Next unlabelled frame** button visits optional as well as target frames.
 Suggestions remain unconfirmed and cannot overwrite labels.
@@ -199,8 +205,8 @@ Normal runs use the last checkpoint; held-out labels do not select weights.
 Per-epoch validation is disabled; Ultralytics may validate once at the end.
 Default training requests five epochs with MPS and a 15-minute trainer budget;
 Ultralytics' time budget may adjust epoch count and finishes at epoch boundaries.
-Full human-labelled training time is not yet measured. Use `--epochs` to set the
-requested count. `--init` lets later clicks improve the preceding model.
+Completed round-1/2/3 training times are recorded in the human ledger. Use `--epochs`
+to set the requested count. `--init` lets later clicks improve the preceding model.
 
 Outputs: `weights.pt`, `dataset.json`, `dataset/`, `metrics.json`,
 `detections.json`, `suggestions.jsonl`, and Ultralytics `fit/` checkpoints.
@@ -216,6 +222,7 @@ The human `score_from_saved.py` uses **20 pixels** for every candidate. Scores t
 20-pixel held-out metrics for generalisation. Model-assisted confirmation also
 needs careful review; acceptance provenance is available for audits.
 
+The following gate is retired; the current top-1 human-sample gate is defined above.
 The historical human gate required all 540 on-ball labels and >=100 off-pitch
 labels: visible-ball recall >=80%, unmatched predictions <=1/10 s. A visible ball
 on off-pitch frames permits one match; every other prediction is unmatched.
@@ -346,3 +353,52 @@ Archive-export gates also run with a minimal Python environment **without cv2**,
 torch or supervision, with `BENCH_REQUIRE_CV2` unset. CV2-dependent tests use
 `pytest.importorskip`; all saved-score, tracking, schema and proxy tests still run.
 The export has no `.git`, model weights, local media, or third-party checkout.
+
+## Round-3 human review and scale-aware fits
+
+The human gate now uses **highest-confidence top-1 recall**, not nearest-of-N.
+`recall` is retained in JSON only as a historical alias of `oracle_recall`;
+`top1_recall` governs PASS/FAIL. Trained headline rows use held-out-only metrics,
+with explicit training-inclusive columns. Headline boxes/frame divides by visible
+on-ball frames (the reviewer’s denominator); `boxes_per_frame` in JSON instead
+divides by all labelled frames and `boxes_per_visible_frame` records the former.
+Manual-only recall and visible-labelled track-point precision/rates are reported.
+
+`fixtures/human_measurements.json.gz` and `round2_measurements.json.gz` are
+historical filenames for **scored aggregate output**, not raw measurements or
+human labels. `round3_scored_output.json.gz` contains the revised paired scores,
+100-repeat seeded matching controls, path-credit sensitivity and error buckets.
+All three exclude human centres and per-label outcome records. The execution
+fixtures preserve historical decisions; round3 explicitly supersedes model
+selection. The original 4/16 split and common 14/6 split are kept separate.
+
+```sh
+# Regenerate both committed ledgers, without private files or inference.
+~/Projects/loanarmy/.loan/bin/python spike/video-analysis/ball/build_human_report.py
+
+# Re-score existing local saved passes, including the two completed scale runs.
+# No inference; requires MJ's local JSONL and saved local artifacts.
+~/Projects/loanarmy/.loan/bin/python spike/video-analysis/ball/review_round3.py
+```
+
+The two authorized scale fits are scripted in `run_round3.py`, followed once by
+`evaluate_round3.py`. Both refuse to overwrite previous training/prediction
+artifacts. Do not rerun them to regenerate reports. The recipes repeat round2 a/b
+at 2×2@960, with exactly the same budgets, initial checkpoints, optimizer and
+augmentation. `--scale-targets --train-loss-only` replaces the fixed square side
+with each click's nearest matched TRAIN RF 2×2 box short side; an affine size-vs-y
+fit supplies missing sizes, clipped to [6,48] native px. Fit coefficients, R²,
+matching population and fallback count are recorded. No held-out sizes enter
+fitting. Detector extents remain estimates, not human-drawn diameters.
+
+Round3 selects the highest H on-ball top-1 recall among round2 a–d and round3 a–b
+with H no-ball false/10s ≤2. The real gate still requires ≤1. This intentionally
+uses held-out data and produces an optimistic selected estimate; the earlier
+640-vs-960 aggregate choice already exposed these clips. Fresh labelled club
+footage is the true holdout. A 4K/follow-cam export can improve ball pixels but is
+not, by itself, a demonstrated solution to the remaining errors.
+
+Accepted labels already require `accepted_source` and `accepted_score` in Python
+and browser validators. Accept preserves the model source; a hand click clears
+acceptance provenance. Keep those fields in future JSONL exports so model-seeded
+labels can be separated from manual labels during evaluation.

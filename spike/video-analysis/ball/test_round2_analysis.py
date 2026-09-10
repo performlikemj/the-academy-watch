@@ -115,7 +115,9 @@ def test_independent_size_cannot_use_trained_pseudo_boxes():
 
 def test_real_gate_requires_both_measured_conditions():
     def verdict(recall, false):
-        return gate({"on_ball": {"recall": recall}, "all": {"false_per_10s": false}})
+        return gate(
+            {"on_ball": {"top1_recall": recall}, "all": {"false_per_10s": false}}
+        )
 
     assert verdict(0.8, 1) == "PASS"
     assert verdict(0.79999, 0) == "FAIL"

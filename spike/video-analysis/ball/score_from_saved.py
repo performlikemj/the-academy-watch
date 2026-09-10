@@ -42,9 +42,10 @@ def main():
         print(
             name,
             r["gate"],
-            r["groups"]["on_ball"],
+            r["headline_scope"],
+            (r["held_out_groups"] or r["groups"])["on_ball"],
             "no-ball",
-            r["groups"]["all"]["false_per_10s"],
+            (r["held_out_groups"] or r["groups"])["all"]["false_per_10s"],
         )
     print("Wrote", a.out_prefix.with_suffix(".json"), a.out_prefix.with_suffix(".md"))
 

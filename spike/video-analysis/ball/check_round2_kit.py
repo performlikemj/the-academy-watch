@@ -1,4 +1,4 @@
-"""Check round-two labels/suggestions in an isolated browser, never MJ's profile."""
+"""Check labels, suggestion provenance and persistence in an isolated browser."""
 
 from __future__ import annotations
 
@@ -59,10 +59,25 @@ def main():
         page.reload()
         page.wait_for_function("imageReady")
         assert page.evaluate("(k)=>!!labels[k]", original) is False
+        # Accept the actual displayed suggestion and check source-preserving export.
+        page.evaluate("index=frames.findIndex(f=>suggestionMap[api.key(f)]);show()")
+        page.wait_for_function("imageReady")
+        suggestion = page.evaluate("suggestionMap[api.key(frames[index])]")
+        page.locator("#accept").click()
+        accepted = page.evaluate("labels[api.key(frames[index])]")
+        assert accepted["source_accepted"] is True
+        assert accepted["accepted_source"] == suggestion["source"]
+        assert accepted["accepted_score"] == suggestion["score"]
+        assert page.evaluate("api.serialize([labels[api.key(frames[index])]],frames)")
+        # A subsequent manual decision must remove model acceptance provenance.
+        page.evaluate("label(100,100,true)")
+        manual = page.evaluate("labels[api.key(frames[index])]")
+        assert manual["source_accepted"] is False
+        assert "accepted_source" not in manual and "accepted_score" not in manual
         assert not errors, errors
         browser.close()
     print(
-        f"PASS: {len(labels)} exact seeded labels, no auto-save, all-frame navigation and newer browser labels preserved"
+        f"PASS: {len(labels)} exact seeded labels, no auto-save, all-frame navigation, newer labels and accepted-source/manual-clear provenance preserved"
     )
 
 

@@ -164,7 +164,7 @@ def build(manifest, source, out, suggestions=None, human_jsonl=None):
     dump(
         out / "build.json",
         {
-            "build_version": 6,
+            "build_version": 7,
             "confirmed_seed_labels": len(confirmed),
             "storage_key": key,
             "suggestions": len(suggestion_rows),

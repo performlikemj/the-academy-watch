@@ -18,7 +18,7 @@ from metrics import clip_class, ratio
 
 
 def gate(groups):
-    recall, false = groups["on_ball"]["recall"], groups["all"]["false_per_10s"]
+    recall, false = groups["on_ball"]["top1_recall"], groups["all"]["false_per_10s"]
     if recall is None or false is None:
         return "UNMEASURABLE"
     return "PASS" if recall >= 0.8 and false <= 1 else "FAIL"
