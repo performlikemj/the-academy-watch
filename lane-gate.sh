@@ -2,19 +2,17 @@
 # lane-gate.sh — the qwen lane's gate for this repo (two tiers, harness docs/ORCHESTRATION.md "Two gate tiers").
 #
 #   ./lane-gate.sh <TASK> fast   slice gate: CI lint mirrors + ONLY the tests briefs/<TASK>.gate names
-#   ./lane-gate.sh all   full    lane gate: CI mirrors (ruff check+format, pnpm lint+build) + EVERY brief's tests
+#   ./lane-gate.sh all   full    lane gate: CI lint/build mirrors + complete backend and frontend test suites
 #
 # A briefs/<TASK>.gate file is sourced bash with up to three variables:
 #   BACKEND_TESTS="tests/test_a.py tests/test_b.py"   # run from academy-watch-backend/ with the .loan python
 #   FRONTEND_TESTS="tests/x.test.mjs"                 # run from academy-watch-frontend/ with node --test
 #   FRONTEND_BUILD=1                                  # also run pnpm lint + pnpm build (the frontend CI gates)
 #
-# WHY NAMED TESTS: on 2026-08-23 main had 12 backend test files that fail at import (legacy LoanedPlayer
-# refs) and 14 failing frontend unit tests — a blanket `pytest` / `pnpm test` is red for reasons that are
-# nobody's current work. The lane gates on the tests a brief names; the full tier unions every brief's list.
-# ruff check + ruff format --check + pnpm lint + pnpm build ARE the repo's real CI gates (docs/agents/workflow.md).
-# In `all` (lane) mode a named test file that does not exist yet is SKIPPED with a visible line — briefs not landed
-# yet must not redden the lane gate; in `fast` (slice) mode a missing named file is RED (the brief is wrong).
+# The full tier runs pytest and node scripts/run-tests.mjs with the test environment from
+# .github/workflows/ci.yml, plus ruff check + ruff format --check + pnpm lint + pnpm build.
+# The fast tier runs only brief-named tests. With task `all`, a missing named test file is
+# SKIPPED with a visible line (briefs not landed yet); with a specific task it is RED.
 set -u
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
@@ -77,8 +75,13 @@ FRONTEND_TESTS=$(printf '%s\n' $FRONTEND_TESTS | awk 'NF && !seen[$0]++' | tr '\
 if [ "$TIER" = full ]; then FRONTEND_BUILD=1; fi
 
 echo "lane-gate: task=$TASK tier=$TIER"
-echo "lane-gate: backend tests: ${BACKEND_TESTS:-(none)}"
-echo "lane-gate: frontend tests: ${FRONTEND_TESTS:-(none)}   lint+build: $FRONTEND_BUILD"
+if [ "$TIER" = full ]; then
+  echo "lane-gate: backend tests: complete suite (pytest -q)"
+  echo "lane-gate: frontend tests: complete suite (node scripts/run-tests.mjs)   lint+build: $FRONTEND_BUILD"
+else
+  echo "lane-gate: backend tests: ${BACKEND_TESTS:-(none)}"
+  echo "lane-gate: frontend tests: ${FRONTEND_TESTS:-(none)}   lint+build: $FRONTEND_BUILD"
+fi
 
 # ---- 1. backend lint — the two CI gates, BOTH required (format --check is separate from check)
 step "ruff check academy-watch-backend"
@@ -86,8 +89,11 @@ ruff check --no-cache academy-watch-backend || finish 1
 step "ruff format --check academy-watch-backend"
 ruff format --check --no-cache academy-watch-backend || finish 1
 
-# ---- 2. backend tests — ONLY the named files
-if [ -n "${BACKEND_TESTS// /}" ]; then
+# ---- 2. backend tests — complete suite in full, named files in fast
+if [ "$TIER" = full ]; then
+  step "pytest (from academy-watch-backend/): complete suite"
+  (cd "$BACKEND" && SKIP_API_HANDSHAKE=1 API_USE_STUB_DATA=true TEST_ONLY_MANU=false OPENAI_API_KEY=test-not-a-real-key "$PY" -m pytest -q) || finish 1
+elif [ -n "${BACKEND_TESTS// /}" ]; then
   step "pytest (from academy-watch-backend/): $BACKEND_TESTS"
   present=
   for t in $BACKEND_TESTS; do
@@ -102,8 +108,11 @@ else
   echo "(no backend tests named)"
 fi
 
-# ---- 3. frontend unit tests — ONLY the named files (plain node --test, no jsdom)
-if [ -n "${FRONTEND_TESTS// /}" ]; then
+# ---- 3. frontend unit tests — CI runner in full, named files in fast
+if [ "$TIER" = full ]; then
+  step "node scripts/run-tests.mjs (from academy-watch-frontend/): complete suite"
+  (cd "$FRONTEND" && node scripts/run-tests.mjs) || finish 1
+elif [ -n "${FRONTEND_TESTS// /}" ]; then
   step "node --test (from academy-watch-frontend/): $FRONTEND_TESTS"
   presentf=
   for t in $FRONTEND_TESTS; do
