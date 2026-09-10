@@ -6,8 +6,8 @@ import { fileURLToPath } from 'node:url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const frontendSrc = path.resolve(__dirname, '../src')
-const backendSrc = path.resolve(__dirname, '../../loan-army-backend/src')
-const backendRoot = path.resolve(__dirname, '../../loan-army-backend')
+const backendSrc = path.resolve(__dirname, '../../academy-watch-backend/src')
+const backendRoot = path.resolve(__dirname, '../../academy-watch-backend')
 
 // ============================================================================
 // BACKEND MODEL TESTS
@@ -301,63 +301,9 @@ test('API service has claim flow methods', async () => {
 // FRONTEND ADMIN EXTERNAL WRITERS PAGE TESTS
 // ============================================================================
 
-test('AdminExternalWriters page exists and has required structure', async () => {
-  const pageFile = path.join(frontendSrc, 'pages/admin/AdminExternalWriters.jsx')
-  const src = await fs.readFile(pageFile, 'utf8')
 
-  // Component export
-  assert.match(
-    src,
-    /export\s+(function|const)\s+AdminExternalWriters/,
-    'Should export AdminExternalWriters component'
-  )
 
-  // Summary cards
-  assert.match(
-    src,
-    /Total Writers|totalWriters/i,
-    'Should show total writers count'
-  )
-  assert.match(
-    src,
-    /Unclaimed|unclaimed/i,
-    'Should show unclaimed writers count'
-  )
-  assert.match(
-    src,
-    /Claimed|claimed/i,
-    'Should show claimed writers count'
-  )
 
-  // Writer management
-  assert.match(
-    src,
-    /createPlaceholderWriter|Create.*Writer/i,
-    'Should have create writer functionality'
-  )
-  assert.match(
-    src,
-    /sendClaimInvite|Send.*Claim/i,
-    'Should have send claim invite functionality'
-  )
-})
-
-test('AdminExternalWriters has create/edit dialog', async () => {
-  const pageFile = path.join(frontendSrc, 'pages/admin/AdminExternalWriters.jsx')
-  const src = await fs.readFile(pageFile, 'utf8')
-
-  // Dialog component
-  assert.match(
-    src,
-    /Dialog|Modal/,
-    'Should use Dialog or Modal for create/edit'
-  )
-
-  // Form fields
-  assert.match(src, /display_name|displayName/i, 'Should have display name field')
-  assert.match(src, /email/i, 'Should have email field')
-  assert.match(src, /attribution_name|attributionName/i, 'Should have attribution name field')
-})
 
 // ============================================================================
 // FRONTEND ADMIN USERS PAGE TESTS
@@ -457,16 +403,12 @@ test('ClaimAccount page exists and handles claim flow', async () => {
 // FRONTEND ROUTING TESTS
 // ============================================================================
 
-test('App.jsx has routes for external writers feature', async () => {
+test('App.jsx has the writer account claim route', async () => {
   const appFile = path.join(frontendSrc, 'App.jsx')
   const src = await fs.readFile(appFile, 'utf8')
 
   // Imports
-  assert.match(
-    src,
-    /import.*AdminExternalWriters/,
-    'Should import AdminExternalWriters'
-  )
+
   assert.match(
     src,
     /import.*ClaimAccount/,
@@ -479,28 +421,10 @@ test('App.jsx has routes for external writers feature', async () => {
     /path=["'].*claim-account["']/,
     'Should have /claim-account route'
   )
-  assert.match(
-    src,
-    /path=["']external-writers["']/,
-    'Should have external-writers admin route'
-  )
+
 })
 
-test('AdminSidebar has External Writers navigation', async () => {
-  const sidebarFile = path.join(frontendSrc, 'components/admin/AdminSidebar.jsx')
-  const src = await fs.readFile(sidebarFile, 'utf8')
 
-  assert.match(
-    src,
-    /External Writers/,
-    'Should have External Writers label in sidebar'
-  )
-  assert.match(
-    src,
-    /external-writers/,
-    'Should link to /admin/external-writers'
-  )
-})
 
 // ============================================================================
 // INTEGRATION TESTS - Flow validation

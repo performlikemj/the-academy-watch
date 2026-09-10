@@ -52,10 +52,11 @@ def _script_directory():
 
 
 class TestMigrationHead:
-    def test_single_head_is_shp05(self):
-        """The whole chain resolves to exactly one head, and it is shp05."""
+    def test_single_head_descends_from_shp05(self):
+        """The whole chain resolves to exactly one head, and descends from shp05."""
         heads = _script_directory().get_heads()
-        assert heads == ["shp05"], f"expected the single head to be shp05, got {heads}"
+        assert heads == ["s4d1"], f"expected the single head to be s4d1, got {heads}"
+        assert "shp05" in {revision.revision for revision in _script_directory().walk_revisions()}
 
     def test_sea01_chains_off_aw23(self):
         """sea01 branches from the real prod tip (aw23), keeping the line linear."""

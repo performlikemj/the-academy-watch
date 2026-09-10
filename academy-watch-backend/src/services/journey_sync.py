@@ -820,6 +820,13 @@ class JourneySyncService:
         league_lower = league_name.lower()
         combined = f"{team_lower} {league_lower}"
 
+        # National sides take precedence over club youth age labels.
+        if is_national_team(team_name):
+            # Check if it's youth international
+            if any(x in combined for x in ["u17", "u18", "u19", "u20", "u21", "u23", "youth"]):
+                return "International Youth"
+            return "International"
+
         # Check for youth levels
         for level, patterns in self.LEVEL_PATTERNS.items():
             for pattern in patterns:

@@ -65,8 +65,8 @@ that created the table — and redeploy.
 
 `pydantic` pins `pydantic-core==X.Y.Z` exactly, but Dependabot opens standalone
 `pydantic_core` bump PRs — merging one alone fails the container build. Close it (needs a
-coordinated `pydantic` upgrade). Backend `Backend Lint` CI is **ruff only** — it doesn't
-install deps, so the deploy build is the first real install test. Dry-run first from a
+coordinated `pydantic` upgrade). `Backend Lint` CI checks dependency resolution, while
+`Backend Tests` installs the requirements and runs pytest before deployment. Dry-run first from a
 worktree: `pip install --dry-run --ignore-installed -r requirements.txt`. See workflow.md
 for the batching rule.
 

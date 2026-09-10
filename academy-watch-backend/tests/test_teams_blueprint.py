@@ -1,3 +1,5 @@
+from src.models.tracked_player import TrackedPlayer
+
 """Tests for teams blueprint endpoints in src/routes/teams.py."""
 
 import os
@@ -5,7 +7,7 @@ from unittest.mock import patch
 
 import pytest
 from flask import Flask
-from src.models.league import League, LoanedPlayer, Team, db
+from src.models.league import League, Team, db
 
 
 @pytest.fixture
@@ -184,14 +186,13 @@ class TestGetTeamLoans:
             db.session.flush()
 
             # Create a loan
-            loan = LoanedPlayer(
-                player_id=123,
+            loan = TrackedPlayer(
+                status="on_loan",
+                player_api_id=123,
                 player_name="Test Player",
-                primary_team_id=sample_team,
-                primary_team_name="Manchester United",
-                loan_team_id=loan_team.id,
-                loan_team_name="Loan FC",
-                window_key="2024-25::FULL",
+                team_id=sample_team,
+                current_club_db_id=loan_team.id,
+                current_club_name="Loan FC",
                 is_active=True,
                 data_source="test",
             )
@@ -227,6 +228,9 @@ class TestGetTeamLoansBySeason:
     """Tests for GET /teams/<id>/loans/season/<season> endpoint."""
 
     def test_get_team_loans_by_season(self, teams_app, teams_client, sample_team, sample_league):
+        from src.utils.academy_window import current_stats_season
+
+        season = current_stats_season()
         """Should return loans for specific season."""
         with teams_app.app_context():
             loan_team = Team(
@@ -240,24 +244,26 @@ class TestGetTeamLoansBySeason:
             db.session.add(loan_team)
             db.session.flush()
 
-            loan = LoanedPlayer(
-                player_id=456,
+            loan = TrackedPlayer(
+                status="on_loan",
+                player_api_id=456,
                 player_name="Season Player",
-                primary_team_id=sample_team,
-                primary_team_name="Manchester United",
-                loan_team_id=loan_team.id,
-                loan_team_name="Season FC",
-                window_key="2024-25::FULL",
+                team_id=sample_team,
+                current_club_db_id=loan_team.id,
+                current_club_name="Season FC",
                 is_active=True,
                 data_source="test",
             )
             db.session.add(loan)
             db.session.commit()
 
-        res = teams_client.get(f"/api/teams/{sample_team}/loans/season/2024")
+        res = teams_client.get(f"/api/teams/{sample_team}/loans/season/{season}")
         assert res.status_code == 200
         data = res.get_json()
-        assert isinstance(data, list)
+        assert data["season"] == season
+        assert len(data["loans"]) == 1
+        assert data["loans"][0]["player_id"] == 456
+        assert data["loans"][0]["loan_team_name"] == "Season FC"
 
 
 class TestGetTeamsForSeason:
@@ -265,7 +271,8 @@ class TestGetTeamsForSeason:
 
     def test_get_teams_for_season(self, teams_client):
         """Should return teams mapping for season."""
-        with patch("src.routes.teams.api_client") as mock_client:
+        with patch("src.routes.teams._get_api_client") as client_factory:
+            mock_client = client_factory.return_value
             mock_client.get_teams_for_season.return_value = {
                 "33": "Manchester United",
                 "34": "Newcastle United",
@@ -281,14 +288,15 @@ class TestGetTeamsForSeason:
 class TestGetTeamApiInfo:
     """Tests for GET /teams/<id>/api-info endpoint."""
 
-    def test_get_team_api_info(self, teams_client):
+    def test_get_team_api_info(self, teams_client, sample_team):
         """Should return team info from API."""
-        with patch("src.routes.teams.api_client") as mock_client:
+        with patch("src.routes.teams._get_api_client") as client_factory:
+            mock_client = client_factory.return_value
             mock_client.current_season_start_year = 2024
             mock_client.get_team_by_id.return_value = {
                 "team": {"id": 33, "name": "Manchester United"},
             }
-            res = teams_client.get("/api/teams/33/api-info")
+            res = teams_client.get(f"/api/teams/{sample_team}/api-info")
             assert res.status_code == 200
             data = res.get_json()
             assert data["team_id"] == 33
@@ -296,7 +304,8 @@ class TestGetTeamApiInfo:
 
     def test_get_team_api_info_not_found(self, teams_client):
         """Should return 404 when team not found in API."""
-        with patch("src.routes.teams.api_client") as mock_client:
+        with patch("src.routes.teams._get_api_client") as client_factory:
+            mock_client = client_factory.return_value
             mock_client.current_season_start_year = 2024
             mock_client.get_team_by_id.return_value = None
             res = teams_client.get("/api/teams/99999/api-info")

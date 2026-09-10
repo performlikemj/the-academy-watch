@@ -264,7 +264,8 @@ def test_cb01_to_s2f1_to_pm01_is_the_single_head():
     config.set_main_option("script_location", str(repo_root / "migrations"))
     script = ScriptDirectory.from_config(config)
 
-    assert script.get_heads() == ["cb01"]
+    assert script.get_heads() == ["s4d1"]
+    assert "cb01" in {revision.revision for revision in script.walk_revisions()}
     assert script.get_revision("cb01").down_revision == "s2f1"
     assert script.get_revision("s2f1").down_revision == "pm01"
     assert script.get_revision("pm01").down_revision == "lp01"

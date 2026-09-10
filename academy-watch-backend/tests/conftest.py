@@ -71,10 +71,11 @@ from src.routes.teams import teams_bp
 
 
 @pytest.fixture
-def app():
+def app(tmp_path):
     root_dir = Path(__file__).resolve().parent.parent
     template_dir = root_dir / "src" / "templates"
-    static_dir = root_dir / "src" / "static"
+    static_dir = tmp_path / "static"
+    static_dir.mkdir()
 
     app = Flask(
         __name__,
@@ -86,11 +87,13 @@ def app():
         SECRET_KEY="test-secret",
         SQLALCHEMY_DATABASE_URI="sqlite:///:memory:",
         SQLALCHEMY_TRACK_MODIFICATIONS=False,
-        RATELIMIT_ENABLED=False,
+        RATELIMIT_ENABLED=True,
+        RATELIMIT_STORAGE_URI="memory://",
     )
 
     db.init_app(app)
     limiter.init_app(app)
+    limiter.enabled = False
     app.register_blueprint(api_bp, url_prefix="/api")
     app.register_blueprint(teams_bp, url_prefix="/api")
     app.register_blueprint(players_bp, url_prefix="/api")
@@ -103,6 +106,7 @@ def app():
 
     ctx = app.app_context()
     ctx.push()
+    limiter.reset()
     db.create_all()
 
     # Provide default public URLs for templates/tests unless overridden per-test

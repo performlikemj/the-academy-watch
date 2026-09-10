@@ -202,7 +202,7 @@ def test_get_player_season_context_includes_same_day_fixtures(app):
         date_utc=datetime(2025, 11, 2, 17, 30, tzinfo=UTC),
         season=2025,
         competition_name="La Liga",
-        home_team_api_id=1,
+        home_team_api_id=60,
         away_team_api_id=2,
     )
     db.session.add(fixture)
@@ -279,6 +279,7 @@ def test_get_player_season_context_overlays_api_appearances(app, monkeypatch):
             }
         ]
     }
+    monkeypatch.setattr(client, "mode", "direct")
     monkeypatch.setattr(client, "_make_request", Mock(return_value=mock_api_response))
 
     season_context = client.get_player_season_context(

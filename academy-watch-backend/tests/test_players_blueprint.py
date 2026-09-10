@@ -1,3 +1,5 @@
+from src.models.tracked_player import TrackedPlayer
+
 """Tests for players blueprint endpoints in src/routes/players.py."""
 
 import os
@@ -5,7 +7,7 @@ from datetime import datetime
 
 import pytest
 from flask import Flask
-from src.models.league import League, LoanedPlayer, Newsletter, NewsletterCommentary, Player, Team, UserAccount, db
+from src.models.league import League, Newsletter, NewsletterCommentary, Player, Team, UserAccount, db
 
 
 @pytest.fixture
@@ -107,17 +109,15 @@ def sample_player(players_app):
 def sample_loan(players_app, sample_teams, sample_player):
     """Create a sample loan for testing."""
     with players_app.app_context():
-        loan = LoanedPlayer(
-            player_id=sample_player,
+        loan = TrackedPlayer(
+            status="on_loan",
+            player_api_id=sample_player,
             player_name="Test Player",
-            primary_team_id=sample_teams["parent_id"],
-            primary_team_name="Manchester United",
-            loan_team_id=sample_teams["loan_team_id"],
-            loan_team_name="Loan FC",
-            window_key="2024-25::FULL",
+            team_id=sample_teams["parent_id"],
+            current_club_db_id=sample_teams["loan_team_id"],
+            current_club_name="Loan FC",
             is_active=True,
             data_source="test",
-            can_fetch_stats=False,  # Disable API verification in tests
         )
         db.session.add(loan)
         db.session.commit()

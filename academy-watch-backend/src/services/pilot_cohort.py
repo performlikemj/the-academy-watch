@@ -285,6 +285,11 @@ def build_report(data):
         "feedback": "player_feedback" in tables and "club_invitations" in tables,
         "stable_results": "club_results" in tables and "player_match_entries" in tables,
     }
+    # The mapped P4 link may not exist in a partial installation. Apply the
+    # same loader options to observation lookups and the legacy results query.
+    entry_load_options = (
+        () if "player_match_entries" in tables else (sa.orm.defer(PlayerMatchEntry.club_result_id, raiseload=True),)
+    )
     relationships = []
     if capabilities["relationships"]:
         table = tables["club_invitations"]
@@ -345,7 +350,8 @@ def build_report(data):
             table = tables[table_name]
             exists = db.session.execute(sa.select(table.c.id).where(table.c.id == record_id)).first()
         else:
-            exists = db.session.get(RECORDS[record_type], int(record_id))
+            options = entry_load_options if record_type == "player_match_entry" else ()
+            exists = db.session.get(RECORDS[record_type], int(record_id), options=options)
             record_id = str(int(record_id))
         if exists is None:
             raise CohortError("cohort_reference_invalid", 422)
@@ -361,7 +367,8 @@ def build_report(data):
         return when is not None and start <= utc(when) < end
 
     results = (
-        PlayerMatchEntry.query.filter(
+        PlayerMatchEntry.query.options(*entry_load_options)
+        .filter(
             PlayerMatchEntry.player_api_id.in_(public_subjects),
             PlayerMatchEntry.created_at < end,
         )

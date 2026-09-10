@@ -3,12 +3,12 @@ from datetime import UTC, datetime
 from src.models.league import (
     JournalistLoanTeamAssignment,
     JournalistTeamAssignment,
-    LoanedPlayer,
     Team,
     UserAccount,
     WriterCoverageRequest,
     db,
 )
+from src.models.tracked_player import TrackedPlayer
 from src.routes.api import issue_user_token
 
 
@@ -40,17 +40,16 @@ def _make_writer(email: str):
     return user
 
 
-def _make_loaned_player(*, player_id, primary_team, loan_team=None, loan_team_name=None, window_key="2025-26::FULL"):
-    loan = LoanedPlayer(
-        player_id=player_id,
+def _make_loaned_player(*, player_id, primary_team, loan_team=None, loan_team_name=None):
+    loan = TrackedPlayer(
+        status="on_loan",
+        player_api_id=player_id,
         player_name=f"Player {player_id}",
-        primary_team_id=primary_team.id if primary_team else None,
-        primary_team_name=primary_team.name if primary_team else "Unknown",
-        loan_team_id=loan_team.id if loan_team else None,
-        loan_team_name=loan_team_name or (loan_team.name if loan_team else "Custom Loan Team"),
-        window_key=window_key,
+        team_id=primary_team.id if primary_team else None,
+        current_club_db_id=loan_team.id if loan_team else None,
+        current_club_name=loan_team_name or (loan_team.name if loan_team else "Custom Loan Team"),
         is_active=True,
-        stats_coverage="limited",
+        data_depth="events_only",
     )
     db.session.add(loan)
     db.session.commit()
@@ -98,7 +97,7 @@ def test_writer_loan_destination_coverage_workflow(client, app, monkeypatch):
     resp = client.get("/api/writer/available-players", headers=_writer_headers(writer.email))
     assert resp.status_code == 200
     players = resp.get_json()
-    assert any(p["player_id"] == loan.player_id for p in players["players"])
+    assert any(p["player_id"] == loan.player_api_id for p in players["players"])
     assert loan_team.name in players["by_loan_team"]
 
 
@@ -111,7 +110,7 @@ def test_writer_parent_club_coverage_workflow(client, app, monkeypatch):
     db.session.commit()
 
     writer = _make_writer("parent-writer@example.com")
-    loan = _make_loaned_player(player_id=2001, primary_team=parent, loan_team=loan_team, window_key="2025-26::ALT")
+    loan = _make_loaned_player(player_id=2001, primary_team=parent, loan_team=loan_team)
 
     resp = client.post(
         "/api/writer/coverage-requests",
@@ -143,7 +142,7 @@ def test_writer_parent_club_coverage_workflow(client, app, monkeypatch):
     resp = client.get("/api/writer/available-players", headers=_writer_headers(writer.email))
     assert resp.status_code == 200
     players = resp.get_json()
-    assert any(p["player_id"] == loan.player_id for p in players["players"])
+    assert any(p["player_id"] == loan.player_api_id for p in players["players"])
     assert parent.name in players["by_parent_club"]
 
 
@@ -229,7 +228,7 @@ def test_commentary_access_parent_club_allows_intro_and_player(client, app, monk
         json={
             "team_id": parent.id,
             "commentary_type": "player",
-            "player_id": loan.player_id,
+            "player_id": loan.player_api_id,
             "content": "<p>Player notes</p>",
         },
     )
@@ -256,7 +255,7 @@ def test_commentary_access_loan_team_allows_player_only(client, app, monkeypatch
         json={
             "team_id": parent.id,
             "commentary_type": "player",
-            "player_id": loan.player_id,
+            "player_id": loan.player_api_id,
             "content": "<p>Loan team coverage</p>",
         },
     )

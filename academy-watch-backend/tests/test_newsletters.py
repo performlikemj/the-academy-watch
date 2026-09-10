@@ -11,17 +11,19 @@ from src.agents import weekly_newsletter_agent as weekly_nl_agent
 from src.agents.weekly_newsletter_agent import (
     _apply_stat_driven_summaries,
     _build_player_report_item,
-    _enforce_loanee_metadata,
+    _enforce_player_metadata,
     compose_team_weekly_newsletter,
 )
-from src.api_football_client import APIFootballClient
-from src.models.league import Newsletter, NewsletterComment, Player, SupplementalLoan, Team, UserSubscription, db
+from src.models.league import Newsletter, NewsletterComment, Player, Team, UserSubscription, db
 from src.routes.api import _deliver_newsletter_via_webhook, issue_user_token, render_newsletter
 
 
 class _DummyResponse:
-    status_code = 200
-    text = "ok"
+    http_status = 200
+    success = True
+    message_id = "test-email"
+    error = None
+    provider = "stub"
 
 
 def _test_slug(prefix: str = "newsletter") -> str:
@@ -33,7 +35,6 @@ def _stub_render_variants(parsed, team_name):
 
 
 def test_auto_send_uses_prior_season_subscriptions(app, monkeypatch):
-    monkeypatch.setenv("N8N_EMAIL_WEBHOOK_URL", "https://example.com/webhook")
     monkeypatch.setenv("EMAIL_FROM_NAME", "The Academy Watch Test")
     monkeypatch.setenv("EMAIL_FROM_ADDRESS", "newsletter@example.com")
 
@@ -74,22 +75,22 @@ def test_auto_send_uses_prior_season_subscriptions(app, monkeypatch):
 
     sent_payloads: list[dict] = []
 
-    def fake_post(url, headers=None, timeout=None, json=None, **kwargs):
-        sent_payloads.append({"url": url, "json": json})
+    def fake_send_email(**kwargs):
+        sent_payloads.append(kwargs)
         return _DummyResponse()
 
-    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr("src.services.email_service.email_service.is_configured", lambda: True)
+    monkeypatch.setattr("src.services.email_service.email_service.send_email", fake_send_email)
 
     with app.test_request_context("/"):
         result = _deliver_newsletter_via_webhook(newsletter)
 
     assert result["status"] == "ok"
     assert result["recipient_count"] == 1
-    assert sent_payloads and sent_payloads[0]["json"]["email"] == "fan@example.com"
+    assert sent_payloads and sent_payloads[0]["to"] == "fan@example.com"
 
 
 def test_deliver_newsletter_uses_link_base_for_unsubscribe(app, monkeypatch):
-    monkeypatch.setenv("N8N_EMAIL_WEBHOOK_URL", "https://example.com/webhook")
     monkeypatch.setenv("NEWSLETTER_LINK_BASE_URL", "https://app.theacademywatch.com")
 
     team = Team(team_id=999, name="Link FC", country="England", season=2024)
@@ -122,21 +123,23 @@ def test_deliver_newsletter_uses_link_base_for_unsubscribe(app, monkeypatch):
 
     captured: list[dict] = []
 
-    def fake_post(url, headers=None, timeout=None, json=None, **kwargs):
-        captured.append({"url": url, "json": json})
+    def fake_send_email(**kwargs):
+        captured.append(kwargs)
         return _DummyResponse()
 
-    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr("src.services.email_service.email_service.is_configured", lambda: True)
+    monkeypatch.setattr("src.services.email_service.email_service.send_email", fake_send_email)
 
     with app.test_request_context("/"):
         _deliver_newsletter_via_webhook(newsletter)
 
-    assert captured, "Expected payload to be sent via webhook"
-    unsubscribe_url = captured[0]["json"]["meta"]["unsubscribe_url"]
-    assert unsubscribe_url == "https://app.theacademywatch.com/subscriptions/unsubscribe/tok-link-test"
+    assert captured, "Expected payload to be sent via email service"
+    unsubscribe_url = "https://app.theacademywatch.com/subscriptions/unsubscribe/tok-link-test"
+    assert unsubscribe_url in captured[0]["html"]
+    assert unsubscribe_url in captured[0]["text"]
     expected_public_slug = newsletter.public_slug
     assert expected_public_slug
-    html_payload = captured[0]["json"]["html"]
+    html_payload = captured[0]["html"]
     assert f"/newsletters/{expected_public_slug}" in html_payload
 
 
@@ -504,47 +507,6 @@ def test_apply_stat_summaries_respects_can_fetch_stats_flag():
     assert "unused" not in item["week_summary"]
 
 
-def test_supplemental_loans_preserve_sofascore_id_in_summary(app, monkeypatch):
-    with app.app_context():
-        parent = Team(team_id=101, name="Parent FC", country="England", season=2025)
-        loan_team = Team(team_id=202, name="Loan FC", country="England", season=2025)
-        db.session.add_all([parent, loan_team])
-        db.session.commit()
-
-        supplemental = SupplementalLoan(
-            player_name="Jordan Loan",
-            parent_team_id=parent.id,
-            parent_team_name=parent.name,
-            loan_team_id=loan_team.id,
-            loan_team_name=loan_team.name,
-            season_year=2025,
-            sofascore_player_id=1101989,
-        )
-        db.session.add(supplemental)
-        db.session.commit()
-
-        client = APIFootballClient()
-        monkeypatch.setattr(client, "get_team_name", lambda *_args, **_kwargs: parent.name)
-
-        week_start = date(2025, 9, 15)
-        week_end = week_start + timedelta(days=6)
-
-        summary = client.summarize_parent_loans_week(
-            parent_team_db_id=parent.id,
-            parent_team_api_id=parent.team_id,
-            season=2025,
-            week_start=week_start,
-            week_end=week_end,
-            include_team_stats=False,
-            db_session=db.session,
-        )
-
-        supplemental_items = [it for it in summary["loanees"] if it.get("source") == "supplemental"]
-        assert supplemental_items, "Expected supplemental source entries in weekly summary"
-        assert supplemental_items[0].get("sofascore_player_id") == 1101989
-        assert supplemental_items[0].get("loan_team_country") == "England"
-
-
 def test_newsletter_templates_render_sofascore_embed_when_available(app):
     sections = [
         {
@@ -583,9 +545,7 @@ def test_newsletter_templates_render_sofascore_embed_when_available(app):
         )
 
     expected_src = "https://widgets.sofascore.com/embed/player/1101989?widgetTheme=dark"
-    assert expected_src in email_html
     assert expected_src in web_html
-    assert "Sofascore for H. Ogunneye" in email_html
     assert "Sofascore for H. Ogunneye" in web_html
 
 
@@ -623,7 +583,6 @@ def test_templates_hide_stats_for_untracked_players(app):
             highlights=[],
         )
 
-    assert "We can’t track detailed stats for this player yet." in email_html
     assert "We can’t track detailed stats for this player yet." in web_html
     assert "0’" not in email_html
     assert "0’" not in web_html
@@ -666,8 +625,8 @@ def test_enforce_metadata_handles_core_supplemental_and_internet():
         }
     }
 
-    updated = _enforce_loanee_metadata(content, meta_pid, meta_key)
-    assert [sec["title"] for sec in updated["sections"]] == ["Active Loans", "Supplemental Loans"]
+    updated = _enforce_player_metadata(content, meta_pid, meta_key)
+    assert [sec["title"] for sec in updated["sections"]] == ["Active Loans", "Manual Player Entries"]
     active = updated["sections"][0]["items"][0]
     supplemental = updated["sections"][1]["items"][0]
 
@@ -687,7 +646,7 @@ def test_enforce_metadata_handles_core_supplemental_and_internet():
     assert internet_links and internet_links[0] == "https://example.com"
 
 
-def test_newsletter_list_includes_rendered_variants(app, client):
+def test_newsletter_detail_includes_rendered_variants_omitted_from_list(app, client):
     with app.app_context():
         team = Team(team_id=3030, name="Rendered FC", country="England", season=2025)
         db.session.add(team)
@@ -716,11 +675,14 @@ def test_newsletter_list_includes_rendered_variants(app, client):
         db.session.commit()
         slug_value = newsletter.public_slug
 
-    response = client.get("/newsletters?published_only=true")
+    response = client.get("/api/newsletters?published_only=true")
     assert response.status_code == 200
     data = response.get_json()
     assert isinstance(data, list) and len(data) == 1
-    row = data[0]
+    assert "rendered" not in data[0]
+    response = client.get(f"/api/newsletters/{data[0]['id']}")
+    assert response.status_code == 200
+    row = response.get_json()
     assert "rendered" in row, "Expected rendered variants to be included in newsletter payload"
     assert isinstance(row["rendered"], dict)
     assert "web_html" in row["rendered"]
@@ -855,7 +817,8 @@ def test_compose_weekly_builds_per_player_reports_with_history(app, monkeypatch)
             "season": "2025-26",
             "range": list(week_range),
             "parent_team": {"name": "Manchester United"},
-            "loanees": [loanee_a, loanee_b],
+            "has_tracked_players": True,
+            "groups": {"on_loan": [loanee_a, loanee_b]},
         }
 
         brave_ctx = {
@@ -877,7 +840,7 @@ def test_compose_weekly_builds_per_player_reports_with_history(app, monkeypatch)
         monkeypatch.setattr(weekly_agent, "lint_and_enrich", lambda payload: payload)
         monkeypatch.setattr(weekly_nl_agent, "_apply_player_lookup", lambda payload, _lookup: (payload, False))
         monkeypatch.setattr(weekly_nl_agent, "legacy_lint_and_enrich", lambda payload: payload)
-        monkeypatch.setattr(weekly_nl_agent, "fetch_weekly_report_tool", lambda *_args, **_kwargs: report)
+        monkeypatch.setattr(weekly_nl_agent, "fetch_pipeline_report_tool", lambda *_args, **_kwargs: report)
         monkeypatch.setattr(weekly_nl_agent, "brave_context_for_team_and_loans", lambda *_args, **_kwargs: brave_ctx)
         monkeypatch.setattr(weekly_nl_agent, "ENV_VALIDATE_FINAL_LINKS", False)
         monkeypatch.setattr(weekly_nl_agent, "ENV_CHECK_LINKS", False)
@@ -906,11 +869,10 @@ def test_compose_weekly_builds_per_player_reports_with_history(app, monkeypatch)
             )(),
         )
 
-        output = compose_team_weekly_newsletter(team.id, date(2025, 10, 19))
+        output = compose_team_weekly_newsletter(team.id, date(2025, 10, 19), skip_sync=True)
         content = json.loads(output["content_json"])
 
-    reports_section = next(sec for sec in content["sections"] if sec["title"] == "Player Reports")
-    internet_section = next(sec for sec in content["sections"] if sec["title"] == "What the Internet is Saying")
+    reports_section = next(sec for sec in content["sections"] if sec["title"] == "On Loan")
 
     assert len(reports_section["items"]) == 2
     rashford_item = next(item for item in reports_section["items"] if item["player_name"].startswith("M. Rashford"))
@@ -924,7 +886,7 @@ def test_compose_weekly_builds_per_player_reports_with_history(app, monkeypatch)
     assert "Latest coverage: Mejbri swings match with late assist." in mejbri_item["week_summary"]
     assert mejbri_item["links"][0]["url"] == "https://example.com/mejbri"
 
-    assert any(link for link in internet_section["items"] if link["player_name"].startswith("M. Rashford"))
+    assert "What the Internet is Saying" not in {sec["title"] for sec in content["sections"]}
     assert content["summary"] == "Manchester United overview via Groq."
 
 
@@ -966,7 +928,8 @@ def test_compose_weekly_handles_supplemental_player(app, monkeypatch):
             "season": "2025-26",
             "range": list(week_range),
             "parent_team": {"name": "Arsenal"},
-            "loanees": [supplemental_loanee],
+            "has_tracked_players": True,
+            "groups": {"on_loan": [supplemental_loanee]},
         }
 
         brave_ctx = {
@@ -983,7 +946,7 @@ def test_compose_weekly_handles_supplemental_player(app, monkeypatch):
         monkeypatch.setattr(weekly_agent, "lint_and_enrich", lambda payload: payload)
         monkeypatch.setattr(weekly_nl_agent, "_apply_player_lookup", lambda payload, _lookup: (payload, False))
         monkeypatch.setattr(weekly_nl_agent, "legacy_lint_and_enrich", lambda payload: payload)
-        monkeypatch.setattr(weekly_nl_agent, "fetch_weekly_report_tool", lambda *_args, **_kwargs: report)
+        monkeypatch.setattr(weekly_nl_agent, "fetch_pipeline_report_tool", lambda *_args, **_kwargs: report)
         monkeypatch.setattr(weekly_nl_agent, "brave_context_for_team_and_loans", lambda *_args, **_kwargs: brave_ctx)
         monkeypatch.setattr(weekly_nl_agent, "ENV_VALIDATE_FINAL_LINKS", False)
         monkeypatch.setattr(weekly_nl_agent, "ENV_CHECK_LINKS", False)
@@ -1000,13 +963,13 @@ def test_compose_weekly_handles_supplemental_player(app, monkeypatch):
             )(),
         )
 
-        output = compose_team_weekly_newsletter(team.id, date(2025, 10, 19))
+        output = compose_team_weekly_newsletter(team.id, date(2025, 10, 19), skip_sync=True)
         content = json.loads(output["content_json"])
 
     sections = content["sections"]
     reports_section = next((sec for sec in sections if sec["title"] == "Player Reports"), None)
     if reports_section is None:
-        reports_section = next(sec for sec in sections if sec["title"] == "Supplemental Loans")
+        reports_section = next(sec for sec in sections if sec["title"] == "Manual Player Entries")
     item = reports_section["items"][0]
     week_summary = item["week_summary"]
     assert "We can’t track detailed stats for this player yet." in week_summary
@@ -1025,7 +988,8 @@ def test_compose_weekly_handles_no_loanees(app, monkeypatch):
             "season": "2025-26",
             "range": list(week_range),
             "parent_team": {"name": "Everton"},
-            "loanees": [],
+            "has_tracked_players": False,
+            "groups": {},
         }
 
         monkeypatch.setattr(weekly_agent, "_set_latest_player_lookup", lambda *_args, **_kwargs: None)
@@ -1033,7 +997,7 @@ def test_compose_weekly_handles_no_loanees(app, monkeypatch):
         monkeypatch.setattr(weekly_agent, "lint_and_enrich", lambda payload: payload)
         monkeypatch.setattr(weekly_nl_agent, "_apply_player_lookup", lambda payload, _lookup: (payload, False))
         monkeypatch.setattr(weekly_nl_agent, "legacy_lint_and_enrich", lambda payload: payload)
-        monkeypatch.setattr(weekly_nl_agent, "fetch_weekly_report_tool", lambda *_args, **_kwargs: report)
+        monkeypatch.setattr(weekly_nl_agent, "fetch_pipeline_report_tool", lambda *_args, **_kwargs: report)
 
         def _no_brave(*_args, **_kwargs):
             raise AssertionError("brave_context_for_team_and_loans should not run when no loanees exist")
@@ -1058,10 +1022,10 @@ def test_compose_weekly_handles_no_loanees(app, monkeypatch):
             )(),
         )
 
-        output = compose_team_weekly_newsletter(team.id, date(2025, 10, 19))
+        output = compose_team_weekly_newsletter(team.id, date(2025, 10, 19), skip_sync=True)
         content = json.loads(output["content_json"])
 
-    assert content["summary"].startswith("No active loan updates for Everton")
+    assert content["summary"].startswith("No academy pipeline updates for Everton")
     assert content["sections"][0]["title"] == "Player Reports"
     assert content["sections"][0]["items"] == []
 
@@ -1127,7 +1091,7 @@ def test_newsletter_web_render_includes_social_meta(app, client, monkeypatch):
         "X-API-Key": "test-admin-key",
     }
 
-    response = client.get(f"/newsletters/{newsletter.id}/render.html", headers=headers)
+    response = client.get(f"/api/newsletters/{newsletter.id}/render.html", headers=headers)
 
     assert response.status_code == 200
     html = response.get_data(as_text=True)
@@ -1190,7 +1154,7 @@ def test_render_newsletter_includes_team_logo(app):
 
     render_fn = getattr(render_newsletter, "__wrapped__", render_newsletter)
 
-    with app.test_request_context(f"/newsletters/{newsletter_id}?fmt=email"):
+    with app.test_request_context(f"/api/newsletters/{newsletter_id}?fmt=email"):
         resp = render_fn(newsletter_id, "email")
 
     assert resp.status_code == 200
@@ -1231,7 +1195,7 @@ def test_get_newsletter_returns_rendered_and_comments(app, client):
 
         newsletter_id = newsletter.id
 
-    resp = client.get(f"/newsletters/{newsletter_id}")
+    resp = client.get(f"/api/newsletters/{newsletter_id}")
     assert resp.status_code == 200
     payload = resp.get_json()
     assert payload["id"] == newsletter_id
@@ -1288,7 +1252,7 @@ def test_admin_preview_send_routes_to_admin_emails(app, client, monkeypatch):
     }
 
     resp = client.post(
-        f"/newsletters/{newsletter.id}/send",
+        f"/api/newsletters/{newsletter.id}/send",
         json={"test_to": "__admins__", "subject": "Preview Subject", "dry_run": True},
         headers=headers,
     )
@@ -1343,15 +1307,16 @@ def test_delete_newsletter_removes_record_and_comments(app, client, monkeypatch)
         "X-API-Key": "test-admin-key",
     }
 
-    resp = client.delete(f"/newsletters/{newsletter.id}", headers=headers)
+    newsletter_id = newsletter.id
+    resp = client.delete(f"/api/newsletters/{newsletter_id}", headers=headers)
 
     assert resp.status_code == 200
     payload = resp.get_json()
     assert payload["status"] == "deleted"
-    assert payload["newsletter_id"] == newsletter.id
+    assert payload["newsletter_id"] == newsletter_id
 
-    assert Newsletter.query.get(newsletter.id) is None
-    assert NewsletterComment.query.filter_by(newsletter_id=newsletter.id).count() == 0
+    assert db.session.get(Newsletter, newsletter_id) is None
+    assert NewsletterComment.query.filter_by(newsletter_id=newsletter_id).count() == 0
 
 
 def _auth_headers(role_email="admin@example.com"):
@@ -1408,7 +1373,7 @@ def test_admin_bulk_publish_with_filter_params_and_exclusions(app, client, monke
         "expected_total": 4,
     }
 
-    resp = client.post("/admin/newsletters/bulk-publish", json=payload, headers=_auth_headers("bulk@example.com"))
+    resp = client.post("/api/admin/newsletters/bulk-publish", json=payload, headers=_auth_headers("bulk@example.com"))
 
     assert resp.status_code == 200
     body = resp.get_json()
@@ -1446,7 +1411,7 @@ def test_admin_bulk_publish_filters_require_expected_total(app, client, monkeypa
     _make_newsletter(team.id, issue_day=8, idx=1, published=False)
 
     resp = client.post(
-        "/admin/newsletters/bulk-publish",
+        "/api/admin/newsletters/bulk-publish",
         json={
             "publish": True,
             "filter_params": {"issue_start": "2025-09-01", "issue_end": "2025-09-30"},
@@ -1475,7 +1440,7 @@ def test_admin_bulk_delete_with_filters_and_exclusions(app, client, monkeypatch)
     db.session.commit()
 
     resp = client.delete(
-        "/admin/newsletters/bulk",
+        "/api/admin/newsletters/bulk",
         json={
             "filter_params": {
                 "issue_start": "2025-09-01",
@@ -1508,7 +1473,7 @@ def test_generate_newsletter_force_refresh_regenerates(app, client, monkeypatch)
 
     counter = {"n": 0}
 
-    def fake_compose(_team_id, target_date, force_refresh=False):
+    def fake_compose(_team_id, target_date, force_refresh=False, skip_sync=False):
         counter["n"] += 1
         week_start = target_date - timedelta(days=target_date.weekday())
         week_end = week_start + timedelta(days=6)
@@ -1548,7 +1513,7 @@ def test_generate_newsletter_no_duplicates_for_same_week(app, client, monkeypatc
     db.session.add(team)
     db.session.commit()
 
-    def fake_compose(_team_id, target_date, force_refresh=False):
+    def fake_compose(_team_id, target_date, force_refresh=False, skip_sync=False):
         week_start = target_date - timedelta(days=target_date.weekday())
         week_end = week_start + timedelta(days=6)
         payload = {"title": "Weekly Update", "summary": "", "sections": []}

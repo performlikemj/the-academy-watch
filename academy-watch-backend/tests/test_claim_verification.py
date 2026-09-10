@@ -35,13 +35,19 @@ def app(monkeypatch):
         SECRET_KEY="test-secret-key",
         SQLALCHEMY_DATABASE_URI="sqlite:///:memory:",
         SQLALCHEMY_TRACK_MODIFICATIONS=False,
-        RATELIMIT_ENABLED=False,
+        RATELIMIT_ENABLED=True,
+        RATELIMIT_STORAGE_URI="memory://",
     )
 
+    from src.extensions import limiter
+
     db.init_app(flask_app)
+    limiter.init_app(flask_app)
+    limiter.enabled = False
     flask_app.register_blueprint(showcase_bp, url_prefix="/api")
 
     with flask_app.app_context():
+        limiter.reset()
         db.create_all()
         yield flask_app
         db.session.remove()

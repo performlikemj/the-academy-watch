@@ -29,8 +29,8 @@ watch-deploy sequence on **every** change — never a direct push to main.
    (`ALTER TABLE <t> ENABLE ROW LEVEL SECURITY;`) — the Deploy `security-checks` job fails the
    deploy otherwise (invariants.md §2). And guard all DDL with `_migration_helpers` (§8).
 5. **Changing `requirements.txt`?** `pip install --dry-run --ignore-installed -r requirements.txt`
-   from a worktree — `Backend Lint` CI is ruff-only and never installs deps, so the deploy
-   container build is otherwise the first install test.
+   from a worktree — `Backend Lint` CI checks dependency resolution, while `Backend Tests`
+   installs the requirements and runs pytest; `Frontend Tests` runs the Node test suite.
 6. Local `.loan` venv is **Python 3.11** (matches the prod image) while CI lint runs on 3.12
    and ruff config targets py312. When CI fails on something that passes locally, suspect the
    version gap, not your diff.

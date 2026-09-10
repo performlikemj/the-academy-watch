@@ -85,6 +85,7 @@ def test_api_client_initialized_lazily(monkeypatch):
     monkeypatch.delenv("SKIP_API_HANDSHAKE", raising=False)
     monkeypatch.setenv("API_FOOTBALL_KEY", "dummy-key")
 
+    monkeypatch.setenv("API_USE_STUB_DATA", "false")
     handshake_calls = []
 
     def fake_handshake(self):
@@ -106,6 +107,10 @@ def test_api_client_initialized_lazily(monkeypatch):
         raising=True,
     )
 
+    import src.routes
+
+    original_module = sys.modules.get("src.routes.api")
+    original_attribute = getattr(src.routes, "api", None)
     try:
         sys.modules.pop("src.routes.api", None)
         api_module = importlib.import_module("src.routes.api")
@@ -118,3 +123,6 @@ def test_api_client_initialized_lazily(monkeypatch):
         assert response == {"season": 2024}
     finally:
         sys.modules.pop("src.routes.api", None)
+        if original_module is not None:
+            sys.modules["src.routes.api"] = original_module
+        src.routes.api = original_attribute
