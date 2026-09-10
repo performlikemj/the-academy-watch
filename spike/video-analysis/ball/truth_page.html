@@ -1,0 +1,11 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><title>Ball truth review — build 10</title>
+<style>body{font:16px system-ui;background:#15191d;color:#eee;margin:24px}button,select,input{font:inherit;margin:6px;padding:8px}canvas{width:100%;height:auto;cursor:crosshair}nav{position:sticky;top:0;background:#15191d;padding:8px}#status,#import-summary{color:#ffdc80}#safety{background:#742b29;padding:16px;font-weight:bold}button:disabled{opacity:.5}</style>
+<h1>Ball truth — confirm or correct suggestions</h1>
+<p>Every visible ball counts. Normal labels default to match ball; review labels default to NOT the match ball. Enter/Space accepts a suggestion; click places a ball; N confirms no ball at all. M toggles match identity. C confirms the existing visible label as-is, NOT the match ball, preserving its coordinates and provenance. Arrows change frame; J/K change clip. Leave uncertain frames unlabelled. Suggestions never save themselves. Export JSONL as a backup.</p>
+<p id="safety" role="alert" hidden></p>
+<nav><button id="review">Review: any visible ball?</button><button id="match">M: toggle match ball</button><button id="confirm">C: confirm existing as-is</button><select id="clips" aria-label="Clip"></select><button id="prev">Previous</button><button id="next">Next</button><button id="target">Next unlabelled target</button><button id="unlabelled">Next unlabelled frame</button><button id="accept">Accept suggestion</button><button id="none">No ball at all</button><button id="clear">Clear label</button><button id="zoom">Native size</button><button id="export">Export JSONL</button><label>Import JSONL <input id="import" type="file" accept=".jsonl,.json,.txt"></label><p id="import-summary" role="status"></p><p id="progress"></p><p id="caption"></p><p id="status" role="status"></p></nav>
+<canvas id="canvas" aria-label="Click the ball centre in the frame"></canvas>
+<script>__IO__</script><script>__STORAGE__</script><script>
+const frames=__FRAMES__, suggestions=__SUGGESTIONS__, targets=__TARGETS__, initialReviewQueue=__QUEUE__, baseReviewKeys=new Set(__BASE_KEYS__), savedReviewSuggestions=__REVIEW_SUGGESTIONS__, seedRows=__LABELS__, storageKey=__KEY__, legacyKey=__LEGACY_KEY__;
+__PAGE_JS__
+</script></html>

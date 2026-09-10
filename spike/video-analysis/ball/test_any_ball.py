@@ -100,6 +100,7 @@ def test_n21_presets_and_exact_queue_order():
             }
         }
 
+    base_keys = set(labels)
     queue = review_queue(
         frames,
         labels,
@@ -108,6 +109,7 @@ def test_n21_presets_and_exact_queue_order():
             "a": output([(0, 0.8), (1, 0.9)]),
             "point": output([(2, 1)], False),
         },
+        base_keys=base_keys,
     )
     assert len(queue) == REVIEW_TOTAL
     assert [(r["t"], r["suggestion"]["source"]) for r in queue if r["suggestion"]] == [
@@ -116,18 +118,18 @@ def test_n21_presets_and_exact_queue_order():
     ]
     assert all(r["suggestion"] is None for r in queue[2:])
     assert (
-        rule_metadata(labels, "any_ball")["provisional"]
+        rule_metadata(labels, "any_ball", base_keys)["provisional"]
         == "PROVISIONAL: 0 of 188 review frames confirmed"
     )
     for row in labels.values():
         row.update(
             review_confirmed=True, needs_any_ball_review=False, needs_confirmation=False
         )
-    assert len(review_queue(frames, labels, {})) == 188
-    assert rule_metadata(labels, "any_ball")["provisional"] is None
+    assert len(review_queue(frames, labels, {}, base_keys)) == 188
+    assert rule_metadata(labels, "any_ball", base_keys)["provisional"] is None
     labels.pop(next(iter(labels)))
     assert (
-        rule_metadata(labels, "any_ball")["provisional"]
+        rule_metadata(labels, "any_ball", base_keys)["provisional"]
         == "PROVISIONAL: 187 of 188 review frames confirmed"
     )
 
@@ -208,7 +210,7 @@ def test_throughput_mismatch_before_runtime_or_load(tmp_path, monkeypatch, bad_i
 def test_browser_review_contract(tmp_path):
     pytest.importorskip("playwright.sync_api")
     from urllib.parse import quote
-    from ball_truth_kit import PAGE
+    from ball_truth_kit import render_page
     from check_any_ball_kit import check
 
     # Synthetic vector generated in memory; no source frames or private labels.
@@ -255,16 +257,16 @@ def test_browser_review_contract(tmp_path):
         {"clip": f["clip"], "t": f["t"], "suggestion": s}
         for f, s in zip(frames, suggestions)
     ]
-    page = PAGE.replace("__IO__", (HERE / "truth_io.js").read_text())
-    for key, value in {
-        "FRAMES": frames,
-        "LABELS": rows,
-        "QUEUE": queue,
-        "SUGGESTIONS": suggestions,
-        "TARGETS": [],
-        "KEY": "test-v1-storage",
-    }.items():
-        page = page.replace(f"__{key}__", json.dumps(value))
+    page = render_page(
+        frames,
+        rows,
+        queue,
+        suggestions,
+        [],
+        "ball-human-v2:test",
+        "ball-human-v1:test",
+        base_keys={(f["clip"], f["t"]) for f in frames},
+    )
     (tmp_path / "index.html").write_text(page)
     check(tmp_path)
 

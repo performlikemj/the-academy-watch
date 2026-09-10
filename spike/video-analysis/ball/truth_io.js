@@ -2,7 +2,7 @@
 (function (root) {
   function key(row) { return `${row.clip}|${row.t.toFixed(6)}`; }
   function validate(row, frames) {
-    if (!row || ['clip','t','visible','x','y'].some(k=>!(k in row)) || Object.keys(row).some(k=>!['clip','t','visible','x','y','source_accepted','accepted_source','accepted_score','schema_version','match_ball','review_frame','review_confirmed','needs_any_ball_review','needs_confirmation'].includes(k)) ||
+    if (!row || ['clip','t','visible','x','y'].some(k=>!(k in row)) || Object.keys(row).some(k=>!['clip','t','visible','x','y','source_accepted','accepted_source','accepted_score','schema_version','updated_at','match_ball','review_frame','review_confirmed','needs_any_ball_review','needs_confirmation'].includes(k)) ||
         typeof row.clip !== 'string' || !Number.isFinite(row.t) || typeof row.visible !== 'boolean')
       throw new Error('Expected {clip,t,x,y,visible}');
     const frame = frames.find(f => key(f) === key(row));
@@ -27,6 +27,8 @@
         Object.assign(row,{match_ball:false,needs_confirmation:true,review_frame:true,review_confirmed:false});
     }
     row.schema_version = 2;
+    if (!('updated_at' in row)) row.updated_at = 0;
+    if (!Number.isSafeInteger(row.updated_at) || row.updated_at < 0) throw new Error('updated_at must be nonnegative integer milliseconds');
     if (row.match_ball !== null && typeof row.match_ball !== 'boolean') throw new Error('Invalid match_ball');
     if (!row.visible && row.match_ball !== null) throw new Error('No-ball match_ball must be null');
     for (const k of ['review_frame','review_confirmed','needs_any_ball_review','needs_confirmation'])
@@ -47,7 +49,12 @@
     checked.sort((a,b) => a.clip.localeCompare(b.clip) || a.t-b.t);
     return checked.map(r => JSON.stringify(r)).join('\n') + (checked.length ? '\n' : '');
   }
-  const api = {key, validate, parse, serialize};
+  function pending(row) { return !!(row?.needs_any_ball_review || row?.needs_confirmation); }
+  function confirmed(row) { return !!row?.review_confirmed && !pending(row); }
+  function reviewKeys(labels, baseKeys) {
+    return new Set([...baseKeys, ...Object.values(labels).filter(pending).map(key)]);
+  }
+  const api = {key, validate, parse, serialize, pending, confirmed, reviewKeys};
   if (typeof module !== 'undefined') module.exports = api;
   else root.BallTruth = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

@@ -1,4 +1,4 @@
-"""Build-9 browser checks in isolated storage; no model runtime or MJ edits."""
+"""Build-10 browser checks in isolated storage; no model runtime or MJ edits."""
 
 from pathlib import Path
 import argparse
@@ -21,18 +21,25 @@ def check(kit, screenshot=None):
         errors = []
         page.on("pageerror", lambda e: errors.append(str(e)))
         page.goto((kit / "index.html").as_uri())
-        page.wait_for_function("imageReady")
+        page.evaluate("writes")
+        page.wait_for_function("initialized && imageReady")
         seed = page.evaluate("JSON.stringify(labels)")
-        assert page.evaluate("localStorage.length") == 0
+        assert page.evaluate(
+            "localStorage.getItem(storageKey)!==null && localStorage.getItem(legacyKey)===null"
+        )
         page.locator("#review").click()
-        page.wait_for_function("imageReady")
+        page.evaluate("writes")
+        page.wait_for_function("initialized && imageReady")
         assert page.locator("#progress").inner_text() == "reviewed 0 / 188"
         assert page.evaluate("JSON.stringify(labels)") == seed
-        assert page.evaluate("localStorage.length") == 0
+        assert page.evaluate(
+            "localStorage.getItem(storageKey)!==null && localStorage.getItem(legacyKey)===null"
+        )
         first = page.evaluate("api.key(frames[index])")
         page.locator("h1").click()
         page.keyboard.press("Enter")
-        page.wait_for_function("imageReady")
+        page.evaluate("writes")
+        page.wait_for_function("initialized && imageReady")
         row = page.evaluate("labels[api.key(frames[index])]")
         assert row["visible"] and row["match_ball"] is False and row["source_accepted"]
         assert row["review_confirmed"] and row["schema_version"] == 2
@@ -41,7 +48,8 @@ def check(kit, screenshot=None):
         )
         assert page.locator("#progress").inner_text() == "reviewed 1 / 188"
         page.keyboard.press("m")
-        page.wait_for_function("imageReady")
+        page.evaluate("writes")
+        page.wait_for_function("initialized && imageReady")
         assert page.evaluate("labels[api.key(frames[index])].match_ball")
         assert page.evaluate("labels[api.key(frames[index])].source_accepted")
         with page.expect_download() as download:
@@ -53,28 +61,34 @@ def check(kit, screenshot=None):
         assert accepted["accepted_score"] == row["accepted_score"]
         assert all(r["schema_version"] == 2 and "match_ball" in r for r in rows)
         page.locator("#canvas").click(position={"x": 100, "y": 100})
-        page.wait_for_function("imageReady")
+        page.evaluate("writes")
+        page.wait_for_function("initialized && imageReady")
         assert page.evaluate(
             "labels[api.key(frames[index])].match_ball===false && !labels[api.key(frames[index])].source_accepted && !('accepted_source' in labels[api.key(frames[index])])"
         )
         page.keyboard.press("n")
-        page.wait_for_function("imageReady")
+        page.evaluate("writes")
+        page.wait_for_function("initialized && imageReady")
         assert page.evaluate(
             "labels[api.key(frames[index])].visible===false && labels[api.key(frames[index])].match_ball===null && labels[api.key(frames[index])].review_confirmed"
         )
         page.keyboard.press("m")
         assert page.evaluate("labels[api.key(frames[index])].match_ball===null")
         page.keyboard.press("ArrowRight")
-        page.wait_for_function("imageReady")
+        page.evaluate("writes")
+        page.wait_for_function("initialized && imageReady")
         assert page.evaluate("api.key(frames[index])") != first
         page.keyboard.press("ArrowLeft")
-        page.wait_for_function("imageReady")
+        page.evaluate("writes")
+        page.wait_for_function("initialized && imageReady")
         assert page.evaluate("api.key(frames[index])") == first
         page.keyboard.press("j")
-        page.wait_for_function("imageReady")
+        page.evaluate("writes")
+        page.wait_for_function("initialized && imageReady")
         next_clip = page.evaluate("frames[index].clip")
         page.keyboard.press("k")
-        page.wait_for_function("imageReady")
+        page.evaluate("writes")
+        page.wait_for_function("initialized && imageReady")
         assert page.evaluate("frames[index].clip") != next_clip
         # Actual import merges old storage, preserving accepted-vs-hand details.
         page.locator("#import").set_input_files(
@@ -84,43 +98,51 @@ def check(kit, screenshot=None):
                 "buffer": exported.encode(),
             }
         )
-        page.wait_for_function("imageReady")
+        page.evaluate("writes")
+        page.wait_for_function("initialized && imageReady")
         page.reload()
-        page.wait_for_function("imageReady")
+        page.evaluate("writes")
+        page.wait_for_function("initialized && imageReady")
         assert page.evaluate(
             "Object.values(labels).some(r=>r.review_confirmed && r.source_accepted && r.match_ball)"
         )
         # Normal mode keeps default match=true and the old storage key.
         assert not page.evaluate("reviewMode")
         page.locator("#canvas").click(position={"x": 100, "y": 100})
-        page.wait_for_function("imageReady")
+        page.evaluate("writes")
+        page.wait_for_function("initialized && imageReady")
         assert page.evaluate("labels[api.key(frames[index])].match_ball===true")
         page.keyboard.press("m")
-        page.wait_for_function("imageReady")
+        page.evaluate("writes")
+        page.wait_for_function("initialized && imageReady")
         assert page.evaluate("labels[api.key(frames[index])].match_ball===false")
         page.evaluate(
-            'localStorage.setItem(storageKey,JSON.stringify({clip:frames[0].clip,t:frames[0].t,x:10,y:20,visible:true,source_accepted:true,accepted_source:"legacy",accepted_score:0.7})+"\\n")'
+            'localStorage.removeItem(storageKey);localStorage.setItem(legacyKey,JSON.stringify({clip:frames[0].clip,t:frames[0].t,x:10,y:20,visible:true,source_accepted:true,accepted_source:"legacy",accepted_score:0.7})+"\\n")'
         )
         page.reload()
-        page.wait_for_function("imageReady")
+        page.evaluate("writes")
+        page.wait_for_function("initialized && imageReady")
         assert page.evaluate(
             "labels[api.key(frames[0])].accepted_source==='legacy' && labels[api.key(frames[0])].schema_version===2"
         )
         assert not errors, errors
         if screenshot:
             page.locator("#review").click()
-            page.wait_for_function("imageReady")
+            page.wait_for_function("initialized && imageReady")
+            page.evaluate("writes")
             screenshot.parent.mkdir(parents=True, exist_ok=True)
             page.screenshot(path=str(screenshot))
         browser.close()
     print(
-        "Chromium PASS: seed/no auto-save; review Enter/click/N/M/arrows/J/K; normal defaults; v2 export/provenance/import; legacy storage"
+        "Chromium PASS: seed/no suggestion auto-save; review keys; normal defaults; v2 export/provenance/import; one-time legacy input"
     )
 
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--kit", type=Path, default=Path.home() / "ball-truth-review")
+    p.add_argument(
+        "--kit", type=Path, default=Path.home() / "ball-truth-review-build10"
+    )
     p.add_argument("--screenshot", type=Path)
     a = p.parse_args()
     check(a.kit, a.screenshot)

@@ -1,5 +1,9 @@
 # Local ball bench: MJ human truth
 
+The current click kit is **build 10**, in its own versioned directory. See the
+[storage safety fixes](#build-10--storage-and-review-safety-fixes) before labelling;
+build 9 and its shared-storage instructions below are historical.
+
 MJ's September 11 product decision: **RF-DETR (Apache-2.0)** is the product model.
 **ultralytics is bench-only and must not enter the serving path; the product model
 is RF-DETR (Apache-2.0).** The YOLO trainer and saved results remain comparison
@@ -575,7 +579,7 @@ One MJ decision must cover s0–s10: any visible ball or match ball only; curren
 labels follow neither rule consistently. The pending decision is not applied to
 the real labels, gate, thresholds or kit selection.
 
-### Rule A — build 9 (2026-09-11)
+### Historical Rule A — build 9 (2026-09-11)
 
 MJ adopted **every visible ball counts**: match, spare and kick-about balls are
 all detector positives. `visible:false` means no visible ball of any kind.
@@ -652,3 +656,79 @@ summary **before any model/runtime load or quiet wait**, outside timing. Recorde
 throughput results are unchanged. Historical `train_tiny_ball.py:585` stamps the
 observed weights hash in the same run that trained those weights; it is historical
 and unused here, not an independent post-training integrity declaration.
+
+### Build 10 — storage and review safety fixes
+
+Use `~/ball-truth-review-build10/index.html` for new labelling. Build 9 is
+superseded. Build 10 uses `ball-human-v2:{frozen_set_id}:{source}:fps2` and reads
+the old v1 key only during first-open bootstrap when no v2 value exists. It
+never writes the v1 key. Seed/migrated rows have `updated_at:0`; edits and imports
+stamp integer milliseconds. Existing labels, including accepted-source provenance,
+remain intact across migration.
+
+V2 storage is one validated envelope containing labels and timestamped deletion
+records. Every save re-reads storage and merges the newest timestamp per label;
+Web Locks serializes tab writes in Chromium. Storage events merge updates and
+show “labels changed in another tab”. Clear records stop stale tabs resurrecting
+removed labels. Exported JSONL contains the surviving label rows, with timestamps.
+
+Invalid stored labels or clear history force **READ-ONLY** mode. Enter, click,
+N, M, C and Clear cannot save. Export creates a recovery backup including the raw
+stored value. Re-import repaired JSONL, inspect the import counts and explicitly
+confirm replacement to recover; unreadable storage is never silently overwritten.
+An ordinary import reports new, changed, unchanged and would-downgrade-confirmed
+counts (ignoring timestamp-only differences). Replacing confirmed reviews with
+unconfirmed or v1 rows requires explicit confirmation; cancellation changes nothing.
+
+**C** in review mode confirms the current visible label as-is, NOT the match ball.
+It keeps x/y and accepted-source/manual provenance, clears pending flags and
+records confirmation. Enter still accepts the displayed suggestion and its source.
+
+The key-only `fixtures/any_ball_review_keys.json` freezes the original 188 frame
+identities; it contains no label values, boxes or pixel coordinates. The queue is
+those keys plus every label with `needs_any_ball_review` or `needs_confirmation`.
+The kit updates membership after import/storage changes and has saved suggestions
+for the entire frame catalog. A non-queue row's `review_confirmed` flag cannot
+increase progress. Scoring remains PROVISIONAL while any pending row exists or
+any queue key is absent/unconfirmed; its denominator expands with pending rows.
+Historical scores and the committed headline are unchanged. F5 (multiple balls
+per frame) remains explicitly deferred pending MJ's decision.
+
+Before syncing a fresh laptop export, compare its values against the immutable
+original. The command reports added/removed/changed identities and changed fields,
+ignoring file order, JSON key order and whitespace:
+
+```sh
+~/Projects/loanarmy/.loan/bin/python spike/video-analysis/ball/compare_label_exports.py \
+  ~/codex-runs/ball-human-truth.jsonl /path/to/fresh-mj-export.jsonl
+# If different, use the NEW export as input and NEW names for all outputs:
+~/Projects/loanarmy/.loan/bin/python spike/video-analysis/ball/any_ball_review.py \
+  --input /path/to/fresh-mj-export.jsonl \
+  --output /new/revision/ball-human-truth-v2-build10.jsonl \
+  --kit /new/revision/ball-truth-review-build10 \
+  --sync /new/sync/ball-truth-review-build10
+```
+
+`any_ball_review.py` also includes the value diff against the immutable baseline
+in its migration audit. This build used the existing original export; no fresh
+laptop export was available. Its new seed is
+`~/codex-runs/ball-human-truth-v2-build10.jsonl`; both prior JSONLs remain immutable.
+The initial queue is still exactly 188 entries in the same order, 126 suggestions,
+0 confirmations, and all 688 normal suggestions are retained.
+
+Builders require a **new versioned directory** ending `-build10`, refuse existing
+builds and shared frame directories, and never extract or copy frames. The page
+points at `../ball-truth-review/` on basecamp. Sync the five files in
+`~/codex-runs/ball-truth-review-build10/` to the sibling laptop directory
+`~/ball-truth-review-build10/`, preserving that relative frame path:
+`index.html`, `build.json`, `any-ball-review.json`, `review-suggestions.json`,
+`migration.json`. Do not overlay an old kit. The verified build-8 copy remains at
+`~/codex-runs/ball-truth-review-build8/`; its page/build hashes are in WORK_LOG.md.
+
+```sh
+# Synthetic browser regressions run within pytest in the existing RF environment:
+~/models/tinyball/.venv-mj/bin/python -m pytest spike/video-analysis/ball/test_kit_safety.py -q
+# Real kit and exact preserved build-8 page, always isolated browser storage:
+~/models/tinyball/.venv-mj/bin/python spike/video-analysis/ball/check_any_ball_kit.py
+~/models/tinyball/.venv-mj/bin/python spike/video-analysis/ball/check_build10_private.py
+```
