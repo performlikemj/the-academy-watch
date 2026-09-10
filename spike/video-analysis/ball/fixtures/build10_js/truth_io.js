@@ -1,0 +1,60 @@
+/* Shared browser/Node JSONL contract; no unchecked or default-negative labels. */
+(function (root) {
+  function key(row) { return `${row.clip}|${row.t.toFixed(6)}`; }
+  function validate(row, frames) {
+    if (!row || ['clip','t','visible','x','y'].some(k=>!(k in row)) || Object.keys(row).some(k=>!['clip','t','visible','x','y','source_accepted','accepted_source','accepted_score','schema_version','updated_at','match_ball','review_frame','review_confirmed','needs_any_ball_review','needs_confirmation'].includes(k)) ||
+        typeof row.clip !== 'string' || !Number.isFinite(row.t) || typeof row.visible !== 'boolean')
+      throw new Error('Expected {clip,t,x,y,visible}');
+    const frame = frames.find(f => key(f) === key(row));
+    if (!frame) throw new Error('Unknown clip/time');
+    if (row.visible) {
+      if (!Number.isFinite(row.x) || !Number.isFinite(row.y) || row.x < 0 || row.y < 0 ||
+          row.x >= frame.source_size[0] || row.y >= frame.source_size[1])
+        throw new Error('Coordinates must be within source frame');
+    } else if (row.x !== null || row.y !== null) throw new Error('Invisible coordinates must be null');
+    if ('source_accepted' in row && typeof row.source_accepted !== 'boolean') throw new Error('source_accepted must be boolean');
+    if(row.source_accepted) {
+      if(!row.visible || typeof row.accepted_source !== 'string' || !row.accepted_source || !Number.isFinite(row.accepted_score) || row.accepted_score < 0 || row.accepted_score > 1) throw new Error('Accepted suggestion provenance required');
+    } else if ('accepted_source' in row || 'accepted_score' in row) throw new Error('Provenance requires acceptance');
+    row = {...row, t: frame.t};
+    const version = 'schema_version' in row ? row.schema_version : ('match_ball' in row ? 2 : 1);
+    if (![1,2].includes(version)) throw new Error('Unsupported schema version');
+    if (version === 2 && !('match_ball' in row)) throw new Error('v2 requires match_ball');
+    if (version === 1) {
+      row.match_ball = row.visible ? true : null;
+      if (!row.visible) Object.assign(row,{review_frame:true,review_confirmed:false,needs_any_ball_review:true});
+      if (row.visible && row.clip === 'm04-n21-t3011-390297-390800' && frame.sample_index < 6)
+        Object.assign(row,{match_ball:false,needs_confirmation:true,review_frame:true,review_confirmed:false});
+    }
+    row.schema_version = 2;
+    if (!('updated_at' in row)) row.updated_at = 0;
+    if (!Number.isSafeInteger(row.updated_at) || row.updated_at < 0) throw new Error('updated_at must be nonnegative integer milliseconds');
+    if (row.match_ball !== null && typeof row.match_ball !== 'boolean') throw new Error('Invalid match_ball');
+    if (!row.visible && row.match_ball !== null) throw new Error('No-ball match_ball must be null');
+    for (const k of ['review_frame','review_confirmed','needs_any_ball_review','needs_confirmation'])
+      if (k in row && typeof row[k] !== 'boolean') throw new Error(k+' must be boolean');
+    if (row.review_confirmed && (!row.review_frame || row.needs_any_ball_review || row.needs_confirmation)) throw new Error('Confirmed review cannot remain pending');
+    return row;
+  }
+  function parse(text, frames) {
+    const seen = new Set();
+    return text.split(/\r?\n/).filter(s => s.trim()).map(line => {
+      const row = validate(JSON.parse(line), frames), id = key(row);
+      if (seen.has(id)) throw new Error('Duplicate clip/time');
+      seen.add(id); return row;
+    });
+  }
+  function serialize(rows, frames) {
+    const checked = parse(rows.map(r => JSON.stringify(r)).join('\n'), frames);
+    checked.sort((a,b) => a.clip.localeCompare(b.clip) || a.t-b.t);
+    return checked.map(r => JSON.stringify(r)).join('\n') + (checked.length ? '\n' : '');
+  }
+  function pending(row) { return !!(row?.needs_any_ball_review || row?.needs_confirmation); }
+  function confirmed(row) { return !!row?.review_confirmed && !pending(row); }
+  function reviewKeys(labels, baseKeys) {
+    return new Set([...baseKeys, ...Object.values(labels).filter(pending).map(key)]);
+  }
+  const api = {key, validate, parse, serialize, pending, confirmed, reviewKeys};
+  if (typeof module !== 'undefined') module.exports = api;
+  else root.BallTruth = api;
+})(typeof globalThis !== 'undefined' ? globalThis : this);

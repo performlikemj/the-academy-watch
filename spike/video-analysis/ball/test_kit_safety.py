@@ -293,12 +293,10 @@ def test_import_counts_and_confirmation_downgrade_guard(browser, kit, version):
         upload(page, [legacy])
         assert current(page) == protected
         summary = page.locator("#import-summary").inner_text()
-        assert "0 new, 1 changed, 0 unchanged, 1 would-downgrade-confirmed" in summary
-        assert dialogs and "Replace confirmed reviews" in dialogs[0]
-        page.once("dialog", lambda d: d.accept())
+        assert "skipped 1 rows older than what is saved here" in summary
+        assert not dialogs
         upload(page, [legacy])
-        assert not current(page).get("review_confirmed", False)
-        assert current(page)["updated_at"] > protected["updated_at"]
+        assert current(page) == protected
         upload(page, [current(page)])
         assert (
             "0 new, 0 changed, 1 unchanged"
@@ -325,7 +323,11 @@ def test_dynamic_queue_and_confirm_as_is(browser, kit):
         extra = {**kit["rows"][-1], "review_frame": True, "review_confirmed": True}
         upload(page, [extra])
         assert page.locator("#progress").inner_text() == "reviewed 1 / 188"
-        extra.update(review_confirmed=False, needs_any_ball_review=True)
+        extra.update(
+            review_confirmed=False,
+            needs_any_ball_review=True,
+            updated_at=page.evaluate("store.clock(state)"),
+        )
         page.once("dialog", lambda d: d.accept())
         upload(page, [extra])
         assert page.locator("#progress").inner_text() == "reviewed 1 / 189"
@@ -415,10 +417,10 @@ def test_versioned_build_shared_frames_and_no_overwrite(tmp_path, monkeypatch):
     monkeypatch.setattr(
         human_loop, "review_plan", lambda _: {"on_ball": [], "off_pitch": []}
     )
-    out = tmp_path / "test-build11"
+    out = tmp_path / "test-build12"
     ball_truth_kit.build(None, DEFAULT_SOURCE, out, frames_dir=shared)
     meta = json.loads((out / "build.json").read_text())
-    assert meta["build_version"] == 11 and meta["shared_frames"] == "../shared"
+    assert meta["build_version"] == 12 and meta["shared_frames"] == "../shared"
     assert '"path": "../shared/frame.svg"' in (out / "index.html").read_text()
     assert meta["storage_key"].startswith("ball-human-v2:")
     assert meta["legacy_input_key"].startswith("ball-human-v1:")
@@ -470,19 +472,27 @@ def test_same_confirmed_import_requires_approval_and_cancel_keeps_storage(
         upload(page, [incoming])
         assert current(page) == original
         assert page.evaluate("localStorage.getItem(storageKey)") == before
-        stale = int(age == "stale")
-        assert (
-            f"would replace 1 confirmed decisions ({stale} of them newer locally)"
-            in messages[0]
-        )
-        assert f"{stale} STALE" in page.locator("#import-summary").inner_text()
-        page.once("dialog", lambda d: d.accept())
-        upload(page, [incoming])
-        after = current(page)
-        assert {k: v for k, v in after.items() if k != "updated_at"} == {
-            k: v for k, v in incoming.items() if k != "updated_at"
-        }
-        assert after["updated_at"] > original["updated_at"]
+        if age == "stale":
+            assert messages == []
+            assert (
+                "skipped 1 rows older than what is saved here"
+                in page.locator("#import-summary").inner_text()
+            )
+            upload(page, [incoming])
+            assert (
+                current(page) == original
+                and page.evaluate("localStorage.getItem(storageKey)") == before
+            )
+        else:
+            assert "would replace 1 confirmed decisions" in messages[0]
+            assert "skipped 0 rows" in page.locator("#import-summary").inner_text()
+            page.once("dialog", lambda d: d.accept())
+            upload(page, [incoming])
+            after = current(page)
+            assert {k: v for k, v in after.items() if k != "updated_at"} == {
+                k: v for k, v in incoming.items() if k != "updated_at"
+            }
+            assert after["updated_at"] > original["updated_at"]
 
 
 def test_equal_timestamps_preserve_confirmation_and_show_conflict(browser, kit):
@@ -518,7 +528,7 @@ def test_legacy_hash_warns_on_later_open_without_merging(browser, kit):
         page = open_page(context, kit)
         before = page.evaluate("localStorage.getItem(storageKey)")
         baseline = page.evaluate("localStorage.getItem(legacyHashKey)")
-        assert len(baseline) == 64
+        assert baseline.startswith("fnv1a64-v1:")
         legacy = {
             "clip": kit["rows"][0]["clip"],
             "t": 0,
@@ -533,7 +543,7 @@ def test_legacy_hash_warns_on_later_open_without_merging(browser, kit):
         page.reload()
         settle(page)
         assert (
-            page.locator("#legacy-warning").inner_text()
+            page.locator("#legacy-message").inner_text()
             == "The old click page was used after this page started. Export from it and import here to include those labels."
         )
         assert page.evaluate("localStorage.getItem(storageKey)") == before

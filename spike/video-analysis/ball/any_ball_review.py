@@ -75,11 +75,11 @@ def main():
     p.add_argument(
         "--output",
         type=Path,
-        default=home / "codex-runs/ball-human-truth-v2-build11.jsonl",
+        default=home / "codex-runs/ball-human-truth-v2-build12.jsonl",
     )
-    p.add_argument("--kit", type=Path, default=home / "ball-truth-review-build11")
+    p.add_argument("--kit", type=Path, default=home / "ball-truth-review-build12")
     p.add_argument(
-        "--sync", type=Path, default=home / "codex-runs/ball-truth-review-build11"
+        "--sync", type=Path, default=home / "codex-runs/ball-truth-review-build12"
     )
     p.add_argument(
         "--baseline", type=Path, default=home / "codex-runs/ball-human-truth.jsonl"
@@ -97,8 +97,8 @@ def main():
         p.error("sync build already exists; use a new sync directory")
     if (a.kit / "index.html").exists() or (a.kit / "build.json").exists():
         p.error("kit directory already contains a build; use a new directory")
-    if a.kit.resolve() == a.frames_dir.resolve() or not a.kit.name.endswith("-build11"):
-        p.error("use a separate versioned kit directory ending -build11")
+    if a.kit.resolve() == a.frames_dir.resolve() or not a.kit.name.endswith("-build12"):
+        p.error("use a separate versioned kit directory ending -build12")
     m = load_measurements()
     frames = frame_catalog(m)
     labels = import_labels(a.input, frames)

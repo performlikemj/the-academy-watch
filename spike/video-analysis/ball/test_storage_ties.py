@@ -57,15 +57,19 @@ KINDS = ("unconfirmed", "clear", "confirmed")
 @pytest.mark.parametrize("local", KINDS)
 @pytest.mark.parametrize("stored", KINDS)
 def test_every_equal_timestamp_pair(local, stored):
-    result = merge(state(local), state(stored))
+    result = merge(state(local, x=10), state(stored, x=30))
     winner = max((local, stored), key=KINDS.index)
     if winner == "clear":
         assert result["result"]["labels"] == {}
         assert result["result"]["deleted"] == {KEY: 100}
     else:
-        assert result["result"]["labels"][KEY] == state(winner)["labels"][KEY]
+        expected_x = 30 if stored == winner else 10
+        assert (
+            result["result"]["labels"][KEY]
+            == state(winner, x=expected_x)["labels"][KEY]
+        )
         assert result["result"]["deleted"] == {}
-    assert result["conflicts"] == []
+    assert len(result["conflicts"]) == int(local == stored == "confirmed")
 
 
 @pytest.mark.parametrize("local", KINDS)

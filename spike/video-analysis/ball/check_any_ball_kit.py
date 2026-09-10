@@ -1,4 +1,4 @@
-"""Build-11 browser checks in isolated storage; no model runtime or MJ edits."""
+"""Build-12 browser checks in isolated storage; no model runtime or MJ edits."""
 
 from pathlib import Path
 import argparse
@@ -90,8 +90,9 @@ def check(kit, screenshot=None):
         page.evaluate("writes")
         page.wait_for_function("initialized && imageReady")
         assert page.evaluate("frames[index].clip") != next_clip
-        # Explicitly approve restoring this backup over a changed confirmed row.
-        page.once("dialog", lambda d: d.accept())
+        # Stale backups never replace newer decisions, even if a dialog is accepted.
+        saved = page.evaluate("labels")
+        page.on("dialog", lambda d: d.accept())
         page.locator("#import").set_input_files(
             {
                 "name": "truth.jsonl",
@@ -99,14 +100,13 @@ def check(kit, screenshot=None):
                 "buffer": exported.encode(),
             }
         )
+        page.wait_for_function("document.getElementById('import').value===''")
         page.evaluate("writes")
         page.wait_for_function("initialized && imageReady")
         page.reload()
         page.evaluate("writes")
         page.wait_for_function("initialized && imageReady")
-        assert page.evaluate(
-            "Object.values(labels).some(r=>r.review_confirmed && r.source_accepted && r.match_ball)"
-        )
+        assert page.evaluate("labels") == saved
         # Normal mode keeps default match=true and the old storage key.
         assert not page.evaluate("reviewMode")
         page.locator("#canvas").click(position={"x": 100, "y": 100})
@@ -142,7 +142,7 @@ def check(kit, screenshot=None):
 if __name__ == "__main__":
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument(
-        "--kit", type=Path, default=Path.home() / "ball-truth-review-build11"
+        "--kit", type=Path, default=Path.home() / "ball-truth-review-build12"
     )
     p.add_argument("--screenshot", type=Path)
     a = p.parse_args()

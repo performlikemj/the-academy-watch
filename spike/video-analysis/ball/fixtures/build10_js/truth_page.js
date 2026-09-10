@@ -9,38 +9,6 @@ const canvas=document.getElementById('canvas'), ctx=canvas.getContext('2d'), cli
 let state=store.empty(), labels={}, reviewKeys=new Set(), reviewQueue=[], reviewMode=false;
 let index=0, generation=0, imageReady=false, initialized=false, readOnly=false, recoveryExported=false;
 let recoveryRaw=null, writes=Promise.resolve();
-let conflictCount=0;
-const seenConflicts=new Set(), legacyHashKey=storageKey+':legacy-sha256';
-function recordConflict(key,local,stored) {
-  const signature=JSON.stringify([key,local.updated_at,[store.values(local),store.values(stored)].sort()]);
-  if(seenConflicts.has(signature))return;
-  seenConflicts.add(signature);conflictCount++;
-  const notice=document.getElementById('conflicts');notice.hidden=false;
-  notice.textContent=`Merge conflicts: ${conflictCount}. Kept the confirmed decision already in storage. Review or export before changing it.`;
-}
-// Change detector only, not a cryptographic integrity hash. Works on plain HTTP.
-function legacyHash(raw) {
-  let hash=0xcbf29ce484222325n;
-  for(const byte of new TextEncoder().encode(JSON.stringify(raw))) hash=BigInt.asUintN(64,(hash^BigInt(byte))*0x100000001b3n);
-  return 'fnv1a64-v1:'+hash.toString(16).padStart(16,'0');
-}
-function checkLegacyHash(raw=localStorage.getItem(legacyKey), rebaseline=false) {
-  const hash=legacyHash(raw), baseline=localStorage.getItem(legacyHashKey);
-  if(rebaseline || !/^fnv1a64-v1:[0-9a-f]{16}$/.test(baseline||''))localStorage.setItem(legacyHashKey,hash);
-  const changed=localStorage.getItem(legacyHashKey)!==hash;
-  document.getElementById('legacy-warning').hidden=!changed;
-}
-function acknowledgesLegacy(rows) {
-  const raw=localStorage.getItem(legacyKey);
-  if(!raw?.trim())return null;
-  try {
-    const imported=new Map(rows.map(r=>[api.key(r),store.values(r)]));
-    return api.parse(raw,frames).every(row=>imported.get(api.key(row))===store.values(row))?raw:null;
-  } catch (_) {return null;} // A partial/invalid old export cannot acknowledge it.
-}
-document.getElementById('dismiss-legacy').onclick=()=>enqueue(()=> {
-  if(window.confirm("Dismiss the warning? Confirm that you imported the old page's labels."))checkLegacyHash(undefined,true);
-});
 const confirmed=api.confirmed;
 for(const clip of [...new Set(frames.map(f=>f.clip))]) {
   const o=document.createElement('option');o.value=clip;o.textContent=clip;clips.appendChild(o);
@@ -74,7 +42,7 @@ function enqueue(task) {
 }
 function refreshStored() {
   const stored=store.parse(localStorage.getItem(storageKey),frames);
-  state=store.merge(state,stored,recordConflict);
+  state=store.merge(state,stored);
   rebuildQueue();
   return stored;
 }
@@ -197,58 +165,41 @@ document.getElementById('export').onclick=async()=> {
   if(readOnly) {download(JSON.stringify({storage_key:storageKey,...recoveryRaw,validated_labels:Object.values(labels)},null,2),'ball-truth-recovery.json');recoveryExported=true;}
   else {try{await locked(()=>refreshStored());download(api.serialize(Object.values(labels),frames),'ball-human-truth-v2.jsonl');}catch(e){failClosed(e);show();}}
 };
-function importPlan(rows) {
-  const counts={new:0,changed:0,unchanged:0,replace_confirmed:0,restores:0,restoreEligible:0};
-  const eligible=[], skipped=[];
+function importPlan(rows, legacy) {
+  const counts={new:0,changed:0,unchanged:0,would_downgrade_confirmed:0};
   for(const row of rows) {
-    const key=api.key(row), old=labels[key], cleared=state.deleted[key];
-    const decisionTime=Math.max(old?.updated_at??-1,cleared??-1);
-    const restores=!old && cleared!==undefined;
-    if(restores)counts.restores++;
-    if(row.updated_at<decisionTime || (cleared!==undefined && row.updated_at<=cleared)) {
-      skipped.push(key);continue;
-    }
-    const changed=store.values(old)!==store.values(row);
-    counts[!old&&!restores?'new':changed?'changed':'unchanged']++;
-    if(changed && confirmed(old))counts.replace_confirmed++;
-    if(restores)counts.restoreEligible++;
-    eligible.push(row);
+    const old=labels[api.key(row)];
+    counts[!old?'new':store.values(old)===store.values(row)?'unchanged':'changed']++;
+    if(confirmed(old)&&(!confirmed(row)||legacy.has(api.key(row))))counts.would_downgrade_confirmed++;
   }
-  return {counts,eligible,skipped};
+  return counts;
 }
 document.getElementById('import').onchange=async e=> {
   try {
     const text=await e.target.files[0].text(), rows=api.parse(text,frames);
+    const legacy=new Set(text.split(/\r?\n/).filter(s=>s.trim()).map(s=>JSON.parse(s)).filter(r=>!('match_ball' in r)||r.schema_version===1).map(api.key));
     await enqueue(()=> {
       if(!readOnly) refreshStored();
-      const storedBefore=localStorage.getItem(storageKey);
-      const {counts,eligible,skipped}=importPlan(rows);
-      const summary=`Import: ${counts.new} new, ${counts.changed} changed, ${counts.unchanged} unchanged; would replace ${counts.replace_confirmed} confirmed decisions; ${counts.restores} restores a cleared frame (${counts.restoreEligible} eligible). skipped ${skipped.length} rows older than what is saved here.`+(skipped.length?` Skipped keys (first 20): ${skipped.slice(0,20).join(', ')}${skipped.length>20?`; ${skipped.length-20} more`:''}.`:'');
+      const counts=importPlan(rows,legacy);
+      const summary=`Import: ${counts.new} new, ${counts.changed} changed, ${counts.unchanged} unchanged, ${counts.would_downgrade_confirmed} would-downgrade-confirmed.`;
       document.getElementById('import-summary').textContent=summary;
       if(readOnly) {
         if(!recoveryExported) {status.textContent='Export the recovery backup before re-importing.';return;}
         if(!window.confirm(summary+' Replace unreadable v2 storage with these validated rows?'))return;
         // Do not overwrite storage that changed after the recovery backup.
         if(localStorage.getItem(storageKey)!==recoveryRaw.v2)throw new Error('Storage changed since recovery export. Export a fresh backup and re-import.');
-      } else if((counts.replace_confirmed || counts.restoreEligible) && !window.confirm(summary+' Apply eligible rows that replace confirmed decisions or restore cleared frames? Stale rows are always skipped. Cancel keeps stored decisions exactly.')) {
+      } else if(counts.would_downgrade_confirmed && !window.confirm(summary+' Replace confirmed reviews with unconfirmed or legacy rows?')) {
         status.textContent='Import cancelled; confirmed reviews preserved.';return;
       }
-      if(localStorage.getItem(storageKey)!==storedBefore)throw new Error('Storage changed during import. Re-import to review the latest decisions.');
       const recovering=readOnly;
       if(recovering)state=store.empty();
       const time=store.clock(state);
-      for(const row of eligible) {
+      for(const row of rows) {
         const key=api.key(row);
         if(recovering||store.values(state.labels[key])!==store.values(row))state.labels[key]=put(row,time);
       }
       // This is a validated, explicit recovery/import, not an edit through save().
-      persist();
-      const acknowledged=acknowledgesLegacy(rows);
-      if(acknowledged!==null) {
-        checkLegacyHash(acknowledged,true); // Baseline exactly the value we compared.
-        checkLegacyHash(); // A concurrent legacy edit must still warn.
-      }
-      readOnly=false;recoveryExported=false;safety.hidden=true;
+      persist();readOnly=false;recoveryExported=false;safety.hidden=true;
       document.getElementById('export').textContent='Export JSONL';
       rebuildQueue();show();status.textContent='Import saved. '+summary;
     });
@@ -256,7 +207,6 @@ document.getElementById('import').onchange=async e=> {
   finally {e.target.value='';}
 };
 window.addEventListener('storage',e=> {
-  if(e.key===legacyKey || e.key===legacyHashKey) {enqueue(()=>checkLegacyHash());return;}
   if(e.key!==storageKey&&e.key!==null)return;
   if(readOnly)return;
   enqueue(()=>{if(readOnly)return;refreshStored();persist();show();status.textContent='labels changed in another tab';});
@@ -273,21 +223,20 @@ document.addEventListener('keydown',e=> {
   if(key==='j'||key==='k')moveClip(key==='j'?1:-1);
   if(key==='arrowright')move(1);if(key==='arrowleft')move(-1);
 });
-enqueue(async()=> {
+enqueue(()=> {
   try {
-    const raw=localStorage.getItem(storageKey), legacyRaw=localStorage.getItem(legacyKey);
+    state=store.fromRows(api.parse(seedRows.map(r=>JSON.stringify(r)).join('\n'),frames));
+    const raw=localStorage.getItem(storageKey);
     if(raw!==null && raw!=='')state=store.parse(raw,frames);
     else {
-      state=store.fromRows(api.parse(seedRows.map(r=>JSON.stringify(r)).join('\n'),frames));
-      // Legacy is bootstrap input only; later reads hash it, never merge it again.
-      const legacy=api.parse(legacyRaw||'',frames);
+      // Legacy is bootstrap input only. Never write or subsequently re-read it.
+      const legacy=api.parse(localStorage.getItem(legacyKey)||'',frames);
       for(const row of legacy)state.labels[api.key(row)]=row;
       const cleared=JSON.parse(localStorage.getItem(legacyKey+':cleared')||'[]');
       if(!Array.isArray(cleared)||cleared.some(k=>typeof k!=='string'||!(k in byKey)))throw new Error('Invalid legacy cleared-label history');
       for(const key of cleared) {state.deleted[key]=store.clock(state);delete state.labels[key];}
       persist();
     }
-    await checkLegacyHash(legacyRaw);
   } catch(error) {failClosed(error);}
   initialized=true;show();
 });
