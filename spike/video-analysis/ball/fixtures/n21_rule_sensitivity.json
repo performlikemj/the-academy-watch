@@ -1,0 +1,478 @@
+{
+  "definition": "Counterfactuals only; labels, TRAIN thresholds, gate and selection unchanged. As-labelled uses244 visible /60 no-ball frames. Match-ball-only removes the six visible background-ball labels (238 visible), counts all their retained boxes false and expands the no-ball denominator to66. Any-visible-ball false rate preserves the prior credit-only sensitivity: subtract visually identified ball boxes on s8\u2013s10 and retain the original60-frame exposure; it is not a fully relabelled no-ball-frame rate. For any-visible-ball overall top-1 recall only, add s8\u2013s10 as three provisional visible references (247 total), using source-inspected old RF b box centres and the unchanged20px rule, not MJ-confirmed new clicks. s6 remains no-ball; s7 is unresolved and unchanged. At s10 a higher-confidence footwear box lies within20px of the ball, so the requested geometric metric can count it as a provisional hit even though only the actual ball box receives a false-box credit. These proxy recall numbers require MJ adjudication, and must not be used as new ground truth.",
+  "detections_sha256": {
+    "rf-b": "5a72721b47ada1bc0f67656c6a26c624965dc5857732d8e1531ec184165e7273",
+    "rf-r5-a": "193ea81c9801b6141a323429344fbe06c070d0c007265bcedceea6299a46c60b",
+    "rf-r5-b": "81f3af4d72aae7719ecf8289bbf2fc91cde2e9b4d3f550e0705d477ce699ed2c",
+    "yolo-r2-b": "175cd2a1cc4216f32bcc3b184edd76e6f524d165bb54b0ce4353ed57fa5f6ba4"
+  },
+  "labels_sha256": "a0f51b42cb95e5327bf45fd353fd46f50495f99c096709b8836c7309ed2373ff",
+  "old_rf_box_centre_distances_px": [
+    82.23977820725898,
+    139.17018172700867,
+    161.4199456444164,
+    155.29551363478973,
+    115.14943627764278,
+    73.79319514201951
+  ],
+  "pending": "one MJ decision covering n21 s0-s10: count any visible ball, or the match ball only; the current labels follow neither rule consistently",
+  "reviewer_flagged_spot_distances_px": [
+    86,
+    142,
+    164,
+    158,
+    118,
+    77
+  ],
+  "rows": [
+    {
+      "model": "yolo-r2-b",
+      "on_ball_recall_unchanged": 0.6639344262295082,
+      "rules": {
+        "any_visible_ball": {
+          "direction_vs_yolo": {
+            "false": "same",
+            "recall": "same"
+          },
+          "false_boxes": 5,
+          "false_delta_vs_yolo": 0.0,
+          "false_exposure_frames": 60,
+          "false_per_10s": 1.6666666666666667,
+          "overall_top1_recall": 0.4291497975708502,
+          "recall_delta_pp_vs_yolo": 0.0,
+          "top1_hits": 106,
+          "visible": 247
+        },
+        "as_labelled": {
+          "direction_vs_yolo": {
+            "false": "same",
+            "recall": "same"
+          },
+          "false_boxes": 5,
+          "false_delta_vs_yolo": 0.0,
+          "false_exposure_frames": 60,
+          "false_per_10s": 1.6666666666666667,
+          "overall_top1_recall": 0.4344262295081967,
+          "recall_delta_pp_vs_yolo": 0.0,
+          "top1_hits": 106,
+          "visible": 244
+        },
+        "match_ball_only": {
+          "direction_vs_yolo": {
+            "false": "same",
+            "recall": "same"
+          },
+          "false_boxes": 10,
+          "false_delta_vs_yolo": 0.0,
+          "false_exposure_frames": 66,
+          "false_per_10s": 3.0303030303030303,
+          "overall_top1_recall": 0.42436974789915966,
+          "recall_delta_pp_vs_yolo": 0.0,
+          "top1_hits": 101,
+          "visible": 238
+        }
+      },
+      "s0_s5_hits_removed": 5,
+      "s0_s5_retained_boxes": 5,
+      "s8_s10_nearby_footwear_top1_within20px": 0,
+      "s8_s10_provisional_top1_hits": 0,
+      "s8_s10_visible_ball_boxes_credited": 0,
+      "threshold": 0.12179460376501085,
+      "train_budget": "1"
+    },
+    {
+      "model": "yolo-r2-b",
+      "on_ball_recall_unchanged": 0.7049180327868853,
+      "rules": {
+        "any_visible_ball": {
+          "direction_vs_yolo": {
+            "false": "same",
+            "recall": "same"
+          },
+          "false_boxes": 9,
+          "false_delta_vs_yolo": 0.0,
+          "false_exposure_frames": 60,
+          "false_per_10s": 3.0,
+          "overall_top1_recall": 0.47368421052631576,
+          "recall_delta_pp_vs_yolo": 0.0,
+          "top1_hits": 117,
+          "visible": 247
+        },
+        "as_labelled": {
+          "direction_vs_yolo": {
+            "false": "same",
+            "recall": "same"
+          },
+          "false_boxes": 9,
+          "false_delta_vs_yolo": 0.0,
+          "false_exposure_frames": 60,
+          "false_per_10s": 3.0,
+          "overall_top1_recall": 0.47950819672131145,
+          "recall_delta_pp_vs_yolo": 0.0,
+          "top1_hits": 117,
+          "visible": 244
+        },
+        "match_ball_only": {
+          "direction_vs_yolo": {
+            "false": "same",
+            "recall": "same"
+          },
+          "false_boxes": 14,
+          "false_delta_vs_yolo": 0.0,
+          "false_exposure_frames": 66,
+          "false_per_10s": 4.242424242424242,
+          "overall_top1_recall": 0.47058823529411764,
+          "recall_delta_pp_vs_yolo": 0.0,
+          "top1_hits": 112,
+          "visible": 238
+        }
+      },
+      "s0_s5_hits_removed": 5,
+      "s0_s5_retained_boxes": 5,
+      "s8_s10_nearby_footwear_top1_within20px": 0,
+      "s8_s10_provisional_top1_hits": 0,
+      "s8_s10_visible_ball_boxes_credited": 0,
+      "threshold": 0.03927328437566758,
+      "train_budget": "2"
+    },
+    {
+      "model": "rf-b",
+      "on_ball_recall_unchanged": 0.7459016393442623,
+      "rules": {
+        "any_visible_ball": {
+          "direction_vs_yolo": {
+            "false": "higher",
+            "recall": "higher"
+          },
+          "false_boxes": 7,
+          "false_delta_vs_yolo": 0.6666666666666667,
+          "false_exposure_frames": 60,
+          "false_per_10s": 2.3333333333333335,
+          "overall_top1_recall": 0.5344129554655871,
+          "recall_delta_pp_vs_yolo": 10.526315789473689,
+          "top1_hits": 132,
+          "visible": 247
+        },
+        "as_labelled": {
+          "direction_vs_yolo": {
+            "false": "higher",
+            "recall": "higher"
+          },
+          "false_boxes": 9,
+          "false_delta_vs_yolo": 1.3333333333333333,
+          "false_exposure_frames": 60,
+          "false_per_10s": 3.0,
+          "overall_top1_recall": 0.5286885245901639,
+          "recall_delta_pp_vs_yolo": 9.426229508196721,
+          "top1_hits": 129,
+          "visible": 244
+        },
+        "match_ball_only": {
+          "direction_vs_yolo": {
+            "false": "higher",
+            "recall": "higher"
+          },
+          "false_boxes": 15,
+          "false_delta_vs_yolo": 1.5151515151515156,
+          "false_exposure_frames": 66,
+          "false_per_10s": 4.545454545454546,
+          "overall_top1_recall": 0.5168067226890757,
+          "recall_delta_pp_vs_yolo": 9.243697478991603,
+          "top1_hits": 123,
+          "visible": 238
+        }
+      },
+      "s0_s5_hits_removed": 6,
+      "s0_s5_retained_boxes": 6,
+      "s8_s10_nearby_footwear_top1_within20px": 1,
+      "s8_s10_provisional_top1_hits": 3,
+      "s8_s10_visible_ball_boxes_credited": 2,
+      "threshold": 0.19124995172023776,
+      "train_budget": "1"
+    },
+    {
+      "model": "rf-b",
+      "on_ball_recall_unchanged": 0.7540983606557377,
+      "rules": {
+        "any_visible_ball": {
+          "direction_vs_yolo": {
+            "false": "higher",
+            "recall": "higher"
+          },
+          "false_boxes": 17,
+          "false_delta_vs_yolo": 2.666666666666667,
+          "false_exposure_frames": 60,
+          "false_per_10s": 5.666666666666667,
+          "overall_top1_recall": 0.5425101214574899,
+          "recall_delta_pp_vs_yolo": 6.882591093117413,
+          "top1_hits": 134,
+          "visible": 247
+        },
+        "as_labelled": {
+          "direction_vs_yolo": {
+            "false": "higher",
+            "recall": "higher"
+          },
+          "false_boxes": 20,
+          "false_delta_vs_yolo": 3.666666666666667,
+          "false_exposure_frames": 60,
+          "false_per_10s": 6.666666666666667,
+          "overall_top1_recall": 0.5368852459016393,
+          "recall_delta_pp_vs_yolo": 5.7377049180327875,
+          "top1_hits": 131,
+          "visible": 244
+        },
+        "match_ball_only": {
+          "direction_vs_yolo": {
+            "false": "higher",
+            "recall": "higher"
+          },
+          "false_boxes": 27,
+          "false_delta_vs_yolo": 3.9393939393939394,
+          "false_exposure_frames": 66,
+          "false_per_10s": 8.181818181818182,
+          "overall_top1_recall": 0.5252100840336135,
+          "recall_delta_pp_vs_yolo": 5.462184873949583,
+          "top1_hits": 125,
+          "visible": 238
+        }
+      },
+      "s0_s5_hits_removed": 6,
+      "s0_s5_retained_boxes": 7,
+      "s8_s10_nearby_footwear_top1_within20px": 1,
+      "s8_s10_provisional_top1_hits": 3,
+      "s8_s10_visible_ball_boxes_credited": 3,
+      "threshold": 0.06615333259105684,
+      "train_budget": "2"
+    },
+    {
+      "model": "rf-r5-a",
+      "on_ball_recall_unchanged": 0.6229508196721312,
+      "rules": {
+        "any_visible_ball": {
+          "direction_vs_yolo": {
+            "false": "same",
+            "recall": "higher"
+          },
+          "false_boxes": 5,
+          "false_delta_vs_yolo": 0.0,
+          "false_exposure_frames": 60,
+          "false_per_10s": 1.6666666666666667,
+          "overall_top1_recall": 0.4574898785425101,
+          "recall_delta_pp_vs_yolo": 2.8340080971659907,
+          "top1_hits": 113,
+          "visible": 247
+        },
+        "as_labelled": {
+          "direction_vs_yolo": {
+            "false": "higher",
+            "recall": "higher"
+          },
+          "false_boxes": 6,
+          "false_delta_vs_yolo": 0.33333333333333326,
+          "false_exposure_frames": 60,
+          "false_per_10s": 2.0,
+          "overall_top1_recall": 0.45901639344262296,
+          "recall_delta_pp_vs_yolo": 2.4590163934426257,
+          "top1_hits": 112,
+          "visible": 244
+        },
+        "match_ball_only": {
+          "direction_vs_yolo": {
+            "false": "higher",
+            "recall": "higher"
+          },
+          "false_boxes": 11,
+          "false_delta_vs_yolo": 0.3030303030303032,
+          "false_exposure_frames": 66,
+          "false_per_10s": 3.3333333333333335,
+          "overall_top1_recall": 0.4495798319327731,
+          "recall_delta_pp_vs_yolo": 2.5210084033613467,
+          "top1_hits": 107,
+          "visible": 238
+        }
+      },
+      "s0_s5_hits_removed": 5,
+      "s0_s5_retained_boxes": 5,
+      "s8_s10_nearby_footwear_top1_within20px": 0,
+      "s8_s10_provisional_top1_hits": 1,
+      "s8_s10_visible_ball_boxes_credited": 1,
+      "threshold": 0.303143322467804,
+      "train_budget": "1"
+    },
+    {
+      "model": "rf-r5-a",
+      "on_ball_recall_unchanged": 0.7622950819672131,
+      "rules": {
+        "any_visible_ball": {
+          "direction_vs_yolo": {
+            "false": "lower",
+            "recall": "higher"
+          },
+          "false_boxes": 8,
+          "false_delta_vs_yolo": -0.3333333333333335,
+          "false_exposure_frames": 60,
+          "false_per_10s": 2.6666666666666665,
+          "overall_top1_recall": 0.5465587044534413,
+          "recall_delta_pp_vs_yolo": 7.287449392712558,
+          "top1_hits": 135,
+          "visible": 247
+        },
+        "as_labelled": {
+          "direction_vs_yolo": {
+            "false": "higher",
+            "recall": "higher"
+          },
+          "false_boxes": 10,
+          "false_delta_vs_yolo": 0.3333333333333335,
+          "false_exposure_frames": 60,
+          "false_per_10s": 3.3333333333333335,
+          "overall_top1_recall": 0.5450819672131147,
+          "recall_delta_pp_vs_yolo": 6.55737704918033,
+          "top1_hits": 133,
+          "visible": 244
+        },
+        "match_ball_only": {
+          "direction_vs_yolo": {
+            "false": "higher",
+            "recall": "higher"
+          },
+          "false_boxes": 16,
+          "false_delta_vs_yolo": 0.6060606060606064,
+          "false_exposure_frames": 66,
+          "false_per_10s": 4.848484848484849,
+          "overall_top1_recall": 0.5336134453781513,
+          "recall_delta_pp_vs_yolo": 6.302521008403361,
+          "top1_hits": 127,
+          "visible": 238
+        }
+      },
+      "s0_s5_hits_removed": 6,
+      "s0_s5_retained_boxes": 6,
+      "s8_s10_nearby_footwear_top1_within20px": 1,
+      "s8_s10_provisional_top1_hits": 2,
+      "s8_s10_visible_ball_boxes_credited": 2,
+      "threshold": 0.06236128136515618,
+      "train_budget": "2"
+    },
+    {
+      "model": "rf-r5-b",
+      "on_ball_recall_unchanged": 0.6147540983606558,
+      "rules": {
+        "any_visible_ball": {
+          "direction_vs_yolo": {
+            "false": "lower",
+            "recall": "higher"
+          },
+          "false_boxes": 3,
+          "false_delta_vs_yolo": -0.6666666666666667,
+          "false_exposure_frames": 60,
+          "false_per_10s": 1.0,
+          "overall_top1_recall": 0.44534412955465585,
+          "recall_delta_pp_vs_yolo": 1.6194331983805654,
+          "top1_hits": 110,
+          "visible": 247
+        },
+        "as_labelled": {
+          "direction_vs_yolo": {
+            "false": "lower",
+            "recall": "higher"
+          },
+          "false_boxes": 4,
+          "false_delta_vs_yolo": -0.3333333333333335,
+          "false_exposure_frames": 60,
+          "false_per_10s": 1.3333333333333333,
+          "overall_top1_recall": 0.44672131147540983,
+          "recall_delta_pp_vs_yolo": 1.2295081967213128,
+          "top1_hits": 109,
+          "visible": 244
+        },
+        "match_ball_only": {
+          "direction_vs_yolo": {
+            "false": "lower",
+            "recall": "higher"
+          },
+          "false_boxes": 9,
+          "false_delta_vs_yolo": -0.3030303030303032,
+          "false_exposure_frames": 66,
+          "false_per_10s": 2.727272727272727,
+          "overall_top1_recall": 0.4369747899159664,
+          "recall_delta_pp_vs_yolo": 1.2605042016806733,
+          "top1_hits": 104,
+          "visible": 238
+        }
+      },
+      "s0_s5_hits_removed": 5,
+      "s0_s5_retained_boxes": 5,
+      "s8_s10_nearby_footwear_top1_within20px": 0,
+      "s8_s10_provisional_top1_hits": 1,
+      "s8_s10_visible_ball_boxes_credited": 1,
+      "threshold": 0.49416390061378485,
+      "train_budget": "1"
+    },
+    {
+      "model": "rf-r5-b",
+      "on_ball_recall_unchanged": 0.7704918032786885,
+      "rules": {
+        "any_visible_ball": {
+          "direction_vs_yolo": {
+            "false": "higher",
+            "recall": "higher"
+          },
+          "false_boxes": 10,
+          "false_delta_vs_yolo": 0.3333333333333335,
+          "false_exposure_frames": 60,
+          "false_per_10s": 3.3333333333333335,
+          "overall_top1_recall": 0.5425101214574899,
+          "recall_delta_pp_vs_yolo": 6.882591093117413,
+          "top1_hits": 134,
+          "visible": 247
+        },
+        "as_labelled": {
+          "direction_vs_yolo": {
+            "false": "higher",
+            "recall": "higher"
+          },
+          "false_boxes": 12,
+          "false_delta_vs_yolo": 1.0,
+          "false_exposure_frames": 60,
+          "false_per_10s": 4.0,
+          "overall_top1_recall": 0.5409836065573771,
+          "recall_delta_pp_vs_yolo": 6.147540983606564,
+          "top1_hits": 132,
+          "visible": 244
+        },
+        "match_ball_only": {
+          "direction_vs_yolo": {
+            "false": "higher",
+            "recall": "higher"
+          },
+          "false_boxes": 18,
+          "false_delta_vs_yolo": 1.212121212121212,
+          "false_exposure_frames": 66,
+          "false_per_10s": 5.454545454545454,
+          "overall_top1_recall": 0.5294117647058824,
+          "recall_delta_pp_vs_yolo": 5.882352941176472,
+          "top1_hits": 126,
+          "visible": 238
+        }
+      },
+      "s0_s5_hits_removed": 6,
+      "s0_s5_retained_boxes": 6,
+      "s8_s10_nearby_footwear_top1_within20px": 1,
+      "s8_s10_provisional_top1_hits": 2,
+      "s8_s10_visible_ball_boxes_credited": 2,
+      "threshold": 0.1964751183986664,
+      "train_budget": "2"
+    }
+  ],
+  "s0_s5_label_sources": [
+    "rf_3x3",
+    "rf_2x2",
+    "rf_2x2",
+    "rf_2x2",
+    "rf_2x2",
+    "manual"
+  ],
+  "scorer_class": "off_pitch"
+}

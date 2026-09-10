@@ -129,26 +129,32 @@ HELD clip counts (columns are model / TRAIN target):
 
 ### N21 source-pixel inspection
 
-N21 is scorer class off_pitch, based on MJ's note. Source crops for every model at both TRAIN budgets show a visible background football: each r5 fit's single TRAIN-1 n21 box is the sample-9 ball (within2px of the old RF box); at TRAIN-2, two of three r5 boxes sit on the ball and one on footwear. MJ's preceding clicks at t3903.0–3905.47 move toward the flagged spot (about86→77px), then s6–s10 are no-ball despite visible football. This conflicts with an any-visible-ball reading unless the intended rule is match-ball only. Pending MJ adjudication of n21 frames s6-s10 and a match-ball versus any-ball rule. No labels, thresholds, selection or strict gate were changed.
+N21 is scorer class off_pitch, based on MJ's note. s8-s10 show a football; s6 none visible; s7 ambiguous. YOLO has no retained boxes on these no-ball frames. The RF models' s9 boxes cover the visible ball; at TRAIN-2 two of each r5 fit's three boxes cover the ball and one covers footwear. MJ's s0-s5 click distances to the reviewer's flagged spot are86,142,164,158,118,77px: away, then back, not a monotonic approach. s0-s5 label the same background ball VISIBLE: s0 accepted rf_3x3, s1-s4 accepted rf_2x2, s5 manual. Their clicks sit68–149px left and37–69px above the reviewer's s8 spot. Every candidate, including YOLO, has retained boxes in s0-s5 (not necessarily every frame); then s6-s10 are labelled no-ball. One MJ decision covering n21 s0-s10: count any visible ball, or the match ball only; the current labels follow neither rule consistently. No labels, thresholds, selection or strict gate were changed.
 
-Five boxes on three of five no-ball frames (sample indices 8,9,10); corrects the supplied one-per-frame description.
+Original RF b fixed0.1 inspection: five boxes on s8-s10, three on a ball and two on footwear. The new s0-s10 sheet covers all four models at both TRAIN budgets, including the six currently visible labels.
 
-TRAIN replay should target analogous footwear, never these held-out crops. Do not teach the detector to suppress a visible football merely because its active/spare identity or the no-ball label is uncertain; adjudicate semantic labels on fresh data. The requested automatic TRAIN-only miner remains based on distance to existing clicks, so label noise is a limitation.
+one MJ decision covering n21 s0-s10: count any visible ball, or the match ball only; the current labels follow neither rule consistently. TRAIN replay must not mine these held-out frames. No relabelling or kit change in this round.
 
-~/codex-runs/ball-r5-n21/contact-sheet.png; five uniquely named exact box and context PNG pairs.
+~/codex-runs/ball-r5-n21/adjudicate-s0-s10.png; current labels and saved boxes only, no model inference.
 
-| Model / TRAIN budget | Strict H false/10s | Visible-ball boxes at n21 | H false/10s without those boxes |
-|---|---:|---:|---:|
-| rf-b / 1 | 3.00 | 2 | 2.33 |
-| rf-b / 2 | 6.67 | 3 | 5.67 |
-| rf-r5-a / 1 | 2.00 | 1 | 1.67 |
-| rf-r5-a / 2 | 3.33 | 2 | 2.67 |
-| rf-r5-b / 1 | 1.33 | 1 | 1.00 |
-| rf-r5-b / 2 | 4.00 | 2 | 3.33 |
-| yolo-r2-b / 1 | 1.67 | 0 | 1.67 |
-| yolo-r2-b / 2 | 3.00 | 0 | 3.00 |
+Counterfactuals only; labels, TRAIN thresholds, gate and selection unchanged. As-labelled uses244 visible /60 no-ball frames. Match-ball-only removes the six visible background-ball labels (238 visible), counts all their retained boxes false and expands the no-ball denominator to66. Any-visible-ball false rate preserves the prior credit-only sensitivity: subtract visually identified ball boxes on s8–s10 and retain the original60-frame exposure; it is not a fully relabelled no-ball-frame rate. For any-visible-ball overall top-1 recall only, add s8–s10 as three provisional visible references (247 total), using source-inspected old RF b box centres and the unchanged20px rule, not MJ-confirmed new clicks. s6 remains no-ball; s7 is unresolved and unchanged. At s10 a higher-confidence footwear box lies within20px of the ball, so the requested geometric metric can count it as a provisional hit even though only the actual ball box receives a false-box credit. These proxy recall numbers require MJ adjudication, and must not be used as new ground truth.
 
-Sensitivity only, not path credits or relabelled scores. At TRAIN-2 r5-a changes from more false alarms than YOLO (3.33 vs3.00) to fewer (2.67 vs3.00); r5-b remains higher (3.33 vs3.00). Pending MJ adjudication of n21 frames s6-s10 and a match-ball versus any-ball rule. Adjudication sheet: ~/codex-runs/ball-r5-n21/adjudicate-s6-s10.png; both new fits at both budgets: r5-fits-both-budgets.png in the same directory.
+Each cell: false/10s; overall top-1 recall (hits/visible). Directions are false/recall versus YOLO at the same TRAIN budget. On-ball recall is unchanged: n21 is off_pitch.
+
+| Model / TRAIN budget | As labelled | Any visible ball (provisional recall) | Match ball only | Directions vs YOLO: labelled / any / match |
+|---|---:|---:|---:|---|
+| yolo-r2-b / 1 | 1.67; 43.44% (106/244) | 1.67; 42.91% (106/247) | 3.03; 42.44% (101/238) | same false, same recall / same false, same recall / same false, same recall |
+| yolo-r2-b / 2 | 3.00; 47.95% (117/244) | 3.00; 47.37% (117/247) | 4.24; 47.06% (112/238) | same false, same recall / same false, same recall / same false, same recall |
+| rf-b / 1 | 3.00; 52.87% (129/244) | 2.33; 53.44% (132/247) | 4.55; 51.68% (123/238) | higher false, higher recall / higher false, higher recall / higher false, higher recall |
+| rf-b / 2 | 6.67; 53.69% (131/244) | 5.67; 54.25% (134/247) | 8.18; 52.52% (125/238) | higher false, higher recall / higher false, higher recall / higher false, higher recall |
+| rf-r5-a / 1 | 2.00; 45.90% (112/244) | 1.67; 45.75% (113/247) | 3.33; 44.96% (107/238) | higher false, higher recall / same false, higher recall / higher false, higher recall |
+| rf-r5-a / 2 | 3.33; 54.51% (133/244) | 2.67; 54.66% (135/247) | 4.85; 53.36% (127/238) | higher false, higher recall / lower false, higher recall / higher false, higher recall |
+| rf-r5-b / 1 | 1.33; 44.67% (109/244) | 1.00; 44.53% (110/247) | 2.73; 43.70% (104/238) | lower false, higher recall / lower false, higher recall / lower false, higher recall |
+| rf-r5-b / 2 | 4.00; 54.10% (132/244) | 3.33; 54.25% (134/247) | 5.45; 52.94% (126/238) | higher false, higher recall / higher false, higher recall / higher false, higher recall |
+
+At TRAIN-2 r5-a changes from more false alarms than YOLO under as-labelled and match-ball-only rules to fewer under visible-ball credits; r5-b remains higher under all three rules. All RF models have higher overall recall than YOLO under each sensitivity, but these are recipe-selected clips with provisional semantics, not evidence of a winner.
+
+one MJ decision covering n21 s0-s10: count any visible ball, or the match ball only; the current labels follow neither rule consistently. Adjudication sheet: ~/codex-runs/ball-r5-n21/adjudicate-s0-s10.png. No label was changed. The new sheet includes all11 current labels, source context, an enlarged background region and retained boxes from all four models at both budgets.
 
 ## Size buckets: top-1 hits / visible labels
 
@@ -350,15 +356,15 @@ The kit is seeded only from the selected RF-DETR model at its TRAIN-chosen 1.0 o
 
 Player-overlap buckets in historical analyses still use YOLO11n person detections: bench-only, not a licence-clean serving dependency. Frozen aggregate fixtures contain no label coordinates, images or checkpoints. Original protocol snapshots retain historical wording for hash verification; all current evaluation presentation uses ‘recipe-selected on these clips’.
 
-Round4 calibration effect superseded; RF a+b 4.33 passes/13052 views/58 min; YOLO r2-b 10 epochs/30120 views/20.1 min, r2-a/r3-a 11, r3-b 10. RF flat train loss plus train/held gap suggests generalisation, not proven undertraining. Floor recipe also selected using these held-out clips.
+Round4 calibration effect superseded; RF a+b 4.33 passes/13052 views/58 min; YOLO r2-b 10 epochs/30120 views/20.1 min, r2-a/r3-a 11, r3-b 10. Historical round-4 interpretation only, superseded by the current epoch/budget framing: RF flat train loss plus train/held gap suggested generalisation, not proven undertraining. Floor recipe also selected using these held-out clips.
 
 User reports orchestrator pushed d2268bd; round-4 agent did not push.
 
 Canonical tracker fixture environment: CPython3.11.16 / NumPy2.4.6, no SciPy installed (~/Projects/loanarmy/.loan). RF environment: CPython3.12.14 / NumPy2.3.5 / SciPy1.18.1 (~/models/tinyball/.venv-mj). Chosen fix: only duration-weighted group-continuity comparisons allow rel/abs tolerance1e-12; per-clip tracks and all counts remain exact. The reproduced failure involved three aggregate float differences of5.6e-17–1.1e-16. Canonical saved values are returned after validation, preserving report bytes. No SciPy function is called on this path; attributing the discrepancy to SciPy itself is unconfirmed. RF full suite passes429 tests including the framing regressions, in the worktree and git-archive export.
 
-{'git_archive_pytest': {'canonical': 429, 'minimal_passed': 426, 'minimal_skipped': 3, 'rf_venv': 429}, 'rebuild': 'JSON and Markdown byte-for-byte from committed fixtures in the minimal export environment', 'round': 'framing review on fae974a7', 'ruff': 'check and format --check PASS in worktree and git archive', 'summary': 'All gates passed. Final staged-tree verification repeats after recording these results; external receipt holds the exact verified tree, ledger hashes, single commit and clean status. RF venv test_human_loop extra-candidate cases now pass; tolerance is restricted to group continuity. No new training or model inference; n21 crops decode only. No push.', 'worktree_pytest': {'canonical': 429, 'rf_venv': 429}}
+{'git_archive_pytest': {'canonical': 432, 'minimal_passed': 429, 'minimal_skipped': 3, 'rf_venv': 432}, 'rebuild': 'JSON and Markdown byte-for-byte from committed fixtures in minimal git-archive export', 'round': 'N1-N4 on cda4186e', 'ruff': 'check and format --check PASS in worktree and archive', 'summary': 'All gates passed in .loan and RF environments. Final staged-tree verification repeats after recording this result; external receipt records exact tree/ledger hashes, one commit and clean status. No human label, image, weight or crop committed. No training, model inference, kit changes or push.', 'worktree_pytest': {'canonical': 432, 'rf_venv': 432}}
 
-Outstanding limits: Pending MJ adjudication of n21 s6-s10 and match-ball versus any-ball semantics; no labels changed. No further m04 training; fresh venue/day match labels and TRAIN-disjoint calibration remain outstanding. No new inference, timing repeats, fit, kit reselection or push in this framing round.
+Outstanding limits: one MJ decision covering n21 s0-s10: count any visible ball, or the match ball only; the current labels follow neither rule consistently. No further m04 training; fresh venue/day match labels and TRAIN-disjoint calibration remain outstanding. No labels changed, model inference, timing repeats, training, kit reselection or push.
 
 # Historical rounds 1–4 — fixed 0.1, not comparable across model families
 

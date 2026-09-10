@@ -530,7 +530,7 @@ contended. This retrospective flag does not change the nonblocking wait policy.
 
 `inspect_n21_adjudication.py` decodes five source frames and draws saved boxes for
 all four models at both TRAIN budgets; it imports no detector. Its private sheet
-is `~/codex-runs/ball-r5-n21/adjudicate-s6-s10.png`. MJ must adjudicate s6–s10 and
+is `~/codex-runs/ball-r5-n21/adjudicate-s6-s10.png`. The later decision must cover s0–s10 and
 choose match-ball versus any-ball semantics before labels change.
 
 Canonical historical tracker aggregates were generated under CPython 3.11.16,
@@ -546,3 +546,22 @@ included in verification.
 No further m04 training. Calibrate on TRAIN-disjoint clips; budget future fits by
 optimizer steps; publish matched-rate curves and per-clip counts beside TRAIN
 operating points. Fresh labels from a different venue/day are the next evidence.
+
+N21 follow-up: `inspect_n21_adjudication.py --all-frames` renders all eleven frames,
+current MJ labels (including accepted-source/manual provenance), background zoom
+and saved boxes from every candidate at both TRAIN budgets. The output is
+`~/codex-runs/ball-r5-n21/adjudicate-s0-s10.png`. s8–s10 show a football, s6 none,
+and s7 is ambiguous. YOLO has no boxes on these five no-ball frames, but does
+box the background ball among the six visible frames. The click-distance sequence
+86,142,164,158,118,77px (reviewer's flagged spot) moves away, then back.
+
+`n21_rule_sensitivity.py` verifies saved-pass/label hashes and captures aggregate
+counterfactuals without editing labels. Match-ball-only removes six visible
+background-ball labels and expands the held-out no-ball denominator to66. The
+any-visible-ball false column retains the prior fixed60-frame credit convention;
+its overall recall adds three provisional references from inspected old RF box
+centres, not MJ-confirmed clicks. The20px tolerance can include nearby footwear;
+this limitation is explicit. On-ball recall is unchanged because n21 is off_pitch.
+One MJ decision must cover s0–s10: any visible ball or match ball only; current
+labels follow neither rule consistently. The pending decision is not applied to
+the real labels, gate, thresholds or kit selection.

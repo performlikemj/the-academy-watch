@@ -222,16 +222,37 @@ def markdown(data, historical):
         "",
         p["n21_visual_review"]["private_evidence"],
         "",
-        "| Model / TRAIN budget | Strict H false/10s | Visible-ball boxes at n21 | H false/10s without those boxes |",
-        "|---|---:|---:|---:|",
+        e["framing"]["n21_three_rules"]["definition"],
+        "",
+        "Each cell: false/10s; overall top-1 recall (hits/visible). Directions are false/recall versus YOLO at the same TRAIN budget. On-ball recall is unchanged: n21 is off_pitch.",
+        "",
+        "| Model / TRAIN budget | As labelled | Any visible ball (provisional recall) | Match ball only | Directions vs YOLO: labelled / any / match |",
+        "|---|---:|---:|---:|---|",
     ]
-    for r in e["framing"]["n21_sensitivity"]:
+    for r in e["framing"]["n21_three_rules"]["rows"]:
+        rules = [
+            r["rules"][k]
+            for k in ("as_labelled", "any_visible_ball", "match_ball_only")
+        ]
+        cells = [
+            f"{v['false_per_10s']:.2f}; {100 * v['overall_top1_recall']:.2f}% ({v['top1_hits']}/{v['visible']})"
+            for v in rules
+        ]
+        directions = " / ".join(
+            f"{v['direction_vs_yolo']['false']} false, {v['direction_vs_yolo']['recall']} recall"
+            for v in rules
+        )
         lines.append(
-            f"| {r['model']} / {r['train_budget']} | {r['strict_false_per_10s']:.2f} | {r['n21_visible_ball_boxes']} | {r['without_visible_ball_boxes_per_10s']:.2f} |"
+            f"| {r['model']} / {r['train_budget']} | "
+            + " | ".join(cells)
+            + f" | {directions} |"
         )
     lines += [
         "",
-        "Sensitivity only, not path credits or relabelled scores. At TRAIN-2 r5-a changes from more false alarms than YOLO (3.33 vs3.00) to fewer (2.67 vs3.00); r5-b remains higher (3.33 vs3.00). Pending MJ adjudication of n21 frames s6-s10 and a match-ball versus any-ball rule. Adjudication sheet: ~/codex-runs/ball-r5-n21/adjudicate-s6-s10.png; both new fits at both budgets: r5-fits-both-budgets.png in the same directory.",
+        "At TRAIN-2 r5-a changes from more false alarms than YOLO under as-labelled and match-ball-only rules to fewer under visible-ball credits; r5-b remains higher under all three rules. All RF models have higher overall recall than YOLO under each sensitivity, but these are recipe-selected clips with provisional semantics, not evidence of a winner.",
+        "",
+        e["framing"]["n21_three_rules"]["pending"]
+        + ". Adjudication sheet: ~/codex-runs/ball-r5-n21/adjudicate-s0-s10.png. No label was changed. The new sheet includes all11 current labels, source context, an enlarged background region and retained boxes from all four models at both budgets.",
         "",
         "## Size buckets: top-1 hits / visible labels",
         "",

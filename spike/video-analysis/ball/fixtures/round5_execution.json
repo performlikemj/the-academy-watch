@@ -25,14 +25,15 @@
     },
     "future_method": "Calibrate thresholds on TRAIN-disjoint clips; budget fits by optimizer steps; always show matched-false-rate curves and per-clip counts beside TRAIN operating points. No further m04 training. The next real evidence is a fresh labelled match from a different venue and day.",
     "n21_review": {
-      "adjudication": "pending MJ adjudication of n21 frames s6-s10 and a match-ball versus any-ball rule",
+      "adjudication": "one MJ decision covering n21 s0-s10: count any visible ball, or the match ball only; the current labels follow neither rule consistently",
       "classification_source": "MJ's note, existing scorer class",
-      "frames": 5,
+      "frames": 11,
       "model_inference": false,
       "new_fit_budget_crops": 8,
+      "previous_sheet": "~/codex-runs/ball-r5-n21/adjudicate-s6-s10.png",
       "scorer_class": "off_pitch",
-      "sheet": "~/codex-runs/ball-r5-n21/adjudicate-s6-s10.png",
-      "sheet_sha256": "66ffa541e6306a8d136dba21709a0d403858167cbd6fffcb9ec670c1315c2867",
+      "sheet": "~/codex-runs/ball-r5-n21/adjudicate-s0-s10.png",
+      "sheet_sha256": "766bcc7a6ce51b29d26e7ef512b0821f1822c5fa1d2ed1dbf16a9a17add31e60",
       "visible_ball_boxes_by_budget": {
         "rf-b": [
           2,
@@ -56,16 +57,33 @@
     "scope": "No training, no new model inference. Only saved-detection scoring, source-frame decoding/crops, fixture framing and numeric-comparison tolerance. Labels and selected kit unchanged.",
     "test_environment": "Canonical tracker fixture environment: CPython3.11.16 / NumPy2.4.6, no SciPy installed (~/Projects/loanarmy/.loan). RF environment: CPython3.12.14 / NumPy2.3.5 / SciPy1.18.1 (~/models/tinyball/.venv-mj). Chosen fix: only duration-weighted group-continuity comparisons allow rel/abs tolerance1e-12; per-clip tracks and all counts remain exact. The reproduced failure involved three aggregate float differences of5.6e-17\u20131.1e-16. Canonical saved values are returned after validation, preserving report bytes. No SciPy function is called on this path; attributing the discrepancy to SciPy itself is unconfirmed. RF full suite passes429 tests including the framing regressions, in the worktree and git-archive export."
   },
+  "n21_rule_review": {
+    "any_rule_recall": "Provisional 20px references from visually inspected old RF boxes on s8-s10; not new MJ labels. Existing credit-only false exposure remains60. Exact definitions and all counts in fixtures/n21_rule_sensitivity.json.",
+    "base_commit": "cda4186e4831ab1559242632f112a30cdcd557d4",
+    "code_sha256": {
+      "inspect_n21_adjudication.py": "2c169fbdb8633edf08e2fd0d4756b52aee94dbae57fdaeb2db80648c2c0778e2",
+      "n21_rule_sensitivity.py": "3730cea94481d3b76e8dbda6e0f7ff92635a40caa11c8646ac1d926b010958e7",
+      "round5_framing.py": "8c36370f3be37cc6c5c54550219f5fc9384a681341ea4eaa36d0038246425508",
+      "round5_report.py": "3cf4688cfb1c3175d4e21eba892abc6cc8280c9bf2a1efc5c0de23b66c61c3f6",
+      "test_round5_evidence.py": "55c2354e223a15989526c107c502c2eb79d6a3f55b7cc98a24384cd56b26ae92"
+    },
+    "labels_changed": false,
+    "model_inference": false,
+    "pending": "one MJ decision covering n21 s0-s10: count any visible ball, or the match ball only; the current labels follow neither rule consistently",
+    "push": false,
+    "status": "N1-N4 complete: saved-box recount, three-rule sensitivities, all11 labelled-frame sheet, historical wording and restored contention invariant.",
+    "training": false
+  },
   "n21_visual_review": {
-    "description": "Five boxes: three appear to cover a football at players\u2019 feet, two white footwear. Active-match versus spare-ball identity is UNCONFIRMED; the preceding visible-click trajectory makes a spare-ball assertion unjustified.",
-    "fresh_pass": "Five boxes on three of five no-ball frames (sample indices 8,9,10); corrects the supplied one-per-frame description.",
-    "policy": "TRAIN replay should target analogous footwear, never these held-out crops. Do not teach the detector to suppress a visible football merely because its active/spare identity or the no-ball label is uncertain; adjudicate semantic labels on fresh data. The requested automatic TRAIN-only miner remains based on distance to existing clicks, so label noise is a limitation.",
-    "private_evidence": "~/codex-runs/ball-r5-n21/contact-sheet.png; five uniquely named exact box and context PNG pairs."
+    "description": "N21 is scorer class off_pitch, based on MJ's note. s8-s10 show a football; s6 none visible; s7 ambiguous. YOLO has no retained boxes on these no-ball frames. The RF models' s9 boxes cover the visible ball; at TRAIN-2 two of each r5 fit's three boxes cover the ball and one covers footwear. MJ's s0-s5 click distances to the reviewer's flagged spot are86,142,164,158,118,77px: away, then back, not a monotonic approach. s0-s5 label the same background ball VISIBLE: s0 accepted rf_3x3, s1-s4 accepted rf_2x2, s5 manual. Their clicks sit68\u2013149px left and37\u201369px above the reviewer's s8 spot. Every candidate, including YOLO, has retained boxes in s0-s5 (not necessarily every frame); then s6-s10 are labelled no-ball. One MJ decision covering n21 s0-s10: count any visible ball, or the match ball only; the current labels follow neither rule consistently. No labels, thresholds, selection or strict gate were changed.",
+    "fresh_pass": "Original RF b fixed0.1 inspection: five boxes on s8-s10, three on a ball and two on footwear. The new s0-s10 sheet covers all four models at both TRAIN budgets, including the six currently visible labels.",
+    "policy": "one MJ decision covering n21 s0-s10: count any visible ball, or the match ball only; the current labels follow neither rule consistently. TRAIN replay must not mine these held-out frames. No relabelling or kit change in this round.",
+    "private_evidence": "~/codex-runs/ball-r5-n21/adjudicate-s0-s10.png; current labels and saved boxes only, no model inference."
   },
   "not_done": [
-    "Pending MJ adjudication of n21 s6-s10 and match-ball versus any-ball semantics; no labels changed.",
+    "one MJ decision covering n21 s0-s10: count any visible ball, or the match ball only; the current labels follow neither rule consistently.",
     "No further m04 training; fresh venue/day match labels and TRAIN-disjoint calibration remain outstanding.",
-    "No new inference, timing repeats, fit, kit reselection or push in this framing round."
+    "No labels changed, model inference, timing repeats, training, kit reselection or push."
   ],
   "pre_replay_correction": "Before fit b: defer first hard-negative mining until trained epoch2; the reset COCO ball classifier is not informative. This removes only an unexecuted replay branch from fit a; its training path and parameters are unchanged. No held-out results informed the correction.",
   "prior_push": "User reports orchestrator pushed d2268bd; round-4 agent did not push.",
@@ -95,7 +113,7 @@
       "seed": 42,
       "train_stopping": "3 complete epochs without >1% improvement in base TRAIN epoch mean loss; partial epochs never advance patience"
     },
-    "corrections": "Round4 calibration effect superseded; RF a+b 4.33 passes/13052 views/58 min; YOLO r2-b 10 epochs/30120 views/20.1 min, r2-a/r3-a 11, r3-b 10. RF flat train loss plus train/held gap suggests generalisation, not proven undertraining. Floor recipe also selected using these held-out clips.",
+    "corrections": "Round4 calibration effect superseded; RF a+b 4.33 passes/13052 views/58 min; YOLO r2-b 10 epochs/30120 views/20.1 min, r2-a/r3-a 11, r3-b 10. Historical round-4 interpretation only, superseded by the current epoch/budget framing: RF flat train loss plus train/held gap suggested generalisation, not proven undertraining. Floor recipe also selected using these held-out clips.",
     "diagnostics": "Full confidence curves and intermediate checkpoint H scores are diagnostic only, not used to alter fitting, thresholds, or checkpoint choice. Final-checkpoint H metrics select the RF model after all predeclared fits, explicitly optimistic.",
     "fits": [
       {
@@ -210,18 +228,18 @@
   },
   "verification": {
     "git_archive_pytest": {
-      "canonical": 429,
-      "minimal_passed": 426,
+      "canonical": 432,
+      "minimal_passed": 429,
       "minimal_skipped": 3,
-      "rf_venv": 429
+      "rf_venv": 432
     },
-    "rebuild": "JSON and Markdown byte-for-byte from committed fixtures in the minimal export environment",
-    "round": "framing review on fae974a7",
-    "ruff": "check and format --check PASS in worktree and git archive",
-    "summary": "All gates passed. Final staged-tree verification repeats after recording these results; external receipt holds the exact verified tree, ledger hashes, single commit and clean status. RF venv test_human_loop extra-candidate cases now pass; tolerance is restricted to group continuity. No new training or model inference; n21 crops decode only. No push.",
+    "rebuild": "JSON and Markdown byte-for-byte from committed fixtures in minimal git-archive export",
+    "round": "N1-N4 on cda4186e",
+    "ruff": "check and format --check PASS in worktree and archive",
+    "summary": "All gates passed in .loan and RF environments. Final staged-tree verification repeats after recording this result; external receipt records exact tree/ledger hashes, one commit and clean status. No human label, image, weight or crop committed. No training, model inference, kit changes or push.",
     "worktree_pytest": {
-      "canonical": 429,
-      "rf_venv": 429
+      "canonical": 432,
+      "rf_venv": 432
     }
   }
 }

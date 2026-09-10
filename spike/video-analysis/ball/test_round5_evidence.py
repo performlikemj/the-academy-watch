@@ -162,6 +162,9 @@ def test_throughput_has_three_interleaved_repeats_and_correct_projection():
             assert repeat["timing_status"].startswith("contended") == (
                 repeat["media_cpu_ge30"] or bool(repeat["busy_polls"])
             )
+            if not repeat["timing_status"].startswith("contended"):
+                assert repeat["maximum_foreign_client_cpu_percent"] < 2
+                assert repeat["busy_polls"] == 0
             assert "background_caveat_samples" not in repeat
             assert "activity_before" not in repeat
             assert repeat["activity_polls_during"] > 0

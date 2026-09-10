@@ -1,7 +1,8 @@
-"""Render saved detections on exactly five n21 frames; no model inference."""
+"""Render saved boxes and current MJ labels on n21 frames; no inference."""
 
 from pathlib import Path
 import gzip
+import argparse
 import json
 from common import HERE, DEFAULT_MANIFEST, DEFAULT_SOURCE, dump, load_dataset, samples
 
@@ -10,6 +11,9 @@ def main():
     import cv2
     import numpy as np
 
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--all-frames", action="store_true")
+    args = parser.parse_args()
     cv2.setNumThreads(1)
     root = Path.home() / "models/tinyball"
     out = Path.home() / "codex-runs/ball-r5-n21"
@@ -35,13 +39,33 @@ def main():
         }
         for n, folder, _, _ in definitions
     }
+    human = {
+        (r["clip"], r["t"]): r
+        for r in map(
+            json.loads,
+            (Path.home() / "codex-runs/ball-human-truth.jsonl")
+            .read_text()
+            .splitlines(),
+        )
+    }
+    indices = range(11) if args.all_frames else range(6, 11)
     panels, records, crops = [], [], []
     for sample, stack in samples(clip):
         i = sample["sample_index"]
-        if i not in range(6, 11):
+        if i not in indices:
             continue
         image = cv2.cvtColor(stack[-1], cv2.COLOR_RGB2BGR)
         painted = image.copy()
+        truth = human[(cid, sample["t"])]
+        if truth["visible"]:
+            cv2.drawMarker(
+                painted,
+                (round(truth["x"]), round(truth["y"])),
+                (255, 255, 255),
+                cv2.MARKER_CROSS,
+                16,
+                2,
+            )
         labels = []
         for name, _, short, color in definitions:
             for j, d in enumerate(outputs[name][i]["detections"]):
@@ -101,7 +125,7 @@ def main():
         panel = np.full((980, 640, 3), 30, np.uint8)
         cv2.putText(
             panel,
-            f"s{i}  t={sample['t']:.3f}  MJ: no ball",
+            f"s{i}  t={sample['t']:.3f}  MJ: {'VISIBLE' if truth['visible'] else 'NO BALL'}",
             (10, 30),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.6,
@@ -110,7 +134,7 @@ def main():
         )
         panel[50:410] = cv2.resize(painted, (640, 360))
         # Same source region across all five frames, visibly marked as enlargement.
-        panel[435:795] = cv2.resize(painted[385:565, 1100:1420], (640, 360))
+        panel[435:795] = cv2.resize(painted[345:615, 970:1450], (640, 360))
         cv2.putText(
             panel,
             "Enlargement; boxes retained at T1 and/or T2",
@@ -149,20 +173,56 @@ def main():
             (255, 255, 255),
             1,
         )
+        if truth["visible"]:
+            provenance = (
+                truth.get("accepted_source")
+                if truth.get("source_accepted")
+                else "manual click"
+            )
+            cv2.putText(
+                panel,
+                "MJ: " + provenance + " (white cross)",
+                (10, 930),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                (255, 255, 255),
+                1,
+            )
         panels.append(panel)
-    assert len(panels) == 5
-    cv2.imwrite(str(out / "adjudicate-s6-s10.png"), cv2.hconcat(panels))
+    assert len(panels) == len(indices)
+    sheet_name = "adjudicate-s0-s10.png" if args.all_frames else "adjudicate-s6-s10.png"
+    if args.all_frames:
+        panels.append(np.zeros_like(panels[0]))
+        sheet = cv2.vconcat([cv2.hconcat(panels[k : k + 4]) for k in range(0, 12, 4)])
+    else:
+        sheet = cv2.hconcat(panels)
+    cv2.imwrite(str(out / sheet_name), sheet)
     if crops:
         width = 4
         crops += [np.zeros_like(crops[0])] * ((-len(crops)) % width)
         cv2.imwrite(
-            str(out / "r5-fits-both-budgets.png"),
+            str(
+                out
+                / (
+                    "r5-fits-s0-s10-both-budgets.png"
+                    if args.all_frames
+                    else "r5-fits-both-budgets.png"
+                )
+            ),
             cv2.vconcat(
                 [cv2.hconcat(crops[k : k + width]) for k in range(0, len(crops), width)]
             ),
         )
-    dump(out / "adjudication-private-boxes.json", records)
-    print(out / "adjudicate-s6-s10.png")
+    dump(
+        out
+        / (
+            "adjudication-s0-s10-private-boxes.json"
+            if args.all_frames
+            else "adjudication-private-boxes.json"
+        ),
+        records,
+    )
+    print(out / sheet_name)
     for r in records:
         print(r)
 
