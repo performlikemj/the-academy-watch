@@ -2,6 +2,7 @@
 
 import { spawn, spawnSync } from 'node:child_process'
 import fs from 'node:fs/promises'
+import net from 'node:net'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
@@ -19,6 +20,61 @@ const backendDir = path.join(repoDir, 'academy-watch-backend')
 const frontendDir = path.join(repoDir, 'academy-watch-frontend')
 const journeyModules = [scoutDesk, playerReels, clubConsole, contactRail]
 const journeyNames = ['scout-desk', 'player-reels', 'club-console', 'contact-rail']
+
+export function resolvePaths(env = process.env) {
+  for (const key of ['SIM_REPORT_DIR', 'SIM_VITE_CACHE_DIR']) {
+    if (env[key] !== undefined && !path.isAbsolute(env[key])) {
+      throw new Error(`${key} must be an absolute path.`)
+    }
+  }
+  return {
+    reportRoot: env.SIM_REPORT_DIR ?? path.join(simDir, 'report'),
+    python: env.SIM_PYTHON || path.join(repoDir, '.loan', 'bin', 'python'),
+    viteCacheDir: env.SIM_VITE_CACHE_DIR,
+  }
+}
+
+export async function createReportWorkspace(reportRoot, timestamp) {
+  await fs.mkdir(reportRoot, { recursive: true })
+  // A sibling directory keeps the final rename on the same filesystem.
+  const reportDir = await fs.mkdtemp(path.join(reportRoot, `.${timestamp}-`))
+  const shotsDir = path.join(reportDir, 'shots')
+  const finalDir = path.join(reportRoot, timestamp)
+  return {
+    reportDir,
+    shotsDir,
+    finalDir,
+    publish: () => fs.rename(reportDir, finalDir),
+    discard: () => fs.rm(reportDir, { recursive: true, force: true }),
+  }
+}
+
+export function refuseListener(port) {
+  return new Promise((resolve, reject) => {
+    const socket = net.createConnection({ host: '127.0.0.1', port: Number(port) })
+    const finish = (error) => {
+      socket.destroy()
+      if (error) reject(error)
+      else resolve()
+    }
+    socket.once('connect', () => finish(new Error(`Port ${port} already has a listener on 127.0.0.1; refusing to start.`)))
+    socket.once('error', (error) => {
+      if (error.code === 'ECONNREFUSED') finish()
+      else finish(new Error(`Cannot check port ${port} on 127.0.0.1: ${error.message}`, { cause: error }))
+    })
+    socket.setTimeout(2_000, () => finish(new Error(`Timed out checking port ${port} on 127.0.0.1; refusing to start.`)))
+  })
+}
+
+export function frontendCommand({ hostname, port, viteCacheDir }) {
+  if (viteCacheDir) {
+    return {
+      command: process.execPath,
+      args: [path.join(simDir, 'lib', 'vite-server.mjs'), hostname, String(port)],
+    }
+  }
+  return { command: 'pnpm', args: ['dev', '--host', hostname, '--port', String(port), '--strictPort'] }
+}
 
 function enabled(value, fallback = true) {
   if (value === undefined) return fallback
@@ -217,12 +273,15 @@ async function waitForHealth(url, managed, timeoutMs = 120_000) {
   throw new Error(`Timed out waiting for ${url}: ${lastError}${tail}`)
 }
 
-async function bootServers({ baseUrl, backendPort, python, backendEnv, secrets, processes }) {
+export async function bootServers({ baseUrl, backendPort, python, backendEnv, secrets, processes, viteCacheDir }) {
   const parsedBase = new URL(baseUrl)
   if (parsedBase.protocol !== 'http:' || !['localhost', '127.0.0.1'].includes(parsedBase.hostname)) {
     throw new Error('Self-boot requires SIM_BASE_URL to use http://localhost or http://127.0.0.1; use SIM_EXTERNAL=1 otherwise.')
   }
   const frontendPort = parsedBase.port || '80'
+  // Check both before spawning either server, then recheck Vite after backend boot.
+  await refuseListener(backendPort)
+  await refuseListener(frontendPort)
   const backend = spawnManaged(
     'backend',
     python,
@@ -253,16 +312,19 @@ async function bootServers({ baseUrl, backendPort, python, backendEnv, secrets, 
   processes.push(backend)
   await waitForHealth(`http://127.0.0.1:${backendPort}/api/health`, backend)
 
+  await refuseListener(frontendPort)
+  const launch = frontendCommand({ hostname: parsedBase.hostname, port: frontendPort, viteCacheDir })
   const frontend = spawnManaged(
     'frontend',
-    'pnpm',
-    ['dev', '--host', parsedBase.hostname, '--port', frontendPort, '--strictPort'],
+    launch.command,
+    launch.args,
     {
       cwd: frontendDir,
       env: {
         ...process.env,
         E2E_DISABLE_HMR_OVERLAY: 'true',
         VITE_API_PROXY_TARGET: `http://127.0.0.1:${backendPort}`,
+        ...(viteCacheDir ? { SIM_VITE_CACHE_DIR: viteCacheDir } : {}),
       },
     },
     secrets,
@@ -366,16 +428,44 @@ function printSummary(journeys, totals, reportDir) {
   console.log(`Report: ${path.relative(repoDir, reportDir)}/report.json`)
 }
 
+export async function finishReport({ workspace, records, executedSteps, fatalError, secrets = [], runAt, baseUrl, gradeEnabled, ollamaUrl, model }) {
+  if (fatalError) console.error(`Run error: ${redact(fatalError.message, secrets)}`)
+  if (fatalError && executedSteps === 0) return 1
+
+  const { reportDir, finalDir } = workspace
+  await fs.writeFile(path.join(reportDir, 'steps.json'), `${JSON.stringify(records, null, 2)}\n`)
+  const grading = await gradeRecords(records, {
+    enabled: gradeEnabled,
+    reportDir,
+    ollamaUrl,
+    model,
+  })
+  const journeys = groupJourneys(grading.records)
+  const totals = computeTotals(journeys)
+  const report = {
+    app: 'loanarmy-web',
+    run_at: runAt,
+    base_url: baseUrl,
+    journeys,
+    totals,
+    proposals: grading.proposals,
+  }
+  if (fatalError) report.run_error = redact(fatalError.message, secrets)
+  await fs.writeFile(path.join(reportDir, 'report.json'), `${JSON.stringify(report, null, 2)}\n`)
+  await workspace.publish()
+  printSummary(journeys, totals, finalDir)
+  return fatalError ? 1 : computeExitCode(journeys)
+}
+
 async function main() {
   const runAt = new Date().toISOString()
   const timestamp = runAt.replace(/[:.]/g, '-')
-  const reportDir = path.join(simDir, 'report', timestamp)
-  const shotsDir = path.join(reportDir, 'shots')
-  await ensureShotDirectory(shotsDir)
+  const { reportRoot, python, viteCacheDir } = resolvePaths()
+  const workspace = await createReportWorkspace(reportRoot, timestamp)
+  const { shotsDir } = workspace
 
   const baseUrl = process.env.SIM_BASE_URL || 'http://localhost:5173'
   const backendPort = process.env.SIM_BACKEND_PORT || '5001'
-  const python = process.env.SIM_PYTHON || '/Users/michaeljones/Projects/loanarmy/.loan/bin/python'
   const adminEmail = process.env.SIM_ADMIN_EMAIL || 'mj@bywayofmj.com'
   const matchId = process.env.SIM_MATCH_ID || '4'
   const gradeEnabled = enabled(process.env.SIM_GRADE, true)
@@ -388,6 +478,7 @@ async function main() {
   const managed = []
   let browser = null
   let fatalError = null
+  let executedSteps = 0
   const teardownController = createTeardownController({
     stop: () => stopManaged(managed),
     close: async () => {
@@ -403,6 +494,7 @@ async function main() {
   process.on('SIGTERM', handleSigterm)
 
   try {
+    await ensureShotDirectory(shotsDir)
     const backend = await backendEnvironment()
     const env = backend.env
     const secretKey = backend.credentials.secretKey.value
@@ -426,7 +518,7 @@ async function main() {
     if (external) {
       await waitForHealth(baseUrl, null, 30_000)
     } else {
-      await bootServers({ baseUrl, backendPort, python, backendEnv: env, secrets, processes: managed })
+      await bootServers({ baseUrl, backendPort, python, backendEnv: env, secrets, processes: managed, viteCacheDir })
     }
 
     const chromium = loadChromium(frontendDir)
@@ -441,9 +533,13 @@ async function main() {
     const page = await context.newPage()
     page.setDefaultTimeout(15_000)
     const driver = createDriver({ page, baseUrl, shotsDir, records })
+    const step = (...args) => {
+      executedSteps += 1
+      return driver.step(...args)
+    }
 
     for (const runJourney of journeyModules) {
-      await runJourney({ ...driver, page, baseUrl, matchId })
+      await runJourney({ ...driver, step, page, baseUrl, matchId })
     }
   } catch (error) {
     fatalError = error
@@ -455,35 +551,15 @@ async function main() {
     }
   }
 
-  await fs.writeFile(path.join(reportDir, 'steps.json'), `${JSON.stringify(records, null, 2)}\n`)
-  const grading = await gradeRecords(records, {
-    enabled: gradeEnabled,
-    reportDir,
-    ollamaUrl,
-    model,
-  })
-  const journeys = groupJourneys(grading.records)
-  const totals = computeTotals(journeys)
-  const report = {
-    app: 'loanarmy-web',
-    run_at: runAt,
-    base_url: baseUrl,
-    journeys,
-    totals,
-    proposals: grading.proposals,
+  try {
+    process.exitCode = await finishReport({
+      workspace, records, executedSteps, fatalError, secrets, runAt, baseUrl, gradeEnabled, ollamaUrl, model,
+    })
+  } finally {
+    await workspace.discard()
+    process.off('SIGINT', handleSigint)
+    process.off('SIGTERM', handleSigterm)
   }
-  if (fatalError) report.run_error = redact(fatalError.message, secrets)
-  await fs.writeFile(path.join(reportDir, 'report.json'), `${JSON.stringify(report, null, 2)}\n`)
-  printSummary(journeys, totals, reportDir)
-
-  if (fatalError) {
-    console.error(`Run error: ${redact(fatalError.message, secrets)}`)
-    process.exitCode = 1
-  } else {
-    process.exitCode = computeExitCode(journeys)
-  }
-  process.off('SIGINT', handleSigint)
-  process.off('SIGTERM', handleSigterm)
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

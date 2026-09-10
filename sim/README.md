@@ -16,6 +16,8 @@ By default the runner starts the Flask backend and Vite frontend, waits for both
 node sim/run.mjs
 ```
 
+Self-boot refuses an existing TCP listener on `127.0.0.1` at either configured server port (defaults: backend `5001`, Vite `5173`) before starting servers. It never stops that listener. Vite's port is checked again immediately before its launch. This preflight is a check, not a port reservation; the supervisor owns run serialization.
+
 `SIGINT` and `SIGTERM` use that same managed-process teardown path, then close Chromium best-effort and exit `130` or `143`. A second signal exits immediately, while normal completion keeps the `finally` teardown authoritative.
 
 The backend needs its normal database configuration and `SECRET_KEY` / `ADMIN_API_KEY` in `academy-watch-backend/.env`. To override those two values explicitly, use `SIM_SECRET_KEY` and `SIM_ADMIN_API_KEY`. For each credential, precedence is the explicit `SIM_*` override first, then the backend `.env`, then a clear error when neither exists. Ambient `SECRET_KEY` and `ADMIN_API_KEY` variables are deliberately ignored: shell profiles often retain stale values, and silently accepting one would make the simulated app differ between machines. The run header says which source was selected without printing credential values.
@@ -48,7 +50,9 @@ No basecamp-specific paths are needed when its Python is at the default location
 | `SIM_BACKEND_PORT` | `5001` | Flask port used by self-boot; the Vite proxy is pointed at it. |
 | `SIM_EXTERNAL` | unset / `0` | Set to `1` to use existing servers and skip boot/teardown. |
 | `SIM_SEED_FIXTURE` | `1` | Seed the dedicated synthetic `-sim-fixture` club program before the run. |
-| `SIM_PYTHON` | `/Users/michaeljones/Projects/loanarmy/.loan/bin/python` | Python with the backend and `itsdangerous` installed. |
+| `SIM_PYTHON` | `<repo root>/.loan/bin/python` | Python with the backend and `itsdangerous` installed; repo root is derived from the runner's location, independent of the working directory. |
+| `SIM_REPORT_DIR` | `<repo root>/sim/report` | Absolute report root; each run publishes a timestamp directory beneath it. |
+| `SIM_VITE_CACHE_DIR` | unset | Absolute Vite dependency cache directory; opt-in launcher uses Vite's `cacheDir` API option and retains the normal frontend config. Unset keeps the existing `pnpm dev` launch/cache behavior. |
 | `SIM_ADMIN_EMAIL` | `mj@bywayofmj.com` | Email embedded in the in-memory admin bearer. |
 | `SIM_SECRET_KEY` | unset | Explicit `SECRET_KEY` override; otherwise the backend `.env` value is used. |
 | `SIM_ADMIN_API_KEY` | unset | Explicit `ADMIN_API_KEY` override; otherwise the backend `.env` value is used. |
@@ -61,6 +65,10 @@ No basecamp-specific paths are needed when its Python is at the default location
 ## Output and exit status
 
 Each run writes `sim/report/<UTC timestamp>/steps.json`, `report.json`, and `shots/*.png`. `steps.json` is the raw action record, including URLs, errors, and optional payloads such as video playhead times. `report.json` contains grouped journeys, grading verdicts, totals, and at most one unexecuted exploration proposal.
+
+With `SIM_REPORT_DIR=/absolute/report/root`, the same layout is published at `/absolute/report/root/<UTC timestamp>/`. Artifacts are built in a hidden temporary sibling directory and the completed directory is renamed atomically to the timestamp. Consumers should ignore hidden directories (an interrupted process may leave one behind). Normal completion and caught failures remove temporary output.
+
+A fatal startup error before any journey step executes exits `1` without publishing a timestamp directory, including fixture-seeding errors that produce a synthetic diagnostic record. Once a real step executes, fatal errors retain the existing report and non-zero exit behavior. The report `app` remains `loanarmy-web`.
 
 The process exits `1` when any action step failed or any vision verdict is `fail`. A `concern`, an `ungraded` result, or an observed-only step does not fail the run. Ollama connection or response errors never fabricate a pass and never crash report generation.
 
