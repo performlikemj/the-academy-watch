@@ -1,0 +1,8 @@
+# Licence-clean RF-DETR training/inference environment; no Ultralytics dependency.
+# Install in a separate external venv. Full executed versions are in round4 fixtures.
+rfdetr[train]==1.7.1
+torch==2.14.0
+torchvision==0.29.0
+numpy==2.3.5
+opencv-python-headless==5.0.0.93
+pytorch-lightning==2.6.5

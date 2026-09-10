@@ -1,5 +1,54 @@
 # Local ball bench: MJ human truth
 
+MJ's September 11 product decision: **RF-DETR (Apache-2.0)** is the product model.
+**ultralytics is bench-only and must not enter the serving path; the product model
+is RF-DETR (Apache-2.0).** The YOLO trainer and saved results remain comparison
+evidence for this round. The generated ledger leads with the trainer-swap verdict;
+rounds 1–3 below it are historical, including their old current-best statements.
+
+Round 4 uses `train_tiny_ball_rfdetr.py`, with no Ultralytics import or dependency.
+`requirements-rfdetr.txt` pins the executed RF environment; install it into a
+separate external venv rather than installing the bench-only YOLO requirements
+into a serving environment. The documented `.venv-bench` was absent on resumption,
+so execution restored `rfdetr[train]==1.7.1` in the existing external training venv.
+
+Both RF-DETR Nano fits are frozen in `fixtures/round4_execution.json`: 640 px from
+COCO, then a 960 px continuation from a's **final** checkpoint, fresh optimizer.
+The floor is 18.6804351807 native px in both; no floor sweep. Every target uses
+`clamp(TRAIN-only affine(image_y), floor, 48)`, superseding the direct matched-size
+override from round 3. Four native 960×540 crops are padded below to 960×960,
+then resized uniformly. No source aspect distortion and no held-out training data.
+
+The RF model/criterion and official layer-wise AdamW groups run in an explicit
+PyTorch loop: TRAIN-loss patience only, no validation loader or EMA, final-step
+export including a time-ended partial epoch. This avoids RF-DETR 1.7.1's obsolete
+callback dict (discarded by its Lightning facade) and its validation-best export.
+Each fit has a 29-minute training budget, leaving export margin under 30 minutes.
+All fits finish before either held-out saved pass; neither thresholds nor recipes
+are changed using the new held-out scores. Model selection then intentionally
+uses held-out top-1 recall under the ≤2 false/10s ceiling and is optimistic.
+An improvement must beat r2-b's 68.03% held-out top-1 without exceeding its
+1.67 false/10s. Only such an RF win permits a kit refresh.
+
+```sh
+# New output directories required; at most these two fits.
+~/models/tinyball/.venv-mj/bin/python spike/video-analysis/ball/run_round4.py
+~/models/tinyball/.venv-mj/bin/python spike/video-analysis/ball/evaluate_round4.py
+# Saved scoring, independent size buckets, null controls and unchanged Kalman:
+~/Projects/loanarmy/.loan/bin/python spike/video-analysis/ball/review_round4.py
+# Byte-for-byte ledgers from aggregate fixtures, no labels/models/source needed:
+~/Projects/loanarmy/.loan/bin/python spike/video-analysis/ball/build_human_report.py
+```
+
+`fixtures/round4_scored_output.json.gz` contains scored aggregates, not click
+coordinates. It retains All / held-out metrics and manual-only recall. Manual
+frames were the harder cases MJ clicked where no suggestion existed; lower
+manual-only recall does not by itself establish model bias. Fresh labelled club
+footage is required for a clean test. Better footage is helpful but has not been
+demonstrated to solve the detection and false-rate gate.
+
+## Historical rounds 1–3
+
 The September 11 human report supersedes proxy verdicts for the labelled sample:
 `ledgers/research/evidence-bench-2026-09-11-ball-human.{json,md}`. All five saved
 baselines and all trained models fail the **top-1** real gate at confidence 0.1.

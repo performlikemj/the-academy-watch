@@ -1,3 +1,185 @@
+Trainer swap — held-out top-1 real gate: **no candidate passes**.
+
+No RF-DETR model qualifies at ≤2 false/10s; diagnostic recall leader: **tinyball-r4-rf-b**, H on-ball top-1 **74.59%**, manual-only 64.00%, **4.67 false/10s**, 3.72 FPS. Versus YOLO r2-b: **+6.56 percentage points** H on-ball recall.
+
+Improvement under the required recall-and-false-rate rule: **none**. The RF-DETR product direction does not depend on YOLO winning this benchmark.
+
+ultralytics is bench-only and must not enter the serving path; the product model is RF-DETR (Apache-2.0).
+
+RF-DETR Nano uses the Apache-2.0 implementation and official COCO weights; the installed package licence is recorded with its hash in the execution fixture. [Upstream package and model licensing](https://github.com/roboflow/rf-detr#license).
+
+# Trainer swap: RF-DETR versus YOLO11-nano
+
+All = all 20 clips (incl. training clips); H = held-out (mild prior tuning exposure: the 640-vs-960 recipe choice in round 1 saw these clips in aggregate). All / H always uses the same fixed 14/6 split. H has 244 visible / 60 no-ball labels overall, including 122 visible on-ball labels. These clips have also informed subsequent error analysis and model selection; H is optimistic and is not a clean test set.
+
+Selection intentionally uses the highest H on-ball top-1 recall among RF runs with H strict false/10s ≤2. Selected estimates are optimistic by construction. Improvement requires beating r2-b's 68.03% H top-1 **without increasing** its 1.67 false/10s. The separate real gate remains ≥80% top-1 and ≤1 false/10s. No confidence-threshold search: every run uses ≥0.1 and inclusive 20 native px matching.
+
+## Held-out headline, with training-inclusive results separate
+
+| Candidate | H top-1 | H manual-only | H oracle over N boxes | Incl. training: All top-1 / manual / oracle | Boxes/visible on frame All / H | Strict false/10s All / H | FPS All / H | Gate All / H | Training min |
+|---|---:|---:|---:|---:|---:|---:|---:|---|---:|
+| tinyball-r2-b | 68.03% | 44.00% | 68.03% | 76.30% / 72.97% / 76.54% | 0.80 / 0.70 | 1.32 / 1.67 | 11.55 / 11.51 | FAIL / FAIL | 20.14 |
+| tinyball-r3-a | 65.57% | 44.00% | 65.57% | 62.56% / 55.41% / 62.80% | 0.74 / 0.68 | 1.43 / 2.33 | 51.49 / 51.01 | FAIL / FAIL | 20.17 |
+| tinyball-r3-b | 62.30% | 34.00% | 62.30% | 70.85% / 64.86% / 70.85% | 0.89 / 0.66 | 1.54 / 3.00 | 51.12 / 50.85 | FAIL / FAIL | 20.20 |
+| tinyball-r4-rf-a | 71.31% | 56.00% | 72.13% | 86.02% / 84.46% / 86.73% | 1.08 / 1.02 | 5.49 / 7.33 | 9.13 / 9.16 | FAIL / FAIL | 29.01 |
+| tinyball-r4-rf-b | 74.59% | 64.00% | 75.41% | 89.10% / 88.85% / 89.34% | 0.99 / 0.85 | 2.42 / 4.67 | 3.81 / 3.72 | FAIL / FAIL | 29.01 |
+
+## Precision, localisation and overall detection
+
+All = all 20 clips (incl. training clips); H = held-out (mild prior tuning exposure: the 640-vs-960 recipe choice in round 1 saw these clips in aggregate). All / H always uses the same fixed 14/6 split. H has 244 visible / 60 no-ball labels overall, including 122 visible on-ball labels. These clips have also informed subsequent error analysis and model selection; H is optimistic and is not a clean test set.
+
+| Candidate / group | Top-1 recall All / H | Manual-only top-1 All / H | Top-1 precision All / H | Oracle over N recall All / H | Oracle precision All / H | Top-1 median error px All / H | Oracle median error px All / H | Boxes/labelled frame All / H |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| tinyball-r2-b / on_ball | 76.30% / 68.03% | 72.97% / 44.00% | 96.99% / 94.32% | 76.54% / 68.03% | 93.62% / 93.26% | 1.77 / 1.33 | 1.77 / 1.33 | 0.68 / 0.53 |
+| tinyball-r2-b / all | 67.77% / 45.49% | 69.02% / 42.86% | 94.28% / 90.24% | 69.26% / 45.49% | 86.70% / 88.80% | 1.71 / 1.45 | 1.72 / 1.45 | 0.66 / 0.41 |
+| tinyball-r3-a / on_ball | 62.56% / 65.57% | 55.41% / 44.00% | 97.06% / 95.24% | 62.80% / 65.57% | 83.33% / 93.02% | 1.51 / 1.12 | 1.43 / 1.12 | 0.63 / 0.51 |
+| tinyball-r3-a / all | 59.89% / 52.46% | 53.15% / 37.66% | 87.48% / 76.65% | 62.29% / 54.92% | 74.25% / 71.66% | 1.40 / 1.26 | 1.40 / 1.26 | 0.69 / 0.62 |
+| tinyball-r3-b / on_ball | 70.85% / 62.30% | 64.86% / 34.00% | 98.36% / 93.83% | 70.85% / 62.30% | 78.89% / 89.41% | 1.46 / 0.97 | 1.38 / 0.97 | 0.75 / 0.51 |
+| tinyball-r3-b / all | 67.43% / 53.28% | 62.33% / 35.06% | 92.62% / 81.76% | 68.57% / 54.51% | 74.53% / 72.68% | 1.50 / 1.28 | 1.47 / 1.29 | 0.76 / 0.60 |
+| tinyball-r4-rf-a / on_ball | 86.02% / 71.31% | 84.46% / 56.00% | 90.75% / 82.08% | 86.73% / 72.13% | 75.93% / 63.77% | 2.00 / 1.71 | 2.03 / 1.75 | 0.95 / 0.82 |
+| tinyball-r4-rf-a / all | 81.37% / 49.59% | 87.38% / 55.84% | 86.72% / 63.35% | 82.17% / 50.82% | 73.29% / 51.03% | 2.09 / 1.84 | 2.09 / 1.86 | 0.93 / 0.80 |
+| tinyball-r4-rf-b / on_ball | 89.10% / 74.59% | 88.85% / 64.00% | 96.66% / 90.10% | 89.34% / 75.41% | 88.71% / 82.88% | 1.92 / 1.38 | 1.91 / 1.36 | 0.84 / 0.66 |
+| tinyball-r4-rf-b / all | 83.66% / 53.28% | 89.87% / 62.34% | 92.42% / 73.45% | 84.11% / 54.10% | 84.21% / 67.01% | 1.81 / 1.43 | 1.81 / 1.43 | 0.83 / 0.65 |
+
+Top-1 precision counts one highest-confidence prediction per labelled frame, including false predictions on no-ball frames in that group. Oracle precision counts all emitted guesses in its denominator. All and H precision each use their own labels; no whole-corpus precision is paired with H recall. FPS includes native decoding, padding, inference and NMS; excludes loading/warmup and scoring/tracking. Historical YOLO timings were not rerun; runtime differences prevent attributing the entire FPS gap to architecture.
+
+On-ball H manual-only recall is lower because MJ hand-clicked frames where no suggestion existed: a harder subset. This is expected difficulty confounding, not by itself evidence of model bias. Overall cohort comparisons also change clip composition and can reverse that ordering, as the overall RF rows show. Accepted-source provenance remains available; suggestions are unconfirmed and must never become automatic labels.
+
+## No-ball and near-path sensitivity
+
+All = all 20 clips (incl. training clips); H = held-out (mild prior tuning exposure: the 640-vs-960 recipe choice in round 1 saw these clips in aggregate). All / H always uses the same fixed 14/6 split. H has 244 visible / 60 no-ball labels overall, including 122 visible on-ball labels. These clips have also informed subsequent error analysis and model selection; H is optimistic and is not a clean test set.
+
+No-ball = no ball visible to the labeller. Every emitted box counts false, even a potentially correct ball MJ could not see. Path credits are only a sensitivity analysis (≤50px from a linear path bracketed by visible labels ≤1.01s apart), not verified invisible-ball detections; the gate uses strict counts.
+
+| Candidate | False count / no-ball frames All / H | False/frame All / H | Strict false/10s All / H | Near-path credits All / H | Path-credited false/10s All / H |
+|---|---:|---:|---:|---:|---:|
+| tinyball-r2-b | 12/182 / 5/60 | 0.0659 / 0.0833 | 1.32 / 1.67 | 2 / 0 | 1.10 / 1.67 |
+| tinyball-r3-a | 13/182 / 7/60 | 0.0714 / 0.1167 | 1.43 / 2.33 | 0 / 0 | 1.43 / 2.33 |
+| tinyball-r3-b | 14/182 / 9/60 | 0.0769 / 0.1500 | 1.54 / 3.00 | 1 / 0 | 1.43 / 3.00 |
+| tinyball-r4-rf-a | 50/182 / 22/60 | 0.2747 / 0.3667 | 5.49 / 7.33 | 3 / 0 | 5.16 / 7.33 |
+| tinyball-r4-rf-b | 22/182 / 14/60 | 0.1209 / 0.2333 | 2.42 / 4.67 | 3 / 1 | 2.09 / 4.33 |
+
+## Exact fit configurations and training-only scale rule
+
+Both fits were specified before evaluation. No alternative floor was tried. Affine(y) = -12.4205756808 + 0.04820986555 × native image y; TRAIN-only R²=0.4943506566, 545 matched observations from 631 visible training labels. Every target is clamp(affine(y), 18.6804351807, 48) px. This deliberately supersedes round 3's direct matched-size override. 592/631 targets sit at the floor, 23 are ≥24px; median 18.68px, maximum 32.85px. Box extents are teacher estimates associated with human clicks, not manually drawn ball boundaries.
+
+Native 2×2 tiles are 960×540, padded below with 420px RGB114 to 960×960. At 640, content is 640×360 and minimum target 12.45px; at 960, content is 960×540 and minimum target 18.68px. No anisotropic squash. Each fit uses 3012 training tiles: 631 positive/2381 negative. No held-out or unlabelled frame is a training negative. Pseudo-labels were off and require --pseudo.
+
+| Fit | Class / square resolution | Initialization | Batch / accumulation | Complete epochs + partial tiles | Final optimizer steps | MPS training minutes | LR / encoder LR | Seed |
+|---|---|---|---:|---:|---:|---:|---|---:|
+| a | RFDETRNano / 640 | COCO Nano | 8 / 1 | 2 + 3000/3012 | 1129 | 29.01 | 0.0001 / 0.00015 | 42 |
+| b | RFDETRNano / 960 | a final checkpoint; fresh optimizer | 8 / 1 | 1 + 1016/3012 | 504 | 29.01 | 5e-05 / 7.5e-05 | 42 |
+
+Run b adds 29.01 training minutes after a; cumulative a→b cost is 58.02 minutes. Model loading, dataset preparation and later inference are outside these training timers.
+
+AdamW, weight decay 0.0001; RF-DETR official encoder layer decay 0.8 and decoder component decay 0.7; 100-step linear warmup, constant thereafter (epoch100 step decay is configured but not reached). Gradient norm clip 0.1, FP32, no EMA, horizontal flip 0.5 only. 100 epochs requested, 29-minute fit cap with six complete TRAIN-epoch patience. Final parameters at the last optimizer step are exported, including a budget-ended partial epoch; no minimum-loss checkpoint is restored. Final/partial epoch losses and full package/configuration provenance are retained in JSON. MPS deterministic algorithms warn where kernels cannot be deterministic.
+
+### Train clip ids
+
+- `m04-n02-t3005-474114-478131`
+- `m04-n03-t1406-157170-158922`
+- `m04-n03-t1406-385962-387137`
+- `m04-n04-t3006-243433-247994`
+- `m04-n04-t3006-307417-310307`
+- `m04-n09-t1409-143096-143834`
+- `m04-n09-t1409-297601-298865`
+- `m04-n09-t1409-385922-386603`
+- `m04-n10-t711-186553-188161`
+- `m04-n12-t1411-237107-242145`
+- `m04-n15-t3010-164698-170777`
+- `m04-n17-t717-304624-307834`
+- `m04-n22-t3012-070707-074371`
+- `m04-n25-t3014-530600-532465`
+
+### held-out (mild prior tuning exposure: the 640-vs-960 recipe choice in round 1 saw these clips in aggregate): clip ids
+
+- `m04-n05-t3007-284945-287898`
+- `m04-n12-t1411-679986-681985`
+- `m04-n17-t717-253073-260377`
+- `m04-n17-t717-416826-418915`
+- `m04-n21-t3011-390297-390800`
+- `m04-n24-t3013-679939-681217`
+
+## Size buckets: highest-confidence hits / visible labels
+
+All = all 20 clips (incl. training clips); H = held-out (mild prior tuning exposure: the 640-vs-960 recipe choice in round 1 saw these clips in aggregate). All / H always uses the same fixed 14/6 split. H has 244 visible / 60 no-ball labels overall, including 122 visible on-ball labels. These clips have also informed subsequent error analysis and model selection; H is optimistic and is not a clean test set.
+
+Sizes are the same frozen independent RF full/2×2/3×3 matched-box short-side median used in round 3. RF-DETR's learned target sizes do not define these buckets. Missing teacher matches remain unknown; excluding them would flatter recall.
+
+| Candidate | <6px All / H | 6–<10px All / H | 10–<16px All / H | 16–<24px All / H | ≥24px All / H | Unknown All / H |
+|---|---:|---:|---:|---:|---:|---:|
+| tinyball-r2-b | 9/11 / 0/1 | 162/210 / 27/39 | 97/122 / 34/46 | 22/22 / 3/3 | 19/23 / 18/22 | 13/34 / 1/11 |
+| tinyball-r3-a | 6/11 / 0/1 | 142/210 / 24/39 | 79/122 / 34/46 | 17/22 / 3/3 | 20/23 / 19/22 | 0/34 / 0/11 |
+| tinyball-r3-b | 8/11 / 0/1 | 149/210 / 20/39 | 91/122 / 34/46 | 22/22 / 3/3 | 20/23 / 19/22 | 9/34 / 0/11 |
+| tinyball-r4-rf-a | 9/11 / 0/1 | 189/210 / 28/39 | 111/122 / 41/46 | 22/22 / 3/3 | 13/23 / 12/22 | 19/34 / 3/11 |
+| tinyball-r4-rf-b | 9/11 / 0/1 | 196/210 / 33/39 | 117/122 / 42/46 | 21/22 / 3/3 | 12/23 / 11/22 | 21/34 / 2/11 |
+
+## Matching-rule sanity floors
+
+All = all 20 clips (incl. training clips); H = held-out (mild prior tuning exposure: the 640-vs-960 recipe choice in round 1 saw these clips in aggregate). All / H always uses the same fixed 14/6 split. H has 244 visible / 60 no-ball labels overall, including 122 visible on-ball labels. These clips have also informed subsequent error analysis and model selection; H is optimistic and is not a clean test set.
+
+Same permanent seed 20260911, 100 repetitions; corrupt label positions within each evaluation scope while keeping detections fixed. Means below are sanity floors, not alternate truth or a threshold-tuning set.
+
+| RF candidate / control | On-ball top-1 mean All / H | On-ball oracle mean All / H |
+|---|---:|---:|
+| tinyball-r4-rf-a / shuffled_within_clip | 4.16% / 2.24% | 4.32% / 2.44% |
+| tinyball-r4-rf-a / uniform_random | 0.06% / 0.02% | 0.07% / 0.02% |
+| tinyball-r4-rf-b / shuffled_within_clip | 4.11% / 2.17% | 4.25% / 2.31% |
+| tinyball-r4-rf-b / uniform_random | 0.06% / 0.03% | 0.07% / 0.05% |
+
+## Track versus truth
+
+All = all 20 clips (incl. training clips); H = held-out (mild prior tuning exposure: the 640-vs-960 recipe choice in round 1 saw these clips in aggregate). All / H always uses the same fixed 14/6 split. H has 244 visible / 60 no-ball labels overall, including 122 visible on-ball labels. These clips have also informed subsequent error analysis and model selection; H is optimistic and is not a clean test set.
+
+No eligible licence-clean model: show the RF recall leader diagnostically alongside YOLO r2-b.
+
+| Candidate | Coverage All / H | Longest correct run seconds All / H | Wrong frames All / H | Track points on visible labels All / H | Wrong/track-point All / H | Track precision All / H | Wrong episodes All / H |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| tinyball-r2-b | 58.29% / 36.89% | 24.00 / 2.50 | 39 / 14 | 618 / 118 | 6.31% / 11.86% | 82.52% / 76.27% | 28 / 9 |
+| tinyball-r4-rf-b | 67.20% / 44.67% | 24.50 / 6.00 | 68 / 41 | 773 / 165 | 8.80% / 24.85% | 76.07% / 66.06% | 43 / 22 |
+
+Unchanged Kalman parameters; correct≤20px, wrong>50px. Rates use emitted track points when a visible label exists; no-ball track points are outside this precision denominator. Coverage penalises silence, so a sparse track cannot claim quality from a small wrong count alone.
+
+## Verdict, next experiment and footage
+
+RF-DETR b exceeds YOLO r2-b on H top-1 recall: 74.59% versus 68.03% (+6.56pp), and manual-only 64% versus 44% (+20pp). It does not match the full operating point: strict H false/10s is 4.67 versus 1.67 (+3.00,2.8×), top-1 on-ball precision 90.10% versus 94.32%, and measured H FPS 3.72 versus 11.51 (historical YOLO timing). Path credit only reduces RF b to 4.33. Both RF runs FAIL the ≥80%/≤1 gate and exceed the ≤2 selection ceiling; no qualifying current best licence-clean model and no improvement under the specified rule. RF b is the diagnostic recall leader, not a selected product-ready checkpoint. The product path remains RF-DETR; YOLO remains bench-only.
+
+Next RF experiment: retain Nano at 960 and train longer with TRAIN-only hard-negative replay and stronger large/near-ball supervision; freeze the protocol before evaluating fresh club footage. RF b still makes 8 false detections on 122 TRAIN no-ball frames (1.31/10s), so negative fitting is unfinished; H false rate is 4.67. Merely increasing input resolution did not fix the large-ball bucket (12/22→11/22) while small-ball hits improved 28/39→33/39. The training split contains only one independently estimated ≥24px on-ball label, and the affine-floor rule assigns it 18.68px; H has 22 such labels with observed median 31.07px versus rule median 23.11px. This supports collecting accurate large-ball boxes and hard negatives before choosing a bigger backbone. Longer training is a next experiment, not a claimed cure; the All/H gap means more epochs alone may overfit.
+
+Better footage would multiply ball pixels, but it is not an established fix on its own. Historical r2-d's 2×-pixels extrapolation was 60.7→66.4% H oracle recall, not measured 4K performance. Size-bucket associations are confounded by distance, occlusion and teacher-matched selection. They neither predict false rates nor establish an 80%/1-false gate pass. Fresh labelled 4K/follow-cam club clips must be reserved as the true test.
+
+## Kit and execution caveats
+
+Unchanged: neither RF model satisfies the improvement rule. Build 7 retains 636 bench-only mj-r2-b suggestions and all 1057 seed labels; 48 frames remain unlabelled. MJ can finish those frames, but fresh labelled club clips must form the true holdout. No kit regeneration or suggestion copy was performed this round.
+
+- Exactly two fits, both specified before any new held-out inference. No floor sweep: use the brief’s 18.68px starting floor and fit the affine relationship on TRAIN labels only.
+- RFDETRNano at 640 first to obtain more updates within the MPS budget; then continue its final weights at 960 for 1.5× effective ball pixels. Native 960×540 crops are padded below to 960 square and resized uniformly, without anisotropic squash.
+- Use the RF-DETR model/criterion and official layer-wise AdamW groups in an explicit PyTorch loop. No Lightning validation callback, EMA or held-out loader. Only complete TRAIN-epoch losses affect patience 6; the time budget stops at an optimizer-step boundary. Export final parameters.
+- The documented .venv-bench environments were missing. Restored rfdetr[train]==1.7.1 in external ~/models/tinyball/.venv-mj; pinned RF requirements are separate from bench-only YOLO requirements.
+- Name the RF run with highest H on-ball top-1 recall subject to H no-ball false/10s≤2 as current best licence-clean model. This selects on reused held-out data and is optimistic. If none qualifies, report no eligible model and label the recall leader diagnostic.
+- An RF run only improves on r2-b when H on-ball top-1 recall exceeds 68.0327868852459% and H false/10s does not exceed 1.6666666666666667. The real gate is separately ≥80% and ≤1. Refresh the kit only for an RF improvement.
+- Manual-labelled frames are harder: MJ hand-clicked where no suggestion existed. Lower manual-only recall is expected difficulty confounding, not by itself evidence of model bias. Preserve accepted-source provenance for future analysis.
+- These 20 clips are no longer a clean test set; fresh labelled club footage is the true holdout. Better footage may help but has not been shown to solve the gate.
+- RF versus historical YOLO also changes architecture, optimizer schedule, augmentation (horizontal flips only), and final versus minimum-TRAIN-loss checkpoint selection. This is a pipeline comparison, not an isolated target-floor ablation.
+- Run b adds up to 29 minutes after run a. Report its additional and cumulative training cost; it is not an independent COCO fit.
+- Run a completed 29.01min and 1129 optimizer steps: two complete epochs plus 3000/3012 tiles in the third. Epoch means 15.1164 and 3.8186; final partial 3.6290. Time-capped RF sees fewer passes than historical r2-b’s 10 epochs; this is not an architecture ceiling.
+- Run b first complete epoch mean TRAIN loss 3.6718; final checkpoint remains budget-ended parameters, not a comparison of minima across the two resolutions.
+- Measured RF inference uses eager FP32 MPS, batch of four padded tiles per frame, and NMS 0.5; optimize_for_inference was not called. FPS includes source decoding and padding, excludes loading/warmup, scoring and tracking. No own training overlaps these timed passes.
+- Exactly two fits completed. No further training, threshold search or inference optimization after evaluation; saved scoring adds only a post-fit affine-scale diagnostic, without changing any target or checkpoint.
+
+Verification: PASS: pytest409 worktree /409 git-archive export; minimal Python3.11 archive406 passed +3 expected OpenCV skips. Ruff check and ruff format --check passed in worktree and archive; mypy passed. JSON and Markdown regenerate byte-for-byte from committed aggregates with no labels, footage or weights. Both actual final checkpoints verified (a step1129, b step504; finite parameters and correct resolution/class metadata). Final staged-tree verification repeats after recording these results; commit/clean-status receipt stays outside git.
+
+Not done:
+
+- RF-DETR does not match the full YOLO operating point; no RF run qualifies at ≤2 false/10s and no model passes the real gate.
+- No serving deployment, threshold tuning, inference optimization or third fit. Ultralytics remains bench-only.
+- 48 frozen frames remain unlabelled; no fresh labelled club-footage holdout or measured 4K/follow-cam test.
+- Large-ball supervision remains weak; more epochs, hard-negative replay and accurate large-ball boxes are proposed, not executed.
+
+# Historical rounds 1–3 (retained verbatim)
+
+The current product direction and round 4 verdict above supersede historical current-best and proposed-next-experiment statements below. Historical tables retain their original measurements and caveats.
+
 Human top-1 gate: **no candidate passes**. Proxy verdicts retire for this labelled sample.
 
 Current best under the authorized ≤2 false/10s selection rule: **tinyball-r2-b**. H on-ball top-1 **68.03%**, oracle over N boxes 68.03%, oracle precision 93.26%, **1.67 false/10s**, 11.51 FPS; real gate **FAIL**.

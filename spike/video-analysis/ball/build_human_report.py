@@ -50,6 +50,16 @@ def generate(out_prefix=PREFIX):
             gzip.decompress(round3_scored.read_bytes())
         )
         rendered = round3_markdown(data)
+    round4_path = HERE / "fixtures/round4_execution.json"
+    round4_scored = HERE / "fixtures/round4_scored_output.json.gz"
+    if round4_path.exists() and round4_scored.exists():
+        from round4_report import markdown as round4_markdown
+
+        data["round4"] = json.loads(round4_path.read_text())
+        data["round4"]["measurements"] = json.loads(
+            gzip.decompress(round4_scored.read_bytes())
+        )
+        rendered = round4_markdown(data, rendered)
     dump(out_prefix.with_suffix(".json"), data)
     out_prefix.with_suffix(".md").write_text(rendered)
     return data
