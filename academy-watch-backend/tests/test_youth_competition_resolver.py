@@ -1,9 +1,9 @@
 from src.services.youth_competition_resolver import (
     get_default_youth_league_map,
-    resolve_team_name,
     resolve_youth_leagues,
     resolve_youth_team_for_parent,
 )
+from src.utils.team_resolver import resolve_team_name
 
 
 class _MockAPIClient:
@@ -100,11 +100,14 @@ def test_resolve_youth_team_for_parent_matches_youth_variant():
     assert spurs_name == "Tottenham Hotspur U21"
 
 
-def test_resolve_team_name_uses_api_then_fallback():
+def test_resolve_team_name_uses_api_then_fallback(app, monkeypatch):
     api = _MockAPIClient(
         team_data={
             33: {"team": {"id": 33, "name": "Manchester United"}},
         }
     )
-    assert resolve_team_name(api, 33) == "Manchester United"
-    assert resolve_team_name(api, 47, fallback_name="Tottenham") == "Tottenham"
+    api.get_team_name = lambda team_id, season=None: api.team_data.get(team_id, {}).get("team", {}).get("name")
+    api._team_profile_cache = {}
+    monkeypatch.setattr("src.api_football_client.APIFootballClient", lambda: api)
+    assert resolve_team_name(33) == "Manchester United"
+    assert resolve_team_name(47) == "Team 47"

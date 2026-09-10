@@ -27,7 +27,7 @@ def test_admin_subscriber_stats_returns_request_id_header(client):
     db.session.add(subscription)
     db.session.commit()
 
-    resp = client.get("/admin/subscriber-stats", headers=_auth_headers())
+    resp = client.get("/api/admin/subscriber-stats", headers=_auth_headers())
 
     assert resp.status_code == 200
     request_id = resp.headers.get("X-Request-ID")

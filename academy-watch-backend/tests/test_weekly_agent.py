@@ -151,10 +151,10 @@ def test_render_variants_shows_upcoming_fixtures_in_web_html():
 
     variants = _render_variants(news, team_name="Manchester United")
 
-    # Web HTML should render the Upcoming Fixtures block with opponent name and follow-up note
-    assert "Upcoming Fixtures" in variants["web_html"]
+    # Web HTML should render the Coming Up Next block with opponent name and follow-up note
+    assert "Coming Up Next" in variants["web_html"]
     assert "Rangers" in variants["web_html"]
-    assert "will be covered in next week's newsletter" in variants["web_html"]
+    assert "Results will appear in next week's edition." in variants["web_html"]
 
 
 def test_lint_and_enrich_populates_player_photos(stub_api_client):
@@ -309,22 +309,21 @@ def test_lint_and_enrich_uses_cached_player_profile(app, stub_api_client):
 
 
 def test_lint_and_enrich_persists_team_profile(app, stub_api_client):
-    from src.models.league import LoanedPlayer, Team, TeamProfile, db
+    from src.models.league import Team, TeamProfile, db
+    from src.models.tracked_player import TrackedPlayer
 
     parent_team = Team(team_id=1, name="Parent FC", country="England", season=2024, is_active=True)
     loan_team = Team(team_id=500, name="Loan FC", country="England", season=2024, is_active=True)
     db.session.add_all([parent_team, loan_team])
     db.session.commit()
 
-    loaned = LoanedPlayer(
-        player_id=303,
+    loaned = TrackedPlayer(
+        player_api_id=303,
         player_name="C. Example",
-        primary_team_id=parent_team.id,
-        primary_team_name=parent_team.name,
-        loan_team_id=loan_team.id,
-        loan_team_name=loan_team.name,
+        team_id=parent_team.id,
+        current_club_db_id=loan_team.id,
+        current_club_name=loan_team.name,
         is_active=True,
-        window_key="2024-25::FULL",
     )
     db.session.add(loaned)
     db.session.commit()
@@ -379,22 +378,21 @@ def test_lint_and_enrich_persists_team_profile(app, stub_api_client):
 
 
 def test_lint_and_enrich_uses_cached_team_profile(app, stub_api_client):
-    from src.models.league import LoanedPlayer, Team, TeamProfile, db
+    from src.models.league import Team, TeamProfile, db
+    from src.models.tracked_player import TrackedPlayer
 
     parent_team = Team(team_id=2, name="Parent Two", country="England", season=2024, is_active=True)
     loan_team = Team(team_id=600, name="Loan Cached", country="England", season=2024, is_active=True)
     db.session.add_all([parent_team, loan_team])
     db.session.commit()
 
-    loaned = LoanedPlayer(
-        player_id=404,
+    loaned = TrackedPlayer(
+        player_api_id=404,
         player_name="D. Example",
-        primary_team_id=parent_team.id,
-        primary_team_name=parent_team.name,
-        loan_team_id=loan_team.id,
-        loan_team_name=loan_team.name,
+        team_id=parent_team.id,
+        current_club_db_id=loan_team.id,
+        current_club_name=loan_team.name,
         is_active=True,
-        window_key="2024-25::FULL",
     )
     profile = TeamProfile(
         team_id=loan_team.team_id,

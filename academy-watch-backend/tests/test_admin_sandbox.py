@@ -1,13 +1,13 @@
 import json
-from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
 from src.admin.sandbox_tasks import SandboxContext
 from src.admin.sandbox_tasks import run_task as sandbox_run_task
-from src.models.league import LoanedPlayer, LoanFlag, SupplementalLoan, Team, db
+from src.models.league import PlayerFlag, Team, db
+from src.models.tracked_player import TrackedPlayer
 from src.routes.api import issue_user_token
-from src.utils.brave_loans import BraveLoanCollection
+from src.utils.brave_players import BravePlayerCollection
 
 ADMIN_KEY = "test-admin-key"
 
@@ -38,14 +38,14 @@ def _set_admin_key(monkeypatch):
 
 
 def test_admin_sandbox_requires_auth(client):
-    resp = client.get("/admin/sandbox")
+    resp = client.get("/api/admin/sandbox")
     assert resp.status_code == 401
     body = resp.get_json()
     assert body["error"] == "Admin login required"
 
 
 def test_admin_sandbox_lists_tasks(client):
-    resp = client.get("/admin/sandbox", headers=_auth_headers())
+    resp = client.get("/api/admin/sandbox", headers=_auth_headers())
     assert resp.status_code == 200
     html = resp.data.decode("utf-8")
     assert 'data-task-id="check-missing-loanees"' in html
@@ -57,7 +57,7 @@ def test_admin_sandbox_lists_tasks(client):
 
 def test_admin_sandbox_lists_tasks_json(client):
     _create_team("Manchester United", 33)
-    resp = client.get("/admin/sandbox?format=json", headers={**_auth_headers(), "Accept": "application/json"})
+    resp = client.get("/api/admin/sandbox?format=json", headers={**_auth_headers(), "Accept": "application/json"})
     assert resp.status_code == 200
     payload = resp.get_json()
     assert "tasks" in payload
@@ -83,16 +83,16 @@ def test_brave_loan_diff_identifies_missing_players(app, client, monkeypatch):
         }
     ]
 
-    collection = BraveLoanCollection(rows=sample_loans, results=[], query="stub-query")
+    collection = BravePlayerCollection(rows=sample_loans, results=[], query="stub-query")
 
-    monkeypatch.setattr("src.admin.sandbox_tasks.collect_loans_from_brave", lambda *args, **kwargs: collection)
+    monkeypatch.setattr("src.admin.sandbox_tasks.collect_players_from_brave", lambda *args, **kwargs: collection)
     monkeypatch.setattr("src.admin.sandbox_tasks.classify_loan_row", lambda *args, **kwargs: {"valid": False})
 
     team = _create_team("Manchester United", 33)
     _create_team("Barnet", 123)
 
     resp = client.post(
-        "/admin/sandbox/run/brave-loan-diff",
+        "/api/admin/sandbox/run/brave-loan-diff",
         headers=_auth_headers(),
         data=json.dumps({"team_name": team.name, "season": 2025}),
         content_type="application/json",
@@ -128,9 +128,9 @@ def test_brave_loan_diff_runs_for_all_teams(app, client, monkeypatch):
 
     def fake_collect(team_name, season_year, **_kwargs):
         rows = rows_by_team.get(team_name, [])
-        return BraveLoanCollection(rows=rows, results=[{"team": team_name}], query=f"query-{team_name}")
+        return BravePlayerCollection(rows=rows, results=[{"team": team_name}], query=f"query-{team_name}")
 
-    monkeypatch.setattr("src.admin.sandbox_tasks.collect_loans_from_brave", fake_collect)
+    monkeypatch.setattr("src.admin.sandbox_tasks.collect_players_from_brave", fake_collect)
     monkeypatch.setattr("src.admin.sandbox_tasks.classify_loan_row", lambda *args, **kwargs: {"valid": False})
 
     man_utd = _create_team("Manchester United", 33)
@@ -139,7 +139,7 @@ def test_brave_loan_diff_runs_for_all_teams(app, client, monkeypatch):
     _create_team("Plymouth Argyle", 321)
 
     resp = client.post(
-        "/admin/sandbox/run/brave-loan-diff",
+        "/api/admin/sandbox/run/brave-loan-diff",
         headers=_auth_headers(),
         data=json.dumps({"season": 2025, "run_all_teams": True}),
         content_type="application/json",
@@ -177,7 +177,7 @@ def test_fetch_player_profile_by_id(client, monkeypatch):
     monkeypatch.setattr("src.routes.api.api_client", stub_client, raising=False)
 
     resp = client.post(
-        "/admin/sandbox/run/fetch-player-profile",
+        "/api/admin/sandbox/run/fetch-player-profile",
         headers=_auth_headers(),
         data=json.dumps({"player_id": 276}),
         content_type="application/json",
@@ -202,7 +202,7 @@ def test_fetch_player_profile_search(client, monkeypatch):
     monkeypatch.setattr("src.routes.api.api_client", stub_client, raising=False)
 
     resp = client.post(
-        "/admin/sandbox/run/fetch-player-profile",
+        "/api/admin/sandbox/run/fetch-player-profile",
         headers=_auth_headers(),
         data=json.dumps({"search": "alex"}),
         content_type="application/json",
@@ -215,65 +215,6 @@ def test_fetch_player_profile_search(client, monkeypatch):
     assert results[0]["player"]["name"] == "Alex Example"
 
 
-def test_sandbox_duplicate_loan_scan_flags_active_dupes(client):
-    team = _create_team("Manchester United", 33)
-    borrower = _create_team("Nottingham Forest", 44)
-
-    base_time = datetime(2024, 8, 1, tzinfo=UTC)
-
-    loan_a = LoanedPlayer(
-        player_id=101,
-        player_name="Loan Star",
-        primary_team_id=team.id,
-        primary_team_name=team.name,
-        loan_team_id=borrower.id,
-        loan_team_name=borrower.name,
-        window_key="2024-25::INITIAL",
-        is_active=True,
-        data_source="test",
-        created_at=base_time,
-        updated_at=base_time,
-    )
-    loan_b = LoanedPlayer(
-        player_id=101,
-        player_name="Loan Star",
-        primary_team_id=team.id,
-        primary_team_name=team.name,
-        loan_team_id=borrower.id,
-        loan_team_name=borrower.name,
-        window_key="2024-25::WINTER",
-        is_active=True,
-        data_source="test",
-        created_at=base_time + timedelta(days=30),
-        updated_at=base_time + timedelta(days=30),
-    )
-    db.session.add_all([loan_a, loan_b])
-    db.session.commit()
-
-    payload = {
-        "team_name": team.name,
-        "season": 2024,
-    }
-
-    resp = client.post(
-        "/admin/sandbox/run/loan-duplicates-scan",
-        headers=_auth_headers(),
-        data=json.dumps(payload),
-        content_type="application/json",
-    )
-
-    assert resp.status_code == 200
-    body = resp.get_json()
-    assert body["status"] == "ok"
-    duplicates = body["payload"]["duplicates"]
-    assert len(duplicates) == 1
-    entry = duplicates[0]
-    assert entry["player_id"] == 101
-    assert entry["active_count"] == 2
-    assert len(entry["rows"]) == 2
-    assert entry["rows"][0]["window_key"] == "2024-25::WINTER"
-
-
 def test_wiki_loan_diff_identifies_missing_players(app, client, monkeypatch):
     sample_loans = [
         {
@@ -284,7 +225,7 @@ def test_wiki_loan_diff_identifies_missing_players(app, client, monkeypatch):
         }
     ]
 
-    monkeypatch.setattr("src.admin.sandbox_tasks.extract_wikipedia_loans", lambda *args, **kwargs: sample_loans)
+    monkeypatch.setattr("src.admin.sandbox_tasks.extract_wikipedia_players", lambda *args, **kwargs: sample_loans)
     monkeypatch.setattr("src.admin.sandbox_tasks.fetch_wikitext", lambda title: "stub")
     monkeypatch.setattr("src.admin.sandbox_tasks.classify_loan_row", lambda *args, **kwargs: {"valid": False})
 
@@ -292,7 +233,7 @@ def test_wiki_loan_diff_identifies_missing_players(app, client, monkeypatch):
     other = _create_team("Barnet", 123)
 
     resp = client.post(
-        "/admin/sandbox/run/wiki-loan-diff",
+        "/api/admin/sandbox/run/wiki-loan-diff",
         headers=_auth_headers(),
         data=json.dumps({"team_name": team.name, "season": 2025, "player_titles": ["Marcus Rashford"]}),
         content_type="application/json",
@@ -303,56 +244,6 @@ def test_wiki_loan_diff_identifies_missing_players(app, client, monkeypatch):
     missing = payload["payload"]["missing"]
     assert missing
     assert missing[0]["player_name"] == "Ethan Example"
-
-
-def test_wiki_loan_diff_apply_creates_supplemental_entry(app, client, monkeypatch):
-    wiki_rows = [
-        {
-            "player_name": "Sample Player",
-            "parent_club": "Manchester United",
-            "loan_team": "Barnet",
-            "season_year": 2025,
-            "raw_row": "2025– || → Barnet (loan)",
-        }
-    ]
-
-    monkeypatch.setattr("src.admin.sandbox_tasks.extract_wikipedia_loans", lambda *args, **kwargs: wiki_rows)
-    monkeypatch.setattr("src.admin.sandbox_tasks.fetch_wikitext", lambda title: "stub")
-    monkeypatch.setattr(
-        "src.admin.sandbox_tasks.classify_loan_row",
-        lambda *args, **kwargs: {
-            "valid": True,
-            "player_name": "Sample Player",
-            "parent_club": "Manchester United",
-            "loan_club": "Barnet",
-            "season_start_year": 2025,
-            "reason": "",
-            "confidence": 0.9,
-        },
-    )
-
-    parent = _create_team("Manchester United", 33)
-    loan_team = _create_team("Barnet", 123)
-
-    resp = client.post(
-        "/admin/sandbox/run/wiki-loan-diff",
-        headers=_auth_headers(),
-        data=json.dumps(
-            {
-                "team_name": parent.name,
-                "season": 2025,
-                "player_titles": ["Sample Player"],
-                "use_openai": True,
-                "apply_changes": True,
-            }
-        ),
-        content_type="application/json",
-    )
-
-    assert resp.status_code == 200
-    created = SupplementalLoan.query.filter_by(player_name="Sample Player", season_year=2025).first()
-    assert created is not None
-    assert created.loan_team_name == "Barnet"
 
 
 def test_wiki_loan_diff_uses_api_roster(app, client, monkeypatch):
@@ -388,12 +279,12 @@ def test_wiki_loan_diff_uses_api_roster(app, client, monkeypatch):
     monkeypatch.setattr("src.admin.sandbox_tasks.search_wikipedia_title", lambda *args, **kwargs: None)
     monkeypatch.setattr("src.admin.sandbox_tasks.fetch_wikitext", lambda *args, **kwargs: "")
     monkeypatch.setattr("src.admin.sandbox_tasks.extract_team_loan_candidates", lambda *args, **kwargs: [])
-    monkeypatch.setattr("src.admin.sandbox_tasks.extract_wikipedia_loans", lambda *args, **kwargs: [])
+    monkeypatch.setattr("src.admin.sandbox_tasks.extract_wikipedia_players", lambda *args, **kwargs: [])
 
     team = _create_team("Manchester United", 33)
 
     resp = client.post(
-        "/admin/sandbox/run/wiki-loan-diff",
+        "/api/admin/sandbox/run/wiki-loan-diff",
         headers=_auth_headers(),
         data=json.dumps(
             {
@@ -429,7 +320,7 @@ def test_wiki_loan_diff_auto_discovers_titles(app, client, monkeypatch):
         lambda text, season_year: [{"player_name": "Sample Player", "loan_team": "Barnet", "season_year": season_year}],
     )
     monkeypatch.setattr(
-        "src.admin.sandbox_tasks.extract_wikipedia_loans",
+        "src.admin.sandbox_tasks.extract_wikipedia_players",
         lambda text, season_year, player_name, parent_club_hint: [
             {
                 "player_name": "Sample Player",
@@ -442,7 +333,7 @@ def test_wiki_loan_diff_auto_discovers_titles(app, client, monkeypatch):
     monkeypatch.setattr("src.admin.sandbox_tasks.classify_loan_row", lambda *args, **kwargs: {"valid": False})
 
     resp = client.post(
-        "/admin/sandbox/run/wiki-loan-diff",
+        "/api/admin/sandbox/run/wiki-loan-diff",
         headers=_auth_headers(),
         data=json.dumps({"team_name": parent.name, "season": 2025}),
         content_type="application/json",
@@ -454,62 +345,28 @@ def test_wiki_loan_diff_auto_discovers_titles(app, client, monkeypatch):
     assert missing[0]["player_name"] == "Sample Player"
 
 
-def test_delete_supplemental_loan_task_removes_row(app, client):
-    with app.app_context():
-        parent = _create_team("Parent FC", 101)
-        loan_team = _create_team("Loan FC", 202)
-
-        row = SupplementalLoan(
-            player_name="Jordan Loan",
-            parent_team_id=parent.id,
-            parent_team_name=parent.name,
-            loan_team_id=loan_team.id,
-            loan_team_name=loan_team.name,
-            season_year=2025,
-        )
-        db.session.add(row)
-        db.session.commit()
-        supp_id = row.id
-
-    resp = client.post(
-        "/admin/sandbox/run/delete-supplemental-loan",
-        headers=_auth_headers(),
-        data=json.dumps({"supplemental_id": supp_id, "confirm": True}),
-        content_type="application/json",
-    )
-
-    assert resp.status_code == 200
-    payload = resp.get_json()
-    assert payload["status"] == "ok"
-    assert payload["payload"]["deleted_id"] == supp_id
-
-    with app.app_context():
-        assert SupplementalLoan.query.get(supp_id) is None
-
-
 def test_check_missing_loanees_task_detects_flags(app, client):
     parent = _create_team("Parent FC", 100)
     loan_team = _create_team("Loan FC", 200)
 
-    existing_loan = LoanedPlayer(
-        player_id=456,
+    existing_loan = TrackedPlayer(
+        status="on_loan",
+        player_api_id=456,
         player_name="Existing Loanee",
-        primary_team_id=parent.id,
-        primary_team_name=parent.name,
-        loan_team_id=loan_team.id,
-        loan_team_name=loan_team.name,
-        window_key="2024-25::FULL",
+        team_id=parent.id,
+        current_club_db_id=loan_team.id,
+        current_club_name=loan_team.name,
     )
     db.session.add(existing_loan)
 
-    missing_flag = LoanFlag(
+    missing_flag = PlayerFlag(
         player_api_id=999,
         primary_team_api_id=parent.team_id,
         reason="Should be tracked",
     )
     db.session.add(missing_flag)
 
-    covered_flag = LoanFlag(
+    covered_flag = PlayerFlag(
         player_api_id=456,
         primary_team_api_id=parent.team_id,
         reason="Already present",
@@ -518,7 +375,7 @@ def test_check_missing_loanees_task_detects_flags(app, client):
     db.session.commit()
 
     resp = client.post(
-        "/admin/sandbox/run/check-missing-loanees",
+        "/api/admin/sandbox/run/check-missing-loanees",
         headers=_auth_headers(),
         data=json.dumps({}),
         content_type="application/json",
@@ -535,21 +392,22 @@ def test_check_missing_loanees_task_detects_flags(app, client):
 def test_compare_player_stats_reports_diff(app, client, monkeypatch):
     parent = _create_team("Parent FC", 101)
     loan_team = _create_team("Loan FC", 201)
-    player = LoanedPlayer(
-        player_id=555,
+    player = TrackedPlayer(
+        status="on_loan",
+        player_api_id=555,
         player_name="Sample Player",
-        primary_team_id=parent.id,
-        primary_team_name=parent.name,
-        loan_team_id=loan_team.id,
-        loan_team_name=loan_team.name,
-        goals=5,
-        assists=0,
-        minutes_played=450,
-        window_key="2024-25::FULL",
+        team_id=parent.id,
+        current_club_db_id=loan_team.id,
+        current_club_name=loan_team.name,
     )
     db.session.add(player)
     db.session.commit()
 
+    monkeypatch.setattr(
+        TrackedPlayer,
+        "compute_stats",
+        lambda self: {"goals": 5, "assists": 0, "minutes_played": 450, "appearances": 0},
+    )
     stub_client = SimpleNamespace(
         get_player_by_id=lambda player_id, season=None: {
             "player": {"id": player_id, "name": "Sample Player"},
@@ -564,7 +422,7 @@ def test_compare_player_stats_reports_diff(app, client, monkeypatch):
     monkeypatch.setattr("src.routes.api.api_client", stub_client, raising=False)
 
     resp = client.post(
-        "/admin/sandbox/run/compare-player-stats",
+        "/api/admin/sandbox/run/compare-player-stats",
         headers=_auth_headers(),
         data=json.dumps({"player_id": 555}),
         content_type="application/json",

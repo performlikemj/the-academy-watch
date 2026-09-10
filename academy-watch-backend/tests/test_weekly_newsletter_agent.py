@@ -87,7 +87,7 @@ def test_untracked_duplicate_dropped_when_tracked_exists():
     meta_by_pid = {10: {"can_fetch_stats": True}}
     meta_by_key = {"radekvitek": {"can_fetch_stats": True}}
 
-    result = agent._enforce_loanee_metadata(content, meta_by_pid, meta_by_key)
+    result = agent._enforce_player_metadata(content, meta_by_pid, meta_by_key)
 
     sections = result.get("sections", [])
     assert len(sections) == 1

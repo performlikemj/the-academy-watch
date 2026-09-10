@@ -52,7 +52,7 @@ def test_compose_newsletter_with_writeups(app, monkeypatch):
     db.session.add_all([c1, c2, c3])
     db.session.commit()
 
-    # Mock fetch_weekly_report_tool
+    # Mock fetch_pipeline_report_tool
     mock_report = {
         "parent_team": {"name": "Test Team"},
         "season": 2025,
@@ -68,7 +68,9 @@ def test_compose_newsletter_with_writeups(app, monkeypatch):
             }
         ],
     }
-    monkeypatch.setattr(agent, "fetch_weekly_report_tool", lambda *args: mock_report)
+    mock_report["has_tracked_players"] = True
+    mock_report["groups"] = {"on_loan": mock_report.pop("loanees")}
+    monkeypatch.setattr(agent, "fetch_pipeline_report_tool", lambda *args: mock_report)
 
     # Mock brave context to avoid network calls
     monkeypatch.setattr(agent, "brave_context_for_team_and_loans", lambda *args, **kwargs: {})
@@ -89,7 +91,7 @@ def test_compose_newsletter_with_writeups(app, monkeypatch):
     # 2025-11-03 is a Monday.
     # If agent._monday_range is correct, passing 2025-11-05 (Wednesday) should return (2025-11-03, 2025-11-09)
 
-    result = agent.compose_team_weekly_newsletter(team.id, target_date)
+    result = agent.compose_team_weekly_newsletter(team.id, target_date, skip_sync=True)
 
     content = json.loads(result["content_json"])
 

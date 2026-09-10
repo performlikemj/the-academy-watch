@@ -2,10 +2,10 @@ import json
 import sys
 from types import SimpleNamespace
 
-from src.utils.brave_loans import collect_loans_from_brave
+from src.utils.brave_players import collect_players_from_brave
 
 
-def test_collect_loans_from_brave_reads_output_array(monkeypatch):
+def test_collect_players_from_brave_reads_output_array(monkeypatch):
     sample_results = [
         {
             "title": "Speculation: John Doe temporary move",
@@ -14,7 +14,7 @@ def test_collect_loans_from_brave_reads_output_array(monkeypatch):
         }
     ]
 
-    monkeypatch.setattr("src.utils.brave_loans.brave_search", lambda *args, **kwargs: sample_results)
+    monkeypatch.setattr("src.utils.brave_players.brave_search", lambda *args, **kwargs: sample_results)
 
     class FakeResponses:
         def __init__(self):
@@ -41,10 +41,10 @@ def test_collect_loans_from_brave_reads_output_array(monkeypatch):
 
     fake_module = SimpleNamespace(OpenAI=lambda api_key: FakeOpenAIClient(api_key))
     monkeypatch.setitem(sys.modules, "openai", fake_module)
-    monkeypatch.setattr("src.utils.brave_loans.OpenAI", fake_module.OpenAI, raising=False)
+    monkeypatch.setattr("src.utils.brave_players.OpenAI", fake_module.OpenAI, raising=False)
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
 
-    collection = collect_loans_from_brave("Arsenal", 2025)
+    collection = collect_players_from_brave("Arsenal", 2025)
 
     assert not collection.rows
     assert fake_responses.calls
@@ -53,7 +53,7 @@ def test_collect_loans_from_brave_reads_output_array(monkeypatch):
     assert call["response_format"]["type"] == "json_schema"
 
 
-def test_collect_loans_from_brave_fetches_article_html_via_text(monkeypatch):
+def test_collect_players_from_brave_fetches_article_html_via_text(monkeypatch):
     sample_results = [
         {
             "title": "Goal.com analysis: Loan roundup for Manchester United",
@@ -62,7 +62,7 @@ def test_collect_loans_from_brave_fetches_article_html_via_text(monkeypatch):
         }
     ]
 
-    monkeypatch.setattr("src.utils.brave_loans.brave_search", lambda *args, **kwargs: sample_results)
+    monkeypatch.setattr("src.utils.brave_players.brave_search", lambda *args, **kwargs: sample_results)
 
     class FakeResponses:
         def __init__(self):
@@ -103,7 +103,7 @@ def test_collect_loans_from_brave_fetches_article_html_via_text(monkeypatch):
 
     fake_module = SimpleNamespace(OpenAI=lambda api_key: FakeOpenAIClient(api_key))
     monkeypatch.setitem(sys.modules, "openai", fake_module)
-    monkeypatch.setattr("src.utils.brave_loans.OpenAI", fake_module.OpenAI, raising=False)
+    monkeypatch.setattr("src.utils.brave_players.OpenAI", fake_module.OpenAI, raising=False)
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
 
     class FakeResponse:
@@ -137,7 +137,7 @@ def test_collect_loans_from_brave_fetches_article_html_via_text(monkeypatch):
 
     monkeypatch.setattr(requests, "Session", fake_session_factory)
 
-    collection = collect_loans_from_brave("Manchester United", 2025)
+    collection = collect_players_from_brave("Manchester United", 2025)
 
     assert collection.rows
     assert fake_session.calls

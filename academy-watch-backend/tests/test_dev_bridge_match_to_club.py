@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from unittest.mock import patch
 
 import pytest
@@ -425,10 +425,14 @@ def test_full_bridge_activates_console_and_exposes_all_reel_players(bridge_app):
     assert len(players) == 18
     assert [player["jersey_number"] for player in players] == list(range(1, 19))
 
+    # Stable results require a publicly visible adult subject (s4c1).
+    local_players[0].birth_date = date(2000, 1, 1)
+    db.session.commit()
     result = client.post(
         f"/api/club/{program.id}/results",
         headers=_manager_headers(),
         json={
+            "client_request_id": "50ea909c-f854-4b17-baf0-fdf0610fbb32",
             "match_date": "2025-09-01",
             "opponent": "Development United",
             "competition": "Development League",
@@ -440,6 +444,12 @@ def test_full_bridge_activates_console_and_exposes_all_reel_players(bridge_app):
                     "club_roster_member_id": summary["members"][0]["club_roster_member_id"],
                     "minutes": 90,
                     "goals": 1,
+                    "assists": 0,
+                    "yellows": 0,
+                    "reds": 0,
+                    "saves": None,
+                    "goals_conceded": None,
+                    "note": None,
                 }
             ],
         },

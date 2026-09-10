@@ -87,8 +87,29 @@ def app(monkeypatch, request):
     app.register_blueprint(events_bp, url_prefix="/api")
     with app.app_context():
         limiter.reset()
-        tables = postgres_report_tables() if db.engine.dialect.name == "postgresql" else None
-        db.metadata.create_all(db.engine, tables=tables)
+        import sqlalchemy as sa
+
+        # P1 tests own pre-P2/P3/P4 schema variants, including legacy match rows.
+        # Copy metadata so current model constraints cannot rewrite that premise.
+        schema = sa.MetaData()
+        source_tables = (
+            postgres_report_tables() if db.engine.dialect.name == "postgresql" else db.metadata.tables.values()
+        )
+        for table in source_tables:
+            table.to_metadata(schema)
+        match_table = schema.tables["player_match_entries"]
+        for constraint in list(match_table.constraints):
+            if "club_result_id" in constraint.columns or "club_result_id" in str(getattr(constraint, "sqltext", "")):
+                match_table.constraints.remove(constraint)
+        for index in list(match_table.indexes):
+            if "club_result_id" in index.columns:
+                match_table.indexes.remove(index)
+        tables = [
+            table
+            for table in schema.tables.values()
+            if table.name not in {"club_invitations", "player_feedback", "club_results"}
+        ]
+        schema.create_all(db.engine, tables=tables)
         db.session.add(
             FundingLeague(
                 id=1,
@@ -173,7 +194,7 @@ def app(monkeypatch, request):
         db.session.commit()
         yield app
         db.session.remove()
-        db.metadata.drop_all(db.engine, tables=tables)
+        schema.drop_all(db.engine, tables=tables)
         limiter.reset()
 
 
@@ -415,10 +436,14 @@ def test_deleted_revoked_minor_and_suppressed_subjects_do_not_qualify(client, re
 
 
 def test_report_contains_no_private_bodies_names_emails_or_tokens(client, register):
+    import sqlalchemy as sa
+
     observe(register, action())
+    installed_schema = sa.MetaData()
+    installed_schema.reflect(db.engine, resolve_fks=False)
     before = {
         table.name: db.session.execute(db.select(db.func.count()).select_from(table)).scalar()
-        for table in db.metadata.sorted_tables
+        for table in installed_schema.tables.values()
     }
     first = report(client, register)
     second = report(client, register)
@@ -432,7 +457,7 @@ def test_report_contains_no_private_bodies_names_emails_or_tokens(client, regist
         assert secret not in serialized
     after = {
         table.name: db.session.execute(db.select(db.func.count()).select_from(table)).scalar()
-        for table in db.metadata.sorted_tables
+        for table in installed_schema.tables.values()
     }
     assert before == after
     assert set(first["participants"][0]["evidence"][0]) == {"kind", "record_type", "record_id", "occurred_at", "basis"}
@@ -958,12 +983,10 @@ def result_table(*, omit=None):
 
 @pytest.fixture
 def future_schema(app):
-    import sqlalchemy as sa
 
     invitation = invitation_table()
     feedback = feedback_table()
     result = result_table()
-    db.session.execute(sa.text("ALTER TABLE player_match_entries ADD COLUMN club_result_id VARCHAR(36)"))
     db.session.commit()
     seed_invitation(invitation)
     yield {"invitation": invitation, "feedback": feedback, "result": result}
@@ -1089,14 +1112,10 @@ def test_future_observations_with_absent_tables_are_explicit_gaps(client, regist
     ],
 )
 def test_each_future_required_column_is_guarded(client, register, table_name, column):
-    import sqlalchemy as sa
 
     invitation = invitation_table()
     factory = feedback_table if table_name == "feedback" else result_table
     table = factory(omit=column)
-    if table_name == "result":
-        db.session.execute(sa.text("ALTER TABLE player_match_entries ADD COLUMN club_result_id VARCHAR(36)"))
-        db.session.commit()
     try:
         record_type, capability = (
             ("player_feedback", "feedback") if table_name == "feedback" else ("club_result", "stable_results")
@@ -1114,6 +1133,10 @@ def test_each_future_required_column_is_guarded(client, register, table_name, co
 
 
 def test_p4_header_without_child_link_column_is_a_capability_gap(client, register):
+    import sqlalchemy as sa
+
+    db.session.execute(sa.text("ALTER TABLE player_match_entries DROP COLUMN club_result_id"))
+    db.session.commit()
     table = result_table()
     try:
         observe_ref(
@@ -1288,8 +1311,6 @@ def test_linked_line_with_partial_header_cannot_fall_back_to_legacy(client, regi
 
     table = result_table(omit="deleted_at")
     try:
-        db.session.execute(sa.text("ALTER TABLE player_match_entries ADD COLUMN club_result_id VARCHAR(36)"))
-        db.session.commit()
         line = action()
         db.session.execute(
             sa.text("UPDATE player_match_entries SET club_result_id=:result"),

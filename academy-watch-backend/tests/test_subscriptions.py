@@ -56,7 +56,7 @@ def test_subscription_flow(client, app):
     assert len(resp.json) == 0
 
 
-def test_cross_season_assignment(client, app):
+def test_cross_season_assignment(client, app, monkeypatch):
     # Setup
     with app.app_context():
         # Create teams for different seasons with SAME API ID
@@ -72,19 +72,16 @@ def test_cross_season_assignment(client, app):
         db.session.commit()
 
         journo_id = journo.id
-        team2024_id = team2024.id
 
         # Generate admin token
         admin_token = generate_token(app, "admin@example.com", role="admin")
 
     # Let's set the env var for the test
-    import os
-
-    os.environ["ADMIN_API_KEY"] = "test-admin-key"
+    monkeypatch.setenv("ADMIN_API_KEY", "test-admin-key")
 
     headers = {"X-API-Key": "test-admin-key", "Authorization": f"Bearer {admin_token}"}
-    # Pass the DB ID of the 2024 team. The resolver should find the 2025 team (same API ID).
-    payload = {"team_ids": [team2024_id]}
+    # Pass the shared API ID. The resolver should find the 2025 team (same API ID).
+    payload = {"team_ids": [33]}
 
     # Route is /api/journalists/<id>/assign-teams, NOT /api/admin/...
     resp = client.post(f"/api/journalists/{journo_id}/assign-teams", headers=headers, json=payload)
@@ -98,7 +95,8 @@ def test_cross_season_assignment(client, app):
         assert assigns[0].team.team_id == 33
 
 
-def test_commentary_visibility_in_preview(client, app):
+def test_commentary_visibility_in_preview(client, app, monkeypatch):
+    monkeypatch.setenv("ADMIN_API_KEY", "test-admin-key")
     # Setup
     with app.app_context():
         # Create teams

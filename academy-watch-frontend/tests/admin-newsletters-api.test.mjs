@@ -7,7 +7,6 @@ import {
   buildGenerateTeamRequest,
   buildGenerateAllRequest,
   buildSeedTeamRequest,
-  buildSeedTop5Request,
   LOANS_SEED_TEAM_ENDPOINT,
 } from '../src/pages/admin/admin-newsletters-api.js'
 
@@ -39,19 +38,6 @@ test('buildSeedTeamRequest targets seed-team endpoint with numeric ids and seaso
     team_db_id: 101,
     dry_run: true,
     overwrite: false,
-  })
-  assert.equal(req.admin, true)
-})
-
-test('buildSeedTop5Request targets seed-top5 endpoint and uses season field', () => {
-  const req = buildSeedTop5Request({ season: '2025', dryRun: true, overwrite: true })
-  assert.equal(req.endpoint, '/admin/loans/seed-top5')
-  assert.equal(req.options.method, 'POST')
-  const body = JSON.parse(req.options.body)
-  assert.deepEqual(body, {
-    season: 2025,
-    dry_run: true,
-    overwrite: true,
   })
   assert.equal(req.admin, true)
 })
