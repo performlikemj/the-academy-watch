@@ -415,10 +415,10 @@ def test_versioned_build_shared_frames_and_no_overwrite(tmp_path, monkeypatch):
     monkeypatch.setattr(
         human_loop, "review_plan", lambda _: {"on_ball": [], "off_pitch": []}
     )
-    out = tmp_path / "test-build10"
+    out = tmp_path / "test-build11"
     ball_truth_kit.build(None, DEFAULT_SOURCE, out, frames_dir=shared)
     meta = json.loads((out / "build.json").read_text())
-    assert meta["build_version"] == 10 and meta["shared_frames"] == "../shared"
+    assert meta["build_version"] == 11 and meta["shared_frames"] == "../shared"
     assert '"path": "../shared/frame.svg"' in (out / "index.html").read_text()
     assert meta["storage_key"].startswith("ball-human-v2:")
     assert meta["legacy_input_key"].startswith("ball-human-v1:")
@@ -428,3 +428,143 @@ def test_versioned_build_shared_frames_and_no_overwrite(tmp_path, monkeypatch):
         ball_truth_kit.build(None, DEFAULT_SOURCE, out, frames_dir=shared)
     with pytest.raises(ValueError, match="VERSIONED"):
         ball_truth_kit.build(None, DEFAULT_SOURCE, shared, frames_dir=shared)
+
+
+@pytest.mark.parametrize(
+    "change", ["coordinates", "visibility", "identity", "provenance"]
+)
+@pytest.mark.parametrize("age", ["stale", "equal", "newer"])
+def test_same_confirmed_import_requires_approval_and_cancel_keeps_storage(
+    browser, kit, change, age
+):
+    with browser.new_context() as context:
+        page = open_page(context, kit)
+        review(page)
+        press(page, "Enter")
+        original = current(page)
+        incoming = {
+            **original,
+            "updated_at": original["updated_at"]
+            + {"stale": -1, "equal": 0, "newer": 1}[age],
+        }
+        if change == "coordinates":
+            incoming["x"] += 5
+        elif change == "identity":
+            incoming["match_ball"] = not original["match_ball"]
+        elif change == "provenance":
+            incoming["accepted_source"] = "different-source"
+        else:
+            incoming.update(
+                visible=False, x=None, y=None, match_ball=None, source_accepted=False
+            )
+            incoming.pop("accepted_source")
+            incoming.pop("accepted_score")
+        before = page.evaluate("localStorage.getItem(storageKey)")
+        messages = []
+
+        def reject(dialog):
+            messages.append(dialog.message)
+            dialog.dismiss()
+
+        page.once("dialog", reject)
+        upload(page, [incoming])
+        assert current(page) == original
+        assert page.evaluate("localStorage.getItem(storageKey)") == before
+        stale = int(age == "stale")
+        assert (
+            f"would replace 1 confirmed decisions ({stale} of them newer locally)"
+            in messages[0]
+        )
+        assert f"{stale} STALE" in page.locator("#import-summary").inner_text()
+        page.once("dialog", lambda d: d.accept())
+        upload(page, [incoming])
+        after = current(page)
+        assert {k: v for k, v in after.items() if k != "updated_at"} == {
+            k: v for k, v in incoming.items() if k != "updated_at"
+        }
+        assert after["updated_at"] > original["updated_at"]
+
+
+def test_equal_timestamps_preserve_confirmation_and_show_conflict(browser, kit):
+    with browser.new_context() as context:
+        page = open_page(context, kit)
+        review(page)
+        press(page, "Enter")
+        saved = current(page)
+        # Same-millisecond pending edit in this tab must lose to confirmed storage.
+        page.evaluate("""()=> {
+            const key=api.key(frames[index]);
+            state.labels[key]={...labels[key],review_confirmed:false,needs_any_ball_review:true};
+            refreshStored();persist();show();
+        }""")
+        settle(page)
+        assert current(page) == saved
+        # Competing confirmed coordinates at the same timestamp keep stored values.
+        page.evaluate("""()=> {
+            const key=api.key(frames[index]);
+            state.labels[key]={...labels[key],x:labels[key].x+10};
+            refreshStored();persist();show();
+        }""")
+        settle(page)
+        assert current(page) == saved
+        assert "Merge conflicts: 1" in page.locator("#conflicts").inner_text()
+        assert "already in storage" in page.locator("#conflicts").inner_text()
+        fresh = open_page(context, kit)
+        assert fresh.evaluate("labels[api.key(frames[0])]") == saved
+
+
+def test_legacy_hash_warns_on_later_open_without_merging(browser, kit):
+    with browser.new_context() as context:
+        page = open_page(context, kit)
+        before = page.evaluate("localStorage.getItem(storageKey)")
+        baseline = page.evaluate("localStorage.getItem(legacyHashKey)")
+        assert len(baseline) == 64
+        legacy = {
+            "clip": kit["rows"][0]["clip"],
+            "t": 0,
+            "x": 5,
+            "y": 5,
+            "visible": True,
+        }
+        page.evaluate(
+            "([key,row])=>localStorage.setItem(key,JSON.stringify(row)+'\\n')",
+            [kit["legacy"], legacy],
+        )
+        page.reload()
+        settle(page)
+        assert (
+            page.locator("#legacy-warning").inner_text()
+            == "The old click page was used after this page started. Export from it and import here to include those labels."
+        )
+        assert page.evaluate("localStorage.getItem(storageKey)") == before
+        assert page.evaluate("localStorage.getItem(legacyHashKey)") == baseline
+
+
+def test_existing_build10_envelope_ignores_changed_seed_and_schema_stays_same(
+    browser, kit
+):
+    with browser.new_context() as context:
+        first = open_page(context, kit)
+        review(first)
+        press(first, "c")
+        press(first, "ArrowRight")
+        first.locator("#clear").click()
+        settle(first)
+        rows = first.evaluate("labels")
+        raw = first.evaluate("localStorage.getItem(storageKey)")
+        # Build 10 has this exact envelope format and no legacy-hash metadata.
+        first.evaluate("localStorage.removeItem(legacyHashKey)")
+        # Replace the fresh embedded seed entirely; it must not affect saved rows.
+        content = kit["path"].read_text()
+        start = content.index("seedRows=") + len("seedRows=")
+        end = content.index(", storageKey=", start)
+        kit["path"].write_text(content[:start] + "[]" + content[end:])
+        second = open_page(context, kit)
+        actual = second.evaluate("labels")
+        assert len(rows.keys() - actual.keys()) == 0
+        assert len(actual.keys() - rows.keys()) == 0
+        assert sum(rows[k] != actual[k] for k in rows.keys() & actual.keys()) == 0
+        assert second.evaluate("localStorage.getItem(storageKey)") == raw
+        assert set(json.loads(raw)) == {"kind", "labels", "deleted"}
+        assert "embedded seed is ignored" in second.locator("#seed-help").inner_text()
+        assert "both steps are mandatory" in second.locator("#seed-help").inner_text()

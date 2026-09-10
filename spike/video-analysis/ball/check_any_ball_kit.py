@@ -1,4 +1,4 @@
-"""Build-10 browser checks in isolated storage; no model runtime or MJ edits."""
+"""Build-11 browser checks in isolated storage; no model runtime or MJ edits."""
 
 from pathlib import Path
 import argparse
@@ -90,7 +90,8 @@ def check(kit, screenshot=None):
         page.evaluate("writes")
         page.wait_for_function("initialized && imageReady")
         assert page.evaluate("frames[index].clip") != next_clip
-        # Actual import merges old storage, preserving accepted-vs-hand details.
+        # Explicitly approve restoring this backup over a changed confirmed row.
+        page.once("dialog", lambda d: d.accept())
         page.locator("#import").set_input_files(
             {
                 "name": "truth.jsonl",
@@ -141,7 +142,7 @@ def check(kit, screenshot=None):
 if __name__ == "__main__":
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument(
-        "--kit", type=Path, default=Path.home() / "ball-truth-review-build10"
+        "--kit", type=Path, default=Path.home() / "ball-truth-review-build11"
     )
     p.add_argument("--screenshot", type=Path)
     a = p.parse_args()

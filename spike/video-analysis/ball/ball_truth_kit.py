@@ -124,9 +124,9 @@ def build(
 
     out = Path(out)
     frames_dir = Path(frames_dir or Path.home() / "ball-truth-review")
-    if out.resolve() == frames_dir.resolve() or not out.name.endswith("-build10"):
+    if out.resolve() == frames_dir.resolve() or not out.name.endswith("-build11"):
         raise ValueError(
-            "build 10 requires a separate VERSIONED directory ending -build10"
+            "build 11 requires a separate VERSIONED directory ending -build11"
         )
     if (out / "index.html").exists() or (out / "build.json").exists():
         raise ValueError("refusing to overwrite an existing kit build")
@@ -174,7 +174,7 @@ def build(
     dump(
         out / "build.json",
         {
-            "build_version": 10,
+            "build_version": 11,
             "label_schema_version": 2,
             "review_frames": len(queue),
             "review_suggestions": sum(r["suggestion"] is not None for r in queue),
@@ -202,7 +202,7 @@ if __name__ == "__main__":
     p.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
     p.add_argument("--source", type=Path, default=DEFAULT_SOURCE)
     p.add_argument(
-        "--out", type=Path, default=Path.home() / "ball-truth-review-build10"
+        "--out", type=Path, default=Path.home() / "ball-truth-review-build11"
     )
     p.add_argument("--frames-dir", type=Path, default=Path.home() / "ball-truth-review")
     p.add_argument("--suggestions", type=Path)

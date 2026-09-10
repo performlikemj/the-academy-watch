@@ -21,15 +21,26 @@
     }
     return merge(empty(),state);
   }
-  function merge(a,b) {
-    const result={labels:{...a.labels},deleted:{...a.deleted}};
-    for(const [key,row] of Object.entries(b.labels)) {
+  // The second argument is the value already in storage. Equal timestamps
+  // rank confirmed > explicit clear > unconfirmed; remaining row ties keep
+  // storage. Conflicting confirmed ties notify the UI without changing schema.
+  function merge(local,stored,onConflict=()=>{}) {
+    const result={labels:{...local.labels},deleted:{...local.deleted}};
+    for(const [key,row] of Object.entries(stored.labels)) {
       const old=result.labels[key];
-      if (!old || row.updated_at>old.updated_at || (row.updated_at===old.updated_at && stable(row)>stable(old))) result.labels[key]=row;
+      if(!old || row.updated_at>old.updated_at) result.labels[key]=row;
+      else if(row.updated_at===old.updated_at) {
+        const a=BallTruth.confirmed(old), b=BallTruth.confirmed(row);
+        if(a && b && values(old)!==values(row)) onConflict(key,old,row);
+        if(b || !a) result.labels[key]=row;
+      }
     }
-    for(const [key,time] of Object.entries(b.deleted)) result.deleted[key]=Math.max(time,result.deleted[key]??-1);
+    for(const [key,time] of Object.entries(stored.deleted)) result.deleted[key]=Math.max(time,result.deleted[key]??-1);
     for(const [key,time] of Object.entries(result.deleted)) {
-      if (result.labels[key] && result.labels[key].updated_at<=time) delete result.labels[key];
+      const row=result.labels[key];
+      if(!row)continue;
+      if(row.updated_at<time || (row.updated_at===time && !BallTruth.confirmed(row))) delete result.labels[key];
+      else if(row.updated_at===time) delete result.deleted[key]; // Also safe for build-10 readers.
     }
     return result;
   }

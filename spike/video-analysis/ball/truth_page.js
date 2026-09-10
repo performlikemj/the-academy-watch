@@ -9,6 +9,25 @@ const canvas=document.getElementById('canvas'), ctx=canvas.getContext('2d'), cli
 let state=store.empty(), labels={}, reviewKeys=new Set(), reviewQueue=[], reviewMode=false;
 let index=0, generation=0, imageReady=false, initialized=false, readOnly=false, recoveryExported=false;
 let recoveryRaw=null, writes=Promise.resolve();
+let conflictCount=0;
+const seenConflicts=new Set(), legacyHashKey=storageKey+':legacy-sha256';
+function recordConflict(key,local,stored) {
+  const signature=JSON.stringify([key,local.updated_at,[store.values(local),store.values(stored)].sort()]);
+  if(seenConflicts.has(signature))return;
+  seenConflicts.add(signature);conflictCount++;
+  const notice=document.getElementById('conflicts');notice.hidden=false;
+  notice.textContent=`Merge conflicts: ${conflictCount}. Kept the confirmed decision already in storage. Review or export before changing it.`;
+}
+async function checkLegacyHash(raw=localStorage.getItem(legacyKey)) {
+  const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(raw)));
+  const hash=[...new Uint8Array(digest)].map(b=>b.toString(16).padStart(2,'0')).join('');
+  const baseline=localStorage.getItem(legacyHashKey);
+  if(baseline===null)localStorage.setItem(legacyHashKey,hash);
+  else if(baseline!==hash) {
+    const banner=document.getElementById('legacy-warning');banner.hidden=false;
+    banner.textContent='The old click page was used after this page started. Export from it and import here to include those labels.';
+  }
+}
 const confirmed=api.confirmed;
 for(const clip of [...new Set(frames.map(f=>f.clip))]) {
   const o=document.createElement('option');o.value=clip;o.textContent=clip;clips.appendChild(o);
@@ -42,7 +61,7 @@ function enqueue(task) {
 }
 function refreshStored() {
   const stored=store.parse(localStorage.getItem(storageKey),frames);
-  state=store.merge(state,stored);
+  state=store.merge(state,stored,recordConflict);
   rebuildQueue();
   return stored;
 }
@@ -166,10 +185,16 @@ document.getElementById('export').onclick=async()=> {
   else {try{await locked(()=>refreshStored());download(api.serialize(Object.values(labels),frames),'ball-human-truth-v2.jsonl');}catch(e){failClosed(e);show();}}
 };
 function importPlan(rows, legacy) {
-  const counts={new:0,changed:0,unchanged:0,would_downgrade_confirmed:0};
+  const counts={new:0,changed:0,unchanged:0,would_downgrade_confirmed:0,replace_confirmed:0,newer_locally:0,stale:0};
   for(const row of rows) {
     const old=labels[api.key(row)];
-    counts[!old?'new':store.values(old)===store.values(row)?'unchanged':'changed']++;
+    const changed=!!old && store.values(old)!==store.values(row);
+    counts[!old?'new':changed?'changed':'unchanged']++;
+    if(changed && row.updated_at<old.updated_at)counts.stale++;
+    if(changed && confirmed(old)) {
+      counts.replace_confirmed++;
+      if(row.updated_at<old.updated_at)counts.newer_locally++;
+    }
     if(confirmed(old)&&(!confirmed(row)||legacy.has(api.key(row))))counts.would_downgrade_confirmed++;
   }
   return counts;
@@ -181,14 +206,14 @@ document.getElementById('import').onchange=async e=> {
     await enqueue(()=> {
       if(!readOnly) refreshStored();
       const counts=importPlan(rows,legacy);
-      const summary=`Import: ${counts.new} new, ${counts.changed} changed, ${counts.unchanged} unchanged, ${counts.would_downgrade_confirmed} would-downgrade-confirmed.`;
+      const summary=`Import: ${counts.new} new, ${counts.changed} changed, ${counts.unchanged} unchanged, ${counts.would_downgrade_confirmed} would-downgrade-confirmed; would replace ${counts.replace_confirmed} confirmed decisions (${counts.newer_locally} of them newer locally). ${counts.stale} STALE changed rows; keep stored rows unless replacement is explicitly approved.`;
       document.getElementById('import-summary').textContent=summary;
       if(readOnly) {
         if(!recoveryExported) {status.textContent='Export the recovery backup before re-importing.';return;}
         if(!window.confirm(summary+' Replace unreadable v2 storage with these validated rows?'))return;
         // Do not overwrite storage that changed after the recovery backup.
         if(localStorage.getItem(storageKey)!==recoveryRaw.v2)throw new Error('Storage changed since recovery export. Export a fresh backup and re-import.');
-      } else if(counts.would_downgrade_confirmed && !window.confirm(summary+' Replace confirmed reviews with unconfirmed or legacy rows?')) {
+      } else if((counts.replace_confirmed || counts.stale) && !window.confirm(summary+' Replace confirmed reviews and/or stale imported rows? Cancel keeps stored decisions exactly; OK explicitly replaces and restamps the changed rows.')) {
         status.textContent='Import cancelled; confirmed reviews preserved.';return;
       }
       const recovering=readOnly;
@@ -207,6 +232,7 @@ document.getElementById('import').onchange=async e=> {
   finally {e.target.value='';}
 };
 window.addEventListener('storage',e=> {
+  if(e.key===legacyKey) {enqueue(()=>checkLegacyHash());return;}
   if(e.key!==storageKey&&e.key!==null)return;
   if(readOnly)return;
   enqueue(()=>{if(readOnly)return;refreshStored();persist();show();status.textContent='labels changed in another tab';});
@@ -223,20 +249,21 @@ document.addEventListener('keydown',e=> {
   if(key==='j'||key==='k')moveClip(key==='j'?1:-1);
   if(key==='arrowright')move(1);if(key==='arrowleft')move(-1);
 });
-enqueue(()=> {
+enqueue(async()=> {
   try {
-    state=store.fromRows(api.parse(seedRows.map(r=>JSON.stringify(r)).join('\n'),frames));
-    const raw=localStorage.getItem(storageKey);
+    const raw=localStorage.getItem(storageKey), legacyRaw=localStorage.getItem(legacyKey);
     if(raw!==null && raw!=='')state=store.parse(raw,frames);
     else {
-      // Legacy is bootstrap input only. Never write or subsequently re-read it.
-      const legacy=api.parse(localStorage.getItem(legacyKey)||'',frames);
+      state=store.fromRows(api.parse(seedRows.map(r=>JSON.stringify(r)).join('\n'),frames));
+      // Legacy is bootstrap input only; later reads hash it, never merge it again.
+      const legacy=api.parse(legacyRaw||'',frames);
       for(const row of legacy)state.labels[api.key(row)]=row;
       const cleared=JSON.parse(localStorage.getItem(legacyKey+':cleared')||'[]');
       if(!Array.isArray(cleared)||cleared.some(k=>typeof k!=='string'||!(k in byKey)))throw new Error('Invalid legacy cleared-label history');
       for(const key of cleared) {state.deleted[key]=store.clock(state);delete state.labels[key];}
       persist();
     }
+    await checkLegacyHash(legacyRaw);
   } catch(error) {failClosed(error);}
   initialized=true;show();
 });
