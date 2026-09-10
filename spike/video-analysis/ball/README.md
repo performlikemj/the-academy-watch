@@ -20,15 +20,26 @@ Human clicks confirm association, not detector box boundaries; matched sizes are
 not independently measured ball diameters. Trained point-box sizes are especially
 unsuitable as independent ball-size evidence.
 
-Training retains the documented first four on-ball clips and reserves **all other
-labelled clips**. With this export that means four train and 16 held out, including
-both n17 on-ball clips. Exact full IDs are in the generated ledger and dataset.json.
-No per-epoch holdout validation or best-checkpoint selection: normal runs use last.pt.
-The recipe's 15-minute time budget can expand the nominal five epochs. Counts and
-actual elapsed minutes are recorded; threshold stays at 0.1. At most the initial
-run and one conditional variant are evaluated; no threshold sweep.
+Round 2 uses the committed deterministic **14 train / 6 evaluation** split:
+631 visible training labels / 244 evaluation labels, including two on-ball and
+two off-pitch clips in evaluation. Every evaluation estimate is labelled
+**held-out (mild prior tuning exposure: the 640-vs-960 recipe choice in round 1 saw these clips in aggregate)**.
+The user explicitly accepted that exposure. These 20 clips cannot be a clean test
+set again; new labelled club footage is the real test. All-clip and six-clip
+numbers are paired throughout the generated ledger, including rescored round-1
+models. The original four-train/16-evaluation round-1 records remain in JSON.
 
-Build version **5** accepts `--human-jsonl` to seed MJ's validated export while
+`fixtures/round2_execution.json` freezes the split and four-fit protocol. Fits a/b
+use 2×2@960 (COCO / round-1 weights), c uses 2×2@1280 for 33% more effective ball
+pixels within a 23-minute fit budget, and d continues the minimum-TRAIN-loss a–c
+checkpoint. Early stopping, checkpoint selection and the final kit model use
+**TRAIN loss only**. Held-out images never enter fitting or box-size estimation;
+a custom validator reads training loss without evaluating images. All four fits
+finish and selection is frozen before any round-2 saved inference pass. AdamW
+settings are pinned to the optimizer used in round 1. Batch, fit budgets, actual
+epochs/minutes, hashes and MPS nondeterminism caveats are recorded in the ledger.
+
+Build version **6** accepts `--human-jsonl` to seed MJ's validated export while
 preserving the existing localStorage key and giving newer browser labels priority.
 The new **Next unlabelled frame** button visits optional as well as target frames.
 Suggestions remain unconfirmed and cannot overwrite labels.
@@ -38,13 +49,13 @@ PY=~/Projects/loanarmy/.loan/bin/python
 $PY spike/video-analysis/ball/score_from_saved.py \
   --human-jsonl ~/codex-runs/ball-human-truth.jsonl \
   --extra-detections tinyball-r1=$HOME/models/tinyball/mj-r1/detections.json
-# Actual MPS training environment used for MJ's runs (outputs must be new):
-~/models/tinyball/.venv-mj/bin/python spike/video-analysis/ball/train_tiny_ball.py \
-  --human-jsonl ~/codex-runs/ball-human-truth.jsonl --out ~/models/tinyball/mj-new-run
-# Optional higher-resolution continuation, preserving the fixed clip holdout:
-~/models/tinyball/.venv-mj/bin/python spike/video-analysis/ball/train_tiny_ball.py \
-  --human-jsonl ~/codex-runs/ball-human-truth.jsonl --out ~/models/tinyball/mj-new-960 \
-  --init ~/models/tinyball/mj-r1/weights.pt --imgsz 960 --epochs 20
+# The four prescribed fits (outputs/logs must be new; preserves existing runs):
+~/models/tinyball/.venv-mj/bin/python spike/video-analysis/ball/run_round2.py
+# Only after all four fits and TRAIN-only selection are frozen:
+~/models/tinyball/.venv-mj/bin/python spike/video-analysis/ball/evaluate_round2.py
+~/models/tinyball/.venv-mj/bin/python spike/video-analysis/ball/round2_people.py
+# Aggregate saved detections, tracks and predeclared error buckets (no inference):
+$PY spike/video-analysis/ball/round2_analysis.py
 # Reproduce committed human ledgers without labels, videos or models:
 $PY spike/video-analysis/ball/build_human_report.py
 ```
@@ -53,7 +64,9 @@ The aggregate human measurement fixture contains metrics and target coverage key
 not click coordinates or label rows. For archive tests, use Python 3.11 and
 NumPy 2.4.6 to match the original strict floating-point retracking fixture;
 Python 3.12 produces small differences in the historical aggregate fixture. `fixtures/human_execution.json` records the
-training, refresh and verification evidence. `build_human_report.py --capture`
+round-1 training, refresh and verification evidence. Round-2 execution and aggregate
+measurement fixtures add paired scoring, error buckets and the conditional doubled-ball-pixel
+projection without embedding label coordinates. `build_human_report.py --capture`
 freezes a completed score JSON. Tests regenerate both ledgers byte-for-byte.
 
 ## Historical proxy bench and recipe background

@@ -113,7 +113,9 @@ def tile_labels(label, bounds, side, rf_boxes=(), pseudo=False):
     return result
 
 
-def prepare_dataset(measurements, clips, labels, out, split, pseudo=False):
+def prepare_dataset(
+    measurements, clips, labels, out, split, pseudo=False, train_only=False
+):
     import cv2
 
     recipe = box_recipe(measurements, labels, split["train"])
@@ -127,7 +129,7 @@ def prepare_dataset(measurements, clips, labels, out, split, pseudo=False):
             if cid in split["held_out"]
             else None
         )
-        if role is None:
+        if role is None or (train_only and role == "val"):
             continue
         image_dir, label_dir = out / "images" / role, out / "labels" / role
         image_dir.mkdir(parents=True, exist_ok=True)
@@ -164,12 +166,16 @@ def prepare_dataset(measurements, clips, labels, out, split, pseudo=False):
                 counts[role] += 1
                 counts["positive_tiles" if boxes else "negative_tiles"] += 1
     if not counts["train"] or (
-        not split["smoke_resubstitution_only"] and not counts["val"]
+        not train_only and not split["smoke_resubstitution_only"] and not counts["val"]
     ):
         raise ValueError("empty training/held-out dataset")
     # Smoke does NOT split frames: trainer health check reuses the one training
     # clip; no held-out scores exist or are presented as evaluation evidence.
-    val = "images/train" if split["smoke_resubstitution_only"] else "images/val"
+    val = (
+        "images/train"
+        if train_only or split["smoke_resubstitution_only"]
+        else "images/val"
+    )
     (out / "dataset.yaml").write_text(
         f"path: {json.dumps(str(out))}\ntrain: images/train\nval: {val}\nnames:\n  0: match_ball\n"
     )
@@ -179,7 +185,7 @@ def prepare_dataset(measurements, clips, labels, out, split, pseudo=False):
         "box_recipe": recipe,
         "pseudo": pseudo,
         "tiling": "Four non-overlapping 960x540 native crops; YOLO imgsz=640, aspect-preserving letterbox to 640x640 (640x360 content). Point belongs to exactly one tile, including seam points. Clip point boxes at tile edges.",
-        "negative_policy": "Only human-labelled frames; three non-click tiles or all four explicitly invisible tiles. Off-pitch clips reserved for scoring, never training. Pseudo boxes train-only and opt-in.",
+        "negative_policy": "Only human-labelled frames; three non-click tiles or all four explicitly invisible tiles. Split determines training membership; held-out labels never supply training tiles. Pseudo boxes train-only and opt-in.",
     }
 
 
@@ -331,6 +337,17 @@ def main():
         default=640,
         help="Tile model input; variant may increase to 960",
     )
+    p.add_argument("--split-json", type=Path)
+    p.add_argument("--allow-prior-tuning", action="store_true")
+    p.add_argument("--train-loss-only", action="store_true")
+    p.add_argument("--train-minutes", type=float, default=15)
+    p.add_argument("--patience", type=int, default=6)
+    p.add_argument("--batch", type=int, default=16)
+    p.add_argument(
+        "--defer-evaluation",
+        action="store_true",
+        help="Fit only; inspect TRAIN loss before a separate all-frame saved pass",
+    )
     p.add_argument("--device", choices=["mps", "cpu"], default="mps")
     p.add_argument("--pseudo", action="store_true")
     p.add_argument(
@@ -339,6 +356,15 @@ def main():
         help="ONE synthetic on-ball clip; no held-out metrics, never human truth",
     )
     a = p.parse_args()
+    if (
+        not math.isfinite(a.train_minutes)
+        or a.train_minutes <= 0
+        or a.batch < 1
+        or a.patience < 1
+    ):
+        p.error("positive finite training budget, batch and patience required")
+    if a.defer_evaluation and not a.train_loss_only:
+        p.error("deferred evaluation requires train-loss-only selection")
     if a.imgsz < 32 or a.imgsz % 32:
         p.error("imgsz must be a positive multiple of 32")
     if a.epochs < 1 or (a.synthetic_smoke and a.epochs != 2):
@@ -348,6 +374,22 @@ def main():
     m = load_measurements()
     labels = import_labels(a.human_jsonl, frame_catalog(m))
     split = split_clips(m, labels, a.synthetic_smoke)
+    if a.split_json:
+        from round2_protocol import validate_split
+
+        proposed = json.loads(a.split_json.read_text())
+        split = proposed.get("split", proposed)
+        prior = json.loads(
+            (Path(__file__).parent / "fixtures/human_execution.json").read_text()
+        )["split"]
+        validate_split(split, m, labels, prior, allow_prior_tuning=a.allow_prior_tuning)
+        if not a.train_loss_only:
+            p.error("round-2 custom split requires --train-loss-only")
+        init_dataset = a.init.parent / "dataset.json"
+        if init_dataset.exists():
+            fitted = json.loads(init_dataset.read_text())["split"]["train"]
+            if set(fitted) & set(split["held_out"]):
+                p.error("initial weights already fitted on held-out clips")
     if not any(
         r["visible"] and cid in split["train"] for (cid, _), r in labels.items()
     ):
@@ -367,7 +409,9 @@ def main():
     if a.device == "mps" and not torch.backends.mps.is_available():
         raise RuntimeError("MPS requested but unavailable")
     start = time.perf_counter()
-    dataset = prepare_dataset(m, clips, labels, a.out / "dataset", split, a.pseudo)
+    dataset = prepare_dataset(
+        m, clips, labels, a.out / "dataset", split, a.pseudo, a.train_loss_only
+    )
     dataset["model_input_px"] = a.imgsz
     dataset["tiling"] = (
         dataset["tiling"]
@@ -404,12 +448,24 @@ def main():
     )
     model = YOLO(str(a.init))
     train_start = time.perf_counter()
+    trainer_options: dict[str, object] = {}
+    if a.train_loss_only:
+        from train_loss_trainer import trainer_class
+
+        trainer_options.update(
+            trainer=trainer_class(),
+            optimizer="AdamW",
+            lr0=0.002,
+            momentum=0.9,
+            warmup_bias_lr=0.0,
+        )
     model.train(
+        **trainer_options,
         data=str(a.out / "dataset/dataset.yaml"),
         epochs=a.epochs,
         imgsz=a.imgsz,
         device=a.device,
-        batch=16,
+        batch=a.batch,
         workers=0,
         seed=42,
         deterministic=True,
@@ -425,8 +481,9 @@ def main():
         fliplr=0.5,
         scale=0.2,
         translate=0.05,
-        val=False,
-        time=None if a.synthetic_smoke else 0.25,
+        val=a.train_loss_only,
+        patience=a.patience,
+        time=None if a.synthetic_smoke else a.train_minutes / 60,
     )
     if a.device == "mps":
         torch.mps.synchronize()
@@ -435,8 +492,54 @@ def main():
     # Normal runs use the final epoch, never select a checkpoint using held-out
     # labels. Ultralytics may perform its final validation, but cannot choose
     # these weights. Smoke retains its explicitly resubstitution-only checkpoint.
-    checkpoint = "best.pt" if a.synthetic_smoke else "last.pt"
+    checkpoint = "best.pt" if a.synthetic_smoke or a.train_loss_only else "last.pt"
     shutil.copy2(a.out / "fit/weights" / checkpoint, weights)
+    if a.train_loss_only:
+        import csv
+
+        history = list(csv.DictReader((a.out / "fit/results.csv").open()))
+        losses = [float(r["train/selection_loss"]) for r in history]
+        fit_record = {
+            "status": "fit complete; evaluation deferred"
+            if a.defer_evaluation
+            else "fit complete",
+            "split": split,
+            "device": a.device,
+            "model_input_px": a.imgsz,
+            "training_s": train_s,
+            "fit_budget_minutes": a.train_minutes,
+            "epochs_requested": a.epochs,
+            "epochs_recorded": len(history),
+            "best_train_loss": min(losses),
+            "best_epoch": losses.index(min(losses)) + 1,
+            "last_train_loss": losses[-1],
+            "train_loss_history": losses,
+            "selection": "Minimum mean augmented training-batch box+cls+dfl loss; early stopping sees only reciprocal training loss fitness. No held-out validation or inference during fitting.",
+            "initial_weights": str(a.init),
+            "initial_weights_sha256": sha256(a.init),
+            "weights_sha256": sha256(weights),
+            "labels_sha256": sha256(a.human_jsonl),
+            "source_sha256": sha256(a.source),
+            "batch": a.batch,
+            "patience": a.patience,
+            "versions": {
+                n: importlib.metadata.version(n)
+                for n in (
+                    "ultralytics",
+                    "torch",
+                    "torchvision",
+                    "numpy",
+                    "opencv-python",
+                )
+            },
+        }
+        dump(a.out / "fit_summary.json", fit_record)
+        if a.defer_evaluation:
+            print(
+                f"FIT COMPLETE {a.out}: {train_s / 60:.2f} min, TRAIN loss {min(losses):.6f}; NO held-out evaluation",
+                flush=True,
+            )
+            return
     # Exactly one prediction pass on all 1,105 frames; held-out evaluation reuses it.
     outputs, n_suggestions = predict_all(
         YOLO(str(weights)),

@@ -18,8 +18,30 @@ PREFIX = ROOT / "ledgers/research/evidence-bench-2026-09-11-ball-human"
 def generate(out_prefix=PREFIX):
     data = json.loads(gzip.decompress(FIXTURE.read_bytes()))
     data["execution"] = json.loads(EXECUTION.read_text())
+    round2_path = HERE / "fixtures/round2_execution.json"
+    prefix = ""
+    if round2_path.exists():
+        from round2_protocol import markdown as round2_markdown
+
+        data["round2"] = json.loads(round2_path.read_text())
+        data["round1_evaluation_note"] = (
+            data["round2"]["evaluation_label"]
+            + "; root results retain the historical 16-clip evaluation subset. "
+            "Round-2 paired tables rescore every candidate on the same fixed six clips."
+        )
+        prefix = round2_markdown(data["round2"])
+    round2_measurements = HERE / "fixtures/round2_measurements.json.gz"
+    if round2_measurements.exists():
+        from round2_report import markdown as complete_round2_markdown
+
+        data["round2"]["measurements"] = json.loads(
+            gzip.decompress(round2_measurements.read_bytes())
+        )
+        rendered = complete_round2_markdown(data)
+    else:
+        rendered = prefix + markdown(data)
     dump(out_prefix.with_suffix(".json"), data)
-    out_prefix.with_suffix(".md").write_text(markdown(data))
+    out_prefix.with_suffix(".md").write_text(rendered)
     return data
 
 
