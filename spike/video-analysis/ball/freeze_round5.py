@@ -6,6 +6,7 @@ from pathlib import Path
 from build_human_report import generate
 from common import HERE, dump, sha256
 from review_round3 import freeze
+from round5_framing import enrich
 
 
 def main():
@@ -61,6 +62,8 @@ def main():
     }
     e["protocol"] = p
     dump(protocol_path, p)
+    if p.get("framing_review"):
+        e = enrich(e)
     freeze(HERE / "fixtures/round5_scored_output.json.gz", e)
     generate()
     print("Frozen aggregate fixtures; regenerated JSON and Markdown")

@@ -514,3 +514,35 @@ scorer: RF a has 76/122 held-out on-ball hits and 6 false boxes on 60 no-ball
 frames (2.00/10s); RF b has 75/122 and 4 (1.33/10s). Both qualify at the declared
 <=2 ceiling, so RF a is selected by one hit. This remains optimistic selection
 on recipe-selected clips, not proof of product superiority.
+
+### Round-5 framing review: no winner at a strict budget
+
+The matched-false-rate table is diagnostic, not a deployed threshold selector.
+The two r5 fits exchange any apparent advantage with only a few false boxes;
+A's selected kit source sits exactly at the ceiling and wins by one hit. The
+formerly disputed 2.17/1.30 rates use the 46-frame **on-ball** no-ball subset;
+strict selection uses all 60 held-out no-ball frames. `round5_framing.py` derives
+matched-rate budgets, n21 visible-ball sensitivity and timing ranges from saved
+aggregates. It retains strict labels and selection. Process IDs, resident model
+memory and per-second process samples remain private; committed timing evidence
+contains per-repeat summaries, with mean mediaanalysisd CPU >=30% flagged as
+contended. This retrospective flag does not change the nonblocking wait policy.
+
+`inspect_n21_adjudication.py` decodes five source frames and draws saved boxes for
+all four models at both TRAIN budgets; it imports no detector. Its private sheet
+is `~/codex-runs/ball-r5-n21/adjudicate-s6-s10.png`. MJ must adjudicate s6–s10 and
+choose match-ball versus any-ball semantics before labels change.
+
+Canonical historical tracker aggregates were generated under CPython 3.11.16,
+NumPy 2.4.6, with no SciPy installed (`~/Projects/loanarmy/.loan`). The RF runtime
+uses CPython 3.12.14, NumPy 2.3.5 and SciPy 1.18.1. We chose a narrow comparison
+tolerance rather than changing either environment: only duration-weighted group
+continuity permits absolute/relative drift <=1e-12. Per-clip tracks, counts and
+other fields remain exact; validated reports retain canonical saved values.
+The reproduced three differences were about 1e-16; no SciPy function is used on
+this path, so a SciPy-specific cause is unconfirmed. The RF full suite is now
+included in verification.
+
+No further m04 training. Calibrate on TRAIN-disjoint clips; budget future fits by
+optimizer steps; publish matched-rate curves and per-clip counts beside TRAIN
+operating points. Fresh labels from a different venue/day are the next evidence.

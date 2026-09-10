@@ -2,6 +2,15 @@
 
 from __future__ import annotations
 from fair_protocol import BUCKETS
+from round5_framing import (
+    HEADLINE,
+    BIG_BALL,
+    EPOCHS,
+    COUNTERFACTUAL,
+    COMPUTE,
+    SPEED,
+    FUTURE,
+)
 from round3_report import f, pair
 
 OLD_LABEL = "held-out (mild prior tuning exposure: the 640-vs-960 recipe choice in round 1 saw these clips in aggregate)"
@@ -42,7 +51,9 @@ def markdown(data, historical):
         if op["held"]["gate"] == "PASS"
     ]
     lines = [
-        "# Fair comparison — TRAIN-chosen operating points",
+        "# Fair comparison — no winner at a strict budget",
+        "",
+        HEADLINE,
         "",
         "Gate on recipe-selected clips: **"
         + (", ".join(passing) or "no candidate passes either operating point")
@@ -70,17 +81,37 @@ def markdown(data, historical):
             lines.append(
                 f"| {name} | {budget} | {op['threshold']:.17g} | {pair(t['on_ball']['top1_recall'], h['on_ball']['top1_recall'], True)} | {pair(t['on_ball']['manual_top1_recall'], h['on_ball']['manual_top1_recall'], True)} | {pair(t['all']['false_per_10s'], h['all']['false_per_10s'])} | {mc['wins']} / {mc['losses']} | {mc['exact_two_sided_p']:.4g} | {op['held']['gate']} |"
             )
-    current = models[selected]["operating_points"]["1"]["held"]["groups"]
-    yolo = models["yolo-r2-b"]["operating_points"]["1"]["held"]["groups"]
     lines += [
         "",
-        f"At the selection operating point, {selected} versus YOLO changes H on-ball top-1 by {100 * (current['on_ball']['top1_recall'] - yolo['on_ball']['top1_recall']):+.2f} percentage points and strict false/10s by {current['all']['false_per_10s'] - yolo['all']['false_per_10s']:+.2f}. Selection is conditional on the declared TRAIN-1 operating point and ≤2 H false/10s ceiling; it is not a claim of dominance over the full curve. The other final RF fit and both operating points remain visible above.",
+        "### Matched held-out false-rate budgets — diagnostic only",
+        "",
+        "Maximum hits out of122 at or below each false-count budget. These thresholds use H, so this is descriptive, not deployable calibration. One false box is20/60=0.333 per10s; the lead changes hands every one or two boxes.",
+        "",
+        "| H false/10s (box budget) | YOLO r2-b | RF b | RF r5-a | RF r5-b |",
+        "|---|---:|---:|---:|---:|",
+    ]
+    for r in e["framing"]["matched_false_rate_diagnostic_only"]:
+        if r["false_boxes_budget"] in (3, 4, 5, 6, 9, 10):
+            lines.append(
+                f"| {r['false_per_10s']:.2f} ({r['false_boxes_budget']}) | "
+                + " | ".join(str(r["hits"][n]) for n in order)
+                + " |"
+            )
+    lines += [
+        "",
+        "TRAIN calibration is in-sample: its no-ball frames were also training negatives. Approximate target1 H/TRAIN ratios are YOLO1.7×, r5-a2.0×, r5-b1.4×, RF b3.0×. Using the achieved0.9836 TRAIN rate, exact ratios are "
+        + ", ".join(
+            f"{n} {e['framing']['calibration_false_ratios'][n]:.2f}×" for n in order
+        )
+        + ". A TRAIN-chosen operating point does not imply an equal H error rate.",
+        "",
+        e["framing"]["selection"],
     ]
     lines += [
         "",
         e["selection_audit"]["preview_discrepancy"],
         "",
-        "Both new fits started from COCO and stopped at the 90-minute budget after three complete epochs plus part of epoch4. TRAIN-1 top-1 is 81.67% for A and 72.33% for B versus 95.00% for old RF b: these final fits are less fitted. Only six hard tiles were mined (five negative, one positive with its annotation retained); this is a small replay intervention. No further fits were launched.",
+        "Both new fits started from COCO and stopped at the 90-minute budget after three complete epochs plus part of epoch4. Only six hard tiles were mined (five negative, one positive retaining its annotation). No evidence more epochs help at strict budgets; do not plan longer m04 training.",
         "",
         "Large-ball / n21 summary (H only, recipe-selected on these clips):",
         "",
@@ -183,7 +214,7 @@ def markdown(data, historical):
         "",
         "### N21 source-pixel inspection",
         "",
-        p["n21_visual_review"]["description"],
+        e["framing"]["n21_note"],
         "",
         p["n21_visual_review"]["fresh_pass"],
         "",
@@ -191,9 +222,24 @@ def markdown(data, historical):
         "",
         p["n21_visual_review"]["private_evidence"],
         "",
+        "| Model / TRAIN budget | Strict H false/10s | Visible-ball boxes at n21 | H false/10s without those boxes |",
+        "|---|---:|---:|---:|",
+    ]
+    for r in e["framing"]["n21_sensitivity"]:
+        lines.append(
+            f"| {r['model']} / {r['train_budget']} | {r['strict_false_per_10s']:.2f} | {r['n21_visible_ball_boxes']} | {r['without_visible_ball_boxes_per_10s']:.2f} |"
+        )
+    lines += [
+        "",
+        "Sensitivity only, not path credits or relabelled scores. At TRAIN-2 r5-a changes from more false alarms than YOLO (3.33 vs3.00) to fewer (2.67 vs3.00); r5-b remains higher (3.33 vs3.00). Pending MJ adjudication of n21 frames s6-s10 and a match-ball versus any-ball rule. Adjudication sheet: ~/codex-runs/ball-r5-n21/adjudicate-s6-s10.png; both new fits at both budgets: r5-fits-both-budgets.png in the same directory.",
+        "",
         "## Size buckets: top-1 hits / visible labels",
         "",
         "Sizes are the same independent matched RF baseline-box short sides as previous rounds, not inferred from this round's successes. Unknown sizes stay in the denominator. These are teacher box estimates, not human-drawn boundaries. TRAIN has only one independently sized ≥24px on-ball example; H has 22.",
+        "",
+        BIG_BALL,
+        "",
+        "TRAIN targets are synthetic:592/631 sit at the18.680435px floor,23 are≥24px, maximum32.85px. A1.2× zoom raises the floor to22.42px, still below24px. These631 targets differ from the independent matched-size on-ball bucket (only1 TRAIN label≥24px).",
         "",
         "| Model / TRAIN target | Bucket | TRAIN hits / labels | H hits / labels |",
         "|---|---|---:|---:|",
@@ -248,6 +294,12 @@ def markdown(data, historical):
         "",
         p["selection_amendment_before_new_evaluation"],
         "",
+        COUNTERFACTUAL,
+        "",
+        COMPUTE,
+        "",
+        EPOCHS,
+        "",
         "Every base TRAIN tile is included in each complete epoch (631 positive, 2381 negative); replay adds one copy of each mined hard tile, retaining its positive annotation when present. Mining is performed on unaugmented TRAIN images only. Stopping compares unaugmented base-TRAIN loss, avoiding a changing replay mixture; three complete epochs without >1% improvement, 12-epoch / 90-minute phase-boundary budget. Final partial epochs are reported, never called complete.",
         "",
         "Seed42 is shared, but MPS uses deterministic-algorithm warnings rather than guaranteed bitwise determinism. The TRAIN histories already differ before replay begins. A single fit per setting cannot isolate replay's causal effect from run variation; full per-epoch losses are retained in the JSON.",
@@ -274,14 +326,14 @@ def markdown(data, historical):
         "",
         "Checkpoints below are diagnostic only. Both fits had finished before any of these held-out evaluations. Thresholds are re-chosen on TRAIN for each checkpoint; no number below selects a checkpoint or alters a fit.",
         "",
-        "| Fit / checkpoint | TRAIN target | Threshold | Top-1 on-ball T / H | False/10s T / H |",
-        "|---|---:|---:|---:|---:|",
+        "| Fit / checkpoint | TRAIN target | Threshold | Top-1 on-ball T / H | False/10s T / H | Censoring |",
+        "|---|---:|---:|---:|---:|---|",
     ]
     for name, row in e.get("learning_curve", {}).items():
         for budget, op in row["operating_points"].items():
             t, h = (op[s]["groups"] for s in ("train", "held"))
             lines.append(
-                f"| {name} | {budget} | {op['threshold']:.17g} | {pair(t['on_ball']['top1_recall'], h['on_ball']['top1_recall'], True)} | {pair(t['all']['false_per_10s'], h['all']['false_per_10s'])} |"
+                f"| {name} | {budget} | {op['threshold']:.17g} | {pair(t['on_ball']['top1_recall'], h['on_ball']['top1_recall'], True)} | {pair(t['all']['false_per_10s'], h['all']['false_per_10s'])} | {'SAVE FLOOR: target not reached' if op['threshold'] == 0.01 and op['achieved_false_per_10s'] < float(budget) else '—'} |"
             )
     lines += [
         "",
@@ -312,6 +364,10 @@ def markdown(data, historical):
             "",
             f"Timing status: **{throughput['timing_status']}**; total quiet wait {throughput['total_quiet_wait_s']:.1f}s of the shared 900s cap. mediaanalysisd and PhotosReliveWidget are nonblocking steady background by orchestrator decision; active model generation and bench jobs remain blocking until the wait budget expires.",
             "",
+            SPEED,
+            "",
+            "Four repeats had mean mediaanalysisd CPU≥30%, each also the slowest repeat of its model/sampling mode: r5-a native1, rf-b native1, rf-b sampled2, YOLO sampled2. They are labelled contended and retained in medians/ranges. This coincidence does not establish causation. RF b's2fps match projection ranges25.54–41.09min across repeats (about25–41min).",
+            "",
             throughput["projection"],
             "",
             throughput["old_yolo_discrepancy"],
@@ -327,7 +383,7 @@ def markdown(data, historical):
             )
         lines += [
             "",
-            "Per-repeat caveats (full 1s samples are retained in JSON):",
+            "Per-repeat caveats (summaries only; process IDs, resident memory and per-second traces are private):",
             "",
             "| Model / sampling / repeat | Status | mediaanalysisd CPU mean / max % | AGX GPU mean / max % |",
             "|---|---|---:|---:|",
@@ -335,16 +391,30 @@ def markdown(data, historical):
         for name, row in throughput["models"].items():
             for sampling, key in (("sampled", "repeats"), ("native", "native_repeats")):
                 for repeat in row[key]:
-                    samples = repeat["background_caveat_samples"]
-                    cpu = [s["mediaanalysisd_cpu_percent"] for s in samples]
-                    gpu = [
-                        s["agx_gpu_utilisation_percent"]
-                        for s in samples
-                        if s["agx_gpu_utilisation_percent"] is not None
-                    ]
+                    cpu = repeat["mediaanalysisd_cpu_percent"]
+                    gpu = repeat["agx_gpu_utilisation_percent"]
                     lines.append(
-                        f"| {name} / {sampling} / {repeat['repeat']} | {repeat['timing_status']} | {sum(cpu) / len(cpu):.1f} / {max(cpu):.1f} | {sum(gpu) / len(gpu):.1f} / {max(gpu):.1f} |"
+                        f"| {name} / {sampling} / {repeat['repeat']} | {repeat['timing_status']} | {cpu['mean']:.1f} / {cpu['max']:.1f} | {gpu['mean']:.1f} / {gpu['max']:.1f} |"
                     )
+        lines += [
+            "",
+            "| Model | Sampled FPS min–max | Native FPS min–max | 2fps match minutes min–max | Native match minutes min–max |",
+            "|---|---:|---:|---:|---:|",
+        ]
+        for name, row in throughput["models"].items():
+            lines.append(
+                f"| {name} | "
+                + " | ".join(
+                    "–".join(f(v) for v in row[k])
+                    for k in (
+                        "repeats_fps_range",
+                        "native_repeats_fps_range",
+                        "match_2fps_minutes_range",
+                        "match_native_minutes_range",
+                    )
+                )
+                + " |"
+            )
         lines += [
             "",
             f"Source frame rate: {throughput['native_fps']:.8f} fps. Mode fallback errors: {throughput['errors'] or 'none'}.",
@@ -352,6 +422,10 @@ def markdown(data, historical):
             f"Optimized-versus-eager TRAIN probe: {throughput.get('optimized_train_parity', {})}.",
         ]
     lines += [
+        "",
+        "## Method for future rounds",
+        "",
+        FUTURE,
         "",
         "## What a fresh match must test",
         "",
@@ -370,6 +444,8 @@ def markdown(data, historical):
         p["protocol"]["corrections"],
         "",
         p["prior_push"],
+        "",
+        p.get("framing_review", {}).get("test_environment", ""),
         "",
         str(p.get("verification", {})),
         "",

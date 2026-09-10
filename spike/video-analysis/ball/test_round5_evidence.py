@@ -6,7 +6,6 @@ import hashlib
 import json
 import math
 from common import HERE, sha256
-from benchmark_activity import busy
 
 
 def evidence():
@@ -157,17 +156,15 @@ def test_throughput_has_three_interleaved_repeats_and_correct_projection():
         )
         assert all(r["frames"] == 192 for r in row["native_repeats"])
         for repeat in row["repeats"] + row["native_repeats"]:
-            if repeat["timing_status"].startswith("quiet"):
-                assert repeat["busy_polls"] == 0
-                assert not busy(repeat["activity_before"], preflight=True)
-                assert repeat["maximum_foreign_client_cpu_percent"] < 2
-            else:
-                assert repeat["timing_status"] == "contended (steady background load)"
+            assert repeat["media_cpu_ge30"] == (
+                repeat["mediaanalysisd_cpu_percent"]["mean"] >= 30
+            )
+            assert repeat["timing_status"].startswith("contended") == (
+                repeat["media_cpu_ge30"] or bool(repeat["busy_polls"])
+            )
+            assert "background_caveat_samples" not in repeat
+            assert "activity_before" not in repeat
             assert repeat["activity_polls_during"] > 0
-            samples = repeat["background_caveat_samples"]
-            assert len(samples) == repeat["activity_polls_during"]
-            assert all(s["mediaanalysisd_cpu_percent"] >= 0 for s in samples)
-            assert all(0 <= s["agx_gpu_utilisation_percent"] <= 100 for s in samples)
         assert row["median_fps"] == sorted(r["fps"] for r in row["repeats"])[1]
         assert row["match_2fps_minutes"] == 10800 / row["median_fps"] / 60
         assert (

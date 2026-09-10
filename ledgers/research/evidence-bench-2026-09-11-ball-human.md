@@ -1,4 +1,6 @@
-# Fair comparison — TRAIN-chosen operating points
+# Fair comparison — no winner at a strict budget
+
+On these recipe-selected m04 clips no detector wins: RF-DETR and YOLO swap the lead every one or two false boxes, the unselected RF fit matches YOLO at equal held-out false rates, the large-ball result rests on one 12-second sequence, three of the n21 'false' boxes may be mislabelled real balls, and RF-DETR Nano@960 is about 8x slower at 2 fps (about 36 min per match) and 10-11x at native rate (about 8-9 h).
 
 Gate on recipe-selected clips: **no candidate passes either operating point**.
 
@@ -25,11 +27,26 @@ Manual-only frames are harder: MJ hand-clicked frames where useful suggestions w
 | rf-r5-b | 1 | 0.49416390061378485 | 72.33% / 61.48% | 69.51% / 38.00% | 0.98 / 1.33 | 6 / 12 | 0.2379 | FAIL |
 | rf-r5-b | 2 | 0.19647511839866641 | 86.67% / 77.05% | 85.37% / 58.00% | 1.97 / 4.00 | 11 / 3 | 0.05737 | FAIL |
 
-At the selection operating point, rf-r5-a versus YOLO changes H on-ball top-1 by -4.10 percentage points and strict false/10s by +0.33. Selection is conditional on the declared TRAIN-1 operating point and ≤2 H false/10s ceiling; it is not a claim of dominance over the full curve. The other final RF fit and both operating points remain visible above.
+### Matched held-out false-rate budgets — diagnostic only
 
-User cited new A 2.17 and B 1.30 false/10s. Canonical 60 held-out no-ball frames at 2fps yield A 6*20/60=2.00 and B 4*20/60=1.333333. A and B both qualify under <=2; A has 76/122 hits versus B 75/122. The cited rates do not reproduce from the final saved passes. Selection remains rf-r5-a, not rf-r5-b.
+Maximum hits out of122 at or below each false-count budget. These thresholds use H, so this is descriptive, not deployable calibration. One false box is20/60=0.333 per10s; the lead changes hands every one or two boxes.
 
-Both new fits started from COCO and stopped at the 90-minute budget after three complete epochs plus part of epoch4. TRAIN-1 top-1 is 81.67% for A and 72.33% for B versus 95.00% for old RF b: these final fits are less fitted. Only six hard tiles were mined (five negative, one positive with its annotation retained); this is a small replay intervention. No further fits were launched.
+| H false/10s (box budget) | YOLO r2-b | RF b | RF r5-a | RF r5-b |
+|---|---:|---:|---:|---:|
+| 1.00 (3) | 69 | 74 | 63 | 68 |
+| 1.33 (4) | 72 | 76 | 74 | 78 |
+| 1.67 (5) | 83 | 78 | 74 | 81 |
+| 2.00 (6) | 86 | 79 | 79 | 87 |
+| 3.00 (9) | 86 | 91 | 89 | 93 |
+| 3.33 (10) | 86 | 91 | 93 | 94 |
+
+TRAIN calibration is in-sample: its no-ball frames were also training negatives. Approximate target1 H/TRAIN ratios are YOLO1.7×, r5-a2.0×, r5-b1.4×, RF b3.0×. Using the achieved0.9836 TRAIN rate, exact ratios are yolo-r2-b 1.69×, rf-b 3.05×, rf-r5-a 2.03×, rf-r5-b 1.36×. A TRAIN-chosen operating point does not imply an equal H error rate.
+
+Selection is a knife-edge tie-break: rf-r5-a stays selected correctly at the exact ceiling (6/60×20=2.000), with 76 hits versus r5-b's 75. One more false box would select r5-b. At every attainable matched false-count budget from 0 through 10 boxes (3.33/10s), r5-b is at or above r5-a. This rule output is a kit-source choice, not evidence of superiority.
+
+The cited 2.17 / 1.30 / 2.61 / 3.04 rates DO reproduce as groups.on_ball.false_per_10s: 5 / 3 / 6 / 7 false boxes ×20/46, using the 46 no-ball frames in the two n17 on-ball clips. Strict selection uses groups.all and all 60 held-out no-ball frames. At TRAIN-1 A has 6/60×20=2.000 and B 4/60×20=1.333. The earlier claim that these rates did not reproduce was wrong: it confused denominators.
+
+Both new fits started from COCO and stopped at the 90-minute budget after three complete epochs plus part of epoch4. Only six hard tiles were mined (five negative, one positive retaining its annotation). No evidence more epochs help at strict budgets; do not plan longer m04 training.
 
 Large-ball / n21 summary (H only, recipe-selected on these clips):
 
@@ -112,7 +129,7 @@ HELD clip counts (columns are model / TRAIN target):
 
 ### N21 source-pixel inspection
 
-Five boxes: three appear to cover a football at players’ feet, two white footwear. Active-match versus spare-ball identity is UNCONFIRMED; the preceding visible-click trajectory makes a spare-ball assertion unjustified.
+N21 is scorer class off_pitch, based on MJ's note. Source crops for every model at both TRAIN budgets show a visible background football: each r5 fit's single TRAIN-1 n21 box is the sample-9 ball (within2px of the old RF box); at TRAIN-2, two of three r5 boxes sit on the ball and one on footwear. MJ's preceding clicks at t3903.0–3905.47 move toward the flagged spot (about86→77px), then s6–s10 are no-ball despite visible football. This conflicts with an any-visible-ball reading unless the intended rule is match-ball only. Pending MJ adjudication of n21 frames s6-s10 and a match-ball versus any-ball rule. No labels, thresholds, selection or strict gate were changed.
 
 Five boxes on three of five no-ball frames (sample indices 8,9,10); corrects the supplied one-per-frame description.
 
@@ -120,9 +137,26 @@ TRAIN replay should target analogous footwear, never these held-out crops. Do no
 
 ~/codex-runs/ball-r5-n21/contact-sheet.png; five uniquely named exact box and context PNG pairs.
 
+| Model / TRAIN budget | Strict H false/10s | Visible-ball boxes at n21 | H false/10s without those boxes |
+|---|---:|---:|---:|
+| rf-b / 1 | 3.00 | 2 | 2.33 |
+| rf-b / 2 | 6.67 | 3 | 5.67 |
+| rf-r5-a / 1 | 2.00 | 1 | 1.67 |
+| rf-r5-a / 2 | 3.33 | 2 | 2.67 |
+| rf-r5-b / 1 | 1.33 | 1 | 1.00 |
+| rf-r5-b / 2 | 4.00 | 2 | 3.33 |
+| yolo-r2-b / 1 | 1.67 | 0 | 1.67 |
+| yolo-r2-b / 2 | 3.00 | 0 | 3.00 |
+
+Sensitivity only, not path credits or relabelled scores. At TRAIN-2 r5-a changes from more false alarms than YOLO (3.33 vs3.00) to fewer (2.67 vs3.00); r5-b remains higher (3.33 vs3.00). Pending MJ adjudication of n21 frames s6-s10 and a match-ball versus any-ball rule. Adjudication sheet: ~/codex-runs/ball-r5-n21/adjudicate-s6-s10.png; both new fits at both budgets: r5-fits-both-budgets.png in the same directory.
+
 ## Size buckets: top-1 hits / visible labels
 
 Sizes are the same independent matched RF baseline-box short sides as previous rounds, not inferred from this round's successes. Unknown sizes stay in the denominator. These are teacher box estimates, not human-drawn boundaries. TRAIN has only one independently sized ≥24px on-ball example; H has 22.
+
+Zoom fits recover more large balls only at the looser threshold, within one 12-second sequence; run-to-run noise is as large as the effect. All 22 held-out ≥24px labels belong to m04-n17-t717-253073-260377, in relative intervals 0–1.5s, 3.0–3.5s and 4.5–12.0s. At TRAIN-1 selected A has 9 hits, below no-zoom RF b's 11; A and B share zoom yet differ by 3 frames. These are teacher-estimated sizes, not independent human box measurements.
+
+TRAIN targets are synthetic:592/631 sit at the18.680435px floor,23 are≥24px, maximum32.85px. A1.2× zoom raises the floor to22.42px, still below24px. These631 targets differ from the independent matched-size on-ball bucket (only1 TRAIN label≥24px).
 
 | Model / TRAIN target | Bucket | TRAIN hits / labels | H hits / labels |
 |---|---|---:|---:|
@@ -198,6 +232,12 @@ Before fit b: defer first hard-negative mining until trained epoch2; the reset C
 
 During fit a epoch1, before either new fit had any held-out evaluation: replace preliminary TRAIN-ranked model choice with the primary final-checkpoint H metric. This is explicitly optimistic selection on recipe-selected clips; no fit, checkpoint stopping, or TRAIN calibration changes.
 
+Fit A launched under a TRAIN-only rule; it was amended to the held-out ≤2 ceiling after old rf-b's held-out false rates were known (before any new-fit held-out evaluation); under the original rule rf-b (95.00% TRAIN top-1 at TRAIN-1) would have won, changing the kit suggestion source.
+
+Equal wall time was unequal compute: A received1,233 optimizer steps /9,852 tile-views; B1,325 /10,586 (+7.5% views) in the same90-minute budget. A ComfyUI job was active at some point; its effect on fitting time is unconfirmed. Future fits must be budgeted by optimizer steps, not wall clock.
+
+No evidence more epochs help at strict budgets; do not plan longer m04 training. Epoch-2 curves are censored at confidence0.01: TRAIN false/10s reaches only1.48 (A) and1.64 (B), not the requested2.0 budget. Their H endpoints are3.00 and2.00 respectively (the approximate2/10s censoring description applies to B). At TRAIN-2 H hits ROSE epoch-2→FINAL: A84→93 with false/10s3.00→3.33; B87→94 with2.00→4.00. Only the first of the two declared LR decays took effect: epoch3 uses0.1× LR, and training stops during epoch4 before the epoch5 0.01× stage. Intermediate checkpoints remain diagnostic, never selected.
+
 Every base TRAIN tile is included in each complete epoch (631 positive, 2381 negative); replay adds one copy of each mined hard tile, retaining its positive annotation when present. Mining is performed on unaugmented TRAIN images only. Stopping compares unaugmented base-TRAIN loss, avoiding a changing replay mixture; three complete epochs without >1% improvement, 12-epoch / 90-minute phase-boundary budget. Final partial epochs are reported, never called complete.
 
 Seed42 is shared, but MPS uses deterministic-algorithm warnings rather than guaranteed bitwise determinism. The TRAIN histories already differ before replay begins. A single fit per setting cannot isolate replay's causal effect from run variation; full per-epoch losses are retained in the JSON.
@@ -209,16 +249,16 @@ Seed42 is shared, but MPS uses deterministic-algorithm warnings rather than guar
 
 Checkpoints below are diagnostic only. Both fits had finished before any of these held-out evaluations. Thresholds are re-chosen on TRAIN for each checkpoint; no number below selects a checkpoint or alters a fit.
 
-| Fit / checkpoint | TRAIN target | Threshold | Top-1 on-ball T / H | False/10s T / H |
-|---|---:|---:|---:|---:|
-| rf-r5-a / FINAL | 1 | 0.30314332246780401 | 81.67% / 62.30% | 0.98 / 2.00 |
-| rf-r5-a / FINAL | 2 | 0.062361281365156181 | 88.00% / 76.23% | 1.97 / 3.33 |
-| rf-r5-a / epoch-2 | 1 | 0.017670813947916034 | 71.33% / 65.57% | 0.98 / 2.00 |
-| rf-r5-a / epoch-2 | 2 | 0.01 | 75.67% / 68.85% | 1.48 / 3.00 |
-| rf-r5-b / FINAL | 1 | 0.49416390061378485 | 72.33% / 61.48% | 0.98 / 1.33 |
-| rf-r5-b / FINAL | 2 | 0.19647511839866641 | 86.67% / 77.05% | 1.97 / 4.00 |
-| rf-r5-b / epoch-2 | 1 | 0.031473584473133094 | 70.33% / 68.03% | 0.98 / 1.00 |
-| rf-r5-b / epoch-2 | 2 | 0.01 | 77.67% / 71.31% | 1.64 / 2.00 |
+| Fit / checkpoint | TRAIN target | Threshold | Top-1 on-ball T / H | False/10s T / H | Censoring |
+|---|---:|---:|---:|---:|---|
+| rf-r5-a / FINAL | 1 | 0.30314332246780401 | 81.67% / 62.30% | 0.98 / 2.00 | — |
+| rf-r5-a / FINAL | 2 | 0.062361281365156181 | 88.00% / 76.23% | 1.97 / 3.33 | — |
+| rf-r5-a / epoch-2 | 1 | 0.017670813947916034 | 71.33% / 65.57% | 0.98 / 2.00 | — |
+| rf-r5-a / epoch-2 | 2 | 0.01 | 75.67% / 68.85% | 1.48 / 3.00 | SAVE FLOOR: target not reached |
+| rf-r5-b / FINAL | 1 | 0.49416390061378485 | 72.33% / 61.48% | 0.98 / 1.33 | — |
+| rf-r5-b / FINAL | 2 | 0.19647511839866641 | 86.67% / 77.05% | 1.97 / 4.00 | — |
+| rf-r5-b / epoch-2 | 1 | 0.031473584473133094 | 70.33% / 68.03% | 0.98 / 1.00 | — |
+| rf-r5-b / epoch-2 | 2 | 0.01 | 77.67% / 71.31% | 1.64 / 2.00 | SAVE FLOOR: target not reached |
 
 The full held-out recall-versus-false/10s staircase (all score breakpoints down to 0.01) is committed in the JSON at round5.measurements.models.<model>.held_curve_diagnostic_only. It is a diagnostic curve, not an operating-point selection source.
 
@@ -239,9 +279,13 @@ Track precision and wrong-point rates use track points on visible labelled frame
 
 ## Controlled throughput and a 90-minute match
 
-3 interleaved repeats per model per sampling mode after bench training/inference stopped. Before each repeat require three quiet one-second observations: GPU utilization <=10%, empty ComfyUI queue, and Ollama workers below2% CPU. Poll active llama-server/Ollama, bench training/inference and ComfyUI during timing. The total quiet wait across all repeats is capped at 15 minutes; after exhaustion repeats proceed and are labelled contended (steady background load). Activity starting during a repeat also labels that repeat contended. Every repeat records mediaanalysisd CPU percent and ioreg AGXAccelerator GPU utilization samples. macOS media-analysis CPU load is recorded separately: sustained roughly two-core housekeeping was observed with0% GPU utilization, so it is not treated as active GPU work. These are observed desktop conditions, not an otherwise-idle-CPU laboratory. This detects known competing work, not every possible GPU client. Sampled mode covers all 2fps samples of the three TRAIN clips; native mode covers the first 64 consecutive native frames of each (192 frames/repeat). Warmup/compile excluded; source decode (including skipped frames), RGB conversion, cropping/padding, four-tile batched inference and prediction materialization included. Merge/JSON writing excluded consistently. Accuracy passes use eager FP32 separately; these optimized throughput measurements do not substitute for scored outputs.
+3 interleaved repeats per model per sampling mode after bench training/inference stopped. Before each repeat require three quiet one-second observations: GPU utilization <=10%, empty ComfyUI queue, and Ollama workers below2% CPU. Poll active llama-server/Ollama, bench training/inference and ComfyUI during timing. The total quiet wait across all repeats is capped at 15 minutes; after exhaustion repeats proceed and are labelled contended (steady background load). Activity starting during a repeat also labels that repeat contended. Every repeat records mediaanalysisd CPU and ioreg AGX GPU summaries; per-second process samples remain private. Retrospective flags mark mean mediaanalysisd CPU >=30% as contended, without changing the nonblocking wait policy or excluding any timing repeat. macOS media-analysis CPU load is recorded separately: sustained roughly two-core housekeeping was observed with0% GPU utilization, so it is not treated as active GPU work. These are observed desktop conditions, not an otherwise-idle-CPU laboratory. This detects known competing work, not every possible GPU client. Sampled mode covers all 2fps samples of the three TRAIN clips; native mode covers the first 64 consecutive native frames of each (192 frames/repeat). Warmup/compile excluded; source decode (including skipped frames), RGB conversion, cropping/padding, four-tile batched inference and prediction materialization included. Merge/JSON writing excluded consistently. Accuracy passes use eager FP32 separately; these optimized throughput measurements do not substitute for scored outputs.
 
-Timing status: **quiet known clients (steady background load)**; total quiet wait 73.7s of the shared 900s cap. mediaanalysisd and PhotosReliveWidget are nonblocking steady background by orchestrator decision; active model generation and bench jobs remain blocking until the wait budget expires.
+Timing status: **mixed contention: four repeats flagged by mediaanalysisd mean CPU >=30%**; total quiet wait 73.7s of the shared 900s cap. mediaanalysisd and PhotosReliveWidget are nonblocking steady background by orchestrator decision; active model generation and bench jobs remain blocking until the wait budget expires.
+
+On this M4 Max, RF-DETR Nano@960 is about 7.6-7.8x slower than YOLO11n at 2 fps sampling and 10.0-10.9x at native rate. The ratio is conservative: YOLO ran FP32 eager on a ~960x544 letterbox with the GPU 40-58% busy; RF ran FP16 JIT on 960x960. YOLO native55.2 exceeds sampled37.7 FPS because common.samples decodes and RGB-converts approximately14 skipped frames per2fps sample inside the timer. The GPU40–58% characterization is approximate; measured per-repeat GPU means/ranges remain below. Historical11.5-vs51FPS cause remains unconfirmed.
+
+Four repeats had mean mediaanalysisd CPU≥30%, each also the slowest repeat of its model/sampling mode: r5-a native1, rf-b native1, rf-b sampled2, YOLO sampled2. They are labelled contended and retained in medians/ranges. This coincidence does not establish causation. RF b's2fps match projection ranges25.54–41.09min across repeats (about25–41min).
 
 Separate linear projections from measured 2fps-pipeline and native-pipeline throughput; native does not inherit skipped-frame decode cost. These are not actual 90-minute match runs. Native bursts include three seeks per192 frames, a conservative overhead versus continuous match decoding; long-run thermal behaviour is unmeasured.
 
@@ -255,32 +299,42 @@ An unrelated ComfyUI job was active during accuracy inference; this can affect i
 | rf-b | optimize_for_inference JIT batch4 FP16 | 7.05, 4.38, 4.81 / 3.41, 5.53, 5.51 | 4.81 / 5.51 | 37.39 | 489.77 |
 | yolo-r2-b | Ultralytics FP32 raw 960x540, imgsz960, batch4 | 40.46, 27.57, 37.70 / 51.60, 55.38, 55.21 | 37.70 / 55.21 | 4.77 | 48.86 |
 
-Per-repeat caveats (full 1s samples are retained in JSON):
+Per-repeat caveats (summaries only; process IDs, resident memory and per-second traces are private):
 
 | Model / sampling / repeat | Status | mediaanalysisd CPU mean / max % | AGX GPU mean / max % |
 |---|---|---:|---:|
-| mj-r5-rf-a / sampled / 1 | quiet known clients (steady background load) | 28.5 / 109.1 | 96.2 / 97.0 |
-| mj-r5-rf-a / sampled / 2 | quiet known clients (steady background load) | 16.2 / 97.7 | 96.5 / 98.0 |
-| mj-r5-rf-a / sampled / 3 | quiet known clients (steady background load) | 0.0 / 0.4 | 96.6 / 97.0 |
-| mj-r5-rf-a / native / 1 | quiet known clients (steady background load) | 61.9 / 113.1 | 96.1 / 99.0 |
-| mj-r5-rf-a / native / 2 | quiet known clients (steady background load) | 0.0 / 0.3 | 96.8 / 98.0 |
-| mj-r5-rf-a / native / 3 | quiet known clients (steady background load) | 0.0 / 0.1 | 96.7 / 97.0 |
-| rf-b / sampled / 1 | quiet known clients (steady background load) | 0.0 / 0.5 | 95.2 / 96.0 |
-| rf-b / sampled / 2 | quiet known clients (steady background load) | 37.0 / 111.1 | 96.7 / 100.0 |
-| rf-b / sampled / 3 | quiet known clients (steady background load) | 0.0 / 0.1 | 96.6 / 98.0 |
-| rf-b / native / 1 | quiet known clients (steady background load) | 59.8 / 111.8 | 94.3 / 98.0 |
-| rf-b / native / 2 | quiet known clients (steady background load) | 1.6 / 55.4 | 93.9 / 97.0 |
-| rf-b / native / 3 | quiet known clients (steady background load) | 0.0 / 0.1 | 94.0 / 97.0 |
-| yolo-r2-b / sampled / 1 | quiet known clients (steady background load) | 0.0 / 0.1 | 41.8 / 45.0 |
-| yolo-r2-b / sampled / 2 | quiet known clients (steady background load) | 39.8 / 98.6 | 31.3 / 56.0 |
-| yolo-r2-b / sampled / 3 | quiet known clients (steady background load) | 0.0 / 0.0 | 40.1 / 45.0 |
-| yolo-r2-b / native / 1 | quiet known clients (steady background load) | 0.0 / 0.1 | 45.2 / 67.0 |
-| yolo-r2-b / native / 2 | quiet known clients (steady background load) | 0.0 / 0.0 | 45.8 / 60.0 |
-| yolo-r2-b / native / 3 | quiet known clients (steady background load) | 0.0 / 0.1 | 44.6 / 60.0 |
+| mj-r5-rf-a / sampled / 1 | no flagged contention (background load recorded) | 28.5 / 109.1 | 96.2 / 97.0 |
+| mj-r5-rf-a / sampled / 2 | no flagged contention (background load recorded) | 16.2 / 97.7 | 96.5 / 98.0 |
+| mj-r5-rf-a / sampled / 3 | no flagged contention (background load recorded) | 0.0 / 0.4 | 96.6 / 97.0 |
+| mj-r5-rf-a / native / 1 | contended (mediaanalysisd mean CPU >=30%) | 61.9 / 113.1 | 96.1 / 99.0 |
+| mj-r5-rf-a / native / 2 | no flagged contention (background load recorded) | 0.0 / 0.3 | 96.8 / 98.0 |
+| mj-r5-rf-a / native / 3 | no flagged contention (background load recorded) | 0.0 / 0.1 | 96.7 / 97.0 |
+| rf-b / sampled / 1 | no flagged contention (background load recorded) | 0.0 / 0.5 | 95.2 / 96.0 |
+| rf-b / sampled / 2 | contended (mediaanalysisd mean CPU >=30%) | 37.0 / 111.1 | 96.7 / 100.0 |
+| rf-b / sampled / 3 | no flagged contention (background load recorded) | 0.0 / 0.1 | 96.6 / 98.0 |
+| rf-b / native / 1 | contended (mediaanalysisd mean CPU >=30%) | 59.8 / 111.8 | 94.3 / 98.0 |
+| rf-b / native / 2 | no flagged contention (background load recorded) | 1.6 / 55.4 | 93.9 / 97.0 |
+| rf-b / native / 3 | no flagged contention (background load recorded) | 0.0 / 0.1 | 94.0 / 97.0 |
+| yolo-r2-b / sampled / 1 | no flagged contention (background load recorded) | 0.0 / 0.1 | 41.8 / 45.0 |
+| yolo-r2-b / sampled / 2 | contended (mediaanalysisd mean CPU >=30%) | 39.8 / 98.6 | 31.3 / 56.0 |
+| yolo-r2-b / sampled / 3 | no flagged contention (background load recorded) | 0.0 / 0.0 | 40.1 / 45.0 |
+| yolo-r2-b / native / 1 | no flagged contention (background load recorded) | 0.0 / 0.1 | 45.2 / 67.0 |
+| yolo-r2-b / native / 2 | no flagged contention (background load recorded) | 0.0 / 0.0 | 45.8 / 60.0 |
+| yolo-r2-b / native / 3 | no flagged contention (background load recorded) | 0.0 / 0.1 | 44.6 / 60.0 |
+
+| Model | Sampled FPS min–max | Native FPS min–max | 2fps match minutes min–max | Native match minutes min–max |
+|---|---:|---:|---:|---:|
+| mj-r5-rf-a | 4.93–5.06 | 3.30–5.37 | 35.55–36.51 | 502.17–816.70 |
+| rf-b | 4.38–7.05 | 3.41–5.53 | 25.54–41.09 | 487.55–790.24 |
+| yolo-r2-b | 27.57–40.46 | 51.60–55.38 | 4.45–6.53 | 48.70–52.28 |
 
 Source frame rate: 29.97002997 fps. Mode fallback errors: none.
 
 Optimized-versus-eager TRAIN probe: {'mj-r5-rf-a': {'maximum_top1_centre_delta_px': 0.14277268734639317, 'maximum_top1_score_delta': 0.007046103477478027, 'note': '15 TRAIN frames, not full optimized-accuracy validation; primary metrics remain eager FP32.', 'threshold': 0.303143322467804, 'top1_presence_changes': 0, 'train_frames': 15}, 'rf-b': {'maximum_top1_centre_delta_px': 0.16704292540239415, 'maximum_top1_score_delta': 0.003093242645263672, 'note': '15 TRAIN frames, not full optimized-accuracy validation; primary metrics remain eager FP32.', 'threshold': 0.19124995172023776, 'top1_presence_changes': 0, 'train_frames': 15}}.
+
+## Method for future rounds
+
+Calibrate thresholds on TRAIN-disjoint clips; budget fits by optimizer steps; always show matched-false-rate curves and per-clip counts beside TRAIN operating points. No further m04 training. The next real evidence is a fresh labelled match from a different venue and day.
 
 ## What a fresh match must test
 
@@ -300,9 +354,11 @@ Round4 calibration effect superseded; RF a+b 4.33 passes/13052 views/58 min; YOL
 
 User reports orchestrator pushed d2268bd; round-4 agent did not push.
 
-{'archive_pytest': {'passed': 423, 'skipped': 0}, 'browser_kit': 'PASS1057 exact seeds,48 unlabelled,accepted-source provenance preserved', 'ledger_regeneration': 'JSON and Markdown byte-for-byte from committed aggregate fixtures without private labels, weights or footage', 'minimal_archive_pytest': {'passed': 420, 'skip_reason': 'OpenCV unavailable in minimal export environment', 'skipped': 3}, 'ruff_check': 'PASS worktree and archive', 'ruff_format_check': 'PASS worktree and archive,99 files', 'summary': 'Full gates passed except an extra final Markdown blank line caught by git diff --check; generator corrected. The complete final staged-tree verification repeats after this entry, and its tree/ledger hashes plus commit/clean-status receipt are kept outside git. No labels, weights, detections or crops committed. No push.', 'worktree_pytest': {'passed': 423, 'skipped': 0}}
+Canonical tracker fixture environment: CPython3.11.16 / NumPy2.4.6, no SciPy installed (~/Projects/loanarmy/.loan). RF environment: CPython3.12.14 / NumPy2.3.5 / SciPy1.18.1 (~/models/tinyball/.venv-mj). Chosen fix: only duration-weighted group-continuity comparisons allow rel/abs tolerance1e-12; per-clip tracks and all counts remain exact. The reproduced failure involved three aggregate float differences of5.6e-17–1.1e-16. Canonical saved values are returned after validation, preserving report bytes. No SciPy function is called on this path; attributing the discrepancy to SciPy itself is unconfirmed. RF full suite passes429 tests including the framing regressions, in the worktree and git-archive export.
 
-Outstanding limits: No fresh-match true holdout: recipe-selected clips and shared player/match cannot establish a product winner. No candidate passes the strict held-out top1 >=80% AND false/10s <=1 gate at the two predeclared operating points. Optional third warm-start fit not run; no training after the resume decision. Historical YOLO FPS discrepancy cause remains UNCONFIRMED. Full-corpus optimized FP16 accuracy and an actual continuous90-minute timing run are not measured; speed projections and a15-TRAIN-frame parity probe are explicit. No deployment, native-rate track-guided inference, or push.
+{'git_archive_pytest': {'canonical': 429, 'minimal_passed': 426, 'minimal_skipped': 3, 'rf_venv': 429}, 'rebuild': 'JSON and Markdown byte-for-byte from committed fixtures in the minimal export environment', 'round': 'framing review on fae974a7', 'ruff': 'check and format --check PASS in worktree and git archive', 'summary': 'All gates passed. Final staged-tree verification repeats after recording these results; external receipt holds the exact verified tree, ledger hashes, single commit and clean status. RF venv test_human_loop extra-candidate cases now pass; tolerance is restricted to group continuity. No new training or model inference; n21 crops decode only. No push.', 'worktree_pytest': {'canonical': 429, 'rf_venv': 429}}
+
+Outstanding limits: Pending MJ adjudication of n21 s6-s10 and match-ball versus any-ball semantics; no labels changed. No further m04 training; fresh venue/day match labels and TRAIN-disjoint calibration remain outstanding. No new inference, timing repeats, fit, kit reselection or push in this framing round.
 
 # Historical rounds 1–4 — fixed 0.1, not comparable across model families
 

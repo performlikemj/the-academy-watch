@@ -15,6 +15,47 @@
     "round5_data.py": "f1aebd9ce8d91897902ecabb01340efd95e6dacc4c00631318bcd6dcb1341bd3",
     "train_round5.py": "6178b89cca8eede445e4a0e1444c92051b54e14db86796a7f8dd5132dabcbc41"
   },
+  "framing_review": {
+    "base_commit": "fae974a7e410887473b31128aba7c61ca3f8d883",
+    "code_sha256": {
+      "compare_ball.py": "39d166d6fb891fc59bd788c98c16178309bf7b84fbb48e7154e35ee050ac6592",
+      "inspect_n21_adjudication.py": "a64a3dfc066b1b63668609cc49db34145737aa9221d43e44964428202cce2000",
+      "round5_framing.py": "31c5d5918575da2abd8f6818ff8c24e1950ddff5da3e64e5a59fbc1f243434f2",
+      "round5_report.py": "2f7c4c22148a48c0fc445e82f68883edc1d93c0b1d4dc0509e0267767ab687c3"
+    },
+    "future_method": "Calibrate thresholds on TRAIN-disjoint clips; budget fits by optimizer steps; always show matched-false-rate curves and per-clip counts beside TRAIN operating points. No further m04 training. The next real evidence is a fresh labelled match from a different venue and day.",
+    "n21_review": {
+      "adjudication": "pending MJ adjudication of n21 frames s6-s10 and a match-ball versus any-ball rule",
+      "classification_source": "MJ's note, existing scorer class",
+      "frames": 5,
+      "model_inference": false,
+      "new_fit_budget_crops": 8,
+      "scorer_class": "off_pitch",
+      "sheet": "~/codex-runs/ball-r5-n21/adjudicate-s6-s10.png",
+      "sheet_sha256": "66ffa541e6306a8d136dba21709a0d403858167cbd6fffcb9ec670c1315c2867",
+      "visible_ball_boxes_by_budget": {
+        "rf-b": [
+          2,
+          3
+        ],
+        "rf-r5-a": [
+          1,
+          2
+        ],
+        "rf-r5-b": [
+          1,
+          2
+        ],
+        "yolo-r2-b": [
+          0,
+          0
+        ]
+      }
+    },
+    "push": false,
+    "scope": "No training, no new model inference. Only saved-detection scoring, source-frame decoding/crops, fixture framing and numeric-comparison tolerance. Labels and selected kit unchanged.",
+    "test_environment": "Canonical tracker fixture environment: CPython3.11.16 / NumPy2.4.6, no SciPy installed (~/Projects/loanarmy/.loan). RF environment: CPython3.12.14 / NumPy2.3.5 / SciPy1.18.1 (~/models/tinyball/.venv-mj). Chosen fix: only duration-weighted group-continuity comparisons allow rel/abs tolerance1e-12; per-clip tracks and all counts remain exact. The reproduced failure involved three aggregate float differences of5.6e-17\u20131.1e-16. Canonical saved values are returned after validation, preserving report bytes. No SciPy function is called on this path; attributing the discrepancy to SciPy itself is unconfirmed. RF full suite passes429 tests including the framing regressions, in the worktree and git-archive export."
+  },
   "n21_visual_review": {
     "description": "Five boxes: three appear to cover a football at players\u2019 feet, two white footwear. Active-match versus spare-ball identity is UNCONFIRMED; the preceding visible-click trajectory makes a spare-ball assertion unjustified.",
     "fresh_pass": "Five boxes on three of five no-ball frames (sample indices 8,9,10); corrects the supplied one-per-frame description.",
@@ -22,12 +63,9 @@
     "private_evidence": "~/codex-runs/ball-r5-n21/contact-sheet.png; five uniquely named exact box and context PNG pairs."
   },
   "not_done": [
-    "No fresh-match true holdout: recipe-selected clips and shared player/match cannot establish a product winner.",
-    "No candidate passes the strict held-out top1 >=80% AND false/10s <=1 gate at the two predeclared operating points.",
-    "Optional third warm-start fit not run; no training after the resume decision.",
-    "Historical YOLO FPS discrepancy cause remains UNCONFIRMED.",
-    "Full-corpus optimized FP16 accuracy and an actual continuous90-minute timing run are not measured; speed projections and a15-TRAIN-frame parity probe are explicit.",
-    "No deployment, native-rate track-guided inference, or push."
+    "Pending MJ adjudication of n21 s6-s10 and match-ball versus any-ball semantics; no labels changed.",
+    "No further m04 training; fresh venue/day match labels and TRAIN-disjoint calibration remain outstanding.",
+    "No new inference, timing repeats, fit, kit reselection or push in this framing round."
   ],
   "pre_replay_correction": "Before fit b: defer first hard-negative mining until trained epoch2; the reset COCO ball classifier is not informative. This removes only an unexecuted replay branch from fit a; its training path and parameters are unchanged. No held-out results informed the correction.",
   "prior_push": "User reports orchestrator pushed d2268bd; round-4 agent did not push.",
@@ -77,9 +115,9 @@
   },
   "push": false,
   "resume_decisions": {
-    "kit": "Verified final-rule winner rf-r5-a; build8 suggestions already regenerated from its TRAIN1 threshold. Labels preserved.",
+    "kit": "RF a remains the selected kit source; one extra strict false box would select B. This is a knife-edge rule outcome, not evidence of superiority.",
     "timing": "macOS mediaanalysisd and PhotosReliveWidget are recorded nonblocking steady background. Active generators, ComfyUI queue and bench training/inference block quiet entry. Shared total wait cap900s, then proceed labelled contended (steady background load); each repeat records media CPU and AGX GPU utilization.",
-    "training": "No further fits. Both COCO runs have 3 complete epochs plus partial epoch4; at TRAIN1 TRAIN top1 A81.67%, B72.33%, old RFb95.00%: new fits are less fitted. Only six hard tiles mined, not a substantial negative pool."
+    "training": "No evidence more epochs help at strict budgets; do not plan longer m04 training. Epoch-2 curves are censored at confidence0.01: TRAIN false/10s reaches only1.48 (A) and1.64 (B), not the requested2.0 budget. Their H endpoints are3.00 and2.00 respectively (the approximate2/10s censoring description applies to B). At TRAIN-2 H hits ROSE epoch-2\u2192FINAL: A84\u219293 with false/10s3.00\u21923.33; B87\u219294 with2.00\u21924.00. Only the first of the two declared LR decays took effect: epoch3 uses0.1\u00d7 LR, and training stops during epoch4 before the epoch5 0.01\u00d7 stage. Intermediate checkpoints remain diagnostic, never selected."
   },
   "scoring_code_sha256": {
     "benchmark_activity.py": "498c0d455bfd7be94b0a2dc0a010f5187d62ba79dc1f7e03303738d10ca7e6ab",
@@ -93,7 +131,7 @@
   "selection_amendment_before_new_evaluation": "During fit a epoch1, before either new fit had any held-out evaluation: replace preliminary TRAIN-ranked model choice with the primary final-checkpoint H metric. This is explicitly optimistic selection on recipe-selected clips; no fit, checkpoint stopping, or TRAIN calibration changes.",
   "selection_audit": {
     "method": "Independent raw JSONL/detection count, without scorer helpers; full scorer recapture also byte-equivalent in model aggregates. Both final fits completed.",
-    "preview_discrepancy": "User cited new A 2.17 and B 1.30 false/10s. Canonical 60 held-out no-ball frames at 2fps yield A 6*20/60=2.00 and B 4*20/60=1.333333. A and B both qualify under <=2; A has 76/122 hits versus B 75/122. The cited rates do not reproduce from the final saved passes. Selection remains rf-r5-a, not rf-r5-b.",
+    "preview_discrepancy": "The cited 2.17 / 1.30 / 2.61 / 3.04 rates DO reproduce as groups.on_ball.false_per_10s: 5 / 3 / 6 / 7 false boxes \u00d720/46, using the 46 no-ball frames in the two n17 on-ball clips. Strict selection uses groups.all and all 60 held-out no-ball frames. At TRAIN-1 A has 6/60\u00d720=2.000 and B 4/60\u00d720=1.333. The earlier claim that these rates did not reproduce was wrong: it confused denominators.",
     "rows": {
       "rf-b": {
         "eligible": false,
@@ -171,23 +209,19 @@
     "train_round5.py": "efd4f637c4317fc2aba9fbdb234e1bd6d2914cc38efd2fe8b4cf2f18f5360e8a"
   },
   "verification": {
-    "archive_pytest": {
-      "passed": 423,
-      "skipped": 0
+    "git_archive_pytest": {
+      "canonical": 429,
+      "minimal_passed": 426,
+      "minimal_skipped": 3,
+      "rf_venv": 429
     },
-    "browser_kit": "PASS1057 exact seeds,48 unlabelled,accepted-source provenance preserved",
-    "ledger_regeneration": "JSON and Markdown byte-for-byte from committed aggregate fixtures without private labels, weights or footage",
-    "minimal_archive_pytest": {
-      "passed": 420,
-      "skip_reason": "OpenCV unavailable in minimal export environment",
-      "skipped": 3
-    },
-    "ruff_check": "PASS worktree and archive",
-    "ruff_format_check": "PASS worktree and archive,99 files",
-    "summary": "Full gates passed except an extra final Markdown blank line caught by git diff --check; generator corrected. The complete final staged-tree verification repeats after this entry, and its tree/ledger hashes plus commit/clean-status receipt are kept outside git. No labels, weights, detections or crops committed. No push.",
+    "rebuild": "JSON and Markdown byte-for-byte from committed fixtures in the minimal export environment",
+    "round": "framing review on fae974a7",
+    "ruff": "check and format --check PASS in worktree and git archive",
+    "summary": "All gates passed. Final staged-tree verification repeats after recording these results; external receipt holds the exact verified tree, ledger hashes, single commit and clean status. RF venv test_human_loop extra-candidate cases now pass; tolerance is restricted to group continuity. No new training or model inference; n21 crops decode only. No push.",
     "worktree_pytest": {
-      "passed": 423,
-      "skipped": 0
+      "canonical": 429,
+      "rf_venv": 429
     }
   }
 }
