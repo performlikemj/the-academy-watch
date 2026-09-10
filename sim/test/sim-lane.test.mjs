@@ -1,13 +1,223 @@
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
+import { EventEmitter } from 'node:events'
 import fs from 'node:fs/promises'
+import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
+import { fileURLToPath } from 'node:url'
 
 import { computeExitCode, computeTotals, shapeStepRecord } from '../lib/driver.mjs'
 import { gradeRecords, normalizeGrade, parseGradeJSON, validateProposal } from '../lib/grade.mjs'
 import { assertSyntheticFixture, selectSyntheticFixtureProgram, SYNTHETIC_BRIEF } from '../journeys/club-console.mjs'
-import { createTeardownController, recordFixtureSeedJourneyError, resolveCredentials, signalExitCode } from '../run.mjs'
+import { bootServers, createReportWorkspace, createTeardownController, finishReport, frontendCommand, recordFixtureSeedJourneyError, refuseListener, resolveCredentials, resolvePaths, signalExitCode } from '../run.mjs'
+import { viteOptions } from '../lib/vite-server.mjs'
+
+const simDir = fileURLToPath(new URL('../', import.meta.url))
+const repoDir = path.resolve(simDir, '..')
+
+async function tempDirectory(t) {
+  const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'sim-nightly-')))
+  t.after(() => fs.rm(dir, { recursive: true, force: true }))
+  return dir
+}
+
+test('unset path overrides preserve report/cache defaults and derive Python from the runner', () => {
+  assert.deepEqual(resolvePaths({}), {
+    reportRoot: path.join(repoDir, 'sim', 'report'),
+    python: path.join(repoDir, '.loan', 'bin', 'python'),
+    viteCacheDir: undefined,
+  })
+  assert.deepEqual(frontendCommand({ hostname: 'localhost', port: '5173' }), {
+    command: 'pnpm', args: ['dev', '--host', 'localhost', '--port', '5173', '--strictPort'],
+  })
+})
+
+test('absolute report/cache overrides and SIM_PYTHON take precedence', async (t) => {
+  const dir = await tempDirectory(t)
+  assert.deepEqual(resolvePaths({ SIM_REPORT_DIR: dir, SIM_VITE_CACHE_DIR: dir, SIM_PYTHON: '/custom/python' }), {
+    reportRoot: dir, viteCacheDir: dir, python: '/custom/python',
+  })
+  for (const key of ['SIM_REPORT_DIR', 'SIM_VITE_CACHE_DIR']) {
+    for (const value of ['relative/path', '']) {
+      assert.throws(() => resolvePaths({ [key]: value }), new RegExp(`${key} must be an absolute path`))
+    }
+  }
+})
+
+test('external cache launch uses Vite API cacheDir while retaining config discovery and strict port', async (t) => {
+  const dir = await tempDirectory(t)
+  const launch = frontendCommand({ hostname: '127.0.0.1', port: '5173', viteCacheDir: dir })
+  assert.equal(launch.command, process.execPath)
+  assert.deepEqual(launch.args, [path.join(simDir, 'lib', 'vite-server.mjs'), '127.0.0.1', '5173'])
+  assert.deepEqual(viteOptions('127.0.0.1', '5173', dir), {
+    root: `${path.join(repoDir, 'academy-watch-frontend')}/`,
+    cacheDir: dir,
+    server: { host: '127.0.0.1', port: 5173, strictPort: true },
+  })
+  assert.throws(() => viteOptions('localhost', '5173', 'relative'), /absolute path/)
+})
+
+for (const fatal of [false, true]) {
+  test(`external report root publishes complete artifacts atomically after a real step (fatal=${fatal})`, async (t) => {
+    const root = path.join(await tempDirectory(t), 'external', 'reports')
+    const runAt = '2026-09-10T01:02:03.456Z'
+    const stamp = runAt.replace(/[:.]/g, '-')
+    const workspace = await createReportWorkspace(resolvePaths({ SIM_REPORT_DIR: root }).reportRoot, stamp)
+    t.after(workspace.discard)
+    await fs.mkdir(workspace.shotsDir)
+    await fs.writeFile(path.join(workspace.shotsDir, 'step.png'), 'screenshot')
+    assert.equal(path.dirname(workspace.reportDir), root)
+    assert.deepEqual((await fs.readdir(root)).filter((name) => !name.startsWith('.')), [])
+    const publish = workspace.publish
+    workspace.publish = async () => {
+      await assert.rejects(fs.stat(workspace.finalDir), { code: 'ENOENT' })
+      for (const name of ['steps.json', 'report.json', 'shots/step.png']) {
+        assert.ok((await fs.stat(path.join(workspace.reportDir, name))).isFile())
+      }
+      await publish()
+    }
+    const records = [shapeStepRecord({
+      journey: 'scout-desk', id: 'browse', expectation: 'Loaded', ok: true,
+      url: 'http://localhost:5173', shot: 'shots/step.png',
+    })]
+    assert.equal(await finishReport({
+      workspace, records, executedSteps: 1, runAt, baseUrl: 'http://localhost:5173', gradeEnabled: false,
+      fatalError: fatal ? new Error('late failure') : null,
+    }), fatal ? 1 : 0)
+    assert.deepEqual(await fs.readdir(root), [stamp])
+    assert.deepEqual(JSON.parse(await fs.readFile(path.join(workspace.finalDir, 'steps.json'))), records)
+    const report = JSON.parse(await fs.readFile(path.join(workspace.finalDir, 'report.json')))
+    assert.equal(report.app, 'loanarmy-web')
+    assert.equal(report.totals.steps, 1)
+    assert.equal(report.journeys[0].steps[0].verdict, 'ungraded')
+    assert.equal(report.run_error, fatal ? 'late failure' : undefined)
+    assert.equal(await fs.readFile(path.join(workspace.finalDir, 'shots/step.png'), 'utf8'), 'screenshot')
+  })
+}
+
+// Copy only sim sources into a fake checkout: subprocess tests cannot read the
+// real backend dotenv, seed a database, launch apps, or reach external services.
+async function runnerFixture(t) {
+  const dir = await tempDirectory(t)
+  await fs.mkdir(path.join(dir, 'sim'))
+  await fs.copyFile(path.join(simDir, 'run.mjs'), path.join(dir, 'sim', 'run.mjs'))
+  for (const name of ['lib', 'journeys']) {
+    await fs.cp(path.join(simDir, name), path.join(dir, 'sim', name), { recursive: true })
+  }
+  await fs.mkdir(path.join(dir, 'academy-watch-backend'))
+  const env = {
+    PATH: process.env.PATH,
+    SIM_SECRET_KEY: 'synthetic-test-secret', SIM_ADMIN_API_KEY: 'synthetic-test-admin',
+    SIM_GRADE: '0', SIM_EXTERNAL: '1',
+  }
+  return { dir, env }
+}
+
+for (const override of [false, true]) {
+  test(`fatal pre-journey CLI error exits non-zero without publishing output (override=${override})`, async (t) => {
+    const { dir, env } = await runnerFixture(t)
+    const root = override ? path.join(dir, 'external-reports') : path.join(dir, 'sim', 'report')
+    if (override) env.SIM_REPORT_DIR = root
+    // Missing repo-relative Python fails before fixture seeding/server startup.
+    const result = spawnSync(process.execPath, [path.join(dir, 'sim', 'run.mjs')], {
+      cwd: os.tmpdir(), env, encoding: 'utf8', timeout: 10_000,
+    })
+    assert.ifError(result.error)
+    assert.equal(result.status, 1, result.stderr)
+    assert.match(result.stderr, /Admin bearer minting failed/)
+    assert.deepEqual(await fs.readdir(root), [])
+    if (override) await assert.rejects(fs.stat(path.join(dir, 'sim', 'report')), { code: 'ENOENT' })
+  })
+}
+
+test('fixture-seeding fatal error with a synthetic record still publishes no report', async (t) => {
+  const { dir, env } = await runnerFixture(t)
+  const python = path.join(dir, '.loan', 'bin', 'python')
+  await fs.mkdir(path.dirname(python), { recursive: true })
+  await fs.writeFile(python, '#!/bin/sh\nif [ "$1" = "-c" ]; then\n  echo synthetic-token\nelse\n  echo synthetic-seed-refusal >&2\n  exit 1\nfi\n', { mode: 0o755 })
+  const result = spawnSync(process.execPath, [path.join(dir, 'sim', 'run.mjs')], {
+    cwd: os.tmpdir(), env, encoding: 'utf8', timeout: 10_000,
+  })
+  assert.ifError(result.error)
+  assert.equal(result.status, 1, result.stderr)
+  assert.match(result.stderr, /Synthetic sim fixture seeding failed/)
+  assert.match(result.stderr, /synthetic-seed-refusal/)
+  assert.deepEqual(await fs.readdir(path.join(dir, 'sim', 'report')), [])
+})
+
+async function loopbackListener(t) {
+  const server = net.createServer((socket) => socket.end())
+  try {
+    await new Promise((resolve, reject) => {
+      server.once('error', reject)
+      server.listen(0, '127.0.0.1', resolve)
+    })
+  } catch (error) {
+    if (['EPERM', 'EACCES'].includes(error.code)) {
+      t.skip(`Sandbox-only: loopback bind denied (${error.code})`)
+      return null
+    }
+    throw error
+  }
+  t.after(() => new Promise((resolve, reject) => {
+    if (!server.listening) return resolve()
+    server.close((error) => error ? reject(error) : resolve())
+  }))
+  return server
+}
+
+for (const occupiedPort of [5001, 5173]) {
+  test(`default port ${occupiedPort} refusal prevents spawning (mocked TCP)`, async (t) => {
+    const checked = []
+    const sockets = []
+    t.mock.method(net, 'createConnection', ({ host, port }) => {
+      assert.equal(host, '127.0.0.1')
+      checked.push(port)
+      const socket = new EventEmitter()
+      socket.setTimeout = () => socket
+      socket.destroy = () => { socket.destroyed = true }
+      sockets.push(socket)
+      queueMicrotask(() => {
+        if (port === occupiedPort) socket.emit('connect')
+        else socket.emit('error', Object.assign(new Error('refused'), { code: 'ECONNREFUSED' }))
+      })
+      return socket
+    })
+    const processes = []
+    await assert.rejects(bootServers({
+      baseUrl: 'http://localhost:5173', backendPort: '5001',
+      python: '/must-not-spawn/python', backendEnv: {}, secrets: [], processes,
+    }), new RegExp(`Port ${occupiedPort} already has a listener`))
+    assert.deepEqual(checked, occupiedPort === 5001 ? [5001] : [5001, 5173])
+    assert.deepEqual(processes, [])
+    assert.ok(sockets.every((socket) => socket.destroyed))
+  })
+}
+
+for (const role of ['backend', 'frontend']) {
+  test(`occupied ${role} port is refused before spawning; foreign listener survives`, async (t) => {
+    const server = await loopbackListener(t)
+    if (!server) return
+    const busyPort = server.address().port
+    const freeServer = await loopbackListener(t)
+    if (!freeServer) return
+    const freePort = freeServer.address().port
+    await new Promise((resolve) => freeServer.close(resolve))
+    await refuseListener(freePort)
+    const processes = []
+    await assert.rejects(bootServers({
+      baseUrl: `http://127.0.0.1:${role === 'frontend' ? busyPort : freePort}`,
+      backendPort: String(role === 'backend' ? busyPort : freePort),
+      python: '/must-not-spawn/python', backendEnv: {}, secrets: [], processes,
+    }), new RegExp(`Port ${busyPort} already has a listener on 127\\.0\\.0\\.1; refusing to start`))
+    assert.deepEqual(processes, [])
+    assert.equal(server.listening, true)
+    // A second successful TCP connection proves the listener remains usable.
+    await assert.rejects(refuseListener(busyPort), new RegExp(`Port ${busyPort} already has a listener`))
+  })
+}
 
 function journeys(...steps) {
   return [{ name: 'sample', steps }]
