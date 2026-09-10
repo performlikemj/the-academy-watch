@@ -1,6 +1,64 @@
-# Local ball bench: self-agreement now, human scoring next
+# Local ball bench: MJ human truth
 
-**All proxy verdicts are `UNMEASURABLE (proxy)`.** The numbers measure detector
+The September 11 human report supersedes proxy verdicts for the labelled sample:
+`ledgers/research/evidence-bench-2026-09-11-ball-human.{json,md}`. All five saved
+baselines fail the real gate at confidence 0.1. RF 2x2/3x3 exceed 80% on-ball
+recall but emit far too many predictions on MJ's explicit no-ball frames.
+
+MJ's 1,057 validated labels cover 506/540 on-ball targets and 99/100 off-pitch
+targets, plus 452 extra frames. There are 48 unlabelled frames. Missing frames
+remain unknown; a sample PASS/FAIL is not certification of missing labels.
+The source JSONL and all training outputs remain outside git.
+
+`score_from_saved.py` now uses **20 source pixels**, one nearest match per visible
+label, with duplicate predictions penalising precision. The real gate requires
+pooled visible-frame recall >=80% on the six on-ball clips and <=1 prediction per
+10 seconds on **all explicitly no-ball frames** (0.5 seconds exposure per sample).
+It reports on-ball/off-pitch/other groups, accepted/manual provenance bias, matched
+box short-side distributions, and re-tracked Kalman points versus human centres.
+Human clicks confirm association, not detector box boundaries; matched sizes are
+not independently measured ball diameters. Trained point-box sizes are especially
+unsuitable as independent ball-size evidence.
+
+Training retains the documented first four on-ball clips and reserves **all other
+labelled clips**. With this export that means four train and 16 held out, including
+both n17 on-ball clips. Exact full IDs are in the generated ledger and dataset.json.
+No per-epoch holdout validation or best-checkpoint selection: normal runs use last.pt.
+The recipe's 15-minute time budget can expand the nominal five epochs. Counts and
+actual elapsed minutes are recorded; threshold stays at 0.1. At most the initial
+run and one conditional variant are evaluated; no threshold sweep.
+
+Build version **5** accepts `--human-jsonl` to seed MJ's validated export while
+preserving the existing localStorage key and giving newer browser labels priority.
+The new **Next unlabelled frame** button visits optional as well as target frames.
+Suggestions remain unconfirmed and cannot overwrite labels.
+
+```sh
+PY=~/Projects/loanarmy/.loan/bin/python
+$PY spike/video-analysis/ball/score_from_saved.py \
+  --human-jsonl ~/codex-runs/ball-human-truth.jsonl \
+  --extra-detections tinyball-r1=$HOME/models/tinyball/mj-r1/detections.json
+# Actual MPS training environment used for MJ's runs (outputs must be new):
+~/models/tinyball/.venv-mj/bin/python spike/video-analysis/ball/train_tiny_ball.py \
+  --human-jsonl ~/codex-runs/ball-human-truth.jsonl --out ~/models/tinyball/mj-new-run
+# Optional higher-resolution continuation, preserving the fixed clip holdout:
+~/models/tinyball/.venv-mj/bin/python spike/video-analysis/ball/train_tiny_ball.py \
+  --human-jsonl ~/codex-runs/ball-human-truth.jsonl --out ~/models/tinyball/mj-new-960 \
+  --init ~/models/tinyball/mj-r1/weights.pt --imgsz 960 --epochs 20
+# Reproduce committed human ledgers without labels, videos or models:
+$PY spike/video-analysis/ball/build_human_report.py
+```
+
+The aggregate human measurement fixture contains metrics and target coverage keys,
+not click coordinates or label rows. For archive tests, use Python 3.11 and
+NumPy 2.4.6 to match the original strict floating-point retracking fixture;
+Python 3.12 produces small differences in the historical aggregate fixture. `fixtures/human_execution.json` records the
+training, refresh and verification evidence. `build_human_report.py --capture`
+freezes a completed score JSON. Tests regenerate both ledgers byte-for-byte.
+
+## Historical proxy bench and recipe background
+
+**Historical proxy verdicts are `UNMEASURABLE (proxy)`.** The numbers measure detector
 self-agreement, candidate box/point counts, throughput and unverified trajectories.
 They do not measure recall against the real match ball. The RF full/2x2 voters
 share weights; 387/408 on-ball and 143/155 off-pitch agreement-positive frames are
@@ -115,7 +173,8 @@ no-ball frames supply negatives; unlabelled frames never do. `--pseudo` alone
 adds saved RF 0.1 boxes within 20 source pixels of a training click, with NMS.
 There is no pseudo-label propagation to held-out clips or unclicked frames.
 
-The fixed split is by complete clip, **never by frame**:
+The fixed training split is by complete clip, **never by frame**; all additional
+labelled clips are held out for evaluation:
 
 | Role | On-ball clips |
 |---|---|
@@ -139,12 +198,12 @@ covers all 1,105 scheduled frames. Suggestions contain at most one point per
 frame with an output >=0.1; missing predictions produce no suggestion, never an
 invented point. The saved detection file includes those empty frames.
 
-The six-candidate bench uses its existing **40-pixel** matching rule for fair
-comparison. Scores that include training clips are in-sample; consult the separate
+Historical `compare_ball.py` retains its **40-pixel** diagnostic matching rule.
+The human `score_from_saved.py` uses **20 pixels** for every candidate. Scores that include training clips are in-sample; consult the separate
 20-pixel held-out metrics for generalisation. Model-assisted confirmation also
 needs careful review; acceptance provenance is available for audits.
 
-The separate human sample gate requires all 540 on-ball labels and >=100 off-pitch
+The historical human gate required all 540 on-ball labels and >=100 off-pitch
 labels: visible-ball recall >=80%, unmatched predictions <=1/10 s. A visible ball
 on off-pitch frames permits one match; every other prediction is unmatched.
 Exposure is 0.5 s per labelled frame. Partial labels give metrics with the gate

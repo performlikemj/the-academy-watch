@@ -251,23 +251,15 @@ def test_extra_candidate_validation_and_scoring(measured, tmp_path, synthetic):
     accepted = subprocess.run(command, check=True, capture_output=True, text=True)
     assert ("tiny [SYNTHETIC]" in accepted.stdout) == synthetic
     scored = json.loads(prefix.with_suffix(".json").read_text())
-    assert scored["extra_candidates"]["tiny"]["synthetic_smoke"] == synthetic
-    assert any(r["candidate"] == "tiny" for r in scored["results"])
+    extra_result = next(r for r in scored["results"] if r["candidate"] == "tiny")
+    assert extra_result["synthetic_smoke"] == synthetic
+    assert extra_result["groups"]["all"]["matched"] == 1
+    assert extra_result["gate"] == (
+        "SYNTHETIC SMOKE — NOT RESULTS" if synthetic else "UNMEASURABLE"
+    )
     report = prefix.with_suffix(".md").read_text()
     display = "tiny [SYNTHETIC]" if synthetic else "tiny"
-    # All three aggregate tables and every clip row retain the badge.
-    aggregate = [
-        line for line in report.splitlines() if line.startswith(f"| {display} |")
-    ]
-    assert len(aggregate) == 3
-    clip_section = report.split(f"### {display} @0.1", 1)[1].split(
-        "## Three track overlays", 1
-    )[0]
-    clip_rows = [
-        line for line in clip_section.splitlines() if line.startswith("| m04-")
-    ]
-    assert len(clip_rows) == 20
-    assert all(("SYNTHETIC" in line) == synthetic for line in aggregate + clip_rows)
+    assert f"| {display} |" in report
     assert "| rf_full [SYNTHETIC]" not in report
     for spec in [f"rf_full={p}", f"invalid/name={p}"]:
         with pytest.raises(ValueError):

@@ -29,7 +29,7 @@ def main():
         assert page.evaluate("localStorage.length") == 0
         assert (
             page.locator("#progress").inner_text()
-            == "labelled 0 / 640 target (540 on-ball + 100 off-pitch sample)"
+            == "labelled 0 / 1105 (1105 remaining) · targets 0 / 640 (540 on-ball + 100 off-pitch sample)"
         )
         assert page.evaluate(
             '[...new Set(frames.filter(f=>f.class==="on_ball").map(f=>f.clip))].every((c,i)=>clips.options[i].value===c)'

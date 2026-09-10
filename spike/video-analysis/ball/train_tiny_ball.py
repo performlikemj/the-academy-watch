@@ -36,7 +36,15 @@ def split_clips(measurements, labels, smoke=False):
         raise ValueError(
             "label each of the six on-ball clips before training; split is fixed 4/2 by clip"
         )
-    return {"train": on[:4], "held_out": on[4:], "smoke_resubstitution_only": False}
+    return {
+        "train": on[:4],
+        "held_out": [
+            c["clip_id"]
+            for c in measurements["clips"]
+            if c["clip_id"] in labelled and c["clip_id"] not in on[:4]
+        ],
+        "smoke_resubstitution_only": False,
+    }
 
 
 def tile_bounds(size=(1920, 1080)):
@@ -175,7 +183,7 @@ def prepare_dataset(measurements, clips, labels, out, split, pseudo=False):
     }
 
 
-def predict_all(model, clips, out, tag, device, frozen_set_id, synthetic):
+def predict_all(model, clips, out, tag, device, frozen_set_id, synthetic, imgsz=640):
     import cv2
     import torch
 
@@ -190,7 +198,7 @@ def predict_all(model, clips, out, tag, device, frozen_set_id, synthetic):
 
     model.predict(
         [np.zeros((540, 960, 3), dtype=np.uint8)] * 4,
-        imgsz=640,
+        imgsz=imgsz,
         device=device,
         conf=0.1,
         verbose=False,
@@ -207,7 +215,7 @@ def predict_all(model, clips, out, tag, device, frozen_set_id, synthetic):
                 for a, b, e, d in bounds
             ]
             predictions = model.predict(
-                tiles, imgsz=640, device=device, conf=0.1, iou=0.5, verbose=False
+                tiles, imgsz=imgsz, device=device, conf=0.1, iou=0.5, verbose=False
             )
             ds = []
             for prediction, (x0, y0, _, _) in zip(predictions, bounds):
@@ -265,7 +273,7 @@ def predict_all(model, clips, out, tag, device, frozen_set_id, synthetic):
 
 def evaluate(outputs, labels, held_out, off_sample):
     def count(keys):
-        visible = hits = predicted = labelled = 0
+        visible = hits = predicted = labelled = no_ball = no_ball_predictions = 0
         rows = {(cid, r["t"]): r for cid, raw in outputs.items() for r in raw["frames"]}
         for key in keys:
             label = labels.get(key)
@@ -279,7 +287,13 @@ def evaluate(outputs, labels, held_out, off_sample):
                 hits += any(
                     math.dist(d["xy"], [label["x"], label["y"]]) <= 20 for d in ds
                 )
+            else:
+                no_ball += 1
+                no_ball_predictions += len(ds)
         return {
+            "no_ball_frames": no_ball,
+            "no_ball_predictions": no_ball_predictions,
+            "no_ball_false_per_frame": ratio(no_ball_predictions, no_ball),
             "labelled_frames": labelled,
             "visible_frames": visible,
             "matched": hits,
@@ -311,6 +325,12 @@ def main():
         "--init", type=Path, default=Path.home() / "models/tinyball/yolo11n.pt"
     )
     p.add_argument("--epochs", type=int, default=5)
+    p.add_argument(
+        "--imgsz",
+        type=int,
+        default=640,
+        help="Tile model input; variant may increase to 960",
+    )
     p.add_argument("--device", choices=["mps", "cpu"], default="mps")
     p.add_argument("--pseudo", action="store_true")
     p.add_argument(
@@ -319,6 +339,8 @@ def main():
         help="ONE synthetic on-ball clip; no held-out metrics, never human truth",
     )
     a = p.parse_args()
+    if a.imgsz < 32 or a.imgsz % 32:
+        p.error("imgsz must be a positive multiple of 32")
     if a.epochs < 1 or (a.synthetic_smoke and a.epochs != 2):
         p.error("positive epochs required; synthetic smoke uses exactly two epochs")
     if a.out.exists() and any(a.out.iterdir()):
@@ -346,6 +368,15 @@ def main():
         raise RuntimeError("MPS requested but unavailable")
     start = time.perf_counter()
     dataset = prepare_dataset(m, clips, labels, a.out / "dataset", split, a.pseudo)
+    dataset["model_input_px"] = a.imgsz
+    dataset["tiling"] = (
+        dataset["tiling"]
+        .replace(
+            "640x640 (640x360 content)",
+            f"{a.imgsz}x{a.imgsz} ({a.imgsz}x{a.imgsz * 540 / 960:g} content)",
+        )
+        .replace("imgsz=640", f"imgsz={a.imgsz}")
+    )
     dataset["synthetic_smoke"] = a.synthetic_smoke
     dataset["labels_sha256"] = sha256(a.human_jsonl)
     dataset["source_accepted_labels"] = sum(
@@ -376,7 +407,7 @@ def main():
     model.train(
         data=str(a.out / "dataset/dataset.yaml"),
         epochs=a.epochs,
-        imgsz=640,
+        imgsz=a.imgsz,
         device=a.device,
         batch=16,
         workers=0,
@@ -415,6 +446,7 @@ def main():
         a.device,
         m["frozen_set_id"],
         a.synthetic_smoke,
+        a.imgsz,
     )
     saved_path = a.out / "detections.json"
     saved = json.loads(saved_path.read_text())
@@ -438,6 +470,7 @@ def main():
             "training_s": train_s,
             "total_s": time.perf_counter() - start,
             "epochs_requested": a.epochs,
+            "model_input_px": a.imgsz,
             "versions": {
                 n: importlib.metadata.version(n)
                 for n in (
