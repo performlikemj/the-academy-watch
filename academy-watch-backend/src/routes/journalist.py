@@ -163,7 +163,7 @@ def can_writer_cover_player(user_id: int, player_id: int, team_id: int = None) -
 def get_writer_available_players(user_id: int) -> list:
     """Get all players a writer can cover based on their assignments.
 
-    Returns AcademyPlayer records that the writer can write about.
+    Returns TrackedPlayer records that the writer can write about.
     """
     # Get all parent club assignments
     parent_assignments = JournalistTeamAssignment.query.filter_by(user_id=user_id).all()
@@ -211,7 +211,7 @@ def get_writer_available_players(user_id: int) -> list:
             TrackedPlayer.is_active,
             TrackedPlayer.team_id.in_(parent_team_ids),
         ).all()
-        existing_ids = {p.player_id for p in players}
+        existing_ids = {p.player_api_id for p in players}
         for tp in tracked:
             if tp.player_api_id not in existing_ids:
                 players.append(tp)
@@ -1558,20 +1558,20 @@ def get_writer_available_players_endpoint():
         loan_team_names = {a.loan_team_name for a in loan_assignments}
 
         for player in players:
-            player_data = player.to_dict()
+            player_data = player.to_public_dict()
             result["players"].append(player_data)
 
             # Group by parent club if writer is assigned to parent
-            if player.primary_team_id in parent_team_ids:
-                team_name = player.primary_team_name
+            if player.team_id in parent_team_ids:
+                team_name = player.team.name if player.team else None
                 if team_name not in result["by_parent_club"]:
                     result["by_parent_club"][team_name] = []
                 result["by_parent_club"][team_name].append(player_data)
 
             # Group by loan team if writer is assigned to loan team
-            is_loan_covered = player.loan_team_id in loan_team_ids or player.loan_team_name in loan_team_names
+            is_loan_covered = player.current_club_db_id in loan_team_ids or player.current_club_name in loan_team_names
             if is_loan_covered:
-                team_name = player.loan_team_name
+                team_name = player.current_club_name
                 if team_name not in result["by_loan_team"]:
                     result["by_loan_team"][team_name] = []
                 result["by_loan_team"][team_name].append(player_data)
