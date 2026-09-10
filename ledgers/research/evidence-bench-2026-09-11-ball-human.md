@@ -1,3 +1,313 @@
+# Fair comparison — TRAIN-chosen operating points
+
+Gate on recipe-selected clips: **no candidate passes either operating point**.
+
+This section supersedes the round-4 head-to-head headline. **A shared confidence threshold is not a fair operating point across model families.** Product direction remains RF-DETR (Apache-2.0); ultralytics is bench-only and must not enter the serving path.
+
+Current RF model selected across FINAL checkpoints: **rf-r5-a** (eligible at ≤2 H false/10s). Each fit exports its FINAL checkpoint. Gate: H on-ball top-1 ≥80% AND strict H false/10s ≤1.0. Intermediate held-out learning-curve numbers do not select anything. Final H metrics select the model under the declared ≤2 false/10s rule (or an explicitly unqualified lowest-false fallback); this is optimistic.
+
+T = 14 TRAIN clips (631 visible, 122 no-ball); H = **held-out (recipe-selected on these clips)**, six clips (244 visible, 60 no-ball). On-ball denominators: T 300, H 122. All includes training clips. All 20 clips are from match m04. H on-ball is just 102 frames of m04-n17-t717-253073-260377 and 20 of m04-n17-t717-416826-418915; player n17-t717 also appears in TRAIN. **Two clips from one match cannot establish a winner.**
+
+Thresholds are chosen from TRAIN no-ball scores only: the lowest threshold retaining at most floor(target × 122 / 20) false boxes; >= comparison, ties removed together. Thus nominal TRAIN 1.0 and 2.0 budgets allow 6 and 12 boxes (0.984 and 1.967/10s). All 1105 scheduled frames were freshly inferred down to confidence 0.01. Scores below that floor are censored; the curve cannot describe lower thresholds.
+
+Manual-only frames are harder: MJ hand-clicked frames where useful suggestions were absent. Lower manual-only recall is expected from that selection and is not, by itself, evidence of model bias. Accepted-source provenance remains attached to exported labels.
+
+## Primary operating points
+
+| Model | TRAIN target | Threshold | On-ball top-1 T / H | Manual top-1 T / H | Strict false/10s T / H | H McNemar wins / losses vs YOLO | Exact p | Gate H |
+|---|---:|---:|---:|---:|---:|---:|---:|---|
+| yolo-r2-b | 1 | 0.12179460376501085 | 78.33% / 66.39% | 77.24% / 44.00% | 0.98 / 1.67 | 0 / 0 | 1 | FAIL |
+| yolo-r2-b | 2 | 0.039273284375667579 | 86.00% / 70.49% | 84.55% / 44.00% | 1.97 / 3.00 | 0 / 0 | 1 | FAIL |
+| rf-b | 1 | 0.19124995172023776 | 95.00% / 74.59% | 93.90% / 64.00% | 0.98 / 3.00 | 17 / 7 | 0.06391 | FAIL |
+| rf-b | 2 | 0.066153332591056838 | 95.33% / 75.41% | 94.31% / 66.00% | 1.97 / 6.67 | 15 / 9 | 0.3075 | FAIL |
+| rf-r5-a | 1 | 0.30314332246780401 | 81.67% / 62.30% | 80.49% / 48.00% | 0.98 / 2.00 | 7 / 12 | 0.3593 | FAIL |
+| rf-r5-a | 2 | 0.062361281365156181 | 88.00% / 76.23% | 86.18% / 58.00% | 1.97 / 3.33 | 12 / 5 | 0.1435 | FAIL |
+| rf-r5-b | 1 | 0.49416390061378485 | 72.33% / 61.48% | 69.51% / 38.00% | 0.98 / 1.33 | 6 / 12 | 0.2379 | FAIL |
+| rf-r5-b | 2 | 0.19647511839866641 | 86.67% / 77.05% | 85.37% / 58.00% | 1.97 / 4.00 | 11 / 3 | 0.05737 | FAIL |
+
+At the selection operating point, rf-r5-a versus YOLO changes H on-ball top-1 by -4.10 percentage points and strict false/10s by +0.33. Selection is conditional on the declared TRAIN-1 operating point and ≤2 H false/10s ceiling; it is not a claim of dominance over the full curve. The other final RF fit and both operating points remain visible above.
+
+User cited new A 2.17 and B 1.30 false/10s. Canonical 60 held-out no-ball frames at 2fps yield A 6*20/60=2.00 and B 4*20/60=1.333333. A and B both qualify under <=2; A has 76/122 hits versus B 75/122. The cited rates do not reproduce from the final saved passes. Selection remains rf-r5-a, not rf-r5-b.
+
+Both new fits started from COCO and stopped at the 90-minute budget after three complete epochs plus part of epoch4. TRAIN-1 top-1 is 81.67% for A and 72.33% for B versus 95.00% for old RF b: these final fits are less fitted. Only six hard tiles were mined (five negative, one positive with its annotation retained); this is a small replay intervention. No further fits were launched.
+
+Large-ball / n21 summary (H only, recipe-selected on these clips):
+
+| Model | ≥24px hits/22 at TRAIN 1 / 2 / fixed0.1 | N21 false boxes on5 no-ball frames at TRAIN 1 / 2 / fixed0.1 |
+|---|---:|---:|
+| yolo-r2-b | 16/22 / 19/22 / 18/22 | 0 / 0 / 0 |
+| rf-b | 11/22 / 11/22 / 11/22 | 3 / 5 / 5 |
+| rf-r5-a | 9/22 / 16/22 / 12/22 | 1 / 3 / 3 |
+| rf-r5-b | 12/22 / 19/22 / 19/22 | 1 / 3 / 4 |
+
+Exact two-sided McNemar is a frame-level diagnostic; adjacent frames correlate, so its nominal p value is optimistic. YOLO comparisons use each model's own TRAIN-chosen threshold for the same target, not the same numeric threshold or a threshold matched on H.
+
+## Precision, localisation and output volume
+
+| Model / TRAIN target / group | Top-1 recall T / H | Top-1 precision T / H | Manual recall T / H | Oracle over N boxes T / H | Boxes/visible frame T / H | Median top-1 error px T / H |
+|---|---:|---:|---:|---:|---:|---:|
+| yolo-r2-b / 1 / on_ball | 78.33% / 66.39% | 97.92% / 95.29% | 77.24% / 44.00% | 78.67% / 66.39% | 0.81 / 0.67 | 1.96 / 1.30 |
+| yolo-r2-b / 1 / all | 74.64% / 43.44% | 95.15% / 90.60% | 71.97% / 42.86% | 76.39% / 43.44% | 0.86 / 0.47 | 1.75 / 1.41 |
+| yolo-r2-b / 2 / on_ball | 86.00% / 70.49% | 95.91% / 88.66% | 84.55% / 44.00% | 87.00% / 70.49% | 0.98 / 0.80 | 1.99 / 1.36 |
+| yolo-r2-b / 2 / all | 81.93% / 47.95% | 93.15% / 81.25% | 79.15% / 45.45% | 84.47% / 48.36% | 1.06 / 0.61 | 1.80 / 1.48 |
+| rf-b / 1 / on_ball | 95.00% / 74.59% | 99.65% / 93.81% | 93.90% / 64.00% | 95.00% / 74.59% | 0.98 / 0.80 | 2.08 / 1.38 |
+| rf-b / 1 / all | 94.61% / 52.87% | 98.68% / 76.79% | 93.72% / 62.34% | 94.93% / 52.87% | 1.00 / 0.69 | 1.87 / 1.45 |
+| rf-b / 2 / on_ball | 95.33% / 75.41% | 98.62% / 87.62% | 94.31% / 66.00% | 95.33% / 76.23% | 1.11 / 0.89 | 2.12 / 1.39 |
+| rf-b / 2 / all | 95.72% / 53.69% | 97.26% / 71.58% | 95.07% / 63.64% | 96.35% / 54.51% | 1.14 / 0.78 | 1.88 / 1.45 |
+| rf-r5-a / 1 / on_ball | 81.67% / 62.30% | 99.19% / 93.83% | 80.49% / 48.00% | 82.33% / 62.30% | 0.84 / 0.64 | 2.17 / 1.03 |
+| rf-r5-a / 1 / all | 83.52% / 45.90% | 97.59% / 80.58% | 81.61% / 53.25% | 84.47% / 46.72% | 0.88 / 0.57 | 1.84 / 1.18 |
+| rf-r5-a / 2 / on_ball | 88.00% / 76.23% | 97.42% / 93.94% | 86.18% / 58.00% | 88.67% / 76.23% | 1.01 / 0.83 | 2.19 / 1.12 |
+| rf-r5-a / 2 / all | 90.49% / 54.51% | 96.13% / 80.12% | 88.79% / 59.74% | 91.44% / 55.74% | 1.06 / 0.72 | 1.93 / 1.26 |
+| rf-r5-b / 1 / on_ball | 72.33% / 61.48% | 99.54% / 96.15% | 69.51% / 38.00% | 72.33% / 61.48% | 0.74 / 0.61 | 2.19 / 0.84 |
+| rf-r5-b / 1 / all | 77.81% / 44.67% | 98.20% / 83.21% | 73.99% / 44.16% | 78.13% / 45.08% | 0.80 / 0.53 | 1.83 / 0.95 |
+| rf-r5-b / 2 / on_ball | 86.67% / 77.05% | 97.38% / 93.07% | 85.37% / 58.00% | 87.67% / 77.05% | 0.96 / 0.82 | 2.29 / 1.01 |
+| rf-r5-b / 2 / all | 90.02% / 54.10% | 97.09% / 78.57% | 88.34% / 58.44% | 90.97% / 56.56% | 0.99 / 0.72 | 2.03 / 1.08 |
+
+## False boxes by clip
+
+No-ball means **no ball visible to the labeller**. Every retained detection on such a frame counts false, even an actual ball the labeller missed or an apparent spare ball. Path credits are a sensitivity analysis only, never used to choose thresholds or pass the gate.
+
+The path-credit rule is unchanged: within 50 native px of the linear interpolation between bracketing visible clicks, with a total bracket gap ≤1.01s. Terminal no-ball frames without both brackets receive no credit; this includes the n21 examples.
+
+| Model / TRAIN target | Strict false/10s T / H | Path-credited false/10s T / H | Credits T / H |
+|---|---:|---:|---:|
+| yolo-r2-b / 1 | 0.98 / 1.67 | 0.66 / 1.67 | 2 / 0 |
+| yolo-r2-b / 2 | 1.97 / 3.00 | 1.48 / 3.00 | 3 / 0 |
+| rf-b / 1 | 0.98 / 3.00 | 0.66 / 3.00 | 2 / 0 |
+| rf-b / 2 | 1.97 / 6.67 | 1.64 / 6.33 | 2 / 1 |
+| rf-r5-a / 1 | 0.98 / 2.00 | 0.66 / 1.67 | 2 / 1 |
+| rf-r5-a / 2 | 1.97 / 3.33 | 1.48 / 3.00 | 3 / 1 |
+| rf-r5-b / 1 | 0.98 / 1.33 | 0.66 / 1.33 | 2 / 0 |
+| rf-r5-b / 2 | 1.97 / 4.00 | 1.48 / 4.00 | 3 / 0 |
+
+TRAIN clip counts (columns are model / TRAIN target):
+
+| Clip | No-ball frames | yolo-r2-b / 1 | yolo-r2-b / 2 | rf-b / 1 | rf-b / 2 | rf-r5-a / 1 | rf-r5-a / 2 | rf-r5-b / 1 | rf-r5-b / 2 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| m04-n02-t3005-474114-478131 | 6 | 1 | 2 | 3 | 5 | 2 | 3 | 2 | 2 |
+| m04-n03-t1406-157170-158922 | 6 | 0 | 1 | 0 | 0 | 0 | 0 | 0 | 0 |
+| m04-n03-t1406-385962-387137 | 24 | 0 | 1 | 1 | 1 | 0 | 0 | 0 | 0 |
+| m04-n04-t3006-243433-247994 | 4 | 1 | 1 | 1 | 1 | 0 | 2 | 0 | 3 |
+| m04-n04-t3006-307417-310307 | 12 | 0 | 1 | 0 | 1 | 1 | 2 | 1 | 3 |
+| m04-n09-t1409-143096-143834 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| m04-n09-t1409-297601-298865 | 3 | 0 | 0 | 0 | 1 | 0 | 1 | 1 | 1 |
+| m04-n09-t1409-385922-386603 | 13 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| m04-n10-t711-186553-188161 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| m04-n12-t1411-237107-242145 | 18 | 3 | 4 | 0 | 0 | 0 | 0 | 0 | 0 |
+| m04-n15-t3010-164698-170777 | 10 | 0 | 0 | 0 | 2 | 0 | 0 | 0 | 1 |
+| m04-n17-t717-304624-307834 | 15 | 1 | 1 | 1 | 1 | 2 | 3 | 2 | 2 |
+| m04-n22-t3012-070707-074371 | 1 | 0 | 0 | 0 | 0 | 1 | 1 | 0 | 0 |
+| m04-n25-t3014-530600-532465 | 9 | 0 | 1 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+HELD clip counts (columns are model / TRAIN target):
+
+| Clip | No-ball frames | yolo-r2-b / 1 | yolo-r2-b / 2 | rf-b / 1 | rf-b / 2 | rf-r5-a / 1 | rf-r5-a / 2 | rf-r5-b / 1 | rf-r5-b / 2 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| m04-n05-t3007-284945-287898 | 9 | 1 | 1 | 1 | 4 | 0 | 1 | 0 | 2 |
+| m04-n12-t1411-679986-681985 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| m04-n17-t717-253073-260377 | 29 | 3 | 7 | 3 | 7 | 4 | 5 | 2 | 4 |
+| m04-n17-t717-416826-418915 | 17 | 1 | 1 | 2 | 4 | 1 | 1 | 1 | 3 |
+| m04-n21-t3011-390297-390800 | 5 | 0 | 0 | 3 | 5 | 1 | 3 | 1 | 3 |
+| m04-n24-t3013-679939-681217 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+### N21 source-pixel inspection
+
+Five boxes: three appear to cover a football at players’ feet, two white footwear. Active-match versus spare-ball identity is UNCONFIRMED; the preceding visible-click trajectory makes a spare-ball assertion unjustified.
+
+Five boxes on three of five no-ball frames (sample indices 8,9,10); corrects the supplied one-per-frame description.
+
+TRAIN replay should target analogous footwear, never these held-out crops. Do not teach the detector to suppress a visible football merely because its active/spare identity or the no-ball label is uncertain; adjudicate semantic labels on fresh data. The requested automatic TRAIN-only miner remains based on distance to existing clicks, so label noise is a limitation.
+
+~/codex-runs/ball-r5-n21/contact-sheet.png; five uniquely named exact box and context PNG pairs.
+
+## Size buckets: top-1 hits / visible labels
+
+Sizes are the same independent matched RF baseline-box short sides as previous rounds, not inferred from this round's successes. Unknown sizes stay in the denominator. These are teacher box estimates, not human-drawn boundaries. TRAIN has only one independently sized ≥24px on-ball example; H has 22.
+
+| Model / TRAIN target | Bucket | TRAIN hits / labels | H hits / labels |
+|---|---|---:|---:|
+| yolo-r2-b / 1 | <6 | 9/10 | 0/1 |
+| yolo-r2-b / 1 | 6–<10 | 133/171 | 27/39 |
+| yolo-r2-b / 1 | 10–<16 | 61/76 | 34/46 |
+| yolo-r2-b / 1 | 16–<24 | 19/19 | 3/3 |
+| yolo-r2-b / 1 | >=24 | 1/1 | 16/22 |
+| yolo-r2-b / 1 | unknown | 12/23 | 1/11 |
+| yolo-r2-b / 2 | <6 | 9/10 | 0/1 |
+| yolo-r2-b / 2 | 6–<10 | 144/171 | 27/39 |
+| yolo-r2-b / 2 | 10–<16 | 68/76 | 36/46 |
+| yolo-r2-b / 2 | 16–<24 | 19/19 | 3/3 |
+| yolo-r2-b / 2 | >=24 | 1/1 | 19/22 |
+| yolo-r2-b / 2 | unknown | 17/23 | 1/11 |
+| rf-b / 1 | <6 | 9/10 | 0/1 |
+| rf-b / 1 | 6–<10 | 163/171 | 33/39 |
+| rf-b / 1 | 10–<16 | 75/76 | 42/46 |
+| rf-b / 1 | 16–<24 | 18/19 | 3/3 |
+| rf-b / 1 | >=24 | 1/1 | 11/22 |
+| rf-b / 1 | unknown | 19/23 | 2/11 |
+| rf-b / 2 | <6 | 9/10 | 0/1 |
+| rf-b / 2 | 6–<10 | 164/171 | 33/39 |
+| rf-b / 2 | 10–<16 | 75/76 | 42/46 |
+| rf-b / 2 | 16–<24 | 18/19 | 3/3 |
+| rf-b / 2 | >=24 | 1/1 | 11/22 |
+| rf-b / 2 | unknown | 19/23 | 3/11 |
+| rf-r5-a / 1 | <6 | 6/10 | 0/1 |
+| rf-r5-a / 1 | 6–<10 | 148/171 | 27/39 |
+| rf-r5-a / 1 | 10–<16 | 64/76 | 37/46 |
+| rf-r5-a / 1 | 16–<24 | 18/19 | 3/3 |
+| rf-r5-a / 1 | >=24 | 1/1 | 9/22 |
+| rf-r5-a / 1 | unknown | 8/23 | 0/11 |
+| rf-r5-a / 2 | <6 | 8/10 | 0/1 |
+| rf-r5-a / 2 | 6–<10 | 156/171 | 29/39 |
+| rf-r5-a / 2 | 10–<16 | 69/76 | 43/46 |
+| rf-r5-a / 2 | 16–<24 | 19/19 | 3/3 |
+| rf-r5-a / 2 | >=24 | 1/1 | 16/22 |
+| rf-r5-a / 2 | unknown | 11/23 | 2/11 |
+| rf-r5-b / 1 | <6 | 4/10 | 0/1 |
+| rf-r5-b / 1 | 6–<10 | 138/171 | 26/39 |
+| rf-r5-b / 1 | 10–<16 | 55/76 | 34/46 |
+| rf-r5-b / 1 | 16–<24 | 16/19 | 3/3 |
+| rf-r5-b / 1 | >=24 | 1/1 | 12/22 |
+| rf-r5-b / 1 | unknown | 3/23 | 0/11 |
+| rf-r5-b / 2 | <6 | 7/10 | 0/1 |
+| rf-r5-b / 2 | 6–<10 | 156/171 | 30/39 |
+| rf-r5-b / 2 | 10–<16 | 70/76 | 40/46 |
+| rf-r5-b / 2 | 16–<24 | 18/19 | 3/3 |
+| rf-r5-b / 2 | >=24 | 1/1 | 19/22 |
+| rf-r5-b / 2 | unknown | 8/23 | 2/11 |
+
+## Fixed 0.1, not comparable across models
+
+These secondary numbers reproduce the prior convention. All explicitly includes training clips. They must not be read as an equal-error head-to-head.
+
+| Model | On-ball top-1 All / T / H | Manual-only All / T / H | Oracle over N All / T / H | Top-1 precision All / T / H | Strict false/10s All / T / H | Boxes/visible on-ball All / T / H |
+|---|---:|---:|---:|---:|---:|---:|
+| yolo-r2-b | 76.30% / 79.67% / 68.03% | 72.97% / 78.86% / 44.00% | 76.54% / 80.00% / 68.03% | 96.99% / 97.95% / 94.32% | 1.32 / 1.15 / 1.67 | 0.80 / 0.84 / 0.70 |
+| rf-b | 89.10% / 95.00% / 74.59% | 88.85% / 93.90% / 64.00% | 89.34% / 95.00% / 75.41% | 96.66% / 98.96% / 90.10% | 2.42 / 1.31 / 4.67 | 0.99 / 1.04 / 0.85 |
+| rf-r5-a | 82.23% / 86.67% / 71.31% | 79.73% / 84.96% / 54.00% | 82.70% / 87.33% / 71.31% | 97.20% / 98.11% / 94.57% | 2.09 / 1.80 / 2.67 | 0.89 / 0.95 / 0.75 |
+| rf-r5-b | 86.02% / 88.67% / 79.51% | 82.77% / 87.40% / 60.00% | 86.73% / 89.67% / 79.51% | 93.80% / 95.68% / 88.99% | 4.73 / 4.10 / 6.00 | 1.00 / 1.05 / 0.88 |
+
+## Training and diagnostic learning curves
+
+Uniform zoom [0.8,1.2] about native content centre (480,270), translation +/-5% of native width/height, horizontal flip p=0.5; pad to 960 square; no squash
+
+100-step linear warmup; step decay x0.1 after epochs 2 and 4. AdamW, FP32, batch8, seed42; official layer-wise parameter groups, gradient norm clipping0.1. Native 960×540 content is padded to 960², never squashed. Scale targets remain clamp(TRAIN affine(y),18.6804351807,48). No observed-box override from the superseded long-training brief. Pseudo labels off.
+
+Mine original unaugmented TRAIN tiles at >=0.3, centre in content and no human click within 20 native px. Start empty; refresh after each 2 complete epochs (first from trained epoch2, never the reset COCO head); add one extra copy per hard tile per epoch, retaining all original annotations.
+
+Before fit b: defer first hard-negative mining until trained epoch2; the reset COCO ball classifier is not informative. This removes only an unexecuted replay branch from fit a; its training path and parameters are unchanged. No held-out results informed the correction.
+
+During fit a epoch1, before either new fit had any held-out evaluation: replace preliminary TRAIN-ranked model choice with the primary final-checkpoint H metric. This is explicitly optimistic selection on recipe-selected clips; no fit, checkpoint stopping, or TRAIN calibration changes.
+
+Every base TRAIN tile is included in each complete epoch (631 positive, 2381 negative); replay adds one copy of each mined hard tile, retaining its positive annotation when present. Mining is performed on unaugmented TRAIN images only. Stopping compares unaugmented base-TRAIN loss, avoiding a changing replay mixture; three complete epochs without >1% improvement, 12-epoch / 90-minute phase-boundary budget. Final partial epochs are reported, never called complete.
+
+Seed42 is shared, but MPS uses deterministic-algorithm warnings rather than guaranteed bitwise determinism. The TRAIN histories already differ before replay begins. A single fit per setting cannot isolate replay's causal effect from run variation; full per-epoch losses are retained in the JSON.
+
+| Fit | Complete epochs + partial tiles | Total tile views | Minutes | Stop reason | Hard negatives per refresh (epoch: count) |
+|---|---:|---:|---:|---|---|
+| rf-r5-a | 3 + 816/3012 tiles | 9852 | 90.03 | 90-minute wall budget | none |
+| rf-r5-b | 3 + 1544/3018 tiles | 10586 | 90.04 | 90-minute wall budget | 0: 0 (0 negative), 2: 6 (5 negative) |
+
+Checkpoints below are diagnostic only. Both fits had finished before any of these held-out evaluations. Thresholds are re-chosen on TRAIN for each checkpoint; no number below selects a checkpoint or alters a fit.
+
+| Fit / checkpoint | TRAIN target | Threshold | Top-1 on-ball T / H | False/10s T / H |
+|---|---:|---:|---:|---:|
+| rf-r5-a / FINAL | 1 | 0.30314332246780401 | 81.67% / 62.30% | 0.98 / 2.00 |
+| rf-r5-a / FINAL | 2 | 0.062361281365156181 | 88.00% / 76.23% | 1.97 / 3.33 |
+| rf-r5-a / epoch-2 | 1 | 0.017670813947916034 | 71.33% / 65.57% | 0.98 / 2.00 |
+| rf-r5-a / epoch-2 | 2 | 0.01 | 75.67% / 68.85% | 1.48 / 3.00 |
+| rf-r5-b / FINAL | 1 | 0.49416390061378485 | 72.33% / 61.48% | 0.98 / 1.33 |
+| rf-r5-b / FINAL | 2 | 0.19647511839866641 | 86.67% / 77.05% | 1.97 / 4.00 |
+| rf-r5-b / epoch-2 | 1 | 0.031473584473133094 | 70.33% / 68.03% | 0.98 / 1.00 |
+| rf-r5-b / epoch-2 | 2 | 0.01 | 77.67% / 71.31% | 1.64 / 2.00 |
+
+The full held-out recall-versus-false/10s staircase (all score breakpoints down to 0.01) is committed in the JSON at round5.measurements.models.<model>.held_curve_diagnostic_only. It is a diagnostic curve, not an operating-point selection source.
+
+## Track versus truth at TRAIN-chosen operating points
+
+| Model / TRAIN target | Coverage T / H | Longest correct seconds T / H | Wrong / track points T / H | Track precision T / H | Wrong frames T / H |
+|---|---:|---:|---:|---:|---:|
+| yolo-r2-b / 1 | 66.56% / 38.11% | 24.00 / 2.50 | 4.29% / 8.04% | 85.89% / 83.04% | 21 / 9 |
+| yolo-r2-b / 2 | 68.94% / 38.52% | 24.00 / 3.00 | 6.99% / 19.26% | 79.96% / 69.63% | 38 / 26 |
+| rf-b / 1 | 76.70% / 44.26% | 25.00 / 6.00 | 3.83% / 23.27% | 80.67% / 67.92% | 23 / 37 |
+| rf-b / 2 | 75.75% / 44.67% | 24.50 / 6.00 | 5.24% / 25.60% | 78.23% / 64.88% | 32 / 43 |
+| rf-r5-a / 1 | 71.47% / 39.34% | 19.50 / 3.00 | 3.18% / 21.05% | 84.46% / 72.18% | 17 / 28 |
+| rf-r5-a / 2 | 73.38% / 42.62% | 24.00 / 3.50 | 5.15% / 22.93% | 79.55% / 66.24% | 30 / 36 |
+| rf-r5-b / 1 | 67.19% / 36.89% | 19.50 / 3.00 | 3.04% / 18.11% | 85.83% / 70.87% | 15 / 23 |
+| rf-r5-b / 2 | 72.90% / 43.03% | 24.00 / 4.50 | 3.66% / 21.66% | 80.14% / 66.88% | 21 / 34 |
+
+Track precision and wrong-point rates use track points on visible labelled frames; no-ball and unlabelled frames do not enter those denominators. Coverage penalises a tracker that emits little.
+
+## Controlled throughput and a 90-minute match
+
+3 interleaved repeats per model per sampling mode after bench training/inference stopped. Before each repeat require three quiet one-second observations: GPU utilization <=10%, empty ComfyUI queue, and Ollama workers below2% CPU. Poll active llama-server/Ollama, bench training/inference and ComfyUI during timing. The total quiet wait across all repeats is capped at 15 minutes; after exhaustion repeats proceed and are labelled contended (steady background load). Activity starting during a repeat also labels that repeat contended. Every repeat records mediaanalysisd CPU percent and ioreg AGXAccelerator GPU utilization samples. macOS media-analysis CPU load is recorded separately: sustained roughly two-core housekeeping was observed with0% GPU utilization, so it is not treated as active GPU work. These are observed desktop conditions, not an otherwise-idle-CPU laboratory. This detects known competing work, not every possible GPU client. Sampled mode covers all 2fps samples of the three TRAIN clips; native mode covers the first 64 consecutive native frames of each (192 frames/repeat). Warmup/compile excluded; source decode (including skipped frames), RGB conversion, cropping/padding, four-tile batched inference and prediction materialization included. Merge/JSON writing excluded consistently. Accuracy passes use eager FP32 separately; these optimized throughput measurements do not substitute for scored outputs.
+
+Timing status: **quiet known clients (steady background load)**; total quiet wait 73.7s of the shared 900s cap. mediaanalysisd and PhotosReliveWidget are nonblocking steady background by orchestrator decision; active model generation and bench jobs remain blocking until the wait budget expires.
+
+Separate linear projections from measured 2fps-pipeline and native-pipeline throughput; native does not inherit skipped-frame decode cost. These are not actual 90-minute match runs. Native bursts include three seeks per192 frames, a conservative overhead versus continuous match decoding; long-run thermal behaviour is unmeasured.
+
+UNCONFIRMED: historical 11.51 vs 50.9–51.0 FPS were separate sessions. Current controlled session resolves present throughput, not their historical cause.
+
+An unrelated ComfyUI job was active during accuracy inference; this can affect incidental wall times. Its start time and any effect on training are unconfirmed. This does not establish the cause of historical YOLO 11.5-versus-51 FPS. No unrelated process was interrupted. Controlled timing waits for an empty ComfyUI queue and monitors it during all repeats. The first timing session was also discarded after independent Ollama/media-analysis activity appeared (GPU89% after our process stopped). YOLO sampled throughput swung39.03 to7.87FPS in that discarded session. This reproduces large timing variability coincident with competing work, but does not prove the historical11.5-versus51FPS cause. The final guard has a shared 900s quiet-wait cap and labels contended repeats rather than discarding or waiting indefinitely. mediaanalysisd and PhotosReliveWidget are recorded nonblocking background, not evidence by themselves of competing generation.
+
+| Model | Mode | Repeat FPS: sampled / native | Median FPS: sampled / native | 90 min at 2fps: wall min | 90 min at native fps: wall min |
+|---|---|---:|---:|---:|---:|
+| mj-r5-rf-a | optimize_for_inference JIT batch4 FP16 | 4.98, 5.06, 4.93 / 3.30, 5.08, 5.37 | 4.98 / 5.08 | 36.15 | 530.77 |
+| rf-b | optimize_for_inference JIT batch4 FP16 | 7.05, 4.38, 4.81 / 3.41, 5.53, 5.51 | 4.81 / 5.51 | 37.39 | 489.77 |
+| yolo-r2-b | Ultralytics FP32 raw 960x540, imgsz960, batch4 | 40.46, 27.57, 37.70 / 51.60, 55.38, 55.21 | 37.70 / 55.21 | 4.77 | 48.86 |
+
+Per-repeat caveats (full 1s samples are retained in JSON):
+
+| Model / sampling / repeat | Status | mediaanalysisd CPU mean / max % | AGX GPU mean / max % |
+|---|---|---:|---:|
+| mj-r5-rf-a / sampled / 1 | quiet known clients (steady background load) | 28.5 / 109.1 | 96.2 / 97.0 |
+| mj-r5-rf-a / sampled / 2 | quiet known clients (steady background load) | 16.2 / 97.7 | 96.5 / 98.0 |
+| mj-r5-rf-a / sampled / 3 | quiet known clients (steady background load) | 0.0 / 0.4 | 96.6 / 97.0 |
+| mj-r5-rf-a / native / 1 | quiet known clients (steady background load) | 61.9 / 113.1 | 96.1 / 99.0 |
+| mj-r5-rf-a / native / 2 | quiet known clients (steady background load) | 0.0 / 0.3 | 96.8 / 98.0 |
+| mj-r5-rf-a / native / 3 | quiet known clients (steady background load) | 0.0 / 0.1 | 96.7 / 97.0 |
+| rf-b / sampled / 1 | quiet known clients (steady background load) | 0.0 / 0.5 | 95.2 / 96.0 |
+| rf-b / sampled / 2 | quiet known clients (steady background load) | 37.0 / 111.1 | 96.7 / 100.0 |
+| rf-b / sampled / 3 | quiet known clients (steady background load) | 0.0 / 0.1 | 96.6 / 98.0 |
+| rf-b / native / 1 | quiet known clients (steady background load) | 59.8 / 111.8 | 94.3 / 98.0 |
+| rf-b / native / 2 | quiet known clients (steady background load) | 1.6 / 55.4 | 93.9 / 97.0 |
+| rf-b / native / 3 | quiet known clients (steady background load) | 0.0 / 0.1 | 94.0 / 97.0 |
+| yolo-r2-b / sampled / 1 | quiet known clients (steady background load) | 0.0 / 0.1 | 41.8 / 45.0 |
+| yolo-r2-b / sampled / 2 | quiet known clients (steady background load) | 39.8 / 98.6 | 31.3 / 56.0 |
+| yolo-r2-b / sampled / 3 | quiet known clients (steady background load) | 0.0 / 0.0 | 40.1 / 45.0 |
+| yolo-r2-b / native / 1 | quiet known clients (steady background load) | 0.0 / 0.1 | 45.2 / 67.0 |
+| yolo-r2-b / native / 2 | quiet known clients (steady background load) | 0.0 / 0.0 | 45.8 / 60.0 |
+| yolo-r2-b / native / 3 | quiet known clients (steady background load) | 0.0 / 0.1 | 44.6 / 60.0 |
+
+Source frame rate: 29.97002997 fps. Mode fallback errors: none.
+
+Optimized-versus-eager TRAIN probe: {'mj-r5-rf-a': {'maximum_top1_centre_delta_px': 0.14277268734639317, 'maximum_top1_score_delta': 0.007046103477478027, 'note': '15 TRAIN frames, not full optimized-accuracy validation; primary metrics remain eager FP32.', 'threshold': 0.303143322467804, 'top1_presence_changes': 0, 'train_frames': 15}, 'rf-b': {'maximum_top1_centre_delta_px': 0.16704292540239415, 'maximum_top1_score_delta': 0.003093242645263672, 'note': '15 TRAIN frames, not full optimized-accuracy validation; primary metrics remain eager FP32.', 'threshold': 0.19124995172023776, 'top1_presence_changes': 0, 'train_frames': 15}}.
+
+## What a fresh match must test
+
+Label a different match at a different venue/day, with players absent from training; freeze it as the true holdout before any recipe or threshold choice. Use blind initial annotation or an independently reviewed sample to check suggestion conditioning. Include distant balls, close/large balls, blur and occlusion, no-visible-ball intervals, footwear/line distractors and spare balls. Define the match-ball identity explicitly. Compare at TRAIN-chosen operating points with per-clip/sequence counts, not independent-frame claims. These 20 clips cannot support a product winner claim.
+
+Better source pixels help, but do not fix the problem alone: the prior bucket extrapolation was 60.7% → 66.4% held-out for 2× ball pixels, not a measurement. Scale diversity and semantic negatives still matter. A 4K/follow-cam export is a hypothesis to test on fresh footage, not a guarantee.
+
+## Kit and execution
+
+{'browser_verification': 'PASS: 1057 exact seeded labels, no auto-save, all-frame navigation, newer labels and accepted-source/manual-clear provenance preserved', 'build': {'build_version': 8, 'clips': 20, 'confirmed_seed_labels': 1057, 'fps': 2, 'frames': 1105, 'frozen_set_id': '1f68e2755002b3598c763532e95c212de9261ffa638c2943ad3769a1be77503f', 'suggestions': 688, 'suggestions_by_source': {'model:mj-r5-rf-a:r5-train-fp1': 688}}, 'build_version': 8, 'confirmed_seed_labels': 1057, 'existing_labels_sha256': 'a0f51b42cb95e5327bf45fd353fd46f50495f99c096709b8836c7309ed2373ff', 'index_sha256': '164ed33753991ef381f706d880936b9190056512add26c9e110e29a5c00e39a7', 'model': 'rf-r5-a', 'source': 'model:mj-r5-rf-a:r5-train-fp1', 'suggestions': 688, 'suggestions_sha256': '57f722898f0d9caa46673997a5a142636fa4f809e7fefbb5e82b6d3bb0ed0b97', 'threshold': 0.303143322467804, 'unlabelled': 48, 'unlabelled_with_suggestion': 9}
+
+The kit is seeded only from the selected RF-DETR model at its TRAIN-chosen 1.0 operating point. MJ's existing 1057 labels are preserved, including accepted-source provenance; 48 scheduled frames remain unlabelled. Review suggestions, click remaining visible balls or mark no ball, then export. Keep new-match labels separate as the true holdout.
+
+Player-overlap buckets in historical analyses still use YOLO11n person detections: bench-only, not a licence-clean serving dependency. Frozen aggregate fixtures contain no label coordinates, images or checkpoints. Original protocol snapshots retain historical wording for hash verification; all current evaluation presentation uses ‘recipe-selected on these clips’.
+
+Round4 calibration effect superseded; RF a+b 4.33 passes/13052 views/58 min; YOLO r2-b 10 epochs/30120 views/20.1 min, r2-a/r3-a 11, r3-b 10. RF flat train loss plus train/held gap suggests generalisation, not proven undertraining. Floor recipe also selected using these held-out clips.
+
+User reports orchestrator pushed d2268bd; round-4 agent did not push.
+
+{'archive_pytest': {'passed': 423, 'skipped': 0}, 'browser_kit': 'PASS1057 exact seeds,48 unlabelled,accepted-source provenance preserved', 'ledger_regeneration': 'JSON and Markdown byte-for-byte from committed aggregate fixtures without private labels, weights or footage', 'minimal_archive_pytest': {'passed': 420, 'skip_reason': 'OpenCV unavailable in minimal export environment', 'skipped': 3}, 'ruff_check': 'PASS worktree and archive', 'ruff_format_check': 'PASS worktree and archive,99 files', 'summary': 'Full gates passed except an extra final Markdown blank line caught by git diff --check; generator corrected. The complete final staged-tree verification repeats after this entry, and its tree/ledger hashes plus commit/clean-status receipt are kept outside git. No labels, weights, detections or crops committed. No push.', 'worktree_pytest': {'passed': 423, 'skipped': 0}}
+
+Outstanding limits: No fresh-match true holdout: recipe-selected clips and shared player/match cannot establish a product winner. No candidate passes the strict held-out top1 >=80% AND false/10s <=1 gate at the two predeclared operating points. Optional third warm-start fit not run; no training after the resume decision. Historical YOLO FPS discrepancy cause remains UNCONFIRMED. Full-corpus optimized FP16 accuracy and an actual continuous90-minute timing run are not measured; speed projections and a15-TRAIN-frame parity probe are explicit. No deployment, native-rate track-guided inference, or push.
+
+# Historical rounds 1–4 — fixed 0.1, not comparable across model families
+
+The following numeric tables are retained for audit and comparison. Their fixed-confidence head-to-head interpretation and prior optimistic-exposure wording are superseded above.
+
 Trainer swap — held-out top-1 real gate: **no candidate passes**.
 
 No RF-DETR model qualifies at ≤2 false/10s; diagnostic recall leader: **tinyball-r4-rf-b**, H on-ball top-1 **74.59%**, manual-only 64.00%, **4.67 false/10s**, 3.72 FPS. Versus YOLO r2-b: **+6.56 percentage points** H on-ball recall.
@@ -10,7 +320,7 @@ RF-DETR Nano uses the Apache-2.0 implementation and official COCO weights; the i
 
 # Trainer swap: RF-DETR versus YOLO11-nano
 
-All = all 20 clips (incl. training clips); H = held-out (mild prior tuning exposure: the 640-vs-960 recipe choice in round 1 saw these clips in aggregate). All / H always uses the same fixed 14/6 split. H has 244 visible / 60 no-ball labels overall, including 122 visible on-ball labels. These clips have also informed subsequent error analysis and model selection; H is optimistic and is not a clean test set.
+All = all 20 clips (incl. training clips); H = held-out (recipe-selected on these clips). All / H always uses the same fixed 14/6 split. H has 244 visible / 60 no-ball labels overall, including 122 visible on-ball labels. These clips have also informed subsequent error analysis and model selection; H is optimistic and is not a clean test set.
 
 Selection intentionally uses the highest H on-ball top-1 recall among RF runs with H strict false/10s ≤2. Selected estimates are optimistic by construction. Improvement requires beating r2-b's 68.03% H top-1 **without increasing** its 1.67 false/10s. The separate real gate remains ≥80% top-1 and ≤1 false/10s. No confidence-threshold search: every run uses ≥0.1 and inclusive 20 native px matching.
 
@@ -26,7 +336,7 @@ Selection intentionally uses the highest H on-ball top-1 recall among RF runs wi
 
 ## Precision, localisation and overall detection
 
-All = all 20 clips (incl. training clips); H = held-out (mild prior tuning exposure: the 640-vs-960 recipe choice in round 1 saw these clips in aggregate). All / H always uses the same fixed 14/6 split. H has 244 visible / 60 no-ball labels overall, including 122 visible on-ball labels. These clips have also informed subsequent error analysis and model selection; H is optimistic and is not a clean test set.
+All = all 20 clips (incl. training clips); H = held-out (recipe-selected on these clips). All / H always uses the same fixed 14/6 split. H has 244 visible / 60 no-ball labels overall, including 122 visible on-ball labels. These clips have also informed subsequent error analysis and model selection; H is optimistic and is not a clean test set.
 
 | Candidate / group | Top-1 recall All / H | Manual-only top-1 All / H | Top-1 precision All / H | Oracle over N recall All / H | Oracle precision All / H | Top-1 median error px All / H | Oracle median error px All / H | Boxes/labelled frame All / H |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -47,7 +357,7 @@ On-ball H manual-only recall is lower because MJ hand-clicked frames where no su
 
 ## No-ball and near-path sensitivity
 
-All = all 20 clips (incl. training clips); H = held-out (mild prior tuning exposure: the 640-vs-960 recipe choice in round 1 saw these clips in aggregate). All / H always uses the same fixed 14/6 split. H has 244 visible / 60 no-ball labels overall, including 122 visible on-ball labels. These clips have also informed subsequent error analysis and model selection; H is optimistic and is not a clean test set.
+All = all 20 clips (incl. training clips); H = held-out (recipe-selected on these clips). All / H always uses the same fixed 14/6 split. H has 244 visible / 60 no-ball labels overall, including 122 visible on-ball labels. These clips have also informed subsequent error analysis and model selection; H is optimistic and is not a clean test set.
 
 No-ball = no ball visible to the labeller. Every emitted box counts false, even a potentially correct ball MJ could not see. Path credits are only a sensitivity analysis (≤50px from a linear path bracketed by visible labels ≤1.01s apart), not verified invisible-ball detections; the gate uses strict counts.
 
@@ -91,7 +401,7 @@ AdamW, weight decay 0.0001; RF-DETR official encoder layer decay 0.8 and decoder
 - `m04-n22-t3012-070707-074371`
 - `m04-n25-t3014-530600-532465`
 
-### held-out (mild prior tuning exposure: the 640-vs-960 recipe choice in round 1 saw these clips in aggregate): clip ids
+### held-out (recipe-selected on these clips): clip ids
 
 - `m04-n05-t3007-284945-287898`
 - `m04-n12-t1411-679986-681985`
@@ -102,7 +412,7 @@ AdamW, weight decay 0.0001; RF-DETR official encoder layer decay 0.8 and decoder
 
 ## Size buckets: highest-confidence hits / visible labels
 
-All = all 20 clips (incl. training clips); H = held-out (mild prior tuning exposure: the 640-vs-960 recipe choice in round 1 saw these clips in aggregate). All / H always uses the same fixed 14/6 split. H has 244 visible / 60 no-ball labels overall, including 122 visible on-ball labels. These clips have also informed subsequent error analysis and model selection; H is optimistic and is not a clean test set.
+All = all 20 clips (incl. training clips); H = held-out (recipe-selected on these clips). All / H always uses the same fixed 14/6 split. H has 244 visible / 60 no-ball labels overall, including 122 visible on-ball labels. These clips have also informed subsequent error analysis and model selection; H is optimistic and is not a clean test set.
 
 Sizes are the same frozen independent RF full/2×2/3×3 matched-box short-side median used in round 3. RF-DETR's learned target sizes do not define these buckets. Missing teacher matches remain unknown; excluding them would flatter recall.
 
@@ -116,7 +426,7 @@ Sizes are the same frozen independent RF full/2×2/3×3 matched-box short-side m
 
 ## Matching-rule sanity floors
 
-All = all 20 clips (incl. training clips); H = held-out (mild prior tuning exposure: the 640-vs-960 recipe choice in round 1 saw these clips in aggregate). All / H always uses the same fixed 14/6 split. H has 244 visible / 60 no-ball labels overall, including 122 visible on-ball labels. These clips have also informed subsequent error analysis and model selection; H is optimistic and is not a clean test set.
+All = all 20 clips (incl. training clips); H = held-out (recipe-selected on these clips). All / H always uses the same fixed 14/6 split. H has 244 visible / 60 no-ball labels overall, including 122 visible on-ball labels. These clips have also informed subsequent error analysis and model selection; H is optimistic and is not a clean test set.
 
 Same permanent seed 20260911, 100 repetitions; corrupt label positions within each evaluation scope while keeping detections fixed. Means below are sanity floors, not alternate truth or a threshold-tuning set.
 
@@ -129,7 +439,7 @@ Same permanent seed 20260911, 100 repetitions; corrupt label positions within ea
 
 ## Track versus truth
 
-All = all 20 clips (incl. training clips); H = held-out (mild prior tuning exposure: the 640-vs-960 recipe choice in round 1 saw these clips in aggregate). All / H always uses the same fixed 14/6 split. H has 244 visible / 60 no-ball labels overall, including 122 visible on-ball labels. These clips have also informed subsequent error analysis and model selection; H is optimistic and is not a clean test set.
+All = all 20 clips (incl. training clips); H = held-out (recipe-selected on these clips). All / H always uses the same fixed 14/6 split. H has 244 visible / 60 no-ball labels overall, including 122 visible on-ball labels. These clips have also informed subsequent error analysis and model selection; H is optimistic and is not a clean test set.
 
 No eligible licence-clean model: show the RF recall leader diagnostically alongside YOLO r2-b.
 
@@ -184,7 +494,7 @@ Human top-1 gate: **no candidate passes**. Proxy verdicts retire for this labell
 
 Current best under the authorized ≤2 false/10s selection rule: **tinyball-r2-b**. H on-ball top-1 **68.03%**, oracle over N boxes 68.03%, oracle precision 93.26%, **1.67 false/10s**, 11.51 FPS; real gate **FAIL**.
 
-held-out (mild prior tuning exposure: the 640-vs-960 recipe choice in round 1 saw these clips in aggregate). **Current-best selection now uses held-out results and is optimistic beyond that prior exposure.** Fresh labelled club footage is the true test; these 20 clips are no longer a clean test set.
+held-out (recipe-selected on these clips). **Current-best selection now uses held-out results and is optimistic beyond that prior exposure.** Fresh labelled club footage is the true test; these 20 clips are no longer a clean test set.
 
 # Ball human truth — round 3 review and scale targets
 
@@ -192,7 +502,7 @@ Gate = highest-confidence top-1 on-ball recall ≥80% AND ≤1 detection/10s on 
 
 ## Corrected round-1 headline (original 4/16 split)
 
-H = held-out (mild prior tuning exposure: the 640-vs-960 recipe choice in round 1 saw these clips in aggregate): original 16 evaluation clips for this table, 575 visible / 144 no-ball. On-ball H is the same two clips and 122 visible labels used below. Baselines are filtered to those same clips for comparability; none was fitted on this dataset. The All column preserves the reviewer’s six-on-ball-clip ranking.
+H = held-out (recipe-selected on these clips): original 16 evaluation clips for this table, 575 visible / 144 no-ball. On-ball H is the same two clips and 122 visible labels used below. Baselines are filtered to those same clips for comparability; none was fitted on this dataset. The All column preserves the reviewer’s six-on-ball-clip ranking.
 
 | Candidate | H top-1 (manual-only) | H oracle over N boxes (manual-only) | H oracle precision | H boxes/visible on frame | H false/10s | H FPS | H gate | Incl. training clips: top-1 (manual) / oracle | All boxes / false/10s / FPS / gate |
 |---|---:|---:|---:|---:|---:|---:|---|---:|---:|
@@ -208,7 +518,7 @@ Round-1 r1-960 was previously presented using 300 training on-ball labels plus 1
 
 ## Corrected round-2 and new scale-run headline (common 14/6 split)
 
-All = all 20 clips (incl. training clips); H = held-out (mild prior tuning exposure: the 640-vs-960 recipe choice in round 1 saw these clips in aggregate), using the fixed six clips unless explicitly stated otherwise. Paired cells are All / H.
+All = all 20 clips (incl. training clips); H = held-out (recipe-selected on these clips), using the fixed six clips unless explicitly stated otherwise. Paired cells are All / H.
 
 | Candidate | H top-1 (manual-only) | H oracle over N boxes (manual-only) | H oracle precision | H boxes/visible on frame | H false/10s | H FPS | H gate | Incl. training clips: top-1 (manual) / oracle | All boxes / false/10s / FPS / gate |
 |---|---:|---:|---:|---:|---:|---:|---|---:|---:|
@@ -230,7 +540,7 @@ The all-clip columns are descriptive training-inclusive numbers. H false rates u
 
 ## Precision, localisation and no-ball exposure
 
-All = all 20 clips (incl. training clips); H = held-out (mild prior tuning exposure: the 640-vs-960 recipe choice in round 1 saw these clips in aggregate), using the fixed six clips unless explicitly stated otherwise. Paired cells are All / H.
+All = all 20 clips (incl. training clips); H = held-out (recipe-selected on these clips), using the fixed six clips unless explicitly stated otherwise. Paired cells are All / H.
 
 | Candidate | On top-1 precision All / H | On oracle precision All / H | On top-1 median error px All / H | On oracle median error px All / H | No-ball false/frame All / H | No-ball counts All / H |
 |---|---:|---:|---:|---:|---:|---:|
@@ -279,7 +589,7 @@ All = all 20 clips (incl. training clips); H = held-out (mild prior tuning expos
 
 ## Permanent matching-rule controls
 
-All = all 20 clips (incl. training clips); H = held-out (mild prior tuning exposure: the 640-vs-960 recipe choice in round 1 saw these clips in aggregate), using the fixed six clips unless explicitly stated otherwise. Paired cells are All / H.
+All = all 20 clips (incl. training clips); H = held-out (recipe-selected on these clips), using the fixed six clips unless explicitly stated otherwise. Paired cells are All / H.
 
 Corrupt visible human centres only; keep detections/confidences/timestamps/no-ball labels fixed. Ordinary within-clip permutation (fixed points allowed) or independent uniform native 1920x1080 centres. Same seeded draws for every candidate. Report mean/min/max across 100 repeats; oracle over N boxes and top-1 separately. No tracks or model inference. Reviewer gave ranges without a seed; these newly specified controls may differ.
 
@@ -345,7 +655,7 @@ The two credits reproduce 2.42 → 2.20 false/10s All, still failing. One is in 
 
 ## Track vs truth
 
-All = all 20 clips (incl. training clips); H = held-out (mild prior tuning exposure: the 640-vs-960 recipe choice in round 1 saw these clips in aggregate), using the fixed six clips unless explicitly stated otherwise. Paired cells are All / H.
+All = all 20 clips (incl. training clips); H = held-out (recipe-selected on these clips), using the fixed six clips unless explicitly stated otherwise. Paired cells are All / H.
 
 Unchanged Kalman association reruns on saved detections without truth guidance. Track precision = points within 20px / track points where a visible label exists. Wrong rate = >50px points / that same denominator; report coverage alongside it so silence cannot look successful. Points on explicit no-ball and unlabelled frames are outside this precision denominator. Longest runs and episodes break on missing/no-ball/incorrect samples or fragment changes; seconds = correct samples/2.
 
@@ -403,7 +713,7 @@ Round 2 historically preselected d by TRAIN loss; that rule is superseded for cu
 
 ## Size-bucket recall: old versus scale-aware targets
 
-All = all 20 clips (incl. training clips); H = held-out (mild prior tuning exposure: the 640-vs-960 recipe choice in round 1 saw these clips in aggregate), using the fixed six clips unless explicitly stated otherwise. Paired cells are All / H.
+All = all 20 clips (incl. training clips); H = held-out (recipe-selected on these clips), using the fixed six clips unless explicitly stated otherwise. Paired cells are All / H.
 
 Independent size = median of nearest matched RF full/2×2/3×3 shorter sides within 20px. Trained box sizes never define these buckets. Some model misses can therefore receive an independent estimate; unmatched labels retain an unknown-size bucket. Sizes are association-confirmed detector extents, not true human-measured diameters.
 
@@ -431,7 +741,7 @@ Independent size = median of nearest matched RF full/2×2/3×3 shorter sides wit
 The per-label scale change recovers large balls but loses small balls in both repeats. Held-out >=24px top-1 matches: a 14/22 -> 19/22; b 18/22 -> 19/22 (All a 15/23 -> 20/23; b 19/23 -> 20/23). Held-out 6-<10px: a 32/39 -> 24/39, b 27/39 -> 20/39 (All a 172/210 -> 142/210; b 162/210 -> 149/210). H top-1 falls a 69.67% -> 65.57%, b 68.03% -> 62.30%; H no-ball false/10s is 2.33 and 3.00. Neither new run qualifies at <=2, and both FAIL the real gate. Current best remains r2-b: H top-1 68.03%, oracle precision 93.26%, false/10s 1.67. This supports a scale tradeoff, not a claim that target correction alone solves detection.
 
 
-Current best tinyball-r2-b: **top-1** error buckets on on-ball clips. All = all 20 clips (incl. training clips); H = held-out (mild prior tuning exposure: the 640-vs-960 recipe choice in round 1 saw these clips in aggregate), using the fixed six clips unless explicitly stated otherwise. Paired cells are All / H.
+Current best tinyball-r2-b: **top-1** error buckets on on-ball clips. All = all 20 clips (incl. training clips); H = held-out (recipe-selected on these clips), using the fixed six clips unless explicitly stated otherwise. Paired cells are All / H.
 
 | Bucket | Misses / visible All | Misses / visible H | Top-1 recall All / H |
 |---|---:|---:|---:|
@@ -478,7 +788,7 @@ Projection maps each measurable ball to its doubled-size bucket and assigns that
 
 ## Label provenance and forward bias
 
-All = all 20 clips (incl. training clips); H = held-out (mild prior tuning exposure: the 640-vs-960 recipe choice in round 1 saw these clips in aggregate), using the fixed six clips unless explicitly stated otherwise. Paired cells are All / H.
+All = all 20 clips (incl. training clips); H = held-out (recipe-selected on these clips), using the fixed six clips unless explicitly stated otherwise. Paired cells are All / H.
 
 1,057 validated labels: 875 visible / 182 no-ball, 352 accepted / 705 manual, zero rejected. Coverage: 506/540 on-ball targets, 99/100 off-pitch targets, plus 452 extras. 48 frames remain unlabelled. Exact coverage keys, per-clip counts and label SHA256 remain in JSON; labels and weights stay outside Git.
 
@@ -518,7 +828,7 @@ RF3x3’s accepted-suggestion oracle recall was 97.73% versus 83.75% manual acro
 - Exact audit against parent 8da3390: every pre-existing oracle group metric, track count/rate and provenance metric in round1 and round2 fixtures is unchanged. Added metrics and corrected top-1 gates/bounds are intentional; reviewer top-1 and visible-frame boxes averages reproduce exactly.
 - Permanent null controls use seed 20260911 and 100 repetitions, explicitly differing from reviewer seed-unspecified ranges. The 50px near-path sensitivity with <=1.01s bracketing reproduces two r1-960 credits, one in its original 16-clip H subset and neither in the common six H clips.
 
-- Prior exposure: held-out (mild prior tuning exposure: the 640-vs-960 recipe choice in round 1 saw these clips in aggregate). The r1-960 49.39% original held-out overall oracle recall also served as its own 640-vs-960 selection statistic: one binary aggregate choice. Round3 additionally uses held-out error analysis and explicit held-out model selection, so its selected estimate is more optimistic.
+- Prior exposure: held-out (recipe-selected on these clips). The r1-960 49.39% original held-out overall oracle recall also served as its own 640-vs-960 selection statistic: one binary aggregate choice. Round3 additionally uses held-out error analysis and explicit held-out model selection, so its selected estimate is more optimistic.
 - Round-1 exported last.pt; no held-out-selected best.pt leak. Round2/3 best.pt is selected only by augmented TRAIN loss, with held-out validation and final validation disabled. Model selection after these fits is separate and explicitly evaluation-based in round3.
 - The 20 clips come from one match; adjacent samples are correlated. Sample gate PASS/FAIL is legitimate under the stated labels and rules, but does not certify unseen matches or continuous event rates. False/10s is exposure-normalised from 2fps no-ball samples.
 - human_measurements.json.gz and round2_measurements.json.gz are historical filenames for scored aggregate output, not raw measurements or human labels. round3_scored_output.json.gz follows the clearer naming. Ledger rendering requires no labels, weights, footage, torch or .git.

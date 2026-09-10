@@ -3,8 +3,13 @@
 MJ's September 11 product decision: **RF-DETR (Apache-2.0)** is the product model.
 **ultralytics is bench-only and must not enter the serving path; the product model
 is RF-DETR (Apache-2.0).** The YOLO trainer and saved results remain comparison
-evidence for this round. The generated ledger leads with the trainer-swap verdict;
-rounds 1–3 below it are historical, including their old current-best statements.
+evidence for this round. The generated ledger leads with the corrected round-5
+fair comparison: thresholds selected on TRAIN at 1 and 2 false boxes/10s.
+A shared confidence 0.1 is not comparable across model families. See the
+[round-5 workflow](#round-5-fair-calibration-augmentation-and-replay) below.
+Rounds 1–4 retain historical results and their superseded selection statements.
+
+## Historical round 4: trainer swap
 
 Round 4 uses `train_tiny_ball_rfdetr.py`, with no Ultralytics import or dependency.
 `requirements-rfdetr.txt` pins the executed RF environment; install it into a
@@ -451,3 +456,61 @@ Accepted labels already require `accepted_source` and `accepted_score` in Python
 and browser validators. Accept preserves the model source; a hand click clears
 acceptance provenance. Keep those fields in future JSONL exports so model-seeded
 labels can be separated from manual labels during evaluation.
+
+### Round 5: fair calibration, augmentation and replay
+
+The corrected round-5 protocol is `fixtures/round5_execution.json`. The two new
+fits are RF-DETR Nano@960 from COCO, first with native-content zoom/translation
+and step LR decay, then with identical settings plus TRAIN-only hard-negative
+replay. `train_round5.py` uses the existing verified round-4 TRAIN tile cache;
+no validation clips enter training, mining or stopping. `round5_data.py` clips
+transformed targets to actual image content and preserves positive annotations
+on replayed tiles. Every original tile appears once per complete epoch; each
+mined tile appears once more. The final checkpoint is the product candidate.
+
+`round5_inference.py` saves fresh detections to confidence 0.01. The YOLO adapter
+is bench-only. `fair_protocol.py` chooses thresholds using TRAIN no-ball frames
+only, at nominal 1 and 2 false boxes/10s, with tied scores handled atomically.
+Held-out curves and exact frame-level McNemar comparisons are diagnostic only.
+The six evaluation clips are **recipe-selected on these clips**, not a clean
+test set: all clips share a match, and held-out on-ball clips share a player with
+training. A new match from a different venue/day is required for a product claim.
+
+`run_round5.py` finishes the second fit only after the first fit completes, then
+runs final and saved-checkpoint inference. `finish_round5.py` captures metrics,
+uses final-checkpoint H metrics at TRAIN-chosen thresholds to choose an RF-only kit source (optimistic selection), and prepares suggestions.
+`throughput_round5.py` benchmarks three interleaved repeats on the same TRAIN
+clips, including decode and batched four-tile inference, after training stops.
+RF throughput uses `optimize_for_inference`; accuracy is scored separately from
+eager FP32 passes, with this distinction explicit in the report.
+
+Private labels, crops, datasets, predictions and weights remain outside git.
+The execution and scored-output fixtures contain aggregate results only. The
+legacy `human_measurements.json.gz` filename also holds **scored aggregates**,
+not raw measurements or clicks. `build_human_report.py` regenerates both ledgers
+without private files; historical hashed protocol snapshots retain their original
+wording while current presentation corrects the evaluation-exposure label.
+
+The round-4 `train_tiny_ball_rfdetr.py` stays frozen for its recorded source-hash
+checks. Use `train_round5.py` for the lifted time budget, decay and replay;
+its protocol replaces the old 29-minute limit. Final and intermediate new-model
+inference refuses to start until both final checkpoint hashes validate, and
+writes an immutable evaluation-start marker. Cross-model selection uses final H
+metrics at TRAIN-chosen thresholds and is explicitly optimistic; intermediate
+learning curves never select a checkpoint. Controlled throughput now measures
+both 2fps sampling and native-rate bursts, so each match projection uses its own
+measured pipeline rate.
+
+`benchmark_activity.py` records macOS media-analysis CPU and AGX GPU utilization
+for every repeat. mediaanalysisd and PhotosReliveWidget are steady background,
+not blockers. The shared quiet-wait budget is 900 seconds across the whole
+session; remaining contention is reported rather than waited on indefinitely.
+The benchmark checks active generators, ComfyUI queues and bench jobs without
+pausing unrelated work. Per-repeat observations accompany the median, including
+any `contended (steady background load)` classification.
+
+The final selection audit recounts raw saved detections independently of the
+scorer: RF a has 76/122 held-out on-ball hits and 6 false boxes on 60 no-ball
+frames (2.00/10s); RF b has 75/122 and 4 (1.33/10s). Both qualify at the declared
+<=2 ceiling, so RF a is selected by one hit. This remains optimistic selection
+on recipe-selected clips, not proof of product superiority.

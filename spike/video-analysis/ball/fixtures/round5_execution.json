@@ -1,0 +1,193 @@
+{
+  "base_commit": "d2268bd90c7f7ec2cd2692c6286c0c2809e7bb3d",
+  "baseline_review_reproduced": {
+    "fixed_0.1_RF_vs_YOLO_H_McNemar": {
+      "RF_only": 16,
+      "YOLO_only": 8,
+      "exact_two_sided_p": 0.15158963203430176
+    },
+    "n21_correction_verified_against_original_saved_pass": true,
+    "reviewer_matched_error_example": "At H 1.67 false/10s, RF b 63.93% top1 versus YOLO r2-b 68.03%; H-chosen thresholds are diagnostic only. Full fresh curves cross at stricter error rates, so neither dominates everywhere."
+  },
+  "benchmark_guard_execution_note": "Measured session used capped900s wait, nonblocking media processes, Comfy/active-generator/ball training-inference checks, and per-repeat CPU/GPU capture. Process recognition was broadened during that session to legacy run_round*/run_bench and relative-directory invocations; an independent Python process census found no such competing job. Timing samples report no blocking clients.",
+  "evaluation_label": "held-out (recipe-selected on these clips)",
+  "fit_a_training_code_at_launch": {
+    "round5_data.py": "f1aebd9ce8d91897902ecabb01340efd95e6dacc4c00631318bcd6dcb1341bd3",
+    "train_round5.py": "6178b89cca8eede445e4a0e1444c92051b54e14db86796a7f8dd5132dabcbc41"
+  },
+  "n21_visual_review": {
+    "description": "Five boxes: three appear to cover a football at players\u2019 feet, two white footwear. Active-match versus spare-ball identity is UNCONFIRMED; the preceding visible-click trajectory makes a spare-ball assertion unjustified.",
+    "fresh_pass": "Five boxes on three of five no-ball frames (sample indices 8,9,10); corrects the supplied one-per-frame description.",
+    "policy": "TRAIN replay should target analogous footwear, never these held-out crops. Do not teach the detector to suppress a visible football merely because its active/spare identity or the no-ball label is uncertain; adjudicate semantic labels on fresh data. The requested automatic TRAIN-only miner remains based on distance to existing clicks, so label noise is a limitation.",
+    "private_evidence": "~/codex-runs/ball-r5-n21/contact-sheet.png; five uniquely named exact box and context PNG pairs."
+  },
+  "not_done": [
+    "No fresh-match true holdout: recipe-selected clips and shared player/match cannot establish a product winner.",
+    "No candidate passes the strict held-out top1 >=80% AND false/10s <=1 gate at the two predeclared operating points.",
+    "Optional third warm-start fit not run; no training after the resume decision.",
+    "Historical YOLO FPS discrepancy cause remains UNCONFIRMED.",
+    "Full-corpus optimized FP16 accuracy and an actual continuous90-minute timing run are not measured; speed projections and a15-TRAIN-frame parity probe are explicit.",
+    "No deployment, native-rate track-guided inference, or push."
+  ],
+  "pre_replay_correction": "Before fit b: defer first hard-negative mining until trained epoch2; the reset COCO ball classifier is not informative. This removes only an unexecuted replay branch from fit a; its training path and parameters are unchanged. No held-out results informed the correction.",
+  "prior_push": "User reports orchestrator pushed d2268bd; round-4 agent did not push.",
+  "private_artifacts": {
+    "kit": "~/ball-truth-review/",
+    "low_confidence_passes": "~/models/tinyball/r5-*-low/detections.json",
+    "models": "~/models/tinyball/mj-r5-rf-{a,b}",
+    "n21_crops": "~/codex-runs/ball-r5-n21/",
+    "suggestions": "~/codex-runs/ball-human-round5-suggestions.jsonl"
+  },
+  "protocol": {
+    "confidence_save_floor": 0.01,
+    "config": {
+      "augmentation": "Uniform zoom [0.8,1.2] about native content centre (480,270), translation +/-5% of native width/height, horizontal flip p=0.5; pad to 960 square; no squash",
+      "batch": 8,
+      "checkpoint_every_epochs": 2,
+      "checkpoint_selection": "FINAL parameters, never checkpoint selected on held-out",
+      "lr": 0.0001,
+      "lr_encoder": 0.00015,
+      "max_epochs": 12,
+      "max_minutes_per_fit": 90,
+      "model_selection": "At TRAIN-1.0 operating point, highest final-checkpoint H on-ball top1 recall among RF candidates with H false/10s <=2; ties lower H false then id. If none qualify, lowest H false then highest H recall, explicitly unqualified kit fallback. Thresholds TRAIN-only; intermediate checkpoints never selected. Final cross-model H selection is optimistic.",
+      "replay": "Mine original unaugmented TRAIN tiles at >=0.3, centre in content and no human click within 20 native px. Start empty; refresh after each 2 complete epochs (first from trained epoch2, never the reset COCO head); add one extra copy per hard tile per epoch, retaining all original annotations.",
+      "resolution": 960,
+      "scale_targets": "Round-4 affine+floor 18.680435180664062; no new observed-box override from superseded brief.",
+      "schedule": "100-step linear warmup; step decay x0.1 after epochs 2 and 4",
+      "seed": 42,
+      "train_stopping": "3 complete epochs without >1% improvement in base TRAIN epoch mean loss; partial epochs never advance patience"
+    },
+    "corrections": "Round4 calibration effect superseded; RF a+b 4.33 passes/13052 views/58 min; YOLO r2-b 10 epochs/30120 views/20.1 min, r2-a/r3-a 11, r3-b 10. RF flat train loss plus train/held gap suggests generalisation, not proven undertraining. Floor recipe also selected using these held-out clips.",
+    "diagnostics": "Full confidence curves and intermediate checkpoint H scores are diagnostic only, not used to alter fitting, thresholds, or checkpoint choice. Final-checkpoint H metrics select the RF model after all predeclared fits, explicitly optimistic.",
+    "fits": [
+      {
+        "id": "r5-rf-a",
+        "init": "COCO Nano",
+        "replay": false
+      },
+      {
+        "id": "r5-rf-b",
+        "init": "COCO Nano",
+        "replay": true
+      }
+    ],
+    "independence": "All 20 clips are match m04; two held-out on-ball clips share player n17-t717 with a TRAIN clip. Two clips from one match cannot establish a winner. Fresh labelled match from different venue/day required.",
+    "primary": "Held-out on-ball highest-confidence-box recall within 20 native pixels at each TRAIN-chosen threshold.",
+    "threshold_selection": "Lowest threshold retaining at most floor(target * TRAIN no-ball frames / 20) false boxes; >= comparison, tied scores removed together. TRAIN only. Targets 1.0 and 2.0 false/10s."
+  },
+  "push": false,
+  "resume_decisions": {
+    "kit": "Verified final-rule winner rf-r5-a; build8 suggestions already regenerated from its TRAIN1 threshold. Labels preserved.",
+    "timing": "macOS mediaanalysisd and PhotosReliveWidget are recorded nonblocking steady background. Active generators, ComfyUI queue and bench training/inference block quiet entry. Shared total wait cap900s, then proceed labelled contended (steady background load); each repeat records media CPU and AGX GPU utilization.",
+    "training": "No further fits. Both COCO runs have 3 complete epochs plus partial epoch4; at TRAIN1 TRAIN top1 A81.67%, B72.33%, old RFb95.00%: new fits are less fitted. Only six hard tiles mined, not a substantial negative pool."
+  },
+  "scoring_code_sha256": {
+    "benchmark_activity.py": "498c0d455bfd7be94b0a2dc0a010f5187d62ba79dc1f7e03303738d10ca7e6ab",
+    "fair_protocol.py": "c058f94739d4ceb2c974f73df772916a2676e6a240b0a6af1a517010052a3d61",
+    "finish_round5.py": "a7ef530f55d28c9cb9ca493495c09e806d6b7574003d9b91d22321ba3b9b08d7",
+    "review_round5.py": "ed9456b48a6cb95d3cd8e51fb557413507dc7f1e1eacf2ecfb6d4b7e3d6f34c4",
+    "round5_inference.py": "d01e9d399d8037b62be03ba403bf2bece965328ce6de1249532490f94f8df5b9",
+    "run_round5.py": "c95c21143840049a8258c317eea3ef7af697d09ed44952af91faae3951756fc6",
+    "throughput_round5.py": "48dac55b80488a1663fef93e7e042ce2e8dad72ac2d61e6b00bb1cda4352db58"
+  },
+  "selection_amendment_before_new_evaluation": "During fit a epoch1, before either new fit had any held-out evaluation: replace preliminary TRAIN-ranked model choice with the primary final-checkpoint H metric. This is explicitly optimistic selection on recipe-selected clips; no fit, checkpoint stopping, or TRAIN calibration changes.",
+  "selection_audit": {
+    "method": "Independent raw JSONL/detection count, without scorer helpers; full scorer recapture also byte-equivalent in model aggregates. Both final fits completed.",
+    "preview_discrepancy": "User cited new A 2.17 and B 1.30 false/10s. Canonical 60 held-out no-ball frames at 2fps yield A 6*20/60=2.00 and B 4*20/60=1.333333. A and B both qualify under <=2; A has 76/122 hits versus B 75/122. The cited rates do not reproduce from the final saved passes. Selection remains rf-r5-a, not rf-r5-b.",
+    "rows": {
+      "rf-b": {
+        "eligible": false,
+        "false_boxes": 9,
+        "false_per_10s": 3.0,
+        "no_ball_frames": 60,
+        "on_ball_hits": 91,
+        "on_ball_visible": 122,
+        "threshold": 0.19124995172023776
+      },
+      "rf-r5-a": {
+        "eligible": true,
+        "false_boxes": 6,
+        "false_per_10s": 2.0,
+        "no_ball_frames": 60,
+        "on_ball_hits": 76,
+        "on_ball_visible": 122,
+        "threshold": 0.303143322467804
+      },
+      "rf-r5-b": {
+        "eligible": true,
+        "false_boxes": 4,
+        "false_per_10s": 1.3333333333333333,
+        "no_ball_frames": 60,
+        "on_ball_hits": 75,
+        "on_ball_visible": 122,
+        "threshold": 0.49416390061378485
+      }
+    },
+    "rule_unchanged": true,
+    "selected": "rf-r5-a"
+  },
+  "split": {
+    "feasible_partitions": 65,
+    "held_out": [
+      "m04-n05-t3007-284945-287898",
+      "m04-n12-t1411-679986-681985",
+      "m04-n17-t717-253073-260377",
+      "m04-n17-t717-416826-418915",
+      "m04-n21-t3011-390297-390800",
+      "m04-n24-t3013-679939-681217"
+    ],
+    "previously_untouched_holdout": false,
+    "prior_tuning_exposed_holdout": [
+      "m04-n05-t3007-284945-287898",
+      "m04-n12-t1411-679986-681985",
+      "m04-n17-t717-253073-260377",
+      "m04-n17-t717-416826-418915",
+      "m04-n21-t3011-390297-390800",
+      "m04-n24-t3013-679939-681217"
+    ],
+    "rank": "03edd675929948d82afddb0b5b17bd987a1aff05695bfc5bf812ca9a8f3c300f",
+    "seed": "ball-human-r2-split-v1",
+    "smoke_resubstitution_only": false,
+    "train": [
+      "m04-n02-t3005-474114-478131",
+      "m04-n03-t1406-157170-158922",
+      "m04-n03-t1406-385962-387137",
+      "m04-n04-t3006-243433-247994",
+      "m04-n04-t3006-307417-310307",
+      "m04-n09-t1409-143096-143834",
+      "m04-n09-t1409-297601-298865",
+      "m04-n09-t1409-385922-386603",
+      "m04-n10-t711-186553-188161",
+      "m04-n12-t1411-237107-242145",
+      "m04-n15-t3010-164698-170777",
+      "m04-n17-t717-304624-307834",
+      "m04-n22-t3012-070707-074371",
+      "m04-n25-t3014-530600-532465"
+    ]
+  },
+  "status": "Executed: both predeclared fits, final/checkpoint fair scoring, controlled throughput and RF-only kit refresh complete",
+  "training_code_sha256": {
+    "round5_data.py": "f1aebd9ce8d91897902ecabb01340efd95e6dacc4c00631318bcd6dcb1341bd3",
+    "train_round5.py": "efd4f637c4317fc2aba9fbdb234e1bd6d2914cc38efd2fe8b4cf2f18f5360e8a"
+  },
+  "verification": {
+    "archive_pytest": {
+      "passed": 423,
+      "skipped": 0
+    },
+    "browser_kit": "PASS1057 exact seeds,48 unlabelled,accepted-source provenance preserved",
+    "ledger_regeneration": "JSON and Markdown byte-for-byte from committed aggregate fixtures without private labels, weights or footage",
+    "minimal_archive_pytest": {
+      "passed": 420,
+      "skip_reason": "OpenCV unavailable in minimal export environment",
+      "skipped": 3
+    },
+    "ruff_check": "PASS worktree and archive",
+    "ruff_format_check": "PASS worktree and archive,99 files",
+    "summary": "Full gates passed except an extra final Markdown blank line caught by git diff --check; generator corrected. The complete final staged-tree verification repeats after this entry, and its tree/ledger hashes plus commit/clean-status receipt are kept outside git. No labels, weights, detections or crops committed. No push.",
+    "worktree_pytest": {
+      "passed": 423,
+      "skipped": 0
+    }
+  }
+}
