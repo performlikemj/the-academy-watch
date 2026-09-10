@@ -76,3 +76,57 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install --dry-run -r academy-watch-backend/requirements.txt
+
+  backend-tests:
+    name: Backend Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        working-directory: academy-watch-backend
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Run tests
+        working-directory: academy-watch-backend
+        env:
+          SKIP_API_HANDSHAKE: '1'
+          API_USE_STUB_DATA: 'true'
+          TEST_ONLY_MANU: 'false'
+          # Required to construct the newsletter client at import time.
+          OPENAI_API_KEY: 'test-not-a-real-key'
+        run: python -m pytest -q
+
+  frontend-tests:
+    name: Frontend Tests
+    needs: dependency-security
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+          cache-dependency-path: academy-watch-frontend/pnpm-lock.yaml
+
+      - name: Install dependencies
+        working-directory: academy-watch-frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Run tests
+        working-directory: academy-watch-frontend
+        run: node scripts/run-tests.mjs
