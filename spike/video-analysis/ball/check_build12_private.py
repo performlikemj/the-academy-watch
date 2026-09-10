@@ -135,7 +135,7 @@ def check(out):
     from playwright.sync_api import sync_playwright
 
     home = Path.home()
-    # Bind the LAN interface as well as loopback to verify genuinely insecure HTTP.
+    # Bind only the LAN address; do not expose this server on the tailnet.
     address = subprocess.check_output(
         ["ipconfig", "getifaddr", "en0"], text=True
     ).strip()
@@ -165,10 +165,10 @@ def check(out):
                 )
             super().do_GET()
 
-    server = ThreadingHTTPServer(("0.0.0.0", 0), partial(Handler, directory=str(home)))
+    server = ThreadingHTTPServer((address, 0), partial(Handler, directory=str(home)))
     worker = Thread(target=server.serve_forever, daemon=True)
     worker.start()
-    base = f"http://127.0.0.1:{server.server_port}"
+    base = f"http://{address}:{server.server_port}"
     audit = {}
     try:
         with sync_playwright() as pw:

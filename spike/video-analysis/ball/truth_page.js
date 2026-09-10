@@ -10,7 +10,7 @@ let state=store.empty(), labels={}, reviewKeys=new Set(), reviewQueue=[], review
 let index=0, generation=0, imageReady=false, initialized=false, readOnly=false, recoveryExported=false;
 let recoveryRaw=null, writes=Promise.resolve();
 let conflictCount=0;
-const seenConflicts=new Set(), legacyHashKey=storageKey+':legacy-sha256';
+const seenConflicts=new Set(), legacyHashKey=storageKey+':legacy-baseline-v1';
 function recordConflict(key,local,stored) {
   const signature=JSON.stringify([key,local.updated_at,[store.values(local),store.values(stored)].sort()]);
   if(seenConflicts.has(signature))return;
@@ -18,28 +18,58 @@ function recordConflict(key,local,stored) {
   const notice=document.getElementById('conflicts');notice.hidden=false;
   notice.textContent=`Merge conflicts: ${conflictCount}. Kept the confirmed decision already in storage. Review or export before changing it.`;
 }
-// Change detector only, not a cryptographic integrity hash. Works on plain HTTP.
-function legacyHash(raw) {
-  let hash=0xcbf29ce484222325n;
-  for(const byte of new TextEncoder().encode(JSON.stringify(raw))) hash=BigInt.asUintN(64,(hash^BigInt(byte))*0x100000001b3n);
-  return 'fnv1a64-v1:'+hash.toString(16).padStart(16,'0');
+const legacyHash=BallLegacy.hash;
+const legacy=BallLegacy.create(legacyHashKey,legacyKey,frames,storageKey+':legacy-sha256');
+let legacyStatus={keys:[],fallback:false};
+function checkLegacyHash() {renderLegacy();}
+function describeLegacy(row) {return !row?'cleared':row.visible?`ball at (${row.x}, ${row.y})`:'no ball';}
+function renderLegacy() {
+  // A suspended tab must not resolve old-page changes against stale memory.
+  if(initialized&&!readOnly) {try {refreshStored();} catch(error) {failClosed(error);}}
+  legacyStatus=legacy.check(state);
+  const {keys,fallback}=legacyStatus, banner=document.getElementById('legacy-warning');
+  banner.hidden=!fallback&&!keys.length;
+  document.getElementById('legacy-message').textContent=fallback?BallLegacy.fallbackMessage:`The old click page has ${keys.length} unresolved changes. Review each frame below.`;
+  const list=document.getElementById('legacy-keys');list.replaceChildren();
+  for(const item of keys) {
+    const link=document.createElement('a');link.href='#canvas';link.textContent=item.key;
+    link.onclick=e=>{e.preventDefault();reviewMode=false;index=byKey[item.key];show();};
+    const li=document.createElement('li');li.append(link);list.append(li);
+  }
+  const item=keys.find(r=>r.key===api.key(frames[index]));
+  const panel=document.getElementById('legacy-current');panel.hidden=!item;
+  document.getElementById('legacy-values').textContent=item?`Old page: ${describeLegacy(item.value)} / This page: ${describeLegacy(labels[item.key])}`:'';
+  for(const id of ['legacy-use','legacy-keep','legacy-all'])document.getElementById(id).disabled=readOnly||!initialized;
+  const all=document.getElementById('legacy-all');all.hidden=fallback||!keys.length;all.textContent=`Use old page's values for all ${keys.length}`;
 }
-function checkLegacyHash(raw=localStorage.getItem(legacyKey), rebaseline=false) {
-  const hash=legacyHash(raw), baseline=localStorage.getItem(legacyHashKey);
-  if(rebaseline || !/^fnv1a64-v1:[0-9a-f]{16}$/.test(baseline||''))localStorage.setItem(legacyHashKey,hash);
-  const changed=localStorage.getItem(legacyHashKey)!==hash;
-  document.getElementById('legacy-warning').hidden=!changed;
+function useLegacy(items) {
+  return save((latest,time)=> {
+    const current=legacy.rows(legacy.current());
+    // Apply only the old-page values that MJ actually saw and chose.
+    if(items.some(item=>!BallLegacy.equal(item.value,BallLegacy.point(current[item.key]))))return false;
+    const next={labels:{...latest.labels},deleted:{...latest.deleted}};
+    for(const item of items) {
+      if(item.row)next.labels[item.key]=put(item.row,time);
+      else {delete next.labels[item.key];next.deleted[item.key]=time;}
+    }
+    return next;
+  });
 }
-function acknowledgesLegacy(rows) {
-  const raw=localStorage.getItem(legacyKey);
-  if(!raw?.trim())return null;
-  try {
-    const imported=new Map(rows.map(r=>[api.key(r),store.values(r)]));
-    return api.parse(raw,frames).every(row=>imported.get(api.key(row))===store.values(row))?raw:null;
-  } catch (_) {return null;} // A partial/invalid old export cannot acknowledge it.
-}
+document.getElementById('legacy-use').onclick=()=> {
+  const item=legacyStatus.keys.find(r=>r.key===api.key(frames[index]));if(item)useLegacy([item]);
+};
+document.getElementById('legacy-keep').onclick=()=> {
+  if(readOnly)return;
+  const item=legacyStatus.keys.find(r=>r.key===api.key(frames[index]));
+  if(item)enqueue(()=>{refreshStored();legacy.keep(item.key,item.value);show();});
+};
+document.getElementById('legacy-all').onclick=()=> {
+  const items=legacyStatus.keys;
+  if(!readOnly&&items.length&&window.confirm(`Use old page's values for all ${items.length} unresolved frames?`))useLegacy(items);
+};
 document.getElementById('dismiss-legacy').onclick=()=>enqueue(()=> {
-  if(window.confirm("Dismiss the warning? Confirm that you imported the old page's labels."))checkLegacyHash(undefined,true);
+  const count=legacyStatus.fallback?'an unknown number of':legacyStatus.keys.length;
+  if(window.confirm(`Dismiss ${count} unresolved old-page changes and keep this page's values?`)) {legacy.rebase();show();}
 });
 const confirmed=api.confirmed;
 for(const clip of [...new Set(frames.map(f=>f.clip))]) {
@@ -110,6 +140,7 @@ function setLabel(x,y,visible,provenance={source_accepted:false}) {
 function show() {
   rebuildQueue();
   if(reviewMode && !reviewKeys.has(api.key(frames[index])) && reviewQueue.length) index=byKey[api.key(reviewQueue[0])];
+  renderLegacy();
   const f=frames[index], row=labels[api.key(f)], suggestion=suggestionFor(f), token=++generation;
   document.getElementById('progress').textContent=reviewMode
     ?`reviewed ${reviewQueue.filter(f=>confirmed(labels[api.key(f)])).length} / ${reviewQueue.length}`
@@ -194,18 +225,18 @@ function download(text,name) {
 }
 document.getElementById('export').onclick=async()=> {
   await writes;
-  if(readOnly) {download(JSON.stringify({storage_key:storageKey,...recoveryRaw,validated_labels:Object.values(labels)},null,2),'ball-truth-recovery.json');recoveryExported=true;}
+  if(readOnly) {download(JSON.stringify({kind:'ball-truth-recovery',storage_key:storageKey,...recoveryRaw,validated_labels:Object.values(state.labels),validated_clears:state.deleted},null,2),'ball-truth-recovery.json');recoveryExported=true;}
   else {try{await locked(()=>refreshStored());download(api.serialize(Object.values(labels),frames),'ball-human-truth-v2.jsonl');}catch(e){failClosed(e);show();}}
 };
-function importPlan(rows) {
+function importPlan(rows,clears={}) {
   const counts={new:0,changed:0,unchanged:0,replace_confirmed:0,restores:0,restoreEligible:0};
-  const eligible=[], skipped=[];
+  const eligible=[], eligibleClears={}, skipped=[];
   for(const row of rows) {
     const key=api.key(row), old=labels[key], cleared=state.deleted[key];
     const decisionTime=Math.max(old?.updated_at??-1,cleared??-1);
     const restores=!old && cleared!==undefined;
     if(restores)counts.restores++;
-    if(row.updated_at<decisionTime || (cleared!==undefined && row.updated_at<=cleared)) {
+    if(store.compareDecision(row.updated_at,false,decisionTime,cleared!==undefined&&cleared>=decisionTime)<0) {
       skipped.push(key);continue;
     }
     const changed=store.values(old)!==store.values(row);
@@ -214,15 +245,23 @@ function importPlan(rows) {
     if(restores)counts.restoreEligible++;
     eligible.push(row);
   }
-  return {counts,eligible,skipped};
+  for(const [key,time] of Object.entries(clears)) {
+    const row=labels[key], prior=state.deleted[key]??-1;
+    const decision=Math.max(row?.updated_at??-1,prior);
+    if(store.compareDecision(time,true,decision,prior>=decision)<0) {skipped.push(key);continue;}
+    if(!row&&prior===time) {counts.unchanged++;continue;}
+    if(confirmed(row))counts.replace_confirmed++;
+    counts.changed++;eligibleClears[key]=time;
+  }
+  return {counts,eligible,eligibleClears,skipped};
 }
 document.getElementById('import').onchange=async e=> {
   try {
-    const text=await e.target.files[0].text(), rows=api.parse(text,frames);
+    const text=await e.target.files[0].text(), incoming=store.readImport(text,frames,storageKey), rows=Object.values(incoming.labels);
     await enqueue(()=> {
       if(!readOnly) refreshStored();
       const storedBefore=localStorage.getItem(storageKey);
-      const {counts,eligible,skipped}=importPlan(rows);
+      const {counts,eligible,eligibleClears,skipped}=importPlan(rows,incoming.deleted);
       const summary=`Import: ${counts.new} new, ${counts.changed} changed, ${counts.unchanged} unchanged; would replace ${counts.replace_confirmed} confirmed decisions; ${counts.restores} restores a cleared frame (${counts.restoreEligible} eligible). skipped ${skipped.length} rows older than what is saved here.`+(skipped.length?` Skipped keys (first 20): ${skipped.slice(0,20).join(', ')}${skipped.length>20?`; ${skipped.length-20} more`:''}.`:'');
       document.getElementById('import-summary').textContent=summary;
       if(readOnly) {
@@ -234,20 +273,15 @@ document.getElementById('import').onchange=async e=> {
         status.textContent='Import cancelled; confirmed reviews preserved.';return;
       }
       if(localStorage.getItem(storageKey)!==storedBefore)throw new Error('Storage changed during import. Re-import to review the latest decisions.');
-      const recovering=readOnly;
-      if(recovering)state=store.empty();
+      // Recovery preserves the last validated memory, including clear history.
       const time=store.clock(state);
       for(const row of eligible) {
         const key=api.key(row);
-        if(recovering||store.values(state.labels[key])!==store.values(row))state.labels[key]=put(row,time);
+        if(store.values(state.labels[key])!==store.values(row))state.labels[key]=put(row,time);
       }
+      for(const key of Object.keys(eligibleClears)) {delete state.labels[key];state.deleted[key]=time;}
       // This is a validated, explicit recovery/import, not an edit through save().
       persist();
-      const acknowledged=acknowledgesLegacy(rows);
-      if(acknowledged!==null) {
-        checkLegacyHash(acknowledged,true); // Baseline exactly the value we compared.
-        checkLegacyHash(); // A concurrent legacy edit must still warn.
-      }
       readOnly=false;recoveryExported=false;safety.hidden=true;
       document.getElementById('export').textContent='Export JSONL';
       rebuildQueue();show();status.textContent='Import saved. '+summary;
@@ -287,7 +321,7 @@ enqueue(async()=> {
       for(const key of cleared) {state.deleted[key]=store.clock(state);delete state.labels[key];}
       persist();
     }
-    await checkLegacyHash(legacyRaw);
+
   } catch(error) {failClosed(error);}
   initialized=true;show();
 });

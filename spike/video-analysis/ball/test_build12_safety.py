@@ -171,7 +171,16 @@ def test_dismiss_legacy_warning_requires_confirmation(browser, kit):
     with browser.new_context() as ctx:
         page = open_page(ctx, kit)
         legacy_warning(
-            page, [{k: kit["rows"][-1][k] for k in ("clip", "t", "visible", "x", "y")}]
+            page,
+            [
+                {
+                    **{
+                        k: kit["rows"][-1][k]
+                        for k in ("clip", "t", "visible", "x", "y")
+                    },
+                    "x": 60,
+                }
+            ],
         )
         button = page.locator("#dismiss-legacy")
         assert button.count() == 1
@@ -195,7 +204,7 @@ def test_no_secure_crypto_required_and_hash_has_tag(browser, kit):
         page = open_page(ctx, kit)
         assert not page.evaluate("readOnly")
         value = page.evaluate("localStorage.getItem(legacyHashKey)")
-        assert value.startswith("fnv1a64-v1:")
+        assert json.loads(value)["kind"] == "ball-legacy-raw-v1"
         review(page)
         press(page, "n")
         assert current(page)["review_confirmed"]
@@ -204,9 +213,13 @@ def test_no_secure_crypto_required_and_hash_has_tag(browser, kit):
             page.reload()
             settle(page)
             assert not page.evaluate("readOnly")
-            assert page.locator("#legacy-warning").is_hidden()
-            assert page.evaluate("localStorage.getItem(legacyHashKey)").startswith(
-                "fnv1a64-v1:"
+            assert page.locator("#legacy-warning").is_visible()
+            page.once("dialog", lambda d: d.accept())
+            page.locator("#dismiss-legacy").click()
+            settle(page)
+            assert (
+                json.loads(page.evaluate("localStorage.getItem(legacyHashKey)"))["kind"]
+                == "ball-legacy-raw-v1"
             )
 
 
@@ -246,7 +259,9 @@ def test_compare_migration_and_semantic_categories(tmp_path):
 
 def test_frozen_build10_js_to_current_browser_compatibility(browser, kit):
     frozen = HERE / "fixtures/build10_js"
-    assert (frozen / "truth_page.js").exists(), "CI must exercise actual build-10 JS"
+    assert (frozen / "truth_page.js").exists(), (
+        "the test suite must exercise actual build-10 JS"
+    )
     with browser.new_context() as ctx:
         old = kit["path"].with_name("build10.html")
         html = kit["path"].read_text()

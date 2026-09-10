@@ -1,8 +1,8 @@
 # Local ball bench: MJ human truth
 
-The current click kit is **build 12**, in its own versioned directory. See the
-[build-12 fixes](#build-12--stale-imports-and-cleared-frames) before labelling;
-builds 9, 10 and 11 are preserved, with their historical instructions below.
+The current click kit is **build 13**, in its own versioned directory. See the
+[build-13 fixes](#build-13--explicit-legacy-reconciliation) before labelling;
+builds 9, 10, 11 and 12 are preserved, with their historical instructions below.
 
 MJ's September 11 product decision: **RF-DETR (Apache-2.0)** is the product model.
 **ultralytics is bench-only and must not enter the serving path; the product model
@@ -801,7 +801,7 @@ and a clear, then verifies build 11 preserves every row and the exact v2 stored
 value. All browser checks use isolated contexts, never MJ's profile.
 
 
-### Build 12 — stale imports and cleared frames
+### Historical build 12 — stale imports and cleared frames
 
 Use `~/ball-truth-review-build12/index.html`. The v2 key and label/envelope schema
 are unchanged. Existing build-10/11 rows, timestamps and clear history are retained
@@ -860,3 +860,58 @@ JS under `fixtures/build10_js/` with synthetic labels only. `check_build12_priva
 checks real build-10 and build-11 storage against build 12, the actual build-8
 export/import sequence, and a non-loopback plain-HTTP open. Audit:
 `~/codex-runs/ball-build12-compatibility.json`. All tests use isolated browser contexts.
+
+
+### Build 13 — explicit legacy reconciliation
+
+Use `~/ball-truth-review-build13/index.html`. Existing build-10/11/12 storage uses
+the same v2 key and label/envelope schema. Legacy reconciliation metadata is separate, at `:legacy-baseline-v1`. The old
+`:legacy-sha256` metadata is read once and never overwritten, avoiding metadata
+rewrite loops with a still-open build-12 tab.
+MJ has opened none of those three builds on his laptop.
+
+The old-page baseline now stores its raw v1 value and `taken_at`. Every added,
+changed (visible/x/y), or dropped key is reconciled. A key resolves only when the
+current page matches the old page (point tolerance 1e-6 px), an old-page clear is
+also cleared here, or MJ explicitly chooses Keep. Imports have no acknowledgement
+heuristic. All unresolved keys appear as jump links in a scrollable list, with old
+and current values on the selected frame. Use applies the committed v1 migration
+as a new timestamped edit; an old-page clear becomes a local clear. Keep persists
+the exact old value it was chosen against, so later old-page changes flag again.
+Bulk Use requires confirmation. Resolving all keys re-baselines automatically;
+Dismiss also re-baselines after confirming the unresolved count.
+
+Matching build-11 SHA256/build-12 FNV hash-only baselines upgrade silently. A
+changed or unknown hash baseline cannot recover frame history: it shows the
+explicit fallback warning, cleared only by Dismiss. Raw-baseline quota failure
+falls back to hash-only behaviour, never read-only mode. SHA256 upgrade and FNV
+change detection work without WebCrypto. Normal reconciliation reads old-page
+storage directly; export/import is not the reconciliation workflow.
+
+Recovery imports merge with the last validated in-memory labels **and clears**.
+They never empty memory first. The page accepts its own recovery backup, including
+validated clear history, as well as JSONL. Stale imports still cannot overwrite
+newer decisions. One shared comparator makes a clear win any edit at equal time.
+Equal-time row-versus-row import remains eligible; merge keeps the stored row
+(with confirmation priority) to resolve concurrent snapshots.
+
+The export comparison counts `review_frame` as REVIEW-STATE. Changed unknown fields
+are UNKNOWN-FIELD changes, and make the verdict differ and exit code 1. Outputs
+show field names and keys, never coordinates.
+
+**GitHub CI does not run the spike tests.** Kit browser tests run only in the local
+`~/models/tinyball/.venv-mj` environment with Chromium; the local `.loan` suite skips
+those browser checks. Frozen build-10 JS is exercised by the test suite, not GitHub
+CI. The private check binds only basecamp's LAN address, never all interfaces.
+
+Build/sync: `~/ball-truth-review-build13/` and
+`~/codex-runs/ball-truth-review-build13/` contain the five HTML/build/queue/suggestion/
+migration files, reusing `../ball-truth-review/` frames. New seed only:
+`~/codex-runs/ball-human-truth-v2-build13.jsonl`. The mandatory current laptop export
+and semantic comparison still precede sync; existing v2 storage ignores embedded
+seeds. No fresh laptop export was supplied for this round.
+
+`check_build13_private.py` writes `~/codex-runs/ball-build13-compatibility.json`:
+real build-10/11/12 compatibility, real build-8 H1/H2a/H2b/H3 and import sequence,
+recovery, non-loopback HTTP editing, and raw-baseline size. Browser contexts are
+isolated; protected label files and previous kit directories remain unchanged.

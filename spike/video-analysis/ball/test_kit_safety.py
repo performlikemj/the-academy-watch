@@ -417,10 +417,10 @@ def test_versioned_build_shared_frames_and_no_overwrite(tmp_path, monkeypatch):
     monkeypatch.setattr(
         human_loop, "review_plan", lambda _: {"on_ball": [], "off_pitch": []}
     )
-    out = tmp_path / "test-build12"
+    out = tmp_path / "test-build13"
     ball_truth_kit.build(None, DEFAULT_SOURCE, out, frames_dir=shared)
     meta = json.loads((out / "build.json").read_text())
-    assert meta["build_version"] == 12 and meta["shared_frames"] == "../shared"
+    assert meta["build_version"] == 13 and meta["shared_frames"] == "../shared"
     assert '"path": "../shared/frame.svg"' in (out / "index.html").read_text()
     assert meta["storage_key"].startswith("ball-human-v2:")
     assert meta["legacy_input_key"].startswith("ball-human-v1:")
@@ -528,7 +528,7 @@ def test_legacy_hash_warns_on_later_open_without_merging(browser, kit):
         page = open_page(context, kit)
         before = page.evaluate("localStorage.getItem(storageKey)")
         baseline = page.evaluate("localStorage.getItem(legacyHashKey)")
-        assert baseline.startswith("fnv1a64-v1:")
+        assert json.loads(baseline)["kind"] == "ball-legacy-raw-v1"
         legacy = {
             "clip": kit["rows"][0]["clip"],
             "t": 0,
@@ -542,10 +542,7 @@ def test_legacy_hash_warns_on_later_open_without_merging(browser, kit):
         )
         page.reload()
         settle(page)
-        assert (
-            page.locator("#legacy-message").inner_text()
-            == "The old click page was used after this page started. Export from it and import here to include those labels."
-        )
+        assert "unresolved changes" in page.locator("#legacy-message").inner_text()
         assert page.evaluate("localStorage.getItem(storageKey)") == before
         assert page.evaluate("localStorage.getItem(legacyHashKey)") == baseline
 

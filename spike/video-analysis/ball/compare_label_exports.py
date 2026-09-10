@@ -48,7 +48,12 @@ LABEL_FIELDS = (
     "accepted_source",
     "accepted_score",
 )
-REVIEW_FIELDS = ("needs_any_ball_review", "needs_confirmation", "review_confirmed")
+REVIEW_FIELDS = (
+    "review_frame",
+    "needs_any_ball_review",
+    "needs_confirmation",
+    "review_confirmed",
+)
 
 
 def canonical(row, catalog):
@@ -75,30 +80,56 @@ def compare(old, new):
         sorted(after.keys() - before.keys()),
         sorted(before.keys() - after.keys()),
     )
-    label_changes, review_changes, metadata_only, changed = [], [], [], []
+    label_changes, review_changes, metadata_only, changed, unknown_changes = (
+        [],
+        [],
+        [],
+        [],
+        [],
+    )
     for key in sorted(shared):
         a, b = canonical(before[key], catalog), canonical(after[key], catalog)
         labels = [f for f in LABEL_FIELDS if not same_value(a.get(f), b.get(f))]
         reviews = [f for f in REVIEW_FIELDS if not same_value(a.get(f), b.get(f))]
+        known = set(LABEL_FIELDS + REVIEW_FIELDS) | {
+            "clip",
+            "t",
+            "schema_version",
+            "updated_at",
+        }
+        unknown = [
+            f
+            for f in before[key].keys() | after[key].keys()
+            if f not in known
+            and (
+                (f in before[key]) != (f in after[key])
+                or not same_value(before[key].get(f), after[key].get(f))
+            )
+        ]
+        if unknown:
+            unknown_changes.append({"key": key, "fields": sorted(unknown)})
         if labels:
             label_changes.append(key)
         if reviews:
             review_changes.append(key)
-        if labels or reviews:
-            changed.append({"key": key, "fields": sorted(labels + reviews)})
+        if labels or reviews or unknown:
+            changed.append({"key": key, "fields": sorted(labels + reviews + unknown)})
         elif not same_value(before[key], after[key]):
             metadata_only.append(key)
     counts = {
         "label_changes": len(label_changes) + len(added) + len(removed),
         "review_state_changes": len(review_changes),
         "metadata_only": len(metadata_only),
+        "unknown_fields": len(unknown_changes),
     }
     return {
         "old_sha256": sha256(old),
         "new_sha256": sha256(new),
         "counts": counts,
         "verdict": "differs"
-        if counts["label_changes"] or counts["review_state_changes"]
+        if counts["label_changes"]
+        or counts["review_state_changes"]
+        or counts["unknown_fields"]
         else "same",
         "added": added,
         "removed": removed,
@@ -106,6 +137,7 @@ def compare(old, new):
         "label_changes": label_changes,
         "review_state_changes": review_changes,
         "metadata_only": metadata_only,
+        "unknown_fields": unknown_changes,
         "unchanged": len(shared) - len(changed),
     }
 

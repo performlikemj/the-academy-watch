@@ -51,7 +51,7 @@ def merge(local, stored):
     )
 
 
-KINDS = ("unconfirmed", "clear", "confirmed")
+KINDS = ("unconfirmed", "confirmed", "clear")
 
 
 @pytest.mark.parametrize("local", KINDS)

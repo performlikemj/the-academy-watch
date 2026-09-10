@@ -1,4 +1,4 @@
-"""Build-12 browser checks in isolated storage; no model runtime or MJ edits."""
+"""Build-13 browser checks in isolated storage; no model runtime or MJ edits."""
 
 from pathlib import Path
 import argparse
@@ -142,7 +142,7 @@ def check(kit, screenshot=None):
 if __name__ == "__main__":
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument(
-        "--kit", type=Path, default=Path.home() / "ball-truth-review-build12"
+        "--kit", type=Path, default=Path.home() / "ball-truth-review-build13"
     )
     p.add_argument("--screenshot", type=Path)
     a = p.parse_args()

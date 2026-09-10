@@ -21,8 +21,26 @@
     }
     return merge(empty(),state);
   }
+  // One ordering for clear versus edit in merges and imports. Equal-time rows
+  // remain a policy choice: import may apply an equal row, merge keeps storage
+  // (with confirmation priority) because it reconciles concurrent snapshots.
+  function compareDecision(aTime,aClear,bTime,bClear) {
+    return aTime-bTime || Number(aClear)-Number(bClear);
+  }
+  function readImport(text,frames,key) {
+    let value;try {value=JSON.parse(text);} catch (_) {}
+    if(value && (value.kind==='ball-truth-recovery' || Array.isArray(value.validated_labels))) {
+      if(value.storage_key!==key)throw new Error('Recovery backup belongs to another kit');
+      let deleted=value.validated_clears;
+      if(deleted===undefined) {
+        try {deleted=parse(value.v2,frames).deleted;} catch (_) {deleted={};}
+      }
+      return parse(stable({kind:'ball-truth-v2',labels:value.validated_labels,deleted}),frames);
+    }
+    return fromRows(BallTruth.parse(text,frames));
+  }
   // The second argument is the value already in storage. Equal timestamps
-  // rank confirmed > explicit clear > unconfirmed; remaining row ties keep
+  // rank explicit clear > any edit; remaining row ties keep
   // storage. Conflicting confirmed ties notify the UI without changing schema.
   function merge(local,stored,onConflict=()=>{}) {
     const result={labels:{...local.labels},deleted:{...local.deleted}};
@@ -39,8 +57,7 @@
     for(const [key,time] of Object.entries(result.deleted)) {
       const row=result.labels[key];
       if(!row)continue;
-      if(row.updated_at<time || (row.updated_at===time && !BallTruth.confirmed(row))) delete result.labels[key];
-      else if(row.updated_at===time) delete result.deleted[key]; // Also safe for build-10 readers.
+      if(compareDecision(row.updated_at,false,time,true)<0) delete result.labels[key];
     }
     return result;
   }
@@ -55,5 +72,5 @@
     const {updated_at,...value}=row;
     return stable(value);
   }
-  root.BallStorage={empty,fromRows,parse,merge,serialize,clock,values};
+  root.BallStorage={compareDecision,readImport,empty,fromRows,parse,merge,serialize,clock,values};
 })(globalThis);
