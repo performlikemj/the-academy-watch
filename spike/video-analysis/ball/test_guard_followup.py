@@ -301,3 +301,94 @@ def test_measurement_serializer_requires_destination():
         inspect.signature(save_measurements).parameters["path"].default
         is inspect.Parameter.empty
     )
+
+
+@pytest.mark.parametrize("kind", ["file", "file-symlink", "dangling-symlink", "fifo"])
+def test_g4_non_directory_ancestor(tmp_path, kind):
+    ancestor = tmp_path / "ancestor"
+    target = tmp_path / "target"
+    if kind == "file":
+        ancestor.write_bytes(b"KEEP")
+    elif kind == "file-symlink":
+        target.write_bytes(b"KEEP")
+        ancestor.symlink_to(target)
+    elif kind == "dangling-symlink":
+        ancestor.symlink_to(target)
+    else:
+        os.mkfifo(ancestor)
+    with pytest.raises(SystemExit, match="ancestor"):
+        guard_outputs(
+            tmp_path / "other-output", ancestor / "missing/deeper/result.json"
+        )
+    assert not (tmp_path / "other-output").exists()
+    assert not (ancestor / "missing").exists()
+    if kind == "file":
+        assert ancestor.read_bytes() == b"KEEP"
+    elif kind == "file-symlink":
+        assert target.read_bytes() == b"KEEP"
+    elif kind == "dangling-symlink":
+        assert ancestor.is_symlink() and not target.exists()
+    else:
+        assert ancestor.is_fifo()
+
+
+@pytest.mark.parametrize("symlink", [False, True])
+def test_g4_fresh_nested_directory_passes(tmp_path, symlink):
+    parent = tmp_path / "real-directory"
+    parent.mkdir()
+    if symlink:
+        alias = tmp_path / "alias"
+        alias.symlink_to(parent, target_is_directory=True)
+        parent = alias
+    out = parent / "new/nested/rf_full"
+    assert guard_outputs(out) == (out.resolve(),)
+    assert not (parent / "new").exists()
+
+
+def test_g4_runner_refuses_before_model_load(tmp_path, monkeypatch, capsys):
+    from types import SimpleNamespace
+    import run_ball
+
+    report = tmp_path / "report.json"
+    report.write_bytes(b"KEEP")
+    calls = []
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "run_ball",
+            "--report-dir",
+            str(report),
+            "--candidate",
+            "rf_full",
+            "--manifest",
+            str(tmp_path / "manifest.json"),
+            "--source",
+            str(tmp_path / "source.mp4"),
+        ],
+    )
+
+    def dataset(*args):
+        calls.append("dataset")
+        return {}, [dict(clip_id="synthetic", video=str(tmp_path / "source.mp4"))]
+
+    def model(*args, **kwargs):
+        calls.append("model")
+        raise RuntimeError("stub reached: model would be loaded before mkdir")
+
+    monkeypatch.setattr(run_ball, "load_dataset", dataset)
+    monkeypatch.setattr(run_ball, "probe", lambda *a: dict(width=1920, height=1080))
+    monkeypatch.setattr(run_ball, "RFDetector", model)
+    monkeypatch.setitem(
+        sys.modules, "cv2", SimpleNamespace(setNumThreads=lambda n: None)
+    )
+    monkeypatch.setitem(
+        sys.modules, "torch", SimpleNamespace(set_num_threads=lambda n: None)
+    )
+    try:
+        run_ball.main()
+    except (SystemExit, RuntimeError):
+        pass
+    assert calls == [], f"work before refusal: {calls}"
+    assert "ancestor" in capsys.readouterr().err
+    assert report.read_bytes() == b"KEEP"

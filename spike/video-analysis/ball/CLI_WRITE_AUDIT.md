@@ -166,3 +166,16 @@ not the shared root, so earlier-stage artifacts coexist without a bypass.
   cases. Real inspection rendering uses synthetic frames/labels in temporary HOME.
   The normal/all-frames/distractor runs each preserve a pre-existing evidence file,
   and each can run twice with separate destinations. No prior evidence is deleted.
+
+## Non-directory ancestors (G4)
+
+Every guarded output, including CLI-derived children, checks both supplied and
+resolved ancestors before work. Existing non-directories (files, file symlinks,
+dangling symlinks, FIFOs, etc.) refuse the run. Checking supplied ancestry retains
+dangling links that realpath would otherwise erase. Real directories and symlinks
+to real directories still permit fresh nested outputs. This remains preflight,
+not protection against a filesystem change made after the check.
+
+`test_guard_followup.py` adds seven G4 cases. On 2ca0fa75, five refusal tests
+failed (the runner reached dataset and model stubs), while two legitimate nested
+paths passed. With the guard fixed, all seven pass without model load or writes.

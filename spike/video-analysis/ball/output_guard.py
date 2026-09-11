@@ -40,6 +40,13 @@ def guard_outputs(*outputs, inputs=(), parser=None):
             reason = "output is nested under an input file"
         elif any(p.is_relative_to(resolved) for p in protected):
             reason = "output directory contains an input"
+        # Resolution hides dangling symlinks, so inspect the supplied ancestry too.
+        if reason is None and any(
+            (parent.exists() or parent.is_symlink()) and not parent.is_dir()
+            for destination in (path.absolute(), resolved)
+            for parent in destination.parents
+        ):
+            reason = "output ancestor is not a directory"
         if reason:
             message = f"Refusing output {path}: {reason}; choose a new destination"
             if parser is not None:
