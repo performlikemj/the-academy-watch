@@ -1,5 +1,6 @@
 """Build-13 browser checks in isolated storage; no model runtime or MJ edits."""
 
+from output_guard import guard_outputs
 from pathlib import Path
 import argparse
 import json
@@ -146,4 +147,5 @@ if __name__ == "__main__":
     )
     p.add_argument("--screenshot", type=Path)
     a = p.parse_args()
+    guard_outputs(a.screenshot, parser=p)
     check(a.kit, a.screenshot)

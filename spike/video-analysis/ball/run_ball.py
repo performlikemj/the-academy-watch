@@ -1,6 +1,7 @@
 """Sequential local inference; raw reports remain outside git."""
 
 from __future__ import annotations
+from output_guard import guard_outputs
 import argparse
 import importlib.metadata
 import platform
@@ -10,7 +11,6 @@ from pathlib import Path
 
 from common import (
     DEFAULT_MANIFEST,
-    DEFAULT_REPORT,
     DEFAULT_SOURCE,
     HERE,
     dump,
@@ -31,7 +31,7 @@ def main():
     )
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
     parser.add_argument("--source", type=Path, default=DEFAULT_SOURCE)
-    parser.add_argument("--report-dir", type=Path, default=DEFAULT_REPORT)
+    parser.add_argument("--report-dir", type=Path, required=True)
     parser.add_argument("--clips", default="all")
     parser.add_argument("--device", default="mps", choices=["mps", "cpu"])
     parser.add_argument(
@@ -44,6 +44,11 @@ def main():
         help="Five-frame tiled WASB CPU/MPS heatmap parity",
     )
     args = parser.parse_args()
+    guard_outputs(
+        args.report_dir / args.candidate,
+        inputs=[args.manifest, args.source],
+        parser=parser,
+    )
     if args.resolution is not None and (
         args.resolution <= 0 or args.candidate.startswith("wasb")
     ):

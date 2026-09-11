@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from output_guard import guard_outputs
 import argparse
 import gzip
 import json
@@ -15,10 +16,23 @@ EXECUTION = HERE / "fixtures/human_execution.json"
 PREFIX = ROOT / "ledgers/research/evidence-bench-2026-09-11-ball-human"
 
 
-def generate(out_prefix=PREFIX):
-    data = json.loads(gzip.decompress(FIXTURE.read_bytes()))
-    data["execution"] = json.loads(EXECUTION.read_text())
-    round2_path = HERE / "fixtures/round2_execution.json"
+def generate(out_prefix, fixtures=None, capture=None):
+    out_prefix = Path(out_prefix)
+    guard_outputs(
+        out_prefix.with_suffix(".json"), out_prefix.with_suffix(".md"), inputs=[capture]
+    )
+    fixtures = Path(fixtures) if fixtures is not None else HERE / "fixtures"
+    data = json.loads(
+        gzip.decompress(
+            (
+                Path(capture)
+                if capture is not None
+                else fixtures / "human_measurements.json.gz"
+            ).read_bytes()
+        )
+    )
+    data["execution"] = json.loads((fixtures / "human_execution.json").read_text())
+    round2_path = fixtures / "round2_execution.json"
     prefix = ""
     if round2_path.exists():
         from round2_protocol import markdown as round2_markdown
@@ -30,7 +44,7 @@ def generate(out_prefix=PREFIX):
             "Round-2 paired tables rescore every candidate on the same fixed six clips."
         )
         prefix = round2_markdown(data["round2"])
-    round2_measurements = HERE / "fixtures/round2_measurements.json.gz"
+    round2_measurements = fixtures / "round2_measurements.json.gz"
     if round2_measurements.exists():
         from round2_report import markdown as complete_round2_markdown
 
@@ -40,8 +54,8 @@ def generate(out_prefix=PREFIX):
         rendered = complete_round2_markdown(data)
     else:
         rendered = prefix + markdown(data)
-    round3_path = HERE / "fixtures/round3_execution.json"
-    round3_scored = HERE / "fixtures/round3_scored_output.json.gz"
+    round3_path = fixtures / "round3_execution.json"
+    round3_scored = fixtures / "round3_scored_output.json.gz"
     if round3_path.exists() and round3_scored.exists():
         from round3_report import markdown as round3_markdown
 
@@ -50,8 +64,8 @@ def generate(out_prefix=PREFIX):
             gzip.decompress(round3_scored.read_bytes())
         )
         rendered = round3_markdown(data)
-    round4_path = HERE / "fixtures/round4_execution.json"
-    round4_scored = HERE / "fixtures/round4_scored_output.json.gz"
+    round4_path = fixtures / "round4_execution.json"
+    round4_scored = fixtures / "round4_scored_output.json.gz"
     if round4_path.exists() and round4_scored.exists():
         from round4_report import markdown as round4_markdown
 
@@ -60,8 +74,8 @@ def generate(out_prefix=PREFIX):
             gzip.decompress(round4_scored.read_bytes())
         )
         rendered = round4_markdown(data, rendered)
-    round5_path = HERE / "fixtures/round5_execution.json"
-    round5_scored = HERE / "fixtures/round5_scored_output.json.gz"
+    round5_path = fixtures / "round5_execution.json"
+    round5_scored = fixtures / "round5_scored_output.json.gz"
     if round5_path.exists() and round5_scored.exists():
         from round5_report import markdown as round5_markdown, relabel
 
@@ -83,8 +97,23 @@ def main():
         type=Path,
         help="Freeze aggregate score_from_saved JSON; never accepts JSONL labels",
     )
-    p.add_argument("--out-prefix", type=Path, default=PREFIX)
+    p.add_argument("--out-prefix", type=Path, required=True)
+    p.add_argument(
+        "--fixtures",
+        type=Path,
+        help="Read aggregate fixtures from a completed fresh bundle",
+    )
+    p.add_argument("--capture-out", type=Path, help="New gzip artifact for --capture")
     a = p.parse_args()
+    if (a.capture is not None) != (a.capture_out is not None):
+        p.error("--capture requires --capture-out (a new file)")
+    guard_outputs(
+        a.out_prefix.with_suffix(".json"),
+        a.out_prefix.with_suffix(".md"),
+        a.capture_out,
+        inputs=[a.capture],
+        parser=p,
+    )
     if a.capture:
         data = json.loads(a.capture.read_text())
         if (
@@ -106,12 +135,13 @@ def main():
                     check(item)
 
         check(data)
-        FIXTURE.write_bytes(
+        a.capture_out.parent.mkdir(parents=True, exist_ok=True)
+        a.capture_out.write_bytes(
             gzip.compress(
                 (json.dumps(data, sort_keys=True, indent=2) + "\n").encode(), mtime=0
             )
         )
-    generate(a.out_prefix)
+    generate(a.out_prefix, a.fixtures, a.capture_out)
 
 
 if __name__ == "__main__":

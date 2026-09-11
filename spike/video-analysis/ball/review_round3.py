@@ -1,6 +1,7 @@
 """Rescore saved runs, freeze aggregate review evidence, and select by authorized rule."""
 
 from __future__ import annotations
+from output_guard import guard_outputs
 import argparse
 import gzip
 import json
@@ -98,7 +99,10 @@ def path_sensitivity(outputs, labels, split):
     return result
 
 
-def capture(root, human_jsonl, historical_only=False):
+def capture(root, human_jsonl, historical_only=False, *, out):
+    destination = Path(out)
+    guard_outputs(destination, inputs=[human_jsonl, root])
+    destination.mkdir(parents=True)
     m = load_measurements()
     labels = import_labels(human_jsonl, frame_catalog(m))
     protocol = json.loads((HERE / "fixtures/round3_execution.json").read_text())
@@ -153,7 +157,7 @@ def capture(root, human_jsonl, historical_only=False):
     }
     r1 = score(m, labels, r1_extras)
     r1["labels"]["sha256"] = sha256(human_jsonl)
-    freeze(HERE / "fixtures/human_measurements.json.gz", r1)
+    freeze(destination / "human_measurements.json.gz", r1)
     candidates = {
         name: m["outputs"][name]
         for name in ("rf_full", "rf_2x2", "rf_3x3", "wasb", "wasb_2x2")
@@ -174,7 +178,7 @@ def capture(root, human_jsonl, historical_only=False):
     r2["review_note"] = (
         "Round3 rescoring: top-1 gate, manual recall, track rates added. Historical TRAIN-only model selection and oracle error/projection evidence retained explicitly as historical."
     )
-    freeze(r2path, r2)
+    freeze(destination / "round2_measurements.json.gz", r2)
     people_path = root / "round2-people.json"
     if sha256(people_path) != r2["people_sha256"]:
         raise ValueError("Saved person proxy changed")
@@ -288,11 +292,11 @@ def capture(root, human_jsonl, historical_only=False):
         }
         for name in ("tinyball-r3-a", "tinyball-r3-b"):
             dump(
-                root / model_dirs[name] / "metrics.json",
+                destination / (model_dirs[name] + "-metrics-scored.json"),
                 next(r for r in results if r["candidate"] == name),
             )
-    freeze(HERE / "fixtures/round3_scored_output.json.gz", evidence)
-    dump(root / "round3-evidence.json", evidence)
+    freeze(destination / "round3_scored_output.json.gz", evidence)
+    dump(destination / "round3-evidence.json", evidence)
     return evidence
 
 
@@ -305,8 +309,15 @@ def main():
         default=Path.home() / "codex-runs/ball-human-truth.jsonl",
     )
     p.add_argument("--historical-only", action="store_true")
+    p.add_argument(
+        "--out",
+        type=Path,
+        required=True,
+        help="Fresh directory for scored aggregates and enriched metrics",
+    )
     a = p.parse_args()
-    capture(a.root, a.human_jsonl, a.historical_only)
+    guard_outputs(a.out, inputs=[a.human_jsonl, a.root], parser=p)
+    capture(a.root, a.human_jsonl, a.historical_only, out=a.out)
 
 
 if __name__ == "__main__":

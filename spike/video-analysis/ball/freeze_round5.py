@@ -1,6 +1,9 @@
 """Freeze executed aggregate evidence and regenerate both ledgers without labels."""
 
 from __future__ import annotations
+from output_guard import guard_outputs
+import argparse
+import shutil
 import json
 from pathlib import Path
 from build_human_report import generate
@@ -10,6 +13,16 @@ from round5_framing import enrich
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--out", type=Path, required=True, help="Fresh aggregate bundle directory"
+    )
+    args = parser.parse_args()
+    guard_outputs(
+        args.out,
+        inputs=[Path.home() / "models/tinyball", HERE / "fixtures"],
+        parser=parser,
+    )
     root = Path.home() / "models/tinyball"
     logs = Path.home() / "codex-runs"
     e = json.loads((root / "round5-evidence.json").read_text())
@@ -62,12 +75,16 @@ def main():
         "suggestions": "~/codex-runs/ball-human-round5-suggestions.jsonl",
     }
     e["protocol"] = p
-    dump(protocol_path, p)
+    args.out.mkdir(parents=True)
+    for source in (HERE / "fixtures").iterdir():
+        if source.is_file() and source.suffix in {".json", ".gz"}:
+            shutil.copyfile(source, args.out / source.name)
+    dump(args.out / "round5_execution.json", p)
     if p.get("framing_review"):
         e = enrich(e)
-    freeze(HERE / "fixtures/round5_scored_output.json.gz", e)
-    generate()
-    print("Frozen aggregate fixtures; regenerated JSON and Markdown")
+    freeze(args.out / "round5_scored_output.json.gz", e)
+    generate(args.out / "human", fixtures=args.out)
+    print("Wrote fresh aggregate bundle and regenerated JSON and Markdown")
 
 
 if __name__ == "__main__":

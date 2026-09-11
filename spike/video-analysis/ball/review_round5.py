@@ -13,7 +13,8 @@ from fair_protocol import evaluate, hits, mcnemar
 from human_loop import frame_catalog
 from metrics import clip_class
 from review_round3 import freeze
-from checkpoint_provenance import validate_saved_passes
+from checkpoint_provenance import FINAL_PASSES, validate_saved_passes
+from output_guard import guard_outputs
 from label_rule import RULES, rule_metadata
 
 
@@ -100,10 +101,16 @@ def main():
     if a.freeze and a.label_rule == "any_ball":
         p.error("rule-A machinery cannot replace the committed historical fixtures")
     label_path = a.human_jsonl or Path.home() / "codex-runs/ball-human-truth.jsonl"
+    guard_outputs(
+        a.out,
+        inputs=[label_path, *(raw.split("=", 1)[-1] for raw in a.extra)],
+        parser=p,
+    )
     fixture = HERE / "fixtures/round5_scored_output.json.gz"
     if a.freeze:
         with gzip.open(fixture, "rt") as stream:
-            historical_hash = json.load(stream)["labels_sha256"]
+            historical = json.load(stream)
+        historical_hash = historical["labels_sha256"]
         if sha256(label_path) != historical_hash:
             p.error(
                 "--freeze requires the historical label file identity; fixture unchanged"
@@ -113,6 +120,25 @@ def main():
         "yolo-r2-b": root / "r5-yolo-low/detections.json",
         "rf-b": root / "r5-rfb-low/detections.json",
     }
+    if a.freeze:
+        if a.extra:
+            p.error("--freeze forbids --extra; use the recorded model set")
+        paths = {
+            name: root / folder / "detections.json"
+            for name, folder in FINAL_PASSES.items()
+        }
+        if set(paths) != set(historical["models"]):
+            p.error("--freeze requires exactly the recorded model set")
+        try:
+            if any(
+                sha256(path) != historical["models"][name]["detections_sha256"]
+                for name, path in paths.items()
+            ):
+                p.error(
+                    "--freeze detection-file identity differs from the recorded fixture"
+                )
+        except OSError as error:
+            p.error(f"cannot verify recorded detections: {error}")
     for raw in a.extra:
         name, path = raw.split("=", 1)
         paths[name] = Path(path)
@@ -124,9 +150,20 @@ def main():
         p.error("label identity changed during capture; fixture unchanged")
     if result["provisional"]:
         print(result["provisional"])
-    dump(a.out, result)
     if a.freeze:
-        freeze(fixture, result)
+        if set(result["models"]) != set(paths) or any(
+            result["models"][name]["detections_sha256"]
+            != historical["models"][name]["detections_sha256"]
+            or sha256(path) != historical["models"][name]["detections_sha256"]
+            for name, path in paths.items()
+        ):
+            p.error("recorded detection identity changed during capture")
+    guard_outputs(a.out, inputs=[label_path, *paths.values()], parser=p)
+    if a.freeze:
+        a.out.parent.mkdir(parents=True, exist_ok=True)
+        freeze(a.out, result)
+    else:
+        dump(a.out, result)
     for name, row in result["models"].items():
         for budget, op in row["operating_points"].items():
             print(

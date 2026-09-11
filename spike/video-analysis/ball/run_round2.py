@@ -1,6 +1,7 @@
 """Four prespecified MPS fits; freeze selection before any evaluation."""
 
 from __future__ import annotations
+from output_guard import guard_outputs
 import argparse
 import json
 import subprocess
@@ -15,6 +16,13 @@ def main():
     p.add_argument("--root", type=Path, default=Path.home() / "models/tinyball")
     p.add_argument("--logs", type=Path, default=Path.home() / "codex-runs")
     a = p.parse_args()
+    guard_outputs(
+        a.root / "round2-fit-state.json",
+        a.root / "round2-selection.json",
+        *(a.root / f"mj-r2-{c}" for c in "abcd"),
+        *(a.logs / f"ball-mj-r2-{c}.log" for c in "abcd"),
+        parser=p,
+    )
     here = Path(__file__).resolve().parent
     protocol = here / "fixtures/round2_execution.json"
     fits: dict[str, Any] = {}

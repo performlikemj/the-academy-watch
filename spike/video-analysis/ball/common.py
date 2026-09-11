@@ -137,3 +137,9 @@ def sample_indices(start, end, native_fps, fps=2.0, offset=0.0):
     )
     targets = [i for i in targets if i < last]
     return first, last, targets
+
+
+# Preserve the byte-frozen training sources while guarding their direct CLIs.
+from output_guard import guard_frozen_entrypoint  # noqa: E402
+
+guard_frozen_entrypoint()

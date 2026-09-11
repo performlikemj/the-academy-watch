@@ -1,6 +1,8 @@
 """Counterfactual n21 rules from saved boxes; never edits human labels."""
 
+from output_guard import guard_outputs
 from pathlib import Path
+import argparse
 import gzip
 import json
 import math
@@ -26,6 +28,16 @@ def top_hit(detections, label, threshold):
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--out", type=Path, required=True, help="Fresh sensitivity JSON file"
+    )
+    args = parser.parse_args()
+    guard_outputs(
+        args.out,
+        inputs=[Path.home() / "codex-runs/ball-human-truth.jsonl"],
+        parser=parser,
+    )
     root = Path.home() / "models/tinyball"
     label_path = Path.home() / "codex-runs/ball-human-truth.jsonl"
     e = json.loads(
@@ -167,7 +179,7 @@ def main():
         ],
         "definition": "Counterfactuals only; labels, TRAIN thresholds, gate and selection unchanged. As-labelled uses244 visible /60 no-ball frames. Match-ball-only removes the six visible background-ball labels (238 visible), counts all their retained boxes false and expands the no-ball denominator to66. Any-visible-ball false rate preserves the prior credit-only sensitivity: subtract visually identified ball boxes on s8–s10 and retain the original60-frame exposure; it is not a fully relabelled no-ball-frame rate. For any-visible-ball overall top-1 recall only, add s8–s10 as three provisional visible references (247 total), using source-inspected old RF b box centres and the unchanged20px rule, not MJ-confirmed new clicks. s6 remains no-ball; s7 is unresolved and unchanged. At s10 a higher-confidence footwear box lies within20px of the ball, so the requested geometric metric can count it as a provisional hit even though only the actual ball box receives a false-box credit. These proxy recall numbers require MJ adjudication, and must not be used as new ground truth.",
     }
-    dump(HERE / "fixtures/n21_rule_sensitivity.json", result)
+    dump(args.out, result)
     print(json.dumps(result, indent=2))
 
 

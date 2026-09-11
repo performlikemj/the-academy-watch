@@ -1,12 +1,15 @@
 """Render saved RF hypotheses over source frames, without model inference."""
 
 from __future__ import annotations
-from common import DEFAULT_REPORT, dump
+from output_guard import guard_outputs
+import argparse
+from pathlib import Path
+from common import dump
 from compare_ball import load_measurements
 from metrics import interpolated_box
 
 
-def generate(data, out=DEFAULT_REPORT):
+def generate(data, out):
     import cv2
     import numpy as np
 
@@ -99,6 +102,16 @@ def generate(data, out=DEFAULT_REPORT):
     return paths
 
 
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--out", type=Path, required=True, help="Fresh output directory"
+    )
+    args = parser.parse_args()
+    guard_outputs(args.out, parser=parser)
+    result = generate(load_measurements(), args.out)
+    print(result)
+
+
 if __name__ == "__main__":
-    for path in generate(load_measurements()):
-        print(path)
+    main()

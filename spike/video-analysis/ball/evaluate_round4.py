@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from output_guard import guard_outputs
 import json
 import time
 from pathlib import Path
@@ -103,6 +104,22 @@ def predict_all(model, clips, out, frozen_set_id, fit):
 
 
 def main():
+    root = Path.home() / "models/tinyball"
+    guard_outputs(
+        *(
+            root / name
+            for name in (
+                "round4-fit-state.json",
+                "round4-evaluation-start.json",
+                "round4-protocol-at-evaluation.json",
+            )
+        ),
+        *(
+            root / f"mj-r4-rf-{c}" / name
+            for c in "ab"
+            for name in ("detections.json", "suggestions.jsonl")
+        ),
+    )
     import cv2
     import torch
     from rfdetr import RFDETRNano
@@ -128,12 +145,13 @@ def main():
         "Both fits complete; first saved inference passes starting"
     )
     protocol_data["fit_state_sha256"] = sha256(state_path)
-    dump(protocol, protocol_data)
+    evaluated_protocol = root / "round4-protocol-at-evaluation.json"
+    dump(evaluated_protocol, protocol_data)
     dump(
         marker,
         {
             "fit_state_sha256": sha256(state_path),
-            "protocol_sha256": sha256(protocol),
+            "protocol_sha256": sha256(evaluated_protocol),
             "protocol_snapshot": protocol_data,
         },
     )

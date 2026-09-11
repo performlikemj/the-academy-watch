@@ -1,6 +1,7 @@
 """Fixed general person detections for the image-overlap error proxy, not training."""
 
 from __future__ import annotations
+from output_guard import guard_outputs
 import argparse
 import json
 from pathlib import Path
@@ -9,10 +10,9 @@ from common import DEFAULT_MANIFEST, DEFAULT_SOURCE, dump, load_dataset, samples
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument(
-        "--out", type=Path, default=Path.home() / "models/tinyball/round2-people.json"
-    )
+    p.add_argument("--out", type=Path, required=True)
     a = p.parse_args()
+    guard_outputs(a.out, parser=p)
     if a.out.exists():
         p.error("preserve existing person pass")
     selection = json.loads((a.out.parent / "round2-selection.json").read_text())

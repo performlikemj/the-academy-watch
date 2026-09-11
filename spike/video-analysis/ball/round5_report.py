@@ -1,6 +1,7 @@
 """Fair comparison supersedes the fixed-confidence historical headlines."""
 
 from __future__ import annotations
+from output_guard import guard_outputs
 from fair_protocol import BUCKETS
 from label_rule import banner_tables, RULES
 from round5_framing import (
@@ -551,6 +552,12 @@ def main():
     p.add_argument("--label-rule", choices=RULES, default="as_labelled")
     p.add_argument("--out-prefix", type=Path, required=True)
     a = p.parse_args()
+    guard_outputs(
+        a.out_prefix.with_suffix(".json"),
+        a.out_prefix.with_suffix(".md"),
+        inputs=[a.human_jsonl],
+        parser=p,
+    )
     root = Path.home() / "models/tinyball"
     evidence = capture(
         {k: root / v / "detections.json" for k, v in FINAL_PASSES.items()},

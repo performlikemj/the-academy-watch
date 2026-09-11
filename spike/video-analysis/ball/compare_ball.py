@@ -1,6 +1,7 @@
 """Deterministic diagnostics and separate human-labelled scores from saved outputs."""
 
 from __future__ import annotations
+from output_guard import guard_outputs
 import argparse
 import gzip
 import json
@@ -8,7 +9,7 @@ import math
 from fractions import Fraction
 from pathlib import Path
 from ball_truth_kit import import_labels
-from common import DEFAULT_REPORT, HERE, ROOT, dump, sha256, sample_indices
+from common import DEFAULT_REPORT, HERE, dump, sha256, sample_indices
 from metrics import (
     agreement,
     pair_decomposition,
@@ -55,15 +56,18 @@ def load_measurements(path=MEASUREMENTS):
     return json.loads(gzip.decompress(Path(path).read_bytes()))
 
 
-def save_measurements(data, path=MEASUREMENTS):
+def save_measurements(data, path):
+    guard_outputs(path)
     payload = json.dumps(
         data, sort_keys=True, separators=(",", ":"), allow_nan=False
     ).encode()
     Path(path).write_bytes(gzip.compress(payload, mtime=0))
 
 
-def update_saved(report_dir=DEFAULT_REPORT, path=MEASUREMENTS):
+def update_saved(report_dir=DEFAULT_REPORT, path=MEASUREMENTS, *, out):
     """Append only wasb_2x2 and derived tracks; preserve all original run records."""
+    out = Path(out)
+    guard_outputs(out, inputs=[path])
     data = load_measurements(path)
     folder = report_dir / "wasb_2x2"
     run = json.loads((folder / "run.json").read_text())
@@ -76,7 +80,7 @@ def update_saved(report_dir=DEFAULT_REPORT, path=MEASUREMENTS):
     }
     data["retracking"] = retrack_saved(data)
     data["human_label_plan"] = label_plan(data)
-    save_measurements(data, path)
+    save_measurements(data, out)
 
 
 def validate(measurements):
@@ -362,7 +366,9 @@ def markdown(data):
         "| RF candidate @0.1 | Scope | Fragments | Weighted continuity | Longest track s | Single hypothesis clips/total |",
         "|---|---|---:|---:|---:|---:|",
     ]
-    for name, r in data["retracking"].items():
+    # Render the historical candidate order, independent of sorted JSON keys.
+    for name in RF_CANDIDATES:
+        r = data["retracking"][name]
         for group in ("on_ball", "all"):
             o = r["groups"][group]
             lines.append(
@@ -373,7 +379,9 @@ def markdown(data):
         "| Candidate @0.1 | On-ball clip | Fragments | Continuity | Longest s | One speed-bounded hypothesis? |",
         "|---|---|---:|---:|---:|---|",
     ]
-    for name, r in data["retracking"].items():
+    # Render the historical candidate order, independent of sorted JSON keys.
+    for name in RF_CANDIDATES:
+        r = data["retracking"][name]
         for c in r["per_clip"]:
             if c["class"] == "on_ball":
                 lines.append(
@@ -494,6 +502,11 @@ def main():
         action="store_true",
         help="Append only local wasb_2x2 outputs and recomputed RF tracks to fixture",
     )
+    p.add_argument(
+        "--measurements-out",
+        type=Path,
+        help="New measurement artifact for --update-saved",
+    )
     p.add_argument("--report-dir", type=Path, default=DEFAULT_REPORT)
     p.add_argument("--measurements", type=Path, default=MEASUREMENTS)
     p.add_argument("--execution", type=Path, default=HERE / "fixtures/execution.json")
@@ -501,13 +514,22 @@ def main():
     p.add_argument(
         "--out-prefix",
         type=Path,
-        default=ROOT / "ledgers/research/evidence-bench-2026-09-10-ball-detect",
+        required=True,
     )
     a = p.parse_args()
+    if a.update_saved != (a.measurements_out is not None):
+        p.error("--update-saved requires --measurements-out (a new file)")
+    guard_outputs(
+        a.out_prefix.with_suffix(".json"),
+        a.out_prefix.with_suffix(".md"),
+        a.measurements_out,
+        inputs=[a.human_jsonl, a.measurements, a.execution],
+        parser=p,
+    )
     if a.update_saved:
-        update_saved(a.report_dir, a.measurements)
+        update_saved(a.report_dir, a.measurements, out=a.measurements_out)
     data = compare(
-        load_measurements(a.measurements),
+        load_measurements(a.measurements_out or a.measurements),
         json.loads(a.execution.read_text()),
         a.human_jsonl,
     )

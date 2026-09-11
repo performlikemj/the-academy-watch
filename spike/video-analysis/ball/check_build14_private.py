@@ -1,5 +1,6 @@
 """Real preserved pages, import sequence, and plain-HTTP check; isolated storage."""
 
+from output_guard import guard_outputs
 import argparse
 import json
 import subprocess
@@ -546,6 +547,10 @@ if __name__ == "__main__":
     p.add_argument(
         "--out",
         type=Path,
-        default=Path.home() / "codex-runs/ball-build14-compatibility.json",
+        required=True,
+        help="New audit JSON path",
     )
-    check(p.parse_args().out)
+    a = p.parse_args()
+    # Guard audit destinations before launching browsers or a local server.
+    guard_outputs(a.out, parser=p)
+    check(a.out)

@@ -1,6 +1,7 @@
 """One idle MPS session: interleaved decode + four-tile batches, three repeats."""
 
 from __future__ import annotations
+from output_guard import guard_outputs
 import argparse
 from contextlib import closing
 from itertools import islice
@@ -31,6 +32,7 @@ def main():
     p.add_argument("--new", type=Path, required=True)
     p.add_argument("--out", type=Path, required=True)
     a = p.parse_args()
+    guard_outputs(a.out, inputs=[a.new], parser=p)
     root = Path.home() / "models/tinyball"
     definitions = [
         ("yolo-r2-b", root / "mj-r2-b/weights.pt", "yolo"),

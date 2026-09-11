@@ -1,6 +1,7 @@
 """Fresh low-confidence passes; YOLO remains a bench-only comparison adapter."""
 
 from __future__ import annotations
+from output_guard import guard_outputs
 import argparse
 import json
 from pathlib import Path
@@ -168,6 +169,7 @@ def evaluation_marker(root):
         ):
             raise ValueError("fit or protocol changed between saved passes")
     else:
+        guard_outputs(marker_path)
         dump(
             marker_path,
             {
@@ -191,6 +193,11 @@ def main():
         help="Declared diagnostic epoch; omitted means the fit's FINAL checkpoint",
     )
     a = p.parse_args()
+    guard_outputs(
+        a.out,
+        inputs=[a.model, Path.home() / "codex-runs/ball-human-truth.jsonl"],
+        parser=p,
+    )
     fit, checkpoint_sha256 = validate_model(a.model, a.checkpoint_epoch)
     if a.model.parent.name in {"mj-r5-rf-a", "mj-r5-rf-b"}:
         evaluation_marker(a.model.parent.parent)

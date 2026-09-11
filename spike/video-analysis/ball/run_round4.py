@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from output_guard import guard_outputs
 import argparse
 import subprocess
 import sys
@@ -14,6 +15,17 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--start-at", choices=["a", "b"], default="a")
     a = p.parse_args()
+    guard_outputs(
+        *(
+            Path.home() / "models/tinyball" / f"mj-r4-rf-{c}"
+            for c in ("ab" if a.start_at == "a" else "b")
+        ),
+        *(
+            Path.home() / f"codex-runs/ball-mj-r4-rf-{c}.log"
+            for c in ("ab" if a.start_at == "a" else "b")
+        ),
+        parser=p,
+    )
     root = Path.home() / "models/tinyball"
     for letter in "ab" if a.start_at == "a" else "b":
         cmd = [

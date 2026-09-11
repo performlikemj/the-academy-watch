@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from output_guard import guard_outputs
 import argparse
 from pathlib import Path
 
@@ -18,6 +19,7 @@ def main():
     p.add_argument("--human-jsonl", type=Path, required=True)
     p.add_argument("--screenshot", type=Path, required=True)
     a = p.parse_args()
+    guard_outputs(a.screenshot, inputs=[a.human_jsonl], parser=p)
     labels = import_labels(a.human_jsonl, frame_catalog(load_measurements()))
     with sync_playwright() as playwright:
         browsers = sorted(

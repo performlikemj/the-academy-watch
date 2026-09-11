@@ -1,6 +1,7 @@
 """Deterministic review targets and unconfirmed suggestions from saved outputs."""
 
 from __future__ import annotations
+from output_guard import guard_outputs
 import argparse
 import json
 import math
@@ -170,7 +171,10 @@ if __name__ == "__main__":
 
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument(
-        "--out", type=Path, default=Path.home() / "ball-truth-review/suggestions.jsonl"
+        "--out",
+        type=Path,
+        required=True,
+        help="New suggestions JSONL path (outside existing kits)",
     )
     p.add_argument(
         "--copy-to",
@@ -178,6 +182,16 @@ if __name__ == "__main__":
         help="Write a byte-identical suggestions copy at this file path",
     )
     a = p.parse_args()
+    guard_outputs(
+        a.out,
+        a.out.with_suffix(".plan.json"),
+        *(
+            [a.copy_to]
+            if a.copy_to is not None and a.copy_to.resolve() != a.out.resolve()
+            else []
+        ),
+        parser=p,
+    )
     m = load_measurements()
     rows = saved_suggestions(m)
     write_jsonl(a.out, rows)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from output_guard import guard_outputs
 import gzip
 import json
 import math
@@ -123,8 +124,14 @@ def large_scale_diagnostic(m, labels, fit, split):
     return result
 
 
-def capture(root, human_jsonl):
-    protocol = json.loads((HERE / "fixtures/round4_execution.json").read_text())
+def capture(root, human_jsonl, *, out):
+    destination = Path(out)
+    guard_outputs(destination, inputs=[human_jsonl, root])
+    destination.mkdir(parents=True)
+    protocol_path = root / "round4-protocol-at-evaluation.json"
+    if not protocol_path.exists():
+        protocol_path = HERE / "fixtures/round4_execution.json"
+    protocol = json.loads(protocol_path.read_text())
     historical = json.loads(
         gzip.decompress((HERE / "fixtures/round3_scored_output.json.gz").read_bytes())
     )
@@ -185,7 +192,7 @@ def capture(root, human_jsonl):
         else:
             fit = state["fits"][name[-1]]
             dump(
-                directory / "metrics.json",
+                destination / (directory.name + "-metrics-scored.json"),
                 {
                     "status": "complete",
                     "licence": fit["licence"],
@@ -260,13 +267,31 @@ def capture(root, human_jsonl):
             for name, directory in model_dirs.items()
         },
     }
-    freeze(HERE / "fixtures/round4_scored_output.json.gz", e)
-    dump(root / "round4-evidence.json", e)
+    freeze(destination / "round4_scored_output.json.gz", e)
+    dump(destination / "round4-evidence.json", e)
     return e
 
 
-if __name__ == "__main__":
-    capture(
-        Path.home() / "models/tinyball",
-        Path.home() / "codex-runs/ball-human-truth.jsonl",
+def main():
+    import argparse
+
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument("--root", type=Path, default=Path.home() / "models/tinyball")
+    p.add_argument(
+        "--human-jsonl",
+        type=Path,
+        default=Path.home() / "codex-runs/ball-human-truth.jsonl",
     )
+    p.add_argument(
+        "--out",
+        type=Path,
+        required=True,
+        help="Fresh directory for scored aggregates and enriched metrics",
+    )
+    a = p.parse_args()
+    guard_outputs(a.out, inputs=[a.human_jsonl, a.root], parser=p)
+    capture(a.root, a.human_jsonl, out=a.out)
+
+
+if __name__ == "__main__":
+    main()
