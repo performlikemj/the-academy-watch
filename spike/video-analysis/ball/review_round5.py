@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 import argparse
+import gzip
 import json
 from pathlib import Path
 from ball_truth_kit import import_labels
@@ -13,12 +14,13 @@ from human_loop import frame_catalog
 from metrics import clip_class
 from review_round3 import freeze
 from checkpoint_provenance import validate_saved_passes
+from label_rule import RULES, rule_metadata
 
 
-def capture(paths, root=None):
+def capture(paths, root=None, label_path=None, label_rule="as_labelled"):
     validate_saved_passes(paths, root)
     m = load_measurements()
-    label_path = Path.home() / "codex-runs/ball-human-truth.jsonl"
+    label_path = label_path or Path.home() / "codex-runs/ball-human-truth.jsonl"
     labels = import_labels(label_path, frame_catalog(m))
     protocol = json.loads((HERE / "fixtures/round5_execution.json").read_text())
     split = protocol["split"]
@@ -62,6 +64,7 @@ def capture(paths, root=None):
             )
         }
     return {
+        **rule_metadata(labels, label_rule),
         "evaluation_label": protocol["evaluation_label"],
         "models": rows,
         "best_rf_final_selected": select_rf(rows),
@@ -91,7 +94,20 @@ def main():
     p.add_argument("--extra", action="append", default=[])
     p.add_argument("--out", type=Path, required=True)
     p.add_argument("--freeze", action="store_true")
+    p.add_argument("--human-jsonl", type=Path)
+    p.add_argument("--label-rule", choices=RULES, default="as_labelled")
     a = p.parse_args()
+    if a.freeze and a.label_rule == "any_ball":
+        p.error("rule-A machinery cannot replace the committed historical fixtures")
+    label_path = a.human_jsonl or Path.home() / "codex-runs/ball-human-truth.jsonl"
+    fixture = HERE / "fixtures/round5_scored_output.json.gz"
+    if a.freeze:
+        with gzip.open(fixture, "rt") as stream:
+            historical_hash = json.load(stream)["labels_sha256"]
+        if sha256(label_path) != historical_hash:
+            p.error(
+                "--freeze requires the historical label file identity; fixture unchanged"
+            )
     root = Path.home() / "models/tinyball"
     paths = {
         "yolo-r2-b": root / "r5-yolo-low/detections.json",
@@ -100,10 +116,17 @@ def main():
     for raw in a.extra:
         name, path = raw.split("=", 1)
         paths[name] = Path(path)
-    result = capture(paths)
+    result = capture(paths, label_path=label_path, label_rule=a.label_rule)
+    if a.freeze and (
+        result["labels_sha256"] != historical_hash
+        or sha256(label_path) != historical_hash
+    ):
+        p.error("label identity changed during capture; fixture unchanged")
+    if result["provisional"]:
+        print(result["provisional"])
     dump(a.out, result)
     if a.freeze:
-        freeze(HERE / "fixtures/round5_scored_output.json.gz", result)
+        freeze(fixture, result)
     for name, row in result["models"].items():
         for budget, op in row["operating_points"].items():
             print(

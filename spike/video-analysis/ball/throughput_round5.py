@@ -22,23 +22,32 @@ from common import (
 from detectors import tile_bounds, merge_tiles
 from rfdetr_data import square_pad, restore_box
 from round5_inference import load_model
+from checkpoint_provenance import validate_model
 from benchmark_activity import ACTIVE_GENERATORS, Activity, busy
 
 
 def main():
-    import cv2
-    import numpy as np
-    import torch
-
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--new", type=Path, required=True)
     p.add_argument("--out", type=Path, required=True)
     a = p.parse_args()
+    root = Path.home() / "models/tinyball"
+    definitions = [
+        ("yolo-r2-b", root / "mj-r2-b/weights.pt", "yolo"),
+        ("rf-b", root / "mj-r4-rf-b/weights.pt", "rf"),
+        (a.new.parent.name, a.new, "rf"),
+    ]
+    # Preflight every checkpoint before loading any model, outside timed calls.
+    for _, weights, _ in definitions:
+        validate_model(weights)
+    import cv2
+    import numpy as np
+    import torch
+
     activity = Activity()
     idle_before = activity.wait_idle()
     cv2.setNumThreads(1)
     torch.set_num_threads(8)
-    root = Path.home() / "models/tinyball"
     _, clips = load_dataset(DEFAULT_MANIFEST, DEFAULT_SOURCE)
     split = json.loads((HERE / "fixtures/round5_execution.json").read_text())["split"]
     selected = [
@@ -51,11 +60,6 @@ def main():
         )
     ]
     assert len(selected) == 3
-    definitions = [
-        ("yolo-r2-b", root / "mj-r2-b/weights.pt", "yolo"),
-        ("rf-b", root / "mj-r4-rf-b/weights.pt", "rf"),
-        (a.new.parent.name, a.new, "rf"),
-    ]
     models = {}
     modes = {}
     errors = {}

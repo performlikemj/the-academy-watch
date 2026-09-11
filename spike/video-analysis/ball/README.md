@@ -1,5 +1,9 @@
 # Local ball bench: MJ human truth
 
+The current click kit is **build 14**, in its own versioned directory. See the
+[build-14 fixes](#build-14--salvage-and-dismiss-only-notice) before labelling;
+builds 9–13 are preserved, with their historical instructions below.
+
 MJ's September 11 product decision: **RF-DETR (Apache-2.0)** is the product model.
 **ultralytics is bench-only and must not enter the serving path; the product model
 is RF-DETR (Apache-2.0).** The YOLO trainer and saved results remain comparison
@@ -574,3 +578,393 @@ this limitation is explicit. On-ball recall is unchanged because n21 is off_pitc
 One MJ decision must cover s0–s10: any visible ball or match ball only; current
 labels follow neither rule consistently. The pending decision is not applied to
 the real labels, gate, thresholds or kit selection.
+
+### Historical Rule A — build 9 (2026-09-11)
+
+MJ adopted **every visible ball counts**: match, spare and kick-about balls are
+all detector positives. `visible:false` means no visible ball of any kind.
+`match_ball` is a separate tracker flag, unused by detector metrics.
+The committed headline remains as labelled; re-scoring awaits MJ's 188-frame review.
+The preceding n21 decision requests and build descriptions are historical.
+
+Label schema v2 retains `clip,t,x,y,visible` and optional `source_accepted`,
+`accepted_source`, `accepted_score`, adding `schema_version:2` and
+`match_ball:true|false|null` (null for no-ball or unknown match identity).
+Import accepts five-field v1, provenance v1 and v2. Visible v1 rows default to
+`match_ball:true`; v1 no-ball rows gain `needs_any_ball_review:true`.
+N21 s0–s5 retain their original coordinates/provenance and default to
+`match_ball:false,needs_confirmation:true`; these are not final adjudications.
+`review_frame` persists queue membership; `review_confirmed` records an explicit
+review action. Pending flags are cleared only by Enter/click/N in review mode.
+M changes identity without confirming visibility. Clearing a label resets progress.
+Normal-mode edits to queued frames require review again.
+
+`any_ball_review.py` writes a **new** `~/codex-runs/ball-human-truth-v2.jsonl`,
+refuses existing output, hashes both files and leaves the original unchanged.
+It ranks all 182 old no-ball frames plus six n21 confirmations by the highest
+saved box confidence ≥0.3 from five baselines and r5-a/r5-b final low passes.
+Source-name ties are deterministic; queue ties use clip/time; remaining frames
+come last. WASB points are inspected but cannot provide a box suggestion.
+Raw scores are uncalibrated suggestion priorities, never evidence of accuracy.
+No model inference, training or new frame extraction is needed.
+
+Build 9 embeds the v2 seed and queue in `index.html`. The unchanged localStorage
+key remains importable; browser labels take priority and keep provenance. New
+exports are v2. **Review: any visible ball?** shows `reviewed X / 188`:
+
+- Enter/Space accepts the displayed saved suggestion as visible, NOT match ball.
+- Click places a visible ball, NOT match ball; it clears acceptance provenance.
+- N confirms no ball at all; M toggles the current visible label's match-ball flag.
+- Arrows move through ranked queue entries; J/K move between clips in the queue.
+- Normal mode retains frame/clip navigation; new clicks/accepts default match ball.
+
+Nothing auto-saves a suggestion. The private queue has 126 suggestions, 62 frames
+without one, and 0 confirmations at delivery. Full ranking/source scores and
+hashes are in `~/ball-truth-review/migration.json` and `any-ball-review.json`.
+Sync **only** the contents of `~/codex-runs/ball-truth-review-build9/` over the
+existing laptop kit: `index.html`, `build.json`, `any-ball-review.json`,
+`migration.json`. Existing JPEGs are reused; none are included in the sync folder.
+
+`human_score.py`, `score_from_saved.py`, `review_round5.py` and `round5_report.py`
+accept `--label-rule {as_labelled,any_ball}` (default `as_labelled`). Both use
+supplied visibility: the switch does not hallucinate additional balls or use
+`match_ball` to exclude positives. Rule A declares the adopted semantics and
+badges **every table header** `PROVISIONAL: N of 188 review frames confirmed`
+until all 188 are explicitly confirmed. Round-5 saved scoring recomputes TRAIN
+thresholds and current denominators; it never reuses old framing/denominators as
+new rule-A results. Its CLI writes separate local files and never updates the
+headline or kit selection. No new headline scores are published in this change.
+
+```sh
+# One-time migration/build (refuses to overwrite an existing v2 output):
+~/Projects/loanarmy/.loan/bin/python spike/video-analysis/ball/any_ball_review.py
+# Refresh HTML after code edits, reusing the private seed and queue:
+~/Projects/loanarmy/.loan/bin/python spike/video-analysis/ball/ball_truth_kit.py \
+  --human-jsonl ~/codex-runs/ball-human-truth-v2.jsonl \
+  --suggestions ~/ball-truth-review/suggestions.jsonl \
+  --review ~/ball-truth-review/any-ball-review.json
+# Isolated real-browser verification; never uses MJ's browser profile:
+~/models/tinyball/.venv-mj/bin/python spike/video-analysis/ball/check_any_ball_kit.py
+# Machinery for after MJ exports reviewed v2 labels (saved detections only):
+~/Projects/loanarmy/.loan/bin/python spike/video-analysis/ball/round5_report.py \
+  --human-jsonl ~/codex-runs/ball-human-truth-v2.jsonl --label-rule any_ball \
+  --out-prefix ~/codex-runs/ball-rule-a-provisional
+```
+
+`throughput_round5.py` now validates every selected checkpoint against its fit
+summary **before any model/runtime load or quiet wait**, outside timing. Recorded
+throughput results are unchanged. Historical `train_tiny_ball.py:585` stamps the
+observed weights hash in the same run that trained those weights; it is historical
+and unused here, not an independent post-training integrity declaration.
+
+### Historical build 10 — storage and review safety fixes
+
+Build 10 used `~/ball-truth-review-build10/index.html`. Use build 11 for new
+labelling; it preserves the same v2 storage key and schema. Build 10 uses
+`ball-human-v2:{frozen_set_id}:{source}:fps2` and reads
+the old v1 key only during first-open bootstrap when no v2 value exists. It
+never writes the v1 key. Seed/migrated rows have `updated_at:0`; edits and imports
+stamp integer milliseconds. Existing labels, including accepted-source provenance,
+remain intact across migration.
+
+V2 storage is one validated envelope containing labels and timestamped deletion
+records. Every save re-reads storage and merges the newest timestamp per label;
+Web Locks serializes tab writes in Chromium. Storage events merge updates and
+show “labels changed in another tab”. Clear records stop stale tabs resurrecting
+removed labels. Exported JSONL contains the surviving label rows, with timestamps.
+
+Invalid stored labels or clear history force **READ-ONLY** mode. Enter, click,
+N, M, C and Clear cannot save. Export creates a recovery backup including the raw
+stored value. Re-import repaired JSONL, inspect the import counts and explicitly
+confirm replacement to recover; unreadable storage is never silently overwritten.
+An ordinary import reports new, changed, unchanged and would-downgrade-confirmed
+counts (ignoring timestamp-only differences). Replacing confirmed reviews with
+unconfirmed or v1 rows requires explicit confirmation; cancellation changes nothing.
+
+**C** in review mode confirms the current visible label as-is, NOT the match ball.
+It keeps x/y and accepted-source/manual provenance, clears pending flags and
+records confirmation. Enter still accepts the displayed suggestion and its source.
+
+The `fixtures/any_ball_review_keys.json` registry freezes 188 clip|time identities.
+Of these, 182 are exactly MJ's original no-ball frames; the remaining six are n21
+s0–s5 confirmations. It has no explicit visibility fields, boxes or pixel
+coordinates, but it does reveal which frames were marked no-ball. The file remains
+committed to keep the review queue deterministic. The queue is
+those keys plus every label with `needs_any_ball_review` or `needs_confirmation`.
+The kit updates membership after import/storage changes and has saved suggestions
+for the entire frame catalog. A non-queue row's `review_confirmed` flag cannot
+increase progress. Scoring remains PROVISIONAL while any pending row exists or
+any queue key is absent/unconfirmed; its denominator expands with pending rows.
+Historical scores and the committed headline are unchanged. F5 (multiple balls
+per frame) remains explicitly deferred pending MJ's decision.
+
+Before syncing a fresh laptop export, compare its values against the immutable
+original. The command reports added/removed/changed identities and changed fields,
+ignoring file order, JSON key order and whitespace:
+
+```sh
+~/Projects/loanarmy/.loan/bin/python spike/video-analysis/ball/compare_label_exports.py \
+  ~/codex-runs/ball-human-truth.jsonl /path/to/fresh-mj-export.jsonl
+# If different, use the NEW export as input and NEW names for all outputs:
+~/Projects/loanarmy/.loan/bin/python spike/video-analysis/ball/any_ball_review.py \
+  --input /path/to/fresh-mj-export.jsonl \
+  --output /new/revision/ball-human-truth-v2-build10.jsonl \
+  --kit /new/revision/ball-truth-review-build10 \
+  --sync /new/sync/ball-truth-review-build10
+```
+
+`any_ball_review.py` also includes the value diff against the immutable baseline
+in its migration audit. This build used the existing original export; no fresh
+laptop export was available. Its new seed is
+`~/codex-runs/ball-human-truth-v2-build10.jsonl`; both prior JSONLs remain immutable.
+The initial queue is still exactly 188 entries in the same order, 126 suggestions,
+0 confirmations, and all 688 normal suggestions are retained.
+
+Builders require a **new versioned directory** ending `-build10`, refuse existing
+builds and shared frame directories, and never extract or copy frames. The page
+points at `../ball-truth-review/` on basecamp. Sync the five files in
+`~/codex-runs/ball-truth-review-build10/` to the sibling laptop directory
+`~/ball-truth-review-build10/`, preserving that relative frame path:
+`index.html`, `build.json`, `any-ball-review.json`, `review-suggestions.json`,
+`migration.json`. Do not overlay an old kit. The verified build-8 copy remains at
+`~/codex-runs/ball-truth-review-build8/`; its page/build hashes are in WORK_LOG.md.
+
+```sh
+# Synthetic browser regressions run within pytest in the existing RF environment:
+~/models/tinyball/.venv-mj/bin/python -m pytest spike/video-analysis/ball/test_kit_safety.py -q
+# Real kit and exact preserved build-8 page, always isolated browser storage:
+~/models/tinyball/.venv-mj/bin/python spike/video-analysis/ball/check_any_ball_kit.py
+~/models/tinyball/.venv-mj/bin/python spike/video-analysis/ball/check_build10_private.py
+```
+
+### Historical build 11 — confirmed decisions and merge conflicts
+
+Build 11 is superseded by build 12. The v2 storage key, label fields and
+storage envelope are **identical to build 10**. No migration or restamping occurs
+when existing v2 storage is opened. Builds 8/9/10 remain untouched.
+
+Import now protects **every changed confirmed row**, even if the incoming row is
+also confirmed. The preview includes “would replace N confirmed decisions (M of
+them newer locally)”. Older changed rows are labelled STALE. Stored decisions are
+kept unless MJ explicitly approves replacement; Cancel leaves storage byte-for-byte
+unchanged. Approved changes receive new timestamps. Timestamp-only differences
+are counted as unchanged. This protects visibility, point, match identity and
+manual/accepted-source provenance against stale backups.
+
+Timestamp ties rank **confirmed > explicit clear > unconfirmed**. Ties between
+differing confirmed rows retain the row already in storage and increment a visible,
+page-local conflict counter; repeat observations of the same conflict count once.
+Two different unconfirmed rows at equal time also retain storage. Later timestamps
+still win, including explicit clears. These rules change merge behavior, not the
+schema. No conflict metadata is added to rows or the v2 envelope.
+
+A separate `:legacy-sha256` metadata key records the v1 value's hash at bootstrap.
+Later opens and legacy storage events compare it and show:
+“The old click page was used after this page started. Export from it and import
+here to include those labels.” Legacy rows are never automatically merged again.
+**Build 10 stored no such hash:** an existing build-10 browser establishes its
+baseline on its first build-11 visit; earlier legacy edits cannot be detected
+retroactively. The warning persists while v1 differs from the recorded baseline.
+
+**Mandatory before laptop sync:** export the current browser labels and run
+`compare_label_exports.py` against the immutable original export. Do both before
+replacing or distributing a kit. If the export differs, regenerate using that
+fresh export and new output names. **Once v2 browser storage exists, the embedded
+seed is ignored.** A kit rebuilt from a fresh export must have that export imported
+explicitly into any browser that already opened build 10 or 11; merely opening the
+new page does not update existing stored labels. This requirement is also in the
+page help.
+
+```sh
+~/Projects/loanarmy/.loan/bin/python spike/video-analysis/ball/compare_label_exports.py \
+  ~/codex-runs/ball-human-truth.jsonl /path/to/fresh-browser-export.jsonl
+# New outputs only; never overwrite a previous kit or label file:
+~/Projects/loanarmy/.loan/bin/python spike/video-analysis/ball/any_ball_review.py \
+  --input /path/to/fresh-browser-export.jsonl \
+  --output /new/revision/ball-human-truth-v2-build11.jsonl \
+  --kit /new/revision/ball-truth-review-build11 \
+  --sync /new/sync/ball-truth-review-build11
+```
+
+This local build stages the existing immutable source because no fresh laptop
+export was supplied. It is at `~/ball-truth-review-build11/`, with five identical
+sync files under `~/codex-runs/ball-truth-review-build11/`: `index.html`, `build.json`,
+`any-ball-review.json`, `review-suggestions.json`, `migration.json`. The page reuses
+`../ball-truth-review/` frames. The mandatory export/compare step still precedes
+laptop sync. The new seed is `~/codex-runs/ball-human-truth-v2-build11.jsonl`.
+
+`test_storage_ties.py` covers all equal/newer-time pairings of confirmed,
+unconfirmed and clear records. Chromium tests cover same-confirmed stale imports,
+conflict counts, legacy warnings and seed isolation. `check_build11_private.py`
+opens the preserved real build-10 page, makes representative browser-only decisions
+and a clear, then verifies build 11 preserves every row and the exact v2 stored
+value. All browser checks use isolated contexts, never MJ's profile.
+
+
+### Historical build 12 — stale imports and cleared frames
+
+Use `~/ball-truth-review-build12/index.html`. The v2 key and label/envelope schema
+are unchanged. Existing build-10/11 rows, timestamps and clear history are retained
+byte-for-byte on open. Earlier builds and immutable exports remain untouched.
+
+Import compares each incoming timestamp with the latest local label **or clear**
+timestamp. Older rows are always skipped; a row equal to a clear timestamp is also
+skipped. No approval or recovery path imports a stale row. A cleared frame counts
+as a restoration, never as a new label. An eligible restoration (strictly newer
+than the clear) or change to a confirmed row requires approval. Cancel leaves the
+stored value byte-identical; OK applies and restamps only eligible changed rows.
+The summary reports skipped counts and the first 20 keys, with a remaining count.
+A full build-8 export can therefore bring in a new click while preserving newer
+reviews from this page. The old build-11 “approve stale replacement” behavior
+above is historical and no longer applies.
+
+A full import containing every current legacy row with identical migrated values
+acknowledges the old page's changes, even if some of those rows were skipped as
+stale. This re-baselines the legacy warning across reloads and tabs. Partial or
+nonmatching imports leave the warning in place. The banner also offers
+“Dismiss - I imported the old page's labels”, with confirmation. Later legacy edits
+trigger it again. Legacy change detection uses tagged `fnv1a64-v1` in the existing
+sidecar metadata key, a deterministic pure-JS change detector, not an integrity
+hash. Missing/unknown algorithm tags establish a new baseline silently. Plain HTTP
+without WebCrypto works; lack of hashing never puts the page into read-only mode.
+
+**Before syncing:** export the current laptop labels and run the comparison below.
+Existing v2 browser storage still ignores embedded seeds; explicitly import a fresh
+export to update a browser that already opened a v2 kit. MJ has opened neither
+build 10 nor 11 on his laptop as of this round; synthetic/private compatibility
+checks still cover both versions.
+
+```sh
+~/Projects/loanarmy/.loan/bin/python spike/video-analysis/ball/compare_label_exports.py \
+  ~/codex-runs/ball-human-truth.jsonl /path/to/fresh-browser-export.jsonl
+```
+
+The comparison applies the committed v1-to-v2 migration, including n21 s0–s5.
+It reports LABEL changes (visibility, point, match identity and provenance),
+REVIEW-STATE changes (the two pending flags and confirmation), and METADATA-only
+changes. Missing false flags normalize to false. Schema version and update times
+do not affect the semantic verdict; added/removed rows count as label changes.
+Exit 0 means no label/review-state differences; exit 1 means differences. Output
+contains keys, field names and counts, never coordinates. A migration or zero-edit
+export now reports 0 LABEL / 0 REVIEW-STATE changes even if metadata differs.
+
+Build/sync files: `~/ball-truth-review-build12/` and
+`~/codex-runs/ball-truth-review-build12/`, containing `index.html`, `build.json`,
+`any-ball-review.json`, `review-suggestions.json`, `migration.json`. Frames remain
+at `../ball-truth-review/`. New seed: `~/codex-runs/ball-human-truth-v2-build12.jsonl`.
+No fresh laptop export was supplied; this build stages the existing immutable
+source, with laptop export/comparison still required before sync.
+
+`test_build12_safety.py` records the regressions, including frozen verbatim build-10
+JS under `fixtures/build10_js/` with synthetic labels only. `check_build12_private.py`
+checks real build-10 and build-11 storage against build 12, the actual build-8
+export/import sequence, and a non-loopback plain-HTTP open. Audit:
+`~/codex-runs/ball-build12-compatibility.json`. All tests use isolated browser contexts.
+
+
+### Historical build 13 — explicit legacy reconciliation
+
+Use `~/ball-truth-review-build13/index.html`. Existing build-10/11/12 storage uses
+the same v2 key and label/envelope schema. Legacy reconciliation metadata is separate, at `:legacy-baseline-v1`. The old
+`:legacy-sha256` metadata is read once and never overwritten, avoiding metadata
+rewrite loops with a still-open build-12 tab.
+MJ has opened none of those three builds on his laptop.
+
+The old-page baseline now stores its raw v1 value and `taken_at`. Every added,
+changed (visible/x/y), or dropped key is reconciled. A key resolves only when the
+current page matches the old page (point tolerance 1e-6 px), an old-page clear is
+also cleared here, or MJ explicitly chooses Keep. Imports have no acknowledgement
+heuristic. All unresolved keys appear as jump links in a scrollable list, with old
+and current values on the selected frame. Use applies the committed v1 migration
+as a new timestamped edit; an old-page clear becomes a local clear. Keep persists
+the exact old value it was chosen against, so later old-page changes flag again.
+Bulk Use requires confirmation. Resolving all keys re-baselines automatically;
+Dismiss also re-baselines after confirming the unresolved count.
+
+Matching build-11 SHA256/build-12 FNV hash-only baselines upgrade silently. A
+changed or unknown hash baseline cannot recover frame history: it shows the
+explicit fallback warning, cleared only by Dismiss. Raw-baseline quota failure
+falls back to hash-only behaviour, never read-only mode. SHA256 upgrade and FNV
+change detection work without WebCrypto. Normal reconciliation reads old-page
+storage directly; export/import is not the reconciliation workflow.
+
+Recovery imports merge with the last validated in-memory labels **and clears**.
+They never empty memory first. The page accepts its own recovery backup, including
+validated clear history, as well as JSONL. Stale imports still cannot overwrite
+newer decisions. One shared comparator makes a clear win any edit at equal time.
+Equal-time row-versus-row import remains eligible; merge keeps the stored row
+(with confirmation priority) to resolve concurrent snapshots.
+
+The export comparison counts `review_frame` as REVIEW-STATE. Changed unknown fields
+are UNKNOWN-FIELD changes, and make the verdict differ and exit code 1. Outputs
+show field names and keys, never coordinates.
+
+**GitHub CI does not run the spike tests.** Kit browser tests run only in the local
+`~/models/tinyball/.venv-mj` environment with Chromium; the local `.loan` suite skips
+those browser checks. Frozen build-10 JS is exercised by the test suite, not GitHub
+CI. The private check binds only basecamp's LAN address, never all interfaces.
+
+Build/sync: `~/ball-truth-review-build13/` and
+`~/codex-runs/ball-truth-review-build13/` contain the five HTML/build/queue/suggestion/
+migration files, reusing `../ball-truth-review/` frames. New seed only:
+`~/codex-runs/ball-human-truth-v2-build13.jsonl`. The mandatory current laptop export
+and semantic comparison still precede sync; existing v2 storage ignores embedded
+seeds. No fresh laptop export was supplied for this round.
+
+`check_build13_private.py` writes `~/codex-runs/ball-build13-compatibility.json`:
+real build-10/11/12 compatibility, real build-8 H1/H2a/H2b/H3 and import sequence,
+recovery, non-loopback HTTP editing, and raw-baseline size. Browser contexts are
+isolated; protected label files and previous kit directories remain unchanged.
+
+### Build 14 — salvage and dismiss-only notice
+
+Use `~/ball-truth-review-build14/index.html`; sync files are at
+`~/codex-runs/ball-truth-review-build14/`. Both contain index.html, build.json,
+any-ball-review.json, review-suggestions.json and migration.json. Shared frames
+remain at `../ball-truth-review/`. Builds 10–13 and their sync copies are untouched.
+Build 14 retains their exact v2 storage key, envelope and label schema. Existing
+v2 storage still ignores embedded seeds: export the current browser labels and
+run `compare_label_exports.py` before every sync, then explicitly import a fresh
+export if its changes need to enter an existing browser. These steps are mandatory.
+
+A corrupt envelope opens read-only with every independently valid row and clear
+salvaged into memory. The warning lists unreadable keys and reasons; duplicates
+are ambiguous and excluded. Export the recovery backup before importing: it holds
+salvaged/last-loaded rows and clears **plus the original raw text**. Recovery merges
+against that memory, skips stale decisions and preserves clears. Importing the
+page's own backup restores exactly its salvaged decisions; unreadable entries
+remain available in the backup for repair. An unparseable raw value requires a
+confirmation explicitly saying nothing could be salvaged (or that last-loaded
+memory remains). An import never silently resets recovery memory.
+
+The old-page notice is informational. There are no Use/Keep/bulk controls and no
+automatic dismissal, including after imports or matching labels. All old-page
+keys added, changed or dropped since the baseline appear as jump links, marked
+“this page matches” or “this page differs” (visible/x/y, tolerance 1e-6 px). A
+selected frame shows the old value and a dashed amber ghost marker. Re-click by
+hand if needed. Dismiss confirms the number of old-page changes and mismatches,
+then records a new baseline; it writes no labels. It persists across tabs/reload,
+and later old-page changes warn again. This supersedes build 13's reconciliation.
+
+The notice uses a new `:legacy-notice-v1` sidecar, copying the existing raw
+`:legacy-baseline-v1` or older `:legacy-sha256` baseline once. Build-13 baseline
+and Keep records remain untouched and unused. Matching SHA/FNV hashes upgrade;
+unknown/changed hashes require explicit Dismiss. Quota failure falls back to a
+hash baseline without making labels read-only. The pending diff is cached at
+bootstrap, storage events and Dismiss. Navigation reads the cache; each save
+parses v2 storage once. Local edits update match status without re-diffing v1.
+
+`review_round5.py --freeze` checks the actual explicit/default label file hash
+against the historical identity in the committed scored fixture, before capture
+and again before writing. Custom labels cannot replace historical fixtures.
+The unsupported kit `--manifest` option and `build(manifest, ...)` parameter were
+removed: `compare_ball.load_measurements()` reads a saved measurements artifact,
+and cannot derive measurements from a manifest. The builder uses the committed
+measurements and checks the shared frame catalog/provenance against that artifact.
+
+`test_build14_safety.py` pins salvage, stale/clear protection, dismiss-only notice,
+cross-tab behavior, cached navigation and both guards. Browser tests run locally
+in `.venv-mj`, not GitHub CI. `check_build14_private.py` binds LAN only and writes
+`~/codex-runs/ball-build14-compatibility.json`: builds 10–13 storage compatibility,
+real first-open export equivalence, H1/H2a/H2b/H3 and Dismiss, recovery salvage,
+build-12/13/14 navigation timings, and plain LAN HTTP.

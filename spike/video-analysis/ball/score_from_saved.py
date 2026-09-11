@@ -9,6 +9,7 @@ from extra_detections import load_extra
 from compare_ball import MEASUREMENTS, load_measurements
 from human_loop import frame_catalog
 from human_score import score, markdown
+from label_rule import RULES
 
 
 def main():
@@ -24,6 +25,7 @@ def main():
         action="store_true",
         help="Allow explicitly badged synthetic diagnostics",
     )
+    p.add_argument("--label-rule", choices=RULES, default="as_labelled")
     a = p.parse_args()
     measurements = load_measurements(a.measurements)
     try:
@@ -33,10 +35,13 @@ def main():
         )
     except ValueError as error:
         p.error(str(error))
-    data = score(measurements, labels, extras)
+    data = score(measurements, labels, extras, a.label_rule)
     data["labels"]["sha256"] = sha256(a.human_jsonl)
     dump(a.out_prefix.with_suffix(".json"), data)
     a.out_prefix.with_suffix(".md").write_text(markdown(data))
+    print(data["match_ball_note"])
+    if data["provisional"]:
+        print(data["provisional"])
     for r in data["results"]:
         name = r["candidate"] + (" [SYNTHETIC]" if r["synthetic_smoke"] else "")
         print(

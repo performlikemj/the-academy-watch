@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from label_rule import rule_metadata, banner_tables
 from collections import Counter
 import math
 import statistics
@@ -360,7 +361,8 @@ def score_candidate(
     }
 
 
-def score(measurements, labels, extras):
+def score(measurements, labels, extras, label_rule="as_labelled"):
+    metadata = rule_metadata(labels, label_rule)
     results = [
         score_candidate(measurements, labels, name, measurements["outputs"][name])
         for name in ("rf_full", "rf_2x2", "rf_3x3", "wasb", "wasb_2x2")
@@ -379,6 +381,7 @@ def score(measurements, labels, extras):
     ]
     return {
         "schema_version": 1,
+        **metadata,
         "frozen_set_id": measurements["frozen_set_id"],
         "labels": audit(measurements, labels),
         "results": results,
@@ -455,4 +458,12 @@ def markdown(data):
         "",
     ]
     lines += [f"- {s}" for s in data["definitions"]]
-    return "\n".join(lines) + "\n"
+    if "match_ball_note" in data:
+        lines += [data["match_ball_note"]]
+    return banner_tables("\n".join(lines), data)
+
+
+if __name__ == "__main__":
+    from score_from_saved import main
+
+    main()

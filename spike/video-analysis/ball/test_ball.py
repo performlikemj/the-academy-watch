@@ -11,6 +11,7 @@ import pytest
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 from ball_track import track  # noqa: E402
+from label_rule import migrate_row  # noqa: E402
 from ball_truth_kit import import_labels  # noqa: E402
 from common import samples  # noqa: E402
 from detectors import merge_tiles  # noqa: E402
@@ -160,7 +161,9 @@ def test_browser_export_python_import_roundtrip(tmp_path):
     )
     path = tmp_path / "human.jsonl"
     path.write_text(text)
-    assert list(import_labels(path, frames).values()) == rows
+    assert list(import_labels(path, frames).values()) == [
+        migrate_row(row, frame) for row, frame in zip(rows, frames)
+    ]
     for bad in [
         text + text,
         text.replace("123.25", "1920"),
