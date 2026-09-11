@@ -1,8 +1,8 @@
 # Local ball bench: MJ human truth
 
-The current click kit is **build 13**, in its own versioned directory. See the
-[build-13 fixes](#build-13--explicit-legacy-reconciliation) before labelling;
-builds 9, 10, 11 and 12 are preserved, with their historical instructions below.
+The current click kit is **build 14**, in its own versioned directory. See the
+[build-14 fixes](#build-14--salvage-and-dismiss-only-notice) before labelling;
+builds 9–13 are preserved, with their historical instructions below.
 
 MJ's September 11 product decision: **RF-DETR (Apache-2.0)** is the product model.
 **ultralytics is bench-only and must not enter the serving path; the product model
@@ -862,7 +862,7 @@ export/import sequence, and a non-loopback plain-HTTP open. Audit:
 `~/codex-runs/ball-build12-compatibility.json`. All tests use isolated browser contexts.
 
 
-### Build 13 — explicit legacy reconciliation
+### Historical build 13 — explicit legacy reconciliation
 
 Use `~/ball-truth-review-build13/index.html`. Existing build-10/11/12 storage uses
 the same v2 key and label/envelope schema. Legacy reconciliation metadata is separate, at `:legacy-baseline-v1`. The old
@@ -915,3 +915,56 @@ seeds. No fresh laptop export was supplied for this round.
 real build-10/11/12 compatibility, real build-8 H1/H2a/H2b/H3 and import sequence,
 recovery, non-loopback HTTP editing, and raw-baseline size. Browser contexts are
 isolated; protected label files and previous kit directories remain unchanged.
+
+### Build 14 — salvage and dismiss-only notice
+
+Use `~/ball-truth-review-build14/index.html`; sync files are at
+`~/codex-runs/ball-truth-review-build14/`. Both contain index.html, build.json,
+any-ball-review.json, review-suggestions.json and migration.json. Shared frames
+remain at `../ball-truth-review/`. Builds 10–13 and their sync copies are untouched.
+Build 14 retains their exact v2 storage key, envelope and label schema. Existing
+v2 storage still ignores embedded seeds: export the current browser labels and
+run `compare_label_exports.py` before every sync, then explicitly import a fresh
+export if its changes need to enter an existing browser. These steps are mandatory.
+
+A corrupt envelope opens read-only with every independently valid row and clear
+salvaged into memory. The warning lists unreadable keys and reasons; duplicates
+are ambiguous and excluded. Export the recovery backup before importing: it holds
+salvaged/last-loaded rows and clears **plus the original raw text**. Recovery merges
+against that memory, skips stale decisions and preserves clears. Importing the
+page's own backup restores exactly its salvaged decisions; unreadable entries
+remain available in the backup for repair. An unparseable raw value requires a
+confirmation explicitly saying nothing could be salvaged (or that last-loaded
+memory remains). An import never silently resets recovery memory.
+
+The old-page notice is informational. There are no Use/Keep/bulk controls and no
+automatic dismissal, including after imports or matching labels. All old-page
+keys added, changed or dropped since the baseline appear as jump links, marked
+“this page matches” or “this page differs” (visible/x/y, tolerance 1e-6 px). A
+selected frame shows the old value and a dashed amber ghost marker. Re-click by
+hand if needed. Dismiss confirms the number of old-page changes and mismatches,
+then records a new baseline; it writes no labels. It persists across tabs/reload,
+and later old-page changes warn again. This supersedes build 13's reconciliation.
+
+The notice uses a new `:legacy-notice-v1` sidecar, copying the existing raw
+`:legacy-baseline-v1` or older `:legacy-sha256` baseline once. Build-13 baseline
+and Keep records remain untouched and unused. Matching SHA/FNV hashes upgrade;
+unknown/changed hashes require explicit Dismiss. Quota failure falls back to a
+hash baseline without making labels read-only. The pending diff is cached at
+bootstrap, storage events and Dismiss. Navigation reads the cache; each save
+parses v2 storage once. Local edits update match status without re-diffing v1.
+
+`review_round5.py --freeze` checks the actual explicit/default label file hash
+against the historical identity in the committed scored fixture, before capture
+and again before writing. Custom labels cannot replace historical fixtures.
+The unsupported kit `--manifest` option and `build(manifest, ...)` parameter were
+removed: `compare_ball.load_measurements()` reads a saved measurements artifact,
+and cannot derive measurements from a manifest. The builder uses the committed
+measurements and checks the shared frame catalog/provenance against that artifact.
+
+`test_build14_safety.py` pins salvage, stale/clear protection, dismiss-only notice,
+cross-tab behavior, cached navigation and both guards. Browser tests run locally
+in `.venv-mj`, not GitHub CI. `check_build14_private.py` binds LAN only and writes
+`~/codex-runs/ball-build14-compatibility.json`: builds 10–13 storage compatibility,
+real first-open export equivalence, H1/H2a/H2b/H3 and Dismiss, recovery salvage,
+build-12/13/14 navigation timings, and plain LAN HTTP.

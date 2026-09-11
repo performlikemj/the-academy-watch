@@ -8,7 +8,7 @@ from pathlib import Path
 
 from ball_truth_kit import import_labels, build
 from checkpoint_provenance import validate_saved_passes
-from common import DEFAULT_MANIFEST, DEFAULT_SOURCE, dump, sha256
+from common import DEFAULT_SOURCE, dump, sha256
 from compare_ball import load_measurements
 from extra_detections import load_extra
 from human_loop import frame_catalog, write_jsonl
@@ -75,11 +75,11 @@ def main():
     p.add_argument(
         "--output",
         type=Path,
-        default=home / "codex-runs/ball-human-truth-v2-build13.jsonl",
+        default=home / "codex-runs/ball-human-truth-v2-build14.jsonl",
     )
-    p.add_argument("--kit", type=Path, default=home / "ball-truth-review-build13")
+    p.add_argument("--kit", type=Path, default=home / "ball-truth-review-build14")
     p.add_argument(
-        "--sync", type=Path, default=home / "codex-runs/ball-truth-review-build13"
+        "--sync", type=Path, default=home / "codex-runs/ball-truth-review-build14"
     )
     p.add_argument(
         "--baseline", type=Path, default=home / "codex-runs/ball-human-truth.jsonl"
@@ -97,8 +97,8 @@ def main():
         p.error("sync build already exists; use a new sync directory")
     if (a.kit / "index.html").exists() or (a.kit / "build.json").exists():
         p.error("kit directory already contains a build; use a new directory")
-    if a.kit.resolve() == a.frames_dir.resolve() or not a.kit.name.endswith("-build13"):
-        p.error("use a separate versioned kit directory ending -build13")
+    if a.kit.resolve() == a.frames_dir.resolve() or not a.kit.name.endswith("-build14"):
+        p.error("use a separate versioned kit directory ending -build14")
     m = load_measurements()
     frames = frame_catalog(m)
     labels = import_labels(a.input, frames)
@@ -114,7 +114,6 @@ def main():
     dump(a.kit / "any-ball-review.json", queue)
     dump(a.kit / "review-suggestions.json", list(saved_boxes(outputs).values()))
     build(
-        DEFAULT_MANIFEST,
         DEFAULT_SOURCE,
         a.kit,
         a.frames_dir / "suggestions.jsonl",

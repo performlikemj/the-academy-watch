@@ -144,7 +144,7 @@ def legacy_warning(page, rows):
     return text
 
 
-def test_full_legacy_import_clears_warning_partial_does_not(browser, kit):
+def test_full_and_partial_legacy_imports_keep_warning(browser, kit):
     with browser.new_context() as ctx:
         page = open_page(ctx, kit)
         legacy = [
@@ -157,12 +157,12 @@ def test_full_legacy_import_clears_warning_partial_does_not(browser, kit):
         upload(page, legacy[:1])
         assert page.locator("#legacy-warning").is_visible()
         upload(page, legacy)
-        assert page.locator("#legacy-warning").is_hidden()
+        assert page.locator("#legacy-warning").is_visible()
         page.reload()
         settle(page)
-        assert page.locator("#legacy-warning").is_hidden()
+        assert page.locator("#legacy-warning").is_visible()
         fresh = open_page(ctx, kit)
-        assert fresh.locator("#legacy-warning").is_hidden()
+        assert fresh.locator("#legacy-warning").is_visible()
         legacy[-1]["x"] = 88
         legacy_warning(page, legacy)
 

@@ -142,7 +142,7 @@ def check(kit, screenshot=None):
 if __name__ == "__main__":
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument(
-        "--kit", type=Path, default=Path.home() / "ball-truth-review-build13"
+        "--kit", type=Path, default=Path.home() / "ball-truth-review-build14"
     )
     p.add_argument("--screenshot", type=Path)
     a = p.parse_args()

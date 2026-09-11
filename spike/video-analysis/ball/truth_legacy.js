@@ -1,6 +1,6 @@
 /* Legacy reconciliation metadata is separate from the unchanged v2 label store. */
 (function(root) {
-  const fallbackMessage="The old click page changed after this page started, but this page can't tell which frames. Export from it, import here, check, then Dismiss.";
+  const fallbackMessage="The old click page changed after this page started, but this page can't tell which frames. Check the old page's labels before choosing Dismiss.";
   function hash(raw) {
     let value=0xcbf29ce484222325n;
     for(const byte of new TextEncoder().encode(JSON.stringify(raw)))value=BigInt.asUintN(64,(value^BigInt(byte))*0x100000001b3n);
@@ -38,22 +38,22 @@
     if(!a||!b)return !a&&!b;
     return a.visible===b.visible && (!a.visible || (Math.abs(a.x-b.x)<=1e-6 && Math.abs(a.y-b.y)<=1e-6));
   }
-  function create(key,legacyKey,frames,oldHashKey) {
+  function create(key,legacyKey,frames,oldHashKeys=[]) {
     let failed=false;
     const current=()=>localStorage.getItem(legacyKey);
     const rows=raw=>Object.fromEntries(BallTruth.parse(raw||'',frames).map(r=>[BallTruth.key(r),r]));
     function write(base) {
       try {localStorage.setItem(key,JSON.stringify(base));failed=false;}
       catch (_) {
-        // Hash-only mode retains the OLD baseline on a failed per-key choice.
+        // Quota failures retain a hash baseline without disabling label edits.
         try {localStorage.setItem(key,hash(base.raw));failed=false;} catch (_) {failed=true;}
       }
     }
     function rebase(raw=current()) {write({kind:'ball-legacy-raw-v1',raw,taken_at:Date.now(),kept:{}});}
     function baseline() {
       let value=localStorage.getItem(key);
-      if(value===null && oldHashKey) {
-        value=localStorage.getItem(oldHashKey);
+      if(value===null) {
+        for(const oldKey of oldHashKeys) {value=localStorage.getItem(oldKey);if(value!==null)break;}
         // Freeze the old hash once, without fighting build-12 metadata writers.
         if(value!==null)try {localStorage.setItem(key,value);} catch (_) {failed=true;}
       }
@@ -61,7 +61,7 @@
       if(base?.kind==='ball-legacy-raw-v1' && (base.raw===null||typeof base.raw==='string') && Number.isFinite(base.taken_at) && base.kept && typeof base.kept==='object')return base;
       return value;
     }
-    function check(state) {
+    function check() {
       const raw=current();let base=baseline();
       if(base===null) {rebase(raw);base=baseline();}
       if(typeof base==='string') {
@@ -81,20 +81,13 @@
         for(const key of new Set([...Object.keys(before),...Object.keys(after)])) {
           const value=point(after[key]);
           if(equal(point(before[key]),value))continue;
-          if(Object.hasOwn(base.kept,key) && equal(base.kept[key],value))continue;
-          if(value?equal(point(state.labels[key]),value):!state.labels[key]&&Object.hasOwn(state.deleted,key))continue;
           keys.push({key,value,row:after[key]||null});
         }
         keys.sort((a,b)=>a.key.localeCompare(b.key));
-        if(!keys.length)rebase(raw);
         return {fallback:false,keys,raw};
       } catch (_) {return {fallback:true,keys:[],raw};}
     }
-    function keep(key,value) {
-      const base=baseline();
-      if(base && typeof base==='object') {base.kept[key]=value;write(base);}
-    }
-    return {check,rebase,keep,rows,current};
+    return {check,rebase,rows,current};
   }
   root.BallLegacy={create,point,equal,hash,sha256,fallbackMessage};
 })(globalThis);

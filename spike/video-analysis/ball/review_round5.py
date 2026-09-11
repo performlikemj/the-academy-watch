@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 import argparse
+import gzip
 import json
 from pathlib import Path
 from ball_truth_kit import import_labels
@@ -98,6 +99,15 @@ def main():
     a = p.parse_args()
     if a.freeze and a.label_rule == "any_ball":
         p.error("rule-A machinery cannot replace the committed historical fixtures")
+    label_path = a.human_jsonl or Path.home() / "codex-runs/ball-human-truth.jsonl"
+    fixture = HERE / "fixtures/round5_scored_output.json.gz"
+    if a.freeze:
+        with gzip.open(fixture, "rt") as stream:
+            historical_hash = json.load(stream)["labels_sha256"]
+        if sha256(label_path) != historical_hash:
+            p.error(
+                "--freeze requires the historical label file identity; fixture unchanged"
+            )
     root = Path.home() / "models/tinyball"
     paths = {
         "yolo-r2-b": root / "r5-yolo-low/detections.json",
@@ -106,12 +116,17 @@ def main():
     for raw in a.extra:
         name, path = raw.split("=", 1)
         paths[name] = Path(path)
-    result = capture(paths, label_path=a.human_jsonl, label_rule=a.label_rule)
+    result = capture(paths, label_path=label_path, label_rule=a.label_rule)
+    if a.freeze and (
+        result["labels_sha256"] != historical_hash
+        or sha256(label_path) != historical_hash
+    ):
+        p.error("label identity changed during capture; fixture unchanged")
     if result["provisional"]:
         print(result["provisional"])
     dump(a.out, result)
     if a.freeze:
-        freeze(HERE / "fixtures/round5_scored_output.json.gz", result)
+        freeze(fixture, result)
     for name, row in result["models"].items():
         for budget, op in row["operating_points"].items():
             print(

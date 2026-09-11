@@ -417,19 +417,19 @@ def test_versioned_build_shared_frames_and_no_overwrite(tmp_path, monkeypatch):
     monkeypatch.setattr(
         human_loop, "review_plan", lambda _: {"on_ball": [], "off_pitch": []}
     )
-    out = tmp_path / "test-build13"
-    ball_truth_kit.build(None, DEFAULT_SOURCE, out, frames_dir=shared)
+    out = tmp_path / "test-build14"
+    ball_truth_kit.build(DEFAULT_SOURCE, out, frames_dir=shared)
     meta = json.loads((out / "build.json").read_text())
-    assert meta["build_version"] == 13 and meta["shared_frames"] == "../shared"
+    assert meta["build_version"] == 14 and meta["shared_frames"] == "../shared"
     assert '"path": "../shared/frame.svg"' in (out / "index.html").read_text()
     assert meta["storage_key"].startswith("ball-human-v2:")
     assert meta["legacy_input_key"].startswith("ball-human-v1:")
     assert {f.name: f.read_bytes() for f in shared.iterdir()} == before
     assert {f.name for f in out.iterdir()} == {"index.html", "build.json"}
     with pytest.raises(ValueError, match="overwrite"):
-        ball_truth_kit.build(None, DEFAULT_SOURCE, out, frames_dir=shared)
+        ball_truth_kit.build(DEFAULT_SOURCE, out, frames_dir=shared)
     with pytest.raises(ValueError, match="VERSIONED"):
-        ball_truth_kit.build(None, DEFAULT_SOURCE, shared, frames_dir=shared)
+        ball_truth_kit.build(DEFAULT_SOURCE, shared, frames_dir=shared)
 
 
 @pytest.mark.parametrize(
@@ -542,7 +542,9 @@ def test_legacy_hash_warns_on_later_open_without_merging(browser, kit):
         )
         page.reload()
         settle(page)
-        assert "unresolved changes" in page.locator("#legacy-message").inner_text()
+        assert (
+            "changes since the baseline" in page.locator("#legacy-message").inner_text()
+        )
         assert page.evaluate("localStorage.getItem(storageKey)") == before
         assert page.evaluate("localStorage.getItem(legacyHashKey)") == baseline
 

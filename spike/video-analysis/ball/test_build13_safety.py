@@ -57,8 +57,7 @@ def bootstrap(ctx, kit):
     return p, rows
 
 
-@pytest.mark.parametrize("choice", ["use", "keep"])
-def test_h1_skipped_old_decision_requires_reconciliation(browser, kit, choice):
+def test_h1_skipped_old_decision_requires_explicit_dismiss(browser, kit):
     with browser.new_context() as ctx:
         page, rows = bootstrap(ctx, kit)
         review(page)
@@ -66,29 +65,16 @@ def test_h1_skipped_old_decision_requires_reconciliation(browser, kit, choice):
         mine = current(page)
         rows[0].update(visible=True, x=333, y=222)
         legacy_set(page, rows)
-        page.on("dialog", lambda d: d.accept())
         upload(page, rows)
         assert page.locator("#legacy-warning").is_visible()
-        links = page.locator("#legacy-keys a")
-        assert links.count() == 1
-        links.first.click()
+        assert page.locator("#legacy-keys a").count() == 1
+        page.locator("#legacy-keys a").first.click()
         settle(page)
         assert "Old page: ball at" in page.locator("#legacy-values").inner_text()
         assert "This page: no ball" in page.locator("#legacy-values").inner_text()
-        page.locator("#legacy-" + choice).click()
-        settle(page)
-        assert page.locator("#legacy-warning").is_hidden()
-        if choice == "use":
-            assert current(page)["visible"] and current(page)["x"] == 333
-            assert current(page)["match_ball"] is True  # committed v1 migration
-        else:
-            assert current(page) == mine
+        assert current(page) == mine
         page.reload()
         settle(page)
-        assert page.locator("#legacy-warning").is_hidden()
-        assert open_page(ctx, kit).locator("#legacy-warning").is_hidden()
-        rows[0]["x"] = 334
-        legacy_set(page, rows)
         assert page.locator("#legacy-warning").is_visible()
 
 
@@ -109,10 +95,8 @@ def test_h2_h3_old_clear_is_never_acknowledged_by_import(browser, kit, which):
         page.locator("#legacy-keys a").first.click()
         settle(page)
         assert "Old page: cleared" in page.locator("#legacy-values").inner_text()
-        page.locator("#legacy-use").click()
-        settle(page)
-        assert page.evaluate("!labels[api.key(frames[188])]")
-        assert page.locator("#legacy-warning").is_hidden()
+        assert page.evaluate("!!labels[api.key(frames[188])]")
+        assert page.locator("#legacy-warning").is_visible()
 
 
 @pytest.mark.parametrize("kind", ["sha", "fnv"])
@@ -156,32 +140,22 @@ def test_hash_baseline_upgrade_or_explicit_fallback(browser, kit, kind, changed)
             assert page.locator("#legacy-warning").is_hidden()
 
 
-def test_all_pending_links_keep_and_bulk_with_quota_fallback(browser, kit):
+def test_all_pending_links_and_quota_fallback(browser, kit):
     with browser.new_context() as ctx:
         page, rows = bootstrap(ctx, kit)
         for row in rows[:25]:
             row.update(visible=True, x=555, y=555)
         legacy_set(page, rows)
         assert page.locator("#legacy-keys a").count() == 25
-        page.locator("#legacy-keys a").first.click()
-        settle(page)
-        page.locator("#legacy-keep").click()
-        settle(page)
-        page.reload()
-        settle(page)
-        assert page.locator("#legacy-keys a").count() == 24
         before = page.evaluate("localStorage.getItem(storageKey)")
-        page.once("dialog", lambda d: d.dismiss())
-        page.locator("#legacy-all").click()
-        settle(page)
-        assert page.evaluate("localStorage.getItem(storageKey)") == before
         page.once("dialog", lambda d: d.accept())
-        page.locator("#legacy-all").click()
+        page.locator("#dismiss-legacy").click()
         settle(page)
         assert page.locator("#legacy-warning").is_hidden()
+        assert page.evaluate("localStorage.getItem(storageKey)") == before
     with browser.new_context() as ctx:
         ctx.add_init_script(
-            """const original=Storage.prototype.setItem;Storage.prototype.setItem=function(k,v){if(k.endsWith(':legacy-baseline-v1')&&v.startsWith('{'))throw new DOMException('quota','QuotaExceededError');return original.call(this,k,v)}"""
+            """const original=Storage.prototype.setItem;Storage.prototype.setItem=function(k,v){if(k.endsWith(':legacy-notice-v1')&&v.startsWith('{'))throw new DOMException('quota','QuotaExceededError');return original.call(this,k,v)}"""
         )
         page, rows = bootstrap(ctx, kit)
         assert not page.evaluate("readOnly")
@@ -276,7 +250,7 @@ def test_suite_wording_and_lan_only_private_binding():
     assert '"0.0.0.0"' not in script.read_text()
 
 
-def test_reconciliation_checks_storage_before_resolving_stale_tab_memory(browser, kit):
+def test_old_page_event_refreshes_notice_for_stale_tab_memory(browser, kit):
     with browser.new_context() as ctx:
         page, rows = bootstrap(ctx, kit)
         page.evaluate(
@@ -288,7 +262,7 @@ def test_reconciliation_checks_storage_before_resolving_stale_tab_memory(browser
         )
         rows[0].update(x=55, y=55)
         page.evaluate(
-            "raw=>{localStorage.setItem(legacyKey,raw);show()}",
+            "raw=>{localStorage.setItem(legacyKey,raw);window.dispatchEvent(new StorageEvent('storage',{key:legacyKey}))}",
             "\n".join(json.dumps(r) for r in rows) + "\n",
         )
         settle(page)

@@ -10,7 +10,7 @@ let state=store.empty(), labels={}, reviewKeys=new Set(), reviewQueue=[], review
 let index=0, generation=0, imageReady=false, initialized=false, readOnly=false, recoveryExported=false;
 let recoveryRaw=null, writes=Promise.resolve();
 let conflictCount=0;
-const seenConflicts=new Set(), legacyHashKey=storageKey+':legacy-baseline-v1';
+const seenConflicts=new Set(), legacyHashKey=storageKey+':legacy-notice-v1';
 function recordConflict(key,local,stored) {
   const signature=JSON.stringify([key,local.updated_at,[store.values(local),store.values(stored)].sort()]);
   if(seenConflicts.has(signature))return;
@@ -19,57 +19,44 @@ function recordConflict(key,local,stored) {
   notice.textContent=`Merge conflicts: ${conflictCount}. Kept the confirmed decision already in storage. Review or export before changing it.`;
 }
 const legacyHash=BallLegacy.hash;
-const legacy=BallLegacy.create(legacyHashKey,legacyKey,frames,storageKey+':legacy-sha256');
-let legacyStatus={keys:[],fallback:false};
-function checkLegacyHash() {renderLegacy();}
-function describeLegacy(row) {return !row?'cleared':row.visible?`ball at (${row.x}, ${row.y})`:'no ball';}
-function renderLegacy() {
-  // A suspended tab must not resolve old-page changes against stale memory.
-  if(initialized&&!readOnly) {try {refreshStored();} catch(error) {failClosed(error);}}
-  legacyStatus=legacy.check(state);
-  const {keys,fallback}=legacyStatus, banner=document.getElementById('legacy-warning');
-  banner.hidden=!fallback&&!keys.length;
-  document.getElementById('legacy-message').textContent=fallback?BallLegacy.fallbackMessage:`The old click page has ${keys.length} unresolved changes. Review each frame below.`;
+const legacy=BallLegacy.create(legacyHashKey,legacyKey,frames,[storageKey+':legacy-baseline-v1',storageKey+':legacy-sha256']);
+let legacyStatus={keys:[],fallback:false}, legacyItems=new Map();
+function legacyMatches(item) {return BallLegacy.equal(item.value,BallLegacy.point(labels[item.key]));}
+function checkLegacyHash() {
+  // Diff old-page storage only on bootstrap/storage events/Dismiss, never on show.
+  legacyStatus=legacy.check();
+  legacyItems=new Map(legacyStatus.keys.map(item=>[item.key,item]));
   const list=document.getElementById('legacy-keys');list.replaceChildren();
-  for(const item of keys) {
+  for(const item of legacyStatus.keys) {
     const link=document.createElement('a');link.href='#canvas';link.textContent=item.key;
     link.onclick=e=>{e.preventDefault();reviewMode=false;index=byKey[item.key];show();};
-    const li=document.createElement('li');li.append(link);list.append(li);
+    item.status=document.createElement('span');
+    const li=document.createElement('li');li.append(link,item.status);list.append(li);
   }
-  const item=keys.find(r=>r.key===api.key(frames[index]));
+  updateLegacyMatches();renderLegacy();
+}
+function updateLegacyMatches() {
+  for(const item of legacyStatus.keys)item.status.textContent=legacyMatches(item)?' — this page matches':' — this page differs';
+}
+function describeLegacy(row) {return !row?'cleared':row.visible?`ball at (${row.x}, ${row.y})`:'no ball';}
+function renderLegacy() {
+  const {keys,fallback}=legacyStatus, banner=document.getElementById('legacy-warning');
+  banner.hidden=!fallback&&!keys.length;
+  document.getElementById('legacy-message').textContent=fallback?BallLegacy.fallbackMessage:`The old click page has ${keys.length} changes since the baseline. This notice stays until you choose Dismiss. Check the listed frames and re-click by hand if needed.`;
+  const item=legacyItems.get(api.key(frames[index]));
   const panel=document.getElementById('legacy-current');panel.hidden=!item;
-  document.getElementById('legacy-values').textContent=item?`Old page: ${describeLegacy(item.value)} / This page: ${describeLegacy(labels[item.key])}`:'';
-  for(const id of ['legacy-use','legacy-keep','legacy-all'])document.getElementById(id).disabled=readOnly||!initialized;
-  const all=document.getElementById('legacy-all');all.hidden=fallback||!keys.length;all.textContent=`Use old page's values for all ${keys.length}`;
+  document.getElementById('legacy-values').textContent=item?`Old page: ${describeLegacy(item.value)} / This page: ${describeLegacy(labels[item.key])}. Dashed amber ghost = old-page ball.`:'';
 }
-function useLegacy(items) {
-  return save((latest,time)=> {
-    const current=legacy.rows(legacy.current());
-    // Apply only the old-page values that MJ actually saw and chose.
-    if(items.some(item=>!BallLegacy.equal(item.value,BallLegacy.point(current[item.key]))))return false;
-    const next={labels:{...latest.labels},deleted:{...latest.deleted}};
-    for(const item of items) {
-      if(item.row)next.labels[item.key]=put(item.row,time);
-      else {delete next.labels[item.key];next.deleted[item.key]=time;}
-    }
-    return next;
-  });
-}
-document.getElementById('legacy-use').onclick=()=> {
-  const item=legacyStatus.keys.find(r=>r.key===api.key(frames[index]));if(item)useLegacy([item]);
-};
-document.getElementById('legacy-keep').onclick=()=> {
-  if(readOnly)return;
-  const item=legacyStatus.keys.find(r=>r.key===api.key(frames[index]));
-  if(item)enqueue(()=>{refreshStored();legacy.keep(item.key,item.value);show();});
-};
-document.getElementById('legacy-all').onclick=()=> {
-  const items=legacyStatus.keys;
-  if(!readOnly&&items.length&&window.confirm(`Use old page's values for all ${items.length} unresolved frames?`))useLegacy(items);
-};
 document.getElementById('dismiss-legacy').onclick=()=>enqueue(()=> {
-  const count=legacyStatus.fallback?'an unknown number of':legacyStatus.keys.length;
-  if(window.confirm(`Dismiss ${count} unresolved old-page changes and keep this page's values?`)) {legacy.rebase();show();}
+  if(!readOnly)refreshStored();
+  checkLegacyHash();
+  const count=legacyStatus.keys.length, different=legacyStatus.keys.filter(item=>!legacyMatches(item)).length;
+  const message=legacyStatus.fallback?"Dismiss an unknown number of old-page changes? This page can't tell which frames changed.":`Dismiss ${count} old-page changes, ${different} don't match this page?`;
+  const raw=legacyStatus.raw;
+  if(window.confirm(message)) {
+    // A dialog must not acknowledge an old-page change that arrived afterward.
+    legacy.rebase(raw);checkLegacyHash();show();
+  }
 });
 const confirmed=api.confirmed;
 for(const clip of [...new Set(frames.map(f=>f.clip))]) {
@@ -89,8 +76,11 @@ function failClosed(error) {
   recoveryExported=false;
   try { recoveryRaw={v2:localStorage.getItem(storageKey),legacy:localStorage.getItem(legacyKey),legacy_cleared:localStorage.getItem(legacyKey+':cleared')}; }
   catch (_) { recoveryRaw={error:String(error)}; }
+  const salvaged=store.salvage(recoveryRaw.v2,frames);
+  state=store.merge(state,salvaged.state,recordConflict);rebuildQueue();
+  recoveryRaw.unreadable=salvaged.unreadable;recoveryRaw.parseable=salvaged.parseable;
   safety.hidden=false;
-  safety.textContent='READ-ONLY: stored labels could not be validated. Export a recovery backup, then re-import repaired JSONL. No edits will be saved. '+error.message;
+  safety.textContent='READ-ONLY: stored labels could not be validated. Export a recovery backup, then re-import repaired JSONL. No edits will be saved. '+error.message+` Salvaged ${Object.keys(state.labels).length} labels and ${Object.keys(state.deleted).length} clears. Unreadable keys: `+salvaged.unreadable.map(item=>item.key+': '+item.reason).join('; ');
   document.getElementById('export').textContent='Export recovery backup';
 }
 function locked(task) {
@@ -120,7 +110,7 @@ function save(change) {
     const next=change(state,store.clock(state));
     if(next===false) { show(); return false; }
     state=next;
-    persist();rebuildQueue();show();
+    persist();rebuildQueue();updateLegacyMatches();show();
     status.textContent='Saved locally. '+Object.keys(labels).length+'/'+frames.length+' labelled.';
     return true;
   });
@@ -138,7 +128,6 @@ function setLabel(x,y,visible,provenance={source_accepted:false}) {
   });
 }
 function show() {
-  rebuildQueue();
   if(reviewMode && !reviewKeys.has(api.key(frames[index])) && reviewQueue.length) index=byKey[api.key(reviewQueue[0])];
   renderLegacy();
   const f=frames[index], row=labels[api.key(f)], suggestion=suggestionFor(f), token=++generation;
@@ -157,6 +146,8 @@ function show() {
     canvas.width=img.width;canvas.height=img.height;ctx.drawImage(img,0,0);imageReady=true;
     function ring(x,y,color,radius) {ctx.strokeStyle=color;ctx.lineWidth=3;ctx.beginPath();ctx.arc(x*img.width/f.source_size[0],y*img.height/f.source_size[1],radius,0,2*Math.PI);ctx.stroke();}
     if(suggestion) {ring(suggestion.x,suggestion.y,'#50e8ff',15);ctx.font='20px system-ui';ctx.fillStyle='#50e8ff';ctx.fillText(suggestion.source,suggestion.x*img.width/f.source_size[0]+18,suggestion.y*img.height/f.source_size[1]);}
+    const ghost=legacyItems.get(api.key(f))?.value;
+    if(ghost?.visible) {ctx.save();ctx.setLineDash([5,5]);ctx.globalAlpha=.65;ring(ghost.x,ghost.y,'#ffdc80',19);ctx.restore();}
     if(row?.visible) ring(row.x,row.y,'#ff3050',10);
   };
   img.onerror=()=>{if(token===generation)status.textContent='Frame unavailable. Check the shared frames directory.';};
@@ -266,7 +257,7 @@ document.getElementById('import').onchange=async e=> {
       document.getElementById('import-summary').textContent=summary;
       if(readOnly) {
         if(!recoveryExported) {status.textContent='Export the recovery backup before re-importing.';return;}
-        if(!window.confirm(summary+' Replace unreadable v2 storage with these validated rows?'))return;
+        if(!window.confirm(summary+(!recoveryRaw.parseable?` The raw storage is not parseable JSON; ${Object.keys(state.labels).length||Object.keys(state.deleted).length?'only the last loaded memory is available':'nothing could be salvaged'}.`:'')+` Recover with ${Object.keys(state.labels).length} salvaged/last-loaded labels and ${Object.keys(state.deleted).length} clears, plus eligible imported rows? Unreadable entries remain in your backup.`))return;
         // Do not overwrite storage that changed after the recovery backup.
         if(localStorage.getItem(storageKey)!==recoveryRaw.v2)throw new Error('Storage changed since recovery export. Export a fresh backup and re-import.');
       } else if((counts.replace_confirmed || counts.restoreEligible) && !window.confirm(summary+' Apply eligible rows that replace confirmed decisions or restore cleared frames? Stale rows are always skipped. Cancel keeps stored decisions exactly.')) {
@@ -284,16 +275,16 @@ document.getElementById('import').onchange=async e=> {
       persist();
       readOnly=false;recoveryExported=false;safety.hidden=true;
       document.getElementById('export').textContent='Export JSONL';
-      rebuildQueue();show();status.textContent='Import saved. '+summary;
+      rebuildQueue();updateLegacyMatches();show();status.textContent='Import saved. '+summary;
     });
   } catch(error) {status.textContent='Import rejected: '+error.message;}
   finally {e.target.value='';}
 };
 window.addEventListener('storage',e=> {
-  if(e.key===legacyKey || e.key===legacyHashKey) {enqueue(()=>checkLegacyHash());return;}
+  if(e.key===legacyKey || e.key===legacyHashKey) {enqueue(()=>{checkLegacyHash();show();});return;}
   if(e.key!==storageKey&&e.key!==null)return;
   if(readOnly)return;
-  enqueue(()=>{if(readOnly)return;refreshStored();persist();show();status.textContent='labels changed in another tab';});
+  enqueue(()=>{if(readOnly)return;refreshStored();persist();checkLegacyHash();show();status.textContent='labels changed in another tab';});
 });
 document.addEventListener('keydown',e=> {
   if(['SELECT','INPUT'].includes(e.target.tagName))return;
@@ -323,5 +314,5 @@ enqueue(async()=> {
     }
 
   } catch(error) {failClosed(error);}
-  initialized=true;show();
+  initialized=true;rebuildQueue();checkLegacyHash();show();
 });
