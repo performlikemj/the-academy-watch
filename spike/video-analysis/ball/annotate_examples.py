@@ -1,6 +1,7 @@
 """Three deterministic detection overlays (not human truth), kept in report dir."""
 
 from __future__ import annotations
+from output_guard import guard_outputs
 import json
 from common import DEFAULT_REPORT
 from compare_ball import load_measurements
@@ -113,5 +114,6 @@ def generate(measurements, out=DEFAULT_REPORT):
 
 
 if __name__ == "__main__":
+    guard_outputs(DEFAULT_REPORT / "examples")
     data = load_measurements()
     print(json.dumps(generate(data), indent=2))

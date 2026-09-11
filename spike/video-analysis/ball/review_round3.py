@@ -1,6 +1,7 @@
 """Rescore saved runs, freeze aggregate review evidence, and select by authorized rule."""
 
 from __future__ import annotations
+from output_guard import guard_outputs
 import argparse
 import gzip
 import json
@@ -306,6 +307,13 @@ def main():
     )
     p.add_argument("--historical-only", action="store_true")
     a = p.parse_args()
+    guard_outputs(
+        HERE / "fixtures/human_measurements.json.gz",
+        HERE / "fixtures/round2_measurements.json.gz",
+        HERE / "fixtures/round3_scored_output.json.gz",
+        inputs=[a.human_jsonl],
+        parser=p,
+    )
     capture(a.root, a.human_jsonl, a.historical_only)
 
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from output_guard import guard_outputs
 import argparse
 import gzip
 import json
@@ -85,6 +86,13 @@ def main():
     )
     p.add_argument("--out-prefix", type=Path, default=PREFIX)
     a = p.parse_args()
+    guard_outputs(
+        a.out_prefix.with_suffix(".json"),
+        a.out_prefix.with_suffix(".md"),
+        *([FIXTURE] if a.capture else []),
+        inputs=[a.capture],
+        parser=p,
+    )
     if a.capture:
         data = json.loads(a.capture.read_text())
         if (

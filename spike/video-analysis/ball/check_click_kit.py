@@ -1,6 +1,7 @@
 """Real Chromium kit check in an isolated browser context, never MJ's storage."""
 
 from __future__ import annotations
+from output_guard import guard_outputs
 import argparse
 import json
 from pathlib import Path
@@ -12,6 +13,7 @@ def main():
     p.add_argument("--kit", type=Path, default=Path.home() / "ball-truth-review")
     p.add_argument("--screenshot", type=Path, required=True)
     a = p.parse_args()
+    guard_outputs(a.screenshot, parser=p)
     with sync_playwright() as playwright:
         browsers = sorted(
             (Path.home() / "Library/Caches/ms-playwright").glob(

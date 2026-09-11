@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from output_guard import guard_outputs
 import json
 import time
 from pathlib import Path
@@ -103,6 +104,7 @@ def predict_all(model, clips, out, frozen_set_id, fit):
 
 
 def main():
+    guard_outputs(HERE / "fixtures/round4_execution.json")
     import cv2
     import torch
     from rfdetr import RFDETRNano

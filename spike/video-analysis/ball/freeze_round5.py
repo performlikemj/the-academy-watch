@@ -1,6 +1,7 @@
 """Freeze executed aggregate evidence and regenerate both ledgers without labels."""
 
 from __future__ import annotations
+from output_guard import guard_outputs
 import json
 from pathlib import Path
 from build_human_report import generate
@@ -10,6 +11,10 @@ from round5_framing import enrich
 
 
 def main():
+    guard_outputs(
+        HERE / "fixtures/round5_execution.json",
+        HERE / "fixtures/round5_scored_output.json.gz",
+    )
     root = Path.home() / "models/tinyball"
     logs = Path.home() / "codex-runs"
     e = json.loads((root / "round5-evidence.json").read_text())

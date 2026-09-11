@@ -1,5 +1,6 @@
 """Render saved boxes and current MJ labels on n21 frames; no inference."""
 
+from output_guard import guard_outputs
 from pathlib import Path
 import gzip
 import argparse
@@ -8,6 +9,10 @@ from common import HERE, DEFAULT_MANIFEST, DEFAULT_SOURCE, dump, load_dataset, s
 
 
 def main():
+    guard_outputs(
+        Path.home() / "codex-runs/ball-r5-n21",
+        inputs=[Path.home() / "codex-runs/ball-human-truth.jsonl"],
+    )
     import cv2
     import numpy as np
 

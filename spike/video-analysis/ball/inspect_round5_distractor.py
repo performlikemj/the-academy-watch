@@ -1,5 +1,6 @@
 """Save exact source-pixel evidence of RF b's held-out n21 false detections."""
 
+from output_guard import guard_outputs
 from pathlib import Path
 import json
 from ball_truth_kit import import_labels
@@ -9,6 +10,10 @@ from human_loop import frame_catalog
 
 
 def main():
+    guard_outputs(
+        Path.home() / "codex-runs/ball-r5-n21",
+        inputs=[Path.home() / "codex-runs/ball-human-truth.jsonl"],
+    )
     import cv2
 
     cv2.setNumThreads(1)

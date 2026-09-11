@@ -200,9 +200,12 @@ def test_freeze_accepts_only_actual_historical_identity(tmp_path, monkeypatch, d
     identity = review_round5.sha256(labels)
     fixture = tmp_path / "fixtures/round5_scored_output.json.gz"
     fixture.parent.mkdir()
-    original = gzip.compress(json.dumps({"labels_sha256": identity}).encode())
+    original = gzip.compress(
+        json.dumps({"labels_sha256": identity, "models": {}}).encode()
+    )
     fixture.write_bytes(original)
     monkeypatch.setattr(review_round5, "HERE", tmp_path)
+    monkeypatch.setattr(review_round5, "FINAL_PASSES", {})
 
     def capture(*args, **kwargs):
         assert kwargs["label_path"] == labels
@@ -230,8 +233,11 @@ def test_freeze_accepts_only_actual_historical_identity(tmp_path, monkeypatch, d
         assert fixture.read_bytes() == original
     else:
         review_round5.main()
+        assert fixture.read_bytes() == original
         assert (
-            json.loads(gzip.decompress(fixture.read_bytes()))["labels_sha256"]
+            json.loads(gzip.decompress((tmp_path / "out.json").read_bytes()))[
+                "labels_sha256"
+            ]
             == identity
         )
 

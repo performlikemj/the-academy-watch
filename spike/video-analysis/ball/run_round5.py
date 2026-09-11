@@ -1,6 +1,7 @@
 """Finish the two predeclared fits, then run all final/checkpoint diagnostics."""
 
 from __future__ import annotations
+from output_guard import guard_outputs
 import argparse
 import json
 import os
@@ -15,6 +16,14 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--first-pid", type=int, required=True)
     a = p.parse_args()
+    guard_outputs(
+        Path.home() / "models/tinyball/round5-protocol-at-training.json",
+        Path.home() / "models/tinyball/mj-r5-rf-b",
+        Path.home() / "codex-runs/ball-r5-fit-b.log",
+        *sorted((Path.home() / "models/tinyball").glob("r5-rf-*-*-low")),
+        *sorted((Path.home() / "codex-runs").glob("ball-r5-*-low.log")),
+        parser=p,
+    )
     root = Path.home() / "models/tinyball"
     logs = Path.home() / "codex-runs"
     protocol = json.loads((HERE / "fixtures/round5_execution.json").read_text())

@@ -1,6 +1,7 @@
 """Single all-frame pass per frozen round-2 fit; never changes model selection."""
 
 from __future__ import annotations
+from output_guard import guard_outputs
 import argparse
 import json
 from pathlib import Path
@@ -13,6 +14,15 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--root", type=Path, default=Path.home() / "models/tinyball")
     a = p.parse_args()
+    guard_outputs(
+        a.root / "round2-evaluation-start.json",
+        *(
+            a.root / f"mj-r2-{c}" / name
+            for c in "abcd"
+            for name in ("detections.json", "suggestions.jsonl")
+        ),
+        parser=p,
+    )
     selection_path = a.root / "round2-selection.json"
     selection = json.loads(selection_path.read_text())
     if set(selection["fits"]) != set("abcd") or selection["evaluation_started"]:

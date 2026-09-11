@@ -1,6 +1,7 @@
 """Generate explicitly synthetic one-clip proxy labels OUTSIDE truth, then smoke."""
 
 from __future__ import annotations
+from output_guard import guard_outputs
 import argparse
 import math
 import subprocess
@@ -16,6 +17,14 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--out", type=Path, required=True)
     a = p.parse_args()
+    guard_outputs(
+        a.out,
+        a.out.with_name(a.out.name + "-SYNTHETIC-labels.jsonl"),
+        a.out.with_name(a.out.name + "-SYNTHETIC-labels.jsonl").with_suffix(
+            ".provenance.json"
+        ),
+        parser=p,
+    )
     if a.out.exists():
         p.error("use a new smoke output path")
     m = load_measurements()

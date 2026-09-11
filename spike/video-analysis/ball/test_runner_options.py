@@ -10,6 +10,12 @@ import run_ball
 import wasb_parity
 
 
+@pytest.fixture(autouse=True)
+def isolated_report_destination(monkeypatch, tmp_path):
+    # Runner tests must never target the real report directory, even with stubs.
+    monkeypatch.setattr(run_ball, "DEFAULT_REPORT", tmp_path / "reports")
+
+
 @pytest.mark.parametrize("device", ["cpu", "mps"])
 @pytest.mark.parametrize("grid", [1, 2, 3])
 def test_rf_selected_device_reaches_loader(monkeypatch, device, grid):

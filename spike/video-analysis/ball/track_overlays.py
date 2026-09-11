@@ -1,6 +1,7 @@
 """Render saved RF hypotheses over source frames, without model inference."""
 
 from __future__ import annotations
+from output_guard import guard_outputs
 from common import DEFAULT_REPORT, dump
 from compare_ball import load_measurements
 from metrics import interpolated_box
@@ -100,5 +101,6 @@ def generate(data, out=DEFAULT_REPORT):
 
 
 if __name__ == "__main__":
+    guard_outputs(DEFAULT_REPORT / "tracks")
     for path in generate(load_measurements()):
         print(path)

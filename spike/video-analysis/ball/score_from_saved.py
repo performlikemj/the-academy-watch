@@ -1,6 +1,7 @@
 """Score every saved candidate from MJ's JSONL, without inference or media access."""
 
 from __future__ import annotations
+from output_guard import guard_outputs
 import argparse
 from pathlib import Path
 from ball_truth_kit import import_labels
@@ -27,6 +28,16 @@ def main():
     )
     p.add_argument("--label-rule", choices=RULES, default="as_labelled")
     a = p.parse_args()
+    guard_outputs(
+        a.out_prefix.with_suffix(".json"),
+        a.out_prefix.with_suffix(".md"),
+        inputs=[
+            a.human_jsonl,
+            a.measurements,
+            *(r.split("=", 1)[-1] for r in a.extra_detections),
+        ],
+        parser=p,
+    )
     measurements = load_measurements(a.measurements)
     try:
         labels = import_labels(a.human_jsonl, frame_catalog(measurements))

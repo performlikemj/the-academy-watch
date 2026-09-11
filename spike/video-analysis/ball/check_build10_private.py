@@ -1,5 +1,6 @@
 """Use the preserved real build-8 page and private labels in an isolated browser."""
 
+from output_guard import guard_outputs
 import argparse
 import json
 from functools import partial
@@ -135,4 +136,7 @@ if __name__ == "__main__":
         type=Path,
         default=Path.home() / "codex-runs/ball-build10-real-build8-check.json",
     )
-    check(p.parse_args().out)
+    a = p.parse_args()
+    # Guard audit destinations before launching browsers or a local server.
+    guard_outputs(a.out, parser=p)
+    check(a.out)

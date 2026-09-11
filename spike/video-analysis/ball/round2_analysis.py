@@ -1,6 +1,7 @@
 """Paired all/held-out evidence and predeclared error buckets from saved predictions."""
 
 from __future__ import annotations
+from output_guard import guard_outputs
 import argparse
 import gzip
 import json
@@ -295,6 +296,9 @@ def main():
         default=Path.home() / "codex-runs/ball-human-truth.jsonl",
     )
     a = p.parse_args()
+    guard_outputs(
+        HERE / "fixtures/round2_measurements.json.gz", inputs=[a.human_jsonl], parser=p
+    )
     capture(a.root, a.human_jsonl)
 
 

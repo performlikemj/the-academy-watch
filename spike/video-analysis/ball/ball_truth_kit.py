@@ -1,6 +1,7 @@
 """Extract every 2 fps sample of all windows for independent human ball clicks."""
 
 from __future__ import annotations
+from output_guard import guard_outputs
 import argparse
 import json
 import math
@@ -209,6 +210,11 @@ if __name__ == "__main__":
     p.add_argument("--review", type=Path)
     p.add_argument("--review-suggestions", type=Path)
     a = p.parse_args()
+    guard_outputs(
+        a.out,
+        inputs=[a.human_jsonl, a.suggestions, a.review, a.review_suggestions],
+        parser=p,
+    )
     build(
         a.source,
         a.out,

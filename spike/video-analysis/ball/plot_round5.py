@@ -1,6 +1,7 @@
 """Standalone diagnostic curves from aggregate fixtures; never choose thresholds."""
 
 from __future__ import annotations
+from output_guard import guard_outputs
 import argparse
 import gzip
 import json
@@ -22,6 +23,7 @@ def main():
         "--out", type=Path, default=Path.home() / "codex-runs/ball-r5-fair-curves.png"
     )
     a = p.parse_args()
+    guard_outputs(a.out, inputs=[a.fixture], parser=p)
     e = json.loads(gzip.decompress(a.fixture.read_bytes()))
     fig, axes = plt.subplots(1, 2, figsize=(13, 5), sharey=True)
     for name, row in e["models"].items():

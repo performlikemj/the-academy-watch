@@ -1,6 +1,7 @@
 """One saved inference pass for each of the two completed scale-aware fits."""
 
 from __future__ import annotations
+from output_guard import guard_outputs
 import json
 from pathlib import Path
 from common import DEFAULT_MANIFEST, DEFAULT_SOURCE, HERE, dump, load_dataset, sha256
@@ -9,6 +10,14 @@ from train_tiny_ball import predict_all
 
 
 def main():
+    guard_outputs(
+        Path.home() / "models/tinyball/round3-evaluation-start.json",
+        *(
+            Path.home() / "models/tinyball" / f"mj-r3-{c}" / name
+            for c in "ab"
+            for name in ("detections.json", "suggestions.jsonl")
+        ),
+    )
     root = Path.home() / "models/tinyball"
     state_path = root / "round3-fit-state.json"
     state = json.loads(state_path.read_text())

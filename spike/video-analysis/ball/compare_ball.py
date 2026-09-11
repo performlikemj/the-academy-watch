@@ -1,6 +1,7 @@
 """Deterministic diagnostics and separate human-labelled scores from saved outputs."""
 
 from __future__ import annotations
+from output_guard import guard_outputs
 import argparse
 import gzip
 import json
@@ -504,6 +505,13 @@ def main():
         default=ROOT / "ledgers/research/evidence-bench-2026-09-10-ball-detect",
     )
     a = p.parse_args()
+    guard_outputs(
+        a.out_prefix.with_suffix(".json"),
+        a.out_prefix.with_suffix(".md"),
+        *([a.measurements] if a.update_saved else []),
+        inputs=[a.human_jsonl, a.measurements, a.execution],
+        parser=p,
+    )
     if a.update_saved:
         update_saved(a.report_dir, a.measurements)
     data = compare(

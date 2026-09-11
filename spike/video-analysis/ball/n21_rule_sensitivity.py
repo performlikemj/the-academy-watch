@@ -1,5 +1,6 @@
 """Counterfactual n21 rules from saved boxes; never edits human labels."""
 
+from output_guard import guard_outputs
 from pathlib import Path
 import gzip
 import json
@@ -26,6 +27,7 @@ def top_hit(detections, label, threshold):
 
 
 def main():
+    guard_outputs(HERE / "fixtures/n21_rule_sensitivity.json")
     root = Path.home() / "models/tinyball"
     label_path = Path.home() / "codex-runs/ball-human-truth.jsonl"
     e = json.loads(

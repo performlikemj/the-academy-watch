@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from output_guard import guard_outputs
 import gzip
 import json
 import math
@@ -266,6 +267,7 @@ def capture(root, human_jsonl):
 
 
 if __name__ == "__main__":
+    guard_outputs(HERE / "fixtures/round4_scored_output.json.gz")
     capture(
         Path.home() / "models/tinyball",
         Path.home() / "codex-runs/ball-human-truth.jsonl",

@@ -1,6 +1,7 @@
 """Post-fit scoring, diagnostic checkpoints and RF-only suggestion preparation."""
 
 from __future__ import annotations
+from output_guard import guard_outputs
 import json
 from pathlib import Path
 from ball_truth_kit import import_labels
@@ -14,6 +15,15 @@ from checkpoint_provenance import declared_passes, validate_saved_passes
 
 
 def main():
+    guard_outputs(
+        Path.home() / "models/tinyball/round5-evidence.json",
+        Path.home() / "models/tinyball/round5-kit-suggestions.jsonl",
+        *(
+            Path.home() / "models/tinyball" / f"mj-r5-rf-{c}" / "metrics.json"
+            for c in "ab"
+        ),
+        inputs=[Path.home() / "codex-runs/ball-human-truth.jsonl"],
+    )
     root = Path.home() / "models/tinyball"
     # Check every final and diagnostic before scoring or writing any artifacts.
     validate_saved_passes(declared_passes(root), root)
