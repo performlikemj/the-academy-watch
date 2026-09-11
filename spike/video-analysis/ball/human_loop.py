@@ -171,7 +171,10 @@ if __name__ == "__main__":
 
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument(
-        "--out", type=Path, default=Path.home() / "ball-truth-review/suggestions.jsonl"
+        "--out",
+        type=Path,
+        required=True,
+        help="New suggestions JSONL path (outside existing kits)",
     )
     p.add_argument(
         "--copy-to",

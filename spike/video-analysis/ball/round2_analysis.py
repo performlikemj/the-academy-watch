@@ -173,7 +173,11 @@ def error_summary(records):
     }
 
 
-def capture(root, human_jsonl):
+def capture(root, human_jsonl, out=None):
+    destination = Path(out) if out is not None else HERE / "fixtures"
+    if out is not None:
+        guard_outputs(out, inputs=[human_jsonl, root])
+        destination.mkdir(parents=True)
     m = load_measurements()
     labels = import_labels(human_jsonl, frame_catalog(m))
     selection = json.loads((root / "round2-selection.json").read_text())
@@ -219,7 +223,11 @@ def capture(root, human_jsonl):
         if name.startswith("tinyball-r2-"):
             letter = name.removeprefix("tinyball-r2-")
             dump(
-                root / f"mj-r2-{letter}/metrics.json",
+                (
+                    destination / f"mj-r2-{letter}-metrics-scored.json"
+                    if out is not None
+                    else root / f"mj-r2-{letter}/metrics.json"
+                ),
                 {**paired, "fit": selection["fits"][letter]},
             )
         print(f"scored {name}", flush=True)
@@ -276,12 +284,12 @@ def capture(root, human_jsonl):
             for name, spec in zip(extras, specs)
         },
     }
-    dump(root / "round2-evidence.json", evidence)
+    dump((destination if out is not None else root) / "round2-evidence.json", evidence)
     payload = json.dumps(evidence, sort_keys=True, indent=2, allow_nan=False) + "\n"
     # No human coordinates or individual human records in the committed fixture.
     if '"x":' in payload or '"y":' in payload or '"hit":' in payload:
         raise ValueError("raw labels/coordinates cannot be committed")
-    (HERE / "fixtures/round2_measurements.json.gz").write_bytes(
+    (destination / "round2_measurements.json.gz").write_bytes(
         gzip.compress(payload.encode(), mtime=0)
     )
     return evidence
@@ -295,11 +303,15 @@ def main():
         type=Path,
         default=Path.home() / "codex-runs/ball-human-truth.jsonl",
     )
-    a = p.parse_args()
-    guard_outputs(
-        HERE / "fixtures/round2_measurements.json.gz", inputs=[a.human_jsonl], parser=p
+    p.add_argument(
+        "--out",
+        type=Path,
+        required=True,
+        help="Fresh directory for scored aggregates and enriched metrics",
     )
-    capture(a.root, a.human_jsonl)
+    a = p.parse_args()
+    guard_outputs(a.out, inputs=[a.human_jsonl, a.root], parser=p)
+    capture(a.root, a.human_jsonl, out=a.out)
 
 
 if __name__ == "__main__":

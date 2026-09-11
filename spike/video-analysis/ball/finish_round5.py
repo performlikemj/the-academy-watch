@@ -19,7 +19,7 @@ def main():
         Path.home() / "models/tinyball/round5-evidence.json",
         Path.home() / "models/tinyball/round5-kit-suggestions.jsonl",
         *(
-            Path.home() / "models/tinyball" / f"mj-r5-rf-{c}" / "metrics.json"
+            Path.home() / "models/tinyball" / f"mj-r5-rf-{c}" / "metrics-scored.json"
             for c in "ab"
         ),
         inputs=[Path.home() / "codex-runs/ball-human-truth.jsonl"],
@@ -100,7 +100,7 @@ def main():
             f"rf-r5-{letter}"
         ]
         dump(
-            directory / "metrics.json",
+            directory / "metrics-scored.json",
             {
                 **fit,
                 "fair_protocol": data["models"][f"rf-r5-{letter}"],

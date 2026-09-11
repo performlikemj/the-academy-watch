@@ -28,8 +28,9 @@ source bytes and all fixture hashes remain unchanged.
 label-file hash with the committed scored fixture **before capture**. It checks
 identities again afterward. Freeze now writes gzip only to a fresh `--out`;
 ordinary output is JSON. The committed fixture is always an input. This avoids a
-fixture-overwrite exception to the shared guard. Legacy commands hard-coded to
-rewrite fixtures now fail closed before their capture work. Report regeneration
+fixture-overwrite exception to the shared guard. The n21 sensitivity fixture CLI still fails closed. Historical round-2/3/4
+capture and round-5 freeze now require fresh output directories; inputs and
+trainer metrics remain read-only. Report regeneration
 must use a new output prefix, then compare bytes with the committed ledgers.
 
 All CLI entry points are enumerated below. “Yes” covers their run-owned file
@@ -41,7 +42,7 @@ output targets. A library-only writer is covered by its calling CLI's preflight.
 | `annotate_examples.py` | Yes — shared preflight | `DEFAULT_REPORT/examples/` images |
 | `any_ball_review.py` | Yes — existing safeguards (unchanged exception) | new migrated JSONL, kit and sync HTML/build/queue/suggestion/migration files |
 | `ball_truth_kit.py` | Yes — shared preflight | fresh versioned output directory: index.html, build.json |
-| `build_human_report.py` | Yes — shared preflight | prefix .json/.md; --capture fixture destination blocked |
+| `build_human_report.py` | Yes — shared preflight | prefix .json/.md; fresh --capture-out gzip; optional read-only --fixtures bundle |
 | `check_any_ball_kit.py` | Yes — shared preflight | optional screenshot; browser downloads use isolated temporary files |
 | `check_build10_private.py` | Yes — shared preflight | audit JSON; browser downloads and synthetic scratch kits use isolated temporary directories |
 | `check_build11_private.py` | Yes — shared preflight | audit JSON; browser downloads and synthetic scratch kits use isolated temporary directories |
@@ -50,23 +51,23 @@ output targets. A library-only writer is covered by its calling CLI's preflight.
 | `check_build14_private.py` | Yes — shared preflight | audit JSON; browser downloads and synthetic scratch kits use isolated temporary directories |
 | `check_click_kit.py` | Yes — shared preflight | screenshot; browser downloads use isolated temporary files |
 | `check_round2_kit.py` | Yes — shared preflight | screenshot |
-| `compare_ball.py` | Yes — shared preflight | prefix .json/.md; --update-saved measurement write blocked |
+| `compare_ball.py` | Yes — shared preflight | prefix .json/.md; --update-saved requires separate fresh --measurements-out |
 | `compare_label_exports.py` | No — no file writes | stdout only |
 | `evaluate_round2.py` | Yes — shared preflight | evaluation marker; detections.json and suggestions.jsonl for all four fits |
 | `evaluate_round3.py` | Yes — shared preflight | evaluation marker; detections.json and suggestions.jsonl for both fits |
-| `evaluate_round4.py` | Yes — shared preflight | fit state, evaluation marker, protocol fixture, saved detections/suggestions; fixture preflight blocks entry |
-| `finish_round5.py` | Yes — shared preflight | both fit metrics.json, round5-kit-suggestions.jsonl, round5-evidence.json |
-| `freeze_round5.py` | Yes — shared preflight | protocol/scored fixtures and generated ledger pair; fixture preflight blocks entry |
+| `evaluate_round4.py` | Yes — shared preflight | fit state, evaluation marker, fresh protocol snapshot, saved detections/suggestions |
+| `finish_round5.py` | Yes — shared preflight | both fit metrics-scored.json (trainer metrics.json preserved), round5-kit-suggestions.jsonl, round5-evidence.json |
+| `freeze_round5.py` | Yes — shared preflight | fresh --out bundle containing copied aggregate inputs, protocol/scored artifacts and generated ledger pair |
 | `human_loop.py` | Yes — shared preflight | suggestion JSONL, .plan.json, optional --copy-to |
 | `human_score.py` | Yes — guarded delegate | delegates to score_from_saved (prefix .json/.md) |
 | `inspect_n21_adjudication.py` | Yes — shared preflight | fresh ball-r5-n21 directory: crops, contexts, sheets, audit JSON |
 | `inspect_round5_distractor.py` | Yes — shared preflight | fresh ball-r5-n21 directory: crops, contexts, contact sheet, audit JSON |
 | `n21_rule_sensitivity.py` | Yes — shared preflight | fixed sensitivity fixture; preflight blocks entry |
 | `plot_round5.py` | Yes — shared preflight | PNG at --out |
-| `review_round3.py` | Yes — shared preflight | historical/round2/round3 fixtures, fit metrics, evidence; fixture preflight blocks entry |
-| `review_round4.py` | Yes — shared preflight | round4 fixture, fit metrics, evidence; fixture preflight blocks entry |
+| `review_round3.py` | Yes — shared preflight | fresh --out directory: historical/round2/round3 aggregates, scored metrics, evidence |
+| `review_round4.py` | Yes — shared preflight | fresh --out directory: round4 aggregate, scored metrics, evidence |
 | `review_round5.py` | Yes — shared preflight | fresh --out JSON; --freeze emits fresh gzip at --out, never the fixture |
-| `round2_analysis.py` | Yes — shared preflight | fit metrics/evidence and round2 measurement fixture; fixture preflight blocks entry |
+| `round2_analysis.py` | Yes — shared preflight | fresh --out directory: scored metrics/evidence and round2 aggregate |
 | `round2_people.py` | Yes — shared preflight | person-detection JSON |
 | `round5_inference.py` | Yes — shared preflight | fresh pass directory with detections/suggestions; new evaluation marker preflight (existing marker is read/verified) |
 | `round5_report.py` | Yes — shared preflight | prefix .json/.md |
@@ -90,3 +91,46 @@ Library write paths audited: `common.dump`, `human_loop.write_jsonl`,
 `evaluate_round4`/`round5_inference`, and image-generation helpers called by the
 listed CLIs. Repeated writes to files newly created by the same run (run state,
 training history, detections enriched with provenance) remain supported.
+
+## Multi-step chain audit
+
+Follow-up baseline: 7fddf297 (PR #1086). All chain tests are in
+`test_pipeline_chains.py` and use fresh `tmp_path` directories. Numeric model and
+capture computation is stubbed; orchestration, preflights, markers, serialization,
+report formatting and downstream file reads execute. The trainer's final export
+statements are taken from the frozen `train_round5.py` AST. Historical capture
+export statements are also executed from their AST with synthetic numeric
+results, rather than reimplementing their destination paths inside a mock.
+These are pipeline I/O regressions, not model-training or inference validation.
+
+| Documented chain | Test name | Stage-boundary proof |
+|---|---|---|
+| Round 5: training export → finish → review_round5 → round5_report | `test_train_finish_review_report_chain` | Trainer metrics exist before finish; both remain byte-identical, enriched metrics are fresh; saved provenance and evaluation marker validate; JSON/Markdown consumers complete; repeat finish refuses. RED on 7fddf297: metrics.json already exists. |
+| run_round5 → train_round5 b → final passes (round5_inference) | `test_run_round5_marker_and_pass_chain` | Fit a completes first; b exports before either pass; shared marker is created once and verified on later passes; rerun refuses. |
+| run_round2 → deferred trainer → evaluate_round2 → person proxy → round2_analysis | `test_historical_fit_evaluate_review_chain[round2]` | Four fits and TRAIN selection precede passes; marker/fit records survive; fresh scored artifacts cannot overwrite trainer metrics. |
+| run_round3 → deferred trainer → evaluate_round3 → review_round3 | `test_historical_fit_evaluate_review_chain[round3]` | Both fits precede passes; marker survives; historical and current gzip captures plus scored metrics use fresh review directory. |
+| run_round4 → RF trainer → evaluate_round4 → review_round4 | `test_historical_fit_evaluate_review_chain[round4]` | Continuation orchestration completes; evaluation snapshot is separate from input protocol; review outputs preserve trainer metrics. |
+| Initial kit → human_loop saved suggestions/copy → new versioned kit | `test_suggestions_kit_refresh_chain` | CLI suggestion JSONL and plan can be generated after a kit exists; copy is byte-identical; refresh targets a separate kit and reuses shared frames. |
+| Smoke proxy JSONL → trainer → saved scoring | `test_smoke_train_saved_score_chain` | Synthetic input/provenance precede fresh fit output; synthetic override is required at scoring; report outputs are fresh. The ordinary exported-label → train → score cycle uses the same trainer/suggestion boundaries; it is not executed on human data. |
+| Saved runner output → update measurements → compare report → compare again | `test_saved_update_compare_chain` | Measurement input stays byte-identical; update writes new artifact; both reports agree. |
+| score JSON → capture gzip/report; finish evidence + throughput + historical kit verification → freeze bundle → report regeneration | `test_capture_report_and_freeze_bundle_chain` | Fresh capture feeds report; fresh freeze bundle contains its own aggregate inputs; regeneration consumes that bundle and is byte-identical. Historical freeze still requires verified build-8 metadata. |
+| Committed proxy fixtures → ledger | `test_proxy_ledger_regenerates_byte_identical` | Both JSON and Markdown match git bytes, including historical RF candidate order. |
+| Repeated suggestions/private audit | `test_repeat_run_requires_explicit_destination` | No implicit existing path; parser requires --out before work. |
+
+The README's standalone overlays/annotation/inspection commands consume saved
+runs and emit a fresh image directory; they have no later stage writing into it.
+Runner/device/parity, image rendering, saved-score validation, kit migration and
+Chromium import/export have their existing focused tests in the full suite.
+They are not training chains. `n21_rule_sensitivity` remains a retired fixed-fixture
+capture: the shared guard refuses it, and committed sensitivity is read during
+ledger regeneration. No guard exemption was added.
+
+Consumer audit: no Python reader in ball/ loads round-5 `metrics.json`.
+`review_round5`/`round5_report` use fit_summary + saved detections;
+`finish_round5` emits aggregates directly to round5-evidence; `freeze_round5`
+reads that evidence; `build_human_report`/plotting read aggregate fixtures.
+For manual metrics inspection prefer metrics-scored.json, falling back to the
+historical metrics.json if the new artifact is absent. No consumer needs the
+trainer file rewritten. Round-4 review explicitly falls back to the committed
+protocol when a fresh evaluation snapshot is absent. Committed fixtures and
+hash-pinned trainers are unchanged.

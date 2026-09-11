@@ -83,6 +83,10 @@ def guard_frozen_entrypoint():
     for option in ("--split-json", "--manifest", "--source"):
         p.add_argument(option, type=Path)
     args, _ = p.parse_known_args()
+    if args.out is not None and (args.out.exists() or args.out.is_symlink()):
+        p.error(
+            "Refusing output: output already exists; pick a new fit dir name (even an empty directory is a prior destination)"
+        )
     # The historical YOLO CLI explicitly downloads only this missing cache file.
     initial_download = (
         [args.init]

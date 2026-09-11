@@ -63,7 +63,7 @@ def save_measurements(data, path=MEASUREMENTS):
     Path(path).write_bytes(gzip.compress(payload, mtime=0))
 
 
-def update_saved(report_dir=DEFAULT_REPORT, path=MEASUREMENTS):
+def update_saved(report_dir=DEFAULT_REPORT, path=MEASUREMENTS, out=None):
     """Append only wasb_2x2 and derived tracks; preserve all original run records."""
     data = load_measurements(path)
     folder = report_dir / "wasb_2x2"
@@ -77,7 +77,7 @@ def update_saved(report_dir=DEFAULT_REPORT, path=MEASUREMENTS):
     }
     data["retracking"] = retrack_saved(data)
     data["human_label_plan"] = label_plan(data)
-    save_measurements(data, path)
+    save_measurements(data, out if out is not None else path)
 
 
 def validate(measurements):
@@ -363,7 +363,9 @@ def markdown(data):
         "| RF candidate @0.1 | Scope | Fragments | Weighted continuity | Longest track s | Single hypothesis clips/total |",
         "|---|---|---:|---:|---:|---:|",
     ]
-    for name, r in data["retracking"].items():
+    # Render the historical candidate order, independent of sorted JSON keys.
+    for name in RF_CANDIDATES:
+        r = data["retracking"][name]
         for group in ("on_ball", "all"):
             o = r["groups"][group]
             lines.append(
@@ -374,7 +376,9 @@ def markdown(data):
         "| Candidate @0.1 | On-ball clip | Fragments | Continuity | Longest s | One speed-bounded hypothesis? |",
         "|---|---|---:|---:|---:|---|",
     ]
-    for name, r in data["retracking"].items():
+    # Render the historical candidate order, independent of sorted JSON keys.
+    for name in RF_CANDIDATES:
+        r = data["retracking"][name]
         for c in r["per_clip"]:
             if c["class"] == "on_ball":
                 lines.append(
@@ -495,6 +499,11 @@ def main():
         action="store_true",
         help="Append only local wasb_2x2 outputs and recomputed RF tracks to fixture",
     )
+    p.add_argument(
+        "--measurements-out",
+        type=Path,
+        help="New measurement artifact for --update-saved",
+    )
     p.add_argument("--report-dir", type=Path, default=DEFAULT_REPORT)
     p.add_argument("--measurements", type=Path, default=MEASUREMENTS)
     p.add_argument("--execution", type=Path, default=HERE / "fixtures/execution.json")
@@ -505,17 +514,19 @@ def main():
         default=ROOT / "ledgers/research/evidence-bench-2026-09-10-ball-detect",
     )
     a = p.parse_args()
+    if a.update_saved != (a.measurements_out is not None):
+        p.error("--update-saved requires --measurements-out (a new file)")
     guard_outputs(
         a.out_prefix.with_suffix(".json"),
         a.out_prefix.with_suffix(".md"),
-        *([a.measurements] if a.update_saved else []),
+        a.measurements_out,
         inputs=[a.human_jsonl, a.measurements, a.execution],
         parser=p,
     )
     if a.update_saved:
-        update_saved(a.report_dir, a.measurements)
+        update_saved(a.report_dir, a.measurements, a.measurements_out)
     data = compare(
-        load_measurements(a.measurements),
+        load_measurements(a.measurements_out or a.measurements),
         json.loads(a.execution.read_text()),
         a.human_jsonl,
     )

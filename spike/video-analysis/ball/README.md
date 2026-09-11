@@ -40,13 +40,13 @@ An improvement must beat r2-b's 68.03% held-out top-1 without exceeding its
 1.67 false/10s. Only such an RF win permits a kit refresh.
 
 ```sh
-# New output directories required; at most these two fits.
-~/models/tinyball/.venv-mj/bin/python spike/video-analysis/ball/run_round4.py
-~/models/tinyball/.venv-mj/bin/python spike/video-analysis/ball/evaluate_round4.py
-# Saved scoring, independent size buckets, null controls and unchanged Kalman:
-~/Projects/loanarmy/.loan/bin/python spike/video-analysis/ball/review_round4.py
-# Byte-for-byte ledgers from aggregate fixtures, no labels/models/source needed:
-~/Projects/loanarmy/.loan/bin/python spike/video-analysis/ball/build_human_report.py
+# Verified command block: round4-chain-and-ledger
+# Stub the historical fit/evaluate/review chain; no training or inference.
+~/Projects/loanarmy/.loan/bin/python -m pytest spike/video-analysis/ball/test_pipeline_chains.py -q -k "historical_fit_evaluate_review_chain and round4"
+T=$(mktemp -d)
+~/Projects/loanarmy/.loan/bin/python spike/video-analysis/ball/build_human_report.py --out-prefix "$T/human"
+cmp "$T/human.json" ledgers/research/evidence-bench-2026-09-11-ball-human.json
+cmp "$T/human.md" ledgers/research/evidence-bench-2026-09-11-ball-human.md
 ```
 
 `fixtures/round4_scored_output.json.gz` contains scored aggregates, not click
@@ -109,19 +109,13 @@ The new **Next unlabelled frame** button visits optional as well as target frame
 Suggestions remain unconfirmed and cannot overwrite labels.
 
 ```sh
-PY=~/Projects/loanarmy/.loan/bin/python
-$PY spike/video-analysis/ball/score_from_saved.py \
-  --human-jsonl ~/codex-runs/ball-human-truth.jsonl \
-  --extra-detections tinyball-r1=$HOME/models/tinyball/mj-r1/detections.json
-# The four prescribed fits (outputs/logs must be new; preserves existing runs):
-~/models/tinyball/.venv-mj/bin/python spike/video-analysis/ball/run_round2.py
-# Only after all four fits and TRAIN-only selection are frozen:
-~/models/tinyball/.venv-mj/bin/python spike/video-analysis/ball/evaluate_round2.py
-~/models/tinyball/.venv-mj/bin/python spike/video-analysis/ball/round2_people.py
-# Aggregate saved detections, tracks and predeclared error buckets (no inference):
-$PY spike/video-analysis/ball/round2_analysis.py
-# Reproduce committed human ledgers without labels, videos or models:
-$PY spike/video-analysis/ball/build_human_report.py
+# Verified command block: rounds2-3-chain-and-ledger
+# Stub the historical fit/evaluate/review chains; preserve prior fits.
+~/Projects/loanarmy/.loan/bin/python -m pytest spike/video-analysis/ball/test_pipeline_chains.py -q -k "historical_fit_evaluate_review_chain and not round4"
+T=$(mktemp -d)
+~/Projects/loanarmy/.loan/bin/python spike/video-analysis/ball/build_human_report.py --out-prefix "$T/human"
+cmp "$T/human.json" ledgers/research/evidence-bench-2026-09-11-ball-human.json
+cmp "$T/human.md" ledgers/research/evidence-bench-2026-09-11-ball-human.md
 ```
 
 The aggregate human measurement fixture contains metrics and target coverage keys,
@@ -130,8 +124,8 @@ NumPy 2.4.6 to match the original strict floating-point retracking fixture;
 Python 3.12 produces small differences in the historical aggregate fixture. `fixtures/human_execution.json` records the
 round-1 training, refresh and verification evidence. Round-2 execution and aggregate
 measurement fixtures add paired scoring, error buckets and the conditional doubled-ball-pixel
-projection without embedding label coordinates. `build_human_report.py --capture`
-freezes a completed score JSON. Tests regenerate both ledgers byte-for-byte.
+projection without embedding label coordinates. `build_human_report.py --capture SCORE.json --capture-out NEW.json.gz
+--out-prefix NEW_PREFIX` exports a completed score JSON to a fresh artifact. Tests regenerate both ledgers byte-for-byte.
 
 ## Historical proxy bench and recipe background
 
@@ -219,15 +213,18 @@ suggestion-display heuristic only, not evidence of accuracy or ball identity.
 Regenerate and make an auditable copy beside the synced build metadata:
 
 ```sh
+# Verified command block: fresh-suggestions
+T=$(mktemp -d)
 ~/Projects/loanarmy/.loan/bin/python spike/video-analysis/ball/human_loop.py \
-  --copy-to ~/codex-runs/suggestions.jsonl
+  --out "$T/suggestions.jsonl" --copy-to "$T/suggestions-copy.jsonl"
+cmp "$T/suggestions.jsonl" "$T/suggestions-copy.jsonl"
 ```
 
-The copy is byte-identical to `~/ball-truth-review/suggestions.jsonl`; source
-counts can be checked without opening the kit. `--copy-to` takes a file path.
-Then rebuild with
-`ball_truth_kit.py --suggestions ~/ball-truth-review/suggestions.jsonl`.
-Build version 4 is synced to `~/codex-runs/ball-truth-review-build.json`.
+The copy is byte-identical to the fresh `--out` file; source counts can be
+checked without opening the kit. `human_loop.py` now requires an explicit `--out`;
+it never defaults into an existing kit. Pass that file to `ball_truth_kit.py
+--suggestions FILE --out NEW-build14 --frames-dir SHARED`, retaining the shared
+frame directory. The historical build-4 sync path is not a current destination.
 
 The original JSONL fields remain `{clip,t,x,y,visible}`: source pixels, absolute
 seconds and null coordinates when invisible. New labels add `source_accepted`;
@@ -379,18 +376,17 @@ revision `923462cacdeb3353b84ddebdedb3f4b7a8553b0f`. Its soccer weights stay at
 Do not rerun inference just to regenerate or label-score reports.
 
 ```sh
-# Ordinary regeneration: saved numeric fixtures only.
-~/Projects/loanarmy/.loan/bin/python spike/video-analysis/ball/compare_ball.py
-
-# Append the already-recorded WASB tiled run and recompute saved RF tracks.
-~/Projects/loanarmy/.loan/bin/python spike/video-analysis/ball/compare_ball.py --update-saved
-~/Projects/loanarmy/.loan/bin/python spike/video-analysis/ball/track_overlays.py
-
-# Worktree gate with cv2 required for existing bench rendering checks.
-BENCH_REQUIRE_CV2=1 ~/Projects/loanarmy/.loan/bin/python -m pytest \
-  spike/video-analysis/bench spike/video-analysis/ball -q
-ruff check spike/video-analysis/bench spike/video-analysis/ball
-ruff format --check spike/video-analysis/bench spike/video-analysis/ball
+# Verified command block: proxy-regeneration
+T=$(mktemp -d)
+# Saved numeric fixtures only; every destination is fresh.
+~/Projects/loanarmy/.loan/bin/python spike/video-analysis/ball/compare_ball.py --out-prefix "$T/proxy"
+cmp "$T/proxy.json" ledgers/research/evidence-bench-2026-09-10-ball-detect.json
+cmp "$T/proxy.md" ledgers/research/evidence-bench-2026-09-10-ball-detect.md
+# Re-append the recorded WASB run to a NEW measurement artifact, never the input.
+~/Projects/loanarmy/.loan/bin/python spike/video-analysis/ball/compare_ball.py \
+  --update-saved --measurements-out "$T/measurements.json.gz" --out-prefix "$T/updated"
+cmp "$T/updated.json" ledgers/research/evidence-bench-2026-09-10-ball-detect.json
+cmp "$T/updated.md" ledgers/research/evidence-bench-2026-09-10-ball-detect.md
 ```
 
 The WASB tiled inference command used in round 2 (already completed) was:
@@ -431,12 +427,12 @@ fixtures preserve historical decisions; round3 explicitly supersedes model
 selection. The original 4/16 split and common 14/6 split are kept separate.
 
 ```sh
-# Regenerate both committed ledgers, without private files or inference.
-~/Projects/loanarmy/.loan/bin/python spike/video-analysis/ball/build_human_report.py
-
-# Re-score existing local saved passes, including the two completed scale runs.
-# No inference; requires MJ's local JSONL and saved local artifacts.
-~/Projects/loanarmy/.loan/bin/python spike/video-analysis/ball/review_round3.py
+# Verified command block: both-human-ledgers
+# Regenerate both human ledger files without private data or inference.
+T=$(mktemp -d)
+~/Projects/loanarmy/.loan/bin/python spike/video-analysis/ball/build_human_report.py --out-prefix "$T/human"
+cmp "$T/human.json" ledgers/research/evidence-bench-2026-09-11-ball-human.json
+cmp "$T/human.md" ledgers/research/evidence-bench-2026-09-11-ball-human.md
 ```
 
 The two authorized scale fits are scripted in `run_round3.py`, followed once by
@@ -636,19 +632,13 @@ new rule-A results. Its CLI writes separate local files and never updates the
 headline or kit selection. No new headline scores are published in this change.
 
 ```sh
-# One-time migration/build (refuses to overwrite an existing v2 output):
-~/Projects/loanarmy/.loan/bin/python spike/video-analysis/ball/any_ball_review.py
-# Refresh HTML after code edits, reusing the private seed and queue:
-~/Projects/loanarmy/.loan/bin/python spike/video-analysis/ball/ball_truth_kit.py \
-  --human-jsonl ~/codex-runs/ball-human-truth-v2.jsonl \
-  --suggestions ~/ball-truth-review/suggestions.jsonl \
-  --review ~/ball-truth-review/any-ball-review.json
-# Isolated real-browser verification; never uses MJ's browser profile:
-~/models/tinyball/.venv-mj/bin/python spike/video-analysis/ball/check_any_ball_kit.py
-# Machinery for after MJ exports reviewed v2 labels (saved detections only):
+# Verified command block: dated-rule-a-report
+T=$(mktemp -d)
+STAMP=$(date +%Y%m%d-%H%M%S)
+# Saved detections only; provisional report, no committed headline update.
 ~/Projects/loanarmy/.loan/bin/python spike/video-analysis/ball/round5_report.py \
   --human-jsonl ~/codex-runs/ball-human-truth-v2.jsonl --label-rule any_ball \
-  --out-prefix ~/codex-runs/ball-rule-a-provisional
+  --out-prefix "$T/ball-rule-a-provisional-$STAMP"
 ```
 
 `throughput_round5.py` now validates every selected checkpoint against its fit
@@ -965,7 +955,8 @@ measurements and checks the shared frame catalog/provenance against that artifac
 `test_build14_safety.py` pins salvage, stale/clear protection, dismiss-only notice,
 cross-tab behavior, cached navigation and both guards. Browser tests run locally
 in `.venv-mj`, not GitHub CI. `check_build14_private.py` binds LAN only and writes
-`~/codex-runs/ball-build14-compatibility.json`: builds 10–13 storage compatibility,
+an explicit fresh `--out` JSON (the historical audit is
+`~/codex-runs/ball-build14-compatibility.json`): builds 10–13 storage compatibility,
 real first-open export equivalence, H1/H2a/H2b/H3 and Dismiss, recovery salvage,
 build-12/13/14 navigation timings, and plain LAN HTTP.
 
@@ -981,3 +972,45 @@ leaving the committed fixture read-only. It requires the historical label identi
 exact recorded four-model set and saved-detection hashes. `--extra` is forbidden
 with freeze. Ordinary fresh `--out NEW.json` reports still accept custom saved
 passes. No scoring, training or inference ran as part of this guard change.
+
+### Pipeline boundaries and repeat runs
+
+The [chain table](CLI_WRITE_AUDIT.md#multi-step-chain-audit) names the regression
+for every orchestration family and separates stub computation from real I/O.
+Historical training commands above describe completed experiments; do not repeat
+training to regenerate reports. Their stage entry points remain available with
+fresh fit names and explicit report destinations. Every re-score after one of
+MJ's exports uses a dated output prefix (`YYYYMMDD-HHMMSS`); combine it with a fresh
+run directory to avoid same-second collisions. `round5_report.py` requires
+`--out-prefix`; `human_loop.py` and `check_build14_private.py` require `--out`.
+The private check's historical audit path is an input record, not a default output.
+
+`finish_round5.py` leaves both trainers' `metrics.json` and `fit_summary.json`
+byte-identical and writes `mj-r5-rf-{a,b}/metrics-scored.json`. Read the new file
+for enriched metrics; on historical fits without it, the existing `metrics.json`
+is the historical enriched record. No Python consumer in this directory reads
+round-5 `metrics.json`: review/report scoring reads fit declarations and saved
+passes; freeze reads `round5-evidence.json`; ledger generation reads the aggregate
+fixtures. Those inputs and historical fallbacks remain unchanged, so no report
+needs an in-place metrics update. Repeating finish refuses its existing outputs.
+
+The round-2/3/4 review CLIs require `--out NEW_DIRECTORY`; their scored metrics,
+evidence and gzip aggregates go there, leaving trainer files and fixtures alone.
+Round-4 evaluation writes `round4-protocol-at-evaluation.json` beside its fits;
+review uses that snapshot when present and the historical committed protocol
+otherwise. `freeze_round5.py --out NEW_DIRECTORY` creates a fresh aggregate bundle
+and ledger pair; `build_human_report.py --fixtures BUNDLE --out-prefix NEW_PREFIX`
+regenerates that bundle. `compare_ball.py --update-saved` requires a separate
+`--measurements-out NEW.gz`; its input measurements remain immutable.
+
+To update a committed ledger intentionally: generate to a fresh prefix, review
+its diff against the committed file, then move the reviewed files into place
+under git. A capture or freeze bundle needs the same explicit review before
+promoting aggregate fixtures. Never use a guard bypass or generate directly over
+a committed artifact. The commands above only regenerate and compare; they do
+not promote anything.
+
+```sh
+# Verified command block: all-pipeline-chains
+~/Projects/loanarmy/.loan/bin/python -m pytest spike/video-analysis/ball/test_pipeline_chains.py -q
+```
