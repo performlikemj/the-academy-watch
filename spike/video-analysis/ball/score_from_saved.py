@@ -5,7 +5,7 @@ from output_guard import guard_outputs
 import argparse
 from pathlib import Path
 from ball_truth_kit import import_labels
-from common import DEFAULT_REPORT, dump, sha256
+from common import dump, sha256
 from extra_detections import load_extra
 from compare_ball import MEASUREMENTS, load_measurements
 from human_loop import frame_catalog
@@ -17,7 +17,7 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--human-jsonl", type=Path, required=True)
     p.add_argument("--measurements", type=Path, default=MEASUREMENTS)
-    p.add_argument("--out-prefix", type=Path, default=DEFAULT_REPORT / "human-followup")
+    p.add_argument("--out-prefix", type=Path, required=True)
     p.add_argument(
         "--extra-detections", action="append", default=[], metavar="NAME=PATH"
     )

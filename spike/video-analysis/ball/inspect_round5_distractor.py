@@ -2,6 +2,7 @@
 
 from output_guard import guard_outputs
 from pathlib import Path
+import argparse
 import json
 from ball_truth_kit import import_labels
 from common import DEFAULT_MANIFEST, DEFAULT_SOURCE, dump, load_dataset, samples
@@ -10,15 +11,21 @@ from human_loop import frame_catalog
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--out", type=Path, required=True, help="Fresh directory for this inspection"
+    )
+    args = parser.parse_args()
     guard_outputs(
-        Path.home() / "codex-runs/ball-r5-n21",
+        args.out,
         inputs=[Path.home() / "codex-runs/ball-human-truth.jsonl"],
+        parser=parser,
     )
     import cv2
 
     cv2.setNumThreads(1)
-    root = Path.home() / "codex-runs/ball-r5-n21"
-    root.mkdir(exist_ok=True)
+    root = args.out
+    root.mkdir(parents=True)
     labels = import_labels(
         Path.home() / "codex-runs/ball-human-truth.jsonl",
         frame_catalog(load_measurements()),

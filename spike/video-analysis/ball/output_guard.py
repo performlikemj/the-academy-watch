@@ -32,8 +32,12 @@ def guard_outputs(*outputs, inputs=(), parser=None):
             reason = "protected label filename"
         elif path.exists() or path.is_symlink():
             reason = "output already exists"
-        elif resolved in seen:
-            reason = "outputs alias one another"
+        elif any(
+            resolved.is_relative_to(p) or p.is_relative_to(resolved) for p in seen
+        ):
+            reason = "outputs overlap (identical, ancestor or descendant destinations)"
+        elif any(not p.is_dir() and resolved.is_relative_to(p) for p in protected):
+            reason = "output is nested under an input file"
         elif any(p.is_relative_to(resolved) for p in protected):
             reason = "output directory contains an input"
         if reason:

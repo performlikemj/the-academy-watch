@@ -75,12 +75,10 @@ def main():
     p.add_argument(
         "--output",
         type=Path,
-        default=home / "codex-runs/ball-human-truth-v2-build14.jsonl",
+        required=True,
     )
-    p.add_argument("--kit", type=Path, default=home / "ball-truth-review-build14")
-    p.add_argument(
-        "--sync", type=Path, default=home / "codex-runs/ball-truth-review-build14"
-    )
+    p.add_argument("--kit", type=Path, required=True)
+    p.add_argument("--sync", type=Path, required=True)
     p.add_argument(
         "--baseline", type=Path, default=home / "codex-runs/ball-human-truth.jsonl"
     )

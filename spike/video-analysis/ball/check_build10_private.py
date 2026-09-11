@@ -134,7 +134,7 @@ if __name__ == "__main__":
     p.add_argument(
         "--out",
         type=Path,
-        default=Path.home() / "codex-runs/ball-build10-real-build8-check.json",
+        required=True,
     )
     a = p.parse_args()
     # Guard audit destinations before launching browsers or a local server.

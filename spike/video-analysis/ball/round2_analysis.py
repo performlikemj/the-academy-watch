@@ -173,11 +173,10 @@ def error_summary(records):
     }
 
 
-def capture(root, human_jsonl, out=None):
-    destination = Path(out) if out is not None else HERE / "fixtures"
-    if out is not None:
-        guard_outputs(out, inputs=[human_jsonl, root])
-        destination.mkdir(parents=True)
+def capture(root, human_jsonl, *, out):
+    destination = Path(out)
+    guard_outputs(destination, inputs=[human_jsonl, root])
+    destination.mkdir(parents=True)
     m = load_measurements()
     labels = import_labels(human_jsonl, frame_catalog(m))
     selection = json.loads((root / "round2-selection.json").read_text())
@@ -223,11 +222,7 @@ def capture(root, human_jsonl, out=None):
         if name.startswith("tinyball-r2-"):
             letter = name.removeprefix("tinyball-r2-")
             dump(
-                (
-                    destination / f"mj-r2-{letter}-metrics-scored.json"
-                    if out is not None
-                    else root / f"mj-r2-{letter}/metrics.json"
-                ),
+                destination / f"mj-r2-{letter}-metrics-scored.json",
                 {**paired, "fit": selection["fits"][letter]},
             )
         print(f"scored {name}", flush=True)
@@ -284,7 +279,7 @@ def capture(root, human_jsonl, out=None):
             for name, spec in zip(extras, specs)
         },
     }
-    dump((destination if out is not None else root) / "round2-evidence.json", evidence)
+    dump(destination / "round2-evidence.json", evidence)
     payload = json.dumps(evidence, sort_keys=True, indent=2, allow_nan=False) + "\n"
     # No human coordinates or individual human records in the committed fixture.
     if '"x":' in payload or '"y":' in payload or '"hit":' in payload:

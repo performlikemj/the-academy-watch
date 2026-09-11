@@ -99,11 +99,10 @@ def path_sensitivity(outputs, labels, split):
     return result
 
 
-def capture(root, human_jsonl, historical_only=False, out=None):
-    destination = Path(out) if out is not None else HERE / "fixtures"
-    if out is not None:
-        guard_outputs(out, inputs=[human_jsonl, root])
-        destination.mkdir(parents=True)
+def capture(root, human_jsonl, historical_only=False, *, out):
+    destination = Path(out)
+    guard_outputs(destination, inputs=[human_jsonl, root])
+    destination.mkdir(parents=True)
     m = load_measurements()
     labels = import_labels(human_jsonl, frame_catalog(m))
     protocol = json.loads((HERE / "fixtures/round3_execution.json").read_text())
@@ -293,15 +292,11 @@ def capture(root, human_jsonl, historical_only=False, out=None):
         }
         for name in ("tinyball-r3-a", "tinyball-r3-b"):
             dump(
-                (
-                    destination / (model_dirs[name] + "-metrics-scored.json")
-                    if out is not None
-                    else root / model_dirs[name] / "metrics.json"
-                ),
+                destination / (model_dirs[name] + "-metrics-scored.json"),
                 next(r for r in results if r["candidate"] == name),
             )
     freeze(destination / "round3_scored_output.json.gz", evidence)
-    dump((destination if out is not None else root) / "round3-evidence.json", evidence)
+    dump(destination / "round3-evidence.json", evidence)
     return evidence
 
 

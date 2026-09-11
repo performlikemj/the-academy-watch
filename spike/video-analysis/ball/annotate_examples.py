@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 from output_guard import guard_outputs
-import json
-from common import DEFAULT_REPORT
+import argparse
+from pathlib import Path
 from compare_ball import load_measurements
 from metrics import agreement, interpolated_box
 
 
-def generate(measurements, out=DEFAULT_REPORT):
+def generate(measurements, out):
     import cv2
 
     ids = [
@@ -113,7 +113,16 @@ def generate(measurements, out=DEFAULT_REPORT):
     return paths
 
 
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--out", type=Path, required=True, help="Fresh output directory"
+    )
+    args = parser.parse_args()
+    guard_outputs(args.out, parser=parser)
+    result = generate(load_measurements(), args.out)
+    print(result)
+
+
 if __name__ == "__main__":
-    guard_outputs(DEFAULT_REPORT / "examples")
-    data = load_measurements()
-    print(json.dumps(generate(data), indent=2))
+    main()

@@ -339,7 +339,7 @@ def test_historical_fit_evaluate_review_chain(
         source.write_bytes(b"stub source")
         (root / "yolo11n.pt").write_bytes(b"stub person checkpoint")
         monkeypatch.setattr(round2_people, "DEFAULT_SOURCE", source)
-        invoke(monkeypatch, round2_people)
+        invoke(monkeypatch, round2_people, "--out", root / "round2-people.json")
         assert (root / "round2-people.json").is_file()
     marker = root / f"round{round_number}-evaluation-start.json"
     marker_bytes = marker.read_bytes()

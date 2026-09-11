@@ -201,9 +201,7 @@ def build(
 if __name__ == "__main__":
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--source", type=Path, default=DEFAULT_SOURCE)
-    p.add_argument(
-        "--out", type=Path, default=Path.home() / "ball-truth-review-build14"
-    )
+    p.add_argument("--out", type=Path, required=True)
     p.add_argument("--frames-dir", type=Path, default=Path.home() / "ball-truth-review")
     p.add_argument("--suggestions", type=Path)
     p.add_argument("--human-jsonl", type=Path)

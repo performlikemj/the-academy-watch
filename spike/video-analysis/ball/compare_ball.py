@@ -9,7 +9,7 @@ import math
 from fractions import Fraction
 from pathlib import Path
 from ball_truth_kit import import_labels
-from common import DEFAULT_REPORT, HERE, ROOT, dump, sha256, sample_indices
+from common import DEFAULT_REPORT, HERE, dump, sha256, sample_indices
 from metrics import (
     agreement,
     pair_decomposition,
@@ -56,15 +56,18 @@ def load_measurements(path=MEASUREMENTS):
     return json.loads(gzip.decompress(Path(path).read_bytes()))
 
 
-def save_measurements(data, path=MEASUREMENTS):
+def save_measurements(data, path):
+    guard_outputs(path)
     payload = json.dumps(
         data, sort_keys=True, separators=(",", ":"), allow_nan=False
     ).encode()
     Path(path).write_bytes(gzip.compress(payload, mtime=0))
 
 
-def update_saved(report_dir=DEFAULT_REPORT, path=MEASUREMENTS, out=None):
+def update_saved(report_dir=DEFAULT_REPORT, path=MEASUREMENTS, *, out):
     """Append only wasb_2x2 and derived tracks; preserve all original run records."""
+    out = Path(out)
+    guard_outputs(out, inputs=[path])
     data = load_measurements(path)
     folder = report_dir / "wasb_2x2"
     run = json.loads((folder / "run.json").read_text())
@@ -77,7 +80,7 @@ def update_saved(report_dir=DEFAULT_REPORT, path=MEASUREMENTS, out=None):
     }
     data["retracking"] = retrack_saved(data)
     data["human_label_plan"] = label_plan(data)
-    save_measurements(data, out if out is not None else path)
+    save_measurements(data, out)
 
 
 def validate(measurements):
@@ -511,7 +514,7 @@ def main():
     p.add_argument(
         "--out-prefix",
         type=Path,
-        default=ROOT / "ledgers/research/evidence-bench-2026-09-10-ball-detect",
+        required=True,
     )
     a = p.parse_args()
     if a.update_saved != (a.measurements_out is not None):
@@ -524,7 +527,7 @@ def main():
         parser=p,
     )
     if a.update_saved:
-        update_saved(a.report_dir, a.measurements, a.measurements_out)
+        update_saved(a.report_dir, a.measurements, out=a.measurements_out)
     data = compare(
         load_measurements(a.measurements_out or a.measurements),
         json.loads(a.execution.read_text()),

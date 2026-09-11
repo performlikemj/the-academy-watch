@@ -124,11 +124,10 @@ def large_scale_diagnostic(m, labels, fit, split):
     return result
 
 
-def capture(root, human_jsonl, out=None):
-    destination = Path(out) if out is not None else HERE / "fixtures"
-    if out is not None:
-        guard_outputs(out, inputs=[human_jsonl, root])
-        destination.mkdir(parents=True)
+def capture(root, human_jsonl, *, out):
+    destination = Path(out)
+    guard_outputs(destination, inputs=[human_jsonl, root])
+    destination.mkdir(parents=True)
     protocol_path = root / "round4-protocol-at-evaluation.json"
     if not protocol_path.exists():
         protocol_path = HERE / "fixtures/round4_execution.json"
@@ -193,11 +192,7 @@ def capture(root, human_jsonl, out=None):
         else:
             fit = state["fits"][name[-1]]
             dump(
-                (
-                    destination / (directory.name + "-metrics-scored.json")
-                    if out is not None
-                    else directory / "metrics.json"
-                ),
+                destination / (directory.name + "-metrics-scored.json"),
                 {
                     "status": "complete",
                     "licence": fit["licence"],
@@ -273,7 +268,7 @@ def capture(root, human_jsonl, out=None):
         },
     }
     freeze(destination / "round4_scored_output.json.gz", e)
-    dump((destination if out is not None else root) / "round4-evidence.json", e)
+    dump(destination / "round4-evidence.json", e)
     return e
 
 

@@ -16,7 +16,11 @@ EXECUTION = HERE / "fixtures/human_execution.json"
 PREFIX = ROOT / "ledgers/research/evidence-bench-2026-09-11-ball-human"
 
 
-def generate(out_prefix=PREFIX, fixtures=None, capture=None):
+def generate(out_prefix, fixtures=None, capture=None):
+    out_prefix = Path(out_prefix)
+    guard_outputs(
+        out_prefix.with_suffix(".json"), out_prefix.with_suffix(".md"), inputs=[capture]
+    )
     fixtures = Path(fixtures) if fixtures is not None else HERE / "fixtures"
     data = json.loads(
         gzip.decompress(
@@ -93,7 +97,7 @@ def main():
         type=Path,
         help="Freeze aggregate score_from_saved JSON; never accepts JSONL labels",
     )
-    p.add_argument("--out-prefix", type=Path, default=PREFIX)
+    p.add_argument("--out-prefix", type=Path, required=True)
     p.add_argument(
         "--fixtures",
         type=Path,

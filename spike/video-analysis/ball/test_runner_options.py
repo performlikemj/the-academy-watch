@@ -10,12 +10,6 @@ import run_ball
 import wasb_parity
 
 
-@pytest.fixture(autouse=True)
-def isolated_report_destination(monkeypatch, tmp_path):
-    # Runner tests must never target the real report directory, even with stubs.
-    monkeypatch.setattr(run_ball, "DEFAULT_REPORT", tmp_path / "reports")
-
-
 @pytest.mark.parametrize("device", ["cpu", "mps"])
 @pytest.mark.parametrize("grid", [1, 2, 3])
 def test_rf_selected_device_reaches_loader(monkeypatch, device, grid):
@@ -94,10 +88,20 @@ def fake_runtime(monkeypatch):
 
 @pytest.mark.parametrize("device", ["cpu", "mps"])
 @pytest.mark.parametrize("candidate", ["rf_full", "rf_2x2", "rf_3x3"])
-def test_runner_forwards_rf_device(monkeypatch, device, candidate):
+def test_runner_forwards_rf_device(monkeypatch, tmp_path, device, candidate):
     fake_runtime(monkeypatch)
     monkeypatch.setattr(
-        sys, "argv", ["run_ball", "--candidate", candidate, "--device", device]
+        sys,
+        "argv",
+        [
+            "run_ball",
+            "--report-dir",
+            str(tmp_path / "reports"),
+            "--candidate",
+            candidate,
+            "--device",
+            device,
+        ],
     )
     monkeypatch.setattr(run_ball, "load_dataset", lambda *a: ({}, clips()))
     monkeypatch.setattr(run_ball, "probe", lambda _: {"width": 1920, "height": 1080})
@@ -153,13 +157,17 @@ def test_parity_three_available_clips_five_distinct_frames(monkeypatch):
 
 
 @pytest.mark.parametrize("end,valid", [(5, True), (0.1, False)])
-def test_parity_preflight_before_model_loading(monkeypatch, end, valid, capsys):
+def test_parity_preflight_before_model_loading(
+    monkeypatch, tmp_path, end, valid, capsys
+):
     fake_runtime(monkeypatch)
     monkeypatch.setattr(
         sys,
         "argv",
         [
             "run_ball",
+            "--report-dir",
+            str(tmp_path / "reports"),
             "--candidate",
             "wasb_2x2",
             "--parity-frames",

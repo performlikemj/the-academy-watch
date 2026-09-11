@@ -11,7 +11,6 @@ from pathlib import Path
 
 from common import (
     DEFAULT_MANIFEST,
-    DEFAULT_REPORT,
     DEFAULT_SOURCE,
     HERE,
     dump,
@@ -32,7 +31,7 @@ def main():
     )
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
     parser.add_argument("--source", type=Path, default=DEFAULT_SOURCE)
-    parser.add_argument("--report-dir", type=Path, default=DEFAULT_REPORT)
+    parser.add_argument("--report-dir", type=Path, required=True)
     parser.add_argument("--clips", default="all")
     parser.add_argument("--device", default="mps", choices=["mps", "cpu"])
     parser.add_argument(

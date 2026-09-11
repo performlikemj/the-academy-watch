@@ -9,20 +9,24 @@ from common import HERE, DEFAULT_MANIFEST, DEFAULT_SOURCE, dump, load_dataset, s
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--all-frames", action="store_true")
+    parser.add_argument(
+        "--out", type=Path, required=True, help="Fresh directory for this inspection"
+    )
+    args = parser.parse_args()
     guard_outputs(
-        Path.home() / "codex-runs/ball-r5-n21",
+        args.out,
         inputs=[Path.home() / "codex-runs/ball-human-truth.jsonl"],
+        parser=parser,
     )
     import cv2
     import numpy as np
 
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--all-frames", action="store_true")
-    args = parser.parse_args()
     cv2.setNumThreads(1)
     root = Path.home() / "models/tinyball"
-    out = Path.home() / "codex-runs/ball-r5-n21"
-    out.mkdir(exist_ok=True)
+    out = args.out
+    out.mkdir(parents=True)
     e = json.loads(
         gzip.decompress((HERE / "fixtures/round5_scored_output.json.gz").read_bytes())
     )

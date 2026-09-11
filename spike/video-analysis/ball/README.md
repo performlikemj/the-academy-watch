@@ -166,27 +166,10 @@ Accepting a correct suggestion takes one keypress; finding a tiny ball may take
 longer. Leave uncertain frames unlabelled; do not mark them invisible.
 
 ```sh
-# Setup (already installed on basecamp). Ultralytics stays bench-only.
-uv pip install --python spike/video-analysis/ball/.venv-bench/bin/python \
-  -r spike/video-analysis/ball/requirements-train.txt
-
-# After MJ exports the kit to ~/Downloads/ball-human-truth.jsonl:
-spike/video-analysis/ball/.venv-bench/bin/python spike/video-analysis/ball/train_tiny_ball.py \
-  --human-jsonl ~/Downloads/ball-human-truth.jsonl --out ~/models/tinyball/mj-r1
-
-# Pre-fill again, retaining existing localStorage labels and image files:
-~/Projects/loanarmy/.loan/bin/python spike/video-analysis/ball/ball_truth_kit.py \
-  --suggestions ~/models/tinyball/mj-r1/suggestions.jsonl
-
-# MJ confirms/corrects and exports again, then score all saved candidates:
-~/Projects/loanarmy/.loan/bin/python spike/video-analysis/ball/score_from_saved.py \
-  --human-jsonl ~/Downloads/ball-human-truth.jsonl \
-  --extra-detections tinyball-r1=$HOME/models/tinyball/mj-r1/detections.json
-
-# A subsequent training run can start from the earlier weights:
-spike/video-analysis/ball/.venv-bench/bin/python spike/video-analysis/ball/train_tiny_ball.py \
-  --human-jsonl ~/Downloads/ball-human-truth.jsonl --out ~/models/tinyball/mj-r2 \
-  --init ~/models/tinyball/mj-r1/weights.pt
+# Verified command block: exported-label-pipeline-stubs
+# Run stage-boundary checks on synthetic temporary files; no training or inference.
+~/Projects/loanarmy/.loan/bin/python -m pytest spike/video-analysis/ball/test_pipeline_chains.py -q \
+  -k 'smoke_train_saved_score_chain or suggestions_kit_refresh_chain'
 ```
 
 Use a fresh output directory per run. Weights, datasets and labels stay outside
@@ -389,11 +372,14 @@ cmp "$T/updated.json" ledgers/research/evidence-bench-2026-09-10-ball-detect.jso
 cmp "$T/updated.md" ledgers/research/evidence-bench-2026-09-10-ball-detect.md
 ```
 
-The WASB tiled inference command used in round 2 (already completed) was:
+The WASB tiled run in round 2 used `--candidate wasb_2x2 --parity-frames 5`.
+The current CLI also requires `--report-dir NEW_DIRECTORY`. Verify its plumbing
+without repeating inference:
 
 ```sh
-spike/video-analysis/ball/.venv-bench/bin/python spike/video-analysis/ball/run_ball.py \
-  --candidate wasb_2x2 --parity-frames 5
+# Verified command block: runner-parity-stubs
+# Current runner calls require --report-dir NEW_DIRECTORY.
+~/Projects/loanarmy/.loan/bin/python -m pytest spike/video-analysis/ball/test_runner_options.py -q
 ```
 
 `fixtures/measurements.json.gz` is deterministic gzip of sorted JSON. `gzip -dc`
@@ -537,9 +523,10 @@ memory and per-second process samples remain private; committed timing evidence
 contains per-repeat summaries, with mean mediaanalysisd CPU >=30% flagged as
 contended. This retrospective flag does not change the nonblocking wait policy.
 
-`inspect_n21_adjudication.py` decodes five source frames and draws saved boxes for
+`inspect_n21_adjudication.py --out NEW_DIRECTORY` decodes five source frames and draws saved boxes for
 all four models at both TRAIN budgets; it imports no detector. Its private sheet
-is `~/codex-runs/ball-r5-n21/adjudicate-s6-s10.png`. The later decision must cover s0–s10 and
+was saved as `~/codex-runs/ball-r5-n21/adjudicate-s6-s10.png`; preserve that
+historical directory. New runs require their own output directory. The later decision must cover s0–s10 and
 choose match-ball versus any-ball semantics before labels change.
 
 Canonical historical tracker aggregates were generated under CPython 3.11.16,
@@ -556,15 +543,15 @@ No further m04 training. Calibrate on TRAIN-disjoint clips; budget future fits b
 optimizer steps; publish matched-rate curves and per-clip counts beside TRAIN
 operating points. Fresh labels from a different venue/day are the next evidence.
 
-N21 follow-up: `inspect_n21_adjudication.py --all-frames` renders all eleven frames,
+N21 follow-up: `inspect_n21_adjudication.py --all-frames --out NEW_DIRECTORY` renders all eleven frames,
 current MJ labels (including accepted-source/manual provenance), background zoom
-and saved boxes from every candidate at both TRAIN budgets. The output is
+and saved boxes from every candidate at both TRAIN budgets. The historical output is
 `~/codex-runs/ball-r5-n21/adjudicate-s0-s10.png`. s8–s10 show a football, s6 none,
 and s7 is ambiguous. YOLO has no boxes on these five no-ball frames, but does
 box the background ball among the six visible frames. The click-distance sequence
 86,142,164,158,118,77px (reviewer's flagged spot) moves away, then back.
 
-`n21_rule_sensitivity.py` verifies saved-pass/label hashes and captures aggregate
+`n21_rule_sensitivity.py --out NEW.json` verifies saved-pass/label hashes and captures aggregate
 counterfactuals without editing labels. Match-ball-only removes six visible
 background-ball labels and expands the held-out no-ball denominator to66. The
 any-visible-ball false column retains the prior fixed60-frame credit convention;
@@ -720,11 +707,11 @@ points at `../ball-truth-review/` on basecamp. Sync the five files in
 `~/codex-runs/ball-truth-review-build8/`; its page/build hashes are in WORK_LOG.md.
 
 ```sh
-# Synthetic browser regressions run within pytest in the existing RF environment:
+# Verified command block: isolated-browser-and-fresh-audit
+T=$(mktemp -d)
 ~/models/tinyball/.venv-mj/bin/python -m pytest spike/video-analysis/ball/test_kit_safety.py -q
-# Real kit and exact preserved build-8 page, always isolated browser storage:
 ~/models/tinyball/.venv-mj/bin/python spike/video-analysis/ball/check_any_ball_kit.py
-~/models/tinyball/.venv-mj/bin/python spike/video-analysis/ball/check_build10_private.py
+~/models/tinyball/.venv-mj/bin/python spike/video-analysis/ball/check_build10_private.py --out "$T/build10-audit.json"
 ```
 
 ### Historical build 11 — confirmed decisions and merge conflicts
@@ -1014,3 +1001,46 @@ not promote anything.
 # Verified command block: all-pipeline-chains
 ~/Projects/loanarmy/.loan/bin/python -m pytest spike/video-analysis/ball/test_pipeline_chains.py -q
 ```
+
+### Explicit output destinations (G1–G3)
+
+Each repeatable CLI now requires an explicit output path. The complete
+[write-path sweep](CLI_WRITE_AUDIT.md#fixed-destination-sweep-g1g3) distinguishes
+those paths from immutable per-fit artifacts. Inspection runs never share their
+output directory: use separate fresh directories for s6–s10, s0–s10, distractor
+crops, overlays and annotations. Existing adjudication sheets remain untouched.
+
+```sh
+# Verified command block: independent-inspections
+R="$PWD"
+T=$(mktemp -d)
+cd "$T"
+~/Projects/loanarmy/.loan/bin/python "$R/spike/video-analysis/ball/inspect_n21_adjudication.py" --out "$T/s6-s10"
+~/Projects/loanarmy/.loan/bin/python "$R/spike/video-analysis/ball/inspect_n21_adjudication.py" --all-frames --out "$T/s0-s10"
+~/Projects/loanarmy/.loan/bin/python "$R/spike/video-analysis/ball/inspect_round5_distractor.py" --out "$T/distractor"
+~/Projects/loanarmy/.loan/bin/python "$R/spike/video-analysis/ball/n21_rule_sensitivity.py" --out "$T/sensitivity.json"
+cmp "$T/sensitivity.json" "$R/spike/video-analysis/ball/fixtures/n21_rule_sensitivity.json"
+```
+
+The commands decode source frames and reuse saved boxes; they perform no model
+inference and write only under the fresh temporary directory. For overlays use
+`track_overlays.py --out NEW_DIRECTORY` or `annotate_examples.py --out NEW_DIRECTORY`;
+they write their own `tracks/` or `examples/` child. Private build-10/11/12/13 audit
+CLIs now require `--out NEW.json`, just like build 14. `round2_people.py` requires
+`--out NEW.json`; its parent identifies the existing round-2 selection input.
+
+`run_ball.py` requires `--report-dir`; score/report CLIs require `--out-prefix`.
+`ball_truth_kit.py` requires `--out NEW-build14`, and `any_ball_review.py` requires
+all three destinations: `--output NEW.jsonl --kit NEW-build14 --sync NEW-build14`.
+The historical examples in earlier sections describe completed builds, not
+permission to reuse their directories. Keep using dated report prefixes and
+fresh generation followed by review before any intentional promotion under git.
+
+Library APIs also require destinations: `review_round3.capture(..., out=...)`,
+`review_round4.capture(..., out=...)`, `round2_analysis.capture(..., out=...)`,
+`compare_ball.update_saved(..., out=...)`, `compare_ball.save_measurements(data, PATH)`,
+and `build_human_report.generate(PREFIX)`.
+They have no fallback to committed files or trainer metrics. Shared preflight
+rejects output/output ancestry in either order and outputs below input files,
+including aliases through symlinks. Existing input directories may contain fresh
+outputs; their input files remain protected individually.

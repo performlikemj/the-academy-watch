@@ -10,9 +10,7 @@ from common import DEFAULT_MANIFEST, DEFAULT_SOURCE, dump, load_dataset, samples
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument(
-        "--out", type=Path, default=Path.home() / "models/tinyball/round2-people.json"
-    )
+    p.add_argument("--out", type=Path, required=True)
     a = p.parse_args()
     guard_outputs(a.out, parser=p)
     if a.out.exists():
