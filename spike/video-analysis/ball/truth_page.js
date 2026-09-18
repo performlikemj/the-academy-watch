@@ -5,6 +5,19 @@ const reviewSuggestionMap=Object.fromEntries(savedReviewSuggestions.map(s=>[api.
 for(const row of initialReviewQueue) if(row.suggestion) reviewSuggestionMap[api.key(row)]=row.suggestion;
 const targetKeys=new Set(targets.map(api.key));
 const status=document.getElementById('status'), safety=document.getElementById('safety');
+const badge=document.getElementById('badge'), flashTimers={}, flashes={place:0,accept:0,none:0,match:0,confirm:0};
+function flash(id) {
+  // Presentation only: light the action button once its save resolved; never touches storage.
+  const button=document.getElementById(id);
+  clearTimeout(flashTimers[id]);button.classList.add('active');flashes[id]++;
+  flashTimers[id]=setTimeout(()=>button.classList.remove('active'),320);
+}
+function feedback(id,saved) {Promise.resolve(saved).then(ok=>{if(ok===true)flash(id);});}
+function describeLabel(row) {
+  if(!row)return ['unlabelled','Unlabelled'];
+  const base=!row.visible?['none','No ball']:row.match_ball===true?['match','Match ball']:row.match_ball===false?['ball','Ball (not match)']:['unknown','Ball (match unknown)'];
+  return confirmed(row)?[base[0]+'-confirmed',base[1]+' · Confirmed']:base;
+}
 const canvas=document.getElementById('canvas'), ctx=canvas.getContext('2d'), clips=document.getElementById('clips');
 let state=store.empty(), labels={}, reviewKeys=new Set(), reviewQueue=[], reviewMode=false;
 let index=0, generation=0, imageReady=false, initialized=false, readOnly=false, recoveryExported=false;
@@ -134,10 +147,12 @@ function show() {
   document.getElementById('progress').textContent=reviewMode
     ?`reviewed ${reviewQueue.filter(f=>confirmed(labels[api.key(f)])).length} / ${reviewQueue.length}`
     :`labelled ${Object.keys(labels).length} / ${frames.length} (${frames.length-Object.keys(labels).length} remaining) · targets ${Object.keys(labels).filter(k=>targetKeys.has(k)).length} / ${targetKeys.size}`;
-  for(const id of ['none','clear','match','confirm','accept']) document.getElementById(id).disabled=readOnly||!initialized;
+  for(const id of ['place','none','clear','match','confirm','accept']) document.getElementById(id).disabled=readOnly||!initialized;
   document.getElementById('accept').disabled ||= !suggestion;
   document.getElementById('match').disabled ||= !row?.visible;
   document.getElementById('confirm').disabled ||= !reviewMode||!row?.visible;
+  const [labelState,labelText]=describeLabel(row);badge.dataset.state=labelState;badge.textContent=labelText;
+  document.getElementById('accept').textContent=`Enter: accept suggestion → ${reviewMode?'ball (not match)':'match ball'}`;
   document.getElementById('caption').textContent=`${f.clip} · s${f.sample_index} · t=${f.t.toFixed(3)} s · ${row?(row.visible?`ball visible · match ball: ${row.match_ball===null?'unknown':row.match_ball?'YES':'NO'}`:'no ball at all'):'UNLABELLED'}${suggestion?` · suggestion ${suggestion.source} (${suggestion.score.toFixed(3)})`:' · no suggestion'}`;
   clips.value=f.clip;imageReady=false;
   const img=new Image();
@@ -171,10 +186,11 @@ function moveClip(step) {
 canvas.onclick=e=> {
   if(!imageReady||readOnly)return;
   const r=canvas.getBoundingClientRect(), f=frames[index];
-  setLabel(Math.min(f.source_size[0]-.001,Math.max(0,(e.clientX-r.left)/r.width*f.source_size[0])),Math.min(f.source_size[1]-.001,Math.max(0,(e.clientY-r.top)/r.height*f.source_size[1])),true);
+  feedback('place',setLabel(Math.min(f.source_size[0]-.001,Math.max(0,(e.clientX-r.left)/r.width*f.source_size[0])),Math.min(f.source_size[1]-.001,Math.max(0,(e.clientY-r.top)/r.height*f.source_size[1])),true));
 };
-document.getElementById('accept').onclick=()=>{const s=suggestionFor(frames[index]);if(s)setLabel(s.x,s.y,true,{source_accepted:true,accepted_source:s.source,accepted_score:s.score});};
-document.getElementById('none').onclick=()=>setLabel(null,null,false);
+document.getElementById('place').onclick=()=>{canvas.scrollIntoView({block:'center'});status.textContent='Click the ball centre in the frame to place a ball.';};
+document.getElementById('accept').onclick=()=>{const s=suggestionFor(frames[index]);if(s)feedback('accept',setLabel(s.x,s.y,true,{source_accepted:true,accepted_source:s.source,accepted_score:s.score}));};
+document.getElementById('none').onclick=()=>feedback('none',setLabel(null,null,false));
 document.getElementById('clear').onclick=()=> {
   if(readOnly||!imageReady)return;
   const key=api.key(frames[index]);
@@ -183,18 +199,18 @@ document.getElementById('clear').onclick=()=> {
 document.getElementById('match').onclick=()=> {
   if(readOnly||!imageReady)return;
   const key=api.key(frames[index]);
-  save((latest,time)=> {
+  feedback('match',save((latest,time)=> {
     const row=latest.labels[key];if(!row?.visible)return false;
     return {...latest,labels:{...latest.labels,[key]:put({...row,match_ball:row.match_ball!==true},time)}};
-  });
+  }));
 };
 document.getElementById('confirm').onclick=()=> {
   if(readOnly||!imageReady||!reviewMode)return;
   const key=api.key(frames[index]);
-  save((latest,time)=> {
+  feedback('confirm',save((latest,time)=> {
     const row=latest.labels[key];if(!row?.visible||!reviewKeys.has(key))return false;
     return {...latest,labels:{...latest.labels,[key]:put({...row,match_ball:false,review_frame:true,review_confirmed:true,needs_confirmation:false,needs_any_ball_review:false},time)}};
-  });
+  }));
 };
 document.getElementById('review').onclick=()=> {
   reviewMode=!reviewMode;

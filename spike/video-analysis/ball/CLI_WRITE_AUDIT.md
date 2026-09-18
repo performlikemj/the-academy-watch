@@ -49,6 +49,7 @@ output targets. A library-only writer is covered by its calling CLI's preflight.
 | `check_build12_private.py` | Yes — shared preflight | audit JSON; browser downloads and synthetic scratch kits use isolated temporary directories | Explicit destination required (changed) |
 | `check_build13_private.py` | Yes — shared preflight | audit JSON; browser downloads and synthetic scratch kits use isolated temporary directories | Explicit destination required (changed) |
 | `check_build14_private.py` | Yes — shared preflight | audit JSON; browser downloads and synthetic scratch kits use isolated temporary directories | Already explicit fresh output; optional screenshot writes nothing by default |
+| `check_build15_private.py` | Yes — shared preflight | audit JSON; browser downloads and synthetic scratch kits use isolated temporary directories | Already explicit fresh output (build-15 audit, same guard) |
 | `check_click_kit.py` | Yes — shared preflight | screenshot; browser downloads use isolated temporary files | Already explicit fresh output; optional screenshot writes nothing by default |
 | `check_round2_kit.py` | Yes — shared preflight | screenshot | Already explicit fresh output; optional screenshot writes nothing by default |
 | `compare_ball.py` | Yes — shared preflight | prefix .json/.md; --update-saved requires separate fresh --measurements-out | Explicit destination required (changed) |
