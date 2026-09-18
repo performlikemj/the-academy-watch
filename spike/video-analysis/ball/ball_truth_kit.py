@@ -125,9 +125,9 @@ def build(
 
     out = Path(out)
     frames_dir = Path(frames_dir or Path.home() / "ball-truth-review")
-    if out.resolve() == frames_dir.resolve() or not out.name.endswith("-build14"):
+    if out.resolve() == frames_dir.resolve() or not out.name.endswith("-build15"):
         raise ValueError(
-            "build 14 requires a separate VERSIONED directory ending -build14"
+            "build 15 requires a separate VERSIONED directory ending -build15"
         )
     if (out / "index.html").exists() or (out / "build.json").exists():
         raise ValueError("refusing to overwrite an existing kit build")
@@ -175,7 +175,7 @@ def build(
     dump(
         out / "build.json",
         {
-            "build_version": 14,
+            "build_version": 15,
             "label_schema_version": 2,
             "review_frames": len(queue),
             "review_suggestions": sum(r["suggestion"] is not None for r in queue),

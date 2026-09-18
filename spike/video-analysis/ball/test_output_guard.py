@@ -245,6 +245,7 @@ def test_shared_guard_resolves_paths_before_any_write(tmp_path, monkeypatch, kin
         ("check_build12_private", "--out"),
         ("check_build13_private", "--out"),
         ("check_build14_private", "--out"),
+        ("check_build15_private", "--out"),
         ("train_tiny_ball", "--out"),
         ("train_tiny_ball_rfdetr", "--out"),
         ("train_round5", "--out"),

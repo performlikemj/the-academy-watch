@@ -1,8 +1,9 @@
 # Local ball bench: MJ human truth
 
-The current click kit is **build 14**, in its own versioned directory. See the
+The current click kit is **build 15**, in its own versioned directory. See the
+[build-15 feedback](#build-15--visible-key-press-feedback) and the
 [build-14 fixes](#build-14--salvage-and-dismiss-only-notice) before labelling;
-builds 9–13 are preserved, with their historical instructions below.
+builds 9–14 are preserved, with their historical instructions below.
 
 MJ's September 11 product decision: **RF-DETR (Apache-2.0)** is the product model.
 **ultralytics is bench-only and must not enter the serving path; the product model
@@ -206,7 +207,7 @@ cmp "$T/suggestions.jsonl" "$T/suggestions-copy.jsonl"
 The copy is byte-identical to the fresh `--out` file; source counts can be
 checked without opening the kit. `human_loop.py` now requires an explicit `--out`;
 it never defaults into an existing kit. Pass that file to `ball_truth_kit.py
---suggestions FILE --out NEW-build14 --frames-dir SHARED`, retaining the shared
+--suggestions FILE --out NEW-build15 --frames-dir SHARED`, retaining the shared
 frame directory. The historical build-4 sync path is not a current destination.
 
 The original JSONL fields remain `{clip,t,x,y,visible}`: source pixels, absolute
@@ -947,6 +948,42 @@ an explicit fresh `--out` JSON (the historical audit is
 real first-open export equivalence, H1/H2a/H2b/H3 and Dismiss, recovery salvage,
 build-12/13/14 navigation timings, and plain LAN HTTP.
 
+### Build 15 — visible key-press feedback
+
+Use `~/ball-truth-review-build15/index.html`; sync files are at
+`~/codex-runs/ball-truth-review-build15/`. Both contain index.html, build.json,
+any-ball-review.json, review-suggestions.json and migration.json. Shared frames
+remain at `../ball-truth-review/`. Builds 10–14 and their sync copies are untouched.
+Build 15 keeps build 14's exact v2 storage key, envelope, label schema, queue and
+suggestions: `truth_storage.js`, `truth_io.js` and `truth_legacy.js` are byte-identical
+to build 14, and the import, merge, salvage and old-page-notice logic in
+`truth_page.js` is unchanged. The change is presentation only.
+
+The nav now starts with a key row: a **This frame** badge plus one button per
+action labelled with its key — Click: place ball; Enter: accept suggestion (→ ball
+(not match) in review mode, → match ball in normal mode); N: no ball at all; M:
+toggle match ball; C: confirm as-is (not match). Keys still drive those buttons,
+so clicking a button is exactly its key. When an action's save resolves, its
+button lights for about 320 ms (`active` class) and the badge re-reads the saved
+label: Unlabelled / No ball / Ball (not match) / Match ball / Ball (match unknown),
+with “· Confirmed” appended for a confirmed review row. The badge is text, not
+colour alone, and renders from the same in-memory `labels` that persistence writes,
+so it shows the real stored value after every action, after navigation, after a
+reload and in another tab. Nothing lights when nothing saved (disabled action or
+read-only page); the Click button itself only scrolls to the frame.
+
+`test_build15_safety.py` pins, in Chromium: every key lights its button and updates
+the badge; N marks no-ball and the value persists across navigation, reload and a
+fresh tab; button click equals key for Enter/N/M/C; feedback never writes storage
+and stays silent when read-only; the page names build 15. `check_build15_private.py
+--out NEW.json` extends the private audit: builds 10–14 → 15 storage compatibility
+(0 missing / 0 extra / 0 changed, byte-identical v2 storage), a real-kit key-press
+probe, and the build-14 checks (first open, H1–H3, recovery, build-14/15 navigation
+timings, LAN HTTP). Historical audit: `~/codex-runs/ball-build15-compatibility.json`.
+The build-15 seed is the unchanged migration of the original export (SHA256
+d74900f6…), written to `~/codex-runs/ball-build15/ball-human-truth-v2-build15.jsonl`,
+outside the protected `~/codex-runs/ball-human-truth*.jsonl` names.
+
 ### CLI output protection (post-merge follow-up)
 
 See [the complete CLI write-path audit](CLI_WRITE_AUDIT.md). CLI output destinations
@@ -1030,8 +1067,8 @@ CLIs now require `--out NEW.json`, just like build 14. `round2_people.py` requir
 `--out NEW.json`; its parent identifies the existing round-2 selection input.
 
 `run_ball.py` requires `--report-dir`; score/report CLIs require `--out-prefix`.
-`ball_truth_kit.py` requires `--out NEW-build14`, and `any_ball_review.py` requires
-all three destinations: `--output NEW.jsonl --kit NEW-build14 --sync NEW-build14`.
+`ball_truth_kit.py` requires `--out NEW-build15`, and `any_ball_review.py` requires
+all three destinations: `--output NEW.jsonl --kit NEW-build15 --sync NEW-build15`.
 The historical examples in earlier sections describe completed builds, not
 permission to reuse their directories. Keep using dated report prefixes and
 fresh generation followed by review before any intentional promotion under git.

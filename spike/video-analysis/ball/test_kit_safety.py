@@ -417,10 +417,10 @@ def test_versioned_build_shared_frames_and_no_overwrite(tmp_path, monkeypatch):
     monkeypatch.setattr(
         human_loop, "review_plan", lambda _: {"on_ball": [], "off_pitch": []}
     )
-    out = tmp_path / "test-build14"
+    out = tmp_path / "test-build15"
     ball_truth_kit.build(DEFAULT_SOURCE, out, frames_dir=shared)
     meta = json.loads((out / "build.json").read_text())
-    assert meta["build_version"] == 14 and meta["shared_frames"] == "../shared"
+    assert meta["build_version"] == 15 and meta["shared_frames"] == "../shared"
     assert '"path": "../shared/frame.svg"' in (out / "index.html").read_text()
     assert meta["storage_key"].startswith("ball-human-v2:")
     assert meta["legacy_input_key"].startswith("ball-human-v1:")

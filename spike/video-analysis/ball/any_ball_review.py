@@ -95,8 +95,8 @@ def main():
         p.error("sync build already exists; use a new sync directory")
     if (a.kit / "index.html").exists() or (a.kit / "build.json").exists():
         p.error("kit directory already contains a build; use a new directory")
-    if a.kit.resolve() == a.frames_dir.resolve() or not a.kit.name.endswith("-build14"):
-        p.error("use a separate versioned kit directory ending -build14")
+    if a.kit.resolve() == a.frames_dir.resolve() or not a.kit.name.endswith("-build15"):
+        p.error("use a separate versioned kit directory ending -build15")
     m = load_measurements()
     frames = frame_catalog(m)
     labels = import_labels(a.input, frames)

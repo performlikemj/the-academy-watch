@@ -499,7 +499,7 @@ def test_suggestions_kit_refresh_chain(tmp_path, monkeypatch):
     dump(shared / "frames.json", frames)
     source = tmp_path / "source.mp4"
     dump(shared / "build.json", {"frozen_set_id": "synthetic", "source": str(source)})
-    kit.build(source, tmp_path / "first-build14", frames_dir=shared)
+    kit.build(source, tmp_path / "first-build15", frames_dir=shared)
     # CLI module execution retains its real writers; only saved numeric loading
     # is replaced. Empty detections are a supported suggestion result.
     m = {"clips": [], "frozen_set_id": "synthetic", "outputs": {}}
@@ -540,7 +540,7 @@ def test_suggestions_kit_refresh_chain(tmp_path, monkeypatch):
         [
             "ball_truth_kit.py",
             "--out",
-            str(tmp_path / "second-build14"),
+            str(tmp_path / "second-build15"),
             "--source",
             str(source),
             "--frames-dir",
@@ -551,10 +551,10 @@ def test_suggestions_kit_refresh_chain(tmp_path, monkeypatch):
     )
     runpy.run_path(str(HERE / "ball_truth_kit.py"), run_name="__main__")
     assert (
-        json.loads((tmp_path / "second-build14/build.json").read_text())["suggestions"]
+        json.loads((tmp_path / "second-build15/build.json").read_text())["suggestions"]
         == 0
     )
-    assert (tmp_path / "first-build14/index.html").is_file()
+    assert (tmp_path / "first-build15/index.html").is_file()
     assert (shared / "frame.jpg").read_bytes() == b"synthetic shared frame placeholder"
 
 
@@ -666,7 +666,10 @@ def test_capture_report_and_freeze_bundle_chain(sandbox, tmp_path, monkeypatch):
         invoke(monkeypatch, freeze, "--out", bundle)
 
 
-@pytest.mark.parametrize("script", ["human_loop.py", "check_build14_private.py"])
+@pytest.mark.parametrize(
+    "script",
+    ["human_loop.py", "check_build14_private.py", "check_build15_private.py"],
+)
 def test_repeat_run_requires_explicit_destination(tmp_path, script):
     import subprocess
     import sys
