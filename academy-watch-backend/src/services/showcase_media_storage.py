@@ -2,7 +2,7 @@
 
 In Azure, browsers upload directly to the private pending container with a
 short-lived write SAS. The Flask app only verifies and moderates that upload;
-approved, EXIF-stripped bytes are written to the public container.
+approved, EXIF-stripped bytes are written to the private published container.
 
 When Azure is not configured, non-production environments use a local
 filesystem backend with the same contract. Production and staging never fall
@@ -12,7 +12,7 @@ Env:
   AZURE_STORAGE_CONNECTION_STRING  Azure storage account connection string
   SHOWCASE_MEDIA_PENDING_CONTAINER private pending container (default
                                    ``showcase-media-pending``)
-  SHOWCASE_MEDIA_CONTAINER         public approved container (default
+  SHOWCASE_MEDIA_CONTAINER         private approved container (default
                                    ``showcase-media``)
   SHOWCASE_PHOTO_MAX_MB            upload cap in MiB (default ``8``)
   SHOWCASE_MEDIA_LOCAL_DIR         local-dev root (default under ``/tmp``)
@@ -48,6 +48,8 @@ UPLOAD_SAS_MINUTES = 15
 PREVIEW_SAS_MINUTES = 15
 DEFAULT_MAX_PHOTO_MB = 8
 DEV_ROUTE_PREFIX = "/api/dev/showcase-media"
+PUBLIC_ROUTE_PREFIX = "/api/media/published"
+_checked_containers: set[str] = set()
 
 _CONTENT_TYPE_EXTENSIONS = {
     "image/jpeg": "jpg",
@@ -142,6 +144,67 @@ def _service_client() -> "BlobServiceClient":
     return BlobServiceClient.from_connection_string(connection_string)
 
 
+def _check_container(client, name: str) -> None:
+    """Diagnose provisioning once per worker; never create or change containers."""
+    if name in _checked_containers:
+        return
+    try:
+        client.get_container_client(name).get_container_properties()
+    except ResourceNotFoundError:
+        logger.warning("Required media container %s is missing; provision it privately", name)
+    except Exception:
+        logger.warning("Could not verify required media container %s", name)
+    _checked_containers.add(name)
+
+
+def published_url(reference: str | None) -> str | None:
+    """Keep the wire URL absolute and independent of the storage account."""
+    if not reference:
+        return None
+    from src.services.player_share_card import public_api_origin
+
+    path = public_blob_path_from_reference(reference)
+    base = public_api_origin().strip().rstrip("/")
+    if base.endswith("/api"):
+        base = base[:-4]
+    return f"{base}{PUBLIC_ROUTE_PREFIX}/{quote(path, safe='/')}"
+
+
+def published_response(blob_path: str):
+    """Stream an already-authorized JPEG; HEAD/304 never download Azure bytes."""
+    from flask import Response, request, send_file
+
+    _require_configured()
+    blob_path = _validate_blob_path(blob_path)
+    if is_azure_configured():
+        client = _service_client()
+        _check_container(client, _public_container())
+        blob = client.get_blob_client(_public_container(), blob_path)
+        try:
+            props = blob.get_blob_properties()
+            size = int(props.size)
+            if size <= 0 or size > max_photo_bytes():
+                raise StoredMediaError("published photo exceeds size cap")
+            etag = str(props.etag).strip('"')
+            response = Response(mimetype="image/jpeg")
+            response.set_etag(etag)
+            response.content_length = size
+            response.make_conditional(request)
+            if request.method != "HEAD" and response.status_code != 304:
+                download = blob.download_blob(offset=0, length=size, max_concurrency=1)
+                response.response = download.chunks()
+        except ResourceNotFoundError as exc:
+            raise StoredMediaError("published photo not found") from exc
+    else:
+        path = local_public_path(blob_path)
+        if not path.is_file() or not 0 < path.stat().st_size <= max_photo_bytes():
+            raise StoredMediaError("published photo not found or exceeds size cap")
+        response = send_file(path, mimetype="image/jpeg", conditional=True)
+    response.headers["Cache-Control"] = "public, max-age=86400"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
+
+
 def _account_key(client: "BlobServiceClient") -> str:
     key = getattr(getattr(client, "credential", None), "account_key", None)
     if not key:
@@ -151,6 +214,7 @@ def _account_key(client: "BlobServiceClient") -> str:
 
 def _mint_sas(container: str, blob_path: str, permission: "BlobSasPermissions", expiry: datetime) -> str:
     client = _service_client()
+    _check_container(client, container)
     return generate_blob_sas(
         account_name=client.account_name,
         container_name=container,
@@ -299,7 +363,7 @@ def read_pending_bytes(blob_path: str) -> bytes:
 
 
 def publish(blob_path: str, processed_bytes: bytes, content_type: str = "image/jpeg") -> str:
-    """Write processed bytes to the public container and return its public URL."""
+    """Write processed bytes privately and return the published storage path."""
     _require_configured()
     if content_type != "image/jpeg":
         raise ValueError("approved showcase photos must be JPEG")
@@ -308,13 +372,15 @@ def publish(blob_path: str, processed_bytes: bytes, content_type: str = "image/j
 
     public_blob_path = _published_blob_path(blob_path)
     if is_azure_configured():
-        blob = _service_client().get_blob_client(_public_container(), public_blob_path)
+        client = _service_client()
+        _check_container(client, _public_container())
+        blob = client.get_blob_client(_public_container(), public_blob_path)
         blob.upload_blob(
             processed_bytes,
             overwrite=True,
             content_settings=ContentSettings(content_type=content_type),
         )
-        return blob.url
+        return public_blob_path
 
     path = local_public_path(public_blob_path, create_parent=True)
     temporary_path = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
@@ -326,7 +392,7 @@ def publish(blob_path: str, processed_bytes: bytes, content_type: str = "image/j
             temporary_path.unlink()
         except FileNotFoundError:
             pass
-    return _quoted_dev_url(f"published/{public_blob_path}")
+    return public_blob_path
 
 
 def delete_pending(blob_path: str) -> None:
@@ -354,6 +420,10 @@ def public_blob_path_from_reference(public_url_or_blob_path: str) -> str:
 
     parsed = urlparse(public_url_or_blob_path)
     path = unquote(parsed.path)
+    app_prefix = f"{PUBLIC_ROUTE_PREFIX}/"
+    if path.startswith(app_prefix):
+        return _validate_blob_path(path[len(app_prefix) :])
+
     dev_prefix = f"{DEV_ROUTE_PREFIX}/published/"
     if path.startswith(dev_prefix):
         return _validate_blob_path(path[len(dev_prefix) :])

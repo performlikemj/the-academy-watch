@@ -501,7 +501,8 @@ def test_roster_photo_queries_are_constant_and_brief_needs_none(club_app, client
         event.remove(engine, "before_cursor_execute", count_photo_reads)
 
 
-def test_batch_photos_keep_owners_scoped_to_each_subject(club_app, client):
+def test_batch_photos_keep_owners_scoped_to_each_subject(club_app, client, monkeypatch):
+    monkeypatch.setenv("PUBLIC_API_BASE_URL", "https://api.example.test")
     from types import SimpleNamespace
 
     from src.services.club_player_profile import prefetch_member_photos
@@ -539,7 +540,7 @@ def test_batch_photos_keep_owners_scoped_to_each_subject(club_app, client):
             SimpleNamespace(local_player_id=None, player_api_id=lid),
         ]
     )
-    assert photos == {("tracked", lid): "https://example.invalid/right.jpg"}
+    assert photos == {("tracked", lid): "https://api.example.test/api/media/published/right.jpg"}
 
 
 @pytest.mark.parametrize("status,consent", [("pending", "pending"), ("accepted", "pending")])

@@ -1,0 +1,19 @@
+# Private media through the app — complete
+
+- Owner decision A: Azure containers stay private; no cloud or infrastructure access.
+- `GET|HEAD /api/media/published/<path>` validates `_validate_blob_path`, finds an approved photo by stored upload path (JPEG/PNG/WebP source), verifies its published reference, then authorizes before storage access or 304. Current banners match their stored path exactly. Deleted/replaced/unapproved objects return 404 even if bytes remain.
+- Visibility reuses `resolve_public_adult_subject` (conservative age, unknown age, suppression, club provenance and signed identities) and anonymous `_local_player_visible_to_context`; merged/unapproved/hidden local identities fail closed. Manager-only club photos remain on their existing authenticated route; the old dev published-file bypass is closed.
+- Azure reads private `showcase-media` via properties + chunk iterator; local reads use `send_file`. JPEG, nosniff, ETag, HEAD/304, existing size cap; 600 requests/minute. Cache: `public, max-age=86400`; already-cached bytes can remain for that day after revocation, while requests reaching the backend recheck current eligibility.
+- Publishing returns a stored path in existing URL columns. Showcase, club-brand and roster photo serializers construct absolute API URLs using `PUBLIC_API_BASE_URL` / existing `public_api_origin`; origin and `/api` forms both work. No migration needed (production has no media/banner rows). First-use container checks warn by name; no new container/access-level mutations.
+- Frontend already consumes API URLs. SWA config, Vite and HTML impose no image CSP restriction; no config/UI change required. iOS inspected read-only: `publicUrl` stays a string; its Azure-only validation applies to upload PUTs, which retain SAS URLs.
+
+Verification (Basecamp, logs under `/tmp/media-proxy-work/`):
+- Focused pytest: **300 passed**, including **45 new proxy cases**; lifecycle, showcase, trust, club home/player/console tests included.
+- Full backend: **2948 passed, 35 skipped, 3 failed** (only known radar: full chart, percentile pool, old/new comparison). Baseline `origin/main` **6db39d8** archive: same **3 radar failures, 2 passed, 1 skipped** against the same local Postgres clone.
+- Initial local-time transfer failures were UTC/local date-boundary fixture skew; unchanged baseline transfer tests **18 passed** with `TZ=UTC`. Final full run also uses UTC. Dummy OpenAI key needed for collection; live integration credentials disabled.
+- Ruff check passes; format check **513 files** passes. Frontend OSV **547 packages, no issues**; setup restored frozen dependencies using existing Homebrew tools on PATH. No lockfile/dependency changes.
+- Frontend lint **0 errors, 182 existing warnings**; production build passes (existing bundle-size warning); Node tests **186 passed**. No separate typecheck script (JS/JSX project).
+- Playwright real UI **2 passed**: local player PNG upload → admin moderation → anonymous JPEG from app; real HTTP GET/HEAD/304 headers; banner upload/replacement → new image loads and old URL 404. No API mocks; remote browser requests blocked.
+- Clone `media_proxy_20260925` came from a read-only local `soccer_newsletter` dump; only clone migrated to ch02/seeded. Backend isolated on 5017, frontend 5177. Servers stopped, clone dropped after verification; original shared DB untouched.
+- Screenshots: `shots/01-photo-pending.png`, `02-admin-approved.png`, `03-public-photo.png`, `04-club-banner.png`, `05-club-banner-replaced.png` (five; visually inspected public photo and replacement).
+- Reusable browser test: `academy-watch-frontend/e2e/media-proxy.spec.mjs`, opt-in `E2E_MEDIA_FIXTURE`; isolated seed/runtime/config scripts retained in the artifact directory. Root CONTINUITY.md untouched per owner file fence. No iOS, .github, lockfile, push, PR or merge changes.

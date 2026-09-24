@@ -49,7 +49,7 @@ from src.models.club_invitation import (
 )
 from src.models.contact import ContactRequest
 from src.models.follow import Follow, FollowList, FollowPlayerSnapshot, PlayerShadow, PlayerShadowStats
-from src.models.funding import ClubRosterMember
+from src.models.funding import ClubProgram, ClubRosterMember
 from src.models.journey import PlayerJourney
 from src.models.league import (
     CommunityTake,
@@ -750,7 +750,7 @@ def _media_dict(media: PlayerShowcaseMedia, *, include_preview: bool = False) ->
         "player_api_id": media.player_api_id,
         "kind": media.kind,
         "status": media.status,
-        "public_url": media.public_url,
+        "public_url": showcase_media_storage.published_url(media.blob_path) if media.public_url else None,
         "content_type": media.content_type,
         "size_bytes": media.size_bytes,
         "is_primary": bool(media.is_primary),
@@ -1855,6 +1855,57 @@ def get_player_showcase(player_api_id: int):
         return jsonify(_safe_error_payload(e, "Failed to load showcase")), 500
 
 
+@showcase_bp.get("/media/published/<path:blob_path>")
+@limiter.limit("600 per minute")
+def get_published_media(blob_path: str):
+    """Authorize from current DB state before opening storage or returning 304."""
+    from src.services.public_player_subject import resolve_public_adult_subject
+
+    try:
+        blob_path = showcase_media_storage._validate_blob_path(blob_path)
+    except showcase_media_storage.InvalidBlobPathError:
+        abort(404)
+    if not blob_path.endswith(".jpg"):
+        abort(404)
+    if blob_path.startswith("club-banners/"):
+        allowed = ClubProgram.query.filter_by(banner_url=blob_path).first() is not None
+    elif blob_path.startswith(("players/", "local-players/")):
+        # Upload paths retain the source extension; published copies are JPEG.
+        stem = blob_path[:-4]
+        media = PlayerShowcaseMedia.query.filter(
+            PlayerShowcaseMedia.blob_path.in_([f"{stem}.{ext}" for ext in ("jpg", "png", "webp")]),
+            PlayerShowcaseMedia.kind == "photo",
+            PlayerShowcaseMedia.status == "approved",
+        ).first()
+        allowed = False
+        if media is not None and media.public_url:
+            try:
+                allowed = showcase_media_storage.public_blob_path_from_reference(media.public_url) == blob_path
+            except showcase_media_storage.InvalidBlobPathError:
+                abort(404)
+            if media.local_player_id is not None:
+                local = db.session.get(LocalPlayer, media.local_player_id)
+                allowed = allowed and local is not None and not local.merged_into_local_player_id
+                allowed = allowed and _local_player_visible_to_context(local, None)
+                if allowed and local.api_player_id:
+                    allowed = resolve_public_adult_subject(local.api_player_id) is not None
+            else:
+                allowed = allowed and resolve_public_adult_subject(media.player_api_id) is not None
+    else:
+        allowed = False
+    if not allowed:
+        abort(404)
+    try:
+        return showcase_media_storage.published_response(blob_path)
+    except (
+        OSError,
+        showcase_media_storage.StoredMediaError,
+        showcase_media_storage.InvalidBlobPathError,
+        showcase_media_storage.StorageNotConfiguredError,
+    ):
+        abort(404)
+
+
 # ---------------------------------------------------------------------------
 # Local development media transport (never active with Azure or in prod/stage)
 # ---------------------------------------------------------------------------
@@ -1891,8 +1942,8 @@ def dev_put_showcase_media(blob_path: str):
 
 @showcase_bp.route("/dev/showcase-media/<path:blob_path>", methods=["GET"])
 def dev_get_showcase_media(blob_path: str):
-    """Serve a private preview or approved local artifact during development."""
-    if not showcase_media_storage.is_local_dev_enabled() or blob_path.startswith("club-player-photos/"):
+    """Serve a pending preview during development; published media uses the gated route."""
+    if not showcase_media_storage.is_local_dev_enabled() or blob_path.startswith(("club-player-photos/", "published/")):
         return jsonify({"error": "not found"}), 404
     try:
         path = showcase_media_storage.local_serving_path(blob_path)
