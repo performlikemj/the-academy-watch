@@ -107,3 +107,4 @@ schemes:
           selectedTests:
             - PlayerClubExperienceUITests
             - JourneyRunnerUITests
+            - GolChatUITests

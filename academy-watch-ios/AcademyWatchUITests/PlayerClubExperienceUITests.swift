@@ -13,7 +13,7 @@ final class PlayerClubExperienceUITests: XCTestCase {
         app = nil
     }
     private func launch(_ mode: String) {
-        app.launchArguments = ["-experienceFixture", mode, "-initialTab", "home"]
+        app.launchArguments = ["-resetExperienceRole", "-experienceFixture", mode, "-initialTab", "home"]
         app.launch()
     }
     func testScoutExperienceUsesScoutingTabsAndCanChangeFromAccount() {
@@ -135,6 +135,8 @@ final class PlayerClubExperienceUITests: XCTestCase {
         let search = app.textFields["player-onboarding-name-search"]
         tap(search)
         search.typeText("Maya New\n")
+        // The shared scout fixture includes a result above the create action.
+        app.swipeUp()
         tap(app.buttons["player-create-after-search"])
         tap(app.textFields["local-player-name"])
         app.textFields["local-player-name"].typeText("Maya New")

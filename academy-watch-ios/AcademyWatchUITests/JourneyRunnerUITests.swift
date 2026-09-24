@@ -576,7 +576,16 @@ final class JourneyRunnerUITests: XCTestCase {
     private func element(withID id: String, app: XCUIApplication) -> XCUIElement {
         // Tab assertions must bind to a native tab button, never content with
         // the same identifier or a navigation-title proxy.
-        if id.hasPrefix("tab-bar-") { return app.tabBars.buttons[id] }
+        if id.hasPrefix("tab-bar-") {
+            let identified = app.tabBars.buttons[id]
+            if identified.exists { return identified }
+            // Some iOS runtimes omit the SwiftUI tab Label's identifier. Keep
+            // binding to the native tab button, whose selected state is real.
+            let titles = ["tab-bar-home": "Home", "tab-bar-scout-desk": "Scout Desk",
+                          "tab-bar-watchlist": "Watchlist", "tab-bar-lists": "Lists",
+                          "tab-bar-account": "Account"]
+            return app.tabBars.buttons[titles[id] ?? id]
+        }
         return app.descendants(matching: .any)[id]
     }
 
@@ -711,7 +720,7 @@ final class JourneyRunnerUITests: XCTestCase {
     private func selectedAndVisible(_ element: XCUIElement, app: XCUIApplication) -> Bool {
         guard element.exists, element.isSelected, element.isHittable,
               !element.frame.isEmpty, app.frame.intersects(element.frame) else { return false }
-        if element.identifier == "tab-bar-home" {
+        if element.identifier == "tab-bar-home" || element.label == "Home" {
             let chrome = app.navigationBars["Home"]
             return chrome.exists && chrome.isHittable && !chrome.frame.isEmpty
                 && app.frame.intersects(chrome.frame)
