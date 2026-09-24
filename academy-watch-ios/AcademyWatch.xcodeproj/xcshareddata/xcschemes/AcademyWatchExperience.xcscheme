@@ -72,6 +72,9 @@
                <Test
                   Identifier = "JourneyRunnerUITests">
                </Test>
+               <Test
+                  Identifier = "GolChatUITests">
+               </Test>
             </SelectedTests>
          </TestableReference>
       </Testables>

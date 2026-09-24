@@ -35,6 +35,7 @@ struct PlayerHomeView: View {
     let onSignIn: () -> Void
     let onNavigate: (RootTab) -> Void
     let onRoleSelected: (ExperienceRole?) -> Void
+    var onGolRequested: () -> Void = {}
     private var role: ExperienceRole? { ExperienceRole(rawValue: roleValue) }
 
     var body: some View {
@@ -137,6 +138,11 @@ struct PlayerHomeView: View {
             }
             .background(AcademyColors.background)
             .navigationTitle("Home").navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    GolEntryButton(action: onGolRequested)
+                }
+            }
             .accessibilityIdentifier("player-club-home")
         }
     }

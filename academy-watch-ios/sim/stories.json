@@ -99,6 +99,27 @@
       "proof_id": "player-club-home",
       "source": "AcademyWatch/Features/Home/PlayerHomeView.swift",
       "status": "instrumented"
+    },
+    {
+      "id": "gol-entry",
+      "title": "Ask GOL",
+      "proof_id": "gol-entry",
+      "source": "AcademyWatch/Features/Account/AccountView.swift",
+      "status": "instrumented"
+    },
+    {
+      "id": "gol-composer",
+      "title": "GOL question composer",
+      "proof_id": "gol-composer",
+      "source": "AcademyWatch/Features/GOL/GolChatView.swift",
+      "status": "instrumented"
+    },
+    {
+      "id": "gol-suggestion-0",
+      "title": "GOL starter prompt",
+      "proof_id": "gol-suggestion-0",
+      "source": "AcademyWatch/Features/GOL/GolChatView.swift",
+      "status": "instrumented"
     }
   ],
   "stories": [
@@ -251,6 +272,34 @@
             "step": "synthetic-player-detail-visible",
             "kind": "visible",
             "screen": "player-detail"
+          }
+        ]
+      }
+    },
+    {
+      "id": "gol-entry",
+      "persona": "scout",
+      "title": "A signed-in user opens GOL from Account",
+      "given": "A scout uses the offline account fixture.",
+      "when": "The user opens Account and taps Ask GOL.",
+      "then": "Native chat offers a question composer and starter prompts; live streaming is covered separately by the opt-in local integration test.",
+      "proof": {
+        "journey": "gol-entry",
+        "asserts": [
+          {
+            "step": "gol-entry-visible",
+            "kind": "visible",
+            "screen": "gol-entry"
+          },
+          {
+            "step": "gol-composer-visible",
+            "kind": "visible",
+            "screen": "gol-composer"
+          },
+          {
+            "step": "gol-suggestion-visible",
+            "kind": "visible",
+            "screen": "gol-suggestion-0"
           }
         ]
       }

@@ -2,7 +2,7 @@
 
 Renderer: harness/story-map v1
 
-6 stories; 0 structurally unproven. Runtime proof lives in reports.
+7 stories; 0 structurally unproven. Runtime proof lives in reports.
 
 ## scout
 
@@ -15,6 +15,9 @@ flowchart LR
   n078dfcb839527d3a44b45781["Scout player search"]
   nbcf95f94224ba94140962121["Synthetic player detail"]
   n84ba303d0e5cd68708b7e769["Player#47;Club Home content"]
+  nc28fa5f676e165232b0adeba["Ask GOL"]
+  n2fcfc00ace05910a9a96a1d5["GOL question composer"]
+  n218ac13d2ddfb6b9d4160a0e["GOL starter prompt"]
   n94cfb1e84bd2610fabbcad73["A returning scout opens on Scout Desk"]
   n146b7b0253793f2cd50ea32f --> n94cfb1e84bd2610fabbcad73
   n94cfb1e84bd2610fabbcad73 --> n798d060a35dba53a8c335cde
@@ -27,6 +30,11 @@ flowchart LR
   n146b7b0253793f2cd50ea32f --> n116deaa81436aece1a5dd821
   n116deaa81436aece1a5dd821 --> n078dfcb839527d3a44b45781
   n116deaa81436aece1a5dd821 --> nbcf95f94224ba94140962121
+  n2f0f24e1c6d406517ccc6b76["A signed-in user opens GOL from Account"]
+  n146b7b0253793f2cd50ea32f --> n2f0f24e1c6d406517ccc6b76
+  n2f0f24e1c6d406517ccc6b76 --> nc28fa5f676e165232b0adeba
+  n2f0f24e1c6d406517ccc6b76 --> n2fcfc00ace05910a9a96a1d5
+  n2f0f24e1c6d406517ccc6b76 --> n218ac13d2ddfb6b9d4160a0e
 ```
 
 ## player

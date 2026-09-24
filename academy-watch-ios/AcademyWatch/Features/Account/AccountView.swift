@@ -25,6 +25,7 @@ struct AccountView: View {
     let apiClient: APIClient
     let fixtureDestination: FullCircleFixtureDestination?
     let onSignInRequested: () -> Void
+    let onGolRequested: () -> Void
 
     @State private var isDeleteAccountPresented = false
     @State private var hasApprovedPlayerClaim = false
@@ -121,6 +122,23 @@ struct AccountView: View {
 
             ScrollView {
                 VStack(spacing: 18) {
+                    Button(action: onGolRequested) {
+                        HStack(spacing: 14) {
+                            Image(systemName: "bubble.left.and.bubble.right.fill").font(.title2)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Ask GOL").font(.headline)
+                                Text("Your football AI assistant").font(.subheadline)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                        }
+                        .padding(18)
+                        .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 16))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(AcademyColors.claretForeground)
+                    .accessibilityLabel("Ask GOL, your football AI assistant")
+                    .accessibilityIdentifier("gol-entry")
                     if displaysSignedInAccount {
                         signedInHeader
                         identityOnboardingSection

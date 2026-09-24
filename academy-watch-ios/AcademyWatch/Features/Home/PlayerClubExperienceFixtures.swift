@@ -28,6 +28,30 @@
             return value
         }
 
+        // Synthetic, process-local GOL allowance. This seam never opens a socket.
+        @MainActor private static var golQuestionsUsed = 0
+
+        @MainActor static func streamGol(
+            _ question: GolQuestion,
+            onEvent: @escaping @MainActor @Sendable (GolSSEEvent) -> Void
+        ) async throws {
+            guard golQuestionsUsed < 2 else { throw GolFailure.http(402, code: nil) }
+            golQuestionsUsed += 1
+            onEvent(.init(type: "usage", data: "{\"free_questions_remaining\":\(2 - golQuestionsUsed),\"credit_balance\":0}"))
+            let parts = [
+                "**Academy progress**\n\n",
+                "- Watch playing time.\n- Track *development*.\n\n",
+                "Synthetic offline football guidance.",
+            ]
+            for part in parts {
+                try Task.checkCancellation()
+                let data = try JSONEncoder().encode(["content": part])
+                onEvent(.init(type: "token", data: String(decoding: data, as: UTF8.self)))
+                try await Task.sleep(for: .seconds(3))
+            }
+            onEvent(.init(type: "done", data: "{}"))
+        }
+
         static func data(for request: URLRequest, mode: String) throws -> Data {
             guard supportedModes.contains(mode) else {
                 throw ExperienceFixtureError.unknownMode(mode)
@@ -191,7 +215,7 @@
                     {"players":[{"id":900001,"player_id":900001,"player_name":"Sim Player One","player_photo":null,"position":"Midfielder","age":19,"nationality":"Fixtureland","primary_team_id":9001,"primary_team_name":"Sim Academy","primary_team_api_id":9001,"loan_team_name":null,"loan_team_api_id":null,"loan_team_db_id":null,"loan_team_logo":null,"owner_team_id":null,"owner_team_name":null,"is_active":true,"status":"academy","pathway_status":"academy","current_level":"U21","data_source":"sim-fixture","data_depth":"fixture","sale_fee":null,"created_at":null,"updated_at":null,"appearances":3,"goals":1,"assists":2,"minutes_played":180,"avg_rating":7.2,"goal_contributions":3,"contributions_per90":1.5,"has_detailed_stats":false,"recent_form":[]}],"total":1,"page":1,"per_page":20,"total_pages":1,"season":2026}
                     """
             case ("GET", "/api/scout/player-search"):
-                return #"{"players":[{"player_id":900001,"name":"Sim Player One","photo":null,"nationality":"Fixtureland","position":"Midfielder","age":19,"team":{"id":9001,"name":"Sim Academy","logo":null},"source":"api"}]}"#
+                return #"{"players":[{"player_api_id":900001,"name":"Sim Player One","photo":null,"nationality":"Fixtureland","age":19,"club_name":"Sim Academy","tracked":true,"shadow":false}]}"#
             case ("GET", "/api/players/900001/profile"):
                 return #"{"player_id":900001,"name":"Sim Player One","photo":null,"position":"Midfielder","status":"academy","age":19,"nationality":"Fixtureland","shadow":false,"loan_team_name":null,"loan_team_id":null,"loan_team_logo":null,"parent_team_name":"Sim Academy","parent_team_id":9001,"parent_team_logo":null,"owner_team_name":null,"owner_team_id":null,"owner_team_logo":null,"sale_fee":null}"#
             case ("GET", "/api/players/900001/stats"):

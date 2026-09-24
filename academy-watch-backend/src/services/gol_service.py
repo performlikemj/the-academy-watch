@@ -451,8 +451,8 @@ class GolService:
 
             # Add history (cap at 20 messages) with validation
             if history:
-                for entry in history[-20:]:
-                    messages.append(self._sanitize_history_entry(entry))
+                trimmed = [self._sanitize_history_entry(entry) for entry in history[-20:]]
+                messages.extend(self._complete_tool_history(trimmed))
 
             # Set per-chat session context for lookup_rate limiting
             self._session_id = session_id
@@ -464,6 +464,33 @@ class GolService:
         except Exception as e:
             logger.error(f"GOL chat error: {e}")
             yield {"event": "error", "data": {"message": str(e)}}
+
+    @staticmethod
+    def _complete_tool_history(history: list) -> list:
+        """Keep complete, contiguous tool exchanges after the history cap."""
+        clean = []
+        index = 0
+        while index < len(history):
+            entry = history[index]
+            index += 1
+            if entry.get("role") == "tool":
+                # Its assistant was cut off; complete groups are consumed below.
+                continue
+            calls = entry.get("tool_calls") if entry.get("role") == "assistant" else None
+            if calls:
+                end = index
+                while end < len(history) and history[end].get("role") == "tool":
+                    end += 1
+                results = history[index:end]
+                result_ids = {result.get("tool_call_id") for result in results}
+                if all(call.get("id") in result_ids for call in calls):
+                    clean.append(entry)
+                    clean.extend(results)
+                # Dropping an incomplete assistant also drops its orphan results.
+                index = end
+            else:
+                clean.append(entry)
+        return clean
 
     def _run_completion(self, messages: list, depth: int = 0) -> Generator[dict, None, None]:
         """Run a streaming completion, handling tool calls recursively."""

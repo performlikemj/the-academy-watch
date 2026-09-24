@@ -158,7 +158,7 @@ protocol OnboardingAPIClientProtocol: Sendable {
     func verifyClubClaim(id: Int, proofURL: String) async throws -> ClubClaimResponse
 }
 
-struct APIClient: PlayerClubAPIClientProtocol, ScoutAPIClientProtocol,
+struct APIClient: GolAPIClientProtocol, PlayerClubAPIClientProtocol, ScoutAPIClientProtocol,
     SeasonDirectoryAPIClientProtocol,
     PlayerDetailAPIClientProtocol,
     ShowcaseAPIClientProtocol,
@@ -188,6 +188,20 @@ struct APIClient: PlayerClubAPIClientProtocol, ScoutAPIClientProtocol,
         string: "https://api.theacademywatch.com/api"
     )!
 
+    /// Local transport is available only in Debug simulator builds; Release is always production.
+    static var defaultBaseURL: URL {
+        #if DEBUG && targetEnvironment(simulator)
+        if let raw = ProcessInfo.processInfo.environment["ACADEMY_LOCAL_API_URL"],
+           let url = URL(string: raw), url.scheme == "http",
+           ["localhost", "127.0.0.1", "::1"].contains(url.host ?? ""),
+           url.user == nil, url.password == nil, url.query == nil, url.fragment == nil,
+           url.path == "/api" {
+            return url
+        }
+        #endif
+        return productionBaseURL
+    }
+
     private let baseURL: URL
     private let session: URLSession
     private let authSession: (any AuthSessionProtocol)?
@@ -195,7 +209,7 @@ struct APIClient: PlayerClubAPIClientProtocol, ScoutAPIClientProtocol,
     private let fixtureMode: String?
 
     init(
-        baseURL: URL = APIClient.productionBaseURL,
+        baseURL: URL = APIClient.defaultBaseURL,
         session: URLSession = .shared,
         authSession: (any AuthSessionProtocol)? = nil,
         requiredCredential: String? = nil,
@@ -210,6 +224,62 @@ struct APIClient: PlayerClubAPIClientProtocol, ScoutAPIClientProtocol,
         #endif
         self.authSession = authSession
         self.requiredCredential = requiredCredential
+    }
+
+    func golSuggestions() async throws -> [String] {
+        struct Suggestions: Decodable { let suggestions: [String] }
+        let result = try await requestData(path: "gol/suggestions", method: "GET", queryItems: [], body: nil)
+        return try JSONDecoder().decode(Suggestions.self, from: result.data).suggestions
+    }
+
+    static func golRequest(baseURL: URL, token: String, question: GolQuestion) throws -> URLRequest {
+        var request = URLRequest(url: baseURL.appendingPathComponent("gol/chat"))
+        request.httpMethod = "POST"
+        request.httpBody = try JSONEncoder().encode(question)
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+        request.setValue("no-store", forHTTPHeaderField: "Cache-Control")
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.timeoutInterval = 300
+        return request
+    }
+
+    func streamGol(_ question: GolQuestion, onEvent: @escaping @MainActor @Sendable (GolSSEEvent) -> Void) async throws {
+        guard let token = await authSession?.accessToken(), !token.isEmpty,
+              requiredCredential == nil || token == requiredCredential else {
+            throw GolFailure.http(401, code: nil)
+        }
+        #if DEBUG && targetEnvironment(simulator)
+        // Offline experience fixtures must never send their synthetic credential over the network.
+        if fixtureMode != nil {
+            try await PlayerClubExperienceFixtures.streamGol(question, onEvent: onEvent)
+            return
+        }
+        #endif
+        let request = try Self.golRequest(baseURL: baseURL, token: token, question: question)
+        let (bytes, response) = try await session.bytes(for: request)
+        guard let response = response as? HTTPURLResponse else { throw GolFailure.interrupted }
+        guard (200...299).contains(response.statusCode) else {
+            var body = Data()
+            for try await byte in bytes {
+                try Task.checkCancellation()
+                guard body.count < 65_536 else { break }
+                body.append(byte)
+            }
+            if response.statusCode == 401 { await authSession?.invalidate(credential: token) }
+            let json = try? JSONDecoder().decode(GolJSON.self, from: body)
+            throw GolFailure.http(response.statusCode, code: json?["error"].string)
+        }
+        guard response.mimeType?.lowercased() == "text/event-stream" else { throw GolFailure.interrupted }
+        var parser = GolSSEParser()
+        for try await byte in bytes {
+            try Task.checkCancellation()
+            if let event = try parser.push(byte) {
+                await onEvent(event)
+                if event.type == "done", case .object? = event.json { return }
+            }
+        }
     }
 
     func warmUp() async {

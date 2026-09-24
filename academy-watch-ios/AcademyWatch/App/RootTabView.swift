@@ -74,6 +74,8 @@ struct RootTabView: View {
     @State private var selectedTab: RootTab
     @State private var isSignInPresented: Bool
     @State private var accountDestination: AccountDestination?
+    @State private var isGolPresented = false
+    @StateObject private var golChatViewModel: GolChatViewModel
 
     private let apiClient: APIClient
     private let initialPhase: ScoutPhase
@@ -142,6 +144,7 @@ struct RootTabView: View {
         }
 
         _authManager = StateObject(wrappedValue: authManager)
+        _golChatViewModel = StateObject(wrappedValue: GolChatViewModel(client: apiClient))
         _watchlistViewModel = StateObject(
             wrappedValue: WatchlistViewModel(apiClient: apiClient)
         )
@@ -193,7 +196,8 @@ struct RootTabView: View {
                     apiClient: apiClient,
                     onSignIn: presentSignIn,
                     onNavigate: select,
-                    onRoleSelected: selectInitialTab
+                    onRoleSelected: selectInitialTab,
+                    onGolRequested: { isGolPresented = true }
                 )
                     .id(authManager.email ?? "signed-out")
                     .tabItem {
@@ -210,7 +214,8 @@ struct RootTabView: View {
                 initialPlayerID: initialPlayerID,
                 initialComparePlayerIDs: initialComparePlayerIDs,
                 onSignInRequested: presentSignIn,
-                onVerificationRequested: presentVerification
+                onVerificationRequested: presentVerification,
+                onGolRequested: { isGolPresented = true }
             )
             .tabItem {
                 Label("Scout Desk", systemImage: "binoculars.fill")
@@ -248,7 +253,8 @@ struct RootTabView: View {
                 destination: $accountDestination,
                 apiClient: apiClient,
                 fixtureDestination: fixtureDestination,
-                onSignInRequested: presentSignIn
+                onSignInRequested: presentSignIn,
+                onGolRequested: { isGolPresented = true }
             )
                 // Protected destinations own verification and thread state.
                 // Rebuild their navigation tree whenever auth crosses the
@@ -267,6 +273,16 @@ struct RootTabView: View {
         .environmentObject(followListsViewModel)
         .onChange(of: roleValue) { _, newValue in
             selectInitialTab(ExperienceRole(rawValue: newValue))
+        }
+        .onChange(of: authManager.isAuthenticated) { _, authenticated in
+            if !authenticated { golChatViewModel.resetAccount() }
+        }
+        .onChange(of: authManager.email) { old, new in
+            if old != nil && old != new { golChatViewModel.resetAccount() }
+        }
+        .sheet(isPresented: $isGolPresented) {
+            GolChatView(model: golChatViewModel)
+                .environmentObject(authManager)
         }
         .sheet(isPresented: $isSignInPresented) {
             SignInView(authManager: authManager)
