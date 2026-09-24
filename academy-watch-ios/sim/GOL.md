@@ -1,19 +1,25 @@
 # Native GOL verification
 
-GOL is the first card in Account for every role. Keeping this entry outside the
-role-specific tab inventory preserves Scout Desk as the scout landing screen
-and keeps all five player/club tabs visible. The root presents the chat so a
-successful sign-in does not dismiss it when Account rebuilds its protected state.
+GOL is the first card in Account for every role, with a persistent Ask GOL toolbar
+button on Scout Desk and Home. The role-specific tab inventory and landing tabs
+are unchanged. RootTabView owns the chat model and presents it so closing and
+reopening preserves the conversation. Swipe dismissal is disabled while streaming;
+explicit Close or Stop cancels the answer and retains any partial content. Auth
+changes reset the model even when the sheet is closed.
 
 The chat is in memory. New chat resets the session ID and messages. Each question
 freezes its message, last 20 history entries (including assistant tool calls and
 tool results), session ID and client message ID. Retry resends that same snapshot.
 Stopping after text or a card marks the answer cut short; stopping before either
 allows retry with the original ID. A terminal partial replay cannot be retried.
-Refund usage frames are processed even after a stream error. Unknown SSE events
+Refund usage frames are processed even after a stream error. HTTP 401/402/403
+remove the rejected user/empty-answer pair and retain a controlled message. Empty
+visible assistant entries are omitted from history, preserving hidden tool entries.
+Answers render inline Markdown with whitespace and list markers preserved; link
+actions are removed so formatting cannot introduce external navigation. Unknown SSE events
 are ignored, and unknown cards use a bounded plain-text field summary.
 
-Usage shows only free-question and credit counts. Account access failures use
+Usage shows one neutral Questions left count, combining both allowances. Account access failures use
 controlled native messages. No purchase action or destination is rendered;
 server error text and additional usage fields are never used as UI instructions.
 
@@ -67,8 +73,24 @@ xcrun xcresulttool export attachments --path /tmp/gol-local-ui.xcresult \
 ## Offline gates
 
 `AcademyWatch` runs the full unit/API suite. `AcademyWatchExperience` runs the
-existing player/club suite; the local GOL test skips without its environment flag.
-Select `TEST_RUNNER_SIM_JOURNEYS=gol-entry` to run the bundled Account-to-chat story
-through `JourneyRunnerUITests`. That story proves entry, composer and starter
-prompts only; the separate local integration test proves streaming and 402.
-The offline experience transport fails closed if asked to send a GOL request.
+existing player/club suite and GOL offline tests, including all three landing roles,
+streaming dismissal protection, explicit Close/reopen, Markdown, completed swipe
+reopen, quota exhaustion and the money fence. PlayerClubExperienceFixtures serves
+a timed synthetic GOL stream and a process-local two-question allowance, then 402;
+all fixture routes resolve before URLSession and unknown routes fail closed.
+No server, model key, database or real payment is needed for this gate. The optional
+Flask integration test still skips without its local environment flag.
+
+Run every bundled journey alongside the suite with:
+
+```sh
+TEST_RUNNER_SIM_JOURNEYS=player-first-run-chooser,change-home-changes-home,scout-opens-app,scout-search-player-detail,club-my-club,player-my-profiles,gol-entry \
+  xcodebuild -project academy-watch-ios/AcademyWatch.xcodeproj \
+  -scheme AcademyWatchExperience -configuration Debug \
+  -destination "platform=iOS Simulator,id=$GOL_SIMULATOR_ID" \
+  -derivedDataPath .gol-derived -parallel-testing-enabled NO test
+```
+
+Offline GOL screenshot attachments are named `fix1-landing-{scout,player,club}`,
+`fix1-reopened-partial-answer`, `fix1-markdown-answer`,
+`fix1-reopened-complete-answer` and `fix1-out-of-questions`.

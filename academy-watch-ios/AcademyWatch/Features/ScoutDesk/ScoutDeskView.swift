@@ -13,6 +13,7 @@ struct ScoutDeskView: View {
     @State private var revealsTabBarDuringInitialLoad = false
     private let onSignInRequested: () -> Void
     private let onVerificationRequested: () -> Void
+    private let onGolRequested: () -> Void
     private let playerDetailAPIClient: APIClient
 
     init(
@@ -22,7 +23,8 @@ struct ScoutDeskView: View {
         initialPlayerID: Int? = nil,
         initialComparePlayerIDs: [Int] = [],
         onSignInRequested: @escaping () -> Void = {},
-        onVerificationRequested: @escaping () -> Void = {}
+        onVerificationRequested: @escaping () -> Void = {},
+        onGolRequested: @escaping () -> Void = {}
     ) {
         var seenPlayerIDs = Set<Int>()
         let comparePlayerIDs = initialComparePlayerIDs
@@ -40,12 +42,14 @@ struct ScoutDeskView: View {
         self.playerDetailAPIClient = playerDetailAPIClient
         self.onSignInRequested = onSignInRequested
         self.onVerificationRequested = onVerificationRequested
+        self.onGolRequested = onGolRequested
     }
 
     init(
         viewModel: ScoutDeskViewModel,
         onSignInRequested: @escaping () -> Void = {},
-        onVerificationRequested: @escaping () -> Void = {}
+        onVerificationRequested: @escaping () -> Void = {},
+        onGolRequested: @escaping () -> Void = {}
     ) {
         _viewModel = StateObject(wrappedValue: viewModel)
         _navigationPath = State(initialValue: [])
@@ -54,6 +58,7 @@ struct ScoutDeskView: View {
         playerDetailAPIClient = APIClient()
         self.onSignInRequested = onSignInRequested
         self.onVerificationRequested = onVerificationRequested
+        self.onGolRequested = onGolRequested
     }
 
     var body: some View {
@@ -103,9 +108,12 @@ struct ScoutDeskView: View {
             )
             .navigationTitle("Scout Desk")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar(isShowingInitialLoadingCard ? .hidden : .automatic, for: .navigationBar)
+            .toolbar(.visible, for: .navigationBar)
             .toolbar(hidesTabBarForInitialGrace ? .hidden : .automatic, for: .tabBar)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    GolEntryButton(action: onGolRequested)
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         Button {

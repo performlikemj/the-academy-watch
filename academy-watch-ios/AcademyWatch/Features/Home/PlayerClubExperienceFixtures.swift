@@ -28,6 +28,30 @@
             return value
         }
 
+        // Synthetic, process-local GOL allowance. This seam never opens a socket.
+        @MainActor private static var golQuestionsUsed = 0
+
+        @MainActor static func streamGol(
+            _ question: GolQuestion,
+            onEvent: @escaping @MainActor @Sendable (GolSSEEvent) -> Void
+        ) async throws {
+            guard golQuestionsUsed < 2 else { throw GolFailure.http(402, code: nil) }
+            golQuestionsUsed += 1
+            onEvent(.init(type: "usage", data: "{\"free_questions_remaining\":\(2 - golQuestionsUsed),\"credit_balance\":0}"))
+            let parts = [
+                "**Academy progress**\n\n",
+                "- Watch playing time.\n- Track *development*.\n\n",
+                "Synthetic offline football guidance.",
+            ]
+            for part in parts {
+                try Task.checkCancellation()
+                let data = try JSONEncoder().encode(["content": part])
+                onEvent(.init(type: "token", data: String(decoding: data, as: UTF8.self)))
+                try await Task.sleep(for: .seconds(3))
+            }
+            onEvent(.init(type: "done", data: "{}"))
+        }
+
         static func data(for request: URLRequest, mode: String) throws -> Data {
             guard supportedModes.contains(mode) else {
                 throw ExperienceFixtureError.unknownMode(mode)

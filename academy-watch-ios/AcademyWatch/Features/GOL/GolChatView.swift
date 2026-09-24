@@ -3,14 +3,10 @@ import SwiftUI
 struct GolChatView: View {
     @EnvironmentObject private var authManager: AuthManager
     @Environment(\.dismiss) private var dismiss
-    @StateObject private var model: GolChatViewModel
+    @ObservedObject var model: GolChatViewModel
     @State private var draft = ""
     @State private var showsSignIn = false
     @FocusState private var composerFocused: Bool
-
-    init(apiClient: APIClient) {
-        _model = StateObject(wrappedValue: GolChatViewModel(client: apiClient))
-    }
 
     var body: some View {
         NavigationStack {
@@ -36,9 +32,12 @@ struct GolChatView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("Close", systemImage: "xmark") { dismiss() }
-                        .accessibilityLabel("Close GOL")
-                        .accessibilityIdentifier("gol-close")
+                    Button("Close", systemImage: "xmark") {
+                        model.stop()
+                        dismiss()
+                    }
+                    .accessibilityLabel("Close GOL")
+                    .accessibilityIdentifier("gol-close")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("New chat", systemImage: "square.and.pencil") {
@@ -51,14 +50,11 @@ struct GolChatView: View {
                 }
             }
         }
+        .interactiveDismissDisabled(model.isStreaming)
         .sheet(isPresented: $showsSignIn) { SignInView(authManager: authManager) }
         .task(id: authManager.isAuthenticated) {
-            if authManager.isAuthenticated { await model.loadSuggestions() } else { model.resetAccount() }
+            if authManager.isAuthenticated { await model.loadSuggestions() }
         }
-        .onChange(of: authManager.email) { old, new in
-            if old != nil && old != new { model.resetAccount() }
-        }
-        .onDisappear { model.stop() }
     }
 
     private var conversation: some View {
@@ -75,7 +71,11 @@ struct GolChatView: View {
                                     .font(.caption.weight(.bold))
                                     .foregroundStyle(AcademyColors.claretForeground)
                                 if !message.content.isEmpty {
-                                    Text(verbatim: message.content)
+                                    Text(
+                                        message.role == "assistant"
+                                            ? GolMarkdown.render(message.content)
+                                            : AttributedString(message.content)
+                                    )
                                         .textSelection(.enabled)
                                         .accessibilityIdentifier(
                                             message.role == "assistant" ? "gol-answer" : "gol-question")
@@ -149,16 +149,10 @@ struct GolChatView: View {
 
     private var composer: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if model.freeQuestions != nil || model.credits != nil {
-                Text(
-                    [
-                        model.freeQuestions.map { "Free questions: \($0)" },
-                        model.credits.map { "Credits: \($0)" },
-                    ]
-                    .compactMap { $0 }.joined(separator: " · ")
-                )
-                .font(.caption).foregroundStyle(.secondary)
-                .accessibilityIdentifier("gol-usage")
+            if let questionsLeft = model.questionsLeft {
+                Text("Questions left: \(questionsLeft)")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .accessibilityIdentifier("gol-usage")
             }
             HStack(alignment: .bottom, spacing: 12) {
                 TextField("Ask GOL…", text: $draft, axis: .vertical)
@@ -223,5 +217,20 @@ private struct GolDataCardView: View {
         case "get_community_takes": return "Community views"
         default: return "Football data"
         }
+    }
+}
+
+struct GolEntryButton: View {
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: "bubble.left.and.bubble.right")
+                Text("Ask GOL")
+            }
+        }
+        .accessibilityLabel("Ask GOL")
+        .accessibilityIdentifier("gol-landing-entry")
     }
 }

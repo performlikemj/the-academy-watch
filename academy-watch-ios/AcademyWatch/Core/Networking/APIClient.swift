@@ -241,7 +241,7 @@ struct APIClient: GolAPIClientProtocol, PlayerClubAPIClientProtocol, ScoutAPICli
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         request.setValue("no-store", forHTTPHeaderField: "Cache-Control")
         request.cachePolicy = .reloadIgnoringLocalCacheData
-        request.timeoutInterval = 90
+        request.timeoutInterval = 300
         return request
     }
 
@@ -252,7 +252,10 @@ struct APIClient: GolAPIClientProtocol, PlayerClubAPIClientProtocol, ScoutAPICli
         }
         #if DEBUG && targetEnvironment(simulator)
         // Offline experience fixtures must never send their synthetic credential over the network.
-        guard fixtureMode == nil else { throw GolFailure.http(503, code: nil) }
+        if fixtureMode != nil {
+            try await PlayerClubExperienceFixtures.streamGol(question, onEvent: onEvent)
+            return
+        }
         #endif
         let request = try Self.golRequest(baseURL: baseURL, token: token, question: question)
         let (bytes, response) = try await session.bytes(for: request)

@@ -47,12 +47,7 @@ final class GolChatUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["You've used all your GOL questions."].waitForExistence(timeout: 20))
         XCTAssertFalse(app.buttons["gol-retry"].exists)
         XCTAssertFalse(app.buttons["gol-send"].isEnabled)
-        for forbidden in ["buy", "top up", "billing", "purchase", "$", "website"] {
-            let query = NSPredicate(format: "label CONTAINS[c] %@", forbidden)
-            XCTAssertEqual(app.buttons.matching(query).count, 0)
-            XCTAssertEqual(app.staticTexts.matching(query).count, 0)
-            XCTAssertEqual(app.links.matching(query).count, 0)
-        }
+        assertMoneyFence(app)
         capture("05-gol-exhausted", app)
     }
 
@@ -71,6 +66,96 @@ final class GolChatUITests: XCTestCase {
         XCTAssertTrue(app.textFields["gol-composer"].isHittable)
         XCTAssertTrue(app.buttons["gol-close"].isHittable)
         capture("06-gol-accessibility-text", app)
+    }
+
+    func testOfflineLandingRoles() {
+        continueAfterFailure = false
+        for role in ["scout", "player", "club"] {
+            let app = offlineApp(role)
+            app.launch()
+            let tab = role == "scout" ? "Scout Desk" : "Home"
+            XCTAssertTrue(app.tabBars.buttons[tab].waitForExistence(timeout: 10))
+            XCTAssertTrue(app.tabBars.buttons[tab].isSelected)
+            XCTAssertTrue(app.buttons["gol-landing-entry"].waitForExistence(timeout: 10))
+            XCTAssertTrue(app.buttons["gol-landing-entry"].isHittable)
+            capture("fix1-landing-\(role)", app)
+            tap(app.buttons["gol-landing-entry"])
+            XCTAssertTrue(app.textFields["gol-composer"].waitForExistence(timeout: 10))
+            assertMoneyFence(app)
+            tap(app.buttons["gol-close"])
+            tap(app.tabBars.buttons["Account"])
+            tap(app.buttons["gol-entry"])
+            XCTAssertTrue(app.textFields["gol-composer"].waitForExistence(timeout: 10))
+            app.terminate()
+        }
+    }
+
+    func testOfflineStreamingCloseReopenMarkdownAndExhaustionMoneyFence() {
+        continueAfterFailure = false
+        let app = offlineApp("scout")
+        app.launch()
+        defer { app.terminate() }
+        tap(app.buttons["gol-landing-entry"])
+        assertMoneyFence(app)
+        tap(app.buttons["gol-suggestion-0"])
+        let answer = app.staticTexts["gol-answer"].firstMatch
+        XCTAssertTrue(answer.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["gol-stop"].exists)
+        // Pull down the sheet from its top edge: it must stay presented during the stream.
+        app.navigationBars["GOL"].swipeDown()
+        XCTAssertTrue(app.buttons["gol-close"].exists)
+        tap(app.buttons["gol-close"])
+        tap(app.buttons["gol-landing-entry"])
+        XCTAssertTrue(app.staticTexts["gol-cut-short"].waitForExistence(timeout: 10))
+        XCTAssertTrue(answer.label.contains("Academy progress"))
+        capture("fix1-reopened-partial-answer", app)
+        assertMoneyFence(app)
+        tap(app.buttons["gol-new-chat"])
+        tap(app.buttons["gol-suggestion-0"])
+        XCTAssertTrue(answer.waitForExistence(timeout: 10))
+        let finished = NSPredicate(format: "exists == false")
+        expectation(for: finished, evaluatedWith: app.buttons["gol-stop"])
+        waitForExpectations(timeout: 20)
+        XCTAssertTrue(answer.label.contains("- Watch playing time."))
+        XCTAssertTrue(answer.label.contains("Track development."))
+        XCTAssertFalse(answer.label.contains("**"))
+        XCTAssertEqual(app.staticTexts["gol-usage"].label, "Questions left: 0")
+        let completed = answer.label
+        capture("fix1-markdown-answer", app)
+        assertMoneyFence(app)
+        // Completed answers can be dismissed interactively and remain in the root-owned model.
+        app.navigationBars["GOL"].swipeDown()
+        XCTAssertTrue(app.buttons["gol-landing-entry"].waitForExistence(timeout: 10))
+        tap(app.buttons["gol-landing-entry"])
+        XCTAssertEqual(answer.label, completed)
+        capture("fix1-reopened-complete-answer", app)
+        let composer = app.textFields["gol-composer"]
+        tap(composer)
+        composer.typeText("One more question")
+        tap(app.buttons["gol-send"])
+        XCTAssertTrue(app.staticTexts["You've used all your GOL questions."].waitForExistence(timeout: 10))
+        XCTAssertEqual(app.staticTexts.matching(identifier: "gol-question").count, 1)
+        XCTAssertEqual(app.staticTexts.matching(identifier: "gol-answer").count, 1)
+        XCTAssertFalse(app.buttons["gol-retry"].exists)
+        XCTAssertFalse(app.buttons["gol-send"].isEnabled)
+        XCTAssertEqual(app.staticTexts["gol-usage"].label, "Questions left: 0")
+        assertMoneyFence(app)
+        capture("fix1-out-of-questions", app)
+    }
+
+    private func offlineApp(_ role: String) -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchArguments = ["-resetExperienceRole", "-experienceRole", role, "-experienceFixture", role]
+        return app
+    }
+
+    private func assertMoneyFence(_ app: XCUIApplication) {
+        for forbidden in ["credit", "buy", "purchase", "price", "top up", "billing", "subscribe", "$", "website", "/account/billing"] {
+            let query = NSPredicate(format: "label CONTAINS[c] %@", forbidden)
+            XCTAssertEqual(app.buttons.matching(query).count, 0, forbidden)
+            XCTAssertEqual(app.staticTexts.matching(query).count, 0, forbidden)
+            XCTAssertEqual(app.links.matching(query).count, 0, forbidden)
+        }
     }
 
     private func tap(_ element: XCUIElement) {

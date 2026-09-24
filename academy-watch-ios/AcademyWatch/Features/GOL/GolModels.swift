@@ -135,7 +135,8 @@ struct GolQuestion: Codable, Equatable, Sendable {
         self.sessionID = sessionID
         self.history = Array(
             messages.flatMap {
-                $0.hiddenHistory + [.object(["role": .string($0.role), "content": .string($0.content)])]
+                $0.hiddenHistory + ($0.role == "assistant" && $0.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    ? [] : [.object(["role": .string($0.role), "content": .string($0.content)])])
             }.suffix(20))
     }
 }
@@ -144,6 +145,8 @@ struct GolFailure: Error, Equatable {
     let message: String
     let retryable: Bool
     var blocksQuestions = false
+    var removesUnansweredQuestion = false
+    var exhausted = false
 
     static let interrupted = GolFailure(
         message: "The answer was interrupted. Please try again.", retryable: true)
@@ -152,13 +155,18 @@ struct GolFailure: Error, Equatable {
 
     static func http(_ status: Int, code: String?) -> GolFailure {
         switch status {
-        case 401: return .init(message: "Sign in to use GOL.", retryable: false, blocksQuestions: true)
+        case 401:
+            return .init(
+                message: "Sign in to use GOL.", retryable: false,
+                blocksQuestions: true, removesUnansweredQuestion: true)
         case 402:
             return .init(
-                message: "You've used all your GOL questions.", retryable: false, blocksQuestions: true)
+                message: "You've used all your GOL questions.", retryable: false,
+                blocksQuestions: true, removesUnansweredQuestion: true, exhausted: true)
         case 403:
             return .init(
-                message: "GOL isn't available on your account.", retryable: false, blocksQuestions: true)
+                message: "GOL isn't available on your account.", retryable: false,
+                blocksQuestions: true, removesUnansweredQuestion: true)
         case 409 where code == "in_flight":
             return .init(
                 message: "Still working on your previous question. Give it a moment and try again.",
@@ -167,7 +175,7 @@ struct GolFailure: Error, Equatable {
             return .init(message: "Please ask that as a new question.", retryable: false)
         case 409 where code == "recovery_exhausted":
             return .init(
-                message: "That question could not be completed; your credit was returned.", retryable: false)
+                message: "That question could not be completed; your question allowance was restored.", retryable: false)
         case 400:
             return .init(
                 message: "GOL couldn't accept this question. Start a new chat and try again.",
@@ -177,5 +185,18 @@ struct GolFailure: Error, Equatable {
                 message: "GOL is receiving too many questions. Wait a moment and try again.", retryable: true)
         default: return .init(message: "GOL is temporarily unavailable. Please try again.", retryable: true)
         }
+    }
+}
+
+/// Inline parsing keeps line breaks and list markers readable while styling emphasis.
+enum GolMarkdown {
+    static func render(_ source: String) -> AttributedString {
+        var rendered = (try? AttributedString(
+            markdown: source,
+            options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+        )) ?? AttributedString(source)
+        // Answer formatting must not introduce external navigation actions.
+        rendered.link = nil
+        return rendered
     }
 }

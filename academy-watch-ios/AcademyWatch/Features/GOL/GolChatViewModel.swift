@@ -24,6 +24,12 @@ final class GolChatViewModel: ObservableObject {
     private var receivedError = false
     private let client: any GolAPIClientProtocol
 
+    var questionsLeft: Int? {
+        guard freeQuestions != nil || credits != nil else { return nil }
+        let (total, overflow) = (freeQuestions ?? 0).addingReportingOverflow(credits ?? 0)
+        return overflow ? Int.max : total
+    }
+
     var canRetry: Bool { !isStreaming && failure?.retryable == true && pendingQuestion != nil }
     var canSend: Bool { !isStreaming && failure?.blocksQuestions != true }
 
@@ -117,6 +123,18 @@ final class GolChatViewModel: ObservableObject {
 
     private func fail(_ error: GolFailure) {
         failure = error
+        if error.exhausted {
+            freeQuestions = 0
+            credits = 0
+        }
+        if error.removesUnansweredQuestion, messages.count >= 2,
+           messages.last?.role == "assistant", messages.last?.content.isEmpty == true,
+           messages.last?.cards.isEmpty == true, messages.last?.hiddenHistory.isEmpty == true,
+           messages[messages.count - 2].role == "user" {
+            messages.removeLast(2)
+            pendingQuestion = nil
+            return
+        }
         if !error.retryable { pendingQuestion = nil }
         if !messages.isEmpty, !messages[messages.count - 1].content.isEmpty {
             messages[messages.count - 1].cutShort = true

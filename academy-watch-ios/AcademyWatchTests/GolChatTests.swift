@@ -1,3 +1,4 @@
+import SwiftUI
 import XCTest
 
 @testable import AcademyWatch
@@ -179,7 +180,7 @@ final class GolChatTests: XCTestCase {
 
     func testHTTPFailures() async {
         let cases: [(Int, String, Bool, Bool)] = [
-            (402, "credits_exhausted", false, true), (403, "scout_pro_required", false, true),
+            (401, "unauthorized", false, true), (402, "credits_exhausted", false, true), (403, "scout_pro_required", false, true),
             (409, "in_flight", true, false), (409, "client_msg_id_reused", false, false),
             (409, "recovery_exhausted", false, false), (429, "", true, false), (503, "", true, false),
         ]
@@ -202,6 +203,7 @@ final class GolChatTests: XCTestCase {
             baseURL: URL(string: "http://localhost:5011/api")!, token: "test-token", question: question)
         XCTAssertEqual(request.url?.path, "/api/gol/chat")
         XCTAssertEqual(request.httpMethod, "POST")
+        XCTAssertEqual(request.timeoutInterval, 300)
         XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer test-token")
         XCTAssertEqual(request.value(forHTTPHeaderField: "Accept"), "text/event-stream")
         XCTAssertEqual(try JSONDecoder().decode(GolQuestion.self, from: request.httpBody!), question)
@@ -212,11 +214,106 @@ final class GolChatTests: XCTestCase {
             at: feature, includingPropertiesForKeys: nil
         )
         .filter { $0.pathExtension == "swift" }.map { try String(contentsOf: $0) }.joined(separator: "\n")
+        // Scan string literals, allowing only the wire key (never displayed).
+        let literals = try NSRegularExpression(pattern: #""(?:\\.|[^"\\])*""#)
+        let range = NSRange(sources.startIndex..., in: sources)
+        for match in literals.matches(in: sources, range: range) {
+            let literal = (sources as NSString).substring(with: match.range)
+            if literal == "\"credit_balance\"" { continue }
+            for forbidden in ["credit", "buy", "purchase", "price", "top up", "billing", "subscribe"] {
+                XCTAssertFalse(literal.localizedCaseInsensitiveContains(forbidden), literal)
+            }
+        }
         for forbidden in [
             "/account/billing", "top_up_path", "top up", "buy credits", "purchase", "openURL", "Link(",
         ] {
             XCTAssertFalse(sources.localizedCaseInsensitiveContains(forbidden), forbidden)
         }
+    }
+
+    func testSheetRecreationKeepsStoppedAnswerAndAccountResetClearsIt() async {
+        let client = GolTestClient(scripts: [[
+            .event("token", "{\"content\":\"Retained answer\"}"), .delay, .done,
+        ]])
+        let model = GolChatViewModel(client: client)
+        var sheet: GolChatView? = GolChatView(model: model)
+        sheet?.model.send("Keep this question")
+        for _ in 0..<100 where model.messages.last?.content.isEmpty == true {
+            try? await Task.sleep(for: .milliseconds(2))
+        }
+        let session = model.sessionID
+        sheet?.model.stop() // Explicit Close.
+        let messages = model.messages
+        sheet = nil
+        sheet = GolChatView(model: model)
+        XCTAssertEqual(sheet?.model.messages, messages)
+        XCTAssertEqual(sheet?.model.sessionID, session)
+        XCTAssertEqual(sheet?.model.messages.last?.cutShort, true)
+        model.resetAccount() // Root observes auth changes even while the sheet is closed.
+        XCTAssertTrue(sheet!.model.messages.isEmpty)
+        XCTAssertNotEqual(model.sessionID, session)
+        try? await Task.sleep(for: .milliseconds(150))
+        XCTAssertTrue(model.messages.isEmpty)
+    }
+
+    func testDisappearingSheetDoesNotStopOwnedStream() async {
+        let model = GolChatViewModel(client: GolTestClient(scripts: [[.delay, .event("token", "{\"content\":\"Finished\"}"), .done]]))
+        var sheet: GolChatView? = GolChatView(model: model)
+        sheet?.model.send("Question")
+        sheet = nil
+        await settle(model)
+        XCTAssertEqual(GolChatView(model: model).model.messages.last?.content, "Finished")
+    }
+
+    func testRejectedQuestionRemovesOnlyOrphanPairAndKeepsNeutralFailure() async {
+        for status in [401, 402, 403] {
+            let model = GolChatViewModel(client: GolTestClient(scripts: [
+                [.event("token", "{\"content\":\"Earlier answer\"}"), .done], [.http(status, "")],
+            ]))
+            model.send("Earlier question")
+            await settle(model)
+            let previous = model.messages
+            model.send("Rejected question")
+            await settle(model)
+            XCTAssertEqual(model.messages, previous)
+            XCTAssertEqual(model.failure, .http(status, code: ""))
+            XCTAssertNil(model.pendingQuestion)
+            if status == 402 { XCTAssertEqual(model.questionsLeft, 0) }
+        }
+    }
+
+    func testHistoryOmitsEmptyVisibleAssistantButPreservesHiddenToolEntries() {
+        let tool: GolJSON = .object(["role": .string("assistant"), "tool_calls": .array([])])
+        let messages = [GolMessage(role: "user", content: "Question"),
+                        GolMessage(role: "assistant", hiddenHistory: [tool]),
+                        GolMessage(role: "assistant", content: " \n")]
+        XCTAssertEqual(GolQuestion(message: "Next", messages: messages, sessionID: "s").history,
+                       [.object(["role": .string("user"), "content": .string("Question")]), tool])
+    }
+
+    func testQuotaCombinesBothAllowancesAndResetClearsIt() async {
+        for (payload, total) in [("{\"free_questions_remaining\":3,\"credit_balance\":7}", 10),
+                                 ("{\"credit_balance\":4}", 4),
+                                 ("{\"free_questions_remaining\":0,\"credit_balance\":0}", 0)] {
+            let model = GolChatViewModel(client: GolTestClient(scripts: [[.event("usage", payload), .done]]))
+            XCTAssertNil(model.questionsLeft)
+            model.send("Question")
+            await settle(model)
+            XCTAssertEqual(model.questionsLeft, total)
+            model.resetAccount()
+            XCTAssertNil(model.questionsLeft)
+        }
+    }
+
+    func testMarkdownPreservesListsAndLineBreaksAndStylesEmphasis() {
+        let rendered = GolMarkdown.render("**Progress**\n\n- Watch minutes.\n- Track *development*.")
+        XCTAssertEqual(String(rendered.characters), "Progress\n\n- Watch minutes.\n- Track development.")
+        XCTAssertTrue(rendered.runs.contains { $0.inlinePresentationIntent?.contains(.stronglyEmphasized) == true })
+        XCTAssertTrue(rendered.runs.contains { $0.inlinePresentationIntent?.contains(.emphasized) == true })
+        XCTAssertEqual(String(GolMarkdown.render("unfinished **text").characters), "unfinished **text")
+        let linked = GolMarkdown.render("[Reference](https://example.test/account/billing)")
+        XCTAssertEqual(String(linked.characters), "Reference")
+        XCTAssertTrue(linked.runs.allSatisfy { $0.link == nil })
     }
 
     private func settle(_ model: GolChatViewModel) async {
