@@ -452,3 +452,56 @@ def test_banner_replacement_removes_only_same_program_public_blob(club_app, clie
         == 200
     )
     assert storage.local_public_path(storage.public_blob_path_from_reference(foreign_url)).exists()
+
+
+def test_different_managers_can_create_same_private_name_and_year(club_app, client):
+    first = create_private(client, club_app, "Fictional Smith", "2010-01-02", key="b")
+    second = create_private(client, club_app, "Fictional Smith", "2010-01-02", key="a")
+    assert first.status_code == second.status_code == 201
+    assert first.json["player"]["id"] != second.json["player"]["id"]
+    assert "existing" not in second.json
+
+
+@pytest.mark.parametrize("birth_date,relationship", [("2000-01-02", "player"), ("2010-01-02", "guardian")])
+def test_normal_submission_ignores_private_club_duplicates(club_app, client, birth_date, relationship):
+    private = create_private(client, club_app, "Fictional Smith", birth_date)
+    assert private.status_code == 201
+    response = client.post(
+        "/api/local-players",
+        headers=_headers("scout"),
+        json={
+            "display_name": "Fictional Smith",
+            "birth_date": birth_date,
+            "relationship_type": relationship,
+        },
+    )
+    assert response.status_code == 201, response.json
+    assert response.json["player"]["id"] != private.json["player"]["id"]
+    assert "existing" not in response.json
+
+
+def test_same_manager_private_duplicate_still_conflicts(club_app, client):
+    created = create_private(client, club_app, "Fictional Smith", "2010-01-02")
+    duplicate = create_private(client, club_app, "  FICTIONAL   SMITH  ", "2010-05-06")
+    assert duplicate.status_code == 409
+    assert duplicate.json["error"] == "A local player with this name and birth year already exists"
+    assert duplicate.json["existing"]["id"] == created.json["player"]["id"]
+
+
+@pytest.mark.parametrize("status", ["pending", "approved"])
+def test_normal_submission_duplicate_still_conflicts(club_app, client, status):
+    from src.models.showcase import LocalPlayer
+
+    data = {"display_name": "Fictional Smith", "birth_date": "2000-01-02"}
+    created = client.post("/api/local-players", headers=_headers("scout"), json=data)
+    assert created.status_code == 201
+    row = db.session.get(LocalPlayer, created.json["player"]["id"])
+    row.status = status
+    db.session.commit()
+    duplicate = client.post("/api/local-players", headers=_headers("a"), json=data)
+    assert duplicate.status_code == 409
+    assert duplicate.json["error"] == "A local player with this name and birth year already exists"
+    assert ("existing" in duplicate.json) == (status == "approved")
+    # Club mode considers only this manager's identities, including for ordinary pending rows.
+    club_created = create_private(client, club_app, "Fictional Smith", "2000-01-02")
+    assert club_created.status_code == 201, club_created.json

@@ -1638,6 +1638,11 @@ def create_local_player():
             LocalPlayer.normalized_name == _normalize_local_player_name(display_name),
             LocalPlayer.status.notin_(("rejected", "merged")),
         )
+        if roster_member is None:
+            # Private club identities must not become a name/year existence oracle.
+            duplicate_query = duplicate_query.filter(LocalPlayer.provenance != "club")
+        else:
+            duplicate_query = duplicate_query.filter(LocalPlayer.created_by_user_id == user.id)
         if birth_year is None:
             duplicate_query = duplicate_query.filter(LocalPlayer.birth_year.is_(None))
         else:

@@ -68,6 +68,9 @@ Final backend runs use `DB_NAME=aw_clubhome_a DB_HOST=127.0.0.1 DB_PORT=5432`, C
 - Club player page and club-uploaded player photos.
 - Photo precedence: claimed player's approved photo > club photo > API photo.
 - Minors' club photos never public.
+- Claiming a club-created row requires an explicit "convert to public identity" step: change provenance and apply normal moderation. Today a claim on a club row is inert.
+- Decide the ownership model for same-manager cross-program attachment: a manager of programs A and B can currently attach A's club players into B.
+- Provide an admin-only view of club-created identities for safeguarding takedowns.
 
 ## Planned Phase C
 - Two-key public highlights: club selects clip windows; adult claimed player approves.
@@ -98,3 +101,11 @@ Final backend runs use `DB_NAME=aw_clubhome_a DB_HOST=127.0.0.1 DB_PORT=5432`, C
 - Iteration issues resolved: fixture rate-limiter initialization, request-local allowance caching, admin test authentication, dialog selector accessibility, and mobile transition timing. Final gates above supersede intermediate failures.
 - Phase B must implement an explicit player-owned claim/publication transition; an admin status change alone never removes the club-private provenance boundary. No public profile is created in this round.
 - No scope deviations. Cleanup complete: servers stopped, throwaway database dropped/absence verified, temporary token/media/scanner/baseline/scripts removed. Fix screenshots and walk log retained. Delivery is one new commit (not an amend), no push.
+
+## Fix round 2 — verified (2026-09-24)
+- Non-club duplicate queries exclude club provenance; club-mode duplicate queries only inspect identities created by the requesting manager. Existing duplicate error text is unchanged.
+- Regression coverage: different managers can create the same name/year; ordinary submissions ignore club-private matches; same-manager club duplicates and ordinary public/pending duplicates still return 409.
+- Only runtime change is in showcase.py; verification uses disposable SQLite test databases. Full backend suite is not required for this scope.
+- `../.loan/bin/python -m pytest -q tests/test_showcase.py tests/test_club_home.py tests/test_club_console.py tests/test_local_players.py` → **264 passed in 18.07s** (includes six new regression cases covering minors, adults, normalized same-manager duplicates, and pending/approved ordinary identities).
+- `ruff check academy-watch-backend` → **All checks passed!**; `ruff format --check academy-watch-backend` → **507 files already formatted**; `git diff --check` → passed.
+- No migration, frontend, dependency or lockfile changes. Test databases discarded by fixture teardown; no servers or temporary files created. Delivery is one new commit, no amend or push.
