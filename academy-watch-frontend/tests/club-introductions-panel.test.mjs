@@ -16,12 +16,12 @@ test('the panel lists the club box, decides consent through APIService, and moun
   assert.ok(src.includes('data-testid="club-introductions-panel"'))
 })
 
-test('the club console gains an Introductions tab wired to the panel', async () => {
+test('the club console keeps Introductions reachable through the Scouts rail', async () => {
   const src = await fs.readFile(consoleFile, 'utf8')
-  assert.ok(src.includes("import { ClubIntroductionsPanel } from '@/components/contact/ClubIntroductionsPanel'"))
-  assert.ok(src.includes('<TabsTrigger value="introductions" className="py-2"><Send className="h-4 w-4" /> Introductions</TabsTrigger>'))
-  assert.ok(src.includes('<TabsContent value="introductions"><ClubIntroductionsPanel programId={programId} onAccessDenied={onAccessDenied} /></TabsContent>'))
-  assert.ok(src.includes("'sm:grid-cols-5 lg:min-w-[55rem]' : 'sm:grid-cols-4 lg:min-w-[44rem]'"))
+  const shell = await fs.readFile(new URL('../src/pages/club-console/ClubHome.jsx', import.meta.url), 'utf8')
+  assert.ok(src.includes('introductions: contactRail === true ? <ClubIntroductionsPanel'))
+  assert.ok(shell.includes("['Scouts', Send, 'introductions']"))
+  assert.ok(shell.includes('{panels[view]}'))
 })
 
 test('the club panel mounts the thread without the outcome form (clubs cannot report outcomes)', async () => {

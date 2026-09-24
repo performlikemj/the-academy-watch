@@ -46,7 +46,11 @@ class PlayerSubject:
 
     @property
     def is_public(self) -> bool:
-        return self.is_adult and not self.is_suppressed
+        return (
+            self.is_adult
+            and not self.is_suppressed
+            and not (self.local_player is not None and self.local_player.provenance == "club")
+        )
 
     @property
     def is_approved_adult_local(self) -> bool:
@@ -135,7 +139,7 @@ def resolve_player_subject(signed_id) -> PlayerSubject | None:
             status="approved",
             merged_into_local_player_id=None,
         ).first()
-        if local_player is None:
+        if local_player is None or local_player.provenance == "club":
             return None
         shadow = PlayerShadow.query.filter_by(player_api_id=signed_id, is_active=True).first()
         return PlayerSubject(
@@ -149,6 +153,9 @@ def resolve_player_subject(signed_id) -> PlayerSubject | None:
     tracked_player = _preferred_tracked_player(signed_id)
     shadow = PlayerShadow.query.filter_by(player_api_id=signed_id, is_active=True).first()
     if tracked_player is None and shadow is None:
+        return None
+
+    if LocalPlayer.query.filter_by(api_player_id=signed_id, provenance="club").first() is not None:
         return None
 
     # Keep the established positive-id minor bridge intact after graduation.

@@ -131,7 +131,7 @@ class LocalPlayer(db.Model):
 
 
 def without_minor_local_bridge(api_player_id):
-    """SQL predicate excluding API ids bridged to any minor local identity."""
+    """Exclude minor and club-private bridges from public search/GOL surfaces."""
 
     return ~sa.exists().where(
         sa.and_(
@@ -139,7 +139,7 @@ def without_minor_local_bridge(api_player_id):
                 LocalPlayer.api_player_id == api_player_id,
                 LocalPlayer.id == -api_player_id,
             ),
-            local_player_is_minor(LocalPlayer),
+            sa.or_(LocalPlayer.provenance == "club", local_player_is_minor(LocalPlayer)),
         )
     )
 

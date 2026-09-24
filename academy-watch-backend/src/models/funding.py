@@ -195,6 +195,10 @@ class ClubProgram(db.Model):
     legal_name = db.Column(db.String(220), nullable=False)
     slug = db.Column(db.String(200), nullable=False)
     crest_url = db.Column(db.String(500))
+    brand_primary_color = db.Column(db.String(7))
+    brand_accent_color = db.Column(db.String(7))
+    banner_url = db.Column(db.Text)
+    banner_updated_at = db.Column(db.DateTime(timezone=True))
     country = db.Column(db.String(80), nullable=False)
     region = db.Column(db.String(120), nullable=False)
     city = db.Column(db.String(120))
@@ -244,6 +248,16 @@ class ClubProgram(db.Model):
         if self.country.strip().upper() not in {"US", "USA", "UNITED STATES", "UNITED STATES OF AMERICA"}:
             return True
         return bool(self.connect_account and self.connect_account.is_ready)
+
+    def brand_dict(self):
+        return {
+            "primary_color": self.brand_primary_color or "#0F3D2E",
+            "accent_color": self.brand_accent_color or "#E3B23C",
+            "banner_url": self.banner_url,
+        }
+
+    def manager_dict(self):
+        return {"id": self.id, "name": self.name, "crest_url": self.crest_url, "brand": self.brand_dict()}
 
     def public_dict(self):
         provenance_labels = {
@@ -461,6 +475,8 @@ class ClubRosterMember(db.Model):
         ),
         db.UniqueConstraint("program_id", "player_api_id", name="uq_club_roster_program_player"),
         db.UniqueConstraint("program_id", "local_player_id", name="uq_club_roster_program_local_player"),
+        db.CheckConstraint("shirt_number IS NULL OR shirt_number BETWEEN 1 AND 99", name="ck_club_roster_shirt"),
+        db.UniqueConstraint("squad_id", "shirt_number", name="uq_club_squad_shirt"),
         db.Index("ix_club_roster_members_program", "program_id", "created_at"),
     )
 
@@ -477,6 +493,8 @@ class ClubRosterMember(db.Model):
         db.String(36), db.ForeignKey("club_invitations.id", ondelete="SET NULL"), index=True
     )
     requires_player_acceptance = db.Column(db.Boolean, nullable=False, default=False, server_default="false")
+    squad_id = db.Column(db.Integer, db.ForeignKey("club_squads.id", ondelete="SET NULL"))
+    shirt_number = db.Column(db.SmallInteger)
     role = db.Column(db.String(80))
     note = db.Column(db.String(500))
     coach_brief_body = db.Column(db.Text)
@@ -554,3 +572,64 @@ class FundingAdminEvent(db.Model):
     reason = db.Column(db.Text, nullable=False)
     event_metadata = db.Column(db.JSON, nullable=False, default=dict)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC))
+
+
+class ClubSquad(db.Model):
+    __tablename__ = "club_squads"
+    __table_args__ = (
+        db.CheckConstraint("kind IN ('first_team','reserves','age_group','other')", name="ck_club_squad_kind"),
+        db.Index("uq_club_squad_name", "program_id", db.func.lower(db.column("name")), unique=True),
+    )
+    id = db.Column(db.Integer, primary_key=True)
+    program_id = db.Column(db.Integer, db.ForeignKey("club_programs.id", ondelete="CASCADE"), nullable=False)
+    name = db.Column(db.String(80), nullable=False)
+    kind = db.Column(db.String(20), nullable=False)
+    age_limit = db.Column(db.SmallInteger)
+    sort_order = db.Column(db.Integer, nullable=False, default=0, server_default="0")
+    created_at = db.Column(db.DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
+    updated_at = db.Column(
+        db.DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+        nullable=False,
+    )
+
+    def to_dict(self):
+        return {key: getattr(self, key) for key in ("id", "program_id", "name", "kind", "age_limit", "sort_order")} | {
+            "created_at": _iso(self.created_at),
+            "updated_at": _iso(self.updated_at),
+        }
+
+
+class ClubStaff(db.Model):
+    __tablename__ = "club_staff"
+    id = db.Column(db.Integer, primary_key=True)
+    program_id = db.Column(db.Integer, db.ForeignKey("club_programs.id", ondelete="CASCADE"), nullable=False)
+    display_name = db.Column(db.String(120), nullable=False)
+    title = db.Column(db.String(80), nullable=False)
+    reports_to_staff_id = db.Column(db.Integer, db.ForeignKey("club_staff.id", ondelete="SET NULL"))
+    leads_squad_id = db.Column(db.Integer, db.ForeignKey("club_squads.id", ondelete="SET NULL"))
+    user_account_id = db.Column(db.Integer, db.ForeignKey("user_accounts.id"))
+    sort_order = db.Column(db.Integer, nullable=False, default=0, server_default="0")
+    created_at = db.Column(db.DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
+    updated_at = db.Column(
+        db.DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+        nullable=False,
+    )
+
+    def to_dict(self):
+        return {
+            key: getattr(self, key)
+            for key in (
+                "id",
+                "program_id",
+                "display_name",
+                "title",
+                "reports_to_staff_id",
+                "leads_squad_id",
+                "user_account_id",
+                "sort_order",
+            )
+        } | {"created_at": _iso(self.created_at), "updated_at": _iso(self.updated_at)}

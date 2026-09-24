@@ -1528,11 +1528,41 @@ def create_local_club():
         return jsonify(_safe_error_payload(e, "Failed to create local club")), 500
 
 
+def _club_creation_program():
+    """Only an authorized club request receives the program-scoped allowance."""
+    from src.services.club_registry import is_manager_of_approved_program
+
+    if "club_creation_program" not in request.environ:
+        data = request.get_json(silent=True)
+        program_id = data.get("club_program_id") if isinstance(data, dict) else None
+        user = _current_user_account()
+        request.environ["club_creation_program"] = (
+            program_id
+            if type(program_id) is int and user and is_manager_of_approved_program(user.id, program_id)
+            else None
+        )
+    return request.environ["club_creation_program"]
+
+
+def _local_creation_limit():
+    return "120 per hour" if _club_creation_program() is not None else "5 per hour"
+
+
+def _local_creation_limit_key():
+    program_id = _club_creation_program()
+    return f"club-player-create:{program_id}" if program_id is not None else _user_rate_limit_key()
+
+
 @showcase_bp.route("/local-players", methods=["POST"])
 @require_user_auth
-@limiter.limit("5 per hour", key_func=_user_rate_limit_key)
+@limiter.limit(_local_creation_limit, key_func=_local_creation_limit_key)
 def create_local_player():
-    """Create a pending showcase-only identity and auto-claim it for its creator."""
+    """Create a pending identity; verified clubs can atomically add it to their private roster."""
+    from src.models.funding import ClubProgram
+    from src.routes.club import _clean_optional, _member_dict
+    from src.routes.club_home import HomeError, assign_roster, check_roster_capacity
+    from src.services.club_registry import is_manager_of_approved_program
+
     try:
         user = _current_user_account()
         if user is None:
@@ -1541,6 +1571,21 @@ def create_local_player():
         payload, payload_error = _json_object_or_400()
         if payload_error:
             return payload_error
+
+        club_program_id = payload.get("club_program_id")
+        roster_member = None
+        if "club_program_id" in payload:
+            if type(club_program_id) is not int or not is_manager_of_approved_program(user.id, club_program_id):
+                return jsonify({"error": "Club manager access denied"}), 403
+            db.session.query(ClubProgram).filter_by(id=club_program_id).with_for_update().one()
+            check_roster_capacity(club_program_id)
+            roster_member = ClubRosterMember(program_id=club_program_id, added_by_user_id=user.id)
+            assign_roster(roster_member, payload)
+            try:
+                roster_member.role = _clean_optional(payload.get("role"), "role", 80)
+                roster_member.note = _clean_optional(payload.get("note"), "note", 500)
+            except ValueError as exc:
+                raise HomeError(str(exc)) from exc
 
         raw_name = payload.get("display_name")
         if not isinstance(raw_name, str):
@@ -1570,7 +1615,9 @@ def create_local_player():
 
         raw_relationship = payload.get("relationship_type", "player")
         relationship_type = raw_relationship.strip().lower() if isinstance(raw_relationship, str) else ""
-        if relationship_type not in LOCAL_PLAYER_RELATIONSHIP_TYPES:
+        if roster_member is not None:
+            relationship_type = "club_official"
+        elif relationship_type not in LOCAL_PLAYER_RELATIONSHIP_TYPES:
             return (
                 jsonify({"error": f"relationship_type must be one of {sorted(LOCAL_PLAYER_RELATIONSHIP_TYPES)}"}),
                 400,
@@ -1585,11 +1632,17 @@ def create_local_player():
             if age is None or age < 18:
                 birth_date = None
 
-        _lock_pending_quota(user.id, namespace=5_455_005)
+        if roster_member is None:
+            _lock_pending_quota(user.id, namespace=5_455_005)
         duplicate_query = LocalPlayer.query.filter(
             LocalPlayer.normalized_name == _normalize_local_player_name(display_name),
             LocalPlayer.status.notin_(("rejected", "merged")),
         )
+        if roster_member is None:
+            # Private club identities must not become a name/year existence oracle.
+            duplicate_query = duplicate_query.filter(LocalPlayer.provenance != "club")
+        else:
+            duplicate_query = duplicate_query.filter(LocalPlayer.created_by_user_id == user.id)
         if birth_year is None:
             duplicate_query = duplicate_query.filter(LocalPlayer.birth_year.is_(None))
         else:
@@ -1597,7 +1650,9 @@ def create_local_player():
         existing = duplicate_query.order_by(LocalPlayer.id.asc()).first()
         if existing is not None:
             body = {"error": "A local player with this name and birth year already exists"}
-            if existing.status == "approved" or existing.created_by_user_id == user.id:
+            if (
+                existing.status == "approved" and existing.provenance != "club"
+            ) or existing.created_by_user_id == user.id:
                 body["existing"] = {
                     "id": existing.id,
                     "display_name": existing.display_name,
@@ -1612,10 +1667,13 @@ def create_local_player():
         ):
             return jsonify({"error": "An existing player identity needs review"}), 409
 
-        pending_count = LocalPlayer.query.filter_by(
-            created_by_user_id=user.id,
-            status="pending",
-        ).count()
+        pending_count = (
+            LocalPlayer.query.filter_by(created_by_user_id=user.id, status="pending")
+            .filter(LocalPlayer.provenance != "club")
+            .count()
+            if roster_member is None
+            else 0
+        )
         if pending_count >= MAX_PENDING_LOCAL_PLAYERS_PER_USER:
             return (
                 jsonify({"error": (f"pending local player limit reached ({MAX_PENDING_LOCAL_PLAYERS_PER_USER})")}),
@@ -1631,11 +1689,20 @@ def create_local_player():
             city=city,
             club_name=club_name,
             status="pending",
-            provenance="user",
+            provenance="club" if roster_member is not None else "user",
             created_by_user_id=user.id,
         )
         db.session.add(player)
         db.session.flush()
+        if roster_member is not None:
+            # A private club identity is not a claim to own the player's public profile.
+            if _legacy_negative_identity_conflict(-player.id) is not None:
+                raise HomeError("Player identity needs review", 409)
+            player.api_player_id = -player.id  # Private stats key; never mint a public shadow.
+            roster_member.local_player_id = player.id
+            db.session.add(roster_member)
+            db.session.commit()
+            return jsonify({"player": _local_player_owner_dict(player), "member": _member_dict(roster_member)}), 201
         claim = PlayerProfileClaim(
             player_api_id=None,
             local_player_id=player.id,
@@ -1648,6 +1715,9 @@ def create_local_player():
         db.session.add(claim)
         db.session.commit()
         return jsonify({"player": _local_player_owner_dict(player), "claim": _profile_claim_dict(claim)}), 201
+    except HomeError as exc:
+        db.session.rollback()
+        return jsonify({"error": str(exc)}), exc.status
     except Exception as e:
         db.session.rollback()
         logger.error("Error in create_local_player: %s", e)
@@ -1698,7 +1768,7 @@ def _subject_showcase_payload(subject: ShowcaseSubject, *, auth_context=None) ->
 
 
 def _local_player_visible_to_context(player: LocalPlayer, auth_context) -> bool:
-    if _local_player_is_suppressed(player):
+    if player.provenance == "club" or _local_player_is_suppressed(player):
         return False
     user = auth_context["user"] if auth_context else None
     # Minor academy records are club-private even after an identity moderator
@@ -3628,7 +3698,7 @@ def admin_list_local_players():
     """List local identities with creator email and full moderation metadata."""
     try:
         status = (request.args.get("status") or "").strip().lower()
-        query = LocalPlayer.query
+        query = LocalPlayer.query.filter(LocalPlayer.provenance != "club")
         if status:
             if status not in LOCAL_PLAYER_STATUSES:
                 return jsonify({"error": f"invalid status; one of {sorted(LOCAL_PLAYER_STATUSES)}"}), 400
@@ -3683,6 +3753,8 @@ def admin_review_local_player(lp_id: int):
         player = LocalPlayer.query.filter_by(id=lp_id).with_for_update().first()
         if player is None:
             return jsonify({"error": "local player not found"}), 404
+        if player.provenance == "club":
+            return jsonify(error="Club-private players cannot be reviewed for public approval"), 409
         payload, payload_error = _json_object_or_400()
         if payload_error:
             return payload_error

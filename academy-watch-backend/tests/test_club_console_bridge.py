@@ -250,6 +250,7 @@ def test_team_claim_grants_discoverable_console_idempotently_and_stays_private(b
     roster = client.get(f"/api/club/{program.id}/roster", headers=_user_headers(TEAM_EMAIL))
     assert roster.status_code == 200, roster.get_json()
     assert roster.get_json() == {
+        "program": program.manager_dict(),
         "members": [],
         "count": 0,
         "system_brief": {"body": None, "updated_at": None, "hash": None, "lines": None},

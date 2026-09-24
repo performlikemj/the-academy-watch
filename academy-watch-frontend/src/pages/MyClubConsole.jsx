@@ -1,3 +1,4 @@
+import { ClubHome } from './club-console/ClubHome'
 import { DevelopmentActionFields, DevelopmentActionSummary, DevelopmentProgress, FeedbackEvidencePicker } from '@/components/showcase/DevelopmentAction'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
@@ -360,12 +361,17 @@ function PreflightSelect({ id, field, label, value, onChange, disabled = false }
   )
 }
 
-function AddRosterMemberDialog({ open, onOpenChange, programId, onAdded, onAccessDenied }) {
+export function AddRosterMemberDialog({ open, onOpenChange, programId, onAdded, onAccessDenied, squads = [], defaultSquad = null }) {
   const [mode, setMode] = useState('tracked')
+  const [existingPlayers, setExistingPlayers] = useState([])
+  const [existingId, setExistingId] = useState('')
+  const [existingLoading, setExistingLoading] = useState(false)
   const [query, setQuery] = useState('')
   const [searchState, setSearchState] = useState({ query: '', loading: false, results: [], error: null })
   const [selectedPlayer, setSelectedPlayer] = useState(null)
-  const [localPlayerId, setLocalPlayerId] = useState('')
+  const [newPlayer, setNewPlayer] = useState({ display_name: '', birth_date: '', position: '' })
+  const [squadId, setSquadId] = useState(defaultSquad || '')
+  const [shirtNumber, setShirtNumber] = useState('')
   const [role, setRole] = useState('')
   const [note, setNote] = useState('')
   const [busy, setBusy] = useState(false)
@@ -373,10 +379,13 @@ function AddRosterMemberDialog({ open, onOpenChange, programId, onAdded, onAcces
 
   const reset = useCallback(() => {
     setMode('tracked')
+    setExistingId('')
+    setExistingPlayers([])
     setQuery('')
     setSearchState({ query: '', loading: false, results: [], error: null })
     setSelectedPlayer(null)
-    setLocalPlayerId('')
+    setNewPlayer({ display_name: '', birth_date: '', position: '' })
+    setShirtNumber('')
     setRole('')
     setNote('')
     setBusy(false)
@@ -410,6 +419,21 @@ function AddRosterMemberDialog({ open, onOpenChange, programId, onAdded, onAcces
     }
   }, [mode, open, query])
 
+  useEffect(() => {
+    if (!open || mode !== 'existing') return undefined
+    let cancelled = false
+    setExistingLoading(true)
+    APIService.request(`/club/${programId}/available-local-players`)
+      .then(data => { if (!cancelled) setExistingPlayers(data.players || []) })
+      .catch(err => {
+        if (cancelled) return
+        if (err.status === 403) onAccessDenied()
+        else setError('Could not load your players. Please try again.')
+      })
+      .finally(() => { if (!cancelled) setExistingLoading(false) })
+    return () => { cancelled = true }
+  }, [open, mode, programId, onAccessDenied])
+
   const submit = async () => {
     if (busy) return
     let subjectPayload
@@ -420,23 +444,32 @@ function AddRosterMemberDialog({ open, onOpenChange, programId, onAdded, onAcces
         return
       }
       subjectPayload = { player_api_id: Number(playerId) }
-    } else {
-      const parsedId = Number(localPlayerId)
-      if (!Number.isInteger(parsedId) || parsedId <= 0) {
-        setError('Enter a valid local player ID.')
+    } else if (mode === 'existing') {
+      if (!Number.isInteger(Number(existingId)) || Number(existingId) <= 0) {
+        setError('Choose a player you already added.')
         return
       }
-      subjectPayload = { local_player_id: parsedId }
+      subjectPayload = { local_player_id: Number(existingId) }
+    } else {
+      if (!newPlayer.display_name.trim() || !newPlayer.birth_date) {
+        setError('Enter the player name and date of birth.')
+        return
+      }
+      subjectPayload = {}
     }
 
     setBusy(true)
     setError(null)
     try {
-      const response = await APIService.addRosterMember(programId, {
-        ...subjectPayload,
+      const assignment = {
+        squad_id: squadId ? Number(squadId) : null,
+        shirt_number: shirtNumber ? Number(shirtNumber) : null,
         role: role.trim() || undefined,
         note: note.trim() || undefined,
-      })
+      }
+      const response = mode === 'local'
+        ? await APIService.createLocalPlayer({ ...newPlayer, ...assignment, club_program_id: programId })
+        : await APIService.addRosterMember(programId, { ...subjectPayload, ...assignment })
       onAdded(response?.member)
       onOpenChange(false)
       reset()
@@ -472,9 +505,10 @@ function AddRosterMemberDialog({ open, onOpenChange, programId, onAdded, onAcces
         </DialogHeader>
 
         <Tabs value={mode} onValueChange={(value) => { setMode(value); setError(null) }}>
-          <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="tracked">Tracked player</TabsTrigger>
-            <TabsTrigger value="local">Local player ID</TabsTrigger>
+          <TabsList className="flex h-auto w-full flex-wrap">
+            <TabsTrigger value="tracked">Find a tracked player</TabsTrigger>
+            <TabsTrigger value="local">New player</TabsTrigger>
+            <TabsTrigger value="existing">A player you already added</TabsTrigger>
           </TabsList>
           <TabsContent value="tracked" className="space-y-3 pt-2">
             <div className="space-y-2">
@@ -522,24 +556,29 @@ function AddRosterMemberDialog({ open, onOpenChange, programId, onAdded, onAcces
               </div>
             ) : null}
           </TabsContent>
+          <TabsContent value="existing" className="space-y-3 pt-2">
+            <Label htmlFor="club-existing-player">Your players</Label>
+            <select id="club-existing-player" className="w-full rounded-md border p-2" value={existingId} onChange={event => setExistingId(event.target.value)} disabled={existingLoading}>
+              <option value="">{existingLoading ? 'Loading your players…' : 'Choose a player'}</option>
+              {existingPlayers.map(player => <option key={player.id} value={player.id}>{player.display_name}{player.position ? ` · ${player.position}` : ''}</option>)}
+            </select>
+            {!existingLoading && !existingPlayers.length && <p className="text-sm text-muted-foreground">All your available players are already on this roster, or you haven’t added any yet.</p>}
+            <details>
+              <summary className="cursor-pointer text-sm">Enter an ID instead</summary>
+              <Label htmlFor="club-existing-player-id">Local player ID</Label>
+              <Input id="club-existing-player-id" type="number" min="1" value={existingId} onChange={event => setExistingId(event.target.value)} />
+            </details>
+          </TabsContent>
           <TabsContent value="local" className="space-y-2 pt-2">
-            <Label htmlFor="club-roster-local-id">Local player ID</Label>
-            <Input
-              id="club-roster-local-id"
-              type="number"
-              inputMode="numeric"
-              min="1"
-              step="1"
-              value={localPlayerId}
-              onChange={(event) => { setLocalPlayerId(event.target.value); setError(null) }}
-              placeholder="e.g. 42"
-            />
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              Use the numeric ID of a local player profile you created. Private minors stay private in this console.
-            </p>
+            {['display_name', 'birth_date', 'position'].map((field) => <label key={field} className="grid gap-2 text-sm">{{ display_name: 'Player name', birth_date: 'Date of birth', position: 'Position' }[field]}<Input type={field === 'birth_date' ? 'date' : 'text'} value={newPlayer[field]} onChange={(event) => setNewPlayer({ ...newPlayer, [field]: event.target.value })} /></label>)}
+            <p className="text-xs text-muted-foreground">Private club identity. Minors stay inside the manager console.</p>
           </TabsContent>
         </Tabs>
 
+        <div className="grid gap-4 sm:grid-cols-2">
+          <label className="grid gap-2 text-sm">Squad<select aria-label="Squad" className="rounded-md border p-2" value={squadId} onChange={(event) => setSquadId(event.target.value)}><option value="">Unassigned</option>{squads.map((squad) => <option key={squad.id} value={squad.id}>{squad.name}</option>)}</select></label>
+          <label className="grid gap-2 text-sm">Shirt number<Input type="number" min="1" max="99" value={shirtNumber} onChange={(event) => setShirtNumber(event.target.value)} /></label>
+        </div>
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2">
             <Label htmlFor="club-roster-role">Squad role (optional)</Label>
@@ -1031,6 +1070,7 @@ export function RosterPanel({ programId, members, systemBrief, loading, error, o
                   {member.available && !member.is_minor && acceptedInvitations[member.id] && <PlayerFeedbackPanel
                     programId={programId} invitationId={acceptedInvitations[member.id]} playerName={member.display_name} token={token} onAccessDenied={onAccessDenied}
                   />}
+                    <details><summary className="cursor-pointer text-sm font-semibold">Edit brief</summary>
                   <BriefEditor
                     key={`${member.id}-${member.brief?.updated_at || 'empty'}`}
                     id={`coach-brief-${member.id}`}
@@ -1045,6 +1085,7 @@ export function RosterPanel({ programId, members, systemBrief, loading, error, o
                     }}
                     onAccessDenied={onAccessDenied}
                   />
+                    </details>
                 </div>
               ))}
             </div>
@@ -2542,79 +2583,18 @@ export function MyClubConsole({
 
   const setGrant = useCallback((matchId, grant) => setUploadGrants((current) => ({ ...current, [matchId]: grant })), [])
 
-  return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-100 via-background to-secondary/50">
-      <div className="mx-auto max-w-7xl space-y-6 px-4 py-8 sm:px-6 lg:px-8">
-        <header className="relative overflow-hidden rounded-2xl bg-slate-950 px-6 py-7 text-white shadow-xl sm:px-8 sm:py-9">
-          <div className="pointer-events-none absolute -right-20 -top-28 h-72 w-72 rounded-full border-[42px] border-amber-300/10" />
-          <div className="pointer-events-none absolute -bottom-20 right-24 h-48 w-48 rounded-full border border-white/10" />
-          <div className="relative flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <p className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.22em] text-amber-300"><ShieldCheck className="h-4 w-4" /> Verified manager console</p>
-              <h1 className="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">{program.name}</h1>
-              <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-300">Run your private squad and match-analysis workflow from upload through finalized player reports.</p>
-            </div>
-            <div className="flex w-full flex-col items-start gap-3 sm:w-auto sm:items-end">
-              <Badge className="w-fit border-emerald-300/30 bg-emerald-300/10 px-3 py-1.5 text-emerald-200"><CircleDot className="mr-1.5 h-3.5 w-3.5" /> Program active</Badge>
-              {programOptions.length > 1 ? (
-                <Select value={String(programId)} onValueChange={(value) => onProgramChange(Number(value))}>
-                  <SelectTrigger className="w-full border-white/20 bg-white/10 text-white sm:w-64" aria-label="Switch club program">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {programOptions.map((option) => <SelectItem key={option.program.id} value={String(option.program.id)}>{option.program.name || `Program #${option.program.id}`}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              ) : null}
-            </div>
-          </div>
-        </header>
-
-        {erroredProgramCount > 0 ? (
-          <Alert className="border-amber-200 bg-amber-50">
-            <AlertCircle className="h-4 w-4 text-amber-800" />
-            <AlertDescription className="flex flex-wrap items-center gap-1 text-amber-950">
-              {erroredProgramCount} {erroredProgramCount === 1 ? 'club' : 'clubs'} couldn&apos;t be checked —
-              <Button
-                variant="link"
-                className="h-auto p-0 text-amber-950 underline"
-                onClick={onRetryPrograms}
-                disabled={checkingPrograms}
-              >
-                {checkingPrograms ? 'Checking…' : 'Retry'}
-              </Button>
-            </AlertDescription>
-          </Alert>
-        ) : null}
-
-        <Tabs defaultValue="roster" className="gap-5">
-          <TabsList className={`grid h-auto w-full grid-cols-2 bg-slate-200/70 p-1 ${moderationContent ? 'sm:grid-cols-5 lg:min-w-[55rem]' : 'sm:grid-cols-4 lg:min-w-[44rem]'} lg:w-fit`}>
-            <TabsTrigger value="roster" className="py-2"><Users className="h-4 w-4" /> Roster</TabsTrigger>
-            <TabsTrigger value="matches" className="py-2"><Film className="h-4 w-4" /> Matches &amp; reports</TabsTrigger>
-            <TabsTrigger value="profile" className="py-2"><ShieldCheck className="h-4 w-4" /> Club profile</TabsTrigger>
-            {contactRail === true ? <TabsTrigger value="introductions" className="py-2"><Send className="h-4 w-4" /> Introductions</TabsTrigger> : null}
-            {moderationContent ? (
-              <TabsTrigger value="affiliations" className="py-2">
-                <Check className="h-4 w-4" /> Affiliations &amp; vouches
-                {moderationCount > 0 ? <Badge className="ml-1 border-amber-300 bg-amber-100 text-amber-900">{moderationCount}</Badge> : null}
-              </TabsTrigger>
-            ) : null}
-          </TabsList>
-          <TabsContent value="roster">
-            <RosterPanel programId={programId} members={members} systemBrief={systemBrief} loading={rosterLoading} error={rosterError} onMembersChange={setMembers} onSystemBriefChange={setSystemBrief} onReload={loadRoster} onAccessDenied={onAccessDenied} />
-          </TabsContent>
-          <TabsContent value="matches">
-            <MatchesPanel key={programId} programId={programId} rosterMembers={members} matches={matches} loading={matchesLoading} error={matchesError} loadFailureCount={matchesLoadFailureCount} uploadGrants={uploadGrants} onMatchesChange={setMatches} onUploadGrantChange={setGrant} onReload={loadMatches} onAccessDenied={onAccessDenied} />
-          </TabsContent>
-          <TabsContent value="profile"><ClubProfile program={program} claim={programClaim} onAccessDenied={onAccessDenied} /></TabsContent>
-          {contactRail === true ? <TabsContent value="introductions"><ClubIntroductionsPanel programId={programId} onAccessDenied={onAccessDenied} /></TabsContent> : null}
-          {moderationContent ? <TabsContent value="affiliations">{moderationContent}</TabsContent> : null}
-        </Tabs>
-
-        <p className="flex items-center justify-center gap-2 text-center text-xs text-muted-foreground"><LockKeyhole className="h-3.5 w-3.5" /> Club-console data is manager-only. Opposition players remain anonymous.</p>
-      </div>
-    </div>
-  )
+  return <ClubHome
+    program={{ ...program, ...initialRoster?.program }} members={members} onReload={loadRoster} onAccessDenied={onAccessDenied}
+    programOptions={programOptions} onProgramChange={onProgramChange}
+    statusContent={erroredProgramCount > 0 ? <Alert><AlertDescription>{erroredProgramCount} clubs could not be checked. <Button onClick={onRetryPrograms} disabled={checkingPrograms}>Retry</Button></AlertDescription></Alert> : null}
+    panels={{
+      roster: <RosterPanel programId={programId} members={members} systemBrief={systemBrief} loading={rosterLoading} error={rosterError} onMembersChange={setMembers} onSystemBriefChange={setSystemBrief} onReload={loadRoster} onAccessDenied={onAccessDenied} />,
+      matches: <MatchesPanel key={programId} programId={programId} rosterMembers={members} matches={matches} loading={matchesLoading} error={matchesError} loadFailureCount={matchesLoadFailureCount} uploadGrants={uploadGrants} onMatchesChange={setMatches} onUploadGrantChange={setGrant} onReload={loadMatches} onAccessDenied={onAccessDenied} />,
+      profile: <ClubProfile program={program} claim={programClaim} onAccessDenied={onAccessDenied} />,
+      introductions: contactRail === true ? <ClubIntroductionsPanel programId={programId} onAccessDenied={onAccessDenied} /> : <p>Scout introductions are not enabled for this club.</p>,
+      affiliations: moderationContent || <p>No affiliations need review.</p>,
+    }} moderationCount={moderationCount}
+  />
 }
 
 export default MyClubConsole
