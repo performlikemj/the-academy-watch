@@ -539,6 +539,8 @@ def _member_dict(member: ClubRosterMember, *, authorized_player_ids: set[int] | 
     out = {
         "id": member.id,
         "program_id": member.program_id,
+        "squad_id": member.squad_id,
+        "shirt_number": member.shirt_number,
         "role": member.role,
         "note": member.note,
         "brief": _brief_dict(member.coach_brief_body, member.brief_updated_at),
@@ -548,6 +550,13 @@ def _member_dict(member: ClubRosterMember, *, authorized_player_ids: set[int] | 
     }
     if subject is not None:
         out.update(subject)
+        birth = getattr(player, "birth_date", None)
+        out["age"] = age_from_birth_date(birth) if birth else None
+        birth_year = getattr(player, "birth_year", None)
+        if out["age"] is None and isinstance(birth_year, int):
+            upper_age = datetime.now(UTC).year - birth_year
+            if 1 <= upper_age <= 120:
+                out["age_label"] = f"{upper_age - 1}–{upper_age}"
     return out
 
 
@@ -838,17 +847,60 @@ def delete_club_program_update(program_id: int, update_id: int):
 @require_club_manager()
 def list_club_roster(program_id: int):
     program = db.session.get(ClubProgram, program_id)
-    rows = (
-        ClubRosterMember.query.filter_by(program_id=program_id)
-        .order_by(ClubRosterMember.created_at.asc(), ClubRosterMember.id.asc())
-        .all()
-    )
+    from src.models.funding import ClubSquad
+    from src.routes.club_home import HomeError, resource
+
+    query = ClubRosterMember.query.filter_by(program_id=program_id)
+    squad_filter = request.args.get("squad_id")
+    if squad_filter is not None:
+        if squad_filter == "none":
+            query = query.filter(ClubRosterMember.squad_id.is_(None))
+        else:
+            try:
+                resource(ClubSquad, program_id, int(squad_filter))
+            except (ValueError, HomeError):
+                return jsonify(error="Not found"), 404
+            query = query.filter_by(squad_id=int(squad_filter))
+    rows = query.order_by(ClubRosterMember.created_at.asc(), ClubRosterMember.id.asc()).all()
     authorized_player_ids = club_authorized_player_ids(
         program, {row.player_api_id for row in rows}, season=current_stats_season(), session=db.session
     )
+    # Only finalized, identity-confirmed evidence tied to the current private member.
+    film_rows = (
+        db.session.query(
+            VideoPlayerReport.club_roster_member_id_at_finalize,
+            func.count(VideoPlayerReport.id),
+            func.sum(VideoPlayerReport.minutes_visible),
+            func.max(VideoMatch.finalized_at),
+        )
+        .join(VideoMatch, VideoMatch.id == VideoPlayerReport.video_match_id)
+        .join(VideoRosterEntry, VideoRosterEntry.id == VideoPlayerReport.roster_entry_id)
+        .filter(
+            VideoMatch.club_program_id == program_id,
+            VideoMatch.status == "finalized",
+            VideoPlayerReport.club_program_id_at_finalize == program_id,
+            VideoPlayerReport.identity_confidence == "human_confirmed",
+            VideoRosterEntry.club_roster_member_id == VideoPlayerReport.club_roster_member_id_at_finalize,
+        )
+        .group_by(VideoPlayerReport.club_roster_member_id_at_finalize)
+        .all()
+    )
+    film = {
+        member_id: {
+            "report_count": count,
+            "on_camera_minutes": minutes,
+            "last_report_at": latest.isoformat() if latest else None,
+        }
+        for member_id, count, minutes, latest in film_rows
+    }
+    members = [_member_dict(row, authorized_player_ids=authorized_player_ids) for row in rows]
+    for member in members:
+        if member["available"] and member["id"] in film:
+            member["film"] = film[member["id"]]
     return jsonify(
         {
-            "members": [_member_dict(row, authorized_player_ids=authorized_player_ids) for row in rows],
+            "program": program.manager_dict(),
+            "members": members,
             "count": len(rows),
             "system_brief": _brief_dict(program.system_brief_body, program.system_brief_updated_at),
         }
@@ -858,7 +910,10 @@ def list_club_roster(program_id: int):
 @club_bp.route("/club/<int:program_id>/roster", methods=["POST"])
 @require_club_manager()
 def add_club_roster_member(program_id: int):
+    from src.routes.club_home import HomeError, assign_roster
+
     try:
+        db.session.query(ClubProgram).filter_by(id=program_id).with_for_update().one()
         data = _payload()
         has_api = data.get("player_api_id") is not None
         has_local = data.get("local_player_id") is not None
@@ -910,9 +965,13 @@ def add_club_roster_member(program_id: int):
             role=_clean_optional(data.get("role"), "role", 80),
             note=_clean_optional(data.get("note"), "note", 500),
         )
+        assign_roster(member, data)
         db.session.add(member)
         db.session.commit()
         return jsonify({"member": _member_dict(member)}), 201
+    except HomeError as exc:
+        db.session.rollback()
+        return jsonify(error=str(exc)), exc.status
     except ValueError as exc:
         db.session.rollback()
         return _bad_request(str(exc))
@@ -2189,3 +2248,8 @@ def revoke_club_invitation(program_id, invitation_id):
     return _invitation_operation(
         lambda: (resolve_invitation(db.session, invitation, g.user_id, "revoke", manager=True), 200)
     )
+
+
+from src.routes.club_home import register as register_club_home
+
+register_club_home(club_bp)

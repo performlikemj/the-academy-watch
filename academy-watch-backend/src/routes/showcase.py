@@ -1532,7 +1532,12 @@ def create_local_club():
 @require_user_auth
 @limiter.limit("5 per hour", key_func=_user_rate_limit_key)
 def create_local_player():
-    """Create a pending showcase-only identity and auto-claim it for its creator."""
+    """Create a pending identity; verified clubs can atomically add it to their private roster."""
+    from src.models.funding import ClubProgram
+    from src.routes.club import _clean_optional, _member_dict
+    from src.routes.club_home import HomeError, assign_roster
+    from src.services.club_registry import is_manager_of_approved_program
+
     try:
         user = _current_user_account()
         if user is None:
@@ -1541,6 +1546,20 @@ def create_local_player():
         payload, payload_error = _json_object_or_400()
         if payload_error:
             return payload_error
+
+        club_program_id = payload.get("club_program_id")
+        roster_member = None
+        if "club_program_id" in payload:
+            if type(club_program_id) is not int or not is_manager_of_approved_program(user.id, club_program_id):
+                return jsonify({"error": "Club manager access denied"}), 403
+            db.session.query(ClubProgram).filter_by(id=club_program_id).with_for_update().one()
+            roster_member = ClubRosterMember(program_id=club_program_id, added_by_user_id=user.id)
+            assign_roster(roster_member, payload)
+            try:
+                roster_member.role = _clean_optional(payload.get("role"), "role", 80)
+                roster_member.note = _clean_optional(payload.get("note"), "note", 500)
+            except ValueError as exc:
+                raise HomeError(str(exc)) from exc
 
         raw_name = payload.get("display_name")
         if not isinstance(raw_name, str):
@@ -1570,7 +1589,9 @@ def create_local_player():
 
         raw_relationship = payload.get("relationship_type", "player")
         relationship_type = raw_relationship.strip().lower() if isinstance(raw_relationship, str) else ""
-        if relationship_type not in LOCAL_PLAYER_RELATIONSHIP_TYPES:
+        if roster_member is not None:
+            relationship_type = "club_official"
+        elif relationship_type not in LOCAL_PLAYER_RELATIONSHIP_TYPES:
             return (
                 jsonify({"error": f"relationship_type must be one of {sorted(LOCAL_PLAYER_RELATIONSHIP_TYPES)}"}),
                 400,
@@ -1636,6 +1657,12 @@ def create_local_player():
         )
         db.session.add(player)
         db.session.flush()
+        if roster_member is not None:
+            # A private club identity is not a claim to own the player's public profile.
+            roster_member.local_player_id = player.id
+            db.session.add(roster_member)
+            db.session.commit()
+            return jsonify({"player": _local_player_owner_dict(player), "member": _member_dict(roster_member)}), 201
         claim = PlayerProfileClaim(
             player_api_id=None,
             local_player_id=player.id,
@@ -1648,6 +1675,9 @@ def create_local_player():
         db.session.add(claim)
         db.session.commit()
         return jsonify({"player": _local_player_owner_dict(player), "claim": _profile_claim_dict(claim)}), 201
+    except HomeError as exc:
+        db.session.rollback()
+        return jsonify({"error": str(exc)}), exc.status
     except Exception as e:
         db.session.rollback()
         logger.error("Error in create_local_player: %s", e)

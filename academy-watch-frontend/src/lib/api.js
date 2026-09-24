@@ -361,7 +361,8 @@ export class APIService {
             const data = await response.json()
             return data
         } catch (error) {
-            console.error('❌ API request failed:', error)
+            // Unmounts and changed filters cancel requests intentionally.
+            if (error?.name !== 'AbortError') console.error('❌ API request failed:', error)
             throw error
         }
     }
@@ -1404,8 +1405,8 @@ export class APIService {
     }
 
     // ── Verified club console ───────────────────────────────────────
-    static async getClubRoster(programId) {
-        return this.request(`/club/${encodeURIComponent(programId)}/roster`)
+    static async getClubRoster(programId, squadId) {
+        return this.request(`/club/${encodeURIComponent(programId)}/roster${squadId === undefined ? '' : `?squad_id=${encodeURIComponent(squadId)}`}`)
     }
 
     static async getClubProfile(programId) {
@@ -1606,7 +1607,22 @@ export class APIService {
         })
     }
 
-    static async uploadPhotoToUrl(upload, file) {
+    static async uploadPhotoToUrl(upload, file, onProgress) {
+        if (onProgress) {
+            return new Promise((resolve, reject) => {
+                const xhr = new XMLHttpRequest()
+                xhr.open('PUT', upload.url)
+                Object.entries(upload.headers || {}).forEach(([key, value]) => xhr.setRequestHeader(key, value))
+                xhr.upload.onprogress = (event) => {
+                    if (event.lengthComputable) onProgress(Math.round(event.loaded / event.total * 100))
+                }
+                xhr.onload = () => xhr.status >= 200 && xhr.status < 300
+                    ? resolve()
+                    : reject(new Error(`Photo upload failed (HTTP ${xhr.status})`))
+                xhr.onerror = () => reject(new Error('Photo upload failed. Please try again.'))
+                xhr.send(file)
+            })
+        }
         const response = await fetch(upload.url, {
             method: 'PUT',
             headers: upload.headers,

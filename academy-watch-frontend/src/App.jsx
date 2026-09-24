@@ -3993,12 +3993,13 @@ function StatsPage() {
 }
 
 function PlayerOnboardingPrompt() {
+  const { pathname } = useLocation()
   const { token } = useAuth()
   const navigate = useNavigate()
   const [openForToken, setOpenForToken] = useState(null)
 
   useEffect(() => {
-    if (!token || typeof window === 'undefined') return undefined
+    if (!token || pathname.startsWith('/my-club') || typeof window === 'undefined') return undefined
 
     try {
       if (window.localStorage.getItem(PLAYER_ONBOARDING_PROMPT_KEY)) return undefined
@@ -4017,7 +4018,7 @@ function PlayerOnboardingPrompt() {
       .catch(() => { /* Transient claims failures must not trigger the prompt. */ })
 
     return () => { cancelled = true }
-  }, [token])
+  }, [token, pathname])
 
   const dismissPrompt = () => {
     try {
@@ -4034,7 +4035,7 @@ function PlayerOnboardingPrompt() {
   }
 
   return (
-    <Dialog open={Boolean(token) && openForToken === token} onOpenChange={(nextOpen) => { if (!nextOpen) dismissPrompt() }}>
+    <Dialog open={!pathname.startsWith('/my-club') && Boolean(token) && openForToken === token} onOpenChange={(nextOpen) => { if (!nextOpen) dismissPrompt() }}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Are you a player?</DialogTitle>
