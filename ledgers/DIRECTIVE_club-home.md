@@ -64,7 +64,7 @@ Final backend runs use `DB_NAME=aw_clubhome_a DB_HOST=127.0.0.1 DB_PORT=5432`, C
 - Public player pages/photos and public highlight publication remain outside Phase A. Introduction evidence shows the real empty inbox; no scout requests or messages were fabricated.
 - Cleanup complete: backend/frontend servers stopped; throwaway database dropped and absence verified; token, generated media, baseline checkout, scanner and other task temporary files deleted. Ten final screenshots and walk.log retained, along with pre-existing design/brief/run artifacts. Delivery is one local commit on `feat/club-home-a`; no push, PR or merge.
 
-## Planned Phase B
+## Original Phase B plan — fulfilled below
 - Club player page and club-uploaded player photos.
 - Photo precedence: claimed player's approved photo > club photo > API photo.
 - Minors' club photos never public.
@@ -109,3 +109,112 @@ Final backend runs use `DB_NAME=aw_clubhome_a DB_HOST=127.0.0.1 DB_PORT=5432`, C
 - `../.loan/bin/python -m pytest -q tests/test_showcase.py tests/test_club_home.py tests/test_club_console.py tests/test_local_players.py` → **264 passed in 18.07s** (includes six new regression cases covering minors, adults, normalized same-manager duplicates, and pending/approved ordinary identities).
 - `ruff check academy-watch-backend` → **All checks passed!**; `ruff format --check academy-watch-backend` → **507 files already formatted**; `git diff --check` → passed.
 - No migration, frontend, dependency or lockfile changes. Test databases discarded by fixture teardown; no servers or temporary files created. Delivery is one new commit, no amend or push.
+
+## Phase B — execution record (2026-09-24)
+- Worktree `feat/club-home-b`; private player profile, private photos, pathway, origin ownership and safeguarding list.
+- User fence continues to exclude CONTINUITY.md; this directive is the active ledger.
+- Plan: guarded ch02/pre-apply SQL → shared private backend read model/storage/history → Club Home/admin UI → focused/full gates, PostgreSQL parity and browser evidence → one commit.
+- Results model has no starts field: omit starts rather than infer it from minutes. Existing match entries remain the source of recorded appearances/minutes/goals/assists.
+
+## Phase B — as built (2026-09-24)
+- `ch02`, down_revision `ch01`: guarded/idempotent history table + index + RLS; private roster photo path/timestamp; nullable local-player origin FK. Backfills create one open history interval for assigned members and select each club identity's earliest roster program.
+- Squad assignments share `change_squad`: initial assigned creation, roster PATCH/move and squad deletion close/open intervals atomically. No-op assignments do not add intervals. Failed writes roll back history. Member removal and invitation revocation close history; the required member FK cascade then removes history with the member (there is no surviving "removed" interval).
+- Club-mode creation stamps origin. Any manager of that origin can attach the club identity; another program cannot attach it even when the same user manages both. Non-club identities retain the creator-only attachment rule. Picker uses the same ownership scope; historical memberships are retained for safeguarding inventory.
+- Private photos use the existing pending/direct PUT pattern and expiring actor/program/member grants. Completion bounds bytes/pixels, decodes and re-encodes metadata-free JPEG, then stores `club-player-photos/<program>/<member>/<uuid>.jpg` outside both showcase containers. Local private artifacts are outside the public/pending filesystem trees. Anonymous dev pending-photo GET is denied for this namespace.
+- GET photo streams authorized bytes with `Cache-Control: private, no-store`; no public URL or read SAS is minted. Replacement/deletion removes only the prior matching program/member prefix after commit. Failed DB completion compensates by deleting the new private artifact.
+- Photo precedence: adult approved primary photo uploaded by an approved player claimant (approved/public local identity required) → private club photo → tracked photo → initials. Minors never select showcase photos. Suppressed/unavailable subjects return neutral 404 for profile/photo.
+- Profile aggregates identity/claim/squad/age, pathway, club-entered results, match roster/film, coach brief, current readable development feedback/actions, club-visible introductions and private note. Empty sections are omitted; minors get an explicit locked scout state. Starts are omitted because the results schema has no starts field; appearances count entries with positive minutes. Brief and feedback/progress writes use the existing APIs.
+- Film uses the existing reel builder and shared club report serializer. Report links/minutes additionally require the current member's finalization snapshot, preventing attribution after entry rebinding. Existing reel/report UI is reused and scoped to the selected player; playback stacks inside the player-page column.
+- Club contact listing and player aggregate share the existing club-included/block visibility query; development uses the existing relationship/closure serializer and feedback-development service. Existing feature flags remain effective.
+- Club Home deep link: `/my-club?program=<program_id>&player=<member_id>`. Hero/tabs/desktop pathway column follow the approved mock without sample statistics. Dock, squad cards, sidebar search and roster rows open the page. Authenticated blob avatars appear on page/map/dock/cards; upload supports progress/preview/replace/remove. Busy photo/move/brief actions cannot race a pending save.
+- Admin nav → `/admin/club-identities`: dual admin auth, paginated club-provenance inventory, origin/program/creator/date/minor/memberships and program filter. The form uses the EXISTING local takedown intake → suppression queue → activate lifecycle, including its existing audit behavior.
+- No new public player, search, scout, sitemap or GOL surfaces; no public publication transition.
+
+### Phase B endpoints
+- Manager-only: `GET /api/club/<pid>/roster/<mid>/profile`.
+- Manager-only: `POST/GET/DELETE /api/club/<pid>/roster/<mid>/photo`; `POST /api/club/<pid>/roster/<mid>/photo/complete`.
+- Admin-only: `GET /api/admin/club-identities?program_id=<pid>&limit=<1..200>&offset=<n>`.
+- Existing roster PATCH, brief PUT, photo direct-upload PUT, feedback/progress, club film and takedown/suppression endpoints are reused.
+
+### Phase B storage / deployment configuration
+- New optional env var: `CLUB_PLAYER_PHOTOS_CONTAINER`, safe default **`club-player-photos-private`** (documented in backend env.template).
+- Container must be private and distinct from `SHOWCASE_MEDIA_CONTAINER` and `SHOWCASE_MEDIA_PENDING_CONTAINER`. The Azure implementation can create it with `public_access=None` and refuses an existing public container. Orchestrator may provision this private container before deploy; existing connection string/pending-upload CORS are reused. No Azure/Supabase/prod access was performed for this work.
+- Local dev uses `SHOWCASE_MEDIA_LOCAL_DIR/club-private/`; no new local env var is required.
+
+### Phase B verification — final results
+- Every database-aware command targeted the throwaway with `DB_NAME=aw_clubhome_b DB_HOST=127.0.0.1 DB_PORT=5432 DB_SSLMODE=disable`, CI flags `SKIP_API_HANDSHAKE=1 API_USE_STUB_DATA=true TEST_ONLY_MANU=false OPENAI_API_KEY=test-not-a-real-key`, disabled Azure/Key Vault and local-only media. Credentials were passed in process environment, never printed.
+- Focused command from backend: `../.loan/bin/python -m pytest -q tests/test_club_players.py tests/test_club_home.py tests/test_club_console.py tests/test_player_feedback.py tests/test_club_invitations.py tests/test_contact.py tests/test_showcase.py tests/test_cb01_coach_briefs.py tests/test_pm01_player_match_entries.py tests/test_s2_foundation.py tests/test_season_data_sea01.py` → **508 passed, 11 skipped in 35.42s**.
+- Full CI backend command: `../.loan/bin/python -m pytest -q` → **3 failed, 2893 passed, 35 skipped, 114 warnings in 156.86s**. No deselections. Only failures: radar `test_full_radar_chart_data`, `test_percentile_pool_stats`, `test_old_vs_new_comparison`.
+- Fresh `git archive origin/main academy-watch-backend` extraction, same throwaway/CI env, `python -m pytest -q tests/test_radar_stats_e2e.py` → **3 failed, 2 passed, 1 skipped in 0.36s**, exactly the same three failures; no radar files changed.
+- `ruff check academy-watch-backend` → **All checks passed**; `ruff format --check academy-watch-backend` → **511 files already formatted**; `git diff --check` → **passed**.
+- `PATH=<temporary official OSV-Scanner v2.3.8>:$PATH ./scripts/setup_frontend.sh` → **547 packages scanned, no issues**, frozen dependency restore passed. No lockfile regeneration, lockfile modifications or new dependencies.
+- Frontend `pnpm lint` → **0 errors, 182 warnings** (repository warning-level rules); `pnpm build` → **3927 modules, passed**; `pnpm test` → **186 passed, 0 failed**. This JSX frontend has no separate typecheck command; Vite build is the compilation gate.
+- PostgreSQL clones `aw_clubhome_b` and `aw_clubhome_b_sql` created from `soccer_newsletter` using CREATE DATABASE ... TEMPLATE via psycopg. Shared database received no application writes/migrations.
+- Alembic: clone `s4d1` → `ch01` → `ch02`; downgrade to `ch01`; upgrade to `ch02`; final repeat downgrade/upgrade → **passed**. RLS true on `club_roster_squad_history`; assigned-member/open-row and origin backfills verified; repeated SQL application leaves history counts unchanged.
+- Pre-apply proof: fresh second clone upgraded only to `ch01`, identical backfill fixtures inserted in both clones, then `ch02_preapply.sql` applied as one BEGIN/COMMIT. `pg_dump --schema-only --no-owner --no-privileges -t public.club_roster_members -t public.club_roster_squad_history -t public.local_players` compared against the Alembic clone → **zero differences**. Only pg_dump's random `\restrict`/`\unrestrict` nonce lines were excluded. Both normalized dumps SHA-256: `89b3908513834b5599026337bc7ddc928afd1ec51dff72cfae7c157d06de912c`. A regression test also compares ch02's exact UPGRADE_SQL against the transaction-wrapped pre-apply file.
+- Playwright bundled Chromium, backend 5093 / frontend 5193, throwaway only: **main walk + extended walk passed; zero API/console/page errors** in final `/tmp/club-home-b/walk.log`. Verified live reel frame readiness, report, all entry links, brief/note saves, photo preview/upload/replace/remove/reupload, origin-scoped private photo rendering, U16→U18, minor scout lock, admin filter and actual existing suppression activation. Mobile document width equals **390px**.
+- Screenshot review against Player.dc.html completed; fixed narrow reel controls, squad-card action wrapping and pending-save action race. Eight final screenshots in `/tmp/club-home-b/shots/`: `01-player-adult.png`, `02-player-minor.png`, `03a-photo-map-and-dock.png`, `03b-photo-squad-card.png`, `04-pathway-u16-u18.png`, `05-film-finalized.png`, `06-admin-club-identities.png`, `07-mobile-player.png`.
+
+### Phase B evidence notes / deviations
+- Host reports **mjs-macbook-pro.lan**, despite the brief naming basecamp. Work and all gates ran on the supplied machine/worktree.
+- Existing Sample Club/program 2, match 4 (Visiting XI, finalized, 18 roster entries/reports) supplied real local film evidence. Existing fixture numbers were retained; no mock season numbers, starts, scout interest or development actions were invented. New identities/staff and the illustrated upload fixture are fictional.
+- Original local suppression fixtures had encrypted fields incompatible with the isolated server's key. Unrelated requested suppression rows were reset **only on the throwaway** before testing the actual takedown form. Admin token was reissued after creating its local account, consistent with account-generation binding. Initial walkthrough selector/readiness issues and old migration-head assertions were corrected; final gate/log results above supersede intermediate failures.
+- No separate removed-member pathway interval survives the explicitly required cascade; removing a squad preserves intervals with a nullable squad reference. Timeline truth is limited to recorded/backfilled assignments (no historical seasons invented).
+- Full-suite radar failures are pre-existing; live Azure reads/writes were intentionally not exercised. Azure private-container behavior is covered with a mocked SDK; local filesystem upload/read lifecycle is exercised through HTTP and in SQLite tests.
+- Supplied `_prodenv.sh`, `ch01_preapply.sql`, `prod_check_ch01.sh`, `prod_preapply_ch01.sh`, and `prod_stamp_ch01.sh` are included unchanged. No prod script was executed.
+
+## Planned Phase B2
+- A player claims a club-created profile through a club invitation.
+- Require an explicit **convert-to-public** step: provenance flip, normal moderation, and the adult gate. Claim approval alone does not publish a club identity.
+- A club photo may become the public photo only with that adult player's explicit approval; private club storage must never itself become public.
+- Minors remain private; normal suppression and relationship safeguards continue to apply.
+
+### Phase B cleanup / delivery
+- Backend/frontend servers stopped. Both throwaway databases dropped and absence verified. Task temporary credentials, local media, baseline extraction, scanner, scripts and intermediate logs removed; only `/tmp/club-home-b/shots/` and `walk.log` retained.
+- Delivery: one local commit on `feat/club-home-b`, no push/PR/merge. Pre-existing untracked `.loan` symlink is left untouched.
+
+### Phase B changed-file inventory
+- Backend schema/models/config:
+  - `academy-watch-backend/env.template`
+  - `academy-watch-backend/migrations/versions/ch02_club_player_pages.py`
+  - `academy-watch-backend/src/models/club_invitation.py`
+  - `academy-watch-backend/src/models/funding.py`
+  - `academy-watch-backend/src/models/showcase.py`
+- Backend routes/services:
+  - `academy-watch-backend/src/routes/club.py`
+  - `academy-watch-backend/src/routes/club_home.py`
+  - `academy-watch-backend/src/routes/club_players.py`
+  - `academy-watch-backend/src/routes/contact.py`
+  - `academy-watch-backend/src/routes/showcase.py`
+  - `academy-watch-backend/src/services/club_player_profile.py`
+  - `academy-watch-backend/src/services/feedback_development.py`
+  - `academy-watch-backend/src/services/showcase_media_storage.py`
+- Backend tests:
+  - `academy-watch-backend/tests/test_cb01_coach_briefs.py`
+  - `academy-watch-backend/tests/test_club_console.py`
+  - `academy-watch-backend/tests/test_club_players.py`
+  - `academy-watch-backend/tests/test_player_feedback.py`
+  - `academy-watch-backend/tests/test_pm01_player_match_entries.py`
+  - `academy-watch-backend/tests/test_s2_foundation.py`
+  - `academy-watch-backend/tests/test_season_data_sea01.py`
+- Frontend:
+  - `academy-watch-frontend/src/App.jsx`
+  - `academy-watch-frontend/src/components/admin/AdminSidebar.jsx`
+  - `academy-watch-frontend/src/components/video/PlayerReel.jsx`
+  - `academy-watch-frontend/src/lib/api.js`
+  - `academy-watch-frontend/src/pages/MyClub.jsx`
+  - `academy-watch-frontend/src/pages/MyClubConsole.jsx`
+  - `academy-watch-frontend/src/pages/admin/AdminClubIdentities.jsx`
+  - `academy-watch-frontend/src/pages/club-console/ClubHome.jsx`
+  - `academy-watch-frontend/src/pages/club-console/PitchMap.jsx`
+  - `academy-watch-frontend/src/pages/club-console/PlayerAvatar.jsx`
+  - `academy-watch-frontend/src/pages/club-console/PlayerPage.jsx`
+  - `academy-watch-frontend/src/pages/club-console/club-home.css`
+- Ledger / deployment SQL and supplied tooling:
+  - `ledgers/DIRECTIVE_club-home.md`
+  - `ledgers/tooling/club-home/_prodenv.sh`
+  - `ledgers/tooling/club-home/ch01_preapply.sql`
+  - `ledgers/tooling/club-home/ch02_preapply.sql`
+  - `ledgers/tooling/club-home/prod_check_ch01.sh`
+  - `ledgers/tooling/club-home/prod_preapply_ch01.sh`
+  - `ledgers/tooling/club-home/prod_stamp_ch01.sh`

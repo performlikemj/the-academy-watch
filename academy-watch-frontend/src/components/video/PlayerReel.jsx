@@ -612,7 +612,7 @@ function ReelPlayer({ matchId, player, mediaToken, captions, onMediaError, media
 
     return (
         <div className="border-t border-cyan-400/20 bg-slate-950 p-3 text-slate-100 sm:p-5">
-            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_15rem]">
+            <div className="player-reel-playback grid gap-4 lg:grid-cols-[minmax(0,1fr)_15rem]">
                 <div>
                     <div className="relative overflow-hidden rounded-md border border-white/10 bg-black shadow-2xl">
                         {mediaFailed ? (

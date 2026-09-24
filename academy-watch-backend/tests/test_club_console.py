@@ -1303,6 +1303,7 @@ def test_shadow_only_positive_roster_member_remains_available(club_app, client):
             "shirt_number": None,
             "squad_id": None,
             "display_name": "Graduated Shadow Player",
+            "photo": None,
             "position": "Defender",
             "is_minor": False,
         }

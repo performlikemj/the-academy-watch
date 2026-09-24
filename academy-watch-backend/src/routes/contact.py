@@ -346,6 +346,22 @@ def _is_participant(
     return _participant_role(contact_request, user, club_for_update=club_for_update) is not None
 
 
+def club_visible_requests(user_id, program_ids):
+    """Shared club inbox scope, including both participant block directions."""
+    query = ContactRequest.query.filter(
+        ContactRequest.routing_mode == ROUTING_CLUB_INCLUDED,
+        ContactRequest.club_program_id.in_(program_ids),
+    )
+    related = block_related_user_ids(user_id=user_id)
+    if related:
+        claims = db.session.query(PlayerProfileClaim.id).filter(PlayerProfileClaim.user_account_id.in_(related))
+        query = query.filter(
+            ContactRequest.scout_user_id.notin_(related),
+            or_(ContactRequest.claim_id.is_(None), ContactRequest.claim_id.notin_(claims)),
+        )
+    return query
+
+
 def _active_request_filter():
     return ContactRequest.status.in_(ACTIVE_REQUEST_STATUSES)
 
@@ -802,38 +818,14 @@ def list_contact_requests():
                 query = query.filter(ContactRequest.scout_user_id.notin_(related_user_ids))
         elif box == "club":
             managed_program_ids = sorted(active_manager_program_ids(user.id))
-            expiry_query = ContactRequest.query.filter(
-                ContactRequest.routing_mode == ROUTING_CLUB_INCLUDED,
-                ContactRequest.club_program_id.in_(managed_program_ids),
-            )
-            if related_user_ids:
-                expiry_query = expiry_query.filter(ContactRequest.scout_user_id.notin_(related_user_ids))
-            if related_claim_ids is not None:
-                expiry_query = expiry_query.filter(
-                    or_(
-                        ContactRequest.claim_id.is_(None),
-                        ContactRequest.claim_id.notin_(related_claim_ids),
-                    )
-                )
+            expiry_query = club_visible_requests(user.id, managed_program_ids)
             # Lazy expiry may commit. Finish it before acquiring program locks so
             # no lock can be released between the operational check and listing.
             _expire_visible_rows(expiry_query)
             program_ids = [
                 program_id for program_id in managed_program_ids if program_is_operational(program_id, for_update=True)
             ]
-            query = ContactRequest.query.filter(
-                ContactRequest.routing_mode == ROUTING_CLUB_INCLUDED,
-                ContactRequest.club_program_id.in_(program_ids),
-            )
-            if related_user_ids:
-                query = query.filter(ContactRequest.scout_user_id.notin_(related_user_ids))
-            if related_claim_ids is not None:
-                query = query.filter(
-                    or_(
-                        ContactRequest.claim_id.is_(None),
-                        ContactRequest.claim_id.notin_(related_claim_ids),
-                    )
-                )
+            query = club_visible_requests(user.id, program_ids)
         else:
             return jsonify({"error": "box must be sent, inbox, or club"}), 400
 

@@ -758,3 +758,30 @@ def test_withdrawn_create_and_revision_replays_return_metadata_without_reopening
     assert correct(client, pilot, second).json == {"error": "feedback_withdrawn"}
     assert detail(client, second).status_code == 404
     assert PlayerFeedback.query.count() == 2
+
+
+def test_club_player_profile_development_uses_current_relationship(client, pilot, accepted):
+    response = create(
+        client,
+        pilot,
+        accepted,
+        development_action={
+            "focus": "Receiving",
+            "practice": "Scan before each pass",
+            "success": "Check both shoulders",
+            "review_on": None,
+        },
+    )
+    assert response.status_code == 201
+    member = ClubRosterMember.query.filter_by(program_id=pilot["program"], accepted_invitation_id=accepted).one()
+    url = f"/api/club/{pilot['program']}/roster/{member.id}/profile"
+    profile = client.get(url, headers=_headers("a"))
+    assert profile.status_code == 200
+    assert profile.json["development"][0]["development_action"]["focus"] == "Receiving"
+    row = response.json["feedback"]
+    client.post(
+        f"/api/club/{pilot['program']}/player-feedback/{row['thread_id']}/withdraw",
+        json={"expected_revision": row["revision"]},
+        headers=_headers("a"),
+    )
+    assert "development" not in client.get(url, headers=_headers("a")).json

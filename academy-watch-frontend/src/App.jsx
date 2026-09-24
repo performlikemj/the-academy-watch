@@ -85,6 +85,7 @@ import { AdminFormation } from '@/pages/admin/AdminFormation'
 import { AdminShowcase } from '@/pages/admin/AdminShowcase'
 import { AdminTrust } from '@/pages/admin/AdminTrust'
 import { AdminLocalClubs } from '@/pages/admin/AdminLocalClubs'
+import { AdminClubIdentities } from '@/pages/admin/AdminClubIdentities'
 import { AdminFunding } from '@/pages/admin/AdminFunding'
 import { HomePage } from '@/pages/HomePage'
 import { PublicFormationBuilder } from '@/pages/PublicFormationBuilder'
@@ -4180,6 +4181,7 @@ function AppRoutes() {
         <Route path="trust" element={<AdminTrust />} />
         <Route path="local-clubs" element={<AdminLocalClubs />} />
         <Route path="funding" element={<AdminFunding />} />
+        <Route path="club-identities" element={<AdminClubIdentities />} />
         <Route path="settings" element={<AdminSettings />} />
         <Route path="tools" element={<AdminTools />} />
         <Route path="sandbox" element={<AdminSandbox />} />

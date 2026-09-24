@@ -445,3 +445,72 @@ def local_serving_path(route_blob_path: str) -> Path:
     if route_blob_path.startswith("published/"):
         return local_public_path(route_blob_path[len("published/") :])
     return local_pending_path(route_blob_path)
+
+
+def _club_private_container() -> str:
+    name = os.getenv("CLUB_PLAYER_PHOTOS_CONTAINER", "club-player-photos-private")
+    if name in {_public_container(), _pending_container()}:
+        raise StorageNotConfiguredError("club photos require a separate private container")
+    return name
+
+
+def local_club_photo_path(blob_path: str, create_parent: bool = False) -> Path:
+    return _local_path(_local_root() / "club-private", blob_path, create_parent)
+
+
+def store_club_photo(blob_path: str, processed_bytes: bytes) -> str:
+    """Store normalized pixels privately; this function never returns a URL."""
+    _require_configured()
+    path = _published_blob_path(blob_path)
+    if not path.startswith("club-player-photos/") or not processed_bytes:
+        raise InvalidBlobPathError("invalid club photo")
+    if is_azure_configured():
+        from azure.core.exceptions import ResourceExistsError
+
+        container = _service_client().get_container_client(_club_private_container())
+        try:
+            container.create_container(public_access=None)
+        except ResourceExistsError:
+            pass
+        # Fail closed if a pre-existing container was accidentally made public.
+        if container.get_container_properties().get("public_access"):
+            raise StorageNotConfiguredError("club photos container must be private")
+        container.get_blob_client(path).upload_blob(
+            processed_bytes, overwrite=False, content_settings=ContentSettings(content_type="image/jpeg")
+        )
+    else:
+        target = local_club_photo_path(path, True)
+        with target.open("xb") as output:
+            output.write(processed_bytes)
+    return path
+
+
+def read_club_photo(blob_path: str) -> bytes:
+    _require_configured()
+    blob_path = _validate_blob_path(blob_path)
+    if is_azure_configured():
+        blob = _service_client().get_blob_client(_club_private_container(), blob_path)
+        try:
+            raw = blob.download_blob(offset=0, length=max_photo_bytes() + 1, max_concurrency=1).readall()
+        except ResourceNotFoundError as exc:
+            raise StoredMediaError("club photo not found") from exc
+    else:
+        with local_club_photo_path(blob_path).open("rb") as source:
+            raw = source.read(max_photo_bytes() + 1)
+    if len(raw) > max_photo_bytes():
+        raise StoredMediaError("club photo exceeds size cap")
+    return raw
+
+
+def delete_club_photo(blob_path: str) -> None:
+    _require_configured()
+    blob_path = _validate_blob_path(blob_path)
+    if is_azure_configured():
+        try:
+            _service_client().get_blob_client(_club_private_container(), blob_path).delete_blob(
+                delete_snapshots="include"
+            )
+        except ResourceNotFoundError:
+            pass
+    else:
+        local_club_photo_path(blob_path).unlink(missing_ok=True)

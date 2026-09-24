@@ -94,6 +94,7 @@ class LocalPlayer(db.Model):
     status = db.Column(db.String(20), nullable=False, default="pending", server_default="pending")
     api_player_id = db.Column(db.Integer)
     merged_into_local_player_id = db.Column(db.Integer, db.ForeignKey("local_players.id"), nullable=True)
+    origin_program_id = db.Column(db.Integer, db.ForeignKey("club_programs.id", ondelete="SET NULL"))
     provenance = db.Column(db.String(20), nullable=False, default="user", server_default="user")
     created_by_user_id = db.Column(db.Integer, db.ForeignKey("user_accounts.id"), nullable=True)
     reviewed_by = db.Column(db.String(200))

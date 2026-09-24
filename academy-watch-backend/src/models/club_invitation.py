@@ -389,6 +389,9 @@ def revoke_relationship(session, invitation, claim, now):
         session.query(VideoRosterEntry).filter_by(club_roster_member_id=member.id).update(
             {VideoRosterEntry.club_roster_member_id: None}, synchronize_session="fetch"
         )
+        from src.services.club_player_profile import close_squad_history
+
+        close_squad_history(member)
         session.delete(member)
     if invitation.player_api_id < 0:
         if claim.club_program_id == invitation.program_id:

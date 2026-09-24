@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { PlayerPage } from './PlayerPage';
 import { Network, Users, Film, Send, Settings, ShieldCheck, Plus, LockKeyhole, Search } from 'lucide-react';
 import { APIService } from '@/lib/api';
 import { AddRosterMemberDialog } from '../MyClubConsole';
@@ -19,7 +21,9 @@ export function ClubHome({
 }) {
   const [map, setMap] = useState(null);
   const [navigationOpen, setNavigationOpen] = useState(false);
-  const [view, setView] = useState('map');
+  const [params, setParams] = useSearchParams();
+  const playerId = params.get('player');
+  const view = playerId ? 'player' : (params.get('view') || 'map');
   const [focus, setFocus] = useState(null);
   const [selected, setSelected] = useState(null);
   const [squadMembers, setSquadMembers] = useState([]);
@@ -87,10 +91,11 @@ export function ClubHome({
     }
   }
   function navigate(next) {
-    setView(next);
+    setParams({ program: String(programId), view: next });
     setError('');
     setNavigationOpen(false);
   }
+  const openPlayer = id => { setParams({ program: String(programId), player: String(id) }); setNavigationOpen(false); };
   const openSquad = id => {
     setFocus(id);
     navigate('squad');
@@ -147,7 +152,7 @@ export function ClubHome({
         <Plus size={17} />{' Add squad'}</button>
       {query && members.filter(m => m.available && matchesQuery(m.display_name)).slice(0, 12).map(m => <button key={m.id} onClick={() => {
         setFocus(m.squad_id || 'none');
-        setView('squad');
+        openPlayer(m.id);
         setQuery('');
       }}>
         {m.shirt_number ? `#${m.shirt_number} ` : ''}
@@ -158,7 +163,7 @@ export function ClubHome({
     </aside>
     <main className="ch-main">
       <button className="ch-mobile-navigation" aria-expanded={navigationOpen} aria-controls="club-navigation" onClick={() => setNavigationOpen(!navigationOpen)}>Squads & club navigation</button>
-      <header className="ch-banner" style={brand.banner_url ? {
+      {view !== 'player' && <header className="ch-banner" style={brand.banner_url ? {
         backgroundImage: `linear-gradient(#00000033, #00000033), linear-gradient(color-mix(in srgb, var(--club-primary) 88%, transparent), color-mix(in srgb, var(--club-primary) 88%, transparent)), url("${brand.banner_url}")`
       } : undefined}>
         <div className="ch-crest">{club.crest_url ? <img src={club.crest_url} alt={`${club.name} crest`} /> : initials(club.name)}</div>
@@ -170,8 +175,9 @@ export function ClubHome({
             {squads.length}{' squads · '}{members.length}{' players · One club'}</p>
         </div>
         <button className="ch-banner-edit" onClick={() => navigate('branding')}>Edit branding</button>
-      </header>
+      </header>}
       {statusContent}
+      {view === 'player' && <PlayerPage key={`${programId}:${playerId}`} program={club} memberId={playerId} squads={squads} members={members} onReload={onReload} onAccessDenied={onAccessDenied} onClub={() => navigate('map')} onSquad={openSquad} onScouts={() => navigate('introductions')} />}
       <div className="ch-content">
         {error && <p className="ch-error" role="alert">{error}</p>}
         {view === 'map' && <>
@@ -186,7 +192,7 @@ export function ClubHome({
             <button aria-pressed={focus === null} onClick={() => setFocus(null)}>Whole club</button>
             {squads.map(s => <button key={s.id} aria-pressed={focus === s.id} onClick={() => setFocus(s.id)}>{s.name}</button>)}
           </div>
-          <PitchMap program={club} squads={squads} staff={staff} focus={focus} members={effectiveMembers} selected={selected} onSelect={setSelected} onFocus={setFocus} onOpenSquad={openSquad} onStaff={() => navigate('staff')} onTemplate={() => mutate('squads/template', 'POST', {})} busy={busy} loading={loading} />
+          <PitchMap program={club} squads={squads} staff={staff} focus={focus} members={effectiveMembers} selected={selected} onSelect={setSelected} onOpenPlayer={openPlayer} onFocus={setFocus} onOpenSquad={openSquad} onStaff={() => navigate('staff')} onTemplate={() => mutate('squads/template', 'POST', {})} busy={busy} loading={loading} />
         </>}
         {view === 'squad' && <>
           <div className="ch-squad-header">
@@ -223,7 +229,7 @@ export function ClubHome({
             <h3>
               {group}{' · '}{players.length}
             </h3>
-            <div className="ch-player-grid">{players.map(m => <PlayerCard key={m.id} member={m} squads={squads} onSave={data => mutate(`roster/${m.id}`, 'PATCH', data)} />)}</div>
+            <div className="ch-player-grid">{players.map(m => <PlayerCard key={m.id} onOpen={() => openPlayer(m.id)} member={m} squads={squads} onSave={data => mutate(`roster/${m.id}`, 'PATCH', data)} />)}</div>
           </section>;
           })}
         </>}
