@@ -649,6 +649,7 @@ class ClubRosterSquadHistory(db.Model):
         db.Integer, db.ForeignKey("club_roster_members.id", ondelete="CASCADE"), nullable=False
     )
     squad_id = db.Column(db.Integer, db.ForeignKey("club_squads.id", ondelete="SET NULL"))
+    squad_name = db.Column(db.String(80))
     started_at = db.Column(
         db.DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC), server_default=db.func.now()
     )

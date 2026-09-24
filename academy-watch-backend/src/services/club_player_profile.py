@@ -2,6 +2,7 @@
 
 from datetime import UTC, datetime
 
+from sqlalchemy import and_, or_
 from src.models.funding import ClubRosterSquadHistory, ClubSquad
 from src.models.league import db
 from src.models.showcase import PlayerProfileClaim, PlayerShowcaseMedia
@@ -20,7 +21,15 @@ def change_squad(member, squad_id):
         return
     now = datetime.now(UTC)
     close_squad_history(member, now)
-    member.squad_history.append(ClubRosterSquadHistory(program_id=member.program_id, squad_id=squad_id, started_at=now))
+    squad = db.session.get(ClubSquad, squad_id) if squad_id else None
+    member.squad_history.append(
+        ClubRosterSquadHistory(
+            program_id=member.program_id,
+            squad_id=squad_id,
+            squad_name=squad.name if squad else None,
+            started_at=now,
+        )
+    )
     member.squad_id = squad_id
 
 
@@ -33,24 +42,55 @@ def player_claims(member):
     )
 
 
-def member_photo(member, subject, player):
+def _photo_subject_key(row):
+    return ("local", row.local_player_id) if row.local_player_id else ("tracked", row.player_api_id)
+
+
+def prefetch_member_photos(members):
+    """Two queries for any roster size; ownership is checked per subject, not globally."""
+    local_ids = {m.local_player_id for m in members if m.local_player_id}
+    tracked_ids = {m.player_api_id for m in members if not m.local_player_id and m.player_api_id}
+    if not local_ids and not tracked_ids:
+        return {}
+
+    def scope(model):
+        return or_(
+            model.local_player_id.in_(local_ids),
+            and_(model.local_player_id.is_(None), model.player_api_id.in_(tracked_ids)),
+        )
+
+    owners = {}
+    for claim in PlayerProfileClaim.query.filter(
+        scope(PlayerProfileClaim),
+        PlayerProfileClaim.status == "approved",
+        PlayerProfileClaim.relationship_type == "player",
+    ):
+        owners.setdefault(_photo_subject_key(claim), set()).add(claim.user_account_id)
+    photos = {}
+    for photo in PlayerShowcaseMedia.query.filter(
+        scope(PlayerShowcaseMedia),
+        PlayerShowcaseMedia.status == "approved",
+        PlayerShowcaseMedia.is_primary.is_(True),
+        PlayerShowcaseMedia.kind == "photo",
+    ).order_by(PlayerShowcaseMedia.id):
+        key = _photo_subject_key(photo)
+        if photo.uploaded_by_user_id in owners.get(key, ()):
+            # Preserve the first approved primary's precedence, even without a URL.
+            photos.setdefault(key, photo.public_url)
+    return photos
+
+
+def member_photo(member, subject, player, *, player_photos=None):
     if (
         not subject["is_minor"]
         and getattr(player, "provenance", None) != "club"
         and (not member.local_player_id or (player.status == "approved" and player.api_player_id == -player.id))
     ):
-        owners = [row.user_account_id for row in player_claims(member)]
-        photos = PlayerShowcaseMedia.query.filter_by(status="approved", is_primary=True, kind="photo")
-        photos = (
-            photos.filter_by(local_player_id=member.local_player_id)
-            if member.local_player_id
-            else photos.filter_by(player_api_id=member.player_api_id, local_player_id=None)
-        )
-        photo = (
-            photos.filter(PlayerShowcaseMedia.uploaded_by_user_id.in_(owners)).order_by(PlayerShowcaseMedia.id).first()
-        )
-        if photo and photo.public_url:
-            return {"source": "player", "url": photo.public_url}
+        if player_photos is None:
+            player_photos = prefetch_member_photos([member])
+        url = player_photos.get(_photo_subject_key(member))
+        if url:
+            return {"source": "player", "url": url}
     if member.photo_path:
         return {
             "source": "club",
@@ -86,7 +126,7 @@ def profile_payload(member):
             {
                 "id": h.id,
                 "squad_id": h.squad_id,
-                "squad_name": h.squad.name if h.squad else "Unassigned / deleted squad",
+                "squad_name": h.squad_name or "Unassigned / deleted squad",
                 "started_at": h.started_at.isoformat(),
                 "ended_at": h.ended_at.isoformat() if h.ended_at else None,
             }
@@ -166,16 +206,15 @@ def profile_payload(member):
     else:
         from flask import g
         from src.models.contact import ContactRequest
-        from src.routes.contact import _contact_request_payload, club_visible_requests
+        from src.routes.contact import _contact_request_payload, _expire_visible_rows, club_visible_requests
         from src.services.contact import contact_rail_enabled
 
         if contact_rail_enabled():
-            contacts = (
-                club_visible_requests(g.user_id, [member.program_id])
-                .filter(ContactRequest.player_api_id == signed_id)
-                .order_by(ContactRequest.created_at.desc())
-                .all()
+            query = club_visible_requests(g.user_id, [member.program_id]).filter(
+                ContactRequest.player_api_id == signed_id
             )
+            _expire_visible_rows(query)
+            contacts = query.order_by(ContactRequest.created_at.desc()).all()
             if contacts:
                 result["scout_interest"] = {
                     "locked": False,

@@ -519,7 +519,9 @@ def _member_subject(member: ClubRosterMember) -> tuple[dict | None, object | Non
     )
 
 
-def _member_dict(member: ClubRosterMember, *, authorized_player_ids: set[int] | None = None) -> dict:
+def _member_dict(
+    member: ClubRosterMember, *, authorized_player_ids: set[int] | None = None, player_photos=None
+) -> dict:
     subject, player = _member_subject(member)
     public_stats_allowed = False
     if subject is not None and not subject["is_minor"]:
@@ -554,7 +556,7 @@ def _member_dict(member: ClubRosterMember, *, authorized_player_ids: set[int] | 
         from src.services.club_player_profile import member_photo
 
         out.update(subject)
-        out["photo"] = member_photo(member, subject, player)
+        out["photo"] = member_photo(member, subject, player, player_photos=player_photos)
         birth = getattr(player, "birth_date", None)
         out["age"] = age_from_birth_date(birth) if birth else None
         birth_year = getattr(player, "birth_year", None)
@@ -578,7 +580,8 @@ def _brief_dict(body: str | None, updated_at: datetime | None) -> dict:
 def _brief_name_tokens(program: ClubProgram) -> dict[str, str]:
     names = []
     for member in program.roster_members:
-        display_name = _member_dict(member).get("display_name")
+        subject, _ = _member_subject(member)
+        display_name = subject.get("display_name") if subject else None
         if display_name:
             names.append(display_name)
     names.extend(
@@ -916,7 +919,12 @@ def list_club_roster(program_id: int):
         }
         for member_id, count, minutes, latest in film_rows
     }
-    members = [_member_dict(row, authorized_player_ids=authorized_player_ids) for row in rows]
+    from src.services.club_player_profile import prefetch_member_photos
+
+    player_photos = prefetch_member_photos(rows)
+    members = [
+        _member_dict(row, authorized_player_ids=authorized_player_ids, player_photos=player_photos) for row in rows
+    ]
     for member in members:
         if member["available"] and member["id"] in film:
             member["film"] = film[member["id"]]

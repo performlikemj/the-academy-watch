@@ -65,6 +65,14 @@ def test_pathway_all_assignment_paths(club_app, client):
     assert call(client, club_app, "delete", f"squads/{first}").status_code == 200
     assert rows()[-1].squad_id is None and rows()[-1].ended_at is None
     assert all(r.ended_at for r in rows()[:-1])
+    assert [r.squad_name for r in rows()] == ["U16", "U18", None, "U16", None]
+    assert [h["squad_name"] for h in call(client, club_app, "get", f"roster/{mid}/profile").json["pathway"]] == [
+        "U16",
+        "U18",
+        "Unassigned / deleted squad",
+        "U16",
+        "Unassigned / deleted squad",
+    ]
     assert call(client, club_app, "delete", f"roster/{mid}").status_code == 204
     assert not rows()  # required ON DELETE CASCADE: no orphan history survives removal
     local_mid, _ = local_member(client, club_app, squad=second)
@@ -418,3 +426,150 @@ def test_photo_expired_grant_and_byte_cap(club_app, client, private_storage, mon
         == 422
     )
     assert db.session.get(ClubRosterMember, mid).photo_path is None
+
+
+def test_roster_photo_queries_are_constant_and_brief_needs_none(club_app, client):
+    from sqlalchemy import event
+
+    statements = []
+
+    def count_photo_reads(conn, cursor, statement, parameters, context, executemany):
+        if statement.lstrip().upper().startswith("SELECT") and any(
+            f"FROM {table}" in statement for table in ("player_profile_claims", "player_showcase_media")
+        ):
+            statements.append(statement)
+
+    def add_members(start, stop):
+        for i in range(start, stop):
+            player = LocalPlayer(
+                display_name=f"Fictional Batch {i}",
+                birth_year=2000,
+                created_by_user_id=club_app.c2["users"]["a"],
+                provenance="user",
+                status="approved",
+            )
+            db.session.add(player)
+            db.session.flush()
+            player.api_player_id = -player.id
+            db.session.add(
+                ClubRosterMember(
+                    program_id=club_app.c2["program_a"],
+                    local_player_id=player.id,
+                    added_by_user_id=club_app.c2["users"]["a"],
+                )
+            )
+            owner = club_app.c2["users"]["scout"]
+            db.session.add(
+                PlayerProfileClaim(
+                    local_player_id=player.id, user_account_id=owner, relationship_type="player", status="approved"
+                )
+            )
+            db.session.add(
+                PlayerShowcaseMedia(
+                    local_player_id=player.id,
+                    uploaded_by_user_id=owner,
+                    status="approved",
+                    is_primary=True,
+                    blob_path=f"batch/{i}.jpg",
+                    public_url=f"https://example.invalid/{i}.jpg",
+                )
+            )
+        db.session.commit()
+        db.session.remove()  # cold session; do not hide queries in the identity map
+
+    engine = db.engine
+    event.listen(engine, "before_cursor_execute", count_photo_reads)
+    try:
+        counts = []
+        for start, stop in ((0, 3), (3, 30)):
+            add_members(start, stop)
+            statements.clear()
+            response = call(client, club_app, "get", "roster")
+            assert response.status_code == 200
+            assert len(response.json["members"]) == stop
+            assert all(m["photo"]["source"] == "player" for m in response.json["members"])
+            counts.append(len(statements))
+        assert counts == [2, 2]
+        statements.clear()
+        # Calling validation directly isolates it from the brief response serializer.
+        from src.models.funding import ClubProgram
+        from src.routes.club import _brief_name_tokens
+
+        assert _brief_name_tokens(db.session.get(ClubProgram, club_app.c2["program_a"]))
+        assert statements == []
+    finally:
+        event.remove(engine, "before_cursor_execute", count_photo_reads)
+
+
+def test_batch_photos_keep_owners_scoped_to_each_subject(club_app, client):
+    from types import SimpleNamespace
+
+    from src.services.club_player_profile import prefetch_member_photos
+
+    mid, lid = local_member(client, club_app)
+    owner, other = club_app.c2["users"]["a"], club_app.c2["users"]["b"]
+    db.session.add_all(
+        [
+            PlayerProfileClaim(
+                local_player_id=lid, user_account_id=owner, relationship_type="player", status="approved"
+            ),
+            PlayerProfileClaim(player_api_id=lid, user_account_id=other, relationship_type="player", status="approved"),
+            PlayerShowcaseMedia(
+                local_player_id=lid,
+                uploaded_by_user_id=other,
+                status="approved",
+                is_primary=True,
+                blob_path="wrong.jpg",
+                public_url="https://example.invalid/wrong.jpg",
+            ),
+            PlayerShowcaseMedia(
+                player_api_id=lid,
+                uploaded_by_user_id=other,
+                status="approved",
+                is_primary=True,
+                blob_path="right.jpg",
+                public_url="https://example.invalid/right.jpg",
+            ),
+        ]
+    )
+    db.session.commit()
+    photos = prefetch_member_photos(
+        [
+            db.session.get(ClubRosterMember, mid),
+            SimpleNamespace(local_player_id=None, player_api_id=lid),
+        ]
+    )
+    assert photos == {("tracked", lid): "https://example.invalid/right.jpg"}
+
+
+@pytest.mark.parametrize("status,consent", [("pending", "pending"), ("accepted", "pending")])
+def test_profile_expires_visible_introductions(club_app, client, monkeypatch, status, consent):
+    monkeypatch.setenv("CONTACT_RAIL_ENABLED", "1")
+    mid = _add_api_member(client, club_app.c2["program_a"])
+    visible = ContactRequest(
+        scout_user_id=club_app.c2["users"]["scout"],
+        player_api_id=7001,
+        club_program_id=club_app.c2["program_a"],
+        routing_mode="club_included",
+        message="Fictional expired introduction",
+        status=status,
+        club_consent_status=consent,
+        expires_at=datetime.now(UTC) - timedelta(days=1),
+    )
+    hidden = ContactRequest(
+        scout_user_id=club_app.c2["users"]["b"],
+        player_api_id=7001,
+        club_program_id=club_app.c2["program_b"],
+        routing_mode="club_included",
+        message="Fictional other club introduction",
+        status="pending",
+        expires_at=datetime.now(UTC) - timedelta(days=1),
+    )
+    db.session.add_all([visible, hidden])
+    db.session.commit()
+    data = call(client, club_app, "get", f"roster/{mid}/profile").json
+    assert data["scout_interest"]["requests"][0]["status"] == "expired"
+    db.session.refresh(visible)
+    db.session.refresh(hidden)
+    assert visible.status == "expired"
+    assert hidden.status == "pending"
