@@ -45,11 +45,12 @@ struct GolChatView: View {
                     }
                     .accessibilityLabel("New GOL chat")
                     .accessibilityIdentifier("gol-new-chat")
-                    .disabled(model.messages.isEmpty)
+                    .disabled(!model.canStartNewChat)
                 }
             }
         }
         .interactiveDismissDisabled(model.isStreaming)
+        .onAppear { model.prepareForPresentation() }
         .sheet(isPresented: $showsSignIn) { SignInView(authManager: authManager) }
         .task(id: authManager.isAuthenticated) {
             if authManager.isAuthenticated { await model.loadSuggestions() }

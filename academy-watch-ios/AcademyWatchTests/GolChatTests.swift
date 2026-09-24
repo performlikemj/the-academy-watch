@@ -77,6 +77,88 @@ final class GolChatTests: XCTestCase {
         XCTAssertEqual(question.history.first?["content"].string, "5")
     }
 
+    func testTrimmedHistoryDropsOrphansAndIncompleteToolGroups() throws {
+        let decoder = JSONDecoder()
+        let calls = try decoder.decode(GolJSON.self, from: Data(
+            #"{"role":"assistant","content":null,"tool_calls":[{"id":"a","type":"function","function":{"name":"search","arguments":"{}"}},{"id":"b","type":"function","function":{"name":"search","arguments":"{}"}}]}"#.utf8))
+        let a: GolJSON = .object(["role": .string("tool"), "tool_call_id": .string("a"), "content": .string("A")])
+        let b: GolJSON = .object(["role": .string("tool"), "tool_call_id": .string("b"), "content": .string("B")])
+        let user: GolJSON = .object(["role": .string("user"), "content": .string("Question")])
+        let answer: GolJSON = .object(["role": .string("assistant"), "content": .string("Answer")])
+        let cases: [([GolJSON], [GolJSON])] = [
+            ([calls, a, b] + Array(repeating: answer, count: 18), Array(repeating: answer, count: 18)),
+            ([user, calls], [user]),
+            ([user, calls, a, answer], [user, answer]),
+            ([user, calls, answer, a, b], [user, answer]),
+            ([user, calls, b, a, answer], [user, calls, b, a, answer]),
+        ]
+        for (history, expected) in cases {
+            let messages = [GolMessage(role: "assistant", hiddenHistory: history)]
+            XCTAssertEqual(GolQuestion(message: "Next", messages: messages, sessionID: "s").history, expected)
+        }
+    }
+
+    func testFirstQuestionBlockCanBeClearedByReopeningOrNewChat() async {
+        for status in [402, 403] {
+            for startNewChat in [false, true] {
+                let client = GolTestClient(scripts: [
+                    [.http(status, "")],
+                    [.event("usage", #"{"free_questions_remaining":3}"#),
+                     .event("token", #"{"content":"Available again"}"#), .done],
+                ])
+                let model = GolChatViewModel(client: client)
+                XCTAssertFalse(model.canStartNewChat)
+                model.send("First question")
+                await settle(model)
+                XCTAssertTrue(model.messages.isEmpty)
+                XCTAssertFalse(model.canSend)
+                XCTAssertTrue(model.canStartNewChat)
+                XCTAssertNil(model.pendingQuestion)
+                let session = model.sessionID
+                if startNewChat { model.newChat() } else { model.prepareForPresentation() }
+                XCTAssertTrue(model.canSend)
+                XCTAssertNil(model.failure)
+                XCTAssertNil(model.questionsLeft)
+                XCTAssertEqual(model.sessionID == session, !startNewChat)
+                model.send("Try again")
+                await settle(model)
+                XCTAssertEqual(model.messages.last?.content, "Available again")
+                XCTAssertEqual(model.questionsLeft, 3)
+                let requests = await client.requests
+                XCTAssertEqual(requests.count, 2)
+                XCTAssertTrue(requests.last!.history.isEmpty)
+                XCTAssertNotEqual(requests.first!.clientMsgID, requests.last!.clientMsgID)
+            }
+        }
+    }
+
+    func testReopeningClearsBlockWithoutLosingConversation() async {
+        let model = GolChatViewModel(client: GolTestClient(scripts: [
+            [.event("token", #"{"content":"Earlier answer"}"#), .done], [.http(403, "")],
+        ]))
+        model.send("Earlier question")
+        await settle(model)
+        let previous = model.messages
+        let session = model.sessionID
+        model.send("Rejected question")
+        await settle(model)
+        model.prepareForPresentation()
+        XCTAssertEqual(model.messages, previous)
+        XCTAssertEqual(model.sessionID, session)
+        XCTAssertTrue(model.canSend)
+    }
+
+    func testReopeningPreservesRetryableFailureAndPendingRequest() async {
+        let model = GolChatViewModel(client: GolTestClient(scripts: [[.fail]]))
+        model.send("Question")
+        await settle(model)
+        let pending = model.pendingQuestion
+        model.prepareForPresentation()
+        XCTAssertEqual(model.failure, .interrupted)
+        XCTAssertEqual(model.pendingQuestion, pending)
+        XCTAssertTrue(model.canRetry)
+    }
+
     func testReplacePartialUnknownCardAndUnknownEvent() async {
         let client = GolTestClient(scripts: [
             [

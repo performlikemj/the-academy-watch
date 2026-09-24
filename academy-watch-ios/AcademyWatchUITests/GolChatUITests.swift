@@ -186,6 +186,28 @@ final class GolChatUITests: XCTestCase {
         XCTAssertEqual(app.staticTexts["gol-usage"].label, "Questions left: 0")
         assertMoneyFence(app)
         capture("fix1-out-of-questions", app)
+        // A rejected first question leaves no bubbles, but New chat must still work.
+        tap(app.buttons["gol-new-chat"])
+        XCTAssertFalse(app.staticTexts["gol-error"].exists)
+        XCTAssertFalse(app.staticTexts["gol-usage"].exists)
+        tap(app.buttons["gol-suggestion-0"])
+        XCTAssertTrue(app.staticTexts["You've used all your GOL questions."].waitForExistence(timeout: 10))
+        XCTAssertEqual(app.staticTexts.matching(identifier: "gol-question").count, 0)
+        XCTAssertTrue(app.buttons["gol-new-chat"].isEnabled)
+        tap(app.buttons["gol-new-chat"])
+        XCTAssertFalse(app.staticTexts["gol-error"].exists)
+        tap(app.buttons["gol-suggestion-0"])
+        XCTAssertTrue(app.staticTexts["You've used all your GOL questions."].waitForExistence(timeout: 10))
+        tap(app.buttons["gol-close"])
+        tap(app.buttons["gol-landing-entry"])
+        XCTAssertFalse(app.staticTexts["gol-error"].exists)
+        XCTAssertFalse(app.staticTexts["gol-usage"].exists)
+        XCTAssertTrue(app.buttons["gol-suggestion-0"].isEnabled)
+        // Reopening permits a fresh request; the server still decides access.
+        tap(app.buttons["gol-suggestion-0"])
+        XCTAssertTrue(app.staticTexts["You've used all your GOL questions."].waitForExistence(timeout: 10))
+        assertMoneyFence(app)
+        capture("fix3-first-question-block-retry", app)
     }
 
     private func offlineApp(_ role: String) -> XCUIApplication {

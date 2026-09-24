@@ -133,11 +133,42 @@ struct GolQuestion: Codable, Equatable, Sendable {
         self.message = message
         self.clientMsgID = UUID().uuidString.replacingOccurrences(of: "-", with: "")
         self.sessionID = sessionID
-        self.history = Array(
+        let trimmed = Array(
             messages.flatMap {
                 $0.hiddenHistory + ($0.role == "assistant" && $0.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     ? [] : [.object(["role": .string($0.role), "content": .string($0.content)])])
             }.suffix(20))
+        self.history = Self.completeToolHistory(trimmed)
+    }
+
+    private static func completeToolHistory(_ history: [GolJSON]) -> [GolJSON] {
+        var clean: [GolJSON] = []
+        var index = 0
+        while index < history.count {
+            let entry = history[index]
+            index += 1
+            // Complete groups are consumed together below; other results are orphaned.
+            if entry["role"].string == "tool" { continue }
+            let calls = entry["role"].string == "assistant" ? entry["tool_calls"].array : []
+            if calls.isEmpty {
+                clean.append(entry)
+                continue
+            }
+            var end = index
+            while end < history.count, history[end]["role"].string == "tool" { end += 1 }
+            let results = history[index..<end]
+            let resultIDs = Set(results.compactMap { $0["tool_call_id"].string })
+            if calls.allSatisfy({ call in
+                guard let id = call["id"].string else { return false }
+                return resultIDs.contains(id)
+            }) {
+                clean.append(entry)
+                clean.append(contentsOf: results)
+            }
+            // Drop results of an incomplete assistant as well, so they cannot become orphans.
+            index = end
+        }
+        return clean
     }
 }
 

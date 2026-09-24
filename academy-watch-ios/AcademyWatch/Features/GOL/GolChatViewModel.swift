@@ -32,6 +32,7 @@ final class GolChatViewModel: ObservableObject {
 
     var canRetry: Bool { !isStreaming && failure?.retryable == true && pendingQuestion != nil }
     var canSend: Bool { !isStreaming && failure?.blocksQuestions != true }
+    var canStartNewChat: Bool { !messages.isEmpty || failure?.blocksQuestions == true }
 
     init(client: any GolAPIClientProtocol) { self.client = client }
     deinit { task?.cancel() }
@@ -75,8 +76,17 @@ final class GolChatViewModel: ObservableObject {
         }
     }
 
+    func prepareForPresentation() {
+        guard !isStreaming, failure?.blocksQuestions == true else { return }
+        failure = nil
+        // Access may have changed while the sheet was closed. Refresh usage on the next answer.
+        freeQuestions = nil
+        credits = nil
+    }
+
     func newChat() {
         stop()
+        prepareForPresentation()
         generation = UUID()
         messages = []
         pendingQuestion = nil
