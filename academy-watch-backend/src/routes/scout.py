@@ -64,6 +64,7 @@ from src.services.player_suppression import (
 )
 from src.services.scout_entitlements import decoded_bearer_role, scout_entitlements
 from src.services.stripe_billing import require_billing_rail
+from src.utils.data_mode import api_enabled_route, api_football_frozen, newsletters_enabled_route
 from src.utils.feature_flags import rollup_reads_enabled
 from src.utils.player_names import clean_name
 from src.utils.sanitize import sanitize_plain_text
@@ -1516,7 +1517,7 @@ def scout_compare():
                 }
 
             availability = None
-            if include_availability:
+            if include_availability and not api_football_frozen():
                 try:
                     api_client = _get_api_client()
                     records = api_client.get_player_injuries(player_id)
@@ -1946,6 +1947,7 @@ def scout_export_csv():
 
 @scout_bp.route("/scout/admin/send-digests", methods=["POST"])
 @require_api_key
+@newsletters_enabled_route
 def scout_admin_send_digests():
     """Send (or dry-run preview) the scout digest email to watchlist users."""
     try:
@@ -2429,6 +2431,12 @@ def scout_list_add_follow(list_id):
                     if not _user_already_follows_player(user.id, player_api_id):
                         if user_shadow_follow_count(user.id) >= SHADOW_FOLLOW_LIMIT:
                             return jsonify({"error": f"worldwide follow limit reached ({SHADOW_FOLLOW_LIMIT})"}), 403
+                    if shadow is None and api_football_frozen():
+                        return jsonify(
+                            error="Public data is frozen. This player is not stored. Create a local profile.",
+                            code="frozen",
+                            create_profile_url="/local-players/new",
+                        ), 409
                     if shadow is None:
                         seed = payload.get("seed") if isinstance(payload.get("seed"), dict) else None
                         shadow = mint_shadow(
@@ -2576,8 +2584,21 @@ def scout_player_search():
         if user is None:
             return jsonify({"error": "auth context missing email"}), 401
         query = request.args.get("q", "").strip()
-        results = search_players(query, api_client=_get_api_client())
-        return jsonify({"players": results})
+        results = search_players(query, api_client=None if api_football_frozen() else _get_api_client())
+        return jsonify(
+            {
+                "players": results,
+                **(
+                    {
+                        "frozen": True,
+                        "hint": "Can’t find them? Create a local profile.",
+                        "create_profile_url": "/local-players/new",
+                    }
+                    if api_football_frozen()
+                    else {}
+                ),
+            }
+        )
     except Exception as e:
         logger.error(f"Error in scout_player_search: {e}")
         return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
@@ -2585,6 +2606,7 @@ def scout_player_search():
 
 @scout_bp.route("/admin/scout/shadow-refresh", methods=["POST"])
 @require_api_key
+@api_enabled_route
 def scout_admin_shadow_refresh():
     """Refresh the N stalest active shadows (profile + season stats)."""
     try:

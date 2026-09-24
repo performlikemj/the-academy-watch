@@ -18,6 +18,7 @@ from src.models.league import RebuildConfig, RebuildConfigLog, db
 from src.routes.api import require_api_key
 from src.services.cohort_service import CohortService
 from src.utils.background_jobs import create_background_job
+from src.utils.data_mode import api_enabled_route
 
 cohort_bp = Blueprint("cohort", __name__)
 logger = logging.getLogger(__name__)
@@ -30,6 +31,7 @@ logger = logging.getLogger(__name__)
 
 @cohort_bp.route("/admin/cohorts/seed", methods=["POST"])
 @require_api_key
+@api_enabled_route
 def admin_seed_cohort():
     """Seed a single cohort.
 
@@ -69,6 +71,7 @@ def admin_seed_cohort():
 
 @cohort_bp.route("/admin/cohorts/seed-big6", methods=["POST"])
 @require_api_key
+@api_enabled_route
 def admin_seed_big6():
     """Start Big 6 bulk seeding as a background job.
 
@@ -104,6 +107,7 @@ def admin_seed_big6():
 
 @cohort_bp.route("/admin/cohorts/<int:cohort_id>/sync-journeys", methods=["POST"])
 @require_api_key
+@api_enabled_route
 def admin_sync_cohort_journeys(cohort_id):
     """Trigger journey sync for all members in a cohort."""
     try:
@@ -119,6 +123,7 @@ def admin_sync_cohort_journeys(cohort_id):
 
 @cohort_bp.route("/admin/cohorts/<int:cohort_id>/refresh-stats", methods=["POST"])
 @require_api_key
+@api_enabled_route
 def admin_refresh_cohort_stats(cohort_id):
     """Recalculate denormalized analytics for a cohort."""
     cohort = db.session.get(AcademyCohort, cohort_id)
@@ -393,6 +398,7 @@ def cohort_analytics():
 
 @cohort_bp.route("/admin/academy/full-rebuild", methods=["POST"])
 @require_api_key
+@api_enabled_route
 def admin_full_rebuild():
     """Run the full academy rebuild pipeline as a background job.
 

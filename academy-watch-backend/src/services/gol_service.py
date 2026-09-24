@@ -391,6 +391,47 @@ TOOL_SCHEMAS = [
 ]
 
 
+def active_tool_schemas():
+    from src.utils.data_mode import api_football_frozen
+
+    return (
+        [tool for tool in TOOL_SCHEMAS if tool["function"]["name"] == "run_analysis"]
+        if api_football_frozen()
+        else TOOL_SCHEMAS
+    )
+
+
+def active_system_prompt():
+    from src.utils.data_mode import api_football_frozen
+
+    if not api_football_frozen():
+        return SYSTEM_PROMPT
+    prompt = SYSTEM_PROMPT.split("## Player Lookup")[0]
+    prompt = prompt.replace("You have three tools:", "You have one tool:")
+    prompt = "\n".join(
+        line for line in prompt.splitlines() if "search_web" not in line and "**lookup_player**" not in line
+    )
+    prompt = prompt.replace(
+        "Use `lookup_player` first to sync their career data, then retry.", "Only stored career data is available."
+    )
+    prompt = prompt.replace(
+        "Always default to the current season unless the user specifies otherwise.",
+        "Default to the latest season with stored data and state that season explicitly.",
+    )
+    prompt = prompt.replace(
+        "default to the current season only.", "default to the latest season with stored data only."
+    )
+    prompt = prompt.replace(
+        "Filter `fixture_stats` to current season", "Filter `fixture_stats` to the latest stored season"
+    )
+    prompt = prompt.replace("live journey-derived statuses", "stored journey-derived statuses")
+    prompt = prompt.replace("the live pathway", "the stored pathway")
+    return (
+        prompt
+        + "\n## Frozen public data\nAnswer only from stored database analysis. No live lookups, web search, or ingestion are available. Never promise to fetch or sync data. If absent, say the data is unavailable and suggest creating a local profile. Describe club, contract and match facts as historical, not current."
+    )
+
+
 class GolService:
     """AI analytics service with code-interpreter for football data queries."""
 
@@ -442,7 +483,7 @@ class GolService:
             now = datetime.now(UTC)
             season_int = current_stats_season(now)
             season_label = f"{season_int}/{str(season_int + 1)[-2:]}"
-            system_content = SYSTEM_PROMPT.format(
+            system_content = active_system_prompt().format(
                 today=now.strftime("%d %B %Y"),
                 season_label=season_label,
                 season_int=season_int,
@@ -501,7 +542,7 @@ class GolService:
         response = self.client.chat.completions.create(
             model=self.model,
             messages=messages,
-            tools=TOOL_SCHEMAS,
+            tools=active_tool_schemas(),
             stream=True,
         )
 
@@ -660,6 +701,13 @@ class GolService:
 
     def _execute_tool(self, name: str, args: dict) -> dict:
         """Execute a tool and return the result."""
+        from src.utils.data_mode import api_football_frozen
+
+        if api_football_frozen() and name != "run_analysis":
+            return {
+                "result_type": "error",
+                "error": "Public data is frozen. Only stored database analysis is available.",
+            }
         try:
             if name == "run_analysis":
                 from flask import current_app
@@ -681,6 +729,9 @@ class GolService:
 
     def _tool_lookup_player(self, name: str, team: str = None) -> dict:
         """Lookup a player via API-Football and persist full journey + tracked entry."""
+        from src.utils.data_mode import require_api_enabled
+
+        require_api_enabled()
         from flask import current_app
         from src.services.gol_player_lookup import GolPlayerLookup
 
@@ -689,6 +740,9 @@ class GolService:
 
     def _tool_search_web(self, query: str) -> dict:
         """Search the web using Brave Search API."""
+        from src.utils.data_mode import require_api_enabled
+
+        require_api_enabled()
         import requests as req
 
         api_key = os.getenv("BRAVE_SEARCH_KEY")

@@ -50,6 +50,9 @@ class CohortService:
         Returns:
             AcademyCohort record
         """
+        from src.utils.data_mode import require_api_enabled
+
+        require_api_enabled()
         query_team_id = int(query_team_api_id or team_api_id)
         logger.info(
             "Discovering cohort: parent_team=%s query_team=%s league=%s season=%s",
@@ -232,6 +235,9 @@ class CohortService:
         Returns:
             Updated AcademyCohort record
         """
+        from src.utils.data_mode import require_api_enabled
+
+        require_api_enabled()
         cohort = db.session.get(AcademyCohort, cohort_id)
         if not cohort:
             raise ValueError(f"Cohort {cohort_id} not found")
@@ -309,6 +315,9 @@ class CohortService:
 
     def refresh_cohort_stats(self, cohort_id: int) -> None:
         """Recalculate denormalized analytics for a cohort."""
+        from src.utils.data_mode import require_api_enabled
+
+        require_api_enabled()
         cohort = db.session.get(AcademyCohort, cohort_id)
         if not cohort:
             return

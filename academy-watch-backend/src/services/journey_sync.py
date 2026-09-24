@@ -445,6 +445,9 @@ class JourneySyncService:
         Returns:
             PlayerJourney record or None if sync failed
         """
+        from src.utils.data_mode import require_api_enabled
+
+        require_api_enabled()
         logger.info(f"Starting journey sync for player {player_api_id}")
         self.last_sync_used_transfer_evidence = False
 

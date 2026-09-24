@@ -1,3 +1,4 @@
+import { PublicMatchPanels } from '@/components/PublicMatchPanels'
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -806,7 +807,9 @@ export function PlayerPage() {
                                 onCurrentSeasonChange={setCurrentSeason}
                             />
                         </div>
-                        {stats.length === 0 && academyStats?.appearances > 0 ? (
+                        {seasonStats?.api_football_frozen ? (
+                            <PublicMatchPanels stats={seasonStats} />
+                        ) : stats.length === 0 && academyStats?.appearances > 0 ? (
                             /* Academy player with no loan stats — academy section below is the primary view */
                             null
                         ) : stats.length === 0 && hasSeasonTotals && seasonStats?.stats_coverage !== 'limited' ? (

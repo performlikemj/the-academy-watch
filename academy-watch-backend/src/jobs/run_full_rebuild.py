@@ -28,6 +28,9 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 
 
 def run(skip_clean=False):
+    from src.utils.data_mode import require_api_enabled
+
+    require_api_enabled()
     from src.utils.rebuild_runner import run_rebuild_process
 
     try:

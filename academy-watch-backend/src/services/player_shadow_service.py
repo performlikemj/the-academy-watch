@@ -158,7 +158,13 @@ def mint_shadow(player_api_id, seed=None, requested_by=None, api_client=None):
             raise ValueError("player_api_id must be non-zero")
         return _mint_local_shadow(player_api_id)
 
+    from src.utils.data_mode import api_football_frozen, require_api_enabled
+
     existing = PlayerShadow.query.filter_by(player_api_id=player_api_id).first()
+    if api_football_frozen():
+        if existing:
+            return existing
+        require_api_enabled()
     if existing:
         if not existing.is_active:
             existing.is_active = True
@@ -225,14 +231,35 @@ def search_players(q, api_client=None):
     if len(query) < 3:
         return []
 
-    client = _resolve_client(api_client)
-    rows = []
+    from src.utils.data_mode import api_football_frozen
+
+    if api_football_frozen():
+        rows = []
+        for model in (TrackedPlayer, PlayerShadow):
+            for stored in model.query.filter(model.player_name.ilike(f"%{query}%")).limit(MAX_SEARCH_RESULTS).all():
+                rows.append(
+                    {
+                        "player": {
+                            "id": stored.player_api_id,
+                            "name": stored.player_name,
+                            "age": getattr(stored, "age", None),
+                            "nationality": stored.nationality,
+                            "photo": getattr(stored, "photo_url", None),
+                        },
+                        "statistics": [{"team": {"name": stored.current_club_name}}],
+                    }
+                )
+        client = None
+    else:
+        client = _resolve_client(api_client)
+        rows = []
     try:
-        rows = client.search_player_profiles_global(query) or []
+        if client is not None:
+            rows = client.search_player_profiles_global(query) or []
     except Exception:
         logger.warning("Global profile search failed for %r", query)
         rows = []
-    if not rows:
+    if not rows and client is not None:
         try:
             rows = client.search_player_profiles(query) or []
         except Exception:
@@ -428,6 +455,9 @@ def refresh_shadows(limit=25, cursor=None, api_client=None) -> dict:
     isolated per row. Quota safety = the DB api_cache TTL + the client quota
     gate; no extra rate-limiter for operator-paced batches.
     """
+    from src.utils.data_mode import require_api_enabled
+
+    require_api_enabled()
     client = _resolve_client(api_client)
     limit = max(1, min(int(limit or 25), 200))
 

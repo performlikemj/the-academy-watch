@@ -21,6 +21,9 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 
 
 def run(dry_run=False):
+    from src.utils.data_mode import require_api_enabled
+
+    require_api_enabled()
     from src.services.transfer_heal_service import MAX_ORPHAN_REQUEUE, refresh_and_heal
 
     try:

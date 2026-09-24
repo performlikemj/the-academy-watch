@@ -18,6 +18,9 @@ import sys
 
 
 def main() -> int:
+    from src.utils.data_mode import require_newsletters_enabled
+
+    require_newsletters_enabled()
     parser = argparse.ArgumentParser(
         description="Enrich a newsletter with Twitter/X content.",
     )

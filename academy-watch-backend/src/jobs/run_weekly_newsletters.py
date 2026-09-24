@@ -9,6 +9,9 @@ from src.utils.job_utils import is_job_paused, teams_with_active_tracked_players
 
 def run_for_date(target_date: date):
     # Ensure we start from a clean transaction (in case a prior request aborted)
+    from src.utils.data_mode import require_newsletters_enabled
+
+    require_newsletters_enabled()
     try:
         db.session.rollback()
     except Exception:

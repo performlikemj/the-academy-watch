@@ -9,6 +9,7 @@ from src.services.newsletter_deadline_service import (
     get_upcoming_deadline_info,
     process_newsletter_deadline,
 )
+from src.utils.data_mode import newsletters_enabled_route
 
 newsletter_deadline_bp = Blueprint("newsletter_deadline", __name__)
 logger = logging.getLogger(__name__)
@@ -16,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 @newsletter_deadline_bp.route("/newsletters/deadline/process", methods=["POST"])
 @require_api_key
+@newsletters_enabled_route
 def process_deadline():
     """Process the newsletter deadline - publish and charge writers who submitted
 
@@ -96,6 +98,7 @@ def get_writer_submission_status(journalist_id):
 
 @newsletter_deadline_bp.route("/newsletters/deadline/test", methods=["POST"])
 @require_api_key
+@newsletters_enabled_route
 def test_deadline_processing():
     """Test endpoint to manually trigger deadline processing
 

@@ -20,6 +20,9 @@ def teams_with_active_tracked_players() -> list[int]:
 
 
 def run_for_date(target: date, max_failures: int = 0):
+    from src.utils.data_mode import require_newsletters_enabled
+
+    require_newsletters_enabled()
     results = []
     failures = 0
     for team_db_id in teams_with_active_tracked_players():

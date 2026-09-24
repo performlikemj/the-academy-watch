@@ -1207,6 +1207,9 @@ def run(
     call_budget: APICallBudget | None = None,
 ) -> dict[str, Any]:
     """Run explicit delta/sweep mode or the no-args calendar dispatch."""
+    from src.utils.data_mode import require_api_enabled
+
+    require_api_enabled()
 
     try:
         db.session.rollback()

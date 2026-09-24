@@ -76,6 +76,9 @@ def _attach_api_budget(api_client, budget: APICallBudget):
 
 def run(dry_run: bool = False, min_interval_hours: int = DEFAULT_MIN_INTERVAL_HOURS) -> dict:
     """Send all due digest pages and return operator-facing totals."""
+    from src.utils.data_mode import require_newsletters_enabled
+
+    require_newsletters_enabled()
     if min_interval_hours < 0:
         raise ValueError("min_interval_hours must be non-negative")
 
@@ -153,6 +156,9 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from src.utils.data_mode import require_newsletters_enabled
+
+    require_newsletters_enabled()
     args = _parse_args(argv)
     dry_run = args.dry_run or os.getenv("SCOUT_DIGEST_DRY_RUN", "").strip().lower() in ("1", "true", "yes", "on")
     with app.app_context():
