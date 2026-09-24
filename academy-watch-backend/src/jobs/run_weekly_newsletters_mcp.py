@@ -4,6 +4,7 @@ from src.agents.errors import NoActiveLoaneesError
 from src.agents.weekly_agent import generate_weekly_newsletter_with_mcp_sync
 from src.models.league import db
 from src.models.tracked_player import TrackedPlayer
+from src.utils.data_mode import job_entrypoint
 
 
 def teams_with_active_tracked_players() -> list[int]:
@@ -43,6 +44,11 @@ def run_for_date(target: date, max_failures: int = 0):
     return results
 
 
-if __name__ == "__main__":
+@job_entrypoint
+def main():
     today = datetime.now(UTC).date()
     run_for_date(today)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

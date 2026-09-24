@@ -123,7 +123,6 @@ def admin_sync_cohort_journeys(cohort_id):
 
 @cohort_bp.route("/admin/cohorts/<int:cohort_id>/refresh-stats", methods=["POST"])
 @require_api_key
-@api_enabled_route
 def admin_refresh_cohort_stats(cohort_id):
     """Recalculate denormalized analytics for a cohort."""
     cohort = db.session.get(AcademyCohort, cohort_id)

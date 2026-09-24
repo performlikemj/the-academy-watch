@@ -14,7 +14,7 @@ from src.models.league import AcademyAppearance, AcademyLeague, db
 from src.routes.api import require_api_key
 from src.services.academy_sync_service import academy_sync_service
 from src.services.player_suppression import hide_suppressed_player
-from src.utils.data_mode import api_enabled_route
+from src.utils.data_mode import api_enabled_route, api_football_frozen
 
 academy_bp = Blueprint("academy", __name__)
 logger = logging.getLogger(__name__)
@@ -361,6 +361,9 @@ def get_player_academy_stats(player_id):
         date_from=date_from,
         date_to=date_to,
     )
+
+    if not api_football_frozen():
+        return jsonify(stats)
 
     from src.services.public_data import public_match_metadata
 

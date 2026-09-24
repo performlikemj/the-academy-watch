@@ -14,6 +14,7 @@ import sys
 from src.main import app
 from src.models.league import db
 from src.utils.background_jobs import has_running_job
+from src.utils.data_mode import job_entrypoint
 from src.utils.job_utils import is_job_paused, teams_with_active_tracked_players
 
 logger = logging.getLogger(__name__)
@@ -93,7 +94,12 @@ def run(dry_run=False):
     return results
 
 
-if __name__ == "__main__":
+@job_entrypoint
+def main():
     dry_run = "--dry-run" in sys.argv
     with app.app_context():
         run(dry_run=dry_run)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

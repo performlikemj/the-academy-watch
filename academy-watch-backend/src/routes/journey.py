@@ -970,6 +970,8 @@ def _build_legacy_journey(player_id: int, primary_team_id: int = None) -> dict:
 
 @journey_bp.after_request
 def journey_data_labels(response):
+    if not api_football_frozen():
+        return response
     if response.status_code != 200 or request.endpoint != "journey.get_player_journey":
         return response
     player_id = request.view_args.get("player_id")

@@ -22,6 +22,7 @@ import sys
 from src.main import app
 from src.models.league import db
 from src.utils.background_jobs import create_background_job, update_job
+from src.utils.data_mode import job_entrypoint
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -59,7 +60,12 @@ def run(skip_clean=False):
         raise
 
 
-if __name__ == "__main__":
+@job_entrypoint
+def main():
     skip_clean = "--skip-clean" in sys.argv
     with app.app_context():
         run(skip_clean=skip_clean)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

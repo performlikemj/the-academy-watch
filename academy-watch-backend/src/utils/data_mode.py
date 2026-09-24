@@ -62,3 +62,17 @@ def _route_gate(check):
 
 api_enabled_route = _route_gate(require_api_enabled)
 newsletters_enabled_route = _route_gate(require_newsletters_enabled)
+
+
+def job_entrypoint(fn):
+    """Turn a frozen job refusal into a clean nonzero command exit."""
+
+    @wraps(fn)
+    def main(*args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except FrozenModeError as exc:
+            click.echo(exc.message, err=True)
+            return 1
+
+    return main

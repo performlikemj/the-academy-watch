@@ -2421,11 +2421,12 @@ def scout_list_add_follow(list_id):
                 if tracked:
                     label = derive_label("player", clean_selector, tracked.player_name)
                 else:
-                    shadow = (
-                        PlayerShadow.query.filter_by(player_api_id=player_api_id, is_active=True)
-                        .filter(without_active_suppression(PlayerShadow.player_api_id))
-                        .first()
-                    )
+                    shadow_query = PlayerShadow.query.filter_by(player_api_id=player_api_id)
+                    if not api_football_frozen():
+                        shadow_query = shadow_query.filter_by(is_active=True)
+                    shadow = shadow_query.filter(without_active_suppression(PlayerShadow.player_api_id)).first()
+                    if shadow is not None and api_football_frozen():
+                        shadow.is_active = True
                     # Cap distinct worldwide follows per user (a new shadow, or an
                     # existing shadow this user does not already follow).
                     if not _user_already_follows_player(user.id, player_api_id):

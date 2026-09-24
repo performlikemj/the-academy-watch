@@ -39,6 +39,7 @@ from src.models.tracked_player import TrackedPlayer
 from src.models.transfer_event import PlayerTransferEvent
 from src.utils.affiliates import senior_base_name
 from src.utils.background_jobs import has_running_job
+from src.utils.data_mode import job_entrypoint
 from src.utils.job_utils import is_job_paused, teams_with_active_tracked_players
 from src.utils.supported_leagues import DEFAULT_CRAWL_LEAGUE_IDS, get_supported_leagues
 
@@ -1240,7 +1241,12 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-if __name__ == "__main__":
+@job_entrypoint
+def main():
     args = _parse_args()
     with app.app_context():
         run(dry_run=args.dry_run, mode=args.mode)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

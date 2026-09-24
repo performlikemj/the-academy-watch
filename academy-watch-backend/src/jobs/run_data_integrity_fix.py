@@ -23,6 +23,7 @@ from datetime import UTC, datetime
 from sqlalchemy import func, text
 from src.main import app
 from src.models.league import db
+from src.utils.data_mode import job_entrypoint
 from src.utils.job_utils import is_job_paused
 
 logger = logging.getLogger(__name__)
@@ -449,7 +450,8 @@ def run(dry_run=False, start_phase=1):
     return results
 
 
-if __name__ == "__main__":
+@job_entrypoint
+def main():
     dry_run = "--dry-run" in sys.argv
     start_phase = 1
     for arg in sys.argv:
@@ -460,3 +462,7 @@ if __name__ == "__main__":
                 pass
     with app.app_context():
         run(dry_run=dry_run, start_phase=start_phase)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

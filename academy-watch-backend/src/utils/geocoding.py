@@ -207,10 +207,6 @@ def _nominatim_geocode(city: str, country: str | None = None) -> tuple[float, fl
     Note: Nominatim has usage limits (1 request/second, no heavy usage).
     We cache results aggressively via lru_cache.
     """
-    from src.utils.data_mode import api_football_frozen
-
-    if api_football_frozen():
-        return None
     query = f"{city}, {country}" if country else city
 
     headers = {"User-Agent": "TheAcademyWatch/1.0 (mail@theacademywatch.com)"}

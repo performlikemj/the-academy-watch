@@ -18,6 +18,7 @@ from src.api_football_client import APICallBudget
 from src.main import app
 from src.routes.scout import _get_api_client
 from src.services.scout_digest_service import MAX_DIGEST_USERS, send_scout_digests
+from src.utils.data_mode import job_entrypoint
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -155,6 +156,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+@job_entrypoint
 def main(argv: list[str] | None = None) -> int:
     from src.utils.data_mode import require_newsletters_enabled
 

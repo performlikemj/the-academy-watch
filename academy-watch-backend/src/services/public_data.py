@@ -39,6 +39,9 @@ def public_match_metadata(player_id, season=None):
 
 def separated_season_stats(player_id, season, legacy):
     """Use existing DB feeders/deduplication; never add public and club totals."""
+    if not api_football_frozen():
+        return legacy
+
     from src.services.season_rollup_service import _FEEDERS, _resolve_totals
 
     now = datetime.now(UTC)
@@ -95,7 +98,6 @@ def separated_season_stats(player_id, season, legacy):
         if selected["available"]:
             legacy.update(selected["totals"])
             legacy["source"] = selected["source"]
-            legacy["clean_sheets"] = None
             legacy["clubs"] = [
                 {
                     "team_api_id": c["id"],

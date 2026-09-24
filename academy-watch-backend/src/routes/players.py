@@ -991,7 +991,7 @@ def get_public_player_season_stats(player_id: int):
             # lag fallback), while an explicit ?season reads the cache DIRECTLY,
             # scoped to that season — zeros only when no rows genuinely exist for
             # it. (compute_stats(season=) lands in D4.)
-            if requested_season is None and not api_football_frozen():
+            if requested_season is None:
                 computed = tp.compute_stats()
                 result["appearances"] = computed["appearances"]
                 result["minutes"] = computed["minutes_played"]
@@ -1485,6 +1485,8 @@ def get_player_commentaries(player_id: int):
 
 @players_bp.after_request
 def public_data_labels(response):
+    if not api_football_frozen():
+        return response
     if response.status_code != 200 or request.endpoint not in {
         "players.get_public_player_profile",
         "players.get_public_player_stats",

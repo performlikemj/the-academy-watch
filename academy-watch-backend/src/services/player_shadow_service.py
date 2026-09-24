@@ -147,6 +147,8 @@ def mint_shadow(player_api_id, seed=None, requested_by=None, api_client=None):
     """Get-or-create the PlayerShadow for ``player_api_id``.
 
     Positive ids use ``players/profiles`` and fall back to the caller seed.
+    While frozen, approval callers can create a sanitized seed-only row;
+    existing rows reactivate without refreshing their profiles.
     Negative ids require the approved LocalPlayer at ``-player_api_id`` and are
     seeded only from that trusted row without resolving or calling a client.
     """
@@ -158,13 +160,13 @@ def mint_shadow(player_api_id, seed=None, requested_by=None, api_client=None):
             raise ValueError("player_api_id must be non-zero")
         return _mint_local_shadow(player_api_id)
 
-    from src.utils.data_mode import api_football_frozen, require_api_enabled
+    from src.utils.data_mode import api_football_frozen
 
     existing = PlayerShadow.query.filter_by(player_api_id=player_api_id).first()
-    if api_football_frozen():
-        if existing:
-            return existing
-        require_api_enabled()
+    frozen = api_football_frozen()
+    if frozen and existing:
+        existing.is_active = True
+        return existing
     if existing:
         if not existing.is_active:
             existing.is_active = True
@@ -178,10 +180,11 @@ def mint_shadow(player_api_id, seed=None, requested_by=None, api_client=None):
                 existing.last_profile_sync_at = datetime.now(UTC)
         return existing
 
-    client = _resolve_client(api_client)
+    client = None if frozen else _resolve_client(api_client)
     profile = {}
     try:
-        profile = client.get_player_profile(player_api_id) or {}
+        if client is not None:
+            profile = client.get_player_profile(player_api_id) or {}
     except Exception:
         logger.warning("Shadow profile fetch failed for %s; falling back to seed", player_api_id)
         profile = {}

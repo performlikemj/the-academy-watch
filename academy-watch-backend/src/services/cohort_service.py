@@ -315,9 +315,6 @@ class CohortService:
 
     def refresh_cohort_stats(self, cohort_id: int) -> None:
         """Recalculate denormalized analytics for a cohort."""
-        from src.utils.data_mode import require_api_enabled
-
-        require_api_enabled()
         cohort = db.session.get(AcademyCohort, cohort_id)
         if not cohort:
             return

@@ -31,6 +31,7 @@ MODULES = [
     "gol",
     "journalist",
     "teams",
+    "showcase",
 ]
 
 
@@ -237,10 +238,6 @@ def test_db_reads_and_source_separation(frozen_app, monkeypatch):
     from src.utils.team_resolver import resolve_team_name_and_logo
 
     assert resolve_team_name_and_logo(999999) == ("Team 999999", None)
-    from src.utils.geocoding import get_team_coordinates
-
-    assert get_team_coordinates("Unmapped Freeze Test City", "England") is None
-    assert get_team_coordinates("London", "England") is not None
     from src.services.radar_stats_service import get_radar_chart_data
 
     assert get_radar_chart_data(990001, [])["available"] is False
@@ -511,3 +508,226 @@ def test_scout_compare_and_radar_route_do_not_fetch(frozen_app):
     response = client.get("/api/journalists/chart-data?player_id=990001&chart_type=radar&date_range=season&season=2025")
     assert response.status_code == 200, response.json
     assert response.json["available"] is False
+
+
+@pytest.mark.parametrize("rollups", ["", "player_stats,season_stats"])
+@pytest.mark.parametrize(
+    "path", ["season-stats?season=2025", "profile", "stats?season=2025", "journey", "academy-stats"]
+)
+def test_flag_off_golden_json_and_sql(frozen_app, monkeypatch, path, rollups):
+    """Baseline = the same legacy handlers with F2 enrichment entirely removed.
+
+    Disable both response hooks, bypass source separation, and replace academy
+    metadata with a query-free stub whose keys are stripped at serialization.
+    This isolates pre-F2 behavior without depending on git or a deployed DB.
+    """
+    from sqlalchemy import event
+    from src.routes import academy
+    from src.services import public_data
+    from src.services.season_rollup_service import refresh_player
+
+    refresh_player(990001, season=2025)
+    db.session.commit()
+    monkeypatch.setenv("API_FOOTBALL_FROZEN", "0")
+    monkeypatch.setenv("NEWSLETTERS_FROZEN", "0")
+    monkeypatch.setenv("SEASON_ROLLUP_READS", rollups)
+    client = frozen_app.test_client()
+
+    def measure():
+        db.session.remove()
+        statements = []
+
+        def record(conn, cursor, statement, parameters, context, executemany):
+            statements.append(statement)
+
+        event.listen(db.engine, "before_cursor_execute", record)
+        try:
+            response = client.get(f"/api/players/990001/{path}")
+            assert response.status_code == 200, response.json
+            return response.data, response.json, statements
+        finally:
+            event.remove(db.engine, "before_cursor_execute", record)
+
+    with monkeypatch.context() as baseline:
+        baseline.setattr(public_data, "separated_season_stats", lambda pid, season, legacy: legacy)
+        baseline.setitem(frozen_app.after_request_funcs, "players", [])
+        baseline.setitem(frozen_app.after_request_funcs, "journey", [])
+        baseline.setattr(
+            public_data, "public_match_metadata", lambda *a, **kw: {"source": "public_match_data", "as_of": None}
+        )
+        original_jsonify = academy.jsonify
+
+        def legacy_jsonify(payload):
+            return original_jsonify(
+                {
+                    key: value
+                    for key, value in payload.items()
+                    if key not in {"public_match_data", "as_of", "source_label"}
+                }
+            )
+
+        baseline.setattr(academy, "jsonify", legacy_jsonify)
+        # Prime the existing API/team caches equally; no F2 enrichment runs here.
+        client.get(f"/api/players/990001/{path}")
+        expected_bytes, expected_json, expected_statements = measure()
+    actual_bytes, actual_json, actual_statements = measure()
+    assert actual_json == expected_json
+    assert actual_bytes == expected_bytes
+    assert len(actual_statements) == len(expected_statements)
+    assert actual_statements == expected_statements
+    print(f"OFF golden {path} rollups={rollups!r}: {len(actual_statements)} SQL statements")
+
+
+def test_off_separation_never_loads_feeders(frozen_app, monkeypatch):
+    from src.services.public_data import separated_season_stats
+
+    monkeypatch.setenv("API_FOOTBALL_FROZEN", "0")
+    monkeypatch.setattr(
+        "src.services.public_data.public_match_metadata", Mock(side_effect=AssertionError("metadata loaded"))
+    )
+    monkeypatch.setattr(
+        "src.services.season_rollup_service._FEEDERS", [Mock(side_effect=AssertionError("feeder loaded"))]
+    )
+    legacy = {"goals": 4, "clean_sheets": 1}
+    assert separated_season_stats(990001, 2025, legacy) is legacy
+
+
+@pytest.mark.parametrize("player_api_id", [None, 990009])
+@pytest.mark.parametrize("existing_shadow", [False, True])
+def test_frozen_local_approval_and_shadow_reactivation(frozen_app, player_api_id, existing_shadow):
+    from src.models.showcase import LocalPlayer
+
+    player = LocalPlayer(
+        display_name="Approved Stored Player",
+        status="pending",
+        api_player_id=player_api_id,
+        birth_date=date(2000, 1, 1),
+        created_by_user_id=UserAccount.query.one().id,
+    )
+    db.session.add(player)
+    db.session.flush()
+    pid = player_api_id or -player.id
+    if existing_shadow:
+        if pid < 0:
+            # A negative shadow belongs to an already approved local identity.
+            player.status = "approved"
+            player.api_player_id = pid
+        db.session.add(PlayerShadow(player_api_id=pid, player_name="Existing", is_active=False))
+    db.session.commit()
+    response = frozen_app.test_client().post(
+        f"/api/admin/local-players/{player.id}/review", json={"action": "approve"}, headers=_freeze_admin_headers()
+    )
+    assert response.status_code == 200, response.json
+    assert db.session.get(LocalPlayer, player.id).status == "approved"
+    shadow = PlayerShadow.query.filter_by(player_api_id=pid).one()
+    assert shadow.is_active is True
+    assert shadow.last_profile_sync_at is None
+    assert shadow.last_stats_sync_at is None
+
+
+def test_refollow_inactive_stored_shadow(frozen_app):
+    from src.auth import issue_user_token
+
+    db.session.add(PlayerShadow(player_api_id=990009, player_name="Stored Follow", is_active=False))
+    db.session.commit()
+    response = frozen_app.test_client().post(
+        f"/api/scout/lists/{FollowList.query.one().id}/follows",
+        headers={"Authorization": "Bearer " + issue_user_token("freeze@example.com")["token"]},
+        json={"kind": "player", "selector": {"player_api_id": 990009}},
+    )
+    assert response.status_code == 201, response.json
+    assert PlayerShadow.query.one().is_active is True
+
+
+def test_frozen_clean_sheets_survive(frozen_app, monkeypatch):
+    monkeypatch.setenv("SEASON_ROLLUP_READS", "")
+    row = FixturePlayerStats.query.one()
+    row.goals_conceded = 0
+    row.position = "G"
+    db.session.commit()
+    response = frozen_app.test_client().get("/api/players/990001/season-stats?season=2025")
+    assert response.status_code == 200, response.json
+    assert response.json["clean_sheets"] == 1
+    assert response.json["goals"] == 2
+
+
+def test_frozen_limited_stats_use_db_compute(frozen_app, monkeypatch):
+    monkeypatch.setenv("SEASON_ROLLUP_READS", "")
+    player = TrackedPlayer.query.one()
+    player.data_depth = "events_only"
+    db.session.commit()
+    original = TrackedPlayer.compute_stats
+    calls = []
+
+    def compute(self):
+        calls.append(self.player_api_id)
+        return original(self)
+
+    monkeypatch.setattr(TrackedPlayer, "compute_stats", compute)
+    response = frozen_app.test_client().get("/api/players/990001/season-stats")
+    assert response.status_code == 200, response.json
+    assert calls == [990001]
+
+
+def test_frozen_cohort_db_repair(frozen_app):
+    from src.models.cohort import AcademyCohort, CohortMember
+
+    cohort = AcademyCohort(team_api_id=33, league_api_id=1, season=2025, total_players=99)
+    db.session.add(cohort)
+    db.session.flush()
+    db.session.add(CohortMember(cohort_id=cohort.id, player_api_id=990001, current_status="first_team"))
+    db.session.commit()
+    response = frozen_app.test_client().post(
+        f"/api/admin/cohorts/{cohort.id}/refresh-stats", headers=_freeze_admin_headers()
+    )
+    assert response.status_code == 200, response.json
+    assert response.json["analytics"]["total_players"] == 1
+    assert response.json["analytics"]["players_first_team"] == 1
+
+
+@pytest.mark.parametrize(
+    "module",
+    [
+        "jobs.run_" + name
+        for name in [
+            "weekly_newsletters",
+            "weekly_newsletters_mcp",
+            "full_rebuild",
+            "status_refresh",
+            "data_integrity_fix",
+            "transfer_window_heal",
+            "scout_digests",
+        ]
+    ]
+    + ["scripts.enrich_newsletter_tweets"],
+)
+def test_frozen_job_entrypoints_exit_cleanly(frozen_app, monkeypatch, capsys, module):
+    import runpy
+    import sys
+
+    monkeypatch.setattr(sys, "argv", [module])
+    monkeypatch.delitem(sys.modules, "src." + module, raising=False)
+    with pytest.raises(SystemExit) as exc:
+        runpy.run_module("src." + module, run_name="__main__")
+    assert exc.value.code == 1
+    output = capsys.readouterr()
+    assert "frozen" in output.err
+    assert "Traceback" not in output.err + output.out
+
+
+def test_nominatim_remains_independent_of_football_freeze(frozen_app, monkeypatch):
+    from src.utils.geocoding import _nominatim_geocode
+
+    request = Mock(return_value=Mock(json=lambda: [{"lat": "51.5", "lon": "-0.1"}]))
+    monkeypatch.setattr("src.utils.geocoding.requests.get", request)
+    assert _nominatim_geocode("Unknown City") == (51.5, -0.1)
+    request.assert_called_once()
+
+
+def _freeze_admin_headers():
+    from src.auth import issue_user_token
+
+    return {
+        "X-API-Key": "freeze-key",
+        "Authorization": "Bearer " + issue_user_token("freeze@example.com", role="admin")["token"],
+    }
