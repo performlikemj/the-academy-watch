@@ -1,3 +1,4 @@
+import { ShowcasePhoto } from '@/components/ShowcasePhoto'
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { APIService } from '@/lib/api'
@@ -518,9 +519,10 @@ function MediaTab({ setMessage }) {
                                 <div key={item.id} className="flex flex-col gap-4 rounded-lg border bg-card p-4 lg:flex-row lg:items-start">
                                     <div className="flex min-w-0 flex-1 flex-col gap-4 sm:flex-row">
                                         <div className="flex aspect-[4/3] w-full shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted sm:w-36">
-                                            {thumbnail ? (
-                                                <img
+                                            {thumbnail || item.approved_preview_url ? (
+                                                <ShowcasePhoto
                                                     src={thumbnail}
+                                                    previewUrl={item.approved_preview_url}
                                                     alt={`Showcase photo for player ${item.player_api_id}`}
                                                     className="h-full w-full object-cover"
                                                     loading="lazy"

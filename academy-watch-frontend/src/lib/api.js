@@ -1607,6 +1607,15 @@ export class APIService {
         })
     }
 
+    static async showcasePhotoBlob(url, signal) {
+        if (!/^\/api\/(?:admin\/)?showcase\/media\/\d+\/preview$/.test(url)) throw new Error('Invalid showcase preview URL')
+        const headers = { Authorization: `Bearer ${this.userToken}` }
+        if (url.startsWith('/api/admin/')) headers['X-API-Key'] = this.adminKey || ''
+        const response = await fetch(`${API_BASE_URL}${url.slice(4)}`, { headers, signal, cache: 'no-store' })
+        if (!response.ok) throw new Error('Photo unavailable')
+        return response.blob()
+    }
+
     static async clubPlayerPhotoBlob(url, signal) {
         if (!/^\/api\/club\/\d+\/roster\/\d+\/photo$/.test(url)) throw new Error('Invalid private photo URL');
         const response = await fetch(`${API_BASE_URL}${url.slice(4)}`, {

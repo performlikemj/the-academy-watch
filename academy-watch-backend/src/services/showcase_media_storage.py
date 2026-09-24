@@ -25,6 +25,7 @@ import re
 import tempfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from threading import Lock
 from urllib.parse import quote, unquote, urlparse
 from uuid import uuid4
 
@@ -50,6 +51,21 @@ DEFAULT_MAX_PHOTO_MB = 8
 DEV_ROUTE_PREFIX = "/api/dev/showcase-media"
 PUBLIC_ROUTE_PREFIX = "/api/media/published"
 _checked_containers: set[str] = set()
+_client_lock = Lock()
+_shared_client = None
+_shared_connection_string = None
+_logged_media_warnings: set[str] = set()
+DOWNLOAD_CHUNK_BYTES = 1024**2
+
+
+def warn_once(key: str, message: str) -> None:
+    """Bound diagnostics by category, never by untrusted paths or exception text."""
+    with _client_lock:
+        if key in _logged_media_warnings:
+            return
+        _logged_media_warnings.add(key)
+    logger.warning(message)
+
 
 _CONTENT_TYPE_EXTENSIONS = {
     "image/jpeg": "jpg",
@@ -141,7 +157,17 @@ def _service_client() -> "BlobServiceClient":
     connection_string = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
     if not connection_string:
         raise StorageNotConfiguredError("AZURE_STORAGE_CONNECTION_STRING is not configured")
-    return BlobServiceClient.from_connection_string(connection_string)
+    # Shared immutable SDK configuration; creation is serialized across threads. Individual downloaders remain request-local.
+    global _shared_client, _shared_connection_string
+    with _client_lock:
+        if _shared_client is None or _shared_connection_string != connection_string:
+            _shared_client = BlobServiceClient.from_connection_string(
+                connection_string,
+                max_single_get_size=DOWNLOAD_CHUNK_BYTES,
+                max_chunk_get_size=DOWNLOAD_CHUNK_BYTES,
+            )
+            _shared_connection_string = connection_string
+        return _shared_client
 
 
 def _check_container(client, name: str) -> None:
@@ -163,7 +189,11 @@ def published_url(reference: str | None) -> str | None:
         return None
     from src.services.player_share_card import public_api_origin
 
-    path = public_blob_path_from_reference(reference)
+    try:
+        path = public_blob_path_from_reference(reference)
+    except (ValueError, TypeError):
+        warn_once("invalid-reference", "Ignoring invalid stored published media reference")
+        return None
     base = public_api_origin().strip().rstrip("/")
     if base.endswith("/api"):
         base = base[:-4]
@@ -192,7 +222,9 @@ def published_response(blob_path: str):
             response.make_conditional(request)
             if request.method != "HEAD" and response.status_code != 304:
                 download = blob.download_blob(offset=0, length=size, max_concurrency=1)
-                response.response = download.chunks()
+                chunks = iter(download.chunks())
+                first = next(chunks, b"")  # Initial read errors can still return 404.
+                response.response = _published_chunks(first, chunks)
         except ResourceNotFoundError as exc:
             raise StoredMediaError("published photo not found") from exc
     else:
@@ -200,9 +232,19 @@ def published_response(blob_path: str):
         if not path.is_file() or not 0 < path.stat().st_size <= max_photo_bytes():
             raise StoredMediaError("published photo not found or exceeds size cap")
         response = send_file(path, mimetype="image/jpeg", conditional=True)
-    response.headers["Cache-Control"] = "public, max-age=86400"
+    response.headers["Cache-Control"] = "private, max-age=300, must-revalidate"
     response.headers["X-Content-Type-Options"] = "nosniff"
     return response
+
+
+def _published_chunks(first, chunks):
+    yield first
+    try:
+        yield from chunks
+    except Exception:
+        # Headers are already sent. End the response short of Content-Length so
+        # clients reject it as incomplete, without a traceback for every image.
+        warn_once("stream-failed", "Published media stream interrupted")
 
 
 def _account_key(client: "BlobServiceClient") -> str:

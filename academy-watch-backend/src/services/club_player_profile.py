@@ -77,7 +77,7 @@ def prefetch_member_photos(members):
         key = _photo_subject_key(photo)
         if photo.uploaded_by_user_id in owners.get(key, ()):
             # Preserve the first approved primary's precedence, even without a URL.
-            photos.setdefault(key, published_url(photo.blob_path) if photo.public_url else None)
+            photos.setdefault(key, published_url(photo.public_url))
     return photos
 
 

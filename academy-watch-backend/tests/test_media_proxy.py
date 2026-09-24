@@ -46,7 +46,7 @@ def test_local_get_head_conditional_and_serializer(client, photo, monkeypatch):
     assert response.data == _gps_jpeg()
     assert response.content_type == "image/jpeg"
     assert response.headers["X-Content-Type-Options"] == "nosniff"
-    assert response.headers["Cache-Control"] == "public, max-age=86400"
+    assert response.headers["Cache-Control"] == "private, max-age=300, must-revalidate"
     etag = response.headers["ETag"]
     head = client.head(url(photo))
     assert head.status_code == 200 and not head.data
@@ -55,7 +55,7 @@ def test_local_get_head_conditional_and_serializer(client, photo, monkeypatch):
     cached = client.get(url(photo), headers={"If-None-Match": etag})
     assert cached.status_code == 304 and not cached.data
     assert cached.headers["X-Content-Type-Options"] == "nosniff"
-    assert cached.headers["Cache-Control"] == "public, max-age=86400"
+    assert cached.headers["Cache-Control"] == "private, max-age=300, must-revalidate"
     assert client.get(url(photo), headers={"If-None-Match": '"other"'}).status_code == 200
 
 
@@ -273,3 +273,256 @@ def test_url_roundtrip_for_publication_and_cleanup(app, monkeypatch, base):
         assert storage.public_blob_path_from_reference(result) == path
         storage.delete_published(result)
         assert not storage.local_public_path(path).exists()
+
+
+@pytest.mark.parametrize("method,conditional,status", [("get", False, 200), ("get", True, 304), ("head", False, 200)])
+def test_private_cache_on_every_response(client, photo, method, conditional, status):
+    etag = client.head(url(photo)).headers["ETag"]
+    response = getattr(client, method)(url(photo), headers={"If-None-Match": etag} if conditional else {})
+    assert response.status_code == status
+    assert response.headers["Cache-Control"] == "private, max-age=300, must-revalidate"
+    assert response.cache_control.private
+
+
+@pytest.mark.parametrize(
+    "headers,expected",
+    [
+        ({"CF-Connecting-IP": "203.0.113.7", "X-Forwarded-For": "10.0.0.1"}, "203.0.113.7"),
+        ({"X-Forwarded-For": "203.0.113.8, 10.0.0.1"}, "203.0.113.8"),
+        ({"X-Real-IP": "203.0.113.9"}, "203.0.113.9"),
+        ({}, "127.0.0.1"),
+    ],
+)
+def test_media_rate_limit_client_key(app, headers, expected):
+    from src.auth import get_client_ip
+
+    with app.test_request_context(headers=headers, environ_base={"REMOTE_ADDR": "127.0.0.1"}):
+        assert get_client_ip() == expected
+
+
+@pytest.mark.parametrize(
+    "hidden,status,code",
+    [(False, "pending", 200), (False, "approved", 200), (True, "approved", 404), (False, "suspended", 404)],
+)
+def test_club_takedown_gate(client, app, hidden, status, code):
+    path = storage.publish("club-banners/1/test.jpg", _gps_jpeg())
+    club = ClubProgram(
+        funding_league_id=1,
+        name="Synthetic",
+        legal_name="Synthetic",
+        slug="synthetic",
+        country="Japan",
+        region="Test",
+        banner_url=path,
+        platform_status=status,
+        emergency_hidden=hidden,
+    )
+    db.session.add(club)
+    db.session.commit()
+    response = client.get(f"{storage.PUBLIC_ROUTE_PREFIX}/{path}")
+    assert response.status_code == code
+    if code == 404:
+        assert client.get(f"{storage.PUBLIC_ROUTE_PREFIX}/{path}", headers={"If-None-Match": "*"}).status_code == 404
+
+
+@pytest.mark.parametrize(
+    "junk", ["https://[broken", "../../private.jpg", "https://unrecognized.test/arbitrary.jpg", 42]
+)
+def test_invalid_stored_url_logs_once_and_returns_none(app, monkeypatch, caplog, junk):
+    monkeypatch.setattr(storage, "_logged_media_warnings", set())
+    with app.test_request_context():
+        assert storage.published_url(junk) is None
+        assert storage.published_url(junk) is None
+    assert caplog.text.count("Ignoring invalid stored published media reference") == 1
+
+
+def test_corrupt_references_do_not_break_payloads(client, photo):
+    from src.services.club_player_profile import prefetch_member_photos
+
+    photo.public_url = "https://[broken"
+    photo.blob_path = "../../junk.jpg"
+    photo.is_primary = True
+    db.session.commit()
+    assert client.get(f"/api/players/{PLAYER_ID}/showcase").json["photos"][0]["public_url"] is None
+    with client.application.test_request_context():
+        club = ClubProgram(banner_url="https://[broken")
+        assert club.brand_dict()["banner_url"] is None
+        assert prefetch_member_photos([SimpleNamespace(local_player_id=None, player_api_id=PLAYER_ID)]) == {
+            ("tracked", PLAYER_ID): None
+        }
+
+
+@pytest.mark.parametrize("error_type", ["HttpResponseError", "ServiceRequestError"])
+@pytest.mark.parametrize("operation", ["get_blob_properties", "download_blob"])
+def test_azure_errors_are_quiet_404(client, photo, monkeypatch, caplog, error_type, operation):
+    from azure.core import exceptions
+
+    _, blob = azure(monkeypatch)
+    monkeypatch.setattr(storage, "_logged_media_warnings", set())
+    getattr(blob, operation).side_effect = getattr(exceptions, error_type)("synthetic SDK failure")
+    assert client.get(url(photo)).status_code == 404
+    assert client.get(url(photo)).status_code == 404
+    assert caplog.text.count("Published media storage read failed") == 1
+    assert "Traceback" not in caplog.text
+
+
+def test_azure_client_reused_with_bounded_download_configuration(monkeypatch):
+    monkeypatch.setenv("AZURE_STORAGE_CONNECTION_STRING", "synthetic")
+    monkeypatch.setattr(storage, "_shared_client", None)
+    monkeypatch.setattr(storage, "_shared_connection_string", None)
+    factory = Mock()
+    monkeypatch.setattr(storage.BlobServiceClient, "from_connection_string", factory)
+    assert storage._service_client() is storage._service_client()
+    factory.assert_called_once_with("synthetic", max_single_get_size=1024**2, max_chunk_get_size=1024**2)
+
+
+@pytest.fixture
+def minor_photo(photo):
+    from src.models.showcase import PlayerProfileClaim
+
+    local = LocalPlayer(display_name="Synthetic Minor", status="approved", birth_year=2015)
+    db.session.add(local)
+    db.session.flush()
+    photo.player_api_id = None
+    photo.local_player_id = local.id
+    photo.blob_path = f"local-players/{local.id}/minor.png"
+    photo.public_url = storage.publish(photo.blob_path, _gps_jpeg())
+    db.session.add(
+        PlayerProfileClaim(
+            local_player_id=local.id,
+            user_account_id=photo.uploaded_by_user_id,
+            relationship_type="guardian",
+            status="approved",
+        )
+    )
+    db.session.commit()
+    return photo
+
+
+def test_minor_claimant_private_preview_and_revocation(client, minor_photo):
+    from src.models.showcase import PlayerProfileClaim
+    from test_showcase_media import _user_headers
+
+    headers = _user_headers("media-owner@example.test")
+    response = client.get(f"/api/local-players/{minor_photo.local_player_id}/showcase", headers=headers)
+    payload = response.json["photos"][0]
+    assert payload["public_url"] is None
+    preview = payload["approved_preview_url"]
+    assert client.get(url(minor_photo)).status_code == 404
+    assert client.get(preview).status_code == 401
+    assert client.get(preview, headers=_user_headers("stranger@example.test")).status_code == 404
+    image = client.get(preview, headers=headers)
+    assert image.status_code == 200 and image.data == _gps_jpeg()
+    assert image.headers["Cache-Control"] == "private, no-store"
+    assert client.head(preview, headers=headers).status_code == 200
+    claim = PlayerProfileClaim.query.filter_by(local_player_id=minor_photo.local_player_id).one()
+    claim.status = "revoked"
+    db.session.commit()
+    assert client.get(preview, headers={**headers, "If-None-Match": image.headers["ETag"]}).status_code == 404
+
+
+def test_admin_minor_preview_requires_dual_auth(client, minor_photo):
+    from test_showcase_media import _admin_headers
+
+    headers = _admin_headers()
+    listing = client.get("/api/admin/showcase/media?status=approved", headers=headers)
+    payload = listing.json["media"][0]
+    assert payload["public_url"] is None
+    preview = payload["approved_preview_url"]
+    assert preview.startswith("/api/admin/")
+    assert client.get(preview, headers=headers).status_code == 200
+    assert client.get(preview, headers={"Authorization": headers["Authorization"]}).status_code in (401, 403)
+    assert client.get(preview, headers={"X-API-Key": headers["X-API-Key"]}).status_code == 401
+    assert client.get(url(minor_photo), headers=headers).status_code == 404
+    db.session.delete(minor_photo)
+    db.session.commit()
+    assert client.get(preview, headers=headers).status_code == 404
+
+
+def test_recorded_manager_can_preview_but_other_club_cannot(client, minor_photo):
+    from src.models.funding import ClubProgramClaim, ClubProgramManager
+    from test_showcase_media import _make_user, _user_headers
+
+    local = db.session.get(LocalPlayer, minor_photo.local_player_id)
+    for index in (1, 2):
+        user = _make_user(f"manager{index}@example.test")
+        club = ClubProgram(
+            funding_league_id=1,
+            name=f"Synthetic {index}",
+            legal_name="Synthetic",
+            slug=f"synthetic-{index}",
+            country="Japan",
+            region="Test",
+            platform_status="approved",
+        )
+        db.session.add(club)
+        db.session.flush()
+        claim = ClubProgramClaim(
+            program_id=club.id, user_account_id=user.id, relationship_type="club_official", status="approved"
+        )
+        db.session.add(claim)
+        db.session.flush()
+        db.session.add(
+            ClubProgramManager(
+                program_id=club.id,
+                user_account_id=user.id,
+                source_claim_id=claim.id,
+                status="active",
+                granted_by="synthetic",
+            )
+        )
+        if index == 1:
+            local.origin_program_id = club.id
+    db.session.commit()
+    path = f"/api/showcase/media/{minor_photo.id}/preview"
+    assert client.get(path, headers=_user_headers("manager1@example.test")).status_code == 200
+    assert client.get(path, headers=_user_headers("manager2@example.test")).status_code == 404
+    manager = ClubProgramManager.query.filter_by(program_id=local.origin_program_id).one()
+    manager.status = "revoked"
+    db.session.commit()
+    assert client.get(path, headers=_user_headers("manager1@example.test")).status_code == 404
+
+
+def test_limiter_separates_forwarded_clients(app, client, monkeypatch):
+    from src.extensions import limiter
+
+    app.config["RATELIMIT_ENABLED"] = True
+    limiter.init_app(app)
+    monkeypatch.setattr(limiter, "enabled", True)
+    limiter.reset()
+    path = f"{storage.PUBLIC_ROUTE_PREFIX}/arbitrary.jpg"
+    for _ in range(300):
+        assert client.get(path, headers={"CF-Connecting-IP": "203.0.113.1"}).status_code == 404
+    assert client.get(path, headers={"CF-Connecting-IP": "203.0.113.1"}).status_code == 429
+    assert client.get(path, headers={"CF-Connecting-IP": "203.0.113.2"}).status_code == 404
+
+
+def test_azure_stream_failures_without_tracebacks(client, photo, monkeypatch, caplog):
+    from azure.core.exceptions import ServiceRequestError
+
+    _, blob = azure(monkeypatch)
+    monkeypatch.setattr(storage, "_logged_media_warnings", set())
+
+    def broken():
+        yield b"abc"
+        raise ServiceRequestError("synthetic interrupted stream")
+
+    blob.download_blob.return_value.chunks.return_value = broken()
+    response = client.get(url(photo))
+    assert response.data == b"abc"
+    assert int(response.headers["Content-Length"]) > len(response.data)
+    assert caplog.text.count("Published media stream interrupted") == 1
+    assert "Traceback" not in caplog.text
+
+
+def test_azure_initial_chunk_error_is_404(client, photo, monkeypatch):
+    from azure.core.exceptions import ServiceRequestError
+
+    _, blob = azure(monkeypatch)
+
+    def broken():
+        raise ServiceRequestError("synthetic first chunk error")
+        yield b"unreachable"
+
+    blob.download_blob.return_value.chunks.return_value = broken()
+    assert client.get(url(photo)).status_code == 404

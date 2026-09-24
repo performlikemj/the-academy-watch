@@ -226,7 +226,7 @@ def test_photo_precedence(club_app, client, private_storage, minor, approved, cl
             is_primary=True,
             status="approved" if approved else "pending_review",
             blob_path="players/7001/photo.jpg",
-            public_url="https://example.invalid/approved.jpg",
+            public_url="approved.jpg",
         )
     )
     db.session.commit()
@@ -471,7 +471,7 @@ def test_roster_photo_queries_are_constant_and_brief_needs_none(club_app, client
                     status="approved",
                     is_primary=True,
                     blob_path=f"batch/{i}.jpg",
-                    public_url=f"https://example.invalid/{i}.jpg",
+                    public_url=f"batch/{i}.jpg",
                 )
             )
         db.session.commit()
@@ -521,7 +521,7 @@ def test_batch_photos_keep_owners_scoped_to_each_subject(club_app, client, monke
                 status="approved",
                 is_primary=True,
                 blob_path="wrong.jpg",
-                public_url="https://example.invalid/wrong.jpg",
+                public_url="wrong.jpg",
             ),
             PlayerShowcaseMedia(
                 player_api_id=lid,
@@ -529,7 +529,7 @@ def test_batch_photos_keep_owners_scoped_to_each_subject(club_app, client, monke
                 status="approved",
                 is_primary=True,
                 blob_path="right.jpg",
-                public_url="https://example.invalid/right.jpg",
+                public_url="right.jpg",
             ),
         ]
     )
