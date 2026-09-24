@@ -363,6 +363,9 @@ function PreflightSelect({ id, field, label, value, onChange, disabled = false }
 
 export function AddRosterMemberDialog({ open, onOpenChange, programId, onAdded, onAccessDenied, squads = [], defaultSquad = null }) {
   const [mode, setMode] = useState('tracked')
+  const [existingPlayers, setExistingPlayers] = useState([])
+  const [existingId, setExistingId] = useState('')
+  const [existingLoading, setExistingLoading] = useState(false)
   const [query, setQuery] = useState('')
   const [searchState, setSearchState] = useState({ query: '', loading: false, results: [], error: null })
   const [selectedPlayer, setSelectedPlayer] = useState(null)
@@ -376,6 +379,8 @@ export function AddRosterMemberDialog({ open, onOpenChange, programId, onAdded, 
 
   const reset = useCallback(() => {
     setMode('tracked')
+    setExistingId('')
+    setExistingPlayers([])
     setQuery('')
     setSearchState({ query: '', loading: false, results: [], error: null })
     setSelectedPlayer(null)
@@ -414,6 +419,21 @@ export function AddRosterMemberDialog({ open, onOpenChange, programId, onAdded, 
     }
   }, [mode, open, query])
 
+  useEffect(() => {
+    if (!open || mode !== 'existing') return undefined
+    let cancelled = false
+    setExistingLoading(true)
+    APIService.request(`/club/${programId}/available-local-players`)
+      .then(data => { if (!cancelled) setExistingPlayers(data.players || []) })
+      .catch(err => {
+        if (cancelled) return
+        if (err.status === 403) onAccessDenied()
+        else setError('Could not load your players. Please try again.')
+      })
+      .finally(() => { if (!cancelled) setExistingLoading(false) })
+    return () => { cancelled = true }
+  }, [open, mode, programId, onAccessDenied])
+
   const submit = async () => {
     if (busy) return
     let subjectPayload
@@ -424,6 +444,12 @@ export function AddRosterMemberDialog({ open, onOpenChange, programId, onAdded, 
         return
       }
       subjectPayload = { player_api_id: Number(playerId) }
+    } else if (mode === 'existing') {
+      if (!Number.isInteger(Number(existingId)) || Number(existingId) <= 0) {
+        setError('Choose a player you already added.')
+        return
+      }
+      subjectPayload = { local_player_id: Number(existingId) }
     } else {
       if (!newPlayer.display_name.trim() || !newPlayer.birth_date) {
         setError('Enter the player name and date of birth.')
@@ -479,9 +505,10 @@ export function AddRosterMemberDialog({ open, onOpenChange, programId, onAdded, 
         </DialogHeader>
 
         <Tabs value={mode} onValueChange={(value) => { setMode(value); setError(null) }}>
-          <TabsList className="grid w-full grid-cols-2">
+          <TabsList className="flex h-auto w-full flex-wrap">
             <TabsTrigger value="tracked">Find a tracked player</TabsTrigger>
             <TabsTrigger value="local">New player</TabsTrigger>
+            <TabsTrigger value="existing">A player you already added</TabsTrigger>
           </TabsList>
           <TabsContent value="tracked" className="space-y-3 pt-2">
             <div className="space-y-2">
@@ -529,6 +556,19 @@ export function AddRosterMemberDialog({ open, onOpenChange, programId, onAdded, 
               </div>
             ) : null}
           </TabsContent>
+          <TabsContent value="existing" className="space-y-3 pt-2">
+            <Label htmlFor="club-existing-player">Your players</Label>
+            <select id="club-existing-player" className="w-full rounded-md border p-2" value={existingId} onChange={event => setExistingId(event.target.value)} disabled={existingLoading}>
+              <option value="">{existingLoading ? 'Loading your players…' : 'Choose a player'}</option>
+              {existingPlayers.map(player => <option key={player.id} value={player.id}>{player.display_name}{player.position ? ` · ${player.position}` : ''}</option>)}
+            </select>
+            {!existingLoading && !existingPlayers.length && <p className="text-sm text-muted-foreground">All your available players are already on this roster, or you haven’t added any yet.</p>}
+            <details>
+              <summary className="cursor-pointer text-sm">Enter an ID instead</summary>
+              <Label htmlFor="club-existing-player-id">Local player ID</Label>
+              <Input id="club-existing-player-id" type="number" min="1" value={existingId} onChange={event => setExistingId(event.target.value)} />
+            </details>
+          </TabsContent>
           <TabsContent value="local" className="space-y-2 pt-2">
             {['display_name', 'birth_date', 'position'].map((field) => <label key={field} className="grid gap-2 text-sm">{{ display_name: 'Player name', birth_date: 'Date of birth', position: 'Position' }[field]}<Input type={field === 'birth_date' ? 'date' : 'text'} value={newPlayer[field]} onChange={(event) => setNewPlayer({ ...newPlayer, [field]: event.target.value })} /></label>)}
             <p className="text-xs text-muted-foreground">Private club identity. Minors stay inside the manager console.</p>
@@ -536,7 +576,7 @@ export function AddRosterMemberDialog({ open, onOpenChange, programId, onAdded, 
         </Tabs>
 
         <div className="grid gap-4 sm:grid-cols-2">
-          <label className="grid gap-2 text-sm">Squad<select className="rounded-md border p-2" value={squadId} onChange={(event) => setSquadId(event.target.value)}><option value="">Unassigned</option>{squads.map((squad) => <option key={squad.id} value={squad.id}>{squad.name}</option>)}</select></label>
+          <label className="grid gap-2 text-sm">Squad<select aria-label="Squad" className="rounded-md border p-2" value={squadId} onChange={(event) => setSquadId(event.target.value)}><option value="">Unassigned</option>{squads.map((squad) => <option key={squad.id} value={squad.id}>{squad.name}</option>)}</select></label>
           <label className="grid gap-2 text-sm">Shirt number<Input type="number" min="1" max="99" value={shirtNumber} onChange={(event) => setShirtNumber(event.target.value)} /></label>
         </div>
         <div className="grid gap-4 sm:grid-cols-2">

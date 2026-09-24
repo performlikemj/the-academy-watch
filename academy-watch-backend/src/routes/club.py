@@ -535,7 +535,9 @@ def _member_dict(member: ClubRosterMember, *, authorized_player_ids: set[int] | 
                 )
             )
         else:
-            public_stats_allowed = player.status == "approved" and player.api_player_id == -player.id
+            public_stats_allowed = (
+                player.provenance != "club" and player.status == "approved" and player.api_player_id == -player.id
+            )
     out = {
         "id": member.id,
         "program_id": member.program_id,
@@ -645,6 +647,24 @@ def _clean_brief(body, program: ClubProgram) -> str | None:
     return "\n".join(line for _line_number, line in lines)
 
 
+def _private_result_subject(program_id, signed_id):
+    """Private result access comes from the current roster, never public approval."""
+    if signed_id >= 0:
+        return None
+    local = db.session.get(LocalPlayer, -signed_id)
+    if (
+        not local
+        or local.provenance != "club"
+        or local.api_player_id != signed_id
+        or not _local_player_available(local)
+    ):
+        return None
+    member = ClubRosterMember.query.filter_by(program_id=program_id, local_player_id=local.id).first()
+    if not member or not governed_member_available(db.session, member):
+        return None
+    return PlayerSubject(signed_id=signed_id, local_player=local, is_minor=bool(local_player_is_minor(local)))
+
+
 def _result_player(member: ClubRosterMember) -> tuple[int, str | None, bool]:
     if not governed_member_available(db.session, member):
         raise _ClubResultConflict("Every result player must be an available club roster member")
@@ -657,7 +677,7 @@ def _result_player(member: ClubRosterMember) -> tuple[int, str | None, bool]:
     local = db.session.get(LocalPlayer, member.local_player_id)
     if (
         local is None
-        or local.status != "approved"
+        or (local.status != "approved" and local.provenance != "club")
         or local.api_player_id != -local.id
         or local.merged_into_local_player_id is not None
     ):
@@ -1279,6 +1299,7 @@ def _batched_public_adult_subjects(player_ids: set[int]) -> dict[int, PlayerSubj
                 local is None
                 or local.api_player_id != player_id
                 or local.status != "approved"
+                or local.provenance == "club"
                 or local.merged_into_local_player_id is not None
                 or local_player_is_minor(local, today=today)
             ):
@@ -1293,7 +1314,7 @@ def _batched_public_adult_subjects(player_ids: set[int]) -> dict[int, PlayerSubj
         if tracked is None and shadow is None:
             continue
         bridged_locals = locals_by_api.get(player_id, [])
-        if any(local_player_is_minor(local, today=today) for local in bridged_locals):
+        if any(local.provenance == "club" or local_player_is_minor(local, today=today) for local in bridged_locals):
             continue
         birth_dates = [local.birth_date for local in bridged_locals if local.birth_date]
         birth_dates.extend(row.birth_date for row in tracked_rows if row.birth_date)
@@ -1376,7 +1397,7 @@ def _stable_result_payloads(rows: list[ClubResult]) -> list[dict]:
     for row in rows:
         matches, stats = [], {}
         for entry in entries_by_result[row.id]:
-            subject = subjects.get(entry.player_api_id)
+            subject = subjects.get(entry.player_api_id) or _private_result_subject(row.program_id, entry.player_api_id)
             if subject is None:
                 matches.append({"id": entry.id, "unavailable": True})
                 continue
@@ -1384,6 +1405,8 @@ def _stable_result_payloads(rows: list[ClubResult]) -> list[dict]:
             match = _result_entry_dict(entry, member_id)
             match["player_name"] = subject.display_name
             matches.append(match)
+            if subject.local_player is not None and subject.local_player.provenance == "club":
+                continue  # Private entries never contribute public season totals.
             level = "youth" if season_rollup_service._is_youth_competition(entry.competition) else "senior"
             total = _club_season_stats(
                 entry.player_api_id,
@@ -1537,7 +1560,7 @@ def _write_stable_result(program_id, result_id=None):
         if pid in seen:
             raise ValueError("duplicate player")
         seen.add(pid)
-        subject = resolve_public_adult_subject(pid)
+        subject = resolve_public_adult_subject(pid) or _private_result_subject(program_id, pid)
         if subject is None:
             if entry:
                 if line["values"] is not None:
@@ -1553,7 +1576,7 @@ def _write_stable_result(program_id, result_id=None):
                 local = db.session.get(LocalPlayer, -pid)
                 if (
                     local is None
-                    or local.status != "approved"
+                    or (local.status != "approved" and local.provenance != "club")
                     or local.api_player_id != pid
                     or local.merged_into_local_player_id is not None
                 ):

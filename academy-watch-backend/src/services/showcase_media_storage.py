@@ -348,7 +348,7 @@ def delete_pending(blob_path: str) -> None:
         pass
 
 
-def _public_blob_path_from_reference(public_url_or_blob_path: str) -> str:
+def public_blob_path_from_reference(public_url_or_blob_path: str) -> str:
     if not isinstance(public_url_or_blob_path, str) or not public_url_or_blob_path:
         raise InvalidBlobPathError("invalid published media reference")
 
@@ -372,7 +372,7 @@ def _public_blob_path_from_reference(public_url_or_blob_path: str) -> str:
 def delete_published(public_url_or_blob_path: str) -> None:
     """Idempotently delete an approved blob by its public URL or source path."""
     _require_configured()
-    public_blob_path = _public_blob_path_from_reference(public_url_or_blob_path)
+    public_blob_path = public_blob_path_from_reference(public_url_or_blob_path)
     if is_azure_configured():
         blob = _service_client().get_blob_client(_public_container(), public_blob_path)
         try:

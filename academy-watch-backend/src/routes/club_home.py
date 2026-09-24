@@ -72,6 +72,14 @@ def required_text(value, field, limit):
     return value.strip()
 
 
+MAX_CLUB_ROSTER_MEMBERS = 500
+
+
+def check_roster_capacity(program_id):
+    if ClubRosterMember.query.filter_by(program_id=program_id).count() >= MAX_CLUB_ROSTER_MEMBERS:
+        raise HomeError(f"Club roster limit reached ({MAX_CLUB_ROSTER_MEMBERS} players)", 429)
+
+
 def assign_roster(member, data):
     squad_id = data.get("squad_id", member.squad_id)
     if squad_id is not None:
@@ -268,6 +276,29 @@ def register(club_bp):
         db.session.commit()
         return jsonify(member=_member_dict(member))
 
+    @route("available-local-players", ["GET"])
+    def home_available_local_players(program_id):
+        from src.models.showcase import LocalPlayer
+        from src.routes.club import _local_player_available
+
+        assigned = (
+            db.session.query(ClubRosterMember.local_player_id)
+            .filter_by(program_id=program_id)
+            .filter(ClubRosterMember.local_player_id.is_not(None))
+        )
+        players = (
+            LocalPlayer.query.filter(LocalPlayer.created_by_user_id == g.user_id, ~LocalPlayer.id.in_(assigned))
+            .order_by(LocalPlayer.display_name, LocalPlayer.id)
+            .all()
+        )
+        return jsonify(
+            players=[
+                {"id": p.id, "display_name": p.display_name, "position": p.position}
+                for p in players
+                if _local_player_available(p)
+            ]
+        )
+
     @route("map", ["GET"])
     def home_map(program_id):
         staff = ClubStaff.query.filter_by(program_id=program_id).order_by(ClubStaff.sort_order, ClubStaff.id).all()
@@ -331,9 +362,17 @@ def register(club_bp):
         except (ValueError, storage.StoredMediaError) as exc:
             raise HomeError(str(exc)) from exc
         program = db.session.get(ClubProgram, program_id)
+        previous_url = program.banner_url
         program.banner_url = storage.publish(grant["path"], processed, content_type)
         program.banner_updated_at = datetime.now(UTC)
         db.session.commit()
         storage.delete_pending(grant["path"])
+        if previous_url and previous_url != program.banner_url:
+            try:
+                previous_path = storage.public_blob_path_from_reference(previous_url)
+            except storage.InvalidBlobPathError:
+                previous_path = ""  # Legacy/external URLs are never deletion targets.
+            if previous_path.startswith(f"club-banners/{program_id}/"):
+                storage.delete_published(previous_url)
         logger.info("Club banner published program=%s user=%s", program_id, g.user_id)
         return jsonify(brand=program.brand_dict())

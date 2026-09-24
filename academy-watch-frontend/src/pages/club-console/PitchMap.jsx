@@ -16,6 +16,15 @@ export function PitchMap({
   busy,
   loading
 }) {
+  const unled = squads.filter(s => !s.lead_staff_id);
+  const staffDepth = (person, seen = new Set()) => {
+    if (!person || seen.has(person.id)) return 0;
+    return 1 + staffDepth(staff.find(s => s.id === person.reports_to_staff_id), new Set([...seen, person.id]));
+  };
+  const levels = Math.max(1, ...staff.map(person => staffDepth(person)));
+  const unledBranch = level => level > 1
+    ? <li className="ch-vacant-level"><span className="ch-vacant-connector" aria-hidden="true" /><ul>{unledBranch(level - 1)}</ul></li>
+    : <li><div className="ch-node ch-no-lead"><Users size={18} /><strong>No lead yet</strong></div><ul>{unled.map(squadNode)}</ul></li>;
   const squadNode = s => <li key={`s${s.id}`}>
     <button className={`ch-node squad ${focus === s.id ? 'chosen' : ''}`} onClick={() => onFocus(s.id)} aria-label={`Focus ${s.name}, ${s.member_count} players`}>
       <span className="ch-node-icon">
@@ -82,7 +91,7 @@ export function PitchMap({
               </button>
               <ul>
                 {staff.filter(s => !s.reports_to_staff_id).map(s => staffNode(s))}
-                {squads.filter(s => !s.lead_staff_id).map(squadNode)}
+                {unled.length > 0 && unledBranch(levels)}
               </ul>
             </li>
           </ul>

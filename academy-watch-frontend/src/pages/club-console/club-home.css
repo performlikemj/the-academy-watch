@@ -1186,3 +1186,31 @@
 .ch-chips > button { font-size: 12px; }
 .ch-player-top h4 { font-size: 15px; }
 .ch-sidebar button strong { font-size: 14px; }
+
+.ch-no-lead {
+  border-style: dashed;
+  box-shadow: none;
+  color: #d0ded5;
+}
+.ch-vacant-connector {
+  height: 68px;
+  border-left: 1px dashed #8eaa9670;
+}
+@media (max-width: 760px) {
+  body:has(.club-home) {
+    padding-bottom: calc(79px + env(safe-area-inset-bottom));
+  }
+  .ch-rail {
+    height: calc(63px + env(safe-area-inset-bottom));
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  body:has(.club-home) button[aria-label="Open GOL Assistant chat"] {
+    bottom: calc(79px + env(safe-area-inset-bottom));
+  }
+}
+@media (max-width: 760px) {
+  /* The development feedback toolbar otherwise covers the Settings rail item. */
+  body:has(.club-home) [data-feedback-toolbar] {
+    display: none !important;
+  }
+}

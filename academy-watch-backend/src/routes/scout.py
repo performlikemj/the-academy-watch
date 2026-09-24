@@ -522,6 +522,7 @@ def _scout_identity_subquery(*, include_local=None):
             PlayerShadow.player_api_id < 0,
             PlayerShadow.is_active.is_(True),
             LocalPlayer.status == "approved",
+            LocalPlayer.provenance != "club",
             ~local_player_is_minor(LocalPlayer),
             without_active_suppression(PlayerShadow.player_api_id),
             ~active_local_suppression_exists(LocalPlayer.id),

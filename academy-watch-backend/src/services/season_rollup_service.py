@@ -666,6 +666,7 @@ def resolve_reported_subject(player_api_id: int, session) -> dict | None:
     if (
         local is None
         or local.status != "approved"
+        or local.provenance == "club"
         or (local.api_player_id is not None and local.api_player_id != player_api_id)
         or local.merged_into_local_player_id is not None
     ):

@@ -97,6 +97,7 @@ def _player_candidate_ids() -> list[int]:
     )
     local_ids = sa.select(LocalPlayer.api_player_id.label("player_api_id")).where(
         LocalPlayer.status == "approved",
+        LocalPlayer.provenance != "club",
         LocalPlayer.merged_into_local_player_id.is_(None),
         LocalPlayer.api_player_id < 0,
         LocalPlayer.api_player_id == -LocalPlayer.id,
