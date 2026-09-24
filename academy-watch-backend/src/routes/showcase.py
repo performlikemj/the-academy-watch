@@ -27,7 +27,7 @@ from datetime import UTC, date, datetime, timedelta
 from functools import wraps
 from urllib.parse import parse_qs, unquote, urlparse
 
-from flask import Blueprint, abort, g, jsonify, request, send_file
+from flask import Blueprint, abort, g, has_request_context, jsonify, request, send_file
 from sqlalchemy import case, func, literal, or_, text
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from src.auth import (
@@ -1861,16 +1861,26 @@ def get_player_showcase(player_api_id: int):
 
 def _media_is_public(media: PlayerShowcaseMedia) -> bool:
     """One current visibility decision for public URLs and public byte access."""
-    from src.services.public_player_subject import resolve_public_adult_subject
-
     if media.status != "approved" or media.kind != "photo" or not media.public_url:
         return False
-    if media.local_player_id is not None:
-        local = db.session.get(LocalPlayer, media.local_player_id)
+    # The request owns this cache (including when tests hold an app context).
+    # Keep row eligibility above uncached; only the shared subject decision is reused.
+    cache = request.environ.setdefault("showcase.media_visibility", {}) if has_request_context() else {}
+    subject = ("local", media.local_player_id) if media.local_player_id is not None else ("api", media.player_api_id)
+    if subject not in cache:
+        cache[subject] = _media_subject_is_public(*subject)
+    return cache[subject]
+
+
+def _media_subject_is_public(kind, subject_id):
+    from src.services.public_player_subject import resolve_public_adult_subject
+
+    if kind == "local":
+        local = db.session.get(LocalPlayer, subject_id)
         if local is None or local.merged_into_local_player_id or not _local_player_visible_to_context(local, None):
             return False
         return not local.api_player_id or resolve_public_adult_subject(local.api_player_id) is not None
-    return resolve_public_adult_subject(media.player_api_id) is not None
+    return resolve_public_adult_subject(subject_id) is not None
 
 
 def _serve_published_media(blob_path, *, private_preview=False):
@@ -5094,7 +5104,7 @@ def admin_review_affiliation(aff_id: int):
 @showcase_bp.route("/admin/showcase/media", methods=["GET"])
 @require_api_key
 def admin_list_showcase_media():
-    """List showcase media, optionally filtered by lifecycle status."""
+    """List a bounded page of showcase photos, optionally filtered by status."""
     try:
         status = (request.args.get("status") or "").strip().lower()
         query = PlayerShowcaseMedia.query.filter_by(kind="photo")
@@ -5102,8 +5112,26 @@ def admin_list_showcase_media():
             if status not in MEDIA_STATUSES:
                 return jsonify({"error": f"invalid status; one of {sorted(MEDIA_STATUSES)}"}), 400
             query = query.filter(PlayerShowcaseMedia.status == status)
-        rows = query.order_by(PlayerShowcaseMedia.created_at.desc(), PlayerShowcaseMedia.id.desc()).all()
-        return jsonify({"media": [_media_dict(row, include_preview=True, admin_preview=True) for row in rows]})
+        try:
+            limit = min(100, max(1, int(request.args.get("limit", 50))))
+            offset = max(0, int(request.args.get("offset", 0)))
+        except ValueError:
+            return jsonify({"error": "limit and offset must be integers"}), 400
+        total = query.count()
+        rows = (
+            query.order_by(PlayerShowcaseMedia.created_at.desc(), PlayerShowcaseMedia.id.desc())
+            .limit(limit)
+            .offset(offset)
+            .all()
+        )
+        return jsonify(
+            {
+                "media": [_media_dict(row, include_preview=True, admin_preview=True) for row in rows],
+                "total": total,
+                "limit": limit,
+                "offset": offset,
+            }
+        )
     except Exception as e:
         logger.error("Error in admin_list_showcase_media: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to load showcase media")), 500
@@ -5617,6 +5645,13 @@ from src.routes.club import (
 
 def _subject_player_claim(subject, user_id):
     return subject_claim(db.session, -subject.local_player_id if subject.is_local else subject.player_api_id, user_id)
+
+
+@showcase_bp.after_app_request
+def _uncacheable_public_media_errors(response):
+    if request.path.startswith(showcase_media_storage.PUBLIC_ROUTE_PREFIX + "/") and response.status_code >= 400:
+        response.headers["Cache-Control"] = "private, no-store"
+    return response
 
 
 @showcase_bp.after_request

@@ -26,6 +26,7 @@ import tempfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from threading import Lock
+from time import monotonic
 from urllib.parse import quote, unquote, urlparse
 from uuid import uuid4
 
@@ -54,16 +55,19 @@ _checked_containers: set[str] = set()
 _client_lock = Lock()
 _shared_client = None
 _shared_connection_string = None
-_logged_media_warnings: set[str] = set()
+_logged_media_warnings: dict[str, float] = {}
+WARNING_INTERVAL_SECONDS = 300
 DOWNLOAD_CHUNK_BYTES = 1024**2
 
 
 def warn_once(key: str, message: str) -> None:
-    """Bound diagnostics by category, never by untrusted paths or exception text."""
+    """Log at most every five minutes per category, without paths or secrets."""
     with _client_lock:
-        if key in _logged_media_warnings:
+        now = monotonic()
+        previous = _logged_media_warnings.get(key)
+        if previous is not None and now - previous < WARNING_INTERVAL_SECONDS:
             return
-        _logged_media_warnings.add(key)
+        _logged_media_warnings[key] = now
     logger.warning(message)
 
 

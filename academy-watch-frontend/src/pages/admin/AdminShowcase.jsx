@@ -446,6 +446,9 @@ function ProfilesTab({ setMessage }) {
 
 function MediaTab({ setMessage }) {
     const [media, setMedia] = useState([])
+    const [offset, setOffset] = useState(0)
+    const [total, setTotal] = useState(0)
+    const pageSize = 50
     const [loading, setLoading] = useState(true)
     const [status, setStatus] = useState('pending')
     const [reloadKey, setReloadKey] = useState(0)
@@ -455,15 +458,25 @@ function MediaTab({ setMessage }) {
     useEffect(() => {
         let cancelled = false
         setLoading(true)
-        const params = status === 'all' ? {} : { status }
+        const params = { limit: pageSize, offset, ...(status === 'all' ? {} : { status }) }
         APIService.adminListShowcaseMedia(params)
-            .then((data) => { if (!cancelled) setMedia(asArray(data, 'media')) })
+            .then((data) => {
+                if (cancelled) return
+                const count = data.total ?? 0
+                setTotal(count)
+                // Moderation can remove the final item on the last page.
+                if (offset > 0 && offset >= count) {
+                    setOffset(Math.max(0, Math.ceil(count / pageSize) - 1) * pageSize)
+                    return
+                }
+                setMedia(asArray(data, 'media'))
+            })
             .catch((err) => {
                 if (!cancelled) setMessage({ type: 'error', text: err.message || 'Failed to load showcase media' })
             })
             .finally(() => { if (!cancelled) setLoading(false) })
         return () => { cancelled = true }
-    }, [status, reloadKey, setMessage])
+    }, [status, offset, reloadKey, setMessage])
 
     const act = async (item, action) => {
         setActingId(item.id)
@@ -493,7 +506,7 @@ function MediaTab({ setMessage }) {
                     <CardTitle>Showcase photos</CardTitle>
                     <CardDescription>Review player-uploaded photos before they appear publicly</CardDescription>
                 </div>
-                <Select value={status} onValueChange={setStatus}>
+                <Select value={status} onValueChange={(value) => { setStatus(value); setOffset(0) }}>
                     <SelectTrigger className="w-40">
                         <SelectValue />
                     </SelectTrigger>
@@ -589,6 +602,19 @@ function MediaTab({ setMessage }) {
                         })}
                     </div>
                 )}
+                <div className="mt-4 flex items-center justify-between gap-3" aria-label="Photo pagination">
+                    <p className="text-sm text-muted-foreground" aria-live="polite">
+                        {total === 0 ? '0 photos' : `${offset + 1}–${Math.min(offset + pageSize, total)} of ${total} photos`}
+                    </p>
+                    <div className="flex gap-2">
+                        <Button variant="outline" disabled={loading || offset === 0} onClick={() => setOffset((value) => Math.max(0, value - pageSize))}>
+                            Previous
+                        </Button>
+                        <Button variant="outline" disabled={loading || offset + pageSize >= total} onClick={() => setOffset((value) => value + pageSize)}>
+                            Next
+                        </Button>
+                    </div>
+                </div>
             </CardContent>
         </Card>
     )

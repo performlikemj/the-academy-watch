@@ -329,7 +329,7 @@ def test_club_takedown_gate(client, app, hidden, status, code):
     "junk", ["https://[broken", "../../private.jpg", "https://unrecognized.test/arbitrary.jpg", 42]
 )
 def test_invalid_stored_url_logs_once_and_returns_none(app, monkeypatch, caplog, junk):
-    monkeypatch.setattr(storage, "_logged_media_warnings", set())
+    monkeypatch.setattr(storage, "_logged_media_warnings", {})
     with app.test_request_context():
         assert storage.published_url(junk) is None
         assert storage.published_url(junk) is None
@@ -358,7 +358,7 @@ def test_azure_errors_are_quiet_404(client, photo, monkeypatch, caplog, error_ty
     from azure.core import exceptions
 
     _, blob = azure(monkeypatch)
-    monkeypatch.setattr(storage, "_logged_media_warnings", set())
+    monkeypatch.setattr(storage, "_logged_media_warnings", {})
     getattr(blob, operation).side_effect = getattr(exceptions, error_type)("synthetic SDK failure")
     assert client.get(url(photo)).status_code == 404
     assert client.get(url(photo)).status_code == 404
@@ -493,7 +493,9 @@ def test_limiter_separates_forwarded_clients(app, client, monkeypatch):
     path = f"{storage.PUBLIC_ROUTE_PREFIX}/arbitrary.jpg"
     for _ in range(300):
         assert client.get(path, headers={"CF-Connecting-IP": "203.0.113.1"}).status_code == 404
-    assert client.get(path, headers={"CF-Connecting-IP": "203.0.113.1"}).status_code == 429
+    rejected = client.get(path, headers={"CF-Connecting-IP": "203.0.113.1"})
+    assert rejected.status_code == 429
+    assert rejected.headers["Cache-Control"] == "private, no-store"
     assert client.get(path, headers={"CF-Connecting-IP": "203.0.113.2"}).status_code == 404
 
 
@@ -501,7 +503,7 @@ def test_azure_stream_failures_without_tracebacks(client, photo, monkeypatch, ca
     from azure.core.exceptions import ServiceRequestError
 
     _, blob = azure(monkeypatch)
-    monkeypatch.setattr(storage, "_logged_media_warnings", set())
+    monkeypatch.setattr(storage, "_logged_media_warnings", {})
 
     def broken():
         yield b"abc"
@@ -526,3 +528,106 @@ def test_azure_initial_chunk_error_is_404(client, photo, monkeypatch):
 
     blob.download_blob.return_value.chunks.return_value = broken()
     assert client.get(url(photo)).status_code == 404
+
+
+@pytest.mark.parametrize("method", ["get", "head"])
+@pytest.mark.parametrize("path", ["arbitrary.jpg", "players/5001/missing.jpg", ""])
+def test_public_misses_are_never_cached(client, method, path):
+    response = getattr(client, method)(f"{storage.PUBLIC_ROUTE_PREFIX}/{path}")
+    assert response.status_code == 404
+    assert response.headers["Cache-Control"] == "private, no-store"
+
+
+def test_storage_warnings_repeat_after_five_minutes_per_category(monkeypatch, caplog):
+    monkeypatch.setattr(storage, "_logged_media_warnings", {})
+    clock = Mock(return_value=0)
+    monkeypatch.setattr(storage, "monotonic", clock)
+    storage.warn_once("read-failed", "Synthetic read warning")
+    clock.return_value = 299
+    storage.warn_once("read-failed", "Synthetic read warning")
+    storage.warn_once("stream-failed", "Synthetic stream warning")
+    assert caplog.text.count("Synthetic read warning") == 1
+    assert caplog.text.count("Synthetic stream warning") == 1
+    clock.return_value = 300
+    storage.warn_once("read-failed", "Synthetic read warning")
+    storage.warn_once("stream-failed", "Synthetic stream warning")
+    assert caplog.text.count("Synthetic read warning") == 2
+    assert caplog.text.count("Synthetic stream warning") == 1
+
+
+@pytest.mark.parametrize("local_subject", [False, True])
+@pytest.mark.parametrize("visible", [False, True])
+def test_subject_query_count_constant_and_cache_request_scoped(app, photo, local_subject, visible):
+    from sqlalchemy import event
+    from src.routes.showcase import _media_dict
+
+    if local_subject:
+        local = LocalPlayer(display_name="Synthetic Cache", birth_year=2000, status="approved", api_player_id=PLAYER_ID)
+        db.session.add(local)
+        db.session.flush()
+        photo.player_api_id = None
+        photo.local_player_id = local.id
+    player = TrackedPlayer.query.filter_by(player_api_id=PLAYER_ID).one()
+    if not visible:
+        player.birth_date = date(2015, 1, 1)
+    rows = [photo]
+    for index in range(12):
+        row = _seed_media(PLAYER_ID, photo.uploaded_by_user_id, suffix=f"cache-{index}")
+        row.player_api_id = photo.player_api_id
+        row.local_player_id = photo.local_player_id
+        rows.append(row)
+    db.session.commit()
+    # Load scalar fields before counting visibility queries.
+    for row in rows:
+        assert row.id
+    counts = []
+    queries = []
+
+    def record(*args):
+        queries.append(args[2])
+
+    event.listen(db.engine, "before_cursor_execute", record)
+    try:
+        for selected in [rows[:1], rows]:
+            db.session.expire_all()
+            for row in rows:
+                assert row.id
+            queries.clear()
+            with app.test_request_context():
+                assert all(bool(_media_dict(row)["public_url"]) == visible for row in selected)
+                # Per-row approval must never be memoized as part of subject visibility.
+                rows[-1].status = "rejected"
+                assert _media_dict(rows[-1])["public_url"] is None
+                rows[-1].status = "approved"
+            counts.append(len(queries))
+        assert counts[0] > 0
+        assert counts[0] == counts[1]
+        # A new request must see a takedown, even with a surviving app context.
+        player.birth_date = date(2015, 1, 1)
+        db.session.commit()
+        with app.test_request_context():
+            assert _media_dict(photo)["public_url"] is None
+    finally:
+        event.remove(db.engine, "before_cursor_execute", record)
+
+
+def test_admin_media_pagination(client, photo):
+    from test_showcase_media import _admin_headers
+
+    for index in range(104):
+        _seed_media(PLAYER_ID, photo.uploaded_by_user_id, suffix=f"page-{index}")
+    _seed_media(PLAYER_ID, photo.uploaded_by_user_id, suffix="excluded", status="rejected")
+    db.session.commit()
+    headers = _admin_headers()
+    first = client.get("/api/admin/showcase/media?status=approved", headers=headers).json
+    assert (first["total"], first["limit"], first["offset"], len(first["media"])) == (105, 50, 0, 50)
+    second = client.get("/api/admin/showcase/media?status=approved&offset=50", headers=headers).json
+    assert len(second["media"]) == 50
+    assert not ({row["id"] for row in first["media"]} & {row["id"] for row in second["media"]})
+    last = client.get("/api/admin/showcase/media?status=approved&offset=100", headers=headers).json
+    assert len(last["media"]) == 5
+    capped = client.get("/api/admin/showcase/media?limit=9999&offset=-1", headers=headers).json
+    assert (capped["total"], capped["limit"], capped["offset"], len(capped["media"])) == (106, 100, 0, 100)
+    assert client.get("/api/admin/showcase/media?offset=9999", headers=headers).json["media"] == []
+    assert client.get("/api/admin/showcase/media?limit=invalid", headers=headers).status_code == 400
+    assert client.get("/api/admin/showcase/media?offset=invalid", headers=headers).status_code == 400
