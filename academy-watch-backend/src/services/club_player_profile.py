@@ -7,6 +7,7 @@ from src.models.funding import ClubRosterSquadHistory, ClubSquad
 from src.models.league import db
 from src.models.showcase import PlayerProfileClaim, PlayerShowcaseMedia
 from src.services.feedback_development import member_development
+from src.services.showcase_media_storage import published_url
 
 
 def close_squad_history(member, now=None):
@@ -76,7 +77,7 @@ def prefetch_member_photos(members):
         key = _photo_subject_key(photo)
         if photo.uploaded_by_user_id in owners.get(key, ()):
             # Preserve the first approved primary's precedence, even without a URL.
-            photos.setdefault(key, photo.public_url)
+            photos.setdefault(key, published_url(photo.public_url))
     return photos
 
 
