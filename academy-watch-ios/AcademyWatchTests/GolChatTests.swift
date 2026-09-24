@@ -231,38 +231,33 @@ final class GolChatTests: XCTestCase {
         }
     }
 
-    func testSheetRecreationKeepsStoppedAnswerAndAccountResetClearsIt() async {
+    func testStopRetainsPartialAnswerAndAccountResetClearsIt() async {
         let client = GolTestClient(scripts: [[
             .event("token", "{\"content\":\"Retained answer\"}"), .delay, .done,
         ]])
         let model = GolChatViewModel(client: client)
-        var sheet: GolChatView? = GolChatView(model: model)
-        sheet?.model.send("Keep this question")
+        model.send("Keep this question")
         for _ in 0..<100 where model.messages.last?.content.isEmpty == true {
             try? await Task.sleep(for: .milliseconds(2))
         }
         let session = model.sessionID
-        sheet?.model.stop() // Explicit Close.
-        let messages = model.messages
-        sheet = nil
-        sheet = GolChatView(model: model)
-        XCTAssertEqual(sheet?.model.messages, messages)
-        XCTAssertEqual(sheet?.model.sessionID, session)
-        XCTAssertEqual(sheet?.model.messages.last?.cutShort, true)
-        model.resetAccount() // Root observes auth changes even while the sheet is closed.
-        XCTAssertTrue(sheet!.model.messages.isEmpty)
+        model.stop()
+        XCTAssertEqual(model.messages.last?.content, "Retained answer")
+        XCTAssertEqual(model.sessionID, session)
+        XCTAssertEqual(model.messages.last?.cutShort, true)
+        model.resetAccount()
+        XCTAssertTrue(model.messages.isEmpty)
         XCTAssertNotEqual(model.sessionID, session)
         try? await Task.sleep(for: .milliseconds(150))
         XCTAssertTrue(model.messages.isEmpty)
     }
 
-    func testDisappearingSheetDoesNotStopOwnedStream() async {
+    func testModelCompletesDelayedStream() async {
         let model = GolChatViewModel(client: GolTestClient(scripts: [[.delay, .event("token", "{\"content\":\"Finished\"}"), .done]]))
-        var sheet: GolChatView? = GolChatView(model: model)
-        sheet?.model.send("Question")
-        sheet = nil
+        model.send("Question")
         await settle(model)
-        XCTAssertEqual(GolChatView(model: model).model.messages.last?.content, "Finished")
+        XCTAssertEqual(model.messages.last?.content, "Finished")
+        XCTAssertEqual(model.messages.last?.cutShort, false)
     }
 
     func testRejectedQuestionRemovesOnlyOrphanPairAndKeepsNeutralFailure() async {

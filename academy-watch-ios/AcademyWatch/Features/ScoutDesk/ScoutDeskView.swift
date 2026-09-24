@@ -108,7 +108,7 @@ struct ScoutDeskView: View {
             )
             .navigationTitle("Scout Desk")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar(.visible, for: .navigationBar)
+            .toolbar(isShowingInitialLoadingCard ? .hidden : .automatic, for: .navigationBar)
             .toolbar(hidesTabBarForInitialGrace ? .hidden : .automatic, for: .tabBar)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {

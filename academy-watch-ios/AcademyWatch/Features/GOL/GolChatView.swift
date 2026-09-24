@@ -33,7 +33,6 @@ struct GolChatView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Close", systemImage: "xmark") {
-                        model.stop()
                         dismiss()
                     }
                     .accessibilityLabel("Close GOL")

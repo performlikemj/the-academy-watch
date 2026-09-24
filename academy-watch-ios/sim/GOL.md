@@ -1,10 +1,12 @@
 # Native GOL verification
 
-GOL is the first card in Account for every role, with a persistent Ask GOL toolbar
-button on Scout Desk and Home. The role-specific tab inventory and landing tabs
+GOL is the first card in Account for every role, with an Ask GOL toolbar button
+on Scout Desk and Home. Scout Desk hides its navigation bar during the initial
+branded loading card and reveals Ask GOL once loading ends. The role-specific tab inventory and landing tabs
 are unchanged. RootTabView owns the chat model and presents it so closing and
 reopening preserves the conversation. Swipe dismissal is disabled while streaming;
-explicit Close or Stop cancels the answer and retains any partial content. Auth
+Close only dismisses the sheet; the stream continues and its answer is available
+on reopen. The explicit Stop control cancels the answer and retains partial content. Auth
 changes reset the model even when the sheet is closed.
 
 The chat is in memory. New chat resets the session ID and messages. Each question
@@ -74,7 +76,8 @@ xcrun xcresulttool export attachments --path /tmp/gol-local-ui.xcresult \
 
 `AcademyWatch` runs the full unit/API suite. `AcademyWatchExperience` runs the
 existing player/club suite and GOL offline tests, including all three landing roles,
-streaming dismissal protection, explicit Close/reopen, Markdown, completed swipe
+loading-card navigation visibility, streaming dismissal protection, completion
+while closed, explicit Stop/reopen, Markdown, completed swipe
 reopen, quota exhaustion and the money fence. PlayerClubExperienceFixtures serves
 a timed synthetic GOL stream and a process-local two-question allowance, then 402;
 all fixture routes resolve before URLSession and unknown routes fail closed.
@@ -92,5 +95,6 @@ TEST_RUNNER_SIM_JOURNEYS=player-first-run-chooser,change-home-changes-home,scout
 ```
 
 Offline GOL screenshot attachments are named `fix1-landing-{scout,player,club}`,
-`fix1-reopened-partial-answer`, `fix1-markdown-answer`,
+`fix2-scout-initial-loading`, `fix2-scout-loaded`,
+`fix2-reopened-after-close-complete-answer`, `fix1-markdown-answer`,
 `fix1-reopened-complete-answer` and `fix1-out-of-questions`.

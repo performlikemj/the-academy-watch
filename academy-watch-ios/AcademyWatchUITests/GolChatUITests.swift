@@ -1,6 +1,6 @@
 import XCTest
 
-/// Opt-in local integration test. Never runs against the production API.
+/// Offline UI coverage plus an opt-in local integration test. Never uses the production API.
 final class GolChatUITests: XCTestCase {
     func testLocalSignInSuggestionStreamingAndExhaustedQuestions() throws {
         let environment = ProcessInfo.processInfo.environment
@@ -90,6 +90,44 @@ final class GolChatUITests: XCTestCase {
         }
     }
 
+    func testOfflineScoutLoadingCardHidesNavigationUntilLoaded() {
+        continueAfterFailure = false
+        let app = offlineApp("scout")
+        app.launchArguments += ["-scoutDeskSeasonDelaySeconds", "15"]
+        app.launch()
+        defer { app.terminate() }
+        XCTAssertTrue(app.otherElements["initial-load-feedback"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.navigationBars["Scout Desk"].exists)
+        XCTAssertFalse(app.buttons["gol-landing-entry"].exists)
+        XCTAssertFalse(app.buttons["Add a player"].exists)
+        capture("fix2-scout-initial-loading", app)
+        XCTAssertTrue(app.buttons["gol-landing-entry"].waitForExistence(timeout: 25))
+        XCTAssertTrue(app.navigationBars["Scout Desk"].exists)
+        XCTAssertTrue(app.buttons["gol-landing-entry"].isHittable)
+        capture("fix2-scout-loaded", app)
+    }
+
+    func testOfflineStopButtonRetainsCutShortAnswerOnReopen() {
+        continueAfterFailure = false
+        let app = offlineApp("scout")
+        app.launch()
+        defer { app.terminate() }
+        tap(app.buttons["gol-landing-entry"])
+        tap(app.buttons["gol-suggestion-0"])
+        let answer = app.staticTexts["gol-answer"].firstMatch
+        XCTAssertTrue(answer.waitForExistence(timeout: 10))
+        tap(app.buttons["gol-stop"])
+        XCTAssertTrue(app.staticTexts["gol-cut-short"].waitForExistence(timeout: 10))
+        let partial = answer.label
+        XCTAssertFalse(partial.contains("Synthetic offline football guidance."))
+        tap(app.buttons["gol-close"])
+        tap(app.buttons["gol-landing-entry"])
+        XCTAssertTrue(app.staticTexts["gol-cut-short"].waitForExistence(timeout: 10))
+        XCTAssertEqual(answer.label, partial)
+        XCTAssertFalse(app.buttons["gol-stop"].exists)
+        assertMoneyFence(app)
+    }
+
     func testOfflineStreamingCloseReopenMarkdownAndExhaustionMoneyFence() {
         continueAfterFailure = false
         let app = offlineApp("scout")
@@ -104,11 +142,18 @@ final class GolChatUITests: XCTestCase {
         // Pull down the sheet from its top edge: it must stay presented during the stream.
         app.navigationBars["GOL"].swipeDown()
         XCTAssertTrue(app.buttons["gol-close"].exists)
+        XCTAssertTrue(app.buttons["gol-stop"].exists)
+        XCTAssertFalse(answer.label.contains("Synthetic offline football guidance."))
         tap(app.buttons["gol-close"])
+        XCTAssertTrue(app.buttons["gol-landing-entry"].waitForExistence(timeout: 10))
+        // Let the nine-second fixture stream finish while the actual sheet is dismissed.
+        Thread.sleep(forTimeInterval: 10)
         tap(app.buttons["gol-landing-entry"])
-        XCTAssertTrue(app.staticTexts["gol-cut-short"].waitForExistence(timeout: 10))
-        XCTAssertTrue(answer.label.contains("Academy progress"))
-        capture("fix1-reopened-partial-answer", app)
+        XCTAssertTrue(answer.waitForExistence(timeout: 10))
+        XCTAssertEqual(answer.label, "Academy progress\n\n- Watch playing time.\n- Track development.\n\nSynthetic offline football guidance.")
+        XCTAssertFalse(app.buttons["gol-stop"].exists)
+        XCTAssertFalse(app.staticTexts["gol-cut-short"].exists)
+        capture("fix2-reopened-after-close-complete-answer", app)
         assertMoneyFence(app)
         tap(app.buttons["gol-new-chat"])
         tap(app.buttons["gol-suggestion-0"])
