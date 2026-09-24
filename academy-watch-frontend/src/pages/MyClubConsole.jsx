@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom'
 import { ClubHome } from './club-console/ClubHome'
 import { DevelopmentActionFields, DevelopmentActionSummary, DevelopmentProgress, FeedbackEvidencePicker } from '@/components/showcase/DevelopmentAction'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -1054,7 +1055,7 @@ export function RosterPanel({ programId, members, systemBrief, loading, error, o
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
-                        <p className="truncate font-semibold text-foreground">{member.available ? member.display_name : 'Unavailable roster member'}</p>
+                        <p className="truncate font-semibold text-foreground">{member.available ? <Link to={`/my-club?program=${programId}&player=${member.id}`}>{member.display_name}</Link> : 'Unavailable roster member'}</p>
                         {member.is_minor ? <Badge className="border-amber-200 bg-amber-50 text-amber-900"><LockKeyhole className="mr-1 h-3 w-3" /> Minor — private</Badge> : null}
                         {!member.available ? <Badge variant="outline">Unavailable</Badge> : null}
                       </div>
@@ -1587,7 +1588,7 @@ export function RecordResultDialog({ programId, videoMatch, members, savedResult
   )
 }
 
-function MatchReport({ programId, match, onAccessDenied }) {
+export function MatchReport({ programId, match, onAccessDenied, rosterEntryId }) {
   const [state, setState] = useState({ loading: false, loaded: false, notFinalized: false, report: null, error: null })
 
   const load = async () => {
@@ -1625,7 +1626,7 @@ function MatchReport({ programId, match, onAccessDenied }) {
     return <EmptyState icon={FileChartColumn} title="Report available once processing is finalized">An admin still needs to complete review and finalize this report.</EmptyState>
   }
 
-  const reports = Array.isArray(state.report?.reports) ? state.report.reports : []
+  const reports = Array.isArray(state.report?.reports) ? state.report.reports.filter(row => !rosterEntryId || row.roster_entry_id === rosterEntryId) : []
   return reports.length === 0 ? (
     <EmptyState icon={FileChartColumn} title="No player reports were published">The match is finalized, but no club-roster report rows are available.</EmptyState>
   ) : (
@@ -1662,7 +1663,7 @@ function MatchReport({ programId, match, onAccessDenied }) {
   )
 }
 
-function ClubPlayerReels({ programId, match, rosterMembers, onAccessDenied }) {
+export function ClubPlayerReels({ programId, match, rosterMembers, onAccessDenied, rosterEntryId }) {
   const [opened, setOpened] = useState(false)
   const [loading, setLoading] = useState(false)
   const [reel, setReel] = useState(null)
@@ -1683,7 +1684,8 @@ function ClubPlayerReels({ programId, match, rosterMembers, onAccessDenied }) {
         APIService.getClubMatchReel(programId, match.id),
         APIService.clubVideoMediaToken(programId, match.id),
       ])
-      setReel(reelResponse)
+      setReel(rosterEntryId ? { ...reelResponse, players: reelResponse.players.filter(row => row.roster_entry_id === rosterEntryId) } : reelResponse)
+      if (rosterEntryId) setOpenPlayerId(rosterEntryId)
       setMediaToken(tokenResponse?.token || null)
       setOpened(true)
     } catch (requestError) {
@@ -1697,7 +1699,7 @@ function ClubPlayerReels({ programId, match, rosterMembers, onAccessDenied }) {
     } finally {
       setLoading(false)
     }
-  }, [loading, match.id, onAccessDenied, programId])
+  }, [loading, match.id, onAccessDenied, programId, rosterEntryId])
 
   if (!REEL_MATCH_STATUSES.has(match.status)) return null
 

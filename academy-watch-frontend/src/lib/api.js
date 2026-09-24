@@ -1607,6 +1607,15 @@ export class APIService {
         })
     }
 
+    static async clubPlayerPhotoBlob(url, signal) {
+        if (!/^\/api\/club\/\d+\/roster\/\d+\/photo$/.test(url)) throw new Error('Invalid private photo URL');
+        const response = await fetch(`${API_BASE_URL}${url.slice(4)}`, {
+            headers: { Authorization: `Bearer ${this.userToken}` }, signal, cache: 'no-store',
+        });
+        if (!response.ok) { const error = new Error('Photo unavailable'); error.status = response.status; throw error; }
+        return response.blob();
+    }
+
     static async uploadPhotoToUrl(upload, file, onProgress) {
         if (onProgress) {
             return new Promise((resolve, reject) => {

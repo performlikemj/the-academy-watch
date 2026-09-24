@@ -75,6 +75,7 @@ const sidebarGroups = [
             { icon: Video, label: 'Film Room', href: '/admin/video' },
             { icon: Star, label: 'Showcase', href: '/admin/showcase' },
             { icon: Landmark, label: 'Local Clubs', href: '/admin/local-clubs' },
+            { icon: Shield, label: 'Club identities', href: '/admin/club-identities' },
             { icon: HandHeart, label: 'Funding Registry', href: '/admin/funding' },
         ],
     },

@@ -519,7 +519,9 @@ def _member_subject(member: ClubRosterMember) -> tuple[dict | None, object | Non
     )
 
 
-def _member_dict(member: ClubRosterMember, *, authorized_player_ids: set[int] | None = None) -> dict:
+def _member_dict(
+    member: ClubRosterMember, *, authorized_player_ids: set[int] | None = None, player_photos=None
+) -> dict:
     subject, player = _member_subject(member)
     public_stats_allowed = False
     if subject is not None and not subject["is_minor"]:
@@ -551,7 +553,10 @@ def _member_dict(member: ClubRosterMember, *, authorized_player_ids: set[int] | 
         "public_stats_allowed": public_stats_allowed,
     }
     if subject is not None:
+        from src.services.club_player_profile import member_photo
+
         out.update(subject)
+        out["photo"] = member_photo(member, subject, player, player_photos=player_photos)
         birth = getattr(player, "birth_date", None)
         out["age"] = age_from_birth_date(birth) if birth else None
         birth_year = getattr(player, "birth_year", None)
@@ -575,7 +580,8 @@ def _brief_dict(body: str | None, updated_at: datetime | None) -> dict:
 def _brief_name_tokens(program: ClubProgram) -> dict[str, str]:
     names = []
     for member in program.roster_members:
-        display_name = _member_dict(member).get("display_name")
+        subject, _ = _member_subject(member)
+        display_name = subject.get("display_name") if subject else None
         if display_name:
             names.append(display_name)
     names.extend(
@@ -913,7 +919,12 @@ def list_club_roster(program_id: int):
         }
         for member_id, count, minutes, latest in film_rows
     }
-    members = [_member_dict(row, authorized_player_ids=authorized_player_ids) for row in rows]
+    from src.services.club_player_profile import prefetch_member_photos
+
+    player_photos = prefetch_member_photos(rows)
+    members = [
+        _member_dict(row, authorized_player_ids=authorized_player_ids, player_photos=player_photos) for row in rows
+    ]
     for member in members:
         if member["available"] and member["id"] in film:
             member["film"] = film[member["id"]]
@@ -951,11 +962,12 @@ def add_club_roster_member(program_id: int):
         else:
             local_player_id = _positive_int(data.get("local_player_id"), "local_player_id")
             local = db.session.get(LocalPlayer, local_player_id)
-            # A manager can attach only a local identity they personally created.
-            # The response is neutral for foreign, merged, rejected, or suppressed rows.
+            # Club identities belong to their origin program; ordinary local identities
+            # retain the creator-only rule. All unavailable subjects return a neutral response.
             if (
                 local is None
-                or local.created_by_user_id != g.user_id
+                or (local.provenance == "club" and local.origin_program_id != program_id)
+                or (local.provenance != "club" and local.created_by_user_id != g.user_id)
                 or local.status in {"rejected", "merged"}
                 or local.merged_into_local_player_id is not None
             ):
@@ -1058,6 +1070,9 @@ def delete_club_roster_member(program_id: int, member_id: int):
             return _invitation_operation(
                 lambda: (resolve_invitation(db.session, invitation, g.user_id, "revoke", manager=True), 200)
             )
+    from src.services.club_player_profile import close_squad_history
+
+    close_squad_history(member)
     # A player who leaves before finalization must not acquire report access.
     VideoRosterEntry.query.filter_by(club_roster_member_id=member.id).update(
         {VideoRosterEntry.club_roster_member_id: None}, synchronize_session=False
@@ -2088,6 +2103,12 @@ def get_club_match_report(program_id: int, match_id: int):
     if match.status != "finalized":
         return jsonify({"error": "Report is not finalized"}), 409
 
+    return jsonify(club_report_payload(match))
+
+
+def club_report_payload(match):
+    """Shared manager report visibility; callers must authorize the program."""
+    program_id = match.club_program_id
     reports = VideoPlayerReport.query.filter_by(
         video_match_id=match.id,
         club_program_id_at_finalize=program_id,
@@ -2150,7 +2171,7 @@ def get_club_match_report(program_id: int, match_id: int):
         row["subject"] = subject
         visible.append(row)
     visible.sort(key=lambda row: -(row["minutes_visible"] or 0))
-    return jsonify({"match": match.to_dict(), "reports": visible})
+    return {"match": match.to_dict(), "reports": visible}
 
 
 @club_bp.after_request
@@ -2276,3 +2297,7 @@ def revoke_club_invitation(program_id, invitation_id):
 from src.routes.club_home import register as register_club_home
 
 register_club_home(club_bp)
+
+from src.routes.club_players import register as register_club_players
+
+register_club_players(club_bp)

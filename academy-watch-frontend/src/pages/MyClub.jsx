@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import {
   AlertCircle,
   Building2,
@@ -260,6 +260,7 @@ export function MyClub() {
 }
 
 function AuthenticatedMyClub() {
+  const [clubParams, setClubParams] = useSearchParams()
   const auth = useAuth()
   const { openLoginModal } = useAuthUI()
 
@@ -690,7 +691,7 @@ function AuthenticatedMyClub() {
 
   const clubResultCount = clubResults.api_teams.length + clubResults.local_clubs.length
   const activeConsoleProgram = consoleEligibility.allowed.find(({ programClaim }) => (
-    Number(programClaim.program.id) === Number(selectedProgramId)
+    Number(programClaim.program.id) === Number(clubParams.get("program") || selectedProgramId)
   )) || consoleEligibility.allowed[0]
   const handleConsoleAccessDenied = useCallback((programId) => {
     setConsoleEligibility((current) => ({
@@ -782,7 +783,7 @@ function AuthenticatedMyClub() {
           moderationCount={moderationCount}
           erroredProgramCount={consoleEligibility.erroredProgramIds.length}
           checkingPrograms={consoleEligibility.pending}
-          onProgramChange={setSelectedProgramId}
+          onProgramChange={id => { setSelectedProgramId(id); setClubParams({ program: String(id) }) }}
           onRetryPrograms={retryConsoleEligibility}
           onAccessDenied={() => handleConsoleAccessDenied(activeProgramId)}
         />

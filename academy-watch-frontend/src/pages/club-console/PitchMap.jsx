@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { LockKeyhole, Users, Plus, ArrowUpRight } from 'lucide-react';
 import { initials, ageDescription } from './presentation';
+import { PlayerAvatar } from './PlayerAvatar';
 export function PitchMap({
   program,
   staff,
@@ -9,6 +10,7 @@ export function PitchMap({
   members,
   selected,
   onSelect,
+  onOpenPlayer,
   onFocus,
   onOpenSquad,
   onStaff,
@@ -36,7 +38,7 @@ export function PitchMap({
     </button>
     {focus === s.id && <div className="ch-chips">
       {loading ? <span>Loading…</span> : members.slice(0, 4).map(m => <button key={m.id} aria-pressed={selected?.id === m.id} onClick={() => onSelect(m)}>
-        <span>{initials(m.display_name)}</span>
+        <PlayerAvatar member={m} />
         {m.shirt_number ? `#${m.shirt_number} ` : ''}
         {m.display_name}
       </button>)}
@@ -101,7 +103,7 @@ export function PitchMap({
         <LockKeyhole size={13} />{' Only your verified club managers can see this map.'}</p>
     </div>
     {selected && <div className="ch-dock">
-      <span className="ch-avatar">{initials(selected.display_name)}</span>
+      <PlayerAvatar member={selected} />
       <div className="ch-dock-person">
         <h3>
           {selected.display_name}{' '}
@@ -117,7 +119,7 @@ export function PitchMap({
         </small>
       </div>
       <FilmEvidence film={selected.film} dock />
-      <button className="ch-btn accent" onClick={() => onOpenSquad(selected.squad_id || 'none')}>{'Open squad '}<ArrowUpRight size={16} />
+      <button className="ch-btn accent" onClick={() => onOpenPlayer(selected.id)}>{'Open player page '}<ArrowUpRight size={16} />
       </button>
       <button aria-label="Close player dock" onClick={() => onSelect(null)}>×</button>
     </div>}
@@ -131,7 +133,8 @@ function NetworkEmpty() {
 export function PlayerCard({
   member,
   squads,
-  onSave
+  onSave,
+  onOpen
 }) {
   const [editing, setEditing] = useState(false);
   const [squadId, setSquadId] = useState(member.squad_id || '');
@@ -139,15 +142,16 @@ export function PlayerCard({
   const [saving, setSaving] = useState(false);
   return <article className="ch-player-card">
     <div className="ch-player-top">
-      <span className="ch-avatar">{initials(member.display_name)}</span>
+      <PlayerAvatar member={member} />
       <div>
-        <h4>{member.display_name}</h4>
+        <h4><button onClick={onOpen}>{member.display_name}</button></h4>
         <p>{[member.position, ageDescription(member)].filter(Boolean).join(' · ')}</p>
       </div>
       {member.shirt_number && <strong className="ch-shirt">{member.shirt_number}</strong>}
     </div>
     <small>{member.is_minor ? 'Private · Under 18' : 'Private club roster'}</small>
     <FilmEvidence film={member.film} />
+    <button className="ch-card-action" onClick={onOpen}>Open player page <ArrowUpRight size={14} /></button>
     <button className="ch-card-action" onClick={() => setEditing(!editing)}>Move squad / shirt number</button>
     {editing && <form className="ch-player-edit" onSubmit={async e => {
       e.preventDefault();

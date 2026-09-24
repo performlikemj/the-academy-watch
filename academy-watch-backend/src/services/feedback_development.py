@@ -137,3 +137,28 @@ def evidence_candidates(session, invitation):
             if len(candidates) == 12:
                 return candidates
     return candidates
+
+
+def member_development(member, signed_id):
+    """Current readable feedback using the existing relationship and closure policy."""
+    from sqlalchemy.orm import aliased
+    from src.models.club_invitation import relationships_enabled
+    from src.models.league import db
+    from src.models.player_feedback import PlayerFeedback, durably_closed, feedback_dict, relationship_matches
+
+    if not relationships_enabled():
+        return []
+    newer = aliased(PlayerFeedback)
+    rows = (
+        PlayerFeedback.query.filter_by(program_id=member.program_id, player_api_id=signed_id)
+        .filter(
+            ~db.exists().where(newer.thread_id == PlayerFeedback.thread_id, newer.revision > PlayerFeedback.revision)
+        )
+        .order_by(PlayerFeedback.published_at.desc())
+        .all()
+    )
+    return [
+        feedback_dict(db.session, row, manager=True)
+        for row in rows
+        if not durably_closed(db.session, row) and relationship_matches(db.session, row)
+    ]

@@ -1214,3 +1214,63 @@
     display: none !important;
   }
 }
+
+/* Private player page: same club palette and typography as the map. */
+.ch-avatar img, .ch-player-portrait img { width:100%; height:100%; object-fit:cover; border-radius:inherit; }
+.ch-avatar { overflow:hidden; flex-shrink:0; }
+.ch-chips .ch-avatar { width:26px; height:26px; }
+.ch-player-hero { min-height:220px; padding:28px 30px; display:flex; align-items:center; gap:24px; background:var(--club-primary); background-image:repeating-linear-gradient(135deg,#ffffff0b 0px,#ffffff0b 14px,transparent 14px,transparent 28px); color:white; }
+.ch-player-portrait { width:120px; height:120px; border:4px solid white; border-radius:50%; flex-shrink:0; overflow:hidden; background:var(--club-accent); color:#16201B; display:flex; align-items:center; justify-content:center; font:700 48px 'Barlow Condensed',sans-serif; }
+.ch-player-identity { flex:1; min-width:0; }
+.ch-player-identity h1 { font:700 50px/1.05 'Barlow Condensed',sans-serif; margin:8px 0; overflow-wrap:anywhere; }
+.ch-player-identity h1 span { color:var(--club-accent); font-size:34px; margin-left:14px; white-space:nowrap; }
+.ch-player-identity p { color:#ffffffd9; font-size:14px; }
+.ch-breadcrumb { display:flex; flex-wrap:wrap; gap:8px; font-size:12px; color:#ffffffe0; }
+.ch-breadcrumb button:hover { text-decoration:underline; }
+.ch-player-chips { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
+.ch-player-chips span { background:#ffffff24; border-radius:99px; padding:4px 10px; font-size:12px; }
+.ch-player-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
+.ch-player-hero > .ch-player-actions { max-width:245px; }
+.ch-player-tabs { display:flex; gap:28px; padding:0 30px; overflow-x:auto; background:white; border-bottom:1px solid #e4e0d6; }
+.ch-player-tabs button { white-space:nowrap; padding:15px 0 12px; font-size:14px; border-bottom:3px solid transparent; color:#56655d; }
+.ch-player-tabs button[aria-selected=true] { color:#16201b; font-weight:700; border-color:var(--club-primary); }
+.ch-player-columns { display:grid; grid-template-columns:minmax(0,1.75fr) minmax(0,1fr); gap:20px; padding:22px 30px; }
+.ch-player-primary, .ch-player-secondary { min-width:0; display:flex; flex-direction:column; gap:20px; }
+.ch-profile-section { background:white; border:1px solid #e4e0d6; border-radius:16px; padding:20px; min-width:0; overflow-wrap:anywhere; }
+.ch-section-heading { display:flex; flex-wrap:wrap; gap:8px; justify-content:space-between; align-items:center; margin-bottom:14px; }
+.ch-section-heading h2 { font:700 16px 'Archivo',sans-serif; margin:0; }
+.ch-section-heading small, .ch-player-empty, .ch-film-row p, .ch-pathway small { color:#56655d; font-size:13px; line-height:1.6; }
+.ch-player-empty { padding:12px 0; }
+.ch-season-stats { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; }
+.ch-season-stats > div { padding:12px; border-radius:12px; background:#f4f2ec; }
+.ch-season-stats small { display:block; font-size:10px; text-transform:uppercase; color:#56655d; letter-spacing:.06em; }
+.ch-season-stats strong { font:700 32px 'Barlow Condensed',sans-serif; }
+.ch-film-row { display:flex; gap:20px; align-items:center; padding:8px 0 16px; }
+.ch-film-row + .ch-film-row { border-top:1px solid #e4e0d6; padding-top:20px; }
+.ch-film-row h3 { font-size:15px; font-weight:700; }
+.ch-film-tile { width:185px; min-height:140px; flex-shrink:0; border-radius:12px; color:var(--club-accent); background:#12261d; display:flex; flex-direction:column; justify-content:center; align-items:center; gap:18px; }
+.ch-film-tile span { color:#c4d3cb; font-size:11px; }
+.ch-brief-lines { list-style:none; padding:0; margin:0; }
+.ch-brief-lines li { padding:13px 0; border-bottom:1px solid #eeeae1; font-size:14px; }
+.ch-brief-lines li:last-child { border:0; }
+.ch-pathway { list-style:none; margin:6px 0 0 6px; padding:0; }
+.ch-pathway li { position:relative; border-left:2px solid #e4e0d6; padding:0 0 22px 22px; font-size:14px; }
+.ch-pathway li::before { content:''; position:absolute; left:-7px; top:3px; width:12px; height:12px; border-radius:50%; background:#bdb7a9; }
+.ch-pathway li.current::before { background:var(--club-primary); }
+.ch-pathway li:last-child { border-color:transparent; padding-bottom:0; }
+.ch-pathway small { display:block; font-size:12px; }
+.ch-feedback-row { padding:12px 0; border-bottom:1px solid #eeeae1; font-size:14px; }
+.ch-feedback-row p { margin:8px 0; white-space:pre-wrap; }
+.ch-feedback-row small { color:#56655d; }
+.ch-scout-locked { padding:18px; background:#f4f2ec; border:1px solid #e4e0d6; border-radius:12px; display:flex; flex-direction:column; gap:10px; font-size:13px; line-height:1.6; }
+.ch-player-editor { margin:20px 30px 0; }
+.ch-player-page textarea { display:block; width:100%; border:1px solid #dad6cc; border-radius:8px; padding:12px; margin:12px 0; resize:vertical; }
+.ch-photo-preview { width:120px; height:120px; object-fit:cover; border-radius:12px; margin:14px 0; }
+.ch-player-page input[type=file] { max-width:100%; font-size:13px; margin:12px 0; }
+@media(max-width:1200px) { .ch-player-hero { flex-wrap:wrap; } .ch-player-hero > .ch-player-actions { max-width:none; } .ch-film-row { flex-wrap:wrap; } .ch-film-tile { width:100%; min-height:110px; } }
+@media(max-width:760px) { .ch-player-hero { padding:24px 18px; gap:18px; align-items:flex-start; } .ch-player-portrait { width:88px; height:88px; font-size:36px; } .ch-player-identity { flex-basis:100%; } .ch-player-identity h1 { font-size:40px; } .ch-player-columns { grid-template-columns:minmax(0,1fr); padding:18px 14px; gap:16px; } .ch-player-tabs { padding:0 18px; gap:24px; } .ch-profile-section { padding:16px; } .ch-season-stats { gap:6px; } .ch-season-stats > div { padding:10px 8px; } .ch-player-editor { margin:16px 14px 0; } }
+.ch-player-card .ch-card-action { display:flex; align-items:center; gap:6px; }
+.ch-player-card h4 button { text-align:left; }
+.ch-player-page .player-reel-playback { grid-template-columns:minmax(0,1fr); }
+.ch-player-page .player-reel-playback > div:last-child > div:first-child { flex-wrap:wrap; }
+.ch-player-page [aria-label="Playlist ordering"] button { white-space:nowrap; }

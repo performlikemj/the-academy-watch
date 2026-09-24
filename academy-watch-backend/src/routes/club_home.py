@@ -7,7 +7,7 @@ from functools import wraps
 
 from flask import current_app, g, jsonify, request
 from itsdangerous import BadSignature, URLSafeTimedSerializer
-from sqlalchemy import func
+from sqlalchemy import and_, func, or_
 from sqlalchemy.exc import IntegrityError
 from src.models.funding import ClubProgram, ClubProgramManager, ClubRosterMember, ClubSquad, ClubStaff
 from src.models.league import db
@@ -91,7 +91,10 @@ def assign_roster(member, data):
             query = query.filter(ClubRosterMember.id != member.id)
         if query.first():
             raise HomeError("shirt_number_taken", 409)
-    member.squad_id, member.shirt_number = squad_id, shirt
+    from src.services.club_player_profile import change_squad
+
+    change_squad(member, squad_id)
+    member.shirt_number = shirt
 
 
 def luminance(color):
@@ -152,7 +155,12 @@ def register(club_bp):
     def home_squad(program_id, row_id):
         squad = resource(ClubSquad, program_id, row_id)
         if request.method == "DELETE":
-            ClubRosterMember.query.filter_by(squad_id=row_id).update({"squad_id": None})
+            for member in ClubRosterMember.query.filter_by(program_id=program_id, squad_id=row_id).all():
+                assign_roster(member, {"squad_id": None})
+            # Mirror SET NULL for SQLite fixtures without foreign-key enforcement.
+            from src.models.funding import ClubRosterSquadHistory
+
+            ClubRosterSquadHistory.query.filter_by(squad_id=row_id).update({"squad_id": None})
             ClubStaff.query.filter_by(leads_squad_id=row_id).update({"leads_squad_id": None})
             db.session.delete(squad)
             db.session.commit()
@@ -287,7 +295,13 @@ def register(club_bp):
             .filter(ClubRosterMember.local_player_id.is_not(None))
         )
         players = (
-            LocalPlayer.query.filter(LocalPlayer.created_by_user_id == g.user_id, ~LocalPlayer.id.in_(assigned))
+            LocalPlayer.query.filter(
+                or_(
+                    and_(LocalPlayer.provenance == "club", LocalPlayer.origin_program_id == program_id),
+                    and_(LocalPlayer.provenance != "club", LocalPlayer.created_by_user_id == g.user_id),
+                ),
+                ~LocalPlayer.id.in_(assigned),
+            )
             .order_by(LocalPlayer.display_name, LocalPlayer.id)
             .all()
         )

@@ -495,6 +495,9 @@ class ClubRosterMember(db.Model):
     requires_player_acceptance = db.Column(db.Boolean, nullable=False, default=False, server_default="false")
     squad_id = db.Column(db.Integer, db.ForeignKey("club_squads.id", ondelete="SET NULL"))
     shirt_number = db.Column(db.SmallInteger)
+    photo_path = db.Column(db.Text)
+    photo_updated_at = db.Column(db.DateTime(timezone=True))
+    squad_history = db.relationship("ClubRosterSquadHistory", cascade="all, delete-orphan", back_populates="member")
     role = db.Column(db.String(80))
     note = db.Column(db.String(500))
     coach_brief_body = db.Column(db.Text)
@@ -633,3 +636,23 @@ class ClubStaff(db.Model):
                 "sort_order",
             )
         } | {"created_at": _iso(self.created_at), "updated_at": _iso(self.updated_at)}
+
+
+class ClubRosterSquadHistory(db.Model):
+    """Private assignment intervals; removal of a member removes their history."""
+
+    __tablename__ = "club_roster_squad_history"
+    __table_args__ = (db.Index("ix_club_roster_squad_history_member_started", "roster_member_id", "started_at"),)
+    id = db.Column(db.Integer, primary_key=True)
+    program_id = db.Column(db.Integer, db.ForeignKey("club_programs.id", ondelete="CASCADE"), nullable=False)
+    roster_member_id = db.Column(
+        db.Integer, db.ForeignKey("club_roster_members.id", ondelete="CASCADE"), nullable=False
+    )
+    squad_id = db.Column(db.Integer, db.ForeignKey("club_squads.id", ondelete="SET NULL"))
+    squad_name = db.Column(db.String(80))
+    started_at = db.Column(
+        db.DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC), server_default=db.func.now()
+    )
+    ended_at = db.Column(db.DateTime(timezone=True))
+    member = db.relationship("ClubRosterMember", back_populates="squad_history")
+    squad = db.relationship("ClubSquad")

@@ -1690,6 +1690,7 @@ def create_local_player():
             club_name=club_name,
             status="pending",
             provenance="club" if roster_member is not None else "user",
+            origin_program_id=club_program_id if roster_member is not None else None,
             created_by_user_id=user.id,
         )
         db.session.add(player)
@@ -1891,7 +1892,7 @@ def dev_put_showcase_media(blob_path: str):
 @showcase_bp.route("/dev/showcase-media/<path:blob_path>", methods=["GET"])
 def dev_get_showcase_media(blob_path: str):
     """Serve a private preview or approved local artifact during development."""
-    if not showcase_media_storage.is_local_dev_enabled():
+    if not showcase_media_storage.is_local_dev_enabled() or blob_path.startswith("club-player-photos/"):
         return jsonify({"error": "not found"}), 404
     try:
         path = showcase_media_storage.local_serving_path(blob_path)
