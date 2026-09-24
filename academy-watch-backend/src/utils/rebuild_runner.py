@@ -124,6 +124,9 @@ def run_rebuild_process(job_id, rebuild_type, kwargs):
     Creates its own Flask app context and DB connections, completely
     independent of any gunicorn worker.
     """
+    from src.utils.data_mode import require_api_enabled
+
+    require_api_enabled()
     import signal
     import sys
 
@@ -192,6 +195,9 @@ def _run_full_rebuild(job_id, config):
       6. Refresh statuses
       7. Seed club locations
     """
+    from src.utils.data_mode import require_api_enabled
+
+    require_api_enabled()
     from sqlalchemy import cast
     from sqlalchemy.dialects.postgresql import JSONB as PG_JSONB
     from src.api_football_client import APIFootballClient

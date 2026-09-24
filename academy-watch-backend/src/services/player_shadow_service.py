@@ -147,6 +147,8 @@ def mint_shadow(player_api_id, seed=None, requested_by=None, api_client=None):
     """Get-or-create the PlayerShadow for ``player_api_id``.
 
     Positive ids use ``players/profiles`` and fall back to the caller seed.
+    While frozen, approval callers can create a sanitized seed-only row;
+    existing rows reactivate without refreshing their profiles.
     Negative ids require the approved LocalPlayer at ``-player_api_id`` and are
     seeded only from that trusted row without resolving or calling a client.
     """
@@ -158,7 +160,13 @@ def mint_shadow(player_api_id, seed=None, requested_by=None, api_client=None):
             raise ValueError("player_api_id must be non-zero")
         return _mint_local_shadow(player_api_id)
 
+    from src.utils.data_mode import api_football_frozen
+
     existing = PlayerShadow.query.filter_by(player_api_id=player_api_id).first()
+    frozen = api_football_frozen()
+    if frozen and existing:
+        existing.is_active = True
+        return existing
     if existing:
         if not existing.is_active:
             existing.is_active = True
@@ -172,10 +180,11 @@ def mint_shadow(player_api_id, seed=None, requested_by=None, api_client=None):
                 existing.last_profile_sync_at = datetime.now(UTC)
         return existing
 
-    client = _resolve_client(api_client)
+    client = None if frozen else _resolve_client(api_client)
     profile = {}
     try:
-        profile = client.get_player_profile(player_api_id) or {}
+        if client is not None:
+            profile = client.get_player_profile(player_api_id) or {}
     except Exception:
         logger.warning("Shadow profile fetch failed for %s; falling back to seed", player_api_id)
         profile = {}
@@ -225,14 +234,35 @@ def search_players(q, api_client=None):
     if len(query) < 3:
         return []
 
-    client = _resolve_client(api_client)
-    rows = []
+    from src.utils.data_mode import api_football_frozen
+
+    if api_football_frozen():
+        rows = []
+        for model in (TrackedPlayer, PlayerShadow):
+            for stored in model.query.filter(model.player_name.ilike(f"%{query}%")).limit(MAX_SEARCH_RESULTS).all():
+                rows.append(
+                    {
+                        "player": {
+                            "id": stored.player_api_id,
+                            "name": stored.player_name,
+                            "age": getattr(stored, "age", None),
+                            "nationality": stored.nationality,
+                            "photo": getattr(stored, "photo_url", None),
+                        },
+                        "statistics": [{"team": {"name": stored.current_club_name}}],
+                    }
+                )
+        client = None
+    else:
+        client = _resolve_client(api_client)
+        rows = []
     try:
-        rows = client.search_player_profiles_global(query) or []
+        if client is not None:
+            rows = client.search_player_profiles_global(query) or []
     except Exception:
         logger.warning("Global profile search failed for %r", query)
         rows = []
-    if not rows:
+    if not rows and client is not None:
         try:
             rows = client.search_player_profiles(query) or []
         except Exception:
@@ -428,6 +458,9 @@ def refresh_shadows(limit=25, cursor=None, api_client=None) -> dict:
     isolated per row. Quota safety = the DB api_cache TTL + the client quota
     gate; no extra rate-limiter for operator-paced batches.
     """
+    from src.utils.data_mode import require_api_enabled
+
+    require_api_enabled()
     client = _resolve_client(api_client)
     limit = max(1, min(int(limit or 25), 200))
 

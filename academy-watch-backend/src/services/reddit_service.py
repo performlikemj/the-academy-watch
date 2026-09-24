@@ -114,6 +114,9 @@ class RedditService:
         Raises:
             RedditPostingError: If posting fails
         """
+        from src.utils.data_mode import require_newsletters_enabled
+
+        require_newsletters_enabled()
         try:
             reddit = self.authenticate()
             subreddit = reddit.subreddit(subreddit_name)
@@ -210,6 +213,9 @@ def post_newsletter_to_reddit(
     Returns:
         dict with posting result
     """
+    from src.utils.data_mode import require_newsletters_enabled
+
+    require_newsletters_enabled()
     from src.models.league import RedditPost, TeamSubreddit, db
 
     # Get the subreddit configuration

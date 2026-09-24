@@ -43,6 +43,11 @@ def resolve_team_name_and_logo(team_api_id: int, season: int = None) -> tuple[st
     except Exception:
         pass
 
+    from src.utils.data_mode import api_football_frozen
+
+    if api_football_frozen():
+        return f"Team {team_api_id}", None
+
     # 3. Try API Football client as last resort
     try:
         from src.api_football_client import APIFootballClient

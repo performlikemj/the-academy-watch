@@ -70,6 +70,9 @@ class AcademySyncService:
         Returns:
             Dict with sync results: fixtures_processed, appearances_created, errors
         """
+        from src.utils.data_mode import require_api_enabled
+
+        require_api_enabled()
         if not league.sync_enabled:
             logger.info(f"Sync disabled for league {league.name}")
             return {"status": "skipped", "reason": "sync_disabled"}
@@ -159,6 +162,9 @@ class AcademySyncService:
         date_to: date | None = None,
     ) -> list[dict[str, Any]]:
         """Sync all active academy leagues."""
+        from src.utils.data_mode import require_api_enabled
+
+        require_api_enabled()
         leagues = AcademyLeague.query.filter_by(is_active=True, sync_enabled=True).all()
 
         # Auto-update seasons before syncing
@@ -467,6 +473,9 @@ class AcademySyncService:
         including appearances, goals, assists, minutes, rating, and extended stats.
         This works for youth leagues where /fixtures/lineups returns empty.
         """
+        from src.utils.data_mode import require_api_enabled
+
+        require_api_enabled()
         if seasons is None:
             current = _current_season()
             seasons = [current - 2, current - 1, current]

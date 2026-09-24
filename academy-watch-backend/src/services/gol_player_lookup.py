@@ -58,6 +58,9 @@ class GolPlayerLookup:
         Returns a dict shaped for the tool contract:
             {found, player_name, team, message, rate_limited}
         """
+        from src.utils.data_mode import require_api_enabled
+
+        require_api_enabled()
         player_name = (name or "").strip()
         if not player_name:
             return {

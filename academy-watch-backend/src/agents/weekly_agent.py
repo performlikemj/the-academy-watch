@@ -883,6 +883,9 @@ async def persist_newsletter(ctx, args) -> dict[str, Any]:
     """
     Persist a generated JSON newsletter. Accepts a dict or JSON string payload.
     """
+    from src.utils.data_mode import require_newsletters_enabled
+
+    require_newsletters_enabled()
     if isinstance(args, str):
         args = json.loads(args)
 
@@ -1241,6 +1244,9 @@ def build_weekly_agent() -> Agent:
 
 async def generate_weekly_newsletter(team_db_id: int, target_date: date, force_refresh: bool = False) -> dict[str, Any]:
     # Precompute week window and report
+    from src.utils.data_mode import require_newsletters_enabled
+
+    require_newsletters_enabled()
     week_start, week_end = monday_range(target_date)
     news_end = week_end + timedelta(days=1)
 
@@ -1557,6 +1563,9 @@ async def generate_weekly_newsletter(team_db_id: int, target_date: date, force_r
 async def generate_weekly_newsletter_with_mcp(
     team_db_id: int, target_date: date, force_refresh: bool = False
 ) -> dict[str, Any]:
+    from src.utils.data_mode import require_newsletters_enabled
+
+    require_newsletters_enabled()
     return await generate_weekly_newsletter(team_db_id, target_date, force_refresh)
 
 
@@ -2523,4 +2532,7 @@ def _render_variants(news: dict, team_name: str | None) -> dict:
 def generate_weekly_newsletter_with_mcp_sync(
     team_db_id: int, target_date: date, force_refresh: bool = False
 ) -> dict[str, Any]:
+    from src.utils.data_mode import require_newsletters_enabled
+
+    require_newsletters_enabled()
     return asyncio.run(generate_weekly_newsletter_with_mcp(team_db_id, target_date, force_refresh))

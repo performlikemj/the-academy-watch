@@ -16,8 +16,14 @@ from __future__ import annotations
 import argparse
 import sys
 
+from src.utils.data_mode import job_entrypoint
 
+
+@job_entrypoint
 def main() -> int:
+    from src.utils.data_mode import require_newsletters_enabled
+
+    require_newsletters_enabled()
     parser = argparse.ArgumentParser(
         description="Enrich a newsletter with Twitter/X content.",
     )

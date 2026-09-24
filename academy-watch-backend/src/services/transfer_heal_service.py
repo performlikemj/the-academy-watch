@@ -79,6 +79,9 @@ def refresh_and_heal(
     Note: Fixture syncs are independent — status changes persist even if
     a fixture sync fails for an individual player.
     """
+    from src.utils.data_mode import require_api_enabled
+
+    require_api_enabled()
     orphan_cap = MAX_ORPHAN_REQUEUE if orphan_budget is None else max(int(orphan_budget), 0)
     query = TrackedPlayer.query.filter_by(is_active=True).filter(TrackedPlayer.player_api_id > 0)
     if team_id:
