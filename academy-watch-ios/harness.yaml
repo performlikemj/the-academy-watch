@@ -1,6 +1,6 @@
 # Academy Watch iOS simulator lane. Paths are relative to this app directory.
 sim:
-  destination: "platform=iOS Simulator,name=iPhone 17,OS=26.5"
+  destination: "platform=iOS Simulator,name=iPhone 17,OS=27.0"
   journeys_dir: sim/journeys
   report_dir: sim/report
   grade: false

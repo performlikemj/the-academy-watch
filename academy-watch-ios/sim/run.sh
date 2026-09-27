@@ -67,17 +67,67 @@ if [ -n "$destination_arg" ]; then
 else
   destination=$(yaml_sim_value destination "$config_file")
   if [ -n "$destination" ]; then destination_source="harness.yaml sim.destination"
-  else destination="platform=iOS Simulator,name=iPhone 17,OS=26.5"; destination_source="pack canonical"; fi
+  else destination="platform=iOS Simulator,name=iPhone 17,OS=27.0"; destination_source="pack canonical"; fi
 fi
 echo "Destination source: $destination_source"
 echo "Destination: $destination"
+
+# Created before the first simctl query so bounded-query output lands here; the full
+# cleanup trap below replaces this one once the run's report staging exists.
+tmp_dir=$(mktemp -d "${TMPDIR:-/tmp}/harness-ios-sim.XXXXXX") || exit 2
+trap 'rm -rf "$tmp_dir"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 destination_os=$(printf '%s\n' "$destination" | sed -n 's/.*OS=\([^,]*\).*/\1/p')
 if [ -z "$destination_os" ]; then
   echo "run.sh: destination must pin an OS= runtime: $destination" >&2
   exit 2
 fi
-runtime_line=$(xcrun simctl list runtimes 2>/dev/null | grep "iOS $destination_os " | head -n 1)
+simctl_timeout=${SIM_SIMCTL_TIMEOUT:-20}
+simctl_attempts=${SIM_SIMCTL_ATTEMPTS:-3}
+case "$simctl_timeout$simctl_attempts" in *[!0-9]*) echo "run.sh: SIM_SIMCTL_TIMEOUT and SIM_SIMCTL_ATTEMPTS must be integers" >&2; exit 2 ;; esac
+if [ "$simctl_timeout" -lt 1 ] || [ "$simctl_attempts" -lt 1 ]; then
+  echo "run.sh: SIM_SIMCTL_TIMEOUT and SIM_SIMCTL_ATTEMPTS must be positive" >&2; exit 2
+fi
+
+# Bounded simctl query. One invocation can hang forever inside CoreSimulator while a fresh
+# one answers at once, so kill it after <seconds> and retry. Returns 0 on the first attempt
+# that exits 0, 124 when every attempt timed out, else 1. A hung process is never waited on.
+bounded_simctl() {
+  bounded_seconds=$1; bounded_attempts=$2; bounded_out=$3; shift 3
+  bounded_try=0; bounded_timeouts=0
+  while [ "$bounded_try" -lt "$bounded_attempts" ]; do
+    bounded_try=$((bounded_try + 1))
+    bounded_file="$bounded_out.attempt-$bounded_try"
+    xcrun simctl "$@" > "$bounded_file" 2>/dev/null &
+    bounded_pid=$!
+    bounded_ticks=0
+    while kill -0 "$bounded_pid" 2>/dev/null && [ "$bounded_ticks" -lt $((bounded_seconds * 10)) ]; do
+      sleep 0.1; bounded_ticks=$((bounded_ticks + 1))
+    done
+    if kill -0 "$bounded_pid" 2>/dev/null; then
+      kill -TERM "$bounded_pid" 2>/dev/null
+      bounded_ticks=0
+      while kill -0 "$bounded_pid" 2>/dev/null && [ "$bounded_ticks" -lt 10 ]; do sleep 0.1; bounded_ticks=$((bounded_ticks + 1)); done
+      kill -KILL "$bounded_pid" 2>/dev/null
+      bounded_timeouts=$((bounded_timeouts + 1))
+      echo "run.sh: simctl $1 $2 attempt $bounded_try timed out after ${bounded_seconds}s" >&2
+    elif wait "$bounded_pid"; then
+      mv "$bounded_file" "$bounded_out"; return 0
+    fi
+  done
+  [ "$bounded_timeouts" -eq "$bounded_attempts" ] && return 124
+  return 1
+}
+
+runtimes_file="$tmp_dir/runtimes.txt"
+bounded_simctl "$simctl_timeout" "$simctl_attempts" "$runtimes_file" list runtimes
+if [ "$?" -eq 124 ]; then
+  echo "run.sh: simctl list runtimes did not answer after $simctl_attempts attempts" >&2
+  exit 2
+fi
+runtime_line=$(cat "$runtimes_file" 2>/dev/null | grep "iOS $destination_os " | head -n 1)
 if [ -z "$runtime_line" ] || printf '%s' "$runtime_line" | grep -qi unavailable; then
   echo "run.sh: required iOS $destination_os simulator runtime is not installed" >&2
   exit 2
@@ -158,7 +208,6 @@ while [ -e "$final_report" ] || [ -e "$staging" ]; do
   final_report="$report_root/$stamp-$suffix"; staging="$report_root/.staging-$stamp-$suffix"; suffix=$((suffix + 1))
 done
 mkdir -p "$staging/shots" "$staging/diagnostics" || exit 2
-tmp_dir=$(mktemp -d "${TMPDIR:-/tmp}/harness-ios-sim.XXXXXX") || exit 2
 
 cleanup() {
   status=$?
@@ -305,7 +354,12 @@ fi
 precondition_count=$(node -e 'const p=require(process.argv[1]); console.log(p.reduce((n,j)=>n+j.preconditions.length,0))' "$plan")
 if [ "$precondition_count" -gt 0 ]; then
   device_json="$tmp_dir/devices.json"
-  xcrun simctl list devices available -j > "$device_json" || exit 2
+  bounded_simctl "$simctl_timeout" "$simctl_attempts" "$device_json" list devices available -j
+  case "$?" in
+    0) ;;
+    124) echo "run.sh: simctl list devices did not answer after $simctl_attempts attempts" >&2; exit 2 ;;
+    *) exit 2 ;;
+  esac
   device_udid=$(node - "$device_json" "$destination" "$destination_os" <<'NODE'
 const fs = require('fs')
 const data = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'))
