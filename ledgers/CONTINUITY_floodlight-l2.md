@@ -6,9 +6,9 @@
 - Worktree redesign/l2-club-player; local DB aw_rd_l2; backend 5112 / Vite 5182; draft PR to redesign/floodlight.
 
 ## State
-- in-progress: Club Home and player restyle implemented and visually reviewed.
-- Now: code/evidence verified and cleanup complete; commit/push/draft PR delivery.
-- Next: commit/push/draft PR to redesign/floodlight; BUS DONE.
+- complete: Club Home and player restyle implemented, verified and delivered in draft PR #1107.
+- Now: draft https://github.com/performlikemj/the-academy-watch/pull/1107 against redesign/floodlight, awaiting integration review.
+- Next: orchestrator integration review; no merge or production action. BUS DONE, claims released.
 - Cleanup: own 5112/5182 servers stopped; aw_rd_l2 dropped; copied .env, local tokens, seed/capture scripts and temporary media removed. No simulator or manually-created /tmp files; worktree retained.
 
 ## Acceptance
