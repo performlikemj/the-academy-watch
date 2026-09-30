@@ -13,7 +13,7 @@ from src.models.league import db
 from src.models.showcase import LocalPlayer, local_player_is_minor
 from src.routes.club_home import HomeError, payload, resource, transaction
 from src.services import showcase_media_storage as storage
-from src.services.club_access import member_in_scope, require_club_permission_by_method
+from src.services.club_access import current_access, member_in_scope, require_club_permission_by_method
 from src.services.club_player_profile import profile_payload
 from src.services.photo_processing import process_photo
 from src.services.player_suppression import is_local_player_suppressed
@@ -31,6 +31,23 @@ def _delete_previous(path, prefix):
             storage.delete_club_photo(path)
         except Exception:
             logger.exception("Could not remove previous private club photo")
+
+
+def _redact_for_staff(body):
+    """Staff roles see only what their capabilities cover (no-op for managers and while the flag is off)."""
+    access = current_access()
+    if access is None:
+        return body
+    if not access.can("feedback"):
+        body.pop("development", None)
+    if not access.can("contact") and "scout_interest" in body:
+        body["scout_interest"] = {k: v for k, v in body["scout_interest"].items() if k in {"locked", "reason"}}
+    if access.role == "viewer":
+        body.pop("coach_brief", None)
+        body.pop("note", None)
+        if isinstance(body.get("identity"), dict):
+            body["identity"].pop("brief", None)
+    return body
 
 
 def register(club_bp):
@@ -54,7 +71,7 @@ def register(club_bp):
 
     @route("profile", ["GET"], "players.view")
     def club_player_profile(program_id, member_id):
-        response = jsonify(profile_payload(member_resource(program_id, member_id)))
+        response = jsonify(_redact_for_staff(profile_payload(member_resource(program_id, member_id))))
         response.headers["Cache-Control"] = "private, no-store"
         return response
 

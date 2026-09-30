@@ -1,0 +1,303 @@
+/* Staff & access (ClubStaff board). Scoped to .sa-root inside Club Home; Floodlight tokens only. */
+.sa-root {
+  margin-bottom:56px;
+  display:flex;
+  flex-direction:column;
+  gap:32px;
+  min-width:0
+}
+.sa-head h1 {
+  margin:12px 0 0;
+  font-family:var(--font-serif);
+  font-weight:400;
+  font-size:72px;
+  line-height:.95;
+  letter-spacing:-.01em
+}
+.sa-head h1 em {
+  font-style:italic;
+  color:var(--color-gold-text)
+}
+.sa-eyebrow,.sa-eyebrow-heading {
+  margin:0;
+  font-family:var(--font-mono);
+  font-size:12px;
+  font-weight:500;
+  letter-spacing:.22em;
+  text-transform:uppercase;
+  color:var(--color-gold-text)
+}
+.club-home .sa-eyebrow-heading {
+  font-family:var(--font-mono);
+  font-weight:500;
+  line-height:1.4;
+  font-size:11.5px;
+  letter-spacing:.2em;
+  color:var(--color-muted);
+  margin-bottom:10px
+}
+.sa-invite {
+  display:grid;
+  grid-template-columns:minmax(0,1fr) 200px 220px 140px;
+  gap:14px;
+  align-items:end;
+  padding:24px;
+  border-radius:10px;
+  background:var(--color-ink);
+  color:var(--color-chalk)
+}
+.club-home .sa-invite label>span,.club-home .sa-editor label>span {
+  font-family:var(--font-mono);
+  font-size:10.5px;
+  font-weight:400;
+  letter-spacing:.16em;
+  text-transform:uppercase
+}
+.club-home .sa-invite label>span {
+  color:var(--color-muted-dark)
+}
+.club-home .sa-invite input,.club-home .sa-invite select {
+  height:48px;
+  padding:0 14px;
+  border:1px solid rgba(243,240,232,.25);
+  background:var(--color-ink);
+  color:var(--color-chalk);
+  font-size:15px
+}
+.club-home .sa-invite input::placeholder {
+  color:var(--color-muted-dark)
+}
+.club-home .sa-invite input:focus-visible,.club-home .sa-invite select:focus-visible,.club-home .sa-invite button:focus-visible {
+  outline:2px solid var(--color-gold);
+  outline-offset:2px
+}
+.sa-invite button {
+  height:48px;
+  border:0;
+  border-radius:999px;
+  background:var(--color-chalk);
+  color:var(--color-ink);
+  font-size:14.5px;
+  font-weight:500
+}
+.sa-quiet {
+  margin:0;
+  color:var(--color-muted);
+  font-size:14px
+}
+.sa-notice {
+  margin:-16px 0 0;
+  color:var(--color-good);
+  font-weight:500
+}
+.sa-notice.warn {
+  color:#7A5214
+}
+.sa-grid {
+  display:grid;
+  grid-template-columns:minmax(0,1fr) minmax(280px,420px);
+  gap:48px;
+  align-items:start
+}
+.sa-row {
+  display:grid;
+  grid-template-columns:minmax(0,1fr) 150px 150px;
+  gap:16px;
+  align-items:center;
+  width:100%;
+  padding:14px 6px;
+  border:0;
+  border-bottom:1px solid var(--color-hairline);
+  background:transparent;
+  color:var(--color-ink);
+  text-align:left;
+  font:inherit;
+  transition:background-color .15s ease
+}
+.sa-row:hover,.sa-row[aria-pressed=true] {
+  background:var(--color-chalk-2)
+}
+.sa-row-head {
+  padding:0 6px 10px;
+  border-bottom:1px solid var(--color-ink);
+  font-family:var(--font-mono);
+  font-size:10.5px;
+  letter-spacing:.16em;
+  text-transform:uppercase;
+  color:var(--color-muted)
+}
+.sa-row-head:hover {
+  background:transparent
+}
+.sa-person {
+  display:flex;
+  align-items:center;
+  gap:12px;
+  min-width:0
+}
+.sa-person>span:last-child {
+  display:grid;
+  min-width:0
+}
+.sa-person strong {
+  font-size:15.5px;
+  font-weight:400;
+  overflow-wrap:anywhere
+}
+.sa-person small {
+  color:var(--color-muted);
+  font-size:12.5px;
+  overflow-wrap:anywhere
+}
+.sa-avatar {
+  display:flex;
+  flex:0 0 36px;
+  width:36px;
+  height:36px;
+  align-items:center;
+  justify-content:center;
+  border-radius:50%;
+  background:var(--club-primary);
+  color:var(--club-foreground,var(--color-chalk));
+  font-family:var(--font-serif);
+  font-size:16px
+}
+.sa-avatar.pending {
+  background:var(--color-hairline);
+  color:var(--color-ink)
+}
+.sa-role {
+  font-family:var(--font-mono);
+  font-size:11.5px;
+  letter-spacing:.08em;
+  text-transform:uppercase
+}
+.sa-role.pending {
+  color:var(--color-gold-text)
+}
+.sa-squads {
+  font-size:13.5px;
+  color:var(--color-muted)
+}
+.sa-editor {
+  display:grid;
+  gap:14px;
+  margin-top:20px;
+  padding:20px;
+  border:1px solid var(--color-hairline);
+  border-radius:10px
+}
+.sa-editor p {
+  margin:0
+}
+.sa-editor-fields {
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:14px
+}
+.club-home .sa-editor label>span {
+  color:var(--color-muted)
+}
+.sa-editor-actions {
+  display:flex;
+  flex-wrap:wrap;
+  gap:10px
+}
+.sa-save,.sa-danger {
+  min-height:44px;
+  padding:0 20px;
+  border-radius:999px;
+  font:inherit;
+  font-weight:500
+}
+.sa-save {
+  border:0;
+  background:var(--color-ink);
+  color:var(--color-chalk)
+}
+.sa-danger {
+  justify-self:start;
+  border:1px solid var(--color-danger);
+  background:transparent;
+  color:var(--color-danger)
+}
+.sa-aside {
+  display:flex;
+  flex-direction:column;
+  gap:32px;
+  min-width:0
+}
+.club-home .sa-aside h2:not(.sa-eyebrow-heading) {
+  margin:0 0 10px;
+  font-family:var(--font-serif);
+  font-weight:400;
+  font-size:32px
+}
+.sa-perm {
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:16px;
+  padding:12px 0;
+  border-top:1px solid var(--color-hairline);
+  font-size:15px
+}
+.sa-perm .sa-mark {
+  font-family:var(--font-mono);
+  font-size:11px;
+  letter-spacing:.1em;
+  text-transform:uppercase;
+  color:var(--color-good)
+}
+.sa-perm.off,.sa-perm.off .sa-mark {
+  color:var(--color-muted)
+}
+.sa-activity {
+  padding:11px 0;
+  border-top:1px solid var(--color-hairline);
+  font-size:13.5px;
+  color:var(--color-muted)
+}
+.sa-activity:last-child {
+  border-bottom:1px solid var(--color-hairline)
+}
+.sa-activity span {
+  font-family:var(--font-mono);
+  font-size:11px;
+  text-transform:uppercase
+}
+@media (max-width:1100px) {
+  .sa-grid {
+    grid-template-columns:minmax(0,1fr)
+  }
+  .sa-invite {
+    grid-template-columns:repeat(2,minmax(0,1fr))
+  }
+}
+@media (max-width:640px) {
+  .sa-head h1 {
+    font-size:44px
+  }
+  .sa-invite,.sa-editor-fields {
+    grid-template-columns:minmax(0,1fr)
+  }
+  .sa-invite {
+    padding:18px
+  }
+  .sa-row {
+    grid-template-columns:minmax(0,1fr) auto;
+    gap:6px 12px
+  }
+  .sa-row .sa-squads {
+    grid-column:1/-1;
+    padding-left:48px
+  }
+  .sa-row-head .sa-squads,.sa-row-head span:last-child {
+    display:none
+  }
+}
+@media (prefers-reduced-motion:reduce) {
+  .sa-row {
+    transition:none
+  }
+}

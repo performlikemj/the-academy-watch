@@ -307,16 +307,36 @@ def programs_with_capability(user_id, capability) -> list[int]:
 
 
 # ---------------------------------------------------------------------------
-# Audit (adapter: FundingAdminEvent until A1's admin_audit helper lands)
+# Audit adapter: A1's record_admin_event when merged, else FundingAdminEvent
 # ---------------------------------------------------------------------------
 
 
-def audit(action, program_id, *, reason="club staff access", metadata=None, actor_email=None):
-    # TODO(P2 A1): switch to src.services.admin_audit once p2a1 merges.
-    from src.models.funding import FundingAdminEvent
+def _audit_model():
+    """A1's admin_action_events once p2a1 is merged; FundingAdminEvent (same columns) until then."""
+    try:
+        from src.models.p2_foundation import AdminActionEvent
 
-    event = FundingAdminEvent(
-        actor_email=(actor_email or getattr(g, "user_email", None) or "system")[:254],
+        return AdminActionEvent
+    except ImportError:
+        from src.models.funding import FundingAdminEvent
+
+        return FundingAdminEvent
+
+
+def audit(action, program_id, *, reason="club staff access", metadata=None, actor_email=None):
+    """Append an access event in the caller's transaction (never commits). Metadata: IDs/role codes only."""
+    actor = (actor_email or getattr(g, "user_email", None) or "system")[:254]
+    try:
+        from src.services.admin_audit import record_admin_event
+    except ImportError:
+        record_admin_event = None
+    if record_admin_event is not None:
+        return record_admin_event(
+            actor, f"club_access.{action}"[:80], "club_program", int(program_id), reason, metadata
+        )
+    model = _audit_model()
+    event = model(
+        actor_email=actor,
         action=f"club_access.{action}"[:80],
         target_type="club_program",
         target_id=int(program_id),
@@ -328,16 +348,16 @@ def audit(action, program_id, *, reason="club staff access", metadata=None, acto
 
 
 def recent_activity(program_id, limit=8) -> list[dict]:
-    from src.models.funding import FundingAdminEvent
     from src.models.league import UserAccount
 
+    event_model = _audit_model()
     rows = (
-        FundingAdminEvent.query.filter(
-            FundingAdminEvent.target_type == "club_program",
-            FundingAdminEvent.target_id == program_id,
-            FundingAdminEvent.action.like("club_access.%"),
+        event_model.query.filter(
+            event_model.target_type == "club_program",
+            event_model.target_id == program_id,
+            event_model.action.like("club_access.%"),
         )
-        .order_by(FundingAdminEvent.created_at.desc(), FundingAdminEvent.id.desc())
+        .order_by(event_model.created_at.desc(), event_model.id.desc())
         .limit(limit)
         .all()
     )
@@ -634,7 +654,7 @@ def assign_owner(program_id, user_id, reason) -> ClubAccessGrant:
         "owner_assigned",
         program_id,
         reason=reason,
-        metadata={"grant_id": grant.id, "role": "owner", "replaced_grant_ids": previous},
+        metadata={"grant_id": grant.id, "role": "owner", "replaced_grant_count": len(previous)},
     )
     return grant
 
@@ -687,13 +707,20 @@ def invite_link(token) -> str:
 def send_invite_email(invite, token, program_name) -> bool:
     """Best-effort delivery after commit.
 
-    TODO(P2 A1): enqueue on notification_outbox (revalidate invite still pending before send) once p2a1 merges.
+    Not on A1's notification_outbox: its enqueue() needs a recipient_user_id (invitees usually have no account
+    yet) and forbids credentials in payloads, while the one-use token exists only here (stored hashed).
+    Delivery is synchronous (no daemon thread); the invite row is authoritative and "resend" = re-invite.
     """
     import logging
 
     from src.services.email_service import email_service
 
     subject, text, html = invite_email_content(program_name, invite.role, invite_link(token))
+    from src.auth import _is_production
+
+    if not _is_production() and os.getenv("FLASK_ENV", "").lower() not in ("stage", "staging"):
+        # Same convention as the dev login code: local testing without a mail provider. Never in production.
+        logging.getLogger(__name__).info("[DEV] Staff invite link for %s: %s", invite.email, invite_link(token))
     try:
         result = email_service.send_email(to=invite.email, subject=subject, html=html, text=text, tags=["staff-invite"])
         return bool(getattr(result, "success", False))

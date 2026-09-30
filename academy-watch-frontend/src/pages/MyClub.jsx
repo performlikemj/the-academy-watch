@@ -33,6 +33,7 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { VerificationCode, VerificationInstructions } from '@/components/showcase/VerificationCode'
 import { MyClubConsole } from '@/pages/MyClubConsole'
+import { useClubStaffAccess } from '@/hooks/useClubStaffAccess'
 
 const EMPTY_CLUB_RESULTS = { api_teams: [], local_clubs: [] }
 
@@ -399,16 +400,37 @@ function AuthenticatedMyClub() {
     && Number(programClaim.program.id) > 0
   )), [programClaims])
 
+  // Club staff access (dark): invited staff have no club claim, so their clubs come from their access grants.
+  const staffFlag = useClubStaffAccess()
+  const [staffPrograms, setStaffPrograms] = useState([])
+  useEffect(() => {
+    if (!auth?.token || staffFlag !== true) return undefined
+    let cancelled = false
+    const expectedToken = auth.token
+    APIService.request('/me/club-access').then((data) => {
+      if (cancelled || activeTokenRef.current !== expectedToken) return
+      setStaffPrograms((Array.isArray(data?.programs) ? data.programs : [])
+        .filter((row) => Number.isInteger(Number(row?.program?.id)))
+        .map((row) => ({ status: 'approved', program: row.program, staff_access: row.access })))
+    }).catch(() => {})
+    return () => { cancelled = true }
+  }, [auth?.token, staffFlag])
+  const consoleCandidates = useMemo(() => {
+    if (staffPrograms.length === 0) return approvedProgramClaims
+    const claimed = new Set(approvedProgramClaims.map((programClaim) => Number(programClaim.program.id)))
+    return [...approvedProgramClaims, ...staffPrograms.filter((row) => !claimed.has(Number(row.program.id)))]
+  }, [approvedProgramClaims, staffPrograms])
+
   useEffect(() => {
     if (!programClaimsLoaded) return undefined
     let cancelled = false
     const expectedToken = auth?.token
     const timer = setTimeout(async () => {
-      setConsoleEligibility({ pending: approvedProgramClaims.length > 0, allowed: [], deniedProgramIds: [], erroredProgramIds: [] })
+      setConsoleEligibility({ pending: consoleCandidates.length > 0, allowed: [], deniedProgramIds: [], erroredProgramIds: [] })
       const allowed = []
       const deniedProgramIds = []
       const erroredProgramIds = []
-      for (const programClaim of approvedProgramClaims) {
+      for (const programClaim of consoleCandidates) {
         const programId = Number(programClaim.program.id)
         try {
           const roster = await APIService.getClubRoster(programId)
@@ -432,7 +454,7 @@ function AuthenticatedMyClub() {
       cancelled = true
       clearTimeout(timer)
     }
-  }, [approvedProgramClaims, auth?.token, programClaimsLoaded])
+  }, [consoleCandidates, auth?.token, programClaimsLoaded])
 
   useEffect(() => {
     const query = clubSearch.trim()
@@ -707,7 +729,7 @@ function AuthenticatedMyClub() {
     const retryProgramIds = consoleEligibility.erroredProgramIds
     if (!expectedToken || consoleEligibility.pending || retryProgramIds.length === 0) return
     const retryProgramIdSet = new Set(retryProgramIds.map(Number))
-    const retryClaims = approvedProgramClaims.filter((programClaim) => (
+    const retryClaims = consoleCandidates.filter((programClaim) => (
       retryProgramIdSet.has(Number(programClaim.program.id))
     ))
     setConsoleEligibility((current) => ({ ...current, pending: true }))
@@ -734,7 +756,7 @@ function AuthenticatedMyClub() {
       erroredProgramIds,
     }))
     setSelectedProgramId((current) => current ?? allowed[0]?.programClaim?.program?.id ?? null)
-  }, [approvedProgramClaims, auth?.token, consoleEligibility.erroredProgramIds, consoleEligibility.pending])
+  }, [consoleCandidates, auth?.token, consoleEligibility.erroredProgramIds, consoleEligibility.pending])
 
   const pendingAffiliationIds = new Set()
   const vouchableClaimIds = new Set()

@@ -622,3 +622,19 @@ def test_account_erasure_and_export(env, client, club_app):
     assert ClubAccessGrant.query.filter_by(user_account_id=env["users"]["coach"]).count() == 0
     assert ClubAccessGrantSquad.query.count() == 0
     assert ClubStaffInvite.query.filter(ClubStaffInvite.invited_by_user_id == owner_id).count() == 0
+
+
+def test_player_profile_redacted_by_role(env, client):
+    member = db.session.get(ClubRosterMember, env["m1"])
+    member.coach_brief_body = "Private coaching note"
+    member.note = "Private manager note"
+    db.session.commit()
+    full = client.get(f"{env['base']}/roster/{env['m1']}/profile", headers=_headers("a")).get_json()
+    assert full["note"] == "Private manager note" and "coach_brief" in full
+    _join(client, env, "viewer", "viewer", squads=[env["sa"]])
+    _join(client, env, "analyst", "analyst", squads=[env["sa"]])
+    viewer = client.get(f"{env['base']}/roster/{env['m1']}/profile", headers=_h(_email("viewer"))).get_json()
+    assert {"note", "coach_brief", "development"}.isdisjoint(viewer) and "brief" not in viewer["identity"]
+    assert set(viewer.get("scout_interest", {})) <= {"locked", "reason"}
+    analyst = client.get(f"{env['base']}/roster/{env['m1']}/profile", headers=_h(_email("analyst"))).get_json()
+    assert "development" not in analyst and analyst["coach_brief"]
