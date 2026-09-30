@@ -699,9 +699,196 @@ def test_existing_public_page_media_share_search_hold_and_lift(foundation_app, m
         monkeypatch.delenv("P2_FOUNDATION_ENABLED")
         for path in paths:
             assert client.get(path).status_code == status, path
-        from src.services.player_suppression import without_active_suppression
+        from src.services.player_suppression import public_player_visible_filter
 
-        listed = LocalPlayer.query.filter(without_active_suppression(LocalPlayer.api_player_id)).all()
+        listed = LocalPlayer.query.filter(public_player_visible_filter(LocalPlayer.api_player_id)).all()
         assert bool(listed) == (status == 200)
         assert PlayerSuppression.query.count() == 0
         monkeypatch.setenv("P2_FOUNDATION_ENABLED", "1")
+
+
+@pytest.mark.parametrize("namespace", ["api", "local"])
+@pytest.mark.parametrize("mutation", ["profile", "photo", "reel"])
+def test_owner_can_edit_remove_during_hold_but_public_reads_remain_hidden(
+    foundation_app, monkeypatch, namespace, mutation
+):
+    from src.models.league import PlayerLink
+    from src.models.showcase import PlayerShowcaseMedia, PlayerShowcaseProfile
+    from src.routes.showcase import showcase_bp
+    from src.services import showcase_media_storage
+
+    foundation_app.register_blueprint(showcase_bp, url_prefix="/api")
+    program = _program()
+    owner, stranger = _user(), _user("stranger@example.com")
+    local = _local(birth_date=date(1990, 1, 1), origin_program_id=program.id)
+    if namespace == "api":
+        local.api_player_id = 12345
+        db.session.add(
+            PlayerShadow(player_api_id=12345, player_name="Fixture", birth_date=date(1990, 1, 1), is_active=True)
+        )
+    identity = {"player_api_id": local.api_player_id} if namespace == "api" else {"local_player_id": local.id}
+    db.session.add(
+        PlayerProfileClaim(**identity, user_account_id=owner.id, relationship_type="player", status="approved")
+    )
+    profile = PlayerShowcaseProfile(**identity, bio="Before", status="approved")
+    db.session.add(profile)
+    prefix = f"players/{local.api_player_id}" if namespace == "api" else f"local-players/{local.id}"
+    blob = f"{prefix}/fixture.jpg"
+    photo = PlayerShowcaseMedia(**identity, kind="photo", status="approved", blob_path=blob, public_url=blob)
+    reel_identity = {"player_id": local.api_player_id} if namespace == "api" else identity
+    reel = PlayerLink(
+        **reel_identity, user_id=owner.id, url="https://youtu.be/fixture123", link_type="highlight", status="approved"
+    )
+    db.session.add_all([photo, reel])
+    program.emergency_hidden = True
+    db.session.commit()
+    photo_id, reel_id = photo.id, reel.id
+    monkeypatch.delenv("P2_FOUNDATION_ENABLED")
+    monkeypatch.setattr(showcase_media_storage, "is_configured", lambda: True)
+    delete_pending, delete_published = Mock(), Mock()
+    monkeypatch.setattr(showcase_media_storage, "delete_pending", delete_pending)
+    monkeypatch.setattr(showcase_media_storage, "delete_published", delete_published)
+    client = foundation_app.test_client()
+    headers = {"Authorization": f"Bearer {issue_user_token(owner.email)['token']}"}
+    stranger_headers = {"Authorization": f"Bearer {issue_user_token(stranger.email)['token']}"}
+    public_path = f"/api/{prefix}/showcase"
+    for method in (client.get, client.head):
+        assert method(public_path).status_code == 404
+        assert method(public_path, headers=headers).status_code == 404
+    assert client.get(f"/api/media/published/{blob}").status_code == 404
+    if mutation == "profile":
+        endpoint = f"/api/{prefix}/showcase/profile"
+        assert client.patch(endpoint, headers=stranger_headers, json={"bio": "Unauthorized"}).status_code == 403
+        response = client.patch(endpoint, headers=headers, json={"bio": "Incident edit"})
+        assert response.status_code == 200, response.json
+        assert db.session.get(PlayerShowcaseProfile, profile.id).bio == "Incident edit"
+    else:
+        endpoint = f"/api/{prefix}/showcase/{'photos' if mutation == 'photo' else 'reel'}/{photo_id if mutation == 'photo' else reel_id}"
+        assert client.delete(endpoint, headers=stranger_headers).status_code == 403
+        response = client.delete(endpoint, headers=headers)
+        assert response.status_code == 200, response.json
+        assert (
+            db.session.get(
+                PlayerShowcaseMedia if mutation == "photo" else PlayerLink, photo_id if mutation == "photo" else reel_id
+            )
+            is None
+        )
+        if mutation == "photo":
+            delete_pending.assert_called_once_with(blob)
+            delete_published.assert_called_once_with(blob)
+    assert client.get(public_path).status_code == 404
+    assert subject_publication_held(local.api_player_id)
+    assert PlayerSuppression.query.count() == 0
+
+
+@pytest.mark.parametrize("namespace", ["api", "local"])
+def test_actual_suppression_still_blocks_existing_owner_profile_write(foundation_app, namespace):
+    from src.routes.showcase import showcase_bp
+
+    foundation_app.register_blueprint(showcase_bp, url_prefix="/api")
+    program = _program()
+    owner = _user()
+    local = _local(birth_date=date(1990, 1, 1), origin_program_id=program.id)
+    if namespace == "api":
+        local.api_player_id = 12345
+    identity = {"player_api_id": local.api_player_id} if namespace == "api" else {"local_player_id": local.id}
+    db.session.add(
+        PlayerProfileClaim(**identity, user_account_id=owner.id, relationship_type="player", status="approved")
+    )
+    db.session.add(
+        PlayerSuppression(
+            **identity,
+            reason_code="admin_other",
+            requester_role="other",
+            requester_contact="fixture@example.com",
+            request_statement="Fixture",
+            status="active",
+        )
+    )
+    program.emergency_hidden = True
+    db.session.commit()
+    prefix = f"players/{local.api_player_id}" if namespace == "api" else f"local-players/{local.id}"
+    response = foundation_app.test_client().patch(
+        f"/api/{prefix}/showcase/profile",
+        json={"bio": "Must remain blocked"},
+        headers={"Authorization": f"Bearer {issue_user_token(owner.email)['token']}"},
+    )
+    assert response.status_code == 404
+
+
+@pytest.mark.parametrize("cursor_sweep", [False, True])
+def test_shadow_refresh_includes_held_rows_without_cursor_skip_and_discovery_hides_them(
+    foundation_app, monkeypatch, cursor_sweep
+):
+    import src.services.player_shadow_service as shadows
+    from src.models.follow import PlayerShadowStats
+    from src.services.player_suppression import public_player_visible_filter, without_active_suppression
+
+    monkeypatch.setenv("API_FOOTBALL_FROZEN", "0")
+    monkeypatch.setattr(shadows, "_current_season_start_year", lambda client: 2026)
+    program = _program()
+    anchor = PlayerShadow(player_api_id=6000, player_name="Anchor", is_active=False)
+    held = PlayerShadow(player_api_id=7001, player_name="Fixture Held", birth_date=date(1990, 1, 1), is_active=True)
+    visible = PlayerShadow(
+        player_api_id=7002, player_name="Fixture Visible", birth_date=date(1990, 1, 1), is_active=True
+    )
+    suppressed = PlayerShadow(player_api_id=7003, player_name="Fixture Suppressed", is_active=True)
+    db.session.add_all([anchor, held, visible, suppressed])
+    db.session.flush()
+    local = _local(birth_date=date(1990, 1, 1), origin_program_id=program.id)
+    local.api_player_id = held.player_api_id
+    db.session.add(
+        PlayerSuppression(
+            player_api_id=suppressed.player_api_id,
+            reason_code="admin_other",
+            requester_role="other",
+            requester_contact="fixture@example.com",
+            request_statement="Fixture",
+            status="active",
+        )
+    )
+    program.emergency_hidden = True
+    db.session.commit()
+    assert {
+        row.player_api_id
+        for row in PlayerShadow.query.filter(without_active_suppression(PlayerShadow.player_api_id)).all()
+    } == {6000, 7001, 7002}
+    assert 7001 not in {
+        row.player_api_id
+        for row in PlayerShadow.query.filter(public_player_visible_filter(PlayerShadow.player_api_id)).all()
+    }
+    client = Mock()
+    client._make_request.return_value = {
+        "response": [
+            {
+                "statistics": [
+                    {
+                        "team": {"id": 42, "name": "Fixture"},
+                        "games": {"appearences": 2, "minutes": 180},
+                        "goals": {"total": 1, "assists": 2},
+                    }
+                ]
+            }
+        ]
+    }
+    client.get_player_profile.return_value = {"player": {"name": "Fixture Refreshed"}}
+    client.search_player_profiles_global.return_value = [
+        {"player": {"id": pid, "name": "Fixture"}} for pid in (7001, 7002, 7003)
+    ]
+    assert [row["player_api_id"] for row in shadows.search_players("Fixture", api_client=client)] == [7002]
+    first = shadows.refresh_shadows(limit=1, cursor=anchor.id if cursor_sweep else None, api_client=client)
+    assert first["considered"] == first["stats_upserted"] == first["profiles_refreshed"] == 1
+    assert first["failed"] == 0 and held.last_stats_sync_at is not None
+    assert held.player_name == "Fixture Refreshed"
+    assert PlayerShadowStats.query.filter_by(player_api_id=7001).one().minutes == 180
+    if cursor_sweep:
+        assert first["next_cursor"] == held.id
+    second = shadows.refresh_shadows(limit=1, cursor=first["next_cursor"] if cursor_sweep else None, api_client=client)
+    assert second["considered"] == 1 and visible.last_stats_sync_at is not None
+    assert PlayerShadowStats.query.filter_by(player_api_id=7002).one().goals == 1
+    if cursor_sweep:
+        assert second["next_cursor"] == visible.id
+        assert shadows.refresh_shadows(limit=1, cursor=second["next_cursor"], api_client=client)["considered"] == 0
+    assert suppressed.last_stats_sync_at is None
+    assert {call.args[1]["id"] for call in client._make_request.call_args_list} == {7001, 7002}
+    assert subject_publication_held(7001)  # updating stats never lifts the public incident hold

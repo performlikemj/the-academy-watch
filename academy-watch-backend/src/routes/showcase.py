@@ -1842,7 +1842,7 @@ def get_local_player_showcase(lp_id: int):
 
 
 @showcase_bp.route("/players/<int(signed=True):player_api_id>/showcase", methods=["GET"])
-@hide_suppressed_player("player_api_id")
+@hide_suppressed_player("player_api_id", public_read=True)
 def get_player_showcase(player_api_id: int):
     """Showcase payload: approved profile + reel + verified footage + claim status.
 

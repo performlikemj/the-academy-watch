@@ -155,8 +155,25 @@ ordering after this helper, then revalidate final reads/bytes with
   keep their existing access rules.
 - `/p/<signed-id>` share HTML and `/p/<signed-id>/card.png` share bytes.
 - Public/scout search and browse, team rosters, cards, leaderboards, comparison
-  queries, journey lists and sitemap discovery using the shared suppression
+  queries, journey lists and sitemap discovery using the explicit public visibility
   query filter; upstream global search results use a batched hold filter.
 - Other existing public-adult resolver consumers inherit the same neutral
   unavailable response. Actual `is_player_suppressed`, suppression rows and
   legacy age policy remain separate and unchanged.
+
+## Public reads versus owner writes and maintenance
+
+`src.services.player_suppression.without_active_suppression(id_expression)`
+checks actual suppression only. Maintenance, stats/pulse/card generation,
+refresh sweeps, internal follow resolution and existing write guards retain it;
+a publication incident does not stop data refresh or owner content removal.
+
+`public_player_visible_filter(id_expression)` adds the derived club publication
+hold and belongs on public discovery/read queries. Public player decorators
+explicitly opt in with `hide_suppressed_player(argument_name, public_read=True)`;
+holds apply only to GET/HEAD, while actual suppression checks retain their
+existing behavior for every method. The default decorator remains suppression
+only. Keep authenticated owner profile/photo/reel mutation routes on that default,
+just as local-player owner mutations use their existing ownership/suppression
+gates. Public identity/showcase/media/share reads stay held for both namespaces,
+even for an authenticated owner visiting a public endpoint.

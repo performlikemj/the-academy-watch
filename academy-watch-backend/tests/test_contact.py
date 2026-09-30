@@ -1451,13 +1451,6 @@ class TestContractStatusRouting:
 
         created = _create(client, scout_headers, 5814, permission_attestation=True)
 
-        if emergency_hidden:
-            # Derived whole-player hold uses the same neutral denial as suppression.
-            assert created.status_code == 403
-            assert created.get_json()["code"] == "player_not_claimable"
-            assert ContactRequest.query.count() == 0
-            assert courtesy_calls == []
-            return
         assert created.status_code == 201, created.get_json()
         request_payload = created.get_json()["contact_request"]
         assert request_payload["routing_mode"] == "club_notified"
@@ -2709,13 +2702,6 @@ class TestContractStatusRouting:
 
         created = _create(client, scout_headers, 5817, permission_attestation=True)
 
-        if emergency_hidden:
-            # Derived whole-player hold uses the same neutral denial as suppression.
-            assert created.status_code == 403
-            assert created.get_json()["code"] == "player_not_claimable"
-            assert ContactRequest.query.count() == 0
-            assert sends == [] and target_checks == []
-            return
         assert created.status_code == 201, created.get_json()
         assert created.get_json()["contact_request"]["routing_mode"] == "club_notified"
         assert sends == []

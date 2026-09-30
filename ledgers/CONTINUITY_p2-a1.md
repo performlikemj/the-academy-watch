@@ -5,9 +5,9 @@
 - Migration: p2a1 → fl01; RLS on notification_outbox/admin_action_events; guarded schema-only external p2a1_preapply.sql does not stamp.
 - Flag: P2_FOUNDATION_ENABLED defaults OFF for new admin mutations/enqueue/dispatch. Existing emergency holds and privacy export/erasure survive OFF.
 - Constraints: no A2 registry/home/club guard/access edits; RA1 explicitly authorizes minimal existing public hold checks; legacy age policy and individual suppression rows unchanged; no child PII/credentials in queue.
-- Status: complete; original implementation and RA1 fix round 1 verified.
+- Status: complete; foundation and fix rounds 1/2 verified.
 - Done: all ten RA1 findings fixed; contracts posted to A2/orchestrator on BUS, documented in docs/p2-foundation.md and AGENTS.md.
-- Now: hand back fixes through existing PR #1110.
+- Now: hand back fix round 2 through PR #1110 and request @codex review.
 - Next: orchestrator review/A2 integration, preapply/stamp/deploy with flag OFF; MJ decides activation. Retain A2 p2a2 head values in four shared migration-head assertion files when combining.
 - Original delivery: code 44e412e8, ledger a5940bb2; 3179 pytest passed/40 skipped; PostgreSQL concurrent dedupe/worker and real HTTP checks passed.
 - RA1 worker: savepoint callback isolation; claim/commit sending lease/token, provider outside DB locks/transaction, fresh tombstone recheck/finalize; expiry reclaims stuck rows and fences late workers. Unknown templates retry then fail after five attempts. All per-row callback/provider failures continue the batch.
@@ -20,3 +20,8 @@
 - Legacy fixture adjustments: partial registry tables gain hold-query columns; hidden-player contact/feedback expectations use existing neutral suppression denials; suspended-club routing checks retained.
 - Limits: at-least-once delivery across crash or lease expiry; erasure can race an already-started send. Templates must register in application startup and must not commit or perform external side effects. Account-only outbox; orchestrator-approved A2 synchronous invitation email exception unchanged.
 - Cleanup: no server/frontend/env copy/dependency install/provider send/production write; own aw_p2_a1 dropped, ports5120/5190 free; worktree retained. Evidence logs under ~/codex-runs/aw-redesign/logs/A1F*; short hand-back A1F.final.md.
+
+- Fix round 2: BUS re-read; new GitHub findings accepted. Restore without_active_suppression to suppression-only; public query predicate explicit. Default decorator keeps original suppression write guards; only declared public GET/HEAD reads consult publication holds.
+- Fix round 2 focused gates: 77 foundation/suppression tests passed (including ten new regressions); API/local owner profile/photo/reel changes work under flag-off hold, strangers denied, public GET/HEAD/media held, actual suppression preserved; default and cursor refresh update held stats/profile and continue to next row. Internal follow resolution also stays suppression-only for pulse maintenance.
+- Fix round 2 full initial: 3206 passed/47 skipped, two failures were round1-only private-contact hold assertions. Restored original private write-routing expectations; hidden-club courtesy-email exclusion retained. Final full rerun passed (below).
+- Fix round 2 final gates: full pytest 3208 passed/47 skipped/115 warnings in193.53s; 47 skips include seven opt-in PostgreSQL regressions (worker/migration unchanged, previously passed). Ruff check/format532 files + Python3.11 compile pass; focused77 pass. No DB/server/frontend/env/provider work in this round; worktree retained. Contracts documented and posted on BUS; requested PR review comment is part of delivery.

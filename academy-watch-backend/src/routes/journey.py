@@ -19,7 +19,7 @@ from src.services.player_subject import resolve_player_subject
 from src.services.player_suppression import (
     hide_suppressed_player,
     neutral_player_not_found,
-    without_active_suppression,
+    public_player_visible_filter,
 )
 from src.utils.academy_window import age_from_birth_date as _age_from_birth_date
 from src.utils.academy_window import is_within_academy_window
@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 
 
 @journey_bp.route("/players/<int(signed=True):player_id>/journey", methods=["GET"])
-@hide_suppressed_player("player_id")
+@hide_suppressed_player("player_id", public_read=True)
 def get_player_journey(player_id):
     """Get a player's career journey for map visualization.
 
@@ -110,7 +110,7 @@ def get_loan_journey(loaned_player_id):
     """
     tp = TrackedPlayer.query.filter(
         TrackedPlayer.id == loaned_player_id,
-        without_active_suppression(TrackedPlayer.player_api_id),
+        public_player_visible_filter(TrackedPlayer.player_api_id),
     ).first()
     if tp is None:
         return neutral_player_not_found()

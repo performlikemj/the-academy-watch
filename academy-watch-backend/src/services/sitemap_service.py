@@ -15,7 +15,7 @@ from src.models.funding import ClubProgram, FundingLeague
 from src.models.league import Newsletter, Team, TeamProfile, db
 from src.models.showcase import LocalPlayer
 from src.models.tracked_player import TrackedPlayer
-from src.services.player_suppression import without_active_suppression
+from src.services.player_suppression import public_player_visible_filter
 from src.services.public_player_subject import resolve_public_adult_subject
 
 logger = logging.getLogger(__name__)
@@ -93,7 +93,7 @@ def _player_candidate_ids() -> list[int]:
     tracked_ids = sa.select(TrackedPlayer.player_api_id.label("player_api_id")).where(
         TrackedPlayer.is_active.is_(True),
         TrackedPlayer.data_source != "owning-club",
-        without_active_suppression(TrackedPlayer.player_api_id),
+        public_player_visible_filter(TrackedPlayer.player_api_id),
     )
     local_ids = sa.select(LocalPlayer.api_player_id.label("player_api_id")).where(
         LocalPlayer.status == "approved",
@@ -101,7 +101,7 @@ def _player_candidate_ids() -> list[int]:
         LocalPlayer.merged_into_local_player_id.is_(None),
         LocalPlayer.api_player_id < 0,
         LocalPlayer.api_player_id == -LocalPlayer.id,
-        without_active_suppression(LocalPlayer.api_player_id),
+        public_player_visible_filter(LocalPlayer.api_player_id),
     )
     candidates = tracked_ids.union(local_ids).subquery()
     statement = (
