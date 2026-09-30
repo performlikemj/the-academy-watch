@@ -5,8 +5,8 @@ import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { StatFigure } from '@/components/public/Floodlight'
 import { Badge } from '@/components/ui/badge'
-import { STATUS_BADGE_CLASSES } from '@/lib/theme-constants'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import {
     Drawer,
@@ -52,7 +52,22 @@ import { seasonStore } from '@/lib/seasonStore'
 import { formatSeasonLabel, withSeasonParam } from '@/lib/seasons'
 import { track } from '@/lib/track'
 import { Tooltip as UiTooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { CHART_GRID_COLOR, CHART_AXIS_COLOR, CHART_TOOLTIP_BG, CHART_TOOLTIP_BORDER } from '../lib/theme-constants'
+// Floodlight chart palette (page-local; shared theme-constants stay untouched).
+const CHART_GRID_COLOR = '#D8D2C4'    // hairline
+const CHART_AXIS_COLOR = '#5A6560'    // muted
+const CHART_TOOLTIP_BG = '#F3F0E8'    // chalk
+const CHART_TOOLTIP_BORDER = '#D8D2C4'
+// Series step through clearly different lightness levels and dash patterns,
+// so lines stay distinguishable without relying on hue.
+const CHART_SERIES = [
+    { color: '#0E1311', dash: undefined },  // ink
+    { color: '#CFAE62', dash: undefined },  // gold
+    { color: '#0F3D2E', dash: '6 3' },      // club green
+    { color: '#A3ADA7', dash: '2 3' },      // light grey
+    { color: '#84661F', dash: '8 3 2 3' },  // gold text
+    { color: '#5A6560', dash: '4 4' },      // muted
+    { color: '#0E1311', dash: '1 3' },      // ink, dotted
+]
 
 /** Dims children when viewing a past career stop so SeasonStatsPanel takes focus. */
 function JourneyDimmer({ children, className = '' }) {
@@ -70,7 +85,7 @@ const METRIC_CONFIG = {
     'Attacker': {
         default: ['goals', 'shots_total', 'shots_on'],
         options: [
-            { key: 'goals', label: 'Goals', color: '#059669' },
+            { key: 'goals', label: 'Goals', color: '#1D5A40' },
             { key: 'assists', label: 'Assists', color: '#d97706' },
             { key: 'shots_total', label: 'Shots', color: '#dc2626' },
             { key: 'shots_on', label: 'Shots on Target', color: '#db2777' },
@@ -81,7 +96,7 @@ const METRIC_CONFIG = {
     'Midfielder': {
         default: ['passes_total', 'passes_key', 'tackles_total'],
         options: [
-            { key: 'goals', label: 'Goals', color: '#059669' },
+            { key: 'goals', label: 'Goals', color: '#1D5A40' },
             { key: 'assists', label: 'Assists', color: '#d97706' },
             { key: 'passes_total', label: 'Passes', color: '#7c3aed' },
             { key: 'passes_key', label: 'Key Passes', color: '#0d9488' },
@@ -94,7 +109,7 @@ const METRIC_CONFIG = {
         default: ['tackles_total', 'duels_won', 'interceptions'],
         options: [
             { key: 'tackles_total', label: 'Tackles', color: '#ea580c' },
-            { key: 'duels_won', label: 'Duels Won', color: '#059669' },
+            { key: 'duels_won', label: 'Duels Won', color: '#1D5A40' },
             { key: 'interceptions', label: 'Interceptions', color: '#7c3aed' },
             { key: 'blocks', label: 'Blocks', color: '#db2777' },
             { key: 'clearances', label: 'Clearances', color: '#d97706' },
@@ -104,11 +119,38 @@ const METRIC_CONFIG = {
     'Goalkeeper': {
         default: ['saves', 'passes_total'],
         options: [
-            { key: 'saves', label: 'Saves', color: '#059669' },
+            { key: 'saves', label: 'Saves', color: '#1D5A40' },
             { key: 'passes_total', label: 'Passes', color: '#d97706' },
-            { key: 'rating', label: 'Rating', color: '#ca8a04' },
+            { key: 'rating', label: 'Rating', color: '#84661F' },
         ]
     }
+}
+
+for (const config of Object.values(METRIC_CONFIG)) {
+    config.options.forEach((option, index) => {
+        const series = CHART_SERIES[index % CHART_SERIES.length]
+        option.color = series.color
+        option.dash = series.dash
+    })
+}
+
+// Writeups are stored as HTML. Parse into an inert document (DOMParser never
+// runs scripts or loads resources) and show only its text — never the markup.
+function plainTextExcerpt(html, maxLength = 150) {
+    if (!html) return ''
+    let text = String(html)
+    if (typeof DOMParser !== 'undefined') {
+        const doc = new DOMParser().parseFromString(text, 'text/html')
+        doc.querySelectorAll('script, style, noscript, template').forEach((node) => node.remove())
+        text = doc.body?.textContent || ''
+    } else {
+        text = text.replace(/<[^>]*>/g, ' ')
+    }
+    text = text.replace(/\s+/g, ' ').trim()
+    if (text.length <= maxLength) return text
+    const cut = text.slice(0, maxLength)
+    const lastSpace = cut.lastIndexOf(' ')
+    return `${(lastSpace > maxLength * 0.6 ? cut.slice(0, lastSpace) : cut).trimEnd()}…`
 }
 
 const DEFAULT_POSITION = 'Midfielder'
@@ -134,22 +176,22 @@ function AcademyStatsSection({ academyStats, defaultOpen = false }) {
 
     return (
         <Collapsible open={open} onOpenChange={setOpen}>
-            <Card className={defaultOpen ? 'bg-blue-50 border-blue-200' : ''}>
+            <Card className={defaultOpen ? 'bg-chalk-2 border-border' : ''}>
                 <CollapsibleTrigger asChild>
                     <button className="w-full text-left">
                         <CardContent className="py-4">
                             <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-3">
-                                    <Users className="h-5 w-5 text-blue-600" />
+                                    <Users className="h-5 w-5 text-muted-foreground" />
                                     <div>
-                                        <span className="font-medium text-blue-800">Academy Development</span>
-                                        <span className="ml-3 text-sm text-blue-600">
+                                        <span className="font-medium text-ink">Academy Development</span>
+                                        <span className="ml-3 text-sm text-muted-foreground">
                                             {academyStats.appearances} apps, {academyStats.goals}G {academyStats.assists}A
                                             {academyStats.season_stats?.length > 1 && ` across ${academyStats.season_stats.length} competitions`}
                                         </span>
                                     </div>
                                 </div>
-                                <ChevronDown className={`h-5 w-5 text-blue-600 transition-transform ${open ? 'rotate-180' : ''}`} />
+                                <ChevronDown className={`h-5 w-5 text-muted-foreground transition-transform ${open ? 'rotate-180' : ''}`} />
                             </div>
                         </CardContent>
                     </button>
@@ -163,43 +205,13 @@ function AcademyStatsSection({ academyStats, defaultOpen = false }) {
                             </div>
                         )}
 
-                        <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
-                            <Card>
-                                <CardContent className="pt-4 text-center">
-                                    <div className="text-3xl font-bold text-foreground">{academyStats.appearances}</div>
-                                    <div className="text-xs text-muted-foreground uppercase tracking-wider mt-1">Apps</div>
-                                </CardContent>
-                            </Card>
-                            <Card>
-                                <CardContent className="pt-4 text-center">
-                                    <div className="text-3xl font-bold text-foreground">{academyStats.starts || 0}</div>
-                                    <div className="text-xs text-muted-foreground uppercase tracking-wider mt-1">Starts</div>
-                                </CardContent>
-                            </Card>
-                            <Card>
-                                <CardContent className="pt-4 text-center">
-                                    <div className="text-3xl font-bold text-foreground">{(academyStats.minutes || 0).toLocaleString()}</div>
-                                    <div className="text-xs text-muted-foreground uppercase tracking-wider mt-1">Minutes</div>
-                                </CardContent>
-                            </Card>
-                            <Card>
-                                <CardContent className="pt-4 text-center">
-                                    <div className="text-3xl font-bold text-emerald-600">{academyStats.goals}</div>
-                                    <div className="text-xs text-muted-foreground uppercase tracking-wider mt-1">Goals</div>
-                                </CardContent>
-                            </Card>
-                            <Card>
-                                <CardContent className="pt-4 text-center">
-                                    <div className="text-3xl font-bold text-amber-600">{academyStats.assists}</div>
-                                    <div className="text-xs text-muted-foreground uppercase tracking-wider mt-1">Assists</div>
-                                </CardContent>
-                            </Card>
-                            <Card>
-                                <CardContent className="pt-4 text-center">
-                                    <div className="text-3xl font-bold text-yellow-600">{(academyStats.yellow_cards || 0) + (academyStats.red_cards || 0)}</div>
-                                    <div className="text-xs text-muted-foreground uppercase tracking-wider mt-1">Cards</div>
-                                </CardContent>
-                            </Card>
+                        <div className="grid grid-cols-3 md:grid-cols-6 gap-x-6">
+                            <StatFigure label="Apps">{academyStats.appearances}</StatFigure>
+                            <StatFigure label="Starts">{academyStats.starts || 0}</StatFigure>
+                            <StatFigure label="Minutes">{(academyStats.minutes || 0).toLocaleString()}</StatFigure>
+                            <StatFigure label="Goals">{academyStats.goals}</StatFigure>
+                            <StatFigure label="Assists">{academyStats.assists}</StatFigure>
+                            <StatFigure label="Cards">{(academyStats.yellow_cards || 0) + (academyStats.red_cards || 0)}</StatFigure>
                         </div>
 
                         {/* Per-season breakdown */}
@@ -232,11 +244,11 @@ function AcademyStatsSection({ academyStats, defaultOpen = false }) {
                                                         <div className="text-xs text-muted-foreground">Mins</div>
                                                     </div>
                                                     <div>
-                                                        <div className="font-semibold text-emerald-600">{league.goals}</div>
+                                                        <div className="font-semibold text-good">{league.goals}</div>
                                                         <div className="text-xs text-muted-foreground">Goals</div>
                                                     </div>
                                                     <div>
-                                                        <div className="font-semibold text-amber-600">{league.assists}</div>
+                                                        <div className="font-semibold text-gold-text">{league.assists}</div>
                                                         <div className="text-xs text-muted-foreground">Assists</div>
                                                     </div>
                                                     <div className="hidden sm:block">
@@ -623,7 +635,7 @@ export function PlayerPage() {
 
     if (loading) {
         return (
-            <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-secondary to-background">
+            <div className="min-h-screen flex items-center justify-center bg-chalk">
                 <div className="text-center">
                     <Loader2 className="h-12 w-12 animate-spin text-primary mx-auto mb-4" />
                     <p className="text-muted-foreground">Loading player data...</p>
@@ -634,7 +646,7 @@ export function PlayerPage() {
 
     if (error) {
         return (
-            <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-secondary to-background">
+            <div className="min-h-screen flex items-center justify-center bg-chalk">
                 <Card className="max-w-md">
                     <CardContent className="pt-6 text-center">
                         <p className="text-destructive mb-4">{error}</p>
@@ -650,7 +662,7 @@ export function PlayerPage() {
 
     if (notFound) {
         return (
-            <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-secondary to-background">
+            <div className="min-h-screen flex items-center justify-center bg-chalk">
                 <Card className="max-w-md">
                     <CardContent className="pt-6 text-center">
                         <h1 className="text-lg font-semibold text-foreground mb-4">
@@ -671,21 +683,21 @@ export function PlayerPage() {
 
     return (
         <JourneyProvider journeyData={journeyData}>
-        <div className="min-h-screen bg-gradient-to-b from-secondary to-background">
+        <div className="min-h-screen bg-chalk">
             {/* Header */}
-            <div className="bg-card border-b sticky top-0 z-10">
-                <div className="max-w-4xl mx-auto px-4 sm:px-6 py-3 sm:py-4">
-                    <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
-                        <div className="flex items-center gap-2 self-start">
-                            <Button variant="ghost" size="sm" onClick={handleBack}>
-                                <ArrowLeft className="mr-2 h-4 w-4" />
-                                Back
-                            </Button>
+            <header className="dark bg-night text-chalk">
+                <div className="floodlight-container max-w-[1200px] pb-12 pt-5 sm:pb-16">
+                    <div className="flex flex-wrap items-center gap-1">
+                        <Button variant="ghost" size="sm" onClick={handleBack} className="-ml-3 text-chalk/80 hover:text-chalk">
+                            <ArrowLeft className="h-4 w-4" />
+                            Back
+                        </Button>
+                        <div className="ml-auto flex items-center gap-1">
                             <Button
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => setFlagOpen(true)}
-                                className="text-muted-foreground hover:text-amber-500"
+                                className="text-muted-dark hover:text-gold"
                                 title="Report incorrect data"
                                 aria-label="Report incorrect data"
                             >
@@ -696,79 +708,76 @@ export function PlayerPage() {
                                 variant="ghost"
                                 size="sm"
                                 onClick={handleToggleWatch}
-                                className={isWatched ? 'text-amber-500 hover:text-amber-600' : 'text-muted-foreground hover:text-amber-500'}
+                                className={isWatched ? 'text-gold hover:text-gold' : 'text-muted-dark hover:text-gold'}
                                 title={isWatched ? 'Remove from watchlist' : 'Watch this player'}
                                 aria-label={isWatched ? 'Remove from watchlist' : 'Watch this player'}
                             >
-                                <Star className={`h-4 w-4 ${isWatched ? 'fill-amber-400 text-amber-500' : ''}`} />
+                                <Star className={`h-4 w-4 ${isWatched ? 'fill-gold text-gold' : ''}`} />
                             </Button>
                         </div>
-                        <div className="flex items-center gap-3 sm:gap-4 min-w-0">
+                    </div>
+                    <div className="mt-8 flex flex-col gap-8 md:flex-row md:items-center md:gap-14">
+                        <div className="relative flex h-32 w-32 shrink-0 items-center justify-center sm:h-44 sm:w-44">
+                            <span aria-hidden="true" className="absolute inset-0 rounded-full border border-dashed border-gold/60" />
                             {profile?.photo ? (
                                 <img
                                     src={profile.photo}
                                     alt={playerName}
-                                    width={64}
-                                    height={64}
-                                    className="w-12 h-12 sm:w-16 sm:h-16 rounded-full object-cover border-2 border-border shadow-md flex-shrink-0"
+                                    width={152}
+                                    height={152}
+                                    className="h-[86%] w-[86%] rounded-full object-cover"
                                 />
                             ) : (
-                                <div className="w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-gradient-to-br from-primary to-primary/80 flex items-center justify-center shadow-md flex-shrink-0">
-                                    <User className="h-6 w-6 sm:h-8 sm:w-8 text-primary-foreground" />
+                                <div className="flex h-[86%] w-[86%] items-center justify-center rounded-full bg-club">
+                                    <User className="h-12 w-12 text-gold sm:h-16 sm:w-16" />
                                 </div>
                             )}
-                            <div className="min-w-0">
-                                <h1 className="text-xl sm:text-2xl font-bold text-foreground text-balance">{playerName}</h1>
-                                <div className="flex flex-wrap items-center gap-2 mt-1">
-                                    <Badge variant="secondary">{position}</Badge>
-                                    {profile?.age && (
-                                        <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20">
-                                            {profile.age} yrs
-                                        </Badge>
-                                    )}
-                                    {profile?.nationality && (
-                                        <Badge variant="outline" className="text-muted-foreground">{profile.nationality}</Badge>
-                                    )}
-                                    {profile?.status && (
-                                        <Badge className={STATUS_BADGE_CLASSES[profile.status] || 'bg-secondary text-muted-foreground'}>
-                                            {profile.status.replace('_', ' ')}{profile.status === 'on_loan' && profile.owner_team_name ? ` · from ${profile.owner_team_name}` : ''}{profile.sale_fee ? ` · ${profile.sale_fee}` : ''}
-                                        </Badge>
-                                    )}
-                                    {academyStats?.appearances > 0 && stats.length > 0 && (
-                                        <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 text-xs">
-                                            Academy: {academyStats.appearances} apps
-                                        </Badge>
-                                    )}
-                                </div>
-                                {/* Mini Progress Bar — career stops at a glance */}
-                                <MiniProgressBar />
-                                {/* Academy link — opens drawer to browse other academy players */}
-                                {profile?.parent_team_name && (
-                                    <div className="mt-2">
-                                        <button
-                                            onClick={handleParentClubClick}
-                                            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-primary transition-colors cursor-pointer group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-md"
-                                        >
-                                            {profile.parent_team_logo && (
-                                                <img src={profile.parent_team_logo} alt="" width={20} height={20} className="w-5 h-5 rounded-full object-cover" />
-                                            )}
-                                            <span className="font-medium group-hover:underline">{profile.parent_team_name} Academy</span>
-                                            <Users className="w-3.5 h-3.5 opacity-0 group-hover:opacity-100 transition-opacity text-primary" />
-                                        </button>
-                                    </div>
+                        </div>
+                        <div className="min-w-0 flex-1">
+                            <div className="eyebrow flex flex-wrap items-center gap-x-5 gap-y-1">
+                                {profile?.status && (
+                                    <span className="text-gold">
+                                        {profile.status.replace('_', ' ')}{profile.status === 'on_loan' && profile.owner_team_name ? ` · from ${profile.owner_team_name}` : ''}{profile.sale_fee ? ` · ${profile.sale_fee}` : ''}
+                                    </span>
+                                )}
+                                {academyStats?.appearances > 0 && stats.length > 0 && (
+                                    <span className="text-muted-dark">Academy: {academyStats.appearances} apps</span>
                                 )}
                             </div>
+                            <h1 className="display mt-3 text-balance break-words text-[48px] leading-[.92] [overflow-wrap:anywhere] sm:text-[80px] lg:text-[104px]">{playerName}</h1>
+                            <p className="mt-4 flex flex-wrap gap-x-2 text-base text-chalk/80 sm:text-[17px]">
+                                {[position, profile?.age ? `${profile.age} yrs` : null, profile?.nationality].filter(Boolean).map((item, index) => (
+                                    <span key={item}>{index > 0 ? <span aria-hidden="true" className="mr-2 text-muted-dark">·</span> : null}{item}</span>
+                                ))}
+                            </p>
+                            {/* Mini Progress Bar — career stops at a glance */}
+                            <MiniProgressBar />
+                            {/* Academy link — opens drawer to browse other academy players */}
+                            {profile?.parent_team_name && (
+                                <button
+                                    onClick={handleParentClubClick}
+                                    className="mt-4 inline-flex items-center gap-3 rounded-full border border-chalk/20 py-2 pl-2 pr-4 text-sm text-chalk transition-colors hover:border-chalk/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                >
+                                    {profile.parent_team_logo ? (
+                                        <img src={profile.parent_team_logo} alt="" width={28} height={28} className="h-7 w-7 rounded-full bg-chalk object-contain p-0.5" />
+                                    ) : (
+                                        <Users className="ml-1 h-4 w-4 text-gold" />
+                                    )}
+                                    <span className="font-medium">{profile.parent_team_name} Academy</span>
+                                    <span className="eyebrow hidden sm:inline">Academy players</span>
+                                </button>
+                            )}
+                            <PlayerReachControls
+                                key={playerApiId}
+                                signedId={playerApiId}
+                                onPublicConfirmed={handlePublicConfirmed}
+                            />
                         </div>
                     </div>
-                    <PlayerReachControls
-                        key={playerApiId}
-                        signedId={playerApiId}
-                        onPublicConfirmed={handlePublicConfirmed}
-                    />
                 </div>
-            </div>
+            </header>
 
-            <div className="max-w-4xl mx-auto px-4 sm:px-6 py-6 pb-24 sm:pb-6">
+            <div className="floodlight-container max-w-[1200px] py-12 pb-24 sm:py-16">
                     <div className="space-y-8">
                         <ShowcaseSection
                             playerApiId={String(playerId)}
@@ -784,7 +793,7 @@ export function PlayerPage() {
                         />
                         <div className="flex flex-wrap items-center justify-between gap-3">
                             <div className="flex flex-wrap items-center gap-2">
-                                <h2 className="text-xl font-semibold tracking-tight text-foreground">
+                                <h2 className="display text-[34px] sm:text-[44px]">
                                     {seasonLabel} Totals
                                 </h2>
                                 <ProvenanceChip provenance={provenance} />
@@ -819,38 +828,13 @@ export function PlayerPage() {
                                     Season totals — per-match breakdown not available for this season.
                                 </p>
 
-                                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
-                                    <Card>
-                                        <CardContent className="pt-4 text-center">
-                                            <div className="text-3xl font-bold text-foreground tabular-nums">{seasonStats.appearances ?? 0}</div>
-                                            <div className="text-xs text-muted-foreground uppercase tracking-wider mt-1">Appearances</div>
-                                        </CardContent>
-                                    </Card>
-                                    <Card>
-                                        <CardContent className="pt-4 text-center">
-                                            <div className="text-3xl font-bold text-emerald-600 tabular-nums">{seasonStats.goals ?? 0}</div>
-                                            <div className="text-xs text-muted-foreground uppercase tracking-wider mt-1">Goals</div>
-                                        </CardContent>
-                                    </Card>
-                                    <Card>
-                                        <CardContent className="pt-4 text-center">
-                                            <div className="text-3xl font-bold text-amber-600 tabular-nums">{seasonStats.assists ?? 0}</div>
-                                            <div className="text-xs text-muted-foreground uppercase tracking-wider mt-1">Assists</div>
-                                        </CardContent>
-                                    </Card>
-                                    <Card>
-                                        <CardContent className="pt-4 text-center">
-                                            <div className="text-3xl font-bold text-foreground tabular-nums">{(seasonStats.minutes ?? 0).toLocaleString()}</div>
-                                            <div className="text-xs text-muted-foreground uppercase tracking-wider mt-1">Minutes</div>
-                                        </CardContent>
-                                    </Card>
+                                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-x-6">
+                                    <StatFigure label="Appearances">{seasonStats.appearances ?? 0}</StatFigure>
+                                    <StatFigure label="Goals">{seasonStats.goals ?? 0}</StatFigure>
+                                    <StatFigure label="Assists">{seasonStats.assists ?? 0}</StatFigure>
+                                    <StatFigure label="Minutes">{(seasonStats.minutes ?? 0).toLocaleString()}</StatFigure>
                                     {seasonStats.avg_rating != null && (
-                                        <Card>
-                                            <CardContent className="pt-4 text-center">
-                                                <div className="text-3xl font-bold text-violet-600 tabular-nums">{seasonStats.avg_rating}</div>
-                                                <div className="text-xs text-muted-foreground uppercase tracking-wider mt-1">Avg Rating</div>
-                                            </CardContent>
-                                        </Card>
+                                        <StatFigure label="Avg Rating">{seasonStats.avg_rating}</StatFigure>
                                     )}
                                 </div>
 
@@ -896,11 +880,11 @@ export function PlayerPage() {
                                                                 <div className="text-xs text-muted-foreground">Mins</div>
                                                             </div>
                                                             <div>
-                                                                <div className="text-lg font-bold text-emerald-600">{club.goals ?? 0}</div>
+                                                                <div className="text-lg font-bold text-good">{club.goals ?? 0}</div>
                                                                 <div className="text-xs text-muted-foreground">Goals</div>
                                                             </div>
                                                             <div>
-                                                                <div className="text-lg font-bold text-amber-600">{club.assists ?? 0}</div>
+                                                                <div className="text-lg font-bold text-gold-text">{club.assists ?? 0}</div>
                                                                 <div className="text-xs text-muted-foreground">Assists</div>
                                                             </div>
                                                         </div>
@@ -922,13 +906,13 @@ export function PlayerPage() {
                             /* LIMITED COVERAGE VIEW - Show basic stats from lineup/events data */
                             <div className="space-y-6">
                                 {/* Limited Coverage Notice */}
-                                <Card className="bg-amber-50 border-amber-200">
+                                <Card className="bg-chalk-2 border-border">
                                     <CardContent className="py-4">
                                         <div className="flex items-start gap-3">
-                                            <Target className="h-5 w-5 text-amber-600 mt-0.5" />
+                                            <Target className="h-5 w-5 text-gold-text mt-0.5" />
                                             <div>
-                                                <p className="font-medium text-amber-800">Limited Stats Available</p>
-                                                <p className="text-sm text-amber-700 mt-1">
+                                                <p className="font-medium text-ink">Limited Stats Available</p>
+                                                <p className="text-sm text-muted-foreground mt-1">
                                                     {seasonStats?.limited_stats_note || 'Full match stats are not available for this league. Showing appearances, goals, and assists from lineup and event data.'}
                                                 </p>
                                             </div>
@@ -937,31 +921,11 @@ export function PlayerPage() {
                                 </Card>
                                 
                                 {/* Basic Stats Cards */}
-                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                                    <Card>
-                                        <CardContent className="pt-4 text-center">
-                                            <div className="text-3xl font-bold text-foreground">{seasonStats?.appearances || 0}</div>
-                                            <div className="text-xs text-muted-foreground uppercase tracking-wider mt-1">Appearances</div>
-                                        </CardContent>
-                                    </Card>
-                                    <Card>
-                                        <CardContent className="pt-4 text-center">
-                                            <div className="text-3xl font-bold text-emerald-600">{seasonStats?.goals || 0}</div>
-                                            <div className="text-xs text-muted-foreground uppercase tracking-wider mt-1">Goals</div>
-                                        </CardContent>
-                                    </Card>
-                                    <Card>
-                                        <CardContent className="pt-4 text-center">
-                                            <div className="text-3xl font-bold text-amber-600">{seasonStats?.assists || 0}</div>
-                                            <div className="text-xs text-muted-foreground uppercase tracking-wider mt-1">Assists</div>
-                                        </CardContent>
-                                    </Card>
-                                    <Card>
-                                        <CardContent className="pt-4 text-center">
-                                            <div className="text-3xl font-bold text-amber-600">{seasonStats?.yellows || 0}</div>
-                                            <div className="text-xs text-muted-foreground uppercase tracking-wider mt-1">Yellow Cards</div>
-                                        </CardContent>
-                                    </Card>
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6">
+                                    <StatFigure label="Appearances">{seasonStats?.appearances || 0}</StatFigure>
+                                    <StatFigure label="Goals">{seasonStats?.goals || 0}</StatFigure>
+                                    <StatFigure label="Assists">{seasonStats?.assists || 0}</StatFigure>
+                                    <StatFigure label="Yellow Cards">{seasonStats?.yellows || 0}</StatFigure>
                                 </div>
                                 
                                 {/* Loan Club Info */}
@@ -998,56 +962,21 @@ export function PlayerPage() {
                             <div className="space-y-6">
                         {/* Season Summary Cards - Position-aware (dimmed when viewing past stop) */}
                         <JourneyDimmer>
-                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
-                            <Card>
-                                <CardContent className="pt-4 text-center">
-                                    <div className="text-3xl font-bold text-foreground tabular-nums">{seasonTotals.appearances}</div>
-                                    <div className="text-xs text-muted-foreground uppercase tracking-wider mt-1">Appearances</div>
-                                </CardContent>
-                            </Card>
-                            <Card>
-                                <CardContent className="pt-4 text-center">
-                                    <div className="text-3xl font-bold text-foreground tabular-nums">{seasonTotals.minutes}</div>
-                                    <div className="text-xs text-muted-foreground uppercase tracking-wider mt-1">Minutes</div>
-                                </CardContent>
-                            </Card>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-x-6">
+                            <StatFigure label="Appearances">{seasonTotals.appearances}</StatFigure>
+                            <StatFigure label="Minutes">{seasonTotals.minutes}</StatFigure>
                             {position === 'Goalkeeper' ? (
                                 <>
-                                    <Card>
-                                        <CardContent className="pt-4 text-center">
-                                            <div className="text-3xl font-bold text-emerald-600 tabular-nums">{seasonTotals.saves}</div>
-                                            <div className="text-xs text-muted-foreground uppercase tracking-wider mt-1">Saves</div>
-                                        </CardContent>
-                                    </Card>
-                                    <Card>
-                                        <CardContent className="pt-4 text-center">
-                                            <div className="text-3xl font-bold text-orange-600 tabular-nums">{seasonTotals.goalsConceded}</div>
-                                            <div className="text-xs text-muted-foreground uppercase tracking-wider mt-1">Conceded</div>
-                                        </CardContent>
-                                    </Card>
+                                    <StatFigure label="Saves">{seasonTotals.saves}</StatFigure>
+                                    <StatFigure label="Conceded">{seasonTotals.goalsConceded}</StatFigure>
                                 </>
                             ) : (
                                 <>
-                                    <Card>
-                                        <CardContent className="pt-4 text-center">
-                                            <div className="text-3xl font-bold text-emerald-600 tabular-nums">{seasonTotals.goals}</div>
-                                            <div className="text-xs text-muted-foreground uppercase tracking-wider mt-1">Goals</div>
-                                        </CardContent>
-                                    </Card>
-                                    <Card>
-                                        <CardContent className="pt-4 text-center">
-                                            <div className="text-3xl font-bold text-amber-600 tabular-nums">{seasonTotals.assists}</div>
-                                            <div className="text-xs text-muted-foreground uppercase tracking-wider mt-1">Assists</div>
-                                        </CardContent>
-                                    </Card>
+                                    <StatFigure label="Goals">{seasonTotals.goals}</StatFigure>
+                                    <StatFigure label="Assists">{seasonTotals.assists}</StatFigure>
                                 </>
                             )}
-                            <Card>
-                                <CardContent className="pt-4 text-center">
-                                    <div className="text-3xl font-bold text-violet-600 tabular-nums">{seasonTotals.avgRating}</div>
-                                    <div className="text-xs text-muted-foreground uppercase tracking-wider mt-1">Avg Rating</div>
-                                </CardContent>
-                            </Card>
+                            <StatFigure label="Avg Rating">{seasonTotals.avgRating}</StatFigure>
                         </div>
                         </JourneyDimmer>
 
@@ -1097,22 +1026,22 @@ export function PlayerPage() {
                                                     {position === 'Goalkeeper' ? (
                                                         <>
                                                             <div>
-                                                                <div className="text-lg font-bold text-emerald-600">{club.saves ?? 0}</div>
+                                                                <div className="text-lg font-bold text-good">{club.saves ?? 0}</div>
                                                                 <div className="text-xs text-muted-foreground">Saves</div>
                                                             </div>
                                                             <div>
-                                                                <div className="text-lg font-bold text-orange-600">{club.goals_conceded ?? 0}</div>
+                                                                <div className="text-lg font-bold text-warn">{club.goals_conceded ?? 0}</div>
                                                                 <div className="text-xs text-muted-foreground">Conceded</div>
                                                             </div>
                                                         </>
                                                     ) : (
                                                         <>
                                                             <div>
-                                                                <div className="text-lg font-bold text-emerald-600">{club.goals}</div>
+                                                                <div className="text-lg font-bold text-good">{club.goals}</div>
                                                                 <div className="text-xs text-muted-foreground">Goals</div>
                                                             </div>
                                                             <div>
-                                                                <div className="text-lg font-bold text-amber-600">{club.assists}</div>
+                                                                <div className="text-lg font-bold text-gold-text">{club.assists}</div>
                                                                 <div className="text-xs text-muted-foreground">Assists</div>
                                                             </div>
                                                         </>
@@ -1198,6 +1127,7 @@ export function PlayerPage() {
                                                                     type="monotone"
                                                                     dataKey={opt.key}
                                                                     stroke={opt.color}
+                                                                    strokeDasharray={opt.dash}
                                                                     strokeWidth={2}
                                                                     dot={{ r: 3, fill: opt.color, strokeWidth: 0 }}
                                                                     activeDot={{ r: 6, strokeWidth: 0 }}
@@ -1220,8 +1150,8 @@ export function PlayerPage() {
                                                                 <XAxis dataKey="date" tick={{ fontSize: 10, fill: CHART_AXIS_COLOR }} interval="preserveStartEnd" tickLine={false} axisLine={false} />
                                                                 <YAxis domain={[0, 10]} tick={{ fontSize: 10, fill: CHART_AXIS_COLOR }} tickLine={false} axisLine={false} />
                                                                 <Tooltip content={<CustomTooltip />} />
-                                                                <ReferenceLine y={7} stroke="#059669" strokeDasharray="3 3" label={{ value: 'Good (7.0)', position: 'insideTopRight', fontSize: 10, fill: '#059669' }} />
-                                                                <Line type="monotone" dataKey="rating" stroke="#ca8a04" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} name="Rating" />
+                                                                <ReferenceLine y={7} stroke="#1D5A40" strokeDasharray="3 3" label={{ value: 'Good (7.0)', position: 'insideTopRight', fontSize: 10, fill: '#1D5A40' }} />
+                                                                <Line type="monotone" dataKey="rating" stroke="#84661F" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} name="Rating" />
                                                             </LineChart>
                                                         </ResponsiveContainer>
                                                     </div>
@@ -1236,7 +1166,7 @@ export function PlayerPage() {
                                                                 <XAxis dataKey="date" tick={{ fontSize: 10, fill: CHART_AXIS_COLOR }} interval="preserveStartEnd" tickLine={false} axisLine={false} />
                                                                 <YAxis domain={[0, 90]} tick={{ fontSize: 10, fill: CHART_AXIS_COLOR }} tickLine={false} axisLine={false} />
                                                                 <Tooltip content={<CustomTooltip />} />
-                                                                <Bar dataKey="minutes" fill="#0f172a" radius={[4, 4, 0, 0]} name="Minutes" />
+                                                                <Bar dataKey="minutes" fill="#0E1311" radius={[4, 4, 0, 0]} name="Minutes" />
                                                             </BarChart>
                                                         </ResponsiveContainer>
                                                     </div>
@@ -1292,7 +1222,7 @@ export function PlayerPage() {
                                                                     </span>
                                                                 </div>
                                                                 {s.loan_window && s.loan_window !== 'Summer' && (
-                                                                    <Badge variant="outline" className="text-xs mt-0.5 bg-orange-50 text-orange-600 border-orange-200">
+                                                                    <Badge variant="outline" className="text-xs mt-0.5 bg-warn/10 text-warn border-warn/30">
                                                                         {s.loan_window}
                                                                     </Badge>
                                                                 )}
@@ -1308,9 +1238,9 @@ export function PlayerPage() {
                                                             </td>
                                                             <td className="px-2 py-2.5 sm:p-3 tabular-nums">{s.minutes}'</td>
                                                             <td className="px-2 py-2.5 sm:p-3">
-                                                                <span className={`px-1.5 sm:px-2 py-1 rounded text-xs font-medium tabular-nums ${parseFloat(s.rating) >= 7.5 ? 'bg-emerald-100 text-emerald-700' :
+                                                                <span className={`px-1.5 sm:px-2 py-1 rounded text-xs font-medium tabular-nums ${parseFloat(s.rating) >= 7.5 ? 'bg-good/10 text-good' :
                                                                     parseFloat(s.rating) >= 6.0 ? 'bg-secondary text-foreground/80' :
-                                                                        'bg-rose-50 text-rose-700'
+                                                                        'bg-danger/10 text-danger'
                                                                     }`}>
                                                                     {s.rating || '-'}
                                                                 </span>
@@ -1319,13 +1249,13 @@ export function PlayerPage() {
                                                                 {position === 'Goalkeeper' ? (
                                                                     <div className="flex flex-col gap-0.5">
                                                                         {(s.saves > 0 || s.saves === 0) && (
-                                                                            <span className="text-emerald-600 text-xs font-medium">{s.saves} {s.saves === 1 ? 'save' : 'saves'}</span>
+                                                                            <span className="text-good text-xs font-medium">{s.saves} {s.saves === 1 ? 'save' : 'saves'}</span>
                                                                         )}
                                                                         {s.goals_conceded === 0 && (
-                                                                            <span className="text-emerald-600 text-xs font-medium">Clean sheet</span>
+                                                                            <span className="text-good text-xs font-medium">Clean sheet</span>
                                                                         )}
                                                                         {s.goals_conceded > 0 && (
-                                                                            <span className="text-orange-600 text-xs">{s.goals_conceded} conceded</span>
+                                                                            <span className="text-warn text-xs">{s.goals_conceded} conceded</span>
                                                                         )}
                                                                         {s.saves === undefined && s.goals_conceded === undefined && <span className="text-muted-foreground/50">-</span>}
                                                                     </div>
@@ -1443,7 +1373,7 @@ export function PlayerPage() {
                                                                     {commentary.author?.display_name || 'Anonymous'}
                                                                 </span>
                                                                 {commentary.is_premium && (
-                                                                    <Badge variant="secondary" className="text-xs bg-amber-100 text-amber-700 border-amber-200">
+                                                                    <Badge variant="secondary" className="text-xs bg-gold/20 text-ink border-gold/40">
                                                                         Premium
                                                                     </Badge>
                                                                 )}
@@ -1452,7 +1382,7 @@ export function PlayerPage() {
                                                                 <div className="text-sm font-medium text-foreground mb-1">{commentary.title}</div>
                                                             )}
                                                             <div className="text-sm text-muted-foreground line-clamp-2">
-                                                                {commentary.content?.substring(0, 150)}...
+                                                                {plainTextExcerpt(commentary.content)}
                                                             </div>
                                                             <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
                                                                 {commentary.newsletter && (
@@ -1491,7 +1421,7 @@ export function PlayerPage() {
 
                         {/* Community */}
                         <section aria-label="Community" className="space-y-6">
-                            <h2 className="text-lg font-semibold text-foreground text-pretty">Community</h2>
+                            <h2 className="display text-[34px] sm:text-[44px]">Community</h2>
                             <CommentSection playerId={parseInt(playerId)} title="Discussion" />
                             <PlayerLinksSection playerId={parseInt(playerId)} />
                         </section>

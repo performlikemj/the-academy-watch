@@ -4033,7 +4033,8 @@ function AppWithRouter() {
   return (
     <GlobalSearchContext.Provider value={globalSearch}>
       <div className="min-h-screen bg-background">
-        <Navigation />
+        {/* The admin control room carries its own chrome (sidebar + top bar). */}
+        {!isAdminRoute ? <Navigation /> : null}
         <SyncBanner />
         <GlobalSearchDialog
           open={globalSearch.isOpen}
@@ -4046,11 +4047,11 @@ function AppWithRouter() {
         <main>
           <AppRoutes />
         </main>
-        <footer className="dark bg-night text-chalk border-t border-border py-12 mt-auto">
-          <div className="floodlight-container text-center">
-            <p className="display text-3xl">For the whole game.</p>
-            <div className="mt-6"><BuyMeCoffeeButton /></div>
-            {!isAdminRoute ? (
+        {!isAdminRoute ? (
+          <footer className="dark bg-night text-chalk border-t border-border py-12 mt-auto">
+            <div className="floodlight-container text-center">
+              <p className="display text-3xl">For the whole game.</p>
+              <div className="mt-6"><BuyMeCoffeeButton /></div>
               <nav aria-label="Legal and support" className="mt-6 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-sm">
                 {LEGAL_FOOTER_LINKS.map((item) => (
                   <Link key={item.to} to={item.to} className="text-muted-foreground transition-colors hover:text-foreground">
@@ -4058,10 +4059,10 @@ function AppWithRouter() {
                   </Link>
                 ))}
               </nav>
-            ) : null}
-            <p className="text-sm text-muted-foreground mt-4">&copy; {new Date().getFullYear()} The Academy Watch. All rights reserved.</p>
-          </div>
-        </footer>
+              <p className="text-sm text-muted-foreground mt-4">&copy; {new Date().getFullYear()} The Academy Watch. All rights reserved.</p>
+            </div>
+          </footer>
+        ) : null}
         <LoginModal />
       </div>
     </GlobalSearchContext.Provider>

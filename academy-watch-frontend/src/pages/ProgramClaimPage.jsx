@@ -17,7 +17,6 @@ import {
 
 import { APIService } from '@/lib/api'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -74,7 +73,7 @@ function Field({ id, label, hint, children }) {
 
 function Attestation({ checked, onCheckedChange, title, description }) {
     return (
-        <label className="flex cursor-pointer items-start gap-3 rounded-xl border bg-background p-4 transition-colors hover:border-emerald-300">
+        <label className="flex cursor-pointer items-start gap-3 rounded-[10px] border bg-background p-4 transition-colors hover:border-ink">
             <Checkbox checked={checked} onCheckedChange={onCheckedChange} className="mt-0.5" />
             <span><span className="block text-sm font-medium">{title}</span><span className="mt-1 block text-xs leading-relaxed text-muted-foreground">{description}</span></span>
         </label>
@@ -84,7 +83,7 @@ function Attestation({ checked, onCheckedChange, title, description }) {
 function StepLabel({ number, title, active }) {
     return (
         <div className="flex items-center gap-3">
-            <div className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold ${active ? 'bg-emerald-700 text-white' : 'bg-secondary text-muted-foreground'}`}>{number}</div>
+            <div className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold ${active ? 'bg-ink text-chalk' : 'bg-secondary text-muted-foreground'}`}>{number}</div>
             <span className={`text-sm font-medium ${active ? 'text-foreground' : 'text-muted-foreground'}`}>{title}</span>
         </div>
     )
@@ -218,16 +217,16 @@ export function ProgramClaimPage() {
     }
 
     if (loading) {
-        return <div className="flex min-h-[60vh] items-center justify-center gap-2 text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin motion-reduce:animate-none" />Loading program admission…</div>
+        return <div className="flex min-h-[60vh] items-center justify-center gap-3 text-muted-foreground" role="status"><Loader2 className="h-5 w-5 animate-spin motion-reduce:animate-none" />Loading program admission…</div>
     }
 
     if (submitted) {
         return (
             <div className="mx-auto max-w-3xl px-4 py-16">
-                <Card className="overflow-hidden border-0 shadow-2xl">
-                    <div className="bg-[#0b1f19] px-8 py-10 text-white"><div className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-300/15"><CheckCircle2 className="h-6 w-6 text-emerald-200" /></div><p className="mt-6 text-xs font-semibold uppercase tracking-[0.22em] text-emerald-200/70">Application received</p><h1 className="mt-2 font-serif text-4xl">{submitted.claim?.program?.name}</h1><p className="mt-3 max-w-xl text-emerald-50/70">Your club claim is pending an adult-authority and organization review. Approval—not this submission—creates a club-manager grant.</p></div>
+                <Card className="overflow-hidden">
+                    <div className="dark bg-night px-8 py-10 text-chalk"><div className="flex h-12 w-12 items-center justify-center rounded-full bg-gold/15"><CheckCircle2 className="h-6 w-6 text-gold" /></div><p className="eyebrow mt-6">Application received</p><h1 className="display mt-2 text-5xl">{submitted.claim?.program?.name}</h1><p className="mt-3 max-w-xl text-chalk/75">Your club claim is pending an adult-authority and organization review. Approval—not this submission—creates a club-manager grant.</p></div>
                     <CardContent className="space-y-5 p-8">
-                        <div className="flex items-start gap-3 rounded-xl border bg-secondary/50 p-4"><Clock3 className="mt-0.5 h-5 w-5 text-amber-700" /><div><p className="font-medium">{submitted.league_waitlisted ? 'League proposal added to MJ’s waitlist' : 'Club evidence entered the approval queue'}</p><p className="mt-1 text-sm text-muted-foreground">No Stripe onboarding or funding begins until the platform review is approved.</p></div></div>
+                        <div className="flex items-start gap-3 rounded-[10px] border bg-chalk-2/60 p-4"><Clock3 className="mt-0.5 h-5 w-5 text-gold-text" /><div><p className="font-medium">{submitted.league_waitlisted ? 'League proposal added to MJ’s waitlist' : 'Club evidence entered the approval queue'}</p><p className="mt-1 text-sm text-muted-foreground">No Stripe onboarding or funding begins until the platform review is approved.</p></div></div>
                         <div className="flex flex-wrap gap-3"><Button onClick={registerAnother}>Register another program</Button><Button variant="outline" asChild><Link to="/">Return home</Link></Button></div>
                     </CardContent>
                 </Card>
@@ -236,30 +235,29 @@ export function ProgramClaimPage() {
     }
 
     return (
-        <div className="min-h-screen bg-[#f4f1e8] py-10 text-stone-950">
-            <div className="mx-auto max-w-6xl px-4">
-                <header className="relative overflow-hidden rounded-[2rem] bg-[#0b1f19] px-6 py-10 text-white shadow-2xl sm:px-10">
-                    <div className="absolute right-[-6rem] top-[-8rem] h-72 w-72 rounded-full border-[48px] border-emerald-100/5" />
-                    <div className="relative max-w-3xl"><Badge className="border-emerald-200/20 bg-emerald-200/10 text-emerald-100">Club representatives · F2 admission</Badge><h1 className="mt-5 font-serif text-4xl font-semibold tracking-tight sm:text-6xl">Put your program on the verified path.</h1><p className="mt-5 max-w-2xl text-base leading-relaxed text-emerald-50/70">Register a legal club or academy program—not an individual player. League eligibility, adult authority, and safeguarding evidence are reviewed before any badge is shown.</p></div>
+        <div className="min-h-screen bg-chalk pb-16 pt-8 text-ink sm:pt-10">
+            <div className="floodlight-container">
+                <header className="dark relative overflow-hidden rounded-[10px] bg-night px-6 py-12 text-chalk sm:px-12 sm:py-16">
+                                        <div className="relative max-w-3xl"><p className="eyebrow">Club representatives · F2 admission</p><h1 className="display mt-5 text-[44px] sm:text-[72px]">Put your program on the verified path.</h1><p className="mt-5 max-w-2xl text-base leading-relaxed text-chalk/75">Register a legal club or academy program—not an individual player. League eligibility, adult authority, and safeguarding evidence are reviewed before any badge is shown.</p></div>
                 </header>
 
-                <div className="mt-6 grid gap-6 lg:grid-cols-[260px_1fr]">
+                <div className="mt-10 grid gap-8 lg:grid-cols-[260px_1fr]">
                     <aside className="space-y-5 lg:sticky lg:top-6 lg:self-start">
-                        <Card className="border-stone-200 bg-white/80"><CardHeader><CardTitle className="font-serif text-xl">Admission route</CardTitle></CardHeader><CardContent className="space-y-4"><StepLabel number="1" title="League gate" active /><ChevronRight className="ml-2 h-4 w-4 text-stone-300" /><StepLabel number="2" title="Program identity" active /><ChevronRight className="ml-2 h-4 w-4 text-stone-300" /><StepLabel number="3" title="Authority evidence" active /><ChevronRight className="ml-2 h-4 w-4 text-stone-300" /><StepLabel number="4" title="MJ review" /></CardContent></Card>
-                        <Card className="border-stone-200 bg-white/80"><CardContent className="space-y-3 p-5"><div className="flex items-center gap-2 font-medium"><LockKeyhole className="h-4 w-4 text-emerald-800" />Private by default</div><p className="text-xs leading-relaxed text-muted-foreground">Evidence metadata is reviewer-only. Never submit a minor’s ID or bank data; Stripe-hosted onboarding handles organization KYC later for approved US programs.</p></CardContent></Card>
-                        {claims.length > 0 ? <Card className="border-stone-200 bg-white/80"><CardHeader><CardTitle className="text-base">Your claims</CardTitle></CardHeader><CardContent className="space-y-3">{claims.slice(0, 3).map((claim) => <div key={claim.id} className="border-l-2 border-amber-500 pl-3"><p className="text-sm font-medium">{claim.program?.name}</p><p className="text-xs capitalize text-muted-foreground">{claim.status}</p></div>)}</CardContent></Card> : null}
+                        <Card className=""><CardHeader><CardTitle className="display text-2xl font-normal">Admission route</CardTitle></CardHeader><CardContent className="space-y-4"><StepLabel number="1" title="League gate" active /><ChevronRight className="ml-2 h-4 w-4 text-hairline" /><StepLabel number="2" title="Program identity" active /><ChevronRight className="ml-2 h-4 w-4 text-hairline" /><StepLabel number="3" title="Authority evidence" active /><ChevronRight className="ml-2 h-4 w-4 text-hairline" /><StepLabel number="4" title="MJ review" /></CardContent></Card>
+                        <Card className=""><CardContent className="space-y-3 p-5"><div className="flex items-center gap-2 font-medium"><LockKeyhole className="h-4 w-4 text-club" />Private by default</div><p className="text-xs leading-relaxed text-muted-foreground">Evidence metadata is reviewer-only. Never submit a minor’s ID or bank data; Stripe-hosted onboarding handles organization KYC later for approved US programs.</p></CardContent></Card>
+                        {claims.length > 0 ? <Card className=""><CardHeader><CardTitle className="text-base">Your claims</CardTitle></CardHeader><CardContent className="space-y-3">{claims.slice(0, 3).map((claim) => <div key={claim.id} className="border-l-2 border-gold pl-3"><p className="text-sm font-medium">{claim.program?.name}</p><p className="text-xs capitalize text-muted-foreground">{claim.status}</p></div>)}</CardContent></Card> : null}
                     </aside>
 
                     <form onSubmit={submit} className="space-y-6">
-                        {error ? <Alert className="border-rose-300 bg-rose-50 text-rose-900"><AlertDescription>{error}</AlertDescription></Alert> : null}
-                        <Card className="border-stone-200 bg-white/90 shadow-lg">
-                            <CardHeader><div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-100"><Landmark className="h-5 w-5 text-emerald-900" /></div><div><CardTitle className="font-serif text-2xl">1. League gate</CardTitle><CardDescription>Choose an MJ-approved open league or submit a proposal to the waitlist.</CardDescription></div></div></CardHeader>
+                        {error ? <Alert className="border-danger/40 text-danger"><AlertDescription>{error}</AlertDescription></Alert> : null}
+                        <Card className="">
+                            <CardHeader><div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-full bg-chalk-2"><Landmark className="h-5 w-5 text-club" /></div><div><CardTitle className="display text-[30px] font-normal">1. League gate</CardTitle><CardDescription>Choose an MJ-approved open league or submit a proposal to the waitlist.</CardDescription></div></div></CardHeader>
                             <CardContent className="space-y-5">
-                                <div className="grid grid-cols-2 rounded-xl bg-stone-100 p-1"><button type="button" onClick={() => update('leagueMode', 'approved')} className={`rounded-lg px-4 py-2.5 text-sm font-medium transition ${form.leagueMode === 'approved' ? 'bg-white shadow-sm' : 'text-muted-foreground'}`}>Approved league</button><button type="button" onClick={() => update('leagueMode', 'propose')} className={`rounded-lg px-4 py-2.5 text-sm font-medium transition ${form.leagueMode === 'propose' ? 'bg-white shadow-sm' : 'text-muted-foreground'}`}>Propose a league</button></div>
+                                <div className="grid grid-cols-2 rounded-full border border-border p-1"><button type="button" onClick={() => update('leagueMode', 'approved')} className={`rounded-full px-4 py-2.5 text-sm font-medium transition ${form.leagueMode === 'approved' ? 'bg-ink text-chalk' : 'text-muted-foreground'}`}>Approved league</button><button type="button" onClick={() => update('leagueMode', 'propose')} className={`rounded-full px-4 py-2.5 text-sm font-medium transition ${form.leagueMode === 'propose' ? 'bg-ink text-chalk' : 'text-muted-foreground'}`}>Propose a league</button></div>
                                 {form.leagueMode === 'approved' ? (
                                     <Field id="claim-funding-league" label="Open league">
                                         <Select name="funding_league_id" value={form.funding_league_id} onValueChange={(value) => update('funding_league_id', value)} required><SelectTrigger id="claim-funding-league"><SelectValue placeholder="Select an approved league" /></SelectTrigger><SelectContent>{leagues.map((league) => <SelectItem key={league.id} value={String(league.id)}>{league.name} · {league.region}, {league.country}</SelectItem>)}</SelectContent></Select>
-                                        {leagues.length === 0 ? <p className="text-xs text-amber-800">No leagues are currently open. Propose one for MJ review.</p> : null}
+                                        {leagues.length === 0 ? <p className="text-xs text-gold-text">No leagues are currently open. Propose one for MJ review.</p> : null}
                                     </Field>
                                 ) : (
                                     <div className="grid gap-4 sm:grid-cols-2">
@@ -277,8 +275,8 @@ export function ProgramClaimPage() {
                             </CardContent>
                         </Card>
 
-                        <Card className="border-stone-200 bg-white/90 shadow-lg">
-                            <CardHeader><div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-100"><Building2 className="h-5 w-5 text-emerald-900" /></div><div><CardTitle className="font-serif text-2xl">2. Program identity</CardTitle><CardDescription>Link provider coverage where it exists; standalone grassroots clubs are welcome.</CardDescription></div></div></CardHeader>
+                        <Card className="">
+                            <CardHeader><div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-full bg-chalk-2"><Building2 className="h-5 w-5 text-club" /></div><div><CardTitle className="display text-[30px] font-normal">2. Program identity</CardTitle><CardDescription>Link provider coverage where it exists; standalone grassroots clubs are welcome.</CardDescription></div></div></CardHeader>
                             <CardContent className="grid gap-4 sm:grid-cols-2">
                                 <div className="space-y-4 sm:col-span-2">
                                     <Field id="claim-covered-team-filter" label="Find a covered team"><Input id="claim-covered-team-filter" name="covered_team_filter" autoComplete="off" value={teamQuery} onChange={(e) => setTeamQuery(e.target.value)} placeholder="Search by team or country…" /></Field>
@@ -294,8 +292,8 @@ export function ProgramClaimPage() {
                             </CardContent>
                         </Card>
 
-                        <Card className="border-stone-200 bg-white/90 shadow-lg">
-                            <CardHeader><div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-100"><FileCheck2 className="h-5 w-5 text-emerald-900" /></div><div><CardTitle className="font-serif text-2xl">3. Authority + safeguarding</CardTitle><CardDescription>Private evidence metadata for MJ’s review. Weak or mismatched evidence escalates.</CardDescription></div></div></CardHeader>
+                        <Card className="">
+                            <CardHeader><div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-full bg-chalk-2"><FileCheck2 className="h-5 w-5 text-club" /></div><div><CardTitle className="display text-[30px] font-normal">3. Authority + safeguarding</CardTitle><CardDescription>Private evidence metadata for MJ’s review. Weak or mismatched evidence escalates.</CardDescription></div></div></CardHeader>
                             <CardContent className="space-y-5">
                                 <div className="grid gap-4 sm:grid-cols-2">
                                     <Field id="claim-authorization-method" label="Authorization route"><Select name="authorization_method" value={form.authorization_method} onValueChange={(value) => update('authorization_method', value)}><SelectTrigger id="claim-authorization-method"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="official_domain_email">Official-domain email</SelectItem><SelectItem value="signed_officer_authorization">Signed officer authorization</SelectItem></SelectContent></Select></Field>
@@ -318,7 +316,7 @@ export function ProgramClaimPage() {
                             </CardContent>
                         </Card>
 
-                        <div className="flex flex-col justify-between gap-4 rounded-2xl bg-[#0b1f19] p-6 text-white sm:flex-row sm:items-center"><div><div className="flex items-center gap-2 font-medium"><ShieldCheck className="h-5 w-5 text-emerald-200" />Submit for human review</div><p className="mt-1 text-xs text-emerald-50/60">No badge, payout access, or club-manager grant is created automatically.</p></div><Button type="submit" disabled={submitting} className="bg-emerald-300 text-emerald-950 hover:bg-emerald-200">{submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin motion-reduce:animate-none" /> : <MailCheck className="mr-2 h-4 w-4" />}Send application <ArrowRight className="ml-2 h-4 w-4" /></Button></div>
+                        <div className="flex flex-col justify-between gap-4 dark rounded-[10px] bg-night p-6 text-chalk sm:p-8 sm:flex-row sm:items-center"><div><div className="flex items-center gap-2 font-medium"><ShieldCheck className="h-5 w-5 text-gold" />Submit for human review</div><p className="mt-1 text-xs text-muted-dark">No badge, payout access, or club-manager grant is created automatically.</p></div><Button type="submit" disabled={submitting} variant="on-dark">{submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin motion-reduce:animate-none" /> : <MailCheck className="mr-2 h-4 w-4" />}Send application <ArrowRight className="ml-2 h-4 w-4" /></Button></div>
                     </form>
                 </div>
             </div>

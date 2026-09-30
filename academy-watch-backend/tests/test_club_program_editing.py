@@ -237,6 +237,17 @@ def test_every_manager_route_has_neutral_denial(client, email, method, path, bod
     assert response.get_json() == {"error": "Club manager access denied"}
 
 
+def test_public_program_never_exposes_unreviewed_banner(client):
+    program, _, _, _ = _seed_programs()
+    program.brand_primary_color = "#7A1426"
+    program.banner_url = "club-banners/1/2/unreviewed-banner-fixture.jpg"
+    db.session.commit()
+    response = client.get(f"/api/programs/{program.slug}")
+    assert response.status_code == 200
+    assert response.get_json()["program"]["brand"] == {"primary_color": "#7A1426", "accent_color": "#E3B23C"}
+    assert "banner" not in response.get_data(as_text=True)
+
+
 def test_profile_put_replaces_one_pending_revision_without_changing_public(client):
     program, _, manager, approved = _seed_programs()
     before = client.get(f"/api/programs/{program.slug}").get_json()["program"]
