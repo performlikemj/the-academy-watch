@@ -93,11 +93,12 @@ for (const width of [1440, 1024, 390]) {
     if (width === 390) await page.getByRole('button', { name: 'Toggle navigation menu' }).click()
     await expect(page.getByRole('link', { name: 'Get early access', exact: true })).toHaveCount(0)
     const name = page.getByText(longName, { exact: true }); await expect(name).toBeVisible()
-    const logout = page.getByRole('button', { name: 'Log Out', exact: true }); await expect(logout).toBeVisible()
+    if (width !== 390) await page.getByRole('button', { name: longName, exact: true }).click()
+    const logout = page.getByRole(width === 390 ? 'button' : 'menuitem', { name: 'Log out', exact: true }); await expect(logout).toBeVisible()
     if (width !== 390) {
       expect(await name.evaluate(node => node.scrollWidth > node.clientWidth && getComputedStyle(node).textOverflow === 'ellipsis')).toBe(true)
       const nameBox = await name.boundingBox(), logoutBox = await logout.boundingBox()
-      expect(nameBox.x + nameBox.width).toBeLessThanOrEqual(logoutBox.x)
+      expect(nameBox.x + nameBox.width).toBeLessThanOrEqual(width)
       expect(logoutBox.x + logoutBox.width).toBeLessThanOrEqual(width)
     }
     await logout.click()

@@ -685,7 +685,8 @@ test('GOL clears the prior identity transcript across sign-out and a different s
   await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeVisible()
 
   await page.keyboard.press('Escape')
-  await page.getByRole('button', { name: 'Log Out', exact: true }).click()
+  await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('button', { expanded: false, name: ACCOUNT.display_name, exact: true }).click()
+  await page.getByRole('menuitem', { name: 'Log out', exact: true }).click()
   await page.getByRole('button', { name: 'Open GOL Assistant chat' }).dispatchEvent('click')
   await expect(page.getByText('Sign in to ask GOL', { exact: true })).toBeVisible()
   await expect(page.getByText('Private answer for user A', { exact: true })).toHaveCount(0)
@@ -758,7 +759,8 @@ test('GOL ignores a delayed PDF access denial from the prior identity', async ({
   await exportStarted
 
   await page.keyboard.press('Escape')
-  await page.getByRole('button', { name: 'Log Out', exact: true }).click()
+  await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('button', { expanded: false, name: ACCOUNT.display_name, exact: true }).click()
+  await page.getByRole('menuitem', { name: 'Log out', exact: true }).click()
   await page.getByRole('button', { name: 'Open GOL Assistant chat' }).dispatchEvent('click')
   await page.getByRole('button', { name: 'Sign in', exact: true }).click()
   await page.getByLabel('Email').fill(accountB.email)
