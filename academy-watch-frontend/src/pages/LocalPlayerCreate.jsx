@@ -1,3 +1,4 @@
+import '@/styles/floodlight-player.css'
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowRight, CheckCircle2, Loader2, LogIn, ShieldCheck, UserPlus } from 'lucide-react'
@@ -36,10 +37,10 @@ const RELATIONSHIPS = [
 
 function SignedOutState({ onSignIn }) {
   return (
-    <div className="mx-auto flex min-h-[70vh] max-w-6xl items-center justify-center px-4 py-12 sm:px-6 lg:px-8">
+    <div className="fl-player-create mx-auto flex min-h-[70vh] max-w-6xl items-center justify-center px-4 py-12 sm:px-6 lg:px-8">
       <Card className="w-full max-w-md overflow-hidden border-border/80">
         <CardContent className="flex flex-col items-center gap-4 px-8 py-12 text-center">
-          <span className="inline-flex h-14 w-14 items-center justify-center rounded-full bg-amber-100 text-amber-900">
+          <span className="inline-flex h-14 w-14 items-center justify-center rounded-full bg-warn/5 text-gold-text">
             <UserPlus className="h-6 w-6" />
           </span>
           <div className="space-y-2">
@@ -162,12 +163,12 @@ function AuthenticatedLocalPlayerCreate({ token }) {
 
   if (created?.player) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-amber-50/60 via-background to-secondary/50">
+      <div className="fl-player-create min-h-screen bg-chalk">
         <div className="mx-auto max-w-2xl px-4 py-10 sm:px-6 lg:px-8">
-          <Card className="overflow-hidden border-amber-200 shadow-sm">
-            <CardHeader className="border-b border-amber-200/70 bg-amber-50/70">
+          <Card className="overflow-hidden border-warn/30 shadow-sm">
+            <CardHeader className="border-b border-warn/30 bg-warn/5">
               <div className="flex items-start gap-3">
-                <span className="mt-0.5 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+                <span className="mt-0.5 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-good/5 text-good">
                   <CheckCircle2 className="h-5 w-5" />
                 </span>
                 <div>
@@ -213,20 +214,20 @@ function AuthenticatedLocalPlayerCreate({ token }) {
   ].filter(Boolean).join(' · ')
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-amber-50/60 via-background to-secondary/50">
-      <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6 lg:px-8">
+    <div className="fl-player-create min-h-screen bg-chalk">
+      <div className="mx-auto max-w-4xl px-4 py-12 sm:px-14 sm:py-16">
         <div className="mb-6 space-y-2">
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-800">Community profiles</p>
-          <h1 className="text-3xl font-bold tracking-tight text-foreground sm:text-4xl">Create a player profile</h1>
+          <p className="eyebrow">Community profiles</p>
+          <h1 className="display text-[48px] sm:text-[64px]">Create a player profile</h1>
           <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground sm:text-base">
             For players outside official API-Football coverage. Details are self-reported and the profile stays private until review.
           </p>
         </div>
 
         {duplicate ? (
-          <Alert className="mb-5 border-amber-300 bg-amber-50">
-            <UserPlus className="h-4 w-4 text-amber-800" />
-            <AlertDescription className="text-amber-950">
+          <Alert className="mb-5 border-warn/30 bg-warn/5">
+            <UserPlus className="h-4 w-4 text-gold-text" />
+            <AlertDescription className="text-gold-text">
               <span className="font-semibold">A player with this name and birth year may already exist.</span>
               {duplicateId ? (
                 <span className="mt-1 block">
@@ -241,8 +242,8 @@ function AuthenticatedLocalPlayerCreate({ token }) {
         ) : null}
 
         {requestError ? (
-          <Alert className="mb-5 border-rose-300 bg-rose-50">
-            <AlertDescription className="text-rose-800">{requestError}</AlertDescription>
+          <Alert className="mb-5 border-danger/30 bg-danger/5">
+            <AlertDescription className="text-danger">{requestError}</AlertDescription>
           </Alert>
         ) : null}
 

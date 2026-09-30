@@ -270,8 +270,8 @@ test('club manager opens a read-only player reel without admin credentials', asy
   const requests = await installClubMocks(page, {
     reelResponses: [reel, { ...reel, players: [] }],
   })
-  await page.goto('/my-club')
-  await page.getByRole('tab', { name: 'Matches & reports' }).click()
+  // ClubHome uses URL views; enter Film Room directly so list hydration settles in this view.
+  await page.goto('/my-club?view=matches')
   await page.getByRole('button', { name: 'View player reels' }).click()
 
   await expect(page.getByRole('heading', { name: 'Player reels' }).last()).toBeVisible()
@@ -318,8 +318,8 @@ test('admin reel shows verified notes and honestly withholds ungrounded prose', 
 
 test('foreign reel denial renders the same neutral unavailable state', async ({ page }) => {
   await installClubMocks(page, { denyReel: true })
-  await page.goto('/my-club')
-  await page.getByRole('tab', { name: 'Matches & reports' }).click()
+  // ClubHome uses URL views; enter Film Room directly so list hydration settles in this view.
+  await page.goto('/my-club?view=matches')
   await page.getByRole('button', { name: 'View player reels' }).click()
 
   await expect(page.getByText('Player reels are not available for this match.')).toBeVisible()

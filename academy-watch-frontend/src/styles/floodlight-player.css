@@ -1,0 +1,53 @@
+/* Owner and onboarding surfaces only. Public pages keep their lane's styling. */
+.fl-player-onboarding, .fl-player-create, .fl-club-entry, .fl-player-feedback, .fl-development {
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+}
+.fl-player-onboarding [data-slot="card"], .fl-player-create [data-slot="card"],
+.fl-club-entry [data-slot="card"] { border-radius: 0; border-width: 1px 0 0; background: transparent; box-shadow: none; }
+.fl-player-onboarding [data-slot="card-header"], .fl-player-onboarding [data-slot="card-content"] { padding-left: 0; padding-right: 0; background: transparent; }
+.fl-player-create [data-slot="card-title"], .fl-club-entry [data-slot="card-title"] { font-size: 32px; }
+.fl-player-create h1 { line-height: 1; }
+.fl-player-feedback { background: var(--color-chalk); border: 0; border-top: 1px solid var(--color-ink); border-radius: 0; padding-top: 28px; }
+.fl-player-feedback [data-slot="card-header"] { background: transparent; padding: 0 0 24px; border-bottom: 1px solid var(--color-hairline); }
+.fl-player-feedback [data-slot="card-title"] { font: 400 40px/1.05 var(--font-serif); }
+.fl-player-feedback [data-slot="card-content"] { padding: 0; }
+.fl-feedback-row { border: 0; border-bottom: 1px solid var(--color-hairline); border-radius: 0; padding: 20px 0; min-height: 88px; }
+.fl-feedback-row:hover { background: var(--color-chalk-2); }
+.fl-feedback-row:focus-visible { outline: 2px solid var(--color-ink); outline-offset: 3px; }
+.fl-feedback-row > span > span:first-child, .fl-feedback-detail > p:first-child { font-family: var(--font-mono); font-size: 11px; letter-spacing: .08em; }
+.fl-feedback-detail { border-radius: 0; background: transparent; border: 0; border-top: 1px solid var(--color-ink); padding: 32px 0; }
+.fl-feedback-detail h3 { font: 400 40px/1.1 var(--font-serif); }
+.fl-development { border-radius: 0; background: transparent; border: 0; border-top: 1px solid var(--color-hairline); padding: 24px 0; }
+.fl-development-focus { background: var(--color-ink); color: var(--color-chalk); padding: 26px; border-radius: 10px; }
+.fl-development-focus > div, .fl-development-focus > p { color: var(--color-gold); font-family: var(--font-mono); font-weight: 400; }
+.fl-development-focus h4 { font: 400 34px/1.1 var(--font-serif); }
+.fl-development-focus dt { font-weight: 500; }
+.fl-development-focus dd { color: var(--color-chalk); opacity: .9; }
+.fl-development legend { font-family: var(--font-serif); font-size: 28px; font-weight: 400; }
+@media (max-width: 640px) {
+  .fl-player-feedback [data-slot="card-title"], .fl-feedback-detail h3 { font-size: 34px; }
+  .fl-player-create [data-slot="card-header"], .fl-player-create [data-slot="card-content"], .fl-club-entry [data-slot="card-header"], .fl-club-entry [data-slot="card-content"] { padding-left: 0; padding-right: 0; }
+  .fl-development-focus { padding: 22px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .fl-player-onboarding *, .fl-player-create *, .fl-player-feedback *, .fl-development * { transition: none !important; }
+}
+.fl-player-invitations { border-top: 1px solid var(--color-ink); padding: 28px 0; }
+.fl-player-invitations h3 { font: 400 36px/1.1 var(--font-serif); }
+.fl-player-invitations li { padding: 22px 0; border-color: var(--color-hairline); }
+.fl-owner-showcase { border-radius: 0; border: 0; background: transparent; box-shadow: none; }
+.fl-owner-showcase > [data-slot="card-content"] { padding-left: 0; padding-right: 0; }
+.fl-owner-showcase h2 { font: 400 40px/1.1 var(--font-serif); }
+.fl-owner-showcase button { min-height: 40px; }
+@media (max-width: 640px) {
+  .fl-owner-showcase h2 { font-size: 34px; }
+  .fl-owner-showcase button { min-height: 44px; }
+}
+.fl-applications { margin-top: 40px; border-top: 1px solid var(--color-hairline); }
+.fl-applications > div > section:first-child { border-radius: 10px; }
+.fl-applications .floodlight-container { padding: 32px; }
+.fl-applications h1 { font-size: 48px; }
+.fl-applications > div > section:last-child { gap: 32px; }
+.fl-applications > div > section:last-child h2 { font-size: 32px; }
+@media (max-width: 640px) { .fl-applications .floodlight-container { padding: 28px 16px; } }

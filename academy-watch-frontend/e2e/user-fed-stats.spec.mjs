@@ -640,6 +640,7 @@ test('Scout source filter reaches browse, boards, signed compare, and CSV while 
 
 test('club manager records both video-linked and no-video results with roster stats', async ({ page }) => {
   const resultBodies = []
+  let savedVideoResult = null
   const programClaim = {
     id: 301,
     status: 'approved',
@@ -723,12 +724,15 @@ test('club manager records both video-linked and no-video results with roster st
       return route.fulfill({ json: { matches: [summary], total: 1 } })
     }
     if (url.pathname === '/api/club/7/matches/41') return route.fulfill({ json: fullMatch })
+    if (url.pathname === '/api/club/7/results' && request.method() === 'GET') return route.fulfill({ json: { results: savedVideoResult ? [savedVideoResult] : [] } })
+    if (url.pathname === '/api/club/7/results/91') return route.fulfill({ json: savedVideoResult })
     if (url.pathname === '/api/club/7/results' && request.method() === 'POST') {
       const body = request.postDataJSON()
       resultBodies.push(body)
-      return route.fulfill({
-        json: {
+      const saved = {
           result: {
+            id: body.video_match_id == null ? 92 : 91,
+            version: 1,
             video_match_id: body.video_match_id,
             match_date: body.match_date,
             opponent: body.opponent,
@@ -760,14 +764,14 @@ test('club manager records both video-linked and no-video results with roster st
               },
             } : {}),
           },
-        },
-      })
+        }
+      if (body.video_match_id != null) savedVideoResult = saved
+      return route.fulfill({ json: saved })
     }
     return route.fulfill({ json: {} })
   })
 
-  await page.goto('/my-club')
-  await page.getByRole('tab', { name: 'Matches & reports' }).click()
+  await page.goto('/my-club?view=matches')
   await page.getByRole('button', { name: 'Record result for Riverside Juniors' }).click()
 
   let dialog = page.getByRole('dialog')
@@ -825,6 +829,7 @@ test('club manager records both video-linked and no-video results with roster st
   await expect(dialog.getByText('No season totals were returned.', { exact: true })).toHaveCount(0)
 
   expect(resultBodies[0]).toEqual({
+    client_request_id: expect.stringMatching(/^[a-f0-9-]{36}$/),
     video_match_id: 41,
     match_date: '2026-08-24',
     opponent: 'Riverside Juniors',
@@ -838,6 +843,7 @@ test('club manager records both video-linked and no-video results with roster st
     ],
   })
   expect(resultBodies[1]).toEqual({
+    client_request_id: expect.stringMatching(/^[a-f0-9-]{36}$/),
     video_match_id: null,
     match_date: '2026-08-31',
     opponent: 'Bay United',

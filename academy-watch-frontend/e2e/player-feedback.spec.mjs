@@ -18,6 +18,7 @@ async function harness(page, options = {}) {
     const {createRoot} = (await import('/node_modules/.vite/deps/react-dom_client.js')).default;
     const {APIService} = await import('/src/lib/api.js');
     const {AuthContext} = await import('/src/context/AuthContext.jsx');
+    const {BrowserRouter} = await import('/e2e/fixtures/roster-router.jsx');
     const {PlayerFeedbackPanel, RosterPanel} = await import('/src/pages/MyClubConsole.jsx');
     const {default: PlayerFeedbackInbox} = await import('/src/components/showcase/PlayerFeedbackInbox.jsx');
     await import('/src/App.css');
@@ -25,10 +26,10 @@ async function harness(page, options = {}) {
     window.renderP3 = (mode, props = {}) => { APIService.userToken = Object.hasOwn(props, 'token') ? props.token : mode === 'manager' ? 'manager' : 'claimant'; root.render(React.createElement(mode === 'manager' ? PlayerFeedbackPanel : PlayerFeedbackInbox, { programId: 7, invitationId: '${invitationId}', playerName: 'Synthetic Player', signedId: -42, token: APIService.userToken, ...props })); };
     window.renderRosterP3 = () => {
       APIService.userToken = 'manager';
-      root.render(React.createElement(AuthContext.Provider, {value: {token: 'manager'}}, React.createElement(RosterPanel, {
+      root.render(React.createElement(BrowserRouter, null, React.createElement(AuthContext.Provider, {value: {token: 'manager'}}, React.createElement(RosterPanel, {
         programId: 7, members: [{id: 42, available: true, is_minor: false, display_name: 'Synthetic Player', subject_type: 'local', local_player_id: 42}],
         systemBrief: null, loading: false, error: null, onMembersChange: () => {}, onSystemBriefChange: () => {}, onReload: () => {}, onAccessDenied: () => {},
-      })));
+      }))));
     };
     window.renderP3('manager');
   </script></body></html>` }))
