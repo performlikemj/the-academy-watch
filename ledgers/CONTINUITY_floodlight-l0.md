@@ -7,6 +7,8 @@
 - Validation: OSV passed before frozen dependency restore; frontend lint (0 errors; 182 existing warnings), Vite build, 193 Node tests; 63 backend interest/auth tests; full backend Ruff check + format; 7 foundation + 14 existing Playwright checks. Real PostgreSQL full-stack create/success/duplicate/admin counts/CSV/auth denial passed.
 - Evidence: ~/codex-runs/aw-redesign/shots/L0/{home,clubs,opportunities,admin-interest,scout,pricing,player-909}-{desktop,mobile}.png, results.json; 1440x900 + 390x844, real copied DB content; development annotation overlay hidden for final captures.
 - Decision: orchestrator BUS update 00:45 changes gold-text to #84661F for AA small text on chalk; applied to shared token.
-- Now: all required checks pass; screenshot review complete, plus signed-in tablet wrap/CSV regression covered. Ready for draft PR.
-- Next: scoped commit, push, draft PR; BUS DONE; stop own servers, drop aw_rd_l0, delete temporary auth and scripts.
+- Done: draft PR https://github.com/performlikemj/the-academy-watch/pull/1103 against redesign/floodlight; implementation commits 2855c21f and 3c9ee604.
+- Cleanup: both own servers stopped, aw_rd_l0 dropped, copied .env and temporary auth/screenshot script removed; no simulator booted or /tmp files created directly.
+- Now: complete; all required checks and visual review passed.
+- Next: orchestrator review/merge and preapply fl01 SQL; downstream lanes branch from redesign/l0-foundation.
 - UNCONFIRMED: no release date for new features; teasers make no timing promise. Other lanes own bespoke scout/admin/player restyles; untouched pages intentionally inherit only shared tokens/primitives/shell.
