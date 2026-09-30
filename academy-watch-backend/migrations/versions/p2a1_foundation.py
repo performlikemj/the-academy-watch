@@ -2,7 +2,7 @@
 
 import sqlalchemy as sa
 from alembic import op
-from migrations._migration_helpers import create_index_safe, table_exists
+from migrations._migration_helpers import add_column_safe, create_index_safe, table_exists
 
 revision = "p2a1"
 down_revision = "fl01"
@@ -13,12 +13,14 @@ AUDIT_TRIGGER_FUNCTION = """
 CREATE OR REPLACE FUNCTION public.p2a1_guard_admin_action_events() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
-    IF TG_OP = 'UPDATE' AND NEW.actor_email = 'Account deleted'
+    IF TG_OP = 'UPDATE' THEN
+      IF OLD.actor_email <> 'Account deleted' AND NEW.actor_email = 'Account deleted'
        AND NEW.reason = '[redacted]' AND NEW.event_metadata::jsonb = '{}'::jsonb
        AND NEW.id = OLD.id AND NEW.action = OLD.action
        AND NEW.target_type = OLD.target_type AND NEW.target_id = OLD.target_id
        AND NEW.created_at = OLD.created_at THEN
         RETURN NEW;
+      END IF;
     END IF;
     RAISE EXCEPTION 'admin_action_events is append-only (identity erasure only)';
 END;
@@ -30,6 +32,26 @@ DO $$ BEGIN
                    AND tgrelid = 'public.admin_action_events'::regclass) THEN
         CREATE TRIGGER p2a1_admin_action_events_append_only BEFORE UPDATE OR DELETE
         ON public.admin_action_events FOR EACH ROW EXECUTE FUNCTION public.p2a1_guard_admin_action_events();
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'p2a1_admin_action_events_no_truncate'
+                   AND tgrelid = 'public.admin_action_events'::regclass) THEN
+        CREATE TRIGGER p2a1_admin_action_events_no_truncate BEFORE TRUNCATE
+        ON public.admin_action_events FOR EACH STATEMENT EXECUTE FUNCTION public.p2a1_guard_admin_action_events();
+    END IF;
+END $$;
+"""
+
+STATUS_CONSTRAINT = """
+DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_notification_outbox_status'
+               AND conrelid = 'public.notification_outbox'::regclass
+               AND position('sending' in pg_get_constraintdef(oid)) = 0) THEN
+        ALTER TABLE public.notification_outbox DROP CONSTRAINT ck_notification_outbox_status;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_notification_outbox_status'
+                   AND conrelid = 'public.notification_outbox'::regclass) THEN
+        ALTER TABLE public.notification_outbox ADD CONSTRAINT ck_notification_outbox_status
+        CHECK (status IN ('pending', 'retry', 'sending', 'sent', 'cancelled', 'failed'));
     END IF;
 END $$;
 """
@@ -57,9 +79,13 @@ def upgrade():
             sa.Column("sent_at", sa.DateTime(timezone=True)),
             sa.CheckConstraint("attempts >= 0", name="ck_notification_outbox_attempts"),
             sa.CheckConstraint(
-                "status IN ('pending', 'retry', 'sent', 'cancelled', 'failed')", name="ck_notification_outbox_status"
+                "status IN ('pending', 'retry', 'sending', 'sent', 'cancelled', 'failed')",
+                name="ck_notification_outbox_status",
             ),
         )
+    add_column_safe("notification_outbox", sa.Column("lease_token", sa.String(36)))
+    add_column_safe("notification_outbox", sa.Column("lease_expires_at", sa.DateTime(timezone=True)))
+    op.execute(STATUS_CONSTRAINT)
     create_index_safe("uq_notification_outbox_dedupe", "notification_outbox", ["dedupe_key"], unique=True)
     create_index_safe("ix_notification_outbox_due", "notification_outbox", ["status", "next_attempt_at", "id"])
     if not table_exists("admin_action_events"):
@@ -84,6 +110,9 @@ def upgrade():
 
 
 def downgrade():
+    for table in ("admin_action_events", "notification_outbox"):
+        if table_exists(table) and op.get_bind().execute(sa.text(f"SELECT EXISTS (SELECT 1 FROM {table})")).scalar():
+            raise RuntimeError(f"refusing to downgrade nonempty {table}; preserve history and delivery intents")
     for table in ("admin_action_events", "notification_outbox"):
         if table_exists(table):
             op.drop_table(table)

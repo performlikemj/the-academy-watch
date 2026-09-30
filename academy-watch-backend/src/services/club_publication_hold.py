@@ -1,7 +1,7 @@
-"""Derived existing emergency state for NEW public reads; no suppression writes.
+"""Derived emergency publication state for public reads; no suppression writes.
 
 Existing holds continue to apply when rollout flags are switched off. Only the
-new admin mutation endpoints are rollout gated; legacy callers are unchanged.
+new admin mutation endpoints are rollout gated; existing public surfaces consult holds.
 """
 
 import sqlalchemy as sa
@@ -32,6 +32,9 @@ def subject_publication_hold_filter(signed_id):
     """
     local_keys = aliased(LocalPlayer)
     origin = aliased(LocalPlayer)
+    affiliated_club = aliased(LocalClub)
+    target_club = aliased(LocalClub)
+    program_club = aliased(LocalClub)
     local_ids = (
         sa.select(local_keys.id)
         .where(sa.or_(local_keys.api_player_id == signed_id, local_keys.id == -signed_id))
@@ -69,9 +72,43 @@ def subject_publication_hold_filter(signed_id):
                 sa.or_(
                     PlayerClubAffiliation.team_api_id == ClubProgram.team_api_id,
                     PlayerClubAffiliation.local_club_id.in_(
-                        sa.select(LocalClub.id)
-                        .where(LocalClub.api_team_id == ClubProgram.team_api_id)
-                        .correlate_except(LocalClub)
+                        sa.select(affiliated_club.id)
+                        .outerjoin(target_club, target_club.id == affiliated_club.merged_into_local_club_id)
+                        .where(
+                            sa.or_(
+                                affiliated_club.api_team_id == ClubProgram.team_api_id,
+                                target_club.api_team_id == ClubProgram.team_api_id,
+                                sa.exists(
+                                    sa.select(program_club.id)
+                                    .where(
+                                        ClubProgram.slug
+                                        == sa.literal("console-local-club-") + sa.cast(program_club.id, sa.String),
+                                        sa.case(
+                                            (
+                                                sa.and_(
+                                                    program_club.status == "merged",
+                                                    program_club.merged_into_local_club_id.isnot(None),
+                                                ),
+                                                program_club.merged_into_local_club_id,
+                                            ),
+                                            else_=program_club.id,
+                                        )
+                                        == sa.case(
+                                            (
+                                                sa.and_(
+                                                    affiliated_club.status == "merged",
+                                                    affiliated_club.merged_into_local_club_id.isnot(None),
+                                                ),
+                                                affiliated_club.merged_into_local_club_id,
+                                            ),
+                                            else_=affiliated_club.id,
+                                        ),
+                                    )
+                                    .correlate_except(program_club)
+                                ),
+                            )
+                        )
+                        .correlate_except(affiliated_club, target_club)
                     ),
                 ),
                 sa.or_(
@@ -104,3 +141,16 @@ def subject_publication_held(subject) -> bool:
     if isinstance(signed_id, bool) or not isinstance(signed_id, int) or not signed_id:
         return True
     return bool(db.session.query(subject_publication_hold_filter(signed_id)).scalar())
+
+
+def held_subject_ids(signed_ids):
+    """One correlated hold query for an already bounded candidate page."""
+    ids = sorted(set(signed_ids))
+    if not ids:
+        return set()
+    candidates = sa.union_all(*(sa.select(sa.literal(pid).label("signed_id")) for pid in ids)).subquery()
+    return set(
+        db.session.execute(
+            sa.select(candidates.c.signed_id).where(subject_publication_hold_filter(candidates.c.signed_id))
+        ).scalars()
+    )

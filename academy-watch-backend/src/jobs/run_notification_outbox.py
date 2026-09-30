@@ -22,7 +22,7 @@ def main(argv=None):
     with app.app_context():
         summary = dispatch_due(limit=args.limit)
     print(json.dumps(summary, sort_keys=True))
-    return 1 if summary["failed"] or summary["retry"] else 0
+    return 1 if summary["failed"] or summary["retry"] or summary["errors"] else 0
 
 
 if __name__ == "__main__":

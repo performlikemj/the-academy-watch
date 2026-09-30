@@ -1,20 +1,22 @@
 # Phase 2 A1 foundation
 
 - Goal: transactional notification outbox, append-only admin audit, canonical new-public adult rule, reversible club publication hold.
-- Branch: p2/a1-foundation; migration p2a1 → fl01; flag P2_FOUNDATION_ENABLED default OFF.
-- Constraints: no A2 registry/home/club guard/access edits; no legacy public caller changes; no child PII in queued payloads; no individual suppression mutation.
-- Status: complete; draft PR ready for orchestrator review.
-- Done: read phase decisions, required recon sections, DESIGN 6–9, BUS, repository guidance; posted START/CLAIMs.
-- Now: draft PR #1110 open against main; own work complete.
-- Next: orchestrator review/A2 integration, preapply/stamp/deploy with flag OFF; MJ decides flag activation.
-- Limitation: provider delivery is at-least-once across send-success/DB-commit failure.
-- Milestone: 31 foundation tests and 57 focused account/funding/foundation tests passed (before expanded hold matrix); Ruff/format pass.
-- PostgreSQL: target host/database verified, ch02 → fl01 → p2a1 applied; both new tables RLS true; preapply SQL reapplied twice successfully.
-- PostgreSQL/HTTP: hide/lift + public 200/404/200, DB trigger rejects UPDATE/DELETE, concurrent dedupe converges to one intent, concurrent workers send once (mock provider), erasure redacts audit/deletes intent. Direct worker flag-OFF returns disabled JSON.
-- Full pytest with copied local env: 3172 passed, 35 skipped, 3 pre-existing radar failures (same tests documented by INT); no application fixes applied for these. CI-equivalent rerun without env pending.
-- Clean CI-equivalent pytest: 3177 passed, 40 skipped, 115 warnings; then two final regression tests added (stored API age without DOB + overlapping holds), focused foundation 33/33 pass; final full rerun underway.
-- Cleanup: own 5120 server stopped; aw_p2_a1 dropped; copied env and backup removed; no Vite/simulator/dependency install used. Evidence logs and synthetic PostgreSQL smoke script retained under ~/codex-runs/aw-redesign/.
-- Decisions: account-recipient outbox only; orchestrator approved A2 synchronous invite email exception on BUS. Whole-page hold for any linked hidden club; age alone is not new-public DOB evidence. Account privacy export/erasure runs even after flag OFF, empty foundation exports preserve prior response shape.
-- Final review: turning rollout OFF preserves derived existing emergency holds; regression passes. Export timestamps serialize portably; final full pytest rerun pending. No blockers or unresolved product questions.
-- Final gates: 3179 passed, 40 skipped, 115 warnings in 193.22s; Ruff check + format check pass (531 files); Python 3.11 compilation pass. Evidence `~/codex-runs/aw-redesign/logs/P2A1.report.md`. Frontend untouched.
-- Delivery: code commit 44e412e8 pushed; draft PR #1110 https://github.com/performlikemj/the-academy-watch/pull/1110. All A1 CLAIMs released. Worktree retained, production untouched.
+- Branch: p2/a1-foundation; draft PR #1110 https://github.com/performlikemj/the-academy-watch/pull/1110.
+- Migration: p2a1 → fl01; RLS on notification_outbox/admin_action_events; guarded schema-only external p2a1_preapply.sql does not stamp.
+- Flag: P2_FOUNDATION_ENABLED defaults OFF for new admin mutations/enqueue/dispatch. Existing emergency holds and privacy export/erasure survive OFF.
+- Constraints: no A2 registry/home/club guard/access edits; RA1 explicitly authorizes minimal existing public hold checks; legacy age policy and individual suppression rows unchanged; no child PII/credentials in queue.
+- Status: complete; original implementation and RA1 fix round 1 verified.
+- Done: all ten RA1 findings fixed; contracts posted to A2/orchestrator on BUS, documented in docs/p2-foundation.md and AGENTS.md.
+- Now: hand back fixes through existing PR #1110.
+- Next: orchestrator review/A2 integration, preapply/stamp/deploy with flag OFF; MJ decides activation. Retain A2 p2a2 head values in four shared migration-head assertion files when combining.
+- Original delivery: code 44e412e8, ledger a5940bb2; 3179 pytest passed/40 skipped; PostgreSQL concurrent dedupe/worker and real HTTP checks passed.
+- RA1 worker: savepoint callback isolation; claim/commit sending lease/token, provider outside DB locks/transaction, fresh tombstone recheck/finalize; expiry reclaims stuck rows and fences late workers. Unknown templates retry then fail after five attempts. All per-row callback/provider failures continue the batch.
+- RA1 payload/erasure: *_id integer/UUID only; other strings per-template enums. Referenced account convention entity_type=user_account/entity_id=uid; erasure removes pending/retry/sending subject intents to other recipients; templates cancel tombstoned/missing subjects. Empty foundation deletion counts omitted.
+- RA1 publication: local-only console-local-club-ID and single-hop merged clubs covered; existing public player/local/showcase/media/share/search/query surfaces enforce holds independently of rollout. Suppression stays separate.
+- RA1 adult queries: batched source IN queries and one hold query; max/default100 candidates, after keyset cursor, Query option p2_adult_next_cursor; eight SQL queries including final positive page for both one and 100 candidates.
+- RA1 audit: BEFORE TRUNCATE trigger; erasure form allowed only before initial redaction; downgrade refuses retained history/intents.
+- RA1 gates: Ruff check/format check all 532 backend files pass; Python 3.11 compile pass; full backend pytest 3205 passed/40 skipped/115 warnings in 224.95s, including all seven opt-in PostgreSQL regressions. Focused foundation 59/59 (52 SQLite + seven PostgreSQL). Frontend untouched.
+- RA1 PostgreSQL: actual main DB_NAME connection verified localhost/aw_p2_a1 using DB_SSLMODE=disable, upgraded ch02→fl01→p2a1; RLS true; generated guarded preapply from migration, applied twice, trigger/function/status constants match exactly. Invalid SQL eligible/render/provider retries with attempts1 while next row sends; lock_timeout test proves account is writable during provider call; tombstone/deletion race never resurrects intents; audit guards pass.
+- Legacy fixture adjustments: partial registry tables gain hold-query columns; hidden-player contact/feedback expectations use existing neutral suppression denials; suspended-club routing checks retained.
+- Limits: at-least-once delivery across crash or lease expiry; erasure can race an already-started send. Templates must register in application startup and must not commit or perform external side effects. Account-only outbox; orchestrator-approved A2 synchronous invitation email exception unchanged.
+- Cleanup: no server/frontend/env copy/dependency install/provider send/production write; own aw_p2_a1 dropped, ports5120/5190 free; worktree retained. Evidence logs under ~/codex-runs/aw-redesign/logs/A1F*; short hand-back A1F.final.md.

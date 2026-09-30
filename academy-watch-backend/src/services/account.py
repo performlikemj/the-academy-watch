@@ -1169,7 +1169,9 @@ def delete_account(user: UserAccount) -> AccountDeletionEvent:
     schema = _SchemaView()
     from src.services.foundation_account import erase_foundation_rows
 
-    counts["foundation"] = erase_foundation_rows(user_id, email, schema)
+    foundation_counts = erase_foundation_rows(user_id, email, schema)
+    if any(foundation_counts.values()):
+        counts["foundation"] = foundation_counts
     funding_deleted = _delete_optional_funding_rows(schema, user_id)
     counts["deleted"].update(funding_deleted)
     if email:

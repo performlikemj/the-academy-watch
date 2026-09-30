@@ -295,7 +295,9 @@ def search_players(q, api_client=None):
             break
 
     pids = [r["player_api_id"] for r in results]
-    suppressed_ids = active_suppressed_player_ids(pids)
+    from src.services.club_publication_hold import held_subject_ids
+
+    suppressed_ids = active_suppressed_player_ids(pids) | held_subject_ids(pids)
     if suppressed_ids:
         results = [r for r in results if r["player_api_id"] not in suppressed_ids]
         pids = [r["player_api_id"] for r in results]

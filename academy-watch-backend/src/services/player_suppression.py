@@ -50,9 +50,11 @@ def active_local_suppression_exists(local_player_id):
 
 
 def without_active_suppression(player_api_id):
-    """SQL predicate retaining only players without an active suppression."""
+    """Read visibility: exclude actual suppression and derived club holds."""
 
-    return ~active_suppression_exists(player_api_id)
+    from src.services.club_publication_hold import subject_publication_hold_filter
+
+    return ~active_suppression_exists(player_api_id) & ~subject_publication_hold_filter(player_api_id)
 
 
 def is_player_suppressed(player_api_id: int) -> bool:
@@ -115,7 +117,11 @@ def hide_suppressed_player(argument_name: str):
             if current_app.extensions.get("sqlalchemy") is not db:
                 return view(*args, **kwargs)
             player_api_id = kwargs.get(argument_name)
-            if player_api_id is not None and is_player_suppressed(player_api_id):
+            from src.services.club_publication_hold import subject_publication_held
+
+            if player_api_id is not None and (
+                is_player_suppressed(player_api_id) or subject_publication_held(player_api_id)
+            ):
                 return neutral_player_not_found()
             return view(*args, **kwargs)
 

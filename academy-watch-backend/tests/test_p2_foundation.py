@@ -32,6 +32,9 @@ from src.services.public_player_subject import resolve_public_adult_subject
 
 @pytest.fixture
 def foundation_app(monkeypatch):
+    import src.services.notification_outbox as outbox
+
+    monkeypatch.setattr(outbox, "_templates", {})
     monkeypatch.setenv("P2_FOUNDATION_ENABLED", "1")
     monkeypatch.setenv("ADMIN_API_KEY", "fixture-admin")
     monkeypatch.setenv("PLAYER_SUPPRESSION_ENCRYPTION_KEY", "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=")
@@ -195,7 +198,7 @@ def test_dispatch_revalidates_and_never_sends_ineligible(foundation_app, invalid
     dispatch_due(now=datetime.now(UTC) + timedelta(seconds=1), send=send)
     send.assert_not_called()
     if invalid != "erased":
-        assert row.status == "cancelled"
+        assert row.status == ("retry" if invalid == "unknown" else "cancelled")
 
 
 def test_recipient_and_entity_rechecked_on_retry(foundation_app):
@@ -334,8 +337,11 @@ def test_adult_query_filter_and_stale_subject_revalidation(foundation_app):
     assert subject and is_public_adult(subject)
     rows = filter_public_adults(LocalPlayer.query, LocalPlayer.api_player_id).all()
     assert [row.id for row in rows] == [adult.id]
-    with pytest.raises(ValueError, match="bound"):
-        filter_public_adults(LocalPlayer.query, LocalPlayer.api_player_id, max_candidates=1)
+    page = filter_public_adults(LocalPlayer.query, LocalPlayer.api_player_id, max_candidates=1)
+    assert page.get_execution_options()["p2_adult_next_cursor"] == minor.api_player_id
+    assert page.all() == []
+    next_page = filter_public_adults(LocalPlayer.query, LocalPlayer.api_player_id, after=minor.api_player_id)
+    assert [row.id for row in next_page.all()] == [adult.id]
     program = _program()
     program.emergency_hidden = True
     db.session.add(ClubRosterMember(program_id=program.id, local_player_id=adult.id, added_by_user_id=_user().id))
@@ -484,3 +490,218 @@ def test_all_linked_club_holds_with_correlated_api_filter(foundation_app, link):
     assert not subject_publication_held(54321)
     rows = PlayerShadow.query.filter(subject_publication_hold_filter(PlayerShadow.player_api_id)).all()
     assert [row.player_api_id for row in rows] == [signed_id]
+
+
+@pytest.mark.parametrize("merged_side", [None, "affiliation", "program", "both"])
+def test_local_only_club_program_hold(foundation_app, merged_side):
+    target = LocalClub(name="Target", normalized_name="target", status="approved")
+    db.session.add(target)
+    db.session.flush()
+    source = LocalClub(name="Source", normalized_name="source", status="merged", merged_into_local_club_id=target.id)
+    sibling = LocalClub(name="Sibling", normalized_name="sibling", status="merged", merged_into_local_club_id=target.id)
+    db.session.add_all([source, sibling])
+    db.session.flush()
+    program = _program()
+    program.slug = f"console-local-club-{source.id if merged_side in {'program', 'both'} else target.id}"
+    assert program.team_api_id is None and target.api_team_id is None
+    local = _local(birth_date=date(1990, 1, 1))
+    db.session.add(
+        PlayerClubAffiliation(
+            local_player_id=local.id,
+            local_club_id=sibling.id if merged_side in {"affiliation", "both"} else target.id,
+            status="approved",
+        )
+    )
+    program.emergency_hidden = True
+    db.session.commit()
+    assert subject_publication_held(local.api_player_id)
+    assert not is_public_adult(local.api_player_id)
+    program.emergency_hidden = False
+    db.session.commit()
+    assert is_public_adult(local.api_player_id)
+
+
+@pytest.mark.parametrize("size", [1, 100, 101])
+def test_adult_filter_constant_query_count_and_default_pagination(foundation_app, size):
+    from sqlalchemy import event
+
+    db.session.add_all(
+        [
+            PlayerShadow(player_api_id=20000 + i, player_name="Fixture", is_active=True, birth_date=date(1990, 1, 1))
+            for i in range(size)
+        ]
+    )
+    db.session.commit()
+    statements = []
+
+    def capture(conn, cursor, statement, params, context, executemany):
+        statements.append(statement)
+
+    event.listen(db.engine, "before_cursor_execute", capture)
+    try:
+        page = filter_public_adults(PlayerShadow.query, PlayerShadow.player_api_id)
+        rows = page.all()
+    finally:
+        event.remove(db.engine, "before_cursor_execute", capture)
+    assert len(rows) == min(size, 100)
+    assert len(statements) == 8
+    assert sum("club_programs.emergency_hidden" in statement for statement in statements) == 1
+    assert page.get_execution_options()["p2_adult_next_cursor"] == (20099 if size > 100 else None)
+    if size > 100:
+        next_page = filter_public_adults(PlayerShadow.query, PlayerShadow.player_api_id, after=20099)
+        assert [row.player_api_id for row in next_page.all()] == [20100]
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"player_id": "alice"},
+        {"player_id": True},
+        {"player_id": None},
+        {"state": "alice"},
+        {"decision": "undocumented"},
+    ],
+)
+def test_payload_rejects_untyped_ids_and_undeclared_strings(foundation_app, payload):
+    _template()
+    with pytest.raises(ValueError):
+        _intent(_user(), payload=payload)
+
+
+def test_payload_allows_int_uuid_and_declared_template_enum(foundation_app):
+    register_template(
+        "fixture", eligible=lambda r, u: True, render=lambda r, u: {}, payload_enums={"state": {"approved"}}
+    )
+    row = _intent(
+        _user(),
+        payload={
+            "player_id": 123,
+            "event_id": "12345678-1234-1234-1234-123456789abc",
+            "state": "approved",
+            "version": 1,
+        },
+    )
+    assert row.payload["state"] == "approved"
+
+
+def test_unknown_template_backoff_exhaustion(foundation_app):
+    row = _intent(_user(), template="unregistered")
+    db.session.commit()
+    now = datetime.now(UTC) + timedelta(seconds=1)
+    send = Mock()
+    for attempt in range(MAX_ATTEMPTS):
+        dispatch_due(now=now + timedelta(hours=attempt), send=send)
+        assert row.attempts == attempt + 1
+        assert row.status == ("failed" if attempt == MAX_ATTEMPTS - 1 else "retry")
+        assert row.last_error == "template_unavailable"
+    send.assert_not_called()
+
+
+def test_expired_lease_reclaims_and_rejects_old_finalize(foundation_app):
+    import src.services.notification_outbox as outbox
+
+    row = _intent(_user())
+    db.session.commit()
+    _template()
+    now = datetime.now(UTC) + timedelta(seconds=1)
+    row_id, old_token = outbox._claim(now)
+    assert dispatch_due(now=now + timedelta(seconds=outbox.LEASE_SECONDS - 1), send=Mock())["sent"] == 0
+    send = Mock(return_value=EmailResult(success=True, provider="fixture"))
+    assert dispatch_due(now=now + timedelta(seconds=outbox.LEASE_SECONDS), send=send)["sent"] == 1
+    assert row.attempts == 2 and row.lease_token is None
+    assert outbox._finalize(row_id, old_token, "retry", "delivery_failed", now) is None
+    assert row.status == "sent"
+
+
+def test_erase_pending_referenced_account_and_tombstoned_subject(foundation_app):
+    subject, recipient = _user(), _user("recipient@example.com")
+    pending = _intent(recipient, entity_type="user_account", entity_id=subject.id)
+    sent = _intent(recipient, dedupe_key="sent-reference", entity_type="user_account", entity_id=subject.id)
+    sent.status = "sent"
+    db.session.commit()
+    pending_id, sent_id = pending.id, sent.id
+    assert erase_foundation_rows(subject.id, subject.email, _SchemaView())["notifications_deleted"] == 1
+    db.session.commit()
+    assert db.session.get(NotificationOutbox, pending_id) is None
+    assert db.session.get(NotificationOutbox, sent_id) is not None
+    row = _intent(recipient, dedupe_key="tombstone-reference", entity_type="user_account", entity_id=subject.id)
+    subject.is_tombstone = True
+    db.session.commit()
+    _template()
+    send = Mock()
+    assert dispatch_due(now=datetime.now(UTC) + timedelta(seconds=1), send=send)["cancelled"] == 1
+    assert row.status == "cancelled"
+    send.assert_not_called()
+
+
+def test_no_foundation_count_for_empty_erasure_flag_off(foundation_app, monkeypatch):
+    monkeypatch.delenv("P2_FOUNDATION_ENABLED")
+    result = delete_account(_user())
+    assert "foundation" not in result.counts
+
+
+@pytest.mark.parametrize("namespace", ["api", "local"])
+def test_existing_public_page_media_share_search_hold_and_lift(foundation_app, monkeypatch, namespace):
+    from io import BytesIO
+    from pathlib import Path
+
+    import src.routes.share as share
+    from flask import Response
+    from src.models.showcase import PlayerShowcaseMedia
+    from src.routes.api import api_bp
+    from src.routes.players import players_bp
+    from src.routes.share import share_bp
+    from src.routes.showcase import showcase_bp
+    from src.services import showcase_media_storage
+
+    foundation_app.template_folder = str(Path(__file__).resolve().parents[1] / "src" / "templates")
+    foundation_app.register_blueprint(api_bp, url_prefix="/api")
+    foundation_app.register_blueprint(players_bp, url_prefix="/api")
+    foundation_app.register_blueprint(showcase_bp, url_prefix="/api")
+    foundation_app.register_blueprint(share_bp)
+    monkeypatch.setattr(
+        showcase_media_storage, "published_response", lambda path: Response(b"fixture-image", mimetype="image/jpeg")
+    )
+    monkeypatch.setattr(share, "render_share_card", lambda subject: BytesIO(b"fixture-card"))
+    program = _program()
+    local = _local(birth_date=date(1990, 1, 1), origin_program_id=program.id)
+    if namespace == "api":
+        local.api_player_id = 12345
+        db.session.add(
+            PlayerShadow(player_api_id=12345, player_name="Fixture", birth_date=date(1990, 1, 1), is_active=True)
+        )
+    signed_id = local.api_player_id
+    prefix = f"players/{signed_id}" if namespace == "api" else f"local-players/{local.id}"
+    blob = f"{prefix}/fixture.jpg"
+    db.session.add(
+        PlayerShowcaseMedia(
+            player_api_id=signed_id if namespace == "api" else None,
+            local_player_id=local.id if namespace == "local" else None,
+            kind="photo",
+            status="approved",
+            blob_path=blob,
+            public_url=blob,
+        )
+    )
+    db.session.commit()
+    client = foundation_app.test_client()
+    paths = [f"/api/{prefix}/showcase", f"/api/media/published/{blob}", f"/p/{signed_id}", f"/p/{signed_id}/card.png"]
+    paths.append(f"/api/players/{signed_id}/profile" if namespace == "api" else f"/api/local-players/{local.id}")
+    for path in paths:
+        assert client.get(path).status_code == 200, path
+    for action, status in [("hide", 404), ("lift", 200)]:
+        assert (
+            client.post(
+                f"/api/admin/programs/{program.id}/emergency-{action}", headers=_admin(), json={"reason": "Fixture"}
+            ).status_code
+            == 200
+        )
+        monkeypatch.delenv("P2_FOUNDATION_ENABLED")
+        for path in paths:
+            assert client.get(path).status_code == status, path
+        from src.services.player_suppression import without_active_suppression
+
+        listed = LocalPlayer.query.filter(without_active_suppression(LocalPlayer.api_player_id)).all()
+        assert bool(listed) == (status == 200)
+        assert PlayerSuppression.query.count() == 0
+        monkeypatch.setenv("P2_FOUNDATION_ENABLED", "1")

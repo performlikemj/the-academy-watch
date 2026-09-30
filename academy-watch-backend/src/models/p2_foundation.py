@@ -13,7 +13,8 @@ class NotificationOutbox(db.Model):
         db.Index("ix_notification_outbox_due", "status", "next_attempt_at", "id"),
         db.CheckConstraint("attempts >= 0", name="ck_notification_outbox_attempts"),
         db.CheckConstraint(
-            "status IN ('pending', 'retry', 'sent', 'cancelled', 'failed')", name="ck_notification_outbox_status"
+            "status IN ('pending', 'retry', 'sending', 'sent', 'cancelled', 'failed')",
+            name="ck_notification_outbox_status",
         ),
     )
 
@@ -30,6 +31,8 @@ class NotificationOutbox(db.Model):
     next_attempt_at = db.Column(
         db.DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC), server_default=db.func.now()
     )
+    lease_token = db.Column(db.String(36))
+    lease_expires_at = db.Column(db.DateTime(timezone=True))
     provider = db.Column(db.String(40))
     provider_message_id = db.Column(db.String(254))
     last_error = db.Column(db.String(80))

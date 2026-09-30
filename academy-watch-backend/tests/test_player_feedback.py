@@ -631,7 +631,7 @@ def test_temporary_hide_and_publish_denial_are_recoverable(client, pilot, accept
     db.session.commit()
     assert detail(client, row).status_code == 404
     assert ack(client, row).status_code == 404
-    assert client.get("/api/me/player-feedback?player_api_id=7001", headers=_headers("scout")).json["feedback"] == []
+    assert client.get("/api/me/player-feedback?player_api_id=7001", headers=_headers("scout")).status_code == 404
     response = client.post("/api/admin/player-feedback/purge", json={"dry_run": False}, headers=_admin_headers())
     assert response.json["closed"] == 0 and response.json["deleted"] == 0
     assert db.session.get(PlayerFeedback, row["id"]).audit_expires_at is None

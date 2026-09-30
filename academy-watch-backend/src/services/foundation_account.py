@@ -39,7 +39,11 @@ def erase_foundation_rows(user_id, email, schema):
     counts = {"notifications_deleted": 0, "admin_actions_redacted": 0}
     if schema.has_columns("notification_outbox", "recipient_user_id"):
         counts["notifications_deleted"] = db.session.execute(
-            sa.text("DELETE FROM notification_outbox WHERE recipient_user_id = :user_id"), {"user_id": user_id}
+            sa.text(
+                "DELETE FROM notification_outbox WHERE recipient_user_id = :user_id OR "
+                "(entity_type = 'user_account' AND entity_id = :entity_id AND status IN ('pending', 'retry', 'sending'))"
+            ),
+            {"user_id": user_id, "entity_id": str(user_id)},
         ).rowcount
     if email and schema.has_columns("admin_action_events", "actor_email"):
         # Append-only action/target/time survive; identity and possibly personal
