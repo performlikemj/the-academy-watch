@@ -16,15 +16,15 @@ struct PlayerClaimSectionView: View {
 
             if let errorMessage = viewModel.errorMessage {
                 Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
-                    .font(.caption)
-                    .foregroundStyle(Color(uiColor: .systemRed))
+                    .font(AcademyType.caption)
+                    .foregroundStyle(AcademyColors.danger)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(14)
-        .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 16))
+        .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 10))
         .overlay {
-            RoundedRectangle(cornerRadius: 16)
+            RoundedRectangle(cornerRadius: 10)
                 .stroke(AcademyColors.separator.opacity(0.35), lineWidth: 0.75)
         }
         .sheet(item: $attestationSheet) { mode in
@@ -50,9 +50,9 @@ struct PlayerClaimSectionView: View {
                     ? "person.crop.circle.badge.checkmark"
                     : "person.crop.circle.badge.questionmark"
             )
-            .font(.caption.weight(.bold))
+            .font(AcademyType.caption.weight(.medium))
             .tracking(1.05)
-            .foregroundStyle(AcademyColors.claret)
+            .foregroundStyle(AcademyColors.accent)
 
             Spacer()
 
@@ -71,10 +71,10 @@ struct PlayerClaimSectionView: View {
         if isAuthenticated, viewModel.isLoading, !viewModel.hasLoaded {
             HStack(spacing: 10) {
                 ProgressView()
-                    .tint(AcademyColors.claret)
+                    .tint(AcademyColors.accent)
                 Text("Checking your claim status…")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .font(AcademyType.subheadline)
+                    .foregroundStyle(AcademyColors.secondaryText)
             }
         } else if let claim = viewModel.claim {
             claimContent(claim)
@@ -82,8 +82,8 @@ struct PlayerClaimSectionView: View {
             Button("Try again") {
                 Task { await viewModel.load(isAuthenticated: true) }
             }
-            .buttonStyle(.bordered)
-            .tint(AcademyColors.claret)
+            .buttonStyle(FloodlightPillStyle(variant: .outline))
+            .tint(AcademyColors.accent)
         } else {
             claimCallToAction
         }
@@ -96,10 +96,10 @@ struct PlayerClaimSectionView: View {
             if claim.relationshipType == "player" {
                 VStack(alignment: .leading, spacing: 9) {
                     Text("Claim under review")
-                        .font(.headline)
+                        .font(AcademyType.headline)
                     Text("We’ll show this as your profile after an Academy Watch admin approves the claim.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .font(AcademyType.subheadline)
+                        .foregroundStyle(AcademyColors.secondaryText)
                     compactAttestation(claim.contractAttestation, reviewLabel: "Reviewed with claim")
                 }
                 .accessibilityIdentifier("player-claim-pending")
@@ -111,11 +111,11 @@ struct PlayerClaimSectionView: View {
             if claim.relationshipType == "player" {
                 VStack(alignment: .leading, spacing: 10) {
                     Label("Your profile", systemImage: "person.crop.circle.fill")
-                        .font(.headline)
-                        .foregroundStyle(AcademyColors.claret)
+                        .font(AcademyType.headline)
+                        .foregroundStyle(AcademyColors.accent)
                     Text("This profile is linked to your \(approvedRoleLabel.lowercased()) account.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .font(AcademyType.subheadline)
+                        .foregroundStyle(AcademyColors.secondaryText)
 
                     Divider()
                     ownerAttestationContent
@@ -129,8 +129,8 @@ struct PlayerClaimSectionView: View {
             if claim.relationshipType == "player" {
                 VStack(alignment: .leading, spacing: 9) {
                     Text("This claim is not active. You can submit it for another review.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .font(AcademyType.subheadline)
+                        .foregroundStyle(AcademyColors.secondaryText)
                     submitButton(title: "Resubmit claim")
                 }
             } else {
@@ -145,66 +145,66 @@ struct PlayerClaimSectionView: View {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 8) {
                     Text("PRIVATE CONTRACT ATTESTATION")
-                        .font(.caption2.weight(.bold))
+                        .font(AcademyType.caption2.weight(.medium))
                         .tracking(0.85)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(AcademyColors.secondaryText)
 
                     Spacer()
 
                     if viewModel.currentAttestationReviewStatus == .pending {
                         BadgeView(
                             text: "Pending review",
-                            foregroundColor: AcademyColors.loanAmber,
-                            backgroundColor: AcademyColors.loanAmber.opacity(0.12)
+                            foregroundColor: AcademyColors.warnText,
+                            backgroundColor: AcademyColors.warnText.opacity(0.12)
                         )
                     }
                 }
 
                 Label(attestation.contractStatus.displayName, systemImage: "doc.text.magnifyingglass")
-                    .font(.subheadline.weight(.semibold))
+                    .font(AcademyType.subheadline.weight(.semibold))
 
                 if let clubName = clean(attestation.currentClubName) {
                     Text("Current club: \(clubName)")
-                        .font(.subheadline)
+                        .font(AcademyType.subheadline)
                 }
 
                 Text(attestation.contractStatus.routingExplanation)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(AcademyType.caption)
+                    .foregroundStyle(AcademyColors.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
 
                 if viewModel.isLoadingOwnerProfile {
                     HStack(spacing: 8) {
                         ProgressView().controlSize(.small)
                         Text("Loading the moderated profile…")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .font(AcademyType.caption)
+                            .foregroundStyle(AcademyColors.secondaryText)
                     }
                 } else {
                     Button("Edit contract attestation") {
                         viewModel.clearOwnerProfileError()
                         attestationSheet = .edit(attestation)
                     }
-                    .buttonStyle(.bordered)
-                    .tint(AcademyColors.claret)
+                    .buttonStyle(FloodlightPillStyle(variant: .outline))
+                    .tint(AcademyColors.accent)
                     .disabled(!viewModel.canEditOwnerAttestation)
                     .accessibilityIdentifier("player-contract-attestation-edit")
                 }
 
                 if let ownerError = viewModel.ownerProfileErrorMessage {
                     Label(ownerError, systemImage: "exclamationmark.triangle.fill")
-                        .font(.caption)
-                        .foregroundStyle(Color(uiColor: .systemRed))
+                        .font(AcademyType.caption)
+                        .foregroundStyle(AcademyColors.danger)
                         .fixedSize(horizontal: false, vertical: true)
                     Button("Try loading profile again") {
                         Task { await viewModel.reloadOwnerProfile() }
                     }
-                    .font(.caption.weight(.semibold))
+                    .font(AcademyType.caption.weight(.medium))
                 }
 
                 Text("Only you and Academy Watch moderators can see this attestation. Changes are reviewed before they affect new contact routing.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .font(AcademyType.caption2)
+                    .foregroundStyle(AcademyColors.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .accessibilityElement(children: .contain)
@@ -219,36 +219,36 @@ struct PlayerClaimSectionView: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 7) {
                 Image(systemName: "doc.text.magnifyingglass")
-                    .foregroundStyle(AcademyColors.claret)
+                    .foregroundStyle(AcademyColors.accent)
                 Text(attestation.contractStatus.displayName)
-                    .font(.subheadline.weight(.semibold))
+                    .font(AcademyType.subheadline.weight(.semibold))
                 Spacer()
                 Text(reviewLabel)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .font(AcademyType.caption2)
+                    .foregroundStyle(AcademyColors.secondaryText)
             }
             if let clubName = clean(attestation.currentClubName) {
                 Text("Current club: \(clubName)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(AcademyType.caption)
+                    .foregroundStyle(AcademyColors.secondaryText)
             }
             Text("This attestation is not shown on your public profile.")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+                .font(AcademyType.caption2)
+                .foregroundStyle(AcademyColors.secondaryText)
         }
         .padding(10)
-        .background(AcademyColors.background.opacity(0.7), in: RoundedRectangle(cornerRadius: 11))
+        .background(AcademyColors.background.opacity(0.7), in: RoundedRectangle(cornerRadius: 10))
     }
 
     private func representativeClaimContent(_ claim: PlayerProfileClaim) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             Text(representativeTitle(for: claim.status))
-                .font(.headline)
+                .font(AcademyType.headline)
             Text(
                 "Your \(relationshipLabel(claim.relationshipType).lowercased()) claim does not identify you as the player."
             )
-            .font(.subheadline)
-            .foregroundStyle(.secondary)
+            .font(AcademyType.subheadline)
+            .foregroundStyle(AcademyColors.secondaryText)
         }
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("player-representative-claim")
@@ -257,21 +257,21 @@ struct PlayerClaimSectionView: View {
     private var claimCallToAction: some View {
         VStack(alignment: .leading, spacing: 9) {
             Text("Are you this player?")
-                .font(.headline)
+                .font(AcademyType.headline)
             Text(
                 isAuthenticated
                     ? "Submit a claim and attest your current contract status to link this profile to your player account."
                     : "Sign in, then submit a claim to link this profile to your player account."
             )
-            .font(.subheadline)
-            .foregroundStyle(.secondary)
+            .font(AcademyType.subheadline)
+            .foregroundStyle(AcademyColors.secondaryText)
 
             if isAuthenticated {
                 submitButton(title: "This is me")
             } else {
                 Button("This is me", action: onSignInRequested)
-                    .buttonStyle(.borderedProminent)
-                    .tint(AcademyColors.claretFill)
+                    .buttonStyle(FloodlightPillStyle())
+                    .tint(AcademyColors.primaryFill)
                     .accessibilityHint("Opens sign in before submitting a player claim")
                     .accessibilityIdentifier("player-claim-this-is-me")
             }
@@ -287,15 +287,15 @@ struct PlayerClaimSectionView: View {
         } label: {
             if viewModel.isSubmitting {
                 HStack(spacing: 8) {
-                    ProgressView().tint(AcademyColors.claretOnFill)
+                    ProgressView().tint(AcademyColors.onPrimary)
                     Text("Submitting…")
                 }
             } else {
                 Text(title)
             }
         }
-        .buttonStyle(.borderedProminent)
-        .tint(AcademyColors.claretFill)
+        .buttonStyle(FloodlightPillStyle())
+        .tint(AcademyColors.primaryFill)
         .disabled(viewModel.isSubmitting || viewModel.isLoading)
         .accessibilityIdentifier("player-claim-this-is-me")
     }
@@ -349,9 +349,9 @@ struct PlayerClaimSectionView: View {
     private func badgeColor(for status: PlayerProfileClaimStatus) -> Color {
         switch status {
         case .pending:
-            return AcademyColors.loanAmber
+            return AcademyColors.warnText
         case .approved:
-            return AcademyColors.positiveGreen
+            return AcademyColors.good
         case .rejected, .revoked:
             return .secondary
         }
@@ -429,31 +429,31 @@ private struct PlayerContractAttestationSheet: View {
                 Section {
                     if case .claim = mode {
                         Label(mode.introduction, systemImage: "18.circle.fill")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(AcademyColors.claret)
+                            .font(AcademyType.subheadline.weight(.semibold))
+                            .foregroundStyle(AcademyColors.accent)
                             .fixedSize(horizontal: false, vertical: true)
                             .accessibilityIdentifier("player-claim-adults-only-copy")
 
                         LegalSafariLink(destination: .communityRules) {
                             Label("Community Rules", systemImage: "arrow.up.right.square")
-                                .font(.footnote.weight(.semibold))
-                                .foregroundStyle(AcademyColors.claret)
+                                .font(AcademyType.footnote.weight(.semibold))
+                                .foregroundStyle(AcademyColors.accent)
                         }
                         .buttonStyle(.plain)
                         .accessibilityIdentifier("player-claim-community-rules")
                     } else {
                         Text(mode.introduction)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                            .font(AcademyType.subheadline)
+                            .foregroundStyle(AcademyColors.secondaryText)
                             .fixedSize(horizontal: false, vertical: true)
                     }
-                }
+                }.listRowBackground(AcademyColors.background)
 
                 Section("Contract status") {
                     ForEach(PlayerContractStatus.allCases) { status in
                         statusChoice(status)
                     }
-                }
+                }.listRowBackground(AcademyColors.background)
 
                 if selectedStatus != nil, selectedStatus != .freeAgent {
                     Section("Current club (optional)") {
@@ -468,17 +468,17 @@ private struct PlayerContractAttestationSheet: View {
                             Text("\(currentClubName.count)/180")
                                 .monospacedDigit()
                         }
-                        .font(.caption)
-                        .foregroundStyle(clubNameIsTooLong ? Color(uiColor: .systemRed) : .secondary)
-                    }
+                        .font(AcademyType.caption)
+                        .foregroundStyle(clubNameIsTooLong ? AcademyColors.danger : AcademyColors.secondaryText)
+                    }.listRowBackground(AcademyColors.background)
                 }
 
                 if let selectedStatus {
                     Section("How requests are routed") {
                         Text(selectedStatus.routingExplanation)
-                            .font(.subheadline)
+                            .font(AcademyType.subheadline)
                             .fixedSize(horizontal: false, vertical: true)
-                    }
+                    }.listRowBackground(AcademyColors.background)
                 }
 
                 Section {
@@ -486,18 +486,20 @@ private struct PlayerContractAttestationSheet: View {
                         "Your attestation is visible only to you and Academy Watch moderators. It is not added to the public player profile.",
                         systemImage: "lock.shield.fill"
                     )
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                }
+                    .font(AcademyType.caption)
+                    .foregroundStyle(AcademyColors.secondaryText)
+                }.listRowBackground(AcademyColors.background)
 
                 if let errorMessage = submissionErrorMessage {
                     Section {
                         Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
-                            .font(.caption)
-                            .foregroundStyle(Color(uiColor: .systemRed))
-                    }
+                            .font(AcademyType.caption)
+                            .foregroundStyle(AcademyColors.danger)
+                    }.listRowBackground(AcademyColors.background)
                 }
             }
+        .scrollContentBackground(.hidden)
+        .background(AcademyColors.background)
             .navigationTitle(mode.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -527,16 +529,16 @@ private struct PlayerContractAttestationSheet: View {
         } label: {
             HStack(alignment: .top, spacing: 12) {
                 Image(systemName: selectedStatus == status ? "checkmark.circle.fill" : "circle")
-                    .font(.title3)
-                    .foregroundStyle(selectedStatus == status ? AcademyColors.claret : Color.secondary)
+                    .font(AcademyType.title3)
+                    .foregroundStyle(selectedStatus == status ? AcademyColors.accent : AcademyColors.secondaryText)
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text(status.displayName)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.primary)
+                        .font(AcademyType.subheadline.weight(.semibold))
+                        .foregroundStyle(AcademyColors.text)
                     Text(status.formExplanation)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(AcademyType.caption)
+                        .foregroundStyle(AcademyColors.secondaryText)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }

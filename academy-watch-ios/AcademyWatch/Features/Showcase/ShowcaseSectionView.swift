@@ -32,17 +32,17 @@ struct ShowcaseSectionView: View {
     private var sectionHeader: some View {
         HStack(spacing: 8) {
             Label("SHOWCASE", systemImage: "sparkles")
-                .font(.caption.weight(.bold))
+                .font(AcademyType.caption.weight(.medium))
                 .tracking(1.05)
-                .foregroundStyle(AcademyColors.claret)
+                .foregroundStyle(AcademyColors.accent)
 
             Spacer()
 
             if viewModel.isFixturePreview {
                 BadgeView(
                     text: "Fixture preview",
-                    foregroundColor: AcademyColors.loanAmber,
-                    backgroundColor: AcademyColors.loanAmber.opacity(0.12)
+                    foregroundColor: AcademyColors.warnText,
+                    backgroundColor: AcademyColors.warnText.opacity(0.12)
                 )
             }
         }
@@ -52,7 +52,7 @@ struct ShowcaseSectionView: View {
     private func highlightReel(_ reel: [ShowcaseReelItem]) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Label("Highlight reel", systemImage: "play.rectangle.fill")
-                .font(.subheadline.weight(.semibold))
+                .font(AcademyType.subheadline.weight(.semibold))
 
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: 12) {
@@ -64,12 +64,12 @@ struct ShowcaseSectionView: View {
                     }
                 }
                 .padding(.horizontal, 1)
-            }
+            }.background(AcademyColors.background)
         }
         .padding(14)
-        .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 16))
+        .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 10))
         .overlay {
-            RoundedRectangle(cornerRadius: 16)
+            RoundedRectangle(cornerRadius: 10)
                 .stroke(AcademyColors.separator.opacity(0.22), lineWidth: 0.5)
         }
     }
@@ -78,21 +78,21 @@ struct ShowcaseSectionView: View {
         VStack(alignment: .leading, spacing: 11) {
             HStack(spacing: 8) {
                 Image(systemName: "person.text.rectangle")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AcademyColors.secondaryText)
                 Text("Player profile")
-                    .font(.subheadline.weight(.semibold))
+                    .font(AcademyType.subheadline.weight(.semibold))
                 Spacer(minLength: 4)
                 BadgeView(
                     text: "Self-reported",
-                    foregroundColor: .secondary,
-                    backgroundColor: Color(uiColor: .tertiarySystemFill)
+                    foregroundColor: AcademyColors.secondaryText,
+                    backgroundColor: AcademyColors.elevatedSurface
                 )
             }
 
             if let bio = clean(profile.bio) {
                 Text(bio)
-                    .font(.subheadline)
-                    .foregroundStyle(.primary)
+                    .font(AcademyType.subheadline)
+                    .foregroundStyle(AcademyColors.text)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
@@ -109,9 +109,9 @@ struct ShowcaseSectionView: View {
             }
         }
         .padding(14)
-        .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
+        .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 10))
         .overlay {
-            RoundedRectangle(cornerRadius: 16)
+            RoundedRectangle(cornerRadius: 10)
                 .stroke(AcademyColors.separator.opacity(0.35), lineWidth: 0.75)
         }
         .accessibilityElement(children: .contain)
@@ -119,14 +119,14 @@ struct ShowcaseSectionView: View {
     }
 
     private func verifiedAppearances(_ appearances: [ShowcaseVerifiedFootage]) -> some View {
-        let verifiedGreen = AcademyColors.positiveGreen
+        let verifiedGreen = AcademyColors.good
 
         return VStack(alignment: .leading, spacing: 11) {
             HStack(spacing: 8) {
                 Image(systemName: "checkmark.shield.fill")
                     .foregroundStyle(verifiedGreen)
                 Text("Verified appearances")
-                    .font(.subheadline.weight(.semibold))
+                    .font(AcademyType.subheadline.weight(.semibold))
                 Spacer(minLength: 4)
                 BadgeView(
                     text: "Club-verified",
@@ -136,8 +136,8 @@ struct ShowcaseSectionView: View {
             }
 
             Text("Verified from club match footage with a human-confirmed identity.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(AcademyType.caption)
+                .foregroundStyle(AcademyColors.secondaryText)
 
             ForEach(Array(appearances.enumerated()), id: \.element.id) { index, appearance in
                 if index > 0 {
@@ -147,9 +147,9 @@ struct ShowcaseSectionView: View {
             }
         }
         .padding(14)
-        .background(verifiedGreen.opacity(0.07), in: RoundedRectangle(cornerRadius: 16))
+        .background(verifiedGreen.opacity(0.07), in: RoundedRectangle(cornerRadius: 10))
         .overlay {
-            RoundedRectangle(cornerRadius: 16)
+            RoundedRectangle(cornerRadius: 10)
                 .stroke(verifiedGreen.opacity(0.32), lineWidth: 0.75)
         }
         .accessibilityElement(children: .contain)
@@ -159,11 +159,11 @@ struct ShowcaseSectionView: View {
     private func showcaseAttribute(label: String, value: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             Text(label + ":")
-                .foregroundStyle(.secondary)
+                .foregroundStyle(AcademyColors.secondaryText)
             Text(value)
                 .fontWeight(.medium)
         }
-        .font(.caption)
+        .font(AcademyType.caption)
     }
 
     private func clean(_ value: String?) -> String? {
@@ -190,8 +190,8 @@ private struct HighlightReelCard: View {
                                 .scaledToFill()
                         case .empty:
                             ZStack {
-                                Color(uiColor: .tertiarySystemFill)
-                                ProgressView().tint(AcademyColors.claret)
+                                AcademyColors.elevatedSurface
+                                ProgressView().tint(AcademyColors.accent)
                             }
                         case .failure:
                             reelPlaceholder
@@ -201,27 +201,27 @@ private struct HighlightReelCard: View {
                     }
 
                     Circle()
-                        .fill(.black.opacity(0.68))
+                        .fill(AcademyColors.night.opacity(0.68))
                         .frame(width: 46, height: 46)
                         .overlay {
                             Image(systemName: "play.fill")
-                                .font(.headline)
-                                .foregroundStyle(.white)
+                                .font(AcademyType.headline)
+                                .foregroundStyle(AcademyColors.chalk)
                                 .offset(x: 1)
                         }
                 }
                 .frame(width: 250, height: 140)
                 .clipped()
-                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .clipShape(RoundedRectangle(cornerRadius: 10))
 
                 Text(item.displayTitle)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
+                    .font(AcademyType.subheadline.weight(.semibold))
+                    .foregroundStyle(AcademyColors.text)
                     .lineLimit(2)
 
                 Label(item.sourceLabel, systemImage: "safari")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .font(AcademyType.caption2)
+                    .foregroundStyle(AcademyColors.secondaryText)
             }
             .frame(width: 250, alignment: .leading)
         }
@@ -232,14 +232,10 @@ private struct HighlightReelCard: View {
 
     private var reelPlaceholder: some View {
         ZStack {
-            LinearGradient(
-                colors: [AcademyColors.claretSoft, Color(uiColor: .tertiarySystemFill)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
+            AcademyColors.elevatedSurface
             Image(systemName: "play.rectangle.fill")
-                .font(.largeTitle)
-                .foregroundStyle(AcademyColors.claret.opacity(0.55))
+                .font(AcademyType.largeTitle)
+                .foregroundStyle(AcademyColors.accent.opacity(0.55))
         }
     }
 }
@@ -251,7 +247,7 @@ private struct VerifiedAppearanceRow: View {
         HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
                 Text(appearance.opponentName.map { "vs \($0)" } ?? appearance.teamName ?? "Match")
-                    .font(.subheadline.weight(.semibold))
+                    .font(AcademyType.subheadline.weight(.semibold))
                     .lineLimit(1)
 
                 let detail = [appearance.teamName, formattedDate(appearance.matchDate)]
@@ -259,8 +255,8 @@ private struct VerifiedAppearanceRow: View {
                     .joined(separator: " · ")
                 if !detail.isEmpty {
                     Text(detail)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(AcademyType.caption)
+                        .foregroundStyle(AcademyColors.secondaryText)
                         .lineLimit(1)
                 }
             }
@@ -283,11 +279,11 @@ private struct VerifiedAppearanceRow: View {
     private func evidenceMetric(value: String, label: String) -> some View {
         VStack(alignment: .trailing, spacing: 1) {
             Text(value)
-                .font(.subheadline.weight(.bold))
+                .font(AcademyType.subheadline.weight(.semibold))
                 .monospacedDigit()
             Text(label)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+                .font(AcademyType.caption2)
+                .foregroundStyle(AcademyColors.secondaryText)
         }
     }
 
@@ -315,6 +311,8 @@ private struct ShowcaseSafariView: UIViewControllerRepresentable {
 
     func makeUIViewController(context _: Context) -> SFSafariViewController {
         let controller = SFSafariViewController(url: url)
+        controller.preferredBarTintColor = UIColor(AcademyColors.background)
+        controller.preferredControlTintColor = UIColor(AcademyColors.accent)
         controller.dismissButtonStyle = .close
         return controller
     }

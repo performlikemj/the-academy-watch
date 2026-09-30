@@ -27,14 +27,11 @@ struct WingLiftLoadingView: View {
 
     var body: some View {
         GeometryReader { proxy in
-            TimelineView(.animation(minimumInterval: 1 / 60)) { context in
+            TimelineView(.animation(minimumInterval: 1 / 60, paused: shouldReduceMotion)) { context in
                 let elapsed = max(0, context.date.timeIntervalSince(animationStartedAt))
 
                 ZStack {
-                    Color("LaunchBackground")
-
-                    halo(elapsed: elapsed)
-                        .position(x: proxy.size.width / 2, y: proxy.size.height / 2)
+                    AcademyColors.night
 
                     wingedBoot(elapsed: elapsed)
                         .position(x: proxy.size.width / 2, y: proxy.size.height / 2)
@@ -47,7 +44,7 @@ struct WingLiftLoadingView: View {
                         )
 
                     Text("THE ACADEMY WATCH")
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(AcademyType.ui( 10, weight: .semibold))
                         .tracking(2.8)
                         .foregroundStyle(cardMuted.opacity(0.55))
                         .position(x: proxy.size.width / 2, y: proxy.size.height - 30)
@@ -68,13 +65,13 @@ struct WingLiftLoadingView: View {
     private var loadingCopy: some View {
         VStack(spacing: 0) {
             Text(feedback.title)
-                .font(.system(size: 21, weight: .semibold))
+                .font(AcademyType.ui( 21, weight: .semibold))
                 .tracking(-0.3)
                 .foregroundStyle(cardInk)
                 .multilineTextAlignment(.center)
 
             Text(feedback.detail)
-                .font(.system(size: 14))
+                .font(AcademyType.ui( 14))
                 .foregroundStyle(cardMuted)
                 .multilineTextAlignment(.center)
                 .lineSpacing(1.5)
@@ -83,7 +80,7 @@ struct WingLiftLoadingView: View {
 
             if feedback.showsFirstVisitDuration {
                 Text("First visits can take about 30 seconds.")
-                    .font(.caption2)
+                    .font(AcademyType.caption2)
                     .foregroundStyle(cardMuted.opacity(0.72))
                     .multilineTextAlignment(.center)
                     .padding(.top, 9)
@@ -115,7 +112,6 @@ struct WingLiftLoadingView: View {
         let ramp = min(1, elapsed / 0.3)
         let hoverWave = sin((elapsed / 2.4) * 2 * .pi)
         let breath = (1 - cos((elapsed / 2.4) * 2 * .pi)) / 2
-        let calm = (1 - cos((elapsed / 2.8) * 2 * .pi)) / 2
         let upperBeat = sin((elapsed / 1.7) * 2 * .pi) * ramp
         let lowerBeat = sin((elapsed / 1.85) * 2 * .pi - 0.28) * ramp
 
@@ -133,8 +129,8 @@ struct WingLiftLoadingView: View {
                 )
         }
         .frame(width: markWidth, height: markHeight)
-        .scaleEffect(shouldReduceMotion ? 1 + calm * 0.035 : 1 + breath * 0.018)
-        .opacity(shouldReduceMotion ? 1 - calm * 0.12 : 1)
+        .scaleEffect(shouldReduceMotion ? 1 : 1 + breath * 0.018)
+        .opacity(1)
         .offset(y: shouldReduceMotion ? 0 : hoverWave * 5)
         .shadow(
             color: .black.opacity(
@@ -152,27 +148,12 @@ struct WingLiftLoadingView: View {
             .frame(width: markWidth, height: markHeight)
     }
 
-    private func halo(elapsed: TimeInterval) -> some View {
-        let ramp = min(1, elapsed / 0.45)
-        let wave = (1 - cos((elapsed / 2.4) * 2 * .pi)) / 2
-
-        return RadialGradient(
-            colors: [cardInk.opacity(0.11), .clear],
-            center: .center,
-            startRadius: 0,
-            endRadius: 120
-        )
-        .frame(width: 240, height: 150)
-        .scaleEffect(shouldReduceMotion ? 1 : 1 + wave * 0.07)
-        .opacity(ramp * (shouldReduceMotion ? 0.7 : 0.55 + wave * 0.45))
-    }
-
     private var cardInk: Color {
-        Color(red: 246 / 255, green: 233 / 255, blue: 236 / 255)
+        AcademyColors.chalk
     }
 
     private var cardMuted: Color {
-        Color(red: 176 / 255, green: 162 / 255, blue: 166 / 255)
+        AcademyColors.mutedDark
     }
 }
 

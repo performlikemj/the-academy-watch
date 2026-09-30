@@ -36,8 +36,10 @@ struct AcademyWatchApp: App {
     private let initiallyShowsSignIn = ProcessInfo.processInfo.arguments.contains("-showSignIn")
 
     init() {
+        FloodlightNativeAppearance.configure()
         LaunchPerformance.markLaunchStarted()
         #if DEBUG && targetEnvironment(simulator)
+        if FloodlightPreview.isActive { return }
         do {
             try ExperienceRole.applySimulatorLaunchArguments(ProcessInfo.processInfo.arguments)
             _ = try PlayerClubExperienceFixtures.mode(from: ProcessInfo.processInfo.arguments)
@@ -56,33 +58,46 @@ struct AcademyWatchApp: App {
 
     var body: some Scene {
         WindowGroup {
-            #if DEBUG
-            if let wingLiftFixtureElapsedSeconds {
-                WingLiftLoadingView(
-                    feedback: ScoutInitialLoadFeedback(
-                        elapsedSeconds: wingLiftFixtureElapsedSeconds
-                    ),
-                    reduceMotionOverride: wingLiftFixtureReducesMotion
-                )
-            } else if let onboardingFixture {
-                OnboardingEvidenceRoot(destination: onboardingFixture)
-            } else {
-                appRoot
+            Group {
+                #if DEBUG && targetEnvironment(simulator)
+                if let screen = FloodlightPreview.screen {
+                    FloodlightPreviewRoot(screen: screen)
+                } else {
+                    normalRoot
+                }
+                #else
+                normalRoot
+                #endif
             }
-            #else
-            appRoot
-            #endif
+            .floodlightAppearance()
         }
     }
 
-    private var appRoot: some View {
-            RootTabView(
-                initialPhase: initialPhase,
-                initialPlayerID: initialPlayerID,
-                initialComparePlayerIDs: initialComparePlayerIDs,
-                launchArguments: ProcessInfo.processInfo.arguments,
-                initiallyShowsSignIn: initiallyShowsSignIn
+    @ViewBuilder private var normalRoot: some View {
+        #if DEBUG
+        if let wingLiftFixtureElapsedSeconds {
+            WingLiftLoadingView(
+                feedback: ScoutInitialLoadFeedback(elapsedSeconds: wingLiftFixtureElapsedSeconds),
+                reduceMotionOverride: wingLiftFixtureReducesMotion
             )
-                .tint(AcademyColors.claretForeground)
+        } else if let onboardingFixture {
+            OnboardingEvidenceRoot(destination: onboardingFixture)
+        } else {
+            appRoot
+        }
+        #else
+        appRoot
+        #endif
+    }
+
+    private var appRoot: some View {
+        RootTabView(
+            initialPhase: initialPhase,
+            initialPlayerID: initialPlayerID,
+            initialComparePlayerIDs: initialComparePlayerIDs,
+            launchArguments: ProcessInfo.processInfo.arguments,
+            initiallyShowsSignIn: initiallyShowsSignIn
+        )
+        .tint(AcademyColors.accent)
     }
 }

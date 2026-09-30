@@ -166,14 +166,14 @@ struct AddGameSheet: View {
                         formCard
                         if let requestError = viewModel.requestError {
                             Label(requestError, systemImage: "exclamationmark.triangle.fill")
-                                .font(.footnote)
-                                .foregroundStyle(Color(uiColor: .systemRed))
+                                .font(AcademyType.footnote)
+                                .foregroundStyle(AcademyColors.danger)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                         saveButton
                     }
                     .padding(18)
-                }
+                }.background(AcademyColors.background)
             }
             .navigationTitle("Add a game")
             .navigationBarTitleDisplayMode(.inline)
@@ -189,14 +189,14 @@ struct AddGameSheet: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 7) {
             Label("ADD A GAME", systemImage: "figure.soccer")
-                .font(.caption.weight(.bold))
+                .font(AcademyType.caption.weight(.medium))
                 .tracking(1.1)
-                .foregroundStyle(AcademyColors.claret)
+                .foregroundStyle(AcademyColors.accent)
             Text("Record a game for \(playerName)")
-                .font(.title2.weight(.bold))
+                .font(AcademyType.title2)
             Text("Self-reported games stay attached to this profile and refresh the season totals on save.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .font(AcademyType.subheadline)
+                .foregroundStyle(AcademyColors.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -235,7 +235,7 @@ struct AddGameSheet: View {
             )
 
             Toggle(isOn: $viewModel.useScore) {
-                Text("Record a score").font(.subheadline.weight(.semibold))
+                Text("Record a score").font(AcademyType.subheadline.weight(.semibold))
             }
             .accessibilityIdentifier("add-game-use-score")
             if viewModel.useScore {
@@ -266,7 +266,7 @@ struct AddGameSheet: View {
 
             if isGoalkeeper {
                 Toggle(isOn: $viewModel.useGoalkeeperEvents) {
-                    Text("Record saves and goals conceded").font(.subheadline.weight(.semibold))
+                    Text("Record saves and goals conceded").font(AcademyType.subheadline.weight(.semibold))
                 }
                 .accessibilityIdentifier("add-game-use-goalkeeper-events")
                 if viewModel.useGoalkeeperEvents {
@@ -280,23 +280,23 @@ struct AddGameSheet: View {
             }
 
             VStack(alignment: .leading, spacing: 6) {
-                Text("Note (optional)").font(.subheadline.weight(.semibold))
+                Text("Note (optional)").font(AcademyType.subheadline.weight(.semibold))
                 TextField("Anything worth remembering", text: $viewModel.note, axis: .vertical)
                     .lineLimit(3 ... 5)
                     .padding(12)
-                    .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 11))
+                    .background(AcademyColors.elevatedSurface, in: RoundedRectangle(cornerRadius: 10))
                     .accessibilityIdentifier("add-game-note")
             }
 
             if let formError = viewModel.formError {
                 Label(formError, systemImage: "exclamationmark.triangle.fill")
-                    .font(.caption)
-                    .foregroundStyle(Color(uiColor: .systemRed))
+                    .font(AcademyType.caption)
+                    .foregroundStyle(AcademyColors.danger)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(17)
-        .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 18))
+        .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 10))
     }
 
     private static let countBound = AddGameViewModel.maximumCount
@@ -306,9 +306,9 @@ struct AddGameSheet: View {
             Text(label)
             Spacer()
             Text(value.formatted())
-                .font(.subheadline.weight(.bold))
+                .font(AcademyType.subheadline.weight(.semibold))
                 .monospacedDigit()
-                .foregroundStyle(AcademyColors.claret)
+                .foregroundStyle(AcademyColors.accent)
         }
     }
 
@@ -327,8 +327,8 @@ struct AddGameSheet: View {
             }
             .frame(maxWidth: .infinity)
         }
-        .buttonStyle(.borderedProminent)
-        .tint(AcademyColors.claretFill)
+        .buttonStyle(FloodlightPillStyle())
+        .tint(AcademyColors.primaryFill)
         .disabled(viewModel.isSubmitting)
         .accessibilityIdentifier("add-game-save")
     }

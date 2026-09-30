@@ -74,7 +74,11 @@ final class ScoutDeskViewModel: ObservableObject {
         initialPhase: ScoutPhase = .all
     ) {
         self.apiClient = apiClient
+        #if DEBUG && targetEnvironment(simulator)
+        self.responseCache = FloodlightPreview.isActive ? FloodlightPreviewCache() : responseCache
+        #else
         self.responseCache = responseCache
+        #endif
         self.pageSize = pageSize
         selectedPhase = initialPhase
         selectedSortKey = initialPhase.defaultSortKey

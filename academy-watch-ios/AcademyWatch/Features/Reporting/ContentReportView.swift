@@ -40,8 +40,8 @@ struct ContentReportSheet: View {
                     ToolbarItem(placement: .topBarTrailing) {
                         BadgeView(
                             text: "Fixture",
-                            foregroundColor: AcademyColors.loanAmber,
-                            backgroundColor: AcademyColors.loanAmber.opacity(0.12)
+                            foregroundColor: AcademyColors.warnText,
+                            backgroundColor: AcademyColors.warnText.opacity(0.12)
                         )
                     }
                 }
@@ -55,10 +55,10 @@ struct ContentReportSheet: View {
         Form {
             Section {
                 Label(viewModel.subject.explanation, systemImage: "info.circle.fill")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .font(AcademyType.subheadline)
+                    .foregroundStyle(AcademyColors.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
-            }
+            }.listRowBackground(AcademyColors.background)
 
             Section("Reason") {
                 Picker("Reason", selection: $viewModel.selectedReason) {
@@ -69,7 +69,7 @@ struct ContentReportSheet: View {
                 .pickerStyle(.inline)
                 .labelsHidden()
                 .accessibilityIdentifier("content-report-reason")
-            }
+            }.listRowBackground(AcademyColors.background)
 
             Section {
                 TextEditor(text: $viewModel.details)
@@ -84,16 +84,16 @@ struct ContentReportSheet: View {
                 }
             } footer: {
                 Text("Share only what helps the moderation team understand the concern.")
-            }
+            }.listRowBackground(AcademyColors.background)
 
             if let error = viewModel.errorMessage {
                 Section {
                     Label(error, systemImage: "exclamationmark.triangle.fill")
-                        .font(.footnote)
-                        .foregroundStyle(Color(uiColor: .systemRed))
+                        .font(AcademyType.footnote)
+                        .foregroundStyle(AcademyColors.danger)
                         .fixedSize(horizontal: false, vertical: true)
                         .accessibilityIdentifier("content-report-error")
-                }
+                }.listRowBackground(AcademyColors.background)
             }
 
             Section {
@@ -116,20 +116,22 @@ struct ContentReportSheet: View {
                 }
                 .disabled(!viewModel.canSubmit)
                 .accessibilityIdentifier("submit-content-report")
-            }
+            }.listRowBackground(AcademyColors.background)
         }
+        .scrollContentBackground(.hidden)
+        .background(AcademyColors.background)
     }
 
     private var submittedState: some View {
         VStack(spacing: 16) {
             Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 58))
-                .foregroundStyle(AcademyColors.positiveGreen)
+                .font(AcademyType.ui( 58))
+                .foregroundStyle(AcademyColors.good)
             Text("Report submitted")
-                .font(.title2.weight(.bold))
+                .font(AcademyType.title2)
             Text("Thanks for letting us know. Academy Watch will review it.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .font(AcademyType.subheadline)
+                .foregroundStyle(AcademyColors.secondaryText)
                 .multilineTextAlignment(.center)
         }
         .padding(28)

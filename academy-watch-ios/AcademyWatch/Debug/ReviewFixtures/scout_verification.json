@@ -1,0 +1,18 @@
+{
+  "verification": {
+    "id": 28,
+    "full_name": "Sample Member",
+    "organization": "Sample Academy",
+    "role_title": "First-team scout",
+    "statement": "Synthetic review example. Arrange a conversation about the next step.",
+    "evidence_urls": [
+      "https://example.invalid/review",
+      "https://example.invalid/review"
+    ],
+    "status": "rejected",
+    "submitted_at": "2026-07-14T09:00:00",
+    "reviewed_at": "2026-07-15T11:30:00",
+    "review_notes": "Please provide evidence that identifies your current role at the organization.",
+    "revocation_reason": null
+  }
+}

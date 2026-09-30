@@ -251,7 +251,11 @@ struct APIClient: GolAPIClientProtocol, PlayerClubAPIClientProtocol, ScoutAPICli
             throw GolFailure.http(401, code: nil)
         }
         #if DEBUG && targetEnvironment(simulator)
-        // Offline experience fixtures must never send their synthetic credential over the network.
+        // Offline review and experience fixtures cannot send credentials over the network.
+        if FloodlightPreview.isActive {
+            try await PreviewGolClient().streamGol(question, onEvent: onEvent)
+            return
+        }
         if fixtureMode != nil {
             try await PlayerClubExperienceFixtures.streamGol(question, onEvent: onEvent)
             return
@@ -296,6 +300,7 @@ struct APIClient: GolAPIClientProtocol, PlayerClubAPIClientProtocol, ScoutAPICli
             request.setValue("application/json", forHTTPHeaderField: "Accept")
 
             #if DEBUG && targetEnvironment(simulator)
+            if FloodlightPreview.isActive { return }
             if let fixtureMode {
                 _ = try PlayerClubExperienceFixtures.data(for: request, mode: fixtureMode)
                 return
@@ -1062,6 +1067,10 @@ struct APIClient: GolAPIClientProtocol, PlayerClubAPIClientProtocol, ScoutAPICli
         }
 
         #if DEBUG && targetEnvironment(simulator)
+        if FloodlightPreview.isActive {
+            let data = try FloodlightPreview.data(for: request)
+            return (data, ProcessInfo.processInfo.systemUptime)
+        }
         if let fixtureMode {
             let data = try PlayerClubExperienceFixtures.data(for: request, mode: fixtureMode)
             return (data, ProcessInfo.processInfo.systemUptime)

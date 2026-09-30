@@ -95,7 +95,11 @@ struct RootTabView: View {
         )
         let fixtureState: AuthState?
         #if DEBUG && targetEnvironment(simulator)
-        if PlayerClubExperienceFixtures.mode != nil {
+        if FloodlightPreview.isActive {
+            fixtureState = ["auth", "chooser", "account-signed-out"].contains(FloodlightPreview.screen ?? "")
+                ? .signedOut
+                : .signedIn(email: "review@example.invalid", accountRole: .scout, displayName: "Sample Reviewer", isVerifiedScout: true)
+        } else if PlayerClubExperienceFixtures.mode != nil {
             fixtureState = .signedIn(email: "maya@fixture.example", accountRole: .player, displayName: "Maya Okafor", isVerifiedScout: false)
         } else if fixtureDestination != nil {
             switch fixtureDestination {
@@ -128,7 +132,7 @@ struct RootTabView: View {
 
         let tokenStore: any TokenStoreProtocol
         #if DEBUG && targetEnvironment(simulator)
-        tokenStore = PlayerClubExperienceFixtures.mode == nil ? KeychainTokenStore() : ExperienceTokenStore()
+        tokenStore = PlayerClubExperienceFixtures.mode == nil && !FloodlightPreview.isActive ? KeychainTokenStore() : ExperienceTokenStore()
         #else
         tokenStore = KeychainTokenStore()
         #endif
