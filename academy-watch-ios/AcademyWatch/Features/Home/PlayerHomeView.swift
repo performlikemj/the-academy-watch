@@ -44,18 +44,21 @@ struct PlayerHomeView: View {
                 VStack(alignment: .leading, spacing: 22) {
                     #if DEBUG && targetEnvironment(simulator)
                         if PlayerClubExperienceFixtures.mode != nil {
-                            Label("OFFLINE FIXTURE", systemImage: "testtube.2").font(.caption).foregroundStyle(
-                                .secondary)
+                            Label("OFFLINE FIXTURE", systemImage: "testtube.2").font(AcademyType.caption).foregroundStyle(AcademyColors.secondaryText)
                         }
                     #endif
                     VStack(alignment: .leading, spacing: 10) {
                         Label("YOUR NEXT CHAPTER", systemImage: "soccerball")
-                            .font(.caption.weight(.bold)).tracking(1.4)
-                            .foregroundStyle(AcademyColors.claret)
-                        Text(headline).font(.largeTitle.bold())
-                        Text(subtitle).font(.subheadline).foregroundStyle(.secondary)
+                            .font(AcademyType.caption.weight(.medium)).tracking(1.4)
+                            .foregroundStyle(AcademyColors.gold)
+                        Text(headline).font(AcademyType.largeTitle).foregroundStyle(AcademyColors.chalk)
+                        Text(subtitle).font(AcademyType.subheadline).foregroundStyle(AcademyColors.mutedDark)
                             .fixedSize(horizontal: false, vertical: true)
                     }
+                    .padding(24)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(role == .club ? AcademyColors.club : AcademyColors.night)
+                    .padding(.horizontal, -16)
                     if role == nil {
                         ForEach(ExperienceRole.allCases) { choice in
                             Button {
@@ -106,12 +109,11 @@ struct PlayerHomeView: View {
                             } else {
                                 VStack(alignment: .leading, spacing: 12) {
                                     Text(role == .club ? "Bring your team together" : "Make your next step count")
-                                        .font(.title3.bold())
-                                    Text("Sign in with an email code. We'll keep your place here.").foregroundStyle(
-                                        .secondary)
+                                        .font(AcademyType.title3)
+                                    Text("Sign in with an email code. We'll keep your place here.").foregroundStyle(AcademyColors.secondaryText)
                                     Button("Sign in to get started", action: onSignIn)
-                                        .buttonStyle(.borderedProminent).controlSize(.large)
-                                        .tint(AcademyColors.claretFill).foregroundStyle(AcademyColors.claretOnFill)
+                                        .buttonStyle(FloodlightPillStyle()).controlSize(.large)
+                                        .tint(AcademyColors.primaryFill).foregroundStyle(AcademyColors.onPrimary)
                                         .accessibilityIdentifier("home-sign-in")
                                 }.homeCard()
                             }
@@ -129,13 +131,12 @@ struct PlayerHomeView: View {
                                 }
                             }
                         } label: {
-                            Label("Change my home", systemImage: "slider.horizontal.3").font(
-                                .footnote.weight(.semibold))
+                            Label("Change my home", systemImage: "slider.horizontal.3").font(AcademyType.footnote.weight(.semibold))
                         }
                         .accessibilityIdentifier("home-change-role")
                     }
-                }.padding(20)
-            }
+                }.padding(16)
+            }.background(AcademyColors.background)
             .background(AcademyColors.background)
             .navigationTitle("Home").navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -208,12 +209,12 @@ struct MyProfilesView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                Text("Your place in the game").font(.title2.bold())
+                Text("Your place in the game").font(AcademyType.title2)
                 Text("Your claims stay here while they're reviewed. Come back any time to see what's next.")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AcademyColors.secondaryText)
                 if model.isLoading { ProgressView("Checking your profiles…") }
                 if let error = model.error {
-                    Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.red)
+                    Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(AcademyColors.danger)
                     Button("Try again") { Task { await model.load() } }
                 }
                 ForEach(model.claims) { claim in
@@ -222,30 +223,28 @@ struct MyProfilesView: View {
                     } label: {
                         VStack(alignment: .leading, spacing: 10) {
                             HStack {
-                                Text(claim.profileTitle).font(.headline)
+                                Text(claim.profileTitle).font(AcademyType.headline)
                                 Spacer()
                                 BadgeView(text: claim.status.rawValue.capitalized)
                             }
-                            Text(claim.nextStep).font(.subheadline).foregroundStyle(.secondary)
-                            Label("Open profile", systemImage: "arrow.right").font(.footnote.weight(.semibold))
+                            Text(claim.nextStep).font(AcademyType.subheadline).foregroundStyle(AcademyColors.secondaryText)
+                            Label("Open profile", systemImage: "arrow.right").font(AcademyType.footnote.weight(.semibold))
                         }.homeCard()
                     }.buttonStyle(.plain).accessibilityIdentifier("my-profile-\(claim.id)")
                 }
                 if !model.isLoading, model.error == nil, model.claims.isEmpty {
-                    ContentUnavailableView(
-                        "Let's find your profile", systemImage: "figure.soccer",
-                        description: Text("Search your name, or create a profile if you're new here."))
+                    FloodlightEmptyState(title: "Let's find your profile", systemImage: "figure.soccer", description: "Search your name, or create a profile if you're new here.")
                 }
                 NavigationLink {
                     PlayerOnboardingView(apiClient: apiClient)
                 } label: {
                     Label("Find or create a profile", systemImage: "person.badge.plus")
                         .frame(maxWidth: .infinity)
-                }.buttonStyle(.borderedProminent).controlSize(.large)
-                    .tint(AcademyColors.claretFill).foregroundStyle(AcademyColors.claretOnFill)
+                }.buttonStyle(FloodlightPillStyle()).controlSize(.large)
+                    .tint(AcademyColors.primaryFill).foregroundStyle(AcademyColors.onPrimary)
                     .accessibilityIdentifier("my-profiles-add")
             }.padding(20)
-        }
+        }.background(AcademyColors.background)
         .background(AcademyColors.background)
         .navigationTitle("My profiles").navigationBarTitleDisplayMode(.inline)
         .task { await model.load() }
@@ -264,10 +263,10 @@ struct MyPlayerProfileView: View {
             VStack(alignment: .leading, spacing: 18) {
                 VStack(alignment: .leading, spacing: 10) {
                     BadgeView(text: claim.status.rawValue.capitalized)
-                    Text(claim.profileTitle).font(.largeTitle.bold())
-                    Text(claim.nextStep).foregroundStyle(.secondary)
+                    Text(claim.profileTitle).font(AcademyType.largeTitle)
+                    Text(claim.nextStep).foregroundStyle(AcademyColors.secondaryText)
                     if claim.relationshipType != "player" {
-                        Label("You represent this player", systemImage: "person.2").font(.footnote)
+                        Label("You represent this player", systemImage: "person.2").font(AcademyType.footnote)
                     }
                 }.homeCard()
                 if let id = claim.signedPlayerID, claim.status == .approved {
@@ -308,7 +307,7 @@ struct MyPlayerProfileView: View {
                         url: url,
                         title: claim.status == .approved
                             ? "More profile tools on the web" : "Review claim and verification on the web")
-                    Text("Use the same email to sign in on the web.").font(.caption).foregroundStyle(.secondary)
+                    Text("Use the same email to sign in on the web.").font(AcademyType.caption).foregroundStyle(AcademyColors.secondaryText)
                 }
                 LegalSafariLink(destination: .support) {
                     Label("Get help with this profile", systemImage: "questionmark.circle")
@@ -317,10 +316,10 @@ struct MyPlayerProfileView: View {
                     Text(
                         "Next: we'll review your claim. Your private submissions are not shared publicly before approval."
                     )
-                    .font(.footnote).foregroundStyle(.secondary)
+                    .font(AcademyType.footnote).foregroundStyle(AcademyColors.secondaryText)
                 }
             }.padding(20)
-        }
+        }.background(AcademyColors.background)
         .background(AcademyColors.background)
         .navigationTitle("My profile").navigationBarTitleDisplayMode(.inline)
         .task {
@@ -338,11 +337,11 @@ struct MyClubHomeView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                Text("Bring your team together").font(.largeTitle.bold())
+                Text("Bring your team together").font(AcademyType.largeTitle)
                 Text(
                     "Start with club verification. Once approved, your club workspace brings your roster, player invitations, match reviews, and feedback together."
                 )
-                .foregroundStyle(.secondary)
+                .foregroundStyle(AcademyColors.secondaryText)
                 NavigationLink {
                     ClubOnboardingView(apiClient: apiClient)
                 } label: {
@@ -356,9 +355,9 @@ struct MyClubHomeView: View {
                         detail: "Manage your players, invitations, match footage, and feedback on the web.")
                 }.buttonStyle(.plain).accessibilityIdentifier("my-club-workspace")
                 Text("Sign in with the same email. Club access is available after your official claim is approved.")
-                    .font(.footnote).foregroundStyle(.secondary)
+                    .font(AcademyType.footnote).foregroundStyle(AcademyColors.secondaryText)
                 VStack(alignment: .leading, spacing: 14) {
-                    Text("Your first team session").font(.headline)
+                    Text("Your first team session").font(AcademyType.headline)
                     Label("Ask each adult player to claim or create their profile.", systemImage: "1.circle")
                     Label("Invite approved players from your club roster.", systemImage: "2.circle")
                     Label("Players accept in Home → Club invitations.", systemImage: "3.circle")
@@ -368,7 +367,7 @@ struct MyClubHomeView: View {
                     Label("Get onboarding help", systemImage: "questionmark.circle")
                 }
             }.padding(20)
-        }.background(AcademyColors.background)
+        }.background(AcademyColors.background).background(AcademyColors.background)
             .navigationTitle("My club").navigationBarTitleDisplayMode(.inline)
     }
 }
@@ -386,7 +385,7 @@ private extension ExperienceRole {
 extension View {
     func homeCard() -> some View {
         self.frame(maxWidth: .infinity, alignment: .leading).padding(18)
-            .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 20))
+            .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 10))
     }
 }
 
@@ -419,6 +418,11 @@ enum PublicProfileLink {
 
 private struct SafariView: UIViewControllerRepresentable {
     let url: URL
-    func makeUIViewController(context: Context) -> SFSafariViewController { SFSafariViewController(url: url) }
+    func makeUIViewController(context: Context) -> SFSafariViewController {
+        let controller = SFSafariViewController(url: url)
+        controller.preferredBarTintColor = UIColor(AcademyColors.background)
+        controller.preferredControlTintColor = UIColor(AcademyColors.accent)
+        return controller
+    }
     func updateUIViewController(_ controller: SFSafariViewController, context: Context) {}
 }

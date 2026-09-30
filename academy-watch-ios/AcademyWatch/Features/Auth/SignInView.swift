@@ -45,9 +45,9 @@ struct SignInView: View {
                         header
                         signInCard
                     }
-                    .padding(.horizontal, 20)
+                    .padding(.horizontal, 16)
                     .padding(.vertical, 28)
-                }
+                }.background(AcademyColors.background)
                 .scrollDismissesKeyboard(.interactively)
             }
             .navigationTitle("Sign In")
@@ -63,7 +63,7 @@ struct SignInView: View {
                 }
             }
         }
-        .tint(AcademyColors.claret)
+        .tint(AcademyColors.accent)
         .onAppear {
             focusedField = step == .email ? .email : .code
         }
@@ -75,16 +75,16 @@ struct SignInView: View {
     private var header: some View {
         VStack(spacing: 12) {
             Image(systemName: "star.circle.fill")
-                .font(.system(size: 54, weight: .semibold))
-                .foregroundStyle(AcademyColors.claret)
+                .font(AcademyType.ui( 54, weight: .semibold))
+                .foregroundStyle(AcademyColors.accent)
                 .accessibilityHidden(true)
 
             Text("Build your watchlist")
-                .font(.title2.weight(.bold))
+                .font(AcademyType.title2)
 
             Text("We’ll email you a one-time code. No password needed.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .font(AcademyType.subheadline)
+                .foregroundStyle(AcademyColors.secondaryText)
                 .multilineTextAlignment(.center)
         }
     }
@@ -99,22 +99,22 @@ struct SignInView: View {
 
             if let confirmationMessage {
                 Label(confirmationMessage, systemImage: "checkmark.circle.fill")
-                    .font(.footnote)
-                    .foregroundStyle(.green)
+                    .font(AcademyType.footnote)
+                    .foregroundStyle(AcademyColors.good)
                     .accessibilityIdentifier("signin-confirmation")
             }
 
             if let errorMessage {
                 Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
-                    .font(.footnote)
-                    .foregroundStyle(.red)
+                    .font(AcademyType.footnote)
+                    .foregroundStyle(AcademyColors.danger)
                     .accessibilityIdentifier("signin-error")
             }
         }
         .padding(20)
-        .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .stroke(AcademyColors.separator.opacity(0.35), lineWidth: 0.5)
         }
     }
@@ -123,9 +123,9 @@ struct SignInView: View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 7) {
                 Text("EMAIL")
-                    .font(.caption.weight(.bold))
+                    .font(AcademyType.caption.weight(.medium))
                     .tracking(1)
-                    .foregroundStyle(AcademyColors.claret)
+                    .foregroundStyle(AcademyColors.accent)
 
                 TextField("you@example.com", text: $email)
                     .textContentType(.emailAddress)
@@ -138,7 +138,7 @@ struct SignInView: View {
                     .accessibilityIdentifier("signin-email")
                     .padding(.horizontal, 12)
                     .frame(height: 48)
-                    .background(Color(uiColor: .tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 11))
+                    .background(AcademyColors.elevatedSurface, in: RoundedRectangle(cornerRadius: 10))
             }
 
             primaryButton(title: "Send login code", identifier: "signin-send-code") {
@@ -152,12 +152,12 @@ struct SignInView: View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 5) {
                 Text("CHECK YOUR EMAIL")
-                    .font(.caption.weight(.bold))
+                    .font(AcademyType.caption.weight(.medium))
                     .tracking(1)
-                    .foregroundStyle(AcademyColors.claret)
+                    .foregroundStyle(AcademyColors.accent)
                 Text("Enter the code we emailed to \(normalizedEmail). It expires in five minutes.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .font(AcademyType.subheadline)
+                    .foregroundStyle(AcademyColors.secondaryText)
             }
 
             TextField("Sign-in code", text: $code)
@@ -165,7 +165,7 @@ struct SignInView: View {
                 .keyboardType(.asciiCapable)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
-                .font(.body.monospaced())
+                .font(AcademyType.body.monospaced())
                 .focused($focusedField, equals: .code)
                 .submitLabel(.go)
                 .onSubmit { verifyCode() }
@@ -178,7 +178,7 @@ struct SignInView: View {
                 .accessibilityIdentifier("signin-code")
                 .padding(.horizontal, 12)
                 .frame(height: 48)
-                .background(Color(uiColor: .tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 11))
+                .background(AcademyColors.elevatedSurface, in: RoundedRectangle(cornerRadius: 10))
 
             primaryButton(title: "Verify & sign in", identifier: "signin-verify") {
                 verifyCode()
@@ -201,7 +201,7 @@ struct SignInView: View {
                 }
                 .disabled(isLoading)
             }
-            .font(.subheadline.weight(.semibold))
+            .font(AcademyType.subheadline.weight(.semibold))
         }
     }
 
@@ -214,7 +214,7 @@ struct SignInView: View {
             HStack(spacing: 9) {
                 if isLoading {
                     ProgressView()
-                        .tint(.white)
+                        .tint(AcademyColors.onPrimary)
                 }
                 Text(title)
                     .fontWeight(.semibold)
@@ -222,8 +222,8 @@ struct SignInView: View {
             .frame(maxWidth: .infinity)
             .frame(height: 48)
         }
-        .buttonStyle(.borderedProminent)
-        .tint(AcademyColors.claretFill)
+        .buttonStyle(FloodlightPillStyle())
+        .tint(AcademyColors.primaryFill)
         .accessibilityIdentifier(identifier)
     }
 

@@ -61,7 +61,7 @@ struct WatchlistView: View {
             signedOutState
         } else if viewModel.isLoading, viewModel.entries.isEmpty {
             ProgressView("Loading your watchlist…")
-                .tint(AcademyColors.claret)
+                .tint(AcademyColors.accent)
         } else if let message = viewModel.errorMessage, viewModel.entries.isEmpty {
             errorState(message: message)
         } else if viewModel.entries.isEmpty {
@@ -74,22 +74,22 @@ struct WatchlistView: View {
     private var signedOutState: some View {
         VStack(spacing: 16) {
             Image(systemName: "star.circle.fill")
-                .font(.system(size: 58))
-                .foregroundStyle(AcademyColors.claret)
+                .font(AcademyType.ui( 58))
+                .foregroundStyle(AcademyColors.accent)
                 .accessibilityHidden(true)
 
             VStack(spacing: 7) {
                 Text("Sign in to build your watchlist")
-                    .font(.title3.weight(.bold))
+                    .font(AcademyType.title3)
                 Text("Star players across the Scout Desk and keep their form, stats and availability close at hand.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .font(AcademyType.subheadline)
+                    .foregroundStyle(AcademyColors.secondaryText)
                     .multilineTextAlignment(.center)
             }
 
             Button("Sign In", action: onSignInRequested)
-                .buttonStyle(.borderedProminent)
-                .tint(AcademyColors.claretFill)
+                .buttonStyle(FloodlightPillStyle())
+                .tint(AcademyColors.primaryFill)
                 .controlSize(.large)
         }
         .padding(28)
@@ -97,25 +97,23 @@ struct WatchlistView: View {
     }
 
     private var emptyState: some View {
-        ContentUnavailableView {
-            Label("No watched players", systemImage: "star")
-        } description: {
-            Text("Star a player from the Scout Desk or a player profile to start tracking them here.")
-        }
+        FloodlightEmptyState(title: "No watched players", systemImage: "star", description: "Star a player from the Scout Desk or a player profile to start tracking them here.")
         .padding(24)
     }
 
     private func errorState(message: String) -> some View {
         ContentUnavailableView {
             Label("Watchlist unavailable", systemImage: "wifi.exclamationmark")
+                .font(AcademyType.title2)
+                .foregroundStyle(AcademyColors.text)
         } description: {
             Text(message)
         } actions: {
             Button("Try Again") {
                 Task { await viewModel.loadWatchlist() }
             }
-            .buttonStyle(.borderedProminent)
-            .tint(AcademyColors.claretFill)
+            .buttonStyle(FloodlightPillStyle())
+            .tint(AcademyColors.primaryFill)
         }
         .padding(24)
     }
@@ -125,9 +123,9 @@ struct WatchlistView: View {
             if let message = viewModel.errorMessage {
                 Section {
                     Label(message, systemImage: "exclamationmark.triangle.fill")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
+                        .font(AcademyType.footnote)
+                        .foregroundStyle(AcademyColors.secondaryText)
+                }.listRowBackground(AcademyColors.background)
             }
 
             ForEach(viewModel.entries, id: \.playerApiId) { entry in
@@ -147,7 +145,7 @@ struct WatchlistView: View {
                     }
                 }
                 .listRowInsets(EdgeInsets(top: 7, leading: 16, bottom: 7, trailing: 16))
-                .listRowSeparator(.hidden)
+                .listRowSeparator(.visible)
                 .listRowBackground(Color.clear)
                 .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                     Button(role: .destructive) {
@@ -183,15 +181,15 @@ private struct WatchlistPlayerCard: View {
 
             if let season {
                 Label(SeasonLabelFormatter.label(for: season), systemImage: "calendar")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                    .font(AcademyType.caption2.weight(.medium))
+                    .foregroundStyle(AcademyColors.secondaryText)
                     .padding(.horizontal, 4)
             }
 
             if let note = entry.note, !note.isEmpty {
                 Label(note, systemImage: "note.text")
-                    .font(.caption)
-                    .foregroundStyle(AcademyColors.claret)
+                    .font(AcademyType.caption)
+                    .foregroundStyle(AcademyColors.accent)
                     .lineLimit(2)
                     .padding(.horizontal, 4)
             }
@@ -205,21 +203,21 @@ private struct WatchlistUnavailablePlayerCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Label("Player #\(entry.playerApiId)", systemImage: "person.crop.circle.badge.questionmark")
-                .font(.headline)
+                .font(AcademyType.headline)
             Text("This player is no longer in the active tracking feed.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .font(AcademyType.subheadline)
+                .foregroundStyle(AcademyColors.secondaryText)
             if let note = entry.note, !note.isEmpty {
                 Text(note)
-                    .font(.caption)
-                    .foregroundStyle(AcademyColors.claret)
+                    .font(AcademyType.caption)
+                    .foregroundStyle(AcademyColors.accent)
             }
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .stroke(AcademyColors.separator.opacity(0.35), lineWidth: 0.5)
         }
     }

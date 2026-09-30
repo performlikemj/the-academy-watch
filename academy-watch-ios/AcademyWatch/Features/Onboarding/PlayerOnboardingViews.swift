@@ -25,7 +25,7 @@ struct PlayerOnboardingView: View {
                     if viewModel.hasSearched, !viewModel.isLoading, viewModel.errorMessage == nil { nextSteps }
                 }
                 .padding(18)
-            }
+            }.background(AcademyColors.background)
         }
         .navigationTitle("Find your profile")
         .navigationBarTitleDisplayMode(.inline)
@@ -35,14 +35,14 @@ struct PlayerOnboardingView: View {
     private var onboardingHeader: some View {
         VStack(alignment: .leading, spacing: 8) {
             Label("FIND YOUR PROFILE", systemImage: "person.crop.circle.badge.magnifyingglass")
-                .font(.caption.weight(.bold))
+                .font(AcademyType.caption.weight(.medium))
                 .tracking(1.1)
-                .foregroundStyle(AcademyColors.claret)
+                .foregroundStyle(AcademyColors.accent)
             Text("Search for yourself")
-                .font(.title2.weight(.bold))
+                .font(AcademyType.title2)
             Text("Enter your name and we’ll check existing profiles. If you find yours, open it and choose “This is me.” Players managing their own profile must be 18 or older.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .font(AcademyType.subheadline)
+                .foregroundStyle(AcademyColors.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(18)
@@ -57,13 +57,13 @@ struct PlayerOnboardingView: View {
                 .submitLabel(.search)
                 .onSubmit { Task { await viewModel.search() } }
                 .padding(13)
-                .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
+                .background(AcademyColors.elevatedSurface, in: RoundedRectangle(cornerRadius: 10))
                 .accessibilityIdentifier("player-onboarding-name-search")
 
             if let error = viewModel.errorMessage {
                 Label(error, systemImage: "exclamationmark.triangle.fill")
-                    .font(.footnote)
-                    .foregroundStyle(Color(uiColor: .systemRed))
+                    .font(AcademyType.footnote)
+                    .foregroundStyle(AcademyColors.danger)
             }
 
             Button {
@@ -75,8 +75,8 @@ struct PlayerOnboardingView: View {
                 }
                 .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(AcademyColors.claretFill)
+            .buttonStyle(FloodlightPillStyle())
+            .tint(AcademyColors.primaryFill)
             .disabled(viewModel.isLoading)
         }
     }
@@ -86,9 +86,9 @@ struct PlayerOnboardingView: View {
         if !viewModel.players.isEmpty {
             VStack(alignment: .leading, spacing: 10) {
                 Text("MATCHING PROFILES")
-                    .font(.caption.weight(.bold))
+                    .font(AcademyType.caption.weight(.medium))
                     .tracking(1.1)
-                    .foregroundStyle(AcademyColors.claret)
+                    .foregroundStyle(AcademyColors.accent)
                 ForEach(viewModel.players, id: \.playerId) { player in
                     NavigationLink {
                         PlayerDetailView(playerID: player.playerId, apiClient: apiClient)
@@ -104,18 +104,18 @@ struct PlayerOnboardingView: View {
                             status: player.status
                         )
                         .padding(14)
-                        .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 16))
+                        .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 10))
                     }
                     .buttonStyle(.plain)
                 }
             }
         } else if viewModel.hasSearched, viewModel.worldwidePlayers.isEmpty, !viewModel.isLoading, viewModel.errorMessage == nil {
             Label("No existing profile matched that name.", systemImage: "person.crop.circle.badge.questionmark")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .font(AcademyType.subheadline)
+                .foregroundStyle(AcademyColors.secondaryText)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(14)
-                .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 14))
+                .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 10))
         }
     }
 
@@ -138,6 +138,8 @@ struct PlayerOnboardingView: View {
 
 @MainActor
 struct LocalPlayerCreateView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     @StateObject private var viewModel: LocalPlayerFormViewModel
 
     init(
@@ -173,14 +175,14 @@ struct LocalPlayerCreateView: View {
                 VStack(alignment: .leading, spacing: 18) {
                     VStack(alignment: .leading, spacing: 7) {
                         Label("COMMUNITY PROFILE", systemImage: "person.crop.rectangle.badge.plus")
-                            .font(.caption.weight(.bold))
+                            .font(AcademyType.caption.weight(.medium))
                             .tracking(1.1)
-                            .foregroundStyle(AcademyColors.claret)
+                            .foregroundStyle(AcademyColors.accent)
                         Text(viewModel.context == .claimant ? "Tell us who you are" : "Add someone outside coverage")
-                            .font(.title2.weight(.bold))
+                            .font(AcademyType.title2)
                         Text(formIntro)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                            .font(AcademyType.subheadline)
+                            .foregroundStyle(AcademyColors.secondaryText)
                     }
 
                     VStack(spacing: 15) {
@@ -194,7 +196,7 @@ struct LocalPlayerCreateView: View {
 
                         if viewModel.context == .claimant {
                             VStack(alignment: .leading, spacing: 7) {
-                                Text("Your relationship to the player").font(.subheadline.weight(.semibold))
+                                Text("Your relationship to the player").font(AcademyType.subheadline.weight(.semibold))
                                 Picker("Relationship", selection: $viewModel.relationship) {
                                     ForEach(LocalPlayerRelationship.allCases) { relationship in
                                         Text(relationship.displayName).tag(relationship)
@@ -250,20 +252,20 @@ struct LocalPlayerCreateView: View {
 
                     }
                     .padding(17)
-                    .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 18))
+                    .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 10))
 
                     Label(
                         "Community profiles contain self-reported details, show no fabricated statistics, and remain private until review. Adults should manage their own claims; parents, guardians and agents must follow the community rules.",
                         systemImage: "checkmark.shield"
                     )
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .font(AcademyType.footnote)
+                    .foregroundStyle(AcademyColors.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
 
                     if let error = viewModel.requestError {
                         Label(error, systemImage: "exclamationmark.triangle.fill")
-                            .font(.footnote)
-                            .foregroundStyle(Color(uiColor: .systemRed))
+                            .font(AcademyType.footnote)
+                            .foregroundStyle(AcademyColors.danger)
                             .fixedSize(horizontal: false, vertical: true)
                     }
 
@@ -271,7 +273,7 @@ struct LocalPlayerCreateView: View {
                         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
                         Task {
                             await viewModel.submit()
-                            withAnimation {
+                            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
                                 if viewModel.error(for: .displayName) != nil { proxy.scrollTo("player-name", anchor: .center) }
                                 else if viewModel.error(for: .birthDate) != nil || viewModel.error(for: .birthYear) != nil {
                                     proxy.scrollTo("age-verification", anchor: .center)
@@ -285,13 +287,13 @@ struct LocalPlayerCreateView: View {
                         }
                         .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(AcademyColors.claretFill)
+                    .buttonStyle(FloodlightPillStyle())
+                    .tint(AcademyColors.primaryFill)
                     .disabled(viewModel.isSubmitting)
                     .accessibilityIdentifier("local-player-submit")
                 }
                 .padding(18)
-            }
+            }.background(AcademyColors.background)
             .scrollDismissesKeyboard(.interactively)
             .accessibilityIdentifier("local-player-create-form")
         }
@@ -314,61 +316,61 @@ struct LocalPlayerPendingDetailView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     HStack {
                         Image(systemName: "clock.badge.checkmark.fill")
-                            .font(.largeTitle)
-                            .foregroundStyle(AcademyColors.loanAmber)
+                            .font(AcademyType.largeTitle)
+                            .foregroundStyle(AcademyColors.warnText)
                         Spacer()
                         BadgeView(
                             text: "LOCAL · PENDING",
-                            foregroundColor: AcademyColors.loanAmber,
-                            backgroundColor: AcademyColors.loanAmber.opacity(0.12)
+                            foregroundColor: AcademyColors.warnText,
+                            backgroundColor: AcademyColors.warnText.opacity(0.12)
                         )
                     }
                     Text("Your profile is pending review")
-                        .font(.title2.weight(.bold))
+                        .font(AcademyType.title2)
                     Text("Only you can see this pending community profile. It will not appear publicly until Academy Watch review is complete.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .font(AcademyType.subheadline)
+                        .foregroundStyle(AcademyColors.secondaryText)
                 }
                 .padding(19)
-                .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 20))
+                .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 10))
 
                 VStack(alignment: .leading, spacing: 12) {
-                    Text(response.player.displayName).font(.title3.weight(.bold))
+                    Text(response.player.displayName).font(AcademyType.title3)
                     pendingRow("Position", response.player.position)
                     pendingRow("Current club", response.player.clubName)
                     pendingRow("Location", [response.player.city, response.player.country].compactMap { $0 }.joined(separator: ", "))
                     pendingRow("Birth year", response.player.birthYear.map(String.init))
                     Divider()
                     Text("No stats are shown for local profiles unless verified evidence is added later.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+                        .font(AcademyType.footnote)
+                        .foregroundStyle(AcademyColors.secondaryText)
                 }
                 .padding(18)
-                .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 18))
+                .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 10))
 
                 if let code = response.claim.verificationCode {
                     VStack(alignment: .leading, spacing: 7) {
-                        Text("Claim verification code").font(.subheadline.weight(.semibold))
+                        Text("Claim verification code").font(AcademyType.subheadline.weight(.semibold))
                         Text(code)
-                            .font(.title3.monospaced().weight(.bold))
+                            .font(AcademyType.mono(24, weight: .medium, relativeTo: .title3))
                             .textSelection(.enabled)
                         Text("Keep this code private until you are ready to place it on a public social profile for proof verification.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
+                            .font(AcademyType.footnote)
+                            .foregroundStyle(AcademyColors.secondaryText)
                     }
                     .padding(17)
-                    .background(AcademyColors.claretSoft, in: RoundedRectangle(cornerRadius: 16))
+                    .background(AcademyColors.accentSoft, in: RoundedRectangle(cornerRadius: 10))
                 }
             }
             .padding(18)
-        }
+        }.background(AcademyColors.background)
         .accessibilityIdentifier("local-player-pending")
     }
 
     @ViewBuilder
     private func pendingRow(_ label: String, _ value: String?) -> some View {
         HStack(alignment: .firstTextBaseline) {
-            Text(label).foregroundStyle(.secondary)
+            Text(label).foregroundStyle(AcademyColors.secondaryText)
             Spacer()
             if let value, !value.isEmpty {
                 Text(value).multilineTextAlignment(.trailing)
@@ -376,7 +378,7 @@ struct LocalPlayerPendingDetailView: View {
                 Text("—")
             }
         }
-        .font(.subheadline)
+        .font(AcademyType.subheadline)
     }
 }
 
@@ -388,23 +390,22 @@ struct OnboardingActionRow: View {
     var body: some View {
         HStack(spacing: 13) {
             Image(systemName: icon)
-                .font(.title2)
-                .foregroundStyle(AcademyColors.claret)
+                .font(AcademyType.title2)
+                .foregroundStyle(AcademyColors.accent)
                 .frame(width: 34)
             VStack(alignment: .leading, spacing: 3) {
-                Text(title).font(.headline)
+                Text(title).font(AcademyType.serif(24, relativeTo: .headline))
                 Text(detail)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .font(AcademyType.subheadline)
+                    .foregroundStyle(AcademyColors.secondaryText)
                     .multilineTextAlignment(.leading)
             }
             Spacer(minLength: 5)
             Image(systemName: "chevron.right")
-                .font(.subheadline.weight(.bold))
-                .foregroundStyle(.tertiary)
+                .font(AcademyType.subheadline.weight(.semibold))
+                .foregroundStyle(AcademyColors.secondaryText)
         }
-        .padding(16)
-        .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 17))
+        .floodlightRow()
     }
 }
 
@@ -418,16 +419,14 @@ struct OnboardingTextField: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(title).font(.subheadline.weight(.semibold))
+            Text(title).font(AcademyType.subheadline.weight(.semibold))
             TextField(placeholder, text: $text)
                 .keyboardType(keyboardType)
-                .padding(12)
-                .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 11))
                 .accessibilityIdentifier(identifier)
             if let error {
                 Text(error)
-                    .font(.caption)
-                    .foregroundStyle(Color(uiColor: .systemRed))
+                    .font(AcademyType.caption)
+                    .foregroundStyle(AcademyColors.danger)
             }
         }
     }
@@ -454,11 +453,11 @@ struct OnboardingBirthDateField: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline) {
-                Text(requiresAdultEvidence ? "Birth date / age verification" : "Birth date (optional)").font(.subheadline.weight(.semibold))
+                Text(requiresAdultEvidence ? "Birth date / age verification" : "Birth date (optional)").font(AcademyType.subheadline.weight(.semibold))
                 Spacer()
                 if birthDate != nil {
                     Button("Clear") { birthDate = nil }
-                        .font(.footnote.weight(.semibold))
+                        .font(AcademyType.footnote.weight(.semibold))
                         .accessibilityIdentifier("\(identifier)-clear")
                 }
             }
@@ -481,20 +480,20 @@ struct OnboardingBirthDateField: View {
                 } label: {
                     Label("Add a birth date", systemImage: "calendar.badge.plus")
                 }
-                .buttonStyle(.bordered)
-                .tint(AcademyColors.claret)
+                .buttonStyle(FloodlightPillStyle(variant: .outline))
+                .tint(AcademyColors.accent)
                 .accessibilityIdentifier(identifier)
             }
 
             Text("The exact date takes precedence over the year. Self-managed profiles need a date showing 18+, or a birth year at least 19 years back.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(AcademyType.caption)
+                .foregroundStyle(AcademyColors.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
 
             if let error {
                 Text(error)
-                    .font(.caption)
-                    .foregroundStyle(Color(uiColor: .systemRed))
+                    .font(AcademyType.caption)
+                    .foregroundStyle(AcademyColors.danger)
             }
         }
     }

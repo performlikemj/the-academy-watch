@@ -22,7 +22,7 @@ struct ScoutVerificationView: View {
 
             if viewModel.isLoading, !viewModel.hasLoaded {
                 ProgressView("Loading verification status…")
-                    .tint(AcademyColors.claret)
+                    .tint(AcademyColors.accent)
             } else if !viewModel.hasLoaded, let errorMessage = viewModel.errorMessage {
                 initialErrorState(errorMessage)
             } else {
@@ -31,7 +31,7 @@ struct ScoutVerificationView: View {
         }
         .navigationTitle("Scout Verification")
         .navigationBarTitleDisplayMode(.inline)
-        .tint(AcademyColors.claret)
+        .tint(AcademyColors.accent)
         .task {
             await viewModel.loadIfNeeded()
             syncVerifiedScoutState()
@@ -68,11 +68,11 @@ struct ScoutVerificationView: View {
                     errorBanner(errorMessage)
                 }
             }
-            .padding(.horizontal, 18)
+            .padding(.horizontal, 16)
             .padding(.vertical, 20)
             .frame(maxWidth: 640)
             .frame(maxWidth: .infinity)
-        }
+        }.background(AcademyColors.background)
         .scrollDismissesKeyboard(.interactively)
         .refreshable {
             await viewModel.reload()
@@ -83,16 +83,16 @@ struct ScoutVerificationView: View {
         HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: 5) {
                 Label("SCOUT TRUST", systemImage: "checkmark.shield.fill")
-                    .font(.caption.weight(.bold))
+                    .font(AcademyType.caption.weight(.medium))
                     .tracking(1.05)
-                    .foregroundStyle(AcademyColors.claret)
+                    .foregroundStyle(AcademyColors.accent)
 
                 Text("Verify your scouting role")
-                    .font(.title2.weight(.bold))
+                    .font(AcademyType.title2)
 
                 Text("Verified scouts can request introductions to claimed player profiles.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .font(AcademyType.subheadline)
+                    .foregroundStyle(AcademyColors.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
@@ -101,8 +101,8 @@ struct ScoutVerificationView: View {
             if viewModel.isFixturePreview {
                 BadgeView(
                     text: "Fixture preview",
-                    foregroundColor: AcademyColors.loanAmber,
-                    backgroundColor: AcademyColors.loanAmber.opacity(0.12)
+                    foregroundColor: AcademyColors.warnText,
+                    backgroundColor: AcademyColors.warnText.opacity(0.12)
                 )
             }
         }
@@ -111,16 +111,16 @@ struct ScoutVerificationView: View {
     private var firstApplicationCard: some View {
         HStack(alignment: .top, spacing: 12) {
             Image(systemName: "person.crop.circle.badge.checkmark")
-                .font(.title2)
-                .foregroundStyle(AcademyColors.claret)
+                .font(AcademyType.title2)
+                .foregroundStyle(AcademyColors.accent)
                 .frame(width: 34)
 
             VStack(alignment: .leading, spacing: 5) {
                 Text("Apply for verification")
-                    .font(.headline)
+                    .font(AcademyType.headline)
                 Text("Share your professional role and at least one public link that helps us confirm it. Applications are reviewed by The Academy Watch team.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .font(AcademyType.subheadline)
+                    .foregroundStyle(AcademyColors.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -134,14 +134,14 @@ struct ScoutVerificationView: View {
         return VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top, spacing: 12) {
                 Image(systemName: presentation.icon)
-                    .font(.title2)
+                    .font(AcademyType.title2)
                     .foregroundStyle(presentation.color)
                     .frame(width: 34)
 
                 VStack(alignment: .leading, spacing: 5) {
                     HStack(spacing: 8) {
                         Text(presentation.title)
-                            .font(.headline)
+                            .font(AcademyType.headline)
                         BadgeView(
                             text: presentation.badge,
                             foregroundColor: presentation.color,
@@ -150,8 +150,8 @@ struct ScoutVerificationView: View {
                     }
 
                     Text(presentation.detail)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .font(AcademyType.subheadline)
+                        .foregroundStyle(AcademyColors.secondaryText)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -161,11 +161,11 @@ struct ScoutVerificationView: View {
                 Divider()
                 VStack(alignment: .leading, spacing: 5) {
                     Label("REVIEW NOTES", systemImage: "text.bubble.fill")
-                        .font(.caption.weight(.bold))
+                        .font(AcademyType.caption.weight(.medium))
                         .tracking(0.8)
                         .foregroundStyle(presentation.color)
                     Text(notes)
-                        .font(.subheadline)
+                        .font(AcademyType.subheadline)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -175,11 +175,11 @@ struct ScoutVerificationView: View {
                 Divider()
                 VStack(alignment: .leading, spacing: 5) {
                     Text("REASON")
-                        .font(.caption.weight(.bold))
+                        .font(AcademyType.caption.weight(.medium))
                         .tracking(0.8)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(AcademyColors.secondaryText)
                     Text(reason)
-                        .font(.subheadline)
+                        .font(AcademyType.subheadline)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -193,12 +193,12 @@ struct ScoutVerificationView: View {
         VStack(alignment: .leading, spacing: 20) {
             VStack(alignment: .leading, spacing: 5) {
                 Text(viewModel.verification?.status == .rejected ? "Update your application" : "Your application")
-                    .font(.headline)
+                    .font(AcademyType.headline)
                 Text(viewModel.verification?.status == .rejected
                     ? "Address the review notes and resubmit when your evidence is ready."
                     : "All fields are required. Your evidence links must be public https URLs.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .font(AcademyType.subheadline)
+                    .foregroundStyle(AcademyColors.secondaryText)
             }
 
             boundedTextField(
@@ -236,8 +236,8 @@ struct ScoutVerificationView: View {
             if let validationMessage = viewModel.validationMessage,
                !allFieldsAreUntouched {
                 Label(validationMessage, systemImage: "info.circle.fill")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .font(AcademyType.footnote)
+                    .foregroundStyle(AcademyColors.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("scout-verification-validation")
             }
@@ -249,7 +249,7 @@ struct ScoutVerificationView: View {
                 HStack(spacing: 9) {
                     if viewModel.isSubmitting {
                         ProgressView()
-                            .tint(AcademyColors.claretOnFill)
+                            .tint(AcademyColors.onPrimary)
                     }
                     Text(viewModel.verification?.status == .rejected ? "Resubmit for review" : "Submit for review")
                         .fontWeight(.semibold)
@@ -257,8 +257,8 @@ struct ScoutVerificationView: View {
                 .frame(maxWidth: .infinity)
                 .frame(height: 48)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(AcademyColors.claretFill)
+            .buttonStyle(FloodlightPillStyle())
+            .tint(AcademyColors.primaryFill)
             .disabled(!viewModel.isFormValid || viewModel.isSubmitting || viewModel.isLoading)
             .accessibilityIdentifier("scout-verification-submit")
         }
@@ -272,8 +272,8 @@ struct ScoutVerificationView: View {
             ZStack(alignment: .topLeading) {
                 if viewModel.statement.isEmpty {
                     Text("Describe your scouting work and how you use The Academy Watch…")
-                        .font(.body)
-                        .foregroundStyle(Color(uiColor: .placeholderText))
+                        .font(AcademyType.body)
+                        .foregroundStyle(AcademyColors.secondaryText)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 12)
                         .allowsHitTesting(false)
@@ -292,7 +292,7 @@ struct ScoutVerificationView: View {
                     }
                     .accessibilityIdentifier("scout-verification-statement")
             }
-            .background(Color(uiColor: .tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 11))
+            .background(AcademyColors.elevatedSurface, in: RoundedRectangle(cornerRadius: 10))
         }
     }
 
@@ -301,19 +301,19 @@ struct ScoutVerificationView: View {
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("EVIDENCE LINKS")
-                        .font(.caption.weight(.bold))
+                        .font(AcademyType.caption.weight(.medium))
                         .tracking(0.9)
-                        .foregroundStyle(AcademyColors.claret)
+                        .foregroundStyle(AcademyColors.accent)
                     Text("Professional profile, club directory, or other public proof")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(AcademyType.caption)
+                        .foregroundStyle(AcademyColors.secondaryText)
                 }
 
                 Spacer()
 
                 Text("\(viewModel.evidenceURLs.count)/\(ScoutVerificationViewModel.maximumEvidenceURLs)")
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
+                    .font(AcademyType.caption.monospacedDigit())
+                    .foregroundStyle(AcademyColors.secondaryText)
             }
 
             ForEach(viewModel.evidenceURLs.indices, id: \.self) { index in
@@ -329,7 +329,7 @@ struct ScoutVerificationView: View {
                     .focused($focusedField, equals: .evidence(index))
                     .padding(.horizontal, 12)
                     .frame(height: 48)
-                    .background(Color(uiColor: .tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 11))
+                    .background(AcademyColors.elevatedSurface, in: RoundedRectangle(cornerRadius: 10))
                     .accessibilityLabel("Evidence URL \(index + 1)")
                     .accessibilityIdentifier("scout-verification-evidence-\(index)")
 
@@ -338,7 +338,7 @@ struct ScoutVerificationView: View {
                             viewModel.removeEvidenceURL(at: index)
                         } label: {
                             Image(systemName: "minus.circle.fill")
-                                .font(.title3)
+                                .font(AcademyType.title3)
                         }
                         .accessibilityLabel("Remove evidence URL \(index + 1)")
                     }
@@ -350,7 +350,7 @@ struct ScoutVerificationView: View {
                     viewModel.addEvidenceURL()
                 } label: {
                     Label("Add another link", systemImage: "plus.circle.fill")
-                        .font(.subheadline.weight(.semibold))
+                        .font(AcademyType.subheadline.weight(.semibold))
                 }
                 .accessibilityIdentifier("scout-verification-add-evidence")
             }
@@ -373,7 +373,7 @@ struct ScoutVerificationView: View {
                 .focused($focusedField, equals: field)
                 .padding(.horizontal, 12)
                 .frame(height: 48)
-                .background(Color(uiColor: .tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 11))
+                .background(AcademyColors.elevatedSurface, in: RoundedRectangle(cornerRadius: 10))
                 .onChange(of: text.wrappedValue) { _, value in
                     if value.count > limit {
                         text.wrappedValue = String(value.prefix(limit))
@@ -386,13 +386,13 @@ struct ScoutVerificationView: View {
     private func fieldLabel(_ title: String, count: Int, limit: Int) -> some View {
         HStack {
             Text(title)
-                .font(.caption.weight(.bold))
+                .font(AcademyType.caption.weight(.medium))
                 .tracking(0.9)
-                .foregroundStyle(AcademyColors.claret)
+                .foregroundStyle(AcademyColors.accent)
             Spacer()
             Text("\(count)/\(limit)")
-                .font(.caption2.monospacedDigit())
-                .foregroundStyle(.secondary)
+                .font(AcademyType.caption2.monospacedDigit())
+                .foregroundStyle(AcademyColors.secondaryText)
         }
     }
 
@@ -411,26 +411,28 @@ struct ScoutVerificationView: View {
     private func initialErrorState(_ message: String) -> some View {
         ContentUnavailableView {
             Label("Verification unavailable", systemImage: "wifi.exclamationmark")
+                .font(AcademyType.title2)
+                .foregroundStyle(AcademyColors.text)
         } description: {
             Text(message)
         } actions: {
             Button("Try Again") {
                 Task { await viewModel.reload() }
             }
-            .buttonStyle(.borderedProminent)
-            .tint(AcademyColors.claretFill)
+            .buttonStyle(FloodlightPillStyle())
+            .tint(AcademyColors.primaryFill)
         }
         .padding(24)
     }
 
     private func errorBanner(_ message: String) -> some View {
         Label(message, systemImage: "exclamationmark.triangle.fill")
-            .font(.footnote)
-            .foregroundStyle(Color(uiColor: .systemRed))
+            .font(AcademyType.footnote)
+            .foregroundStyle(AcademyColors.danger)
             .fixedSize(horizontal: false, vertical: true)
             .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(uiColor: .systemRed).opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+            .background(AcademyColors.danger.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
             .accessibilityIdentifier("scout-verification-error")
     }
 
@@ -456,7 +458,7 @@ struct ScoutVerificationView: View {
                 detail: "Your evidence is with our review team. You’ll see your updated status here when a decision is made.",
                 badge: "Pending",
                 icon: "clock.fill",
-                color: AcademyColors.loanAmber
+                color: AcademyColors.warnText
             )
         case .approved:
             return StatusPresentation(
@@ -464,7 +466,7 @@ struct ScoutVerificationView: View {
                 detail: "Your professional scouting role is verified. You can request introductions to players with claimed profiles.",
                 badge: "Approved",
                 icon: "checkmark.seal.fill",
-                color: AcademyColors.positiveGreen
+                color: AcademyColors.good
             )
         case .rejected:
             return StatusPresentation(
@@ -472,7 +474,7 @@ struct ScoutVerificationView: View {
                 detail: "We couldn’t verify this application yet. Review the notes below, update your evidence, and resubmit.",
                 badge: "Not approved",
                 icon: "exclamationmark.bubble.fill",
-                color: AcademyColors.loanAmber
+                color: AcademyColors.warnText
             )
         case .revoked:
             return StatusPresentation(

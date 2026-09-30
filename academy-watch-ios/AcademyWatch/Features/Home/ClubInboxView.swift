@@ -63,11 +63,11 @@ struct ClubInboxView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                Text("Your club connections").font(.title2.bold())
+                Text("Your club connections").font(AcademyType.title2)
                 Text(
                     "You choose which invitations to accept. Joining connects your profile to the club's roster and lets the club send you private feedback. It doesn't change your contract status."
                 )
-                .font(.subheadline).foregroundStyle(.secondary)
+                .font(AcademyType.subheadline).foregroundStyle(AcademyColors.secondaryText)
                 if model.busy { ProgressView("Updating invitations…") }
                 if model.unavailable {
                     ContentUnavailableView(
@@ -82,30 +82,30 @@ struct ClubInboxView: View {
                         ))
                 }
                 if let error = model.error {
-                    Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.red)
+                    Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(AcademyColors.danger)
                     Button("Refresh invitations") { Task { await model.load() } }
                 }
                 ForEach(model.invitations) { row in
                     VStack(alignment: .leading, spacing: 12) {
                         HStack {
-                            Text(row.clubName).font(.headline)
+                            Text(row.clubName).font(AcademyType.headline)
                             Spacer()
                             BadgeView(text: row.status.capitalized)
                         }
                         if row.status == "pending" {
-                            Text("This club would like to add your player profile to its roster.").font(.subheadline)
+                            Text("This club would like to add your player profile to its roster.").font(AcademyType.subheadline)
                             if let expiry = row.expiresAt {
-                                Text("Expires \(displayClubDate(expiry))").font(.caption).foregroundStyle(.secondary)
+                                Text("Expires \(displayClubDate(expiry))").font(AcademyType.caption).foregroundStyle(AcademyColors.secondaryText)
                             }
                             HStack {
                                 Button("Accept invitation") { confirmation = .init(row: row, decision: .accept) }
-                                    .buttonStyle(.borderedProminent)
-                                    .tint(AcademyColors.claretFill).foregroundStyle(AcademyColors.claretOnFill)
+                                    .buttonStyle(FloodlightPillStyle())
+                                    .tint(AcademyColors.primaryFill).foregroundStyle(AcademyColors.onPrimary)
                                 Button("Decline") { confirmation = .init(row: row, decision: .decline) }.buttonStyle(
                                     .bordered)
                             }.disabled(model.busy)
                         } else if row.status == "accepted" {
-                            Text("You're connected. Find private coach feedback in My profiles.").font(.subheadline)
+                            Text("You're connected. Find private coach feedback in My profiles.").font(AcademyType.subheadline)
                             Button("Leave club connection", role: .destructive) {
                                 confirmation = .init(row: row, decision: .revoke)
                             }.disabled(model.busy)
@@ -116,7 +116,7 @@ struct ClubInboxView: View {
                     Button("Load more invitations") { Task { await model.load(more: true) } }.disabled(model.busy)
                 }
             }.padding(20)
-        }.background(AcademyColors.background)
+        }.background(AcademyColors.background).background(AcademyColors.background)
             .navigationTitle("Club invitations").navigationBarTitleDisplayMode(.inline)
             .task { await model.load() }
             .refreshable { await model.load() }
@@ -257,11 +257,11 @@ struct PlayerFeedbackListView: View {
         List {
             Section {
                 Text("Private notes from your club. Your acknowledgment lets your coach know you've read them.")
-                    .foregroundStyle(.secondary)
-            }
+                    .foregroundStyle(AcademyColors.secondaryText)
+            }.listRowBackground(AcademyColors.background)
             if model.busy { ProgressView("Loading feedback…") }
             if let error = model.error {
-                Text(error).foregroundStyle(.secondary)
+                Text(error).foregroundStyle(AcademyColors.secondaryText)
                 Button("Refresh") { Task { await model.load(playerID: playerID) } }
             }
             ForEach(model.rows) { row in
@@ -269,25 +269,22 @@ struct PlayerFeedbackListView: View {
                     PlayerFeedbackDetailView(id: row.id, apiClient: apiClient)
                 } label: {
                     VStack(alignment: .leading, spacing: 7) {
-                        Text(row.title).font(.headline)
-                        Text(row.program.name).font(.subheadline).foregroundStyle(.secondary)
+                        Text(row.title).font(AcademyType.headline)
+                        Text(row.program.name).font(AcademyType.subheadline).foregroundStyle(AcademyColors.secondaryText)
                         if let action = row.developmentAction {
-                            Text(action.focus).font(.subheadline)
+                            Text(action.focus).font(AcademyType.subheadline)
                             Label(
                                 PlayerDevelopmentProgress.label(row.developmentProgress?.status),
                                 systemImage: "flag.fill"
                             )
-                            .font(.caption.weight(.semibold)).foregroundStyle(AcademyColors.claret)
+                            .font(AcademyType.caption.weight(.medium)).foregroundStyle(AcademyColors.accent)
                         }
-                        Text(row.acknowledgedAt == nil ? "Awaiting acknowledgment" : "Acknowledged").font(
-                            .caption)
+                        Text(row.acknowledgedAt == nil ? "Awaiting acknowledgment" : "Acknowledged").font(AcademyType.caption)
                     }.padding(.vertical, 6)
                 }
             }
             if !model.busy, model.error == nil, model.rows.isEmpty {
-                ContentUnavailableView(
-                    "Your next step starts here", systemImage: "text.bubble",
-                    description: Text("When your coach publishes feedback for you, it will appear here."))
+                FloodlightEmptyState(title: "Your next step starts here", systemImage: "text.bubble", description: "When your coach publishes feedback for you, it will appear here.")
             }
             if model.nextBefore != nil {
                 Button("Load more") { Task { await model.load(playerID: playerID, more: true) } }.disabled(model.busy)
@@ -312,12 +309,12 @@ struct PlayerFeedbackDetailView: View {
             VStack(alignment: .leading, spacing: 18) {
                 if model.busy { ProgressView("Updating feedback…") }
                 if let row = model.detail {
-                    Label("PRIVATE CLUB FEEDBACK", systemImage: "lock.fill").font(.caption.bold()).foregroundStyle(
-                        AcademyColors.claret)
-                    Text(row.title).font(.largeTitle.bold())
-                    Text("\(row.program.name) · \(row.author.displayName ?? "Club staff")").foregroundStyle(.secondary)
-                    Text("\(displayClubDate(row.publishedAt)) · Revision \(row.revision)").font(.caption)
-                        .foregroundStyle(.secondary)
+                    Label("PRIVATE CLUB FEEDBACK", systemImage: "lock.fill").font(AcademyType.caption.weight(.medium)).foregroundStyle(
+                        AcademyColors.accent)
+                    Text(row.title).font(AcademyType.largeTitle)
+                    Text("\(row.program.name) · \(row.author.displayName ?? "Club staff")").foregroundStyle(AcademyColors.secondaryText)
+                    Text("\(displayClubDate(row.publishedAt)) · Revision \(row.revision)").font(AcademyType.caption)
+                        .foregroundStyle(AcademyColors.secondaryText)
                     Text(row.body ?? "").textSelection(.enabled).frame(
                         maxWidth: .infinity, alignment: .leading)
                     if row.developmentAction != nil {
@@ -329,24 +326,24 @@ struct PlayerFeedbackDetailView: View {
                     }
                     if row.canAcknowledge {
                         Button("I've read this feedback") { Task { await model.acknowledge() } }
-                            .buttonStyle(.borderedProminent).controlSize(.large).disabled(model.busy)
-                            .tint(AcademyColors.claretFill).foregroundStyle(AcademyColors.claretOnFill)
+                            .buttonStyle(FloodlightPillStyle()).controlSize(.large).disabled(model.busy)
+                            .tint(AcademyColors.primaryFill).foregroundStyle(AcademyColors.onPrimary)
                             .accessibilityIdentifier("feedback-acknowledge")
                         Text(
                             "This tells your coach you've read this revision. It doesn't mean you agree with every point."
-                        ).font(.caption).foregroundStyle(.secondary)
+                        ).font(AcademyType.caption).foregroundStyle(AcademyColors.secondaryText)
                     } else if row.acknowledgedAt != nil {
                         Label(
                             "Acknowledged — your coach can see you've read this.", systemImage: "checkmark.circle.fill"
-                        ).foregroundStyle(AcademyColors.positiveGreen)
+                        ).foregroundStyle(AcademyColors.good)
                     }
                 }
                 if let error = model.error {
-                    Text(error).foregroundStyle(.secondary)
+                    Text(error).foregroundStyle(AcademyColors.secondaryText)
                     Button("Refresh feedback") { Task { await model.open(id: id) } }
                 }
             }.padding(20)
-        }.navigationTitle("Feedback").navigationBarTitleDisplayMode(.inline)
+        }.background(AcademyColors.background).navigationTitle("Feedback").navigationBarTitleDisplayMode(.inline)
             .task { await model.open(id: id) }
             .onChange(of: scenePhase) { _, phase in if phase == .active { Task { await model.open(id: id) } } }
     }
@@ -377,47 +374,46 @@ private struct PlayerDevelopmentCard: View {
         if let action = feedback.developmentAction {
             VStack(alignment: .leading, spacing: 18) {
                 Label("YOUR NEXT STEP", systemImage: "flag.fill")
-                    .font(.caption.bold()).foregroundStyle(AcademyColors.claretForeground)
-                Text(action.focus).font(.title2.bold()).accessibilityIdentifier("development-focus")
+                    .font(AcademyType.caption.weight(.medium)).foregroundStyle(AcademyColors.accent)
+                Text(action.focus).font(AcademyType.title2).accessibilityIdentifier("development-focus")
                 actionText("What to practise", action.practice)
                 actionText("What progress looks like", action.success)
                 if let day = action.reviewOn {
-                    Label("Review together: \(day)", systemImage: "calendar").font(.subheadline)
+                    Label("Review together: \(day)", systemImage: "calendar").font(AcademyType.subheadline)
                 }
                 Divider()
                 Label(
                     PlayerDevelopmentProgress.label(feedback.developmentProgress?.status),
                     systemImage: "checklist"
                 )
-                .font(.headline).accessibilityIdentifier("development-status")
+                .font(AcademyType.headline).accessibilityIdentifier("development-status")
                 if let review = feedback.developmentProgress?.coachNote, !review.isEmpty {
                     actionText("Coach review", review)
                 }
                 if feedback.canUpdateProgress == true {
-                    Text("How did practice go?").font(.headline)
+                    Text("How did practice go?").font(AcademyType.headline)
                     Text("What did you try? What felt different? Where do you need help?")
-                        .font(.subheadline).foregroundStyle(.secondary)
+                        .font(AcademyType.subheadline).foregroundStyle(AcademyColors.secondaryText)
                     TextEditor(text: $reflection)
                         .frame(minHeight: 110).padding(8)
-                        .background(AcademyColors.background, in: RoundedRectangle(cornerRadius: 12))
+                        .background(AcademyColors.background, in: RoundedRectangle(cornerRadius: 10))
                         .focused($writing).accessibilityLabel("Practice reflection")
                         .accessibilityIdentifier("development-reflection")
                         .onChange(of: reflection) { _, value in
                             if value.count > 1000 { reflection = String(value.prefix(1000)) }
                         }
-                    Text("Only you and your club can see this reflection.").font(.caption).foregroundStyle(
-                        .secondary)
+                    Text("Only you and your club can see this reflection.").font(AcademyType.caption).foregroundStyle(AcademyColors.secondaryText)
                     Button("Save practice update") { save("working_on_it") }
-                        .buttonStyle(.bordered).disabled(busy)
+                        .buttonStyle(FloodlightPillStyle(variant: .outline)).disabled(busy)
                         .accessibilityIdentifier("development-save")
                     Button("Ready for coach review") { save("ready_for_review") }
-                        .buttonStyle(.borderedProminent).controlSize(.large)
-                        .tint(AcademyColors.claretFill).foregroundStyle(AcademyColors.claretOnFill)
+                        .buttonStyle(FloodlightPillStyle()).controlSize(.large)
+                        .tint(AcademyColors.primaryFill).foregroundStyle(AcademyColors.onPrimary)
                         .disabled(busy || reflection.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         .accessibilityIdentifier("development-ready")
                 } else {
                     Text("Open the latest feedback revision to update your progress.")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(AcademyType.caption).foregroundStyle(AcademyColors.secondaryText)
                 }
                 if let history = feedback.developmentProgress?.history, !history.isEmpty {
                     DisclosureGroup("Development history") {
@@ -427,9 +423,9 @@ private struct PlayerDevelopmentCard: View {
                                     Text(
                                         "\(event.actor == "coach" ? "Coach" : "Player") · \(PlayerDevelopmentProgress.label(event.status))"
                                     )
-                                    .font(.subheadline.bold())
-                                    Text(displayClubDate(event.at)).font(.caption).foregroundStyle(.secondary)
-                                    if !event.note.isEmpty { Text(event.note).font(.subheadline) }
+                                    .font(AcademyType.subheadline.bold())
+                                    Text(displayClubDate(event.at)).font(AcademyType.caption).foregroundStyle(AcademyColors.secondaryText)
+                                    if !event.note.isEmpty { Text(event.note).font(AcademyType.subheadline) }
                                 }
                             }
                         }.padding(.top, 10)
@@ -438,13 +434,13 @@ private struct PlayerDevelopmentCard: View {
             }
             .padding(18)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 18))
+            .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 10))
         }
     }
 
     private func actionText(_ title: String, _ text: String) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(title).font(.subheadline.bold())
+            Text(title).font(AcademyType.subheadline.bold())
             Text(text).fixedSize(horizontal: false, vertical: true)
         }
     }

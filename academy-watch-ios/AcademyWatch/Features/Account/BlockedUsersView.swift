@@ -77,40 +77,38 @@ struct BlockedUsersView: View {
             } else if viewModel.users.isEmpty, let error = viewModel.errorMessage {
                 ContentUnavailableView {
                     Label("Blocked users unavailable", systemImage: "person.crop.circle.badge.exclamationmark")
+                .font(AcademyType.title2)
+                .foregroundStyle(AcademyColors.text)
                 } description: {
                     Text(error)
                 } actions: {
                     Button("Try Again") { Task { await viewModel.load() } }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(FloodlightPillStyle())
                 }
             } else if viewModel.users.isEmpty {
-                ContentUnavailableView(
-                    "No blocked users",
-                    systemImage: "person.crop.circle.badge.checkmark",
-                    description: Text("People you block from request or message screens will appear here.")
-                )
+                FloodlightEmptyState(title: "No blocked users", systemImage: "person.crop.circle.badge.checkmark", description: "People you block from request or message screens will appear here.")
             } else {
                 List {
                     if let error = viewModel.errorMessage {
                         Section {
                             Label(error, systemImage: "exclamationmark.triangle.fill")
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                        }
+                                .font(AcademyType.footnote)
+                                .foregroundStyle(AcademyColors.secondaryText)
+                        }.listRowBackground(AcademyColors.background)
                     }
 
                     Section {
                         ForEach(viewModel.users) { user in
                             HStack(spacing: 12) {
                                 Image(systemName: "person.crop.circle.fill")
-                                    .font(.title2)
-                                    .foregroundStyle(.secondary)
+                                    .font(AcademyType.title2)
+                                    .foregroundStyle(AcademyColors.secondaryText)
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(user.displayName ?? "Academy Watch user")
-                                        .font(.headline)
+                                        .font(AcademyType.headline)
                                     Text("New requests and messages are blocked")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
+                                        .font(AcademyType.caption)
+                                        .foregroundStyle(AcademyColors.secondaryText)
                                 }
                                 Spacer()
                                 Button("Unblock") {
@@ -122,7 +120,7 @@ struct BlockedUsersView: View {
                         }
                     } footer: {
                         Text("Unblocking allows new introduction requests and messages again.")
-                    }
+                    }.listRowBackground(AcademyColors.background)
                 }
                 .scrollContentBackground(.hidden)
                 .refreshable { await viewModel.load() }

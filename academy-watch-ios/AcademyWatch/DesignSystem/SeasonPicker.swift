@@ -17,7 +17,7 @@ struct SeasonPicker: View {
                 } label: {
                     HStack {
                         Text(menuLabel(for: season))
-                            .foregroundStyle(season.hasRollup ? Color.primary : Color.secondary)
+                            .foregroundStyle(season.hasRollup ? AcademyColors.text : AcademyColors.secondaryText)
                         if season.season == selectedSeason {
                             Image(systemName: "checkmark")
                         }
@@ -27,25 +27,25 @@ struct SeasonPicker: View {
         } label: {
             HStack(spacing: 7) {
                 Image(systemName: "calendar")
-                    .foregroundStyle(AcademyColors.claret)
+                    .foregroundStyle(AcademyColors.accent)
                 Text(selected?.label ?? "Season")
                     .lineLimit(1)
                 if selected?.isCurrent == true {
                     Text("CURRENT")
-                        .font(.system(size: 8, weight: .bold))
-                        .foregroundStyle(.secondary)
+                        .font(AcademyType.ui( 8, weight: .semibold))
+                        .foregroundStyle(AcademyColors.secondaryText)
                 }
                 Spacer(minLength: 2)
                 Image(systemName: "chevron.down")
-                    .font(.caption2.weight(.bold))
-                    .foregroundStyle(.secondary)
+                    .font(AcademyType.caption2.weight(.medium))
+                    .foregroundStyle(AcademyColors.secondaryText)
             }
-            .font(.caption.weight(.semibold))
+            .font(AcademyType.caption.weight(.medium))
             .padding(.horizontal, 11)
             .frame(maxWidth: .infinity, minHeight: 42)
-            .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+            .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             .overlay {
-                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .stroke(AcademyColors.separator.opacity(0.35), lineWidth: 0.5)
             }
         }

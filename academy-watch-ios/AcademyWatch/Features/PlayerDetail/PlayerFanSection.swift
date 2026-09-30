@@ -124,11 +124,11 @@ struct PlayerFanSectionView: View {
                 HStack(spacing: 12) {
                     Label {
                         Text("\(summary.fans) \(summary.fans == 1 ? "fan" : "fans")")
-                            .font(.subheadline.weight(.semibold))
+                            .font(AcademyType.subheadline.weight(.semibold))
                             .monospacedDigit()
                     } icon: {
                         Image(systemName: "person.2.fill")
-                            .foregroundStyle(AcademyColors.claret)
+                            .foregroundStyle(AcademyColors.accent)
                     }
                     .accessibilityLabel("\(summary.fans) \(summary.fans == 1 ? "fan" : "fans")")
 
@@ -138,25 +138,25 @@ struct PlayerFanSectionView: View {
                         followButton(isFollowing: summary.following == true)
                     } else {
                         Button("Sign in to follow", action: onSignInRequested)
-                            .font(.subheadline.weight(.semibold))
-                            .buttonStyle(.bordered)
-                            .tint(AcademyColors.claret)
+                            .font(AcademyType.subheadline.weight(.semibold))
+                            .buttonStyle(FloodlightPillStyle(variant: .outline))
+                            .tint(AcademyColors.accent)
                             .accessibilityIdentifier("player-fan-sign-in")
                     }
                 }
 
                 if let message = viewModel.actionErrorMessage {
                     Label(message, systemImage: "exclamationmark.triangle.fill")
-                        .font(.caption)
-                        .foregroundStyle(Color(uiColor: .systemRed))
+                        .font(AcademyType.caption)
+                        .foregroundStyle(AcademyColors.danger)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 16))
+            .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 10))
             .overlay {
-                RoundedRectangle(cornerRadius: 16)
+                RoundedRectangle(cornerRadius: 10)
                     .stroke(AcademyColors.separator.opacity(0.35), lineWidth: 0.75)
             }
             .accessibilityElement(children: .contain)
@@ -174,18 +174,18 @@ struct PlayerFanSectionView: View {
                 if viewModel.isPending {
                     ProgressView()
                         .controlSize(.small)
-                        .tint(isFollowing ? AcademyColors.claret : AcademyColors.claretOnFill)
+                        .tint(isFollowing ? AcademyColors.accent : AcademyColors.onPrimary)
                 }
                 Text(isFollowing ? "Following" : "Follow")
                 if isFollowing {
                     Image(systemName: "checkmark")
                 }
             }
-            .font(.subheadline.weight(.semibold))
+            .font(AcademyType.subheadline.weight(.semibold))
         }
-        .buttonStyle(.borderedProminent)
-        .tint(isFollowing ? AcademyColors.claretSoft : AcademyColors.claretFill)
-        .foregroundStyle(isFollowing ? AcademyColors.claret : AcademyColors.claretOnFill)
+        .buttonStyle(FloodlightPillStyle())
+        .tint(isFollowing ? AcademyColors.accentSoft : AcademyColors.primaryFill)
+        .foregroundStyle(isFollowing ? AcademyColors.accent : AcademyColors.onPrimary)
         .disabled(viewModel.isPending)
         .accessibilityIdentifier(isFollowing ? "player-fan-unfollow" : "player-fan-follow")
         .accessibilityLabel(isFollowing ? "Following, tap to unfollow" : "Follow this player")

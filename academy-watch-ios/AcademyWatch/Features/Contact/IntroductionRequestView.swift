@@ -48,9 +48,9 @@ struct IntroductionRequestSectionView: View {
             VStack(alignment: .leading, spacing: 11) {
                 HStack(spacing: 8) {
                     Label("SCOUT INTRODUCTION", systemImage: "paperplane.fill")
-                        .font(.caption.weight(.bold))
+                        .font(AcademyType.caption.weight(.medium))
                         .tracking(1.05)
-                        .foregroundStyle(AcademyColors.claret)
+                        .foregroundStyle(AcademyColors.accent)
 
                     Spacer()
 
@@ -60,10 +60,10 @@ struct IntroductionRequestSectionView: View {
                 }
 
                 Text("Start a private introduction")
-                    .font(.headline)
+                    .font(AcademyType.headline)
                 Text("Send a considered request to the player profile owner and, where required, their club. A thread opens after every required approval.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .font(AcademyType.subheadline)
+                    .foregroundStyle(AcademyColors.secondaryText)
 
                 Button {
                     viewModel.clearFailure()
@@ -72,22 +72,18 @@ struct IntroductionRequestSectionView: View {
                     Label("Request Introduction", systemImage: "person.crop.circle.badge.plus")
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(AcademyColors.claretFill)
+                .buttonStyle(FloodlightPillStyle())
+                .tint(AcademyColors.primaryFill)
                 .accessibilityIdentifier("request-introduction")
             }
             .padding(14)
             .background(
-                LinearGradient(
-                    colors: [AcademyColors.claretSoft.opacity(0.8), AcademyColors.surface],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                ),
-                in: RoundedRectangle(cornerRadius: 16)
+                AcademyColors.elevatedSurface,
+                in: RoundedRectangle(cornerRadius: 10)
             )
             .overlay {
-                RoundedRectangle(cornerRadius: 16)
-                    .stroke(AcademyColors.claret.opacity(0.2), lineWidth: 0.75)
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(AcademyColors.accent.opacity(0.2), lineWidth: 0.75)
             }
             .sheet(isPresented: $isSheetPresented) {
                 IntroductionRequestSheet(
@@ -117,13 +113,15 @@ struct IntroductionRequestSectionView: View {
     private var fixtureBadge: some View {
         BadgeView(
             text: "Fixture preview",
-            foregroundColor: AcademyColors.loanAmber,
-            backgroundColor: AcademyColors.loanAmber.opacity(0.12)
+            foregroundColor: AcademyColors.warnText,
+            backgroundColor: AcademyColors.warnText.opacity(0.12)
         )
     }
 }
 
-private struct IntroductionRequestSheet: View {
+struct IntroductionRequestSheet: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     @ObservedObject var viewModel: IntroductionRequestViewModel
     @ObservedObject var availability: ContactFeatureAvailability
     let playerName: String
@@ -154,7 +152,7 @@ private struct IntroductionRequestSheet: View {
                             }
                         }
                         .padding(20)
-                    }
+                    }.background(AcademyColors.background)
                     .scrollDismissesKeyboard(.interactively)
                     .onAppear {
                         scrollToAttestationIfNeeded(using: proxy, animated: false)
@@ -174,7 +172,7 @@ private struct IntroductionRequestSheet: View {
                 }
             }
         }
-        .tint(AcademyColors.claret)
+        .tint(AcademyColors.accent)
         .presentationDetents([.large])
         .interactiveDismissDisabled(viewModel.isSubmitting)
         .onAppear {
@@ -190,16 +188,16 @@ private struct IntroductionRequestSheet: View {
     private var playerHeader: some View {
         HStack(spacing: 14) {
             Image(systemName: "person.crop.circle.fill")
-                .font(.system(size: 42))
-                .foregroundStyle(AcademyColors.claret)
+                .font(AcademyType.ui( 42))
+                .foregroundStyle(AcademyColors.accent)
                 .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(playerName)
-                    .font(.title3.weight(.bold))
+                    .font(AcademyType.title3)
                 Text("Claimed player profile")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .font(AcademyType.subheadline)
+                    .foregroundStyle(AcademyColors.secondaryText)
             }
 
             Spacer()
@@ -207,30 +205,30 @@ private struct IntroductionRequestSheet: View {
             if isFixturePreview {
                 BadgeView(
                     text: "Fixture preview",
-                    foregroundColor: AcademyColors.loanAmber,
-                    backgroundColor: AcademyColors.loanAmber.opacity(0.12)
+                    foregroundColor: AcademyColors.warnText,
+                    backgroundColor: AcademyColors.warnText.opacity(0.12)
                 )
                 .fixedSize(horizontal: true, vertical: false)
             }
         }
         .padding(16)
-        .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 18))
+        .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 10))
     }
 
     private var composer: some View {
         VStack(alignment: .leading, spacing: 9) {
             HStack {
                 Text("YOUR MESSAGE")
-                    .font(.caption.weight(.bold))
+                    .font(AcademyType.caption.weight(.medium))
                     .tracking(1)
-                    .foregroundStyle(AcademyColors.claret)
+                    .foregroundStyle(AcademyColors.accent)
                 Spacer()
                 Text("\(viewModel.characterCount)/\(IntroductionRequestViewModel.maximumMessageLength)")
-                    .font(.caption.monospacedDigit())
+                    .font(AcademyType.caption.monospacedDigit())
                     .foregroundStyle(
                         viewModel.characterCount > IntroductionRequestViewModel.maximumMessageLength
-                            ? Color.red
-                            : Color.secondary
+                            ? AcademyColors.danger
+                            : AcademyColors.secondaryText
                     )
             }
 
@@ -239,7 +237,7 @@ private struct IntroductionRequestSheet: View {
                 .frame(minHeight: 180)
                 .padding(10)
                 .scrollContentBackground(.hidden)
-                .background(Color(uiColor: .tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 13))
+                .background(AcademyColors.elevatedSurface, in: RoundedRectangle(cornerRadius: 10))
                 .accessibilityIdentifier("introduction-message")
 
             Button {
@@ -247,7 +245,7 @@ private struct IntroductionRequestSheet: View {
             } label: {
                 HStack(spacing: 9) {
                     if viewModel.isSubmitting {
-                        ProgressView().tint(AcademyColors.claretOnFill)
+                        ProgressView().tint(AcademyColors.onPrimary)
                     }
                     Label(
                         viewModel.isSubmitting ? "Sending…" : "Send Introduction Request",
@@ -257,8 +255,8 @@ private struct IntroductionRequestSheet: View {
                 .frame(maxWidth: .infinity)
                 .frame(height: 48)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(AcademyColors.claretFill)
+            .buttonStyle(FloodlightPillStyle())
+            .tint(AcademyColors.primaryFill)
             .disabled(!viewModel.canSubmit)
             .accessibilityIdentifier("send-introduction")
         }
@@ -270,14 +268,14 @@ private struct IntroductionRequestSheet: View {
                 "Your account identity and this message are shared with the player profile owner and, where required, their club. Messaging opens only after the player accepts and any required club consent is granted.",
                 systemImage: "lock.shield"
             )
-            .font(.footnote)
-            .foregroundStyle(.secondary)
+            .font(AcademyType.footnote)
+            .foregroundStyle(AcademyColors.secondaryText)
             .fixedSize(horizontal: false, vertical: true)
 
             LegalSafariLink(destination: .communityRules) {
                 Label("Community Rules", systemImage: "arrow.up.right.square")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(AcademyColors.claret)
+                    .font(AcademyType.footnote.weight(.semibold))
+                    .foregroundStyle(AcademyColors.accent)
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("introduction-community-rules")
@@ -289,13 +287,13 @@ private struct IntroductionRequestSheet: View {
         if let failure = viewModel.failure {
             VStack(alignment: .leading, spacing: 11) {
                 Label(failure.message, systemImage: failure.routesToVerification ? "checkmark.shield" : "info.circle")
-                    .font(.subheadline)
-                    .foregroundStyle(failure.routesToVerification ? AcademyColors.claret : .secondary)
+                    .font(AcademyType.subheadline)
+                    .foregroundStyle(failure.routesToVerification ? AcademyColors.accent : .secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
                 if failure.routesToVerification {
                     Button("Open Scout Verification", action: onVerificationRequested)
-                        .buttonStyle(.bordered)
+                        .buttonStyle(FloodlightPillStyle(variant: .outline))
                 }
 
                 if failure.requiresPermissionAttestation {
@@ -304,7 +302,7 @@ private struct IntroductionRequestSheet: View {
                             Text(
                                 "I confirm I already have permission from the player’s current club to make this approach."
                             )
-                            .font(.subheadline.weight(.semibold))
+                            .font(AcademyType.subheadline.weight(.semibold))
                             .fixedSize(horizontal: false, vertical: true)
                         }
                         .toggleStyle(.switch)
@@ -318,15 +316,15 @@ private struct IntroductionRequestSheet: View {
                         } label: {
                             HStack(spacing: 9) {
                                 if viewModel.isSubmitting {
-                                    ProgressView().tint(AcademyColors.claretOnFill)
+                                    ProgressView().tint(AcademyColors.onPrimary)
                                 }
                                 Text(viewModel.isSubmitting ? "Sending…" : "Confirm and Send Request")
                                     .fontWeight(.semibold)
                             }
                             .frame(maxWidth: .infinity)
                         }
-                        .buttonStyle(.borderedProminent)
-                        .tint(AcademyColors.claretFill)
+                        .buttonStyle(FloodlightPillStyle())
+                        .tint(AcademyColors.primaryFill)
                         .disabled(!permissionAttestationConfirmed || viewModel.isSubmitting)
                         .accessibilityIdentifier("send-attested-introduction")
                     }
@@ -338,31 +336,31 @@ private struct IntroductionRequestSheet: View {
                 }
             }
             .padding(14)
-            .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 14))
+            .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 10))
         }
     }
 
     private func successCard(_ request: ContactRequest) -> some View {
         VStack(spacing: 14) {
             Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 48))
-                .foregroundStyle(AcademyColors.positiveGreen)
+                .font(AcademyType.ui( 48))
+                .foregroundStyle(AcademyColors.good)
             Text("Request sent")
-                .font(.title2.weight(.bold))
+                .font(AcademyType.title2)
             Text(successMessage(for: request))
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .font(AcademyType.subheadline)
+                .foregroundStyle(AcademyColors.secondaryText)
                 .multilineTextAlignment(.center)
             BadgeView(
                 text: request.status.displayName,
-                foregroundColor: AcademyColors.loanAmber,
-                backgroundColor: AcademyColors.loanAmber.opacity(0.12)
+                foregroundColor: AcademyColors.warnText,
+                backgroundColor: AcademyColors.warnText.opacity(0.12)
             )
             ContactRoutingBadge(request: request)
         }
         .frame(maxWidth: .infinity)
         .padding(24)
-        .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 20))
+        .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 10))
     }
 
     private func successMessage(for request: ContactRequest) -> String {
@@ -380,7 +378,7 @@ private struct IntroductionRequestSheet: View {
         guard viewModel.failure?.requiresPermissionAttestation == true else { return }
         DispatchQueue.main.async {
             if animated {
-                withAnimation {
+                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
                     proxy.scrollTo("introduction-request-failure", anchor: .bottom)
                 }
             } else {

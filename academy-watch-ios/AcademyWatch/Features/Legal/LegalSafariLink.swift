@@ -73,6 +73,8 @@ private struct LegalSafariView: UIViewControllerRepresentable {
 
     func makeUIViewController(context _: Context) -> SFSafariViewController {
         let controller = SFSafariViewController(url: url)
+        controller.preferredBarTintColor = UIColor(AcademyColors.background)
+        controller.preferredControlTintColor = UIColor(AcademyColors.accent)
         controller.dismissButtonStyle = .close
         return controller
     }

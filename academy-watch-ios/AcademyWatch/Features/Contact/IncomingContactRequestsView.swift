@@ -17,18 +17,20 @@ struct IncomingContactRequestsView: View {
 
             if viewModel.isLoading, !viewModel.hasLoaded {
                 ProgressView("Checking your introductions…")
-                    .tint(AcademyColors.claret)
+                    .tint(AcademyColors.accent)
             } else if let error = viewModel.errorMessage, viewModel.requests.isEmpty {
                 ContentUnavailableView {
                     Label("Introductions unavailable", systemImage: "tray")
+                .font(AcademyType.title2)
+                .foregroundStyle(AcademyColors.text)
                 } description: {
                     Text(error)
                 } actions: {
                     Button("Try Again") {
                         Task { await viewModel.reload() }
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(AcademyColors.claretFill)
+                    .buttonStyle(FloodlightPillStyle())
+                    .tint(AcademyColors.primaryFill)
                 }
             } else if viewModel.hasLoaded, !viewModel.ownsApprovedPlayerClaim {
                 ContentUnavailableView(
@@ -72,8 +74,8 @@ struct IncomingContactRequestsView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     BadgeView(
                         text: "Fixture preview",
-                        foregroundColor: AcademyColors.loanAmber,
-                        backgroundColor: AcademyColors.loanAmber.opacity(0.12)
+                        foregroundColor: AcademyColors.warnText,
+                        backgroundColor: AcademyColors.warnText.opacity(0.12)
                     )
                 }
             }
@@ -123,8 +125,8 @@ struct IncomingContactRequestsView: View {
             LazyVStack(alignment: .leading, spacing: 12) {
                 if let error = viewModel.errorMessage {
                     Label(error, systemImage: "exclamationmark.triangle.fill")
-                        .font(.footnote)
-                        .foregroundStyle(.red)
+                        .font(AcademyType.footnote)
+                        .foregroundStyle(AcademyColors.danger)
                         .padding(.horizontal, 4)
                 }
 
@@ -166,7 +168,7 @@ struct IncomingContactRequestsView: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 14)
-        }
+        }.background(AcademyColors.background)
         .refreshable {
             await viewModel.reload()
         }
@@ -216,11 +218,11 @@ private struct IncomingContactRequestCard: View {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(request.participants.scout.displayName ?? "Scout identity unavailable")
-                        .font(.headline)
+                        .font(AcademyType.headline)
                         .lineLimit(1)
                     Text("Received \(formattedDate(request.createdAt))")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(AcademyType.caption)
+                        .foregroundStyle(AcademyColors.secondaryText)
                 }
 
                 Spacer(minLength: 8)
@@ -230,8 +232,8 @@ private struct IncomingContactRequestCard: View {
             ContactRoutingBadge(request: request)
 
             Text(request.message)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .font(AcademyType.subheadline)
+                .foregroundStyle(AcademyColors.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
 
             Divider()
@@ -252,19 +254,19 @@ private struct IncomingContactRequestCard: View {
             HStack(spacing: 10) {
                 if request.status == .pending, !isResponding {
                     Button("Decline", role: .destructive, action: onDecline)
-                        .buttonStyle(.bordered)
+                        .buttonStyle(FloodlightPillStyle(variant: .outline))
                         .accessibilityIdentifier("decline-contact-request")
 
                     Button("Accept", action: onAccept)
-                        .buttonStyle(.borderedProminent)
-                        .tint(AcademyColors.claretFill)
+                        .buttonStyle(FloodlightPillStyle())
+                        .tint(AcademyColors.primaryFill)
                         .accessibilityIdentifier("accept-contact-request")
                 } else if isResponding {
                     ProgressView()
                         .controlSize(.small)
                     Text(request.status == .accepted ? "Accepting…" : "Declining…")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.secondary)
+                        .font(AcademyType.subheadline.weight(.semibold))
+                        .foregroundStyle(AcademyColors.secondaryText)
                 } else if request.messagingOpen {
                     NavigationLink {
                         ContactThreadView(
@@ -276,13 +278,13 @@ private struct IncomingContactRequestCard: View {
                     } label: {
                         Label("Open thread", systemImage: "bubble.left.and.bubble.right.fill")
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(AcademyColors.claretFill)
+                    .buttonStyle(FloodlightPillStyle())
+                    .tint(AcademyColors.primaryFill)
                     .accessibilityIdentifier("open-player-contact-thread")
                 } else {
                     Text(statusExplanation)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(AcademyType.caption)
+                        .foregroundStyle(AcademyColors.secondaryText)
                 }
 
                 Spacer(minLength: 0)
@@ -304,9 +306,9 @@ private struct IncomingContactRequestCard: View {
 
                 Spacer()
             }
-            .font(.caption.weight(.semibold))
+            .font(AcademyType.caption.weight(.medium))
             .buttonStyle(.plain)
-            .foregroundStyle(AcademyColors.claret)
+            .foregroundStyle(AcademyColors.accent)
         }
     }
 

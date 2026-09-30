@@ -18,12 +18,19 @@ targets:
     deploymentTarget: "17.0"
     sources:
       - path: AcademyWatch
+        excludes:
+          - "**/*.md"
     info:
       path: AcademyWatch/Info.plist
       properties:
         CFBundleDisplayName: Academy Watch
         CFBundleShortVersionString: $(MARKETING_VERSION)
         ITSAppUsesNonExemptEncryption: false
+        UIAppFonts:
+          - InstrumentSerif-Regular.ttf
+          - InstrumentSerif-Italic.ttf
+          - Geist.ttf
+          - GeistMono.ttf
         LSRequiresIPhoneOS: true
         UILaunchScreen:
           UIColorName: LaunchBackground

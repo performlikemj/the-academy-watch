@@ -118,16 +118,16 @@ struct ProfileEditorView: View {
         Form {
             Section {
                 Text("Make this profile yours. Photos and highlights are reviewed before they appear publicly.")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AcademyColors.secondaryText)
                 if model.busy { ProgressView("Updating your profile…") }
                 if let error = model.error {
-                    Text(error).foregroundStyle(.red)
+                    Text(error).foregroundStyle(AcademyColors.danger)
                     if !model.loaded { Button("Try again") { Task { await model.load() } } }
                 }
                 if let notice = model.notice {
-                    Label(notice, systemImage: "checkmark.circle").foregroundStyle(AcademyColors.positiveGreen)
+                    Label(notice, systemImage: "checkmark.circle").foregroundStyle(AcademyColors.good)
                 }
-            }
+            }.listRowBackground(AcademyColors.background)
             Section("Your story") {
                 LabeledContent("Position") {
                     TextField("e.g. Central midfielder", text: $model.positions)
@@ -137,7 +137,7 @@ struct ProfileEditorView: View {
                 }
                 TextField("Short bio — how you play and what you're working toward", text: $model.bio, axis: .vertical)
                     .lineLimit(4...9).accessibilityIdentifier("profile-editor-bio")
-                Text("\(model.bio.count)/2,000 characters").font(.caption).foregroundStyle(.secondary)
+                Text("\(model.bio.count)/2,000 characters").font(AcademyType.caption).foregroundStyle(AcademyColors.secondaryText)
                 Picker("Preferred foot", selection: $model.preferredFoot) {
                     Text("Not set").tag("")
                     Text("Left").tag("left")
@@ -149,7 +149,7 @@ struct ProfileEditorView: View {
                         .multilineTextAlignment(.trailing).accessibilityLabel("Height in centimetres")
                 }
                 Button("Save profile") { Task { await model.save() } }.accessibilityIdentifier("profile-editor-save")
-            }.disabled(!model.loaded || model.busy || photoBusy)
+            }.listRowBackground(AcademyColors.background).disabled(!model.loaded || model.busy || photoBusy)
             photoSection
             Section("Your highlights") {
                 TextField("YouTube link", text: $model.highlightURL).keyboardType(.URL).textInputAutocapitalization(
@@ -160,11 +160,11 @@ struct ProfileEditorView: View {
                     "profile-highlight-submit")
                 ForEach(model.showcase?.reel ?? []) { item in
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(item.title ?? "Highlight").font(.subheadline)
-                        Text(item.status.capitalized).font(.caption).foregroundStyle(.secondary)
+                        Text(item.title ?? "Highlight").font(AcademyType.subheadline)
+                        Text(item.status.capitalized).font(AcademyType.caption).foregroundStyle(AcademyColors.secondaryText)
                     }
                 }
-            }.disabled(!model.loaded || model.busy || photoBusy)
+            }.listRowBackground(AcademyColors.background).disabled(!model.loaded || model.busy || photoBusy)
             Section {
                 WebDestinationLink(
                     url: URL(
@@ -173,9 +173,11 @@ struct ProfileEditorView: View {
                     )!, title: "More profile tools on the web")
                 Text(
                     "Manage reel order, contract details, and additional profile information on the web with the same email."
-                ).font(.caption).foregroundStyle(.secondary)
-            }
+                ).font(AcademyType.caption).foregroundStyle(AcademyColors.secondaryText)
+            }.listRowBackground(AcademyColors.background)
         }
+        .scrollContentBackground(.hidden)
+        .background(AcademyColors.background)
         .navigationTitle("Edit profile").navigationBarTitleDisplayMode(.inline)
         .task { await model.load() }
         .task(id: photoItem) {
@@ -215,8 +217,8 @@ struct ProfileEditorView: View {
             .disabled(!model.loaded || model.busy || photoBusy)
             if let photoData, let image = UIImage(data: photoData) {
                 Image(uiImage: image).resizable().scaledToFit().frame(maxHeight: 220)
-                Text("Choose a clear photo of this player that you have permission to share.").font(.caption)
-                    .foregroundStyle(.secondary)
+                Text("Choose a clear photo of this player that you have permission to share.").font(AcademyType.caption)
+                    .foregroundStyle(AcademyColors.secondaryText)
                 Button("Submit photo for review") { Task { await uploadPhoto(photoData) } }.disabled(
                     photoBusy || model.busy
                 ).accessibilityIdentifier("profile-photo-submit")
@@ -226,16 +228,16 @@ struct ProfileEditorView: View {
                 }.disabled(photoBusy)
             }
             if photoBusy { ProgressView("Preparing your photo…") }
-            if let photoError { Text(photoError).foregroundStyle(.red) }
-            if let photoNotice { Text(photoNotice).foregroundStyle(AcademyColors.positiveGreen) }
+            if let photoError { Text(photoError).foregroundStyle(AcademyColors.danger) }
+            if let photoNotice { Text(photoNotice).foregroundStyle(AcademyColors.good) }
             ForEach(model.showcase?.photos ?? []) { photo in
                 HStack {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(photo.isPrimary ? "Profile photo" : "Photo").font(.subheadline.bold())
+                        Text(photo.isPrimary ? "Profile photo" : "Photo").font(AcademyType.subheadline.bold())
                         Text(photo.status == "pending_upload" ? "Upload incomplete" : photo.status.capitalized).font(
                             .caption
-                        ).foregroundStyle(.secondary)
-                        if let note = photo.reviewNote { Text(note).font(.caption).foregroundStyle(.secondary) }
+                        ).foregroundStyle(AcademyColors.secondaryText)
+                        if let note = photo.reviewNote { Text(note).font(AcademyType.caption).foregroundStyle(AcademyColors.secondaryText) }
                     }
                     Spacer()
                     Menu {
@@ -248,7 +250,7 @@ struct ProfileEditorView: View {
                     }.disabled(model.busy || photoBusy)
                 }
             }
-        }
+        }.listRowBackground(AcademyColors.background)
     }
     private func uploadPhoto(_ data: Data) async {
         guard !photoBusy, !model.busy else { return }
