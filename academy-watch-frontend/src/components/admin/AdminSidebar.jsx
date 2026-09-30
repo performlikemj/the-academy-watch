@@ -179,7 +179,7 @@ export function AdminSidebar({ className, collapsed = false, onNavigate }) {
                 aria-current={active ? 'page' : undefined}
                 title={collapsed ? item.label : undefined}
                 className={cn(
-                    'group flex h-9 items-center gap-3 rounded-[7px] px-2.5 text-sm no-underline transition-colors duration-150 hover:no-underline',
+                    'group flex h-[34px] items-center gap-3 rounded-[7px] px-2.5 text-sm no-underline transition-colors duration-150 hover:no-underline',
                     'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold',
                     active
                         ? 'bg-chalk/[0.08] text-chalk'
@@ -219,7 +219,7 @@ export function AdminSidebar({ className, collapsed = false, onNavigate }) {
             )}
             data-state={collapsed ? 'collapsed' : 'expanded'}
         >
-            <div className={cn('flex flex-1 flex-col gap-6 px-[18px] py-7', collapsed && 'px-2')}>
+            <div className={cn('flex flex-1 flex-col gap-5 px-[18px] py-6', collapsed && 'px-2')}>
                 <Link
                     to="/admin/dashboard"
                     onClick={handleNavigate}
@@ -275,14 +275,20 @@ export function AdminSidebar({ className, collapsed = false, onNavigate }) {
                     )
                 })}
 
-                <div className={cn('flex flex-col gap-0.5 border-t border-hairline-dark pt-3', collapsed && 'items-center')}>
-                    {!collapsed && <span className={cn(groupLabelClass, 'px-2.5 pb-1.5')}>Account</span>}
+                <div
+                    className={cn(
+                        'flex gap-1 border-t border-hairline-dark pt-3',
+                        collapsed ? 'flex-col items-center' : 'items-center justify-between'
+                    )}
+                    role="group"
+                    aria-label="Account"
+                >
                     <Link
                         to="/"
                         onClick={handleNavigate}
                         title={collapsed ? 'Public site' : undefined}
                         className={cn(
-                            'flex h-9 w-full items-center gap-3 rounded-[7px] px-2.5 text-sm text-muted-dark no-underline transition-colors hover:bg-chalk/[0.04] hover:text-chalk hover:no-underline',
+                            'flex h-[34px] items-center gap-2.5 rounded-[7px] px-2.5 text-sm text-muted-dark no-underline transition-colors hover:bg-chalk/[0.04] hover:text-chalk hover:no-underline',
                             collapsed && 'justify-center px-0'
                         )}
                     >
@@ -292,7 +298,7 @@ export function AdminSidebar({ className, collapsed = false, onNavigate }) {
                     <Button
                         variant="ghost"
                         className={cn(
-                            'h-9 w-full justify-start gap-3 rounded-[7px] px-2.5 text-sm font-normal text-[#E9967A] hover:bg-[#E9967A]/10 hover:text-[#E9967A]',
+                            'h-[34px] gap-2.5 rounded-[7px] px-2.5 text-sm font-normal text-[#E9967A] hover:bg-[#E9967A]/10 hover:text-[#E9967A]',
                             collapsed && 'justify-center px-0'
                         )}
                         onClick={() => {

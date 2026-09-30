@@ -1115,7 +1115,7 @@ export function ScoutPage() {
 
         {/* Compare tray */}
         {compareIds.length > 0 && (
-          <div className="fixed inset-x-0 bottom-6 z-40 flex justify-center px-4 pointer-events-none">
+          <div className="fixed inset-x-0 bottom-[calc(5.5rem+env(safe-area-inset-bottom))] z-40 flex justify-center px-4 pointer-events-none sm:bottom-6 sm:pr-24">
             <div className="pointer-events-auto flex items-center gap-3 rounded-full border border-chalk/20 bg-ink/95 py-2 pl-5 pr-2 shadow-[0_12px_32px_rgb(0_0_0/0.4)] backdrop-blur">
               <span className="font-mono text-[11px] uppercase tracking-[0.14em] tabular-nums text-[#C9CFCB]">
                 {compareIds.length} of 4 selected

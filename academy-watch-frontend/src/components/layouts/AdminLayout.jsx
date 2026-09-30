@@ -124,7 +124,7 @@ export function AdminLayout() {
 
     if (!hasApiKey || validatingKey || keyRejected) {
         return (
-            <div className="flex min-h-[calc(100vh-4rem)] items-center justify-center bg-night px-4 py-16">
+            <div className="flex min-h-screen items-center justify-center bg-night px-4 py-16">
                 <Card className="w-full max-w-md gap-5 px-2 py-8" data-testid="admin-api-key-bootstrap">
                     <CardHeader>
                         <p className="eyebrow flex items-center gap-2">
@@ -181,19 +181,19 @@ export function AdminLayout() {
             <div className="flex min-h-screen bg-night text-chalk">
                 <AdminSidebar
                     collapsed={collapsed}
-                    className="hidden lg:flex"
+                    className="sticky top-0 hidden h-screen self-start overflow-y-auto overscroll-contain lg:flex"
                 />
 
                 <Sheet open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
                     <SheetContent
                         side="left"
-                        className="w-72 border-hairline-dark bg-night p-0 sm:w-80 lg:hidden"
+                        className="h-dvh w-72 overflow-y-auto overscroll-contain border-hairline-dark bg-night p-0 sm:w-80 lg:hidden"
                         data-testid="admin-sidebar-sheet"
                     >
                         <SheetHeader className="sr-only">
                             <SheetTitle>Admin menu</SheetTitle>
                         </SheetHeader>
-                        <AdminSidebar onNavigate={() => setMobileSidebarOpen(false)} className="w-full border-r-0" />
+                        <AdminSidebar onNavigate={() => setMobileSidebarOpen(false)} className="min-h-full w-full shrink-0 border-r-0" />
                     </SheetContent>
                 </Sheet>
 
@@ -231,7 +231,7 @@ export function AdminLayout() {
                     </header>
                     <div className="relative flex-1">
                         <SyncOverlay />
-                        <main className="fl-admin-main px-4 py-8 sm:px-8 lg:px-14 lg:py-11">
+                        <main className="fl-admin-main px-4 pb-28 pt-8 sm:px-8 lg:px-14 lg:pt-11">
                             <Outlet />
                         </main>
                     </div>

@@ -104,6 +104,25 @@ const ANALYTICS_EVENTS = [
     ['claim_submitted', 'Claims'],
 ]
 
+// One slot per day of the window (missing days count as zero) so a quiet week
+// reads as quiet days rather than a single full-width bar.
+function dailySeries(daily, days) {
+    const counts = new Map(daily.map((d) => [String(d.date).slice(0, 10), Number(d.count) || 0]))
+    const latest = daily.reduce((max, d) => (String(d.date) > max ? String(d.date).slice(0, 10) : max), new Date().toISOString().slice(0, 10))
+    const end = new Date(`${latest}T00:00:00Z`)
+    return Array.from({ length: days }, (_, i) => {
+        const day = new Date(end)
+        day.setUTCDate(end.getUTCDate() - (days - 1 - i))
+        const key = day.toISOString().slice(0, 10)
+        return { date: key, count: counts.get(key) || 0 }
+    })
+}
+
+function shortDay(date) {
+    if (!date) return ''
+    return new Date(`${date}T00:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' })
+}
+
 function AnalyticsSummaryCard() {
     const [days, setDays] = useState(7)
     const [summary, setSummary] = useState(null)
@@ -127,7 +146,8 @@ function AnalyticsSummaryCard() {
 
     const totals = summary?.totals || {}
     const daily = summary?.daily || []
-    const maxDaily = daily.reduce((m, d) => Math.max(m, d.count || 0), 0)
+    const series = dailySeries(daily, days)
+    const maxDaily = series.reduce((m, d) => Math.max(m, d.count), 0)
 
     const rangeButton = (value) => (
         <button
@@ -186,16 +206,30 @@ function AnalyticsSummaryCard() {
                         {daily.length === 0 ? (
                             <p className="text-xs text-muted-dark">No activity in this window.</p>
                         ) : (
-                            <div className="flex h-16 items-end gap-0.5 border-b border-hairline-dark" data-testid="analytics-sparkline">
-                                {daily.map((d) => (
+                            <figure className="m-0">
+                                <div className="relative">
+                                    <span className="absolute -top-1 right-0 font-mono text-[10px] tabular-nums text-[#8C9791]">{maxDaily.toLocaleString()}</span>
                                     <div
-                                        key={d.date}
-                                        className="min-h-[2px] flex-1 rounded-t-[2px] bg-gold/70"
-                                        style={{ height: `${maxDaily > 0 ? Math.round(((d.count || 0) / maxDaily) * 100) : 0}%` }}
-                                        title={`${d.date}: ${d.count}`}
-                                    />
-                                ))}
-                            </div>
+                                        className={cn('flex h-24 items-end border-b border-chalk/25 pt-4', days > 7 ? 'gap-[3px]' : 'gap-3')}
+                                        data-testid="analytics-sparkline"
+                                        role="img"
+                                        aria-label={`Events per day, last ${days} days, peak ${maxDaily.toLocaleString()}`}
+                                    >
+                                        {series.map((d) => (
+                                            <div
+                                                key={d.date}
+                                                className={cn('flex-1 rounded-t-[2px]', d.count > 0 ? 'bg-gold' : 'bg-chalk/15')}
+                                                style={{ height: d.count > 0 && maxDaily > 0 ? `${Math.max(4, Math.round((d.count / maxDaily) * 100))}%` : '2px' }}
+                                                title={`${d.date}: ${d.count.toLocaleString()}`}
+                                            />
+                                        ))}
+                                    </div>
+                                </div>
+                                <figcaption className="mt-2 flex justify-between font-mono text-[10px] uppercase tracking-[0.12em] text-[#8C9791]">
+                                    <span>{shortDay(series[0]?.date)}</span>
+                                    <span>{shortDay(series[series.length - 1]?.date)}</span>
+                                </figcaption>
+                            </figure>
                         )}
                     </div>
                 </div>
