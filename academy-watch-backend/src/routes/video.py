@@ -836,7 +836,21 @@ def _media_match_or_error(match_id: int):
             return None, (jsonify({"error": "match not found"}), 404)
         if match.club_program_id != club_program_id:
             return None, (jsonify({"error": "match not found"}), 404)
+        club_user_id = claims.get("club_user_id")
+        if club_user_id is not None and not _club_media_access_live(club_user_id, match):
+            # Revoked/narrowed staff access ends immediately, even mid-token.
+            return None, (jsonify({"error": "match not found"}), 404)
     return match, None
+
+
+def _club_media_access_live(club_user_id, match) -> bool:
+    from src.services.club_access import resolve_club_access
+
+    try:
+        access = resolve_club_access(int(club_user_id), match.club_program_id)
+    except (TypeError, ValueError):
+        return False
+    return bool(access and access.can("matches.view") and access.squad_visible(match.squad_id))
 
 
 def _admin_or_media_token(f):

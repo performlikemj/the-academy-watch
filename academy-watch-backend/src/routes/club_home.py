@@ -12,7 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from src.models.funding import ClubProgram, ClubProgramManager, ClubRosterMember, ClubSquad, ClubStaff
 from src.models.league import db
 from src.services import showcase_media_storage as storage
-from src.services.club_registry import require_club_manager
+from src.services.club_access import require_club_permission_by_method, scoped_squad_ids
 from src.services.photo_processing import process_photo
 
 logger = logging.getLogger(__name__)
@@ -113,23 +113,28 @@ def serializer():
 
 
 def register(club_bp):
-    def route(path, methods):
+    def route(path, methods, capability):
+        caps = capability if isinstance(capability, dict) else dict.fromkeys(methods, capability)
+        assert set(caps) == set(methods), path
+
         def decorate(view):
             return club_bp.route(f"/club/<int:program_id>/{path}", methods=methods)(
-                require_club_manager()(transaction(view))
+                require_club_permission_by_method(caps)(transaction(view))
             )
 
         return decorate
 
-    @route("squads", ["GET", "POST"])
+    @route("squads", ["GET", "POST"], {"GET": "players.view", "POST": "players.manage"})
     def home_squads(program_id):
         if request.method == "GET":
+            scope = scoped_squad_ids()
             return jsonify(
                 squads=[
                     s.to_dict()
                     for s in ClubSquad.query.filter_by(program_id=program_id).order_by(
                         ClubSquad.sort_order, ClubSquad.id
                     )
+                    if scope is None or s.id in scope
                 ]
             )
         squad = ClubSquad(program_id=program_id, sort_order=ClubSquad.query.filter_by(program_id=program_id).count())
@@ -151,7 +156,7 @@ def register(club_bp):
         if "sort_order" in data:
             squad.sort_order = integer(data["sort_order"], "sort_order")
 
-    @route("squads/<int:row_id>", ["PATCH", "DELETE"])
+    @route("squads/<int:row_id>", ["PATCH", "DELETE"], "players.manage")
     def home_squad(program_id, row_id):
         squad = resource(ClubSquad, program_id, row_id)
         if request.method == "DELETE":
@@ -169,7 +174,7 @@ def register(club_bp):
         db.session.commit()
         return jsonify(squad=squad.to_dict())
 
-    @route("squads/reorder", ["POST"])
+    @route("squads/reorder", ["POST"], "players.manage")
     def home_reorder(program_id):
         ids = payload().get("ids")
         squads = ClubSquad.query.filter_by(program_id=program_id).all()
@@ -182,7 +187,7 @@ def register(club_bp):
         db.session.commit()
         return jsonify(squads=[s.to_dict() for s in sorted(squads, key=lambda s: s.sort_order)])
 
-    @route("squads/template", ["POST"])
+    @route("squads/template", ["POST"], "players.manage")
     def home_template(program_id):
         if ClubSquad.query.filter_by(program_id=program_id).first():
             raise HomeError("The standard template requires a club with no squads", 409)
@@ -238,7 +243,7 @@ def register(club_bp):
             if other.first():
                 raise HomeError("This squad already has a lead coach", 409)
 
-    @route("staff", ["GET", "POST"])
+    @route("staff", ["GET", "POST"], "staff.directory")
     def home_staff(program_id):
         if request.method == "GET":
             return jsonify(
@@ -255,7 +260,7 @@ def register(club_bp):
         db.session.commit()
         return jsonify(staff=staff.to_dict()), 201
 
-    @route("staff/<int:row_id>", ["PATCH", "DELETE"])
+    @route("staff/<int:row_id>", ["PATCH", "DELETE"], "staff.directory")
     def home_staff_member(program_id, row_id):
         staff = resource(ClubStaff, program_id, row_id)
         if request.method == "DELETE":
@@ -268,7 +273,7 @@ def register(club_bp):
         db.session.commit()
         return jsonify(staff=staff.to_dict())
 
-    @route("roster/<int:member_id>", ["PATCH"])
+    @route("roster/<int:member_id>", ["PATCH"], "players.manage")
     def home_roster(program_id, member_id):
         from src.routes.club import _clean_optional, _member_dict
 
@@ -284,7 +289,7 @@ def register(club_bp):
         db.session.commit()
         return jsonify(member=_member_dict(member))
 
-    @route("available-local-players", ["GET"])
+    @route("available-local-players", ["GET"], "players.manage")
     def home_available_local_players(program_id):
         from src.models.showcase import LocalPlayer
         from src.routes.club import _local_player_available
@@ -313,7 +318,7 @@ def register(club_bp):
             ]
         )
 
-    @route("map", ["GET"])
+    @route("map", ["GET"], "players.view")
     def home_map(program_id):
         staff = ClubStaff.query.filter_by(program_id=program_id).order_by(ClubStaff.sort_order, ClubStaff.id).all()
         counts = dict(
@@ -323,17 +328,23 @@ def register(club_bp):
             .all()
         )
         leads = {s.leads_squad_id: s.id for s in staff if s.leads_squad_id}
-        return jsonify(
+        scope = scoped_squad_ids()
+        body = dict(
             program=db.session.get(ClubProgram, program_id).manager_dict(),
             staff=[s.to_dict() for s in staff],
             squads=[
                 s.to_dict() | {"member_count": counts.get(s.id, 0), "lead_staff_id": leads.get(s.id)}
                 for s in ClubSquad.query.filter_by(program_id=program_id).order_by(ClubSquad.sort_order, ClubSquad.id)
+                if scope is None or s.id in scope
             ],
-            unassigned_count=counts.get(None, 0),
+            # Squad-scoped staff never see unassigned players.
+            unassigned_count=counts.get(None, 0) if scope is None else 0,
         )
+        if scope is not None:
+            body["staff"] = [s.to_dict() for s in staff if s.leads_squad_id in scope]
+        return jsonify(**body)
 
-    @route("branding", ["PATCH"])
+    @route("branding", ["PATCH"], "branding")
     def home_branding(program_id):
         data = payload()
         program = db.session.get(ClubProgram, program_id)
@@ -350,7 +361,7 @@ def register(club_bp):
         logger.info("Club branding changed program=%s user=%s", program_id, g.user_id)
         return jsonify(brand=program.brand_dict())
 
-    @route("branding/banner", ["POST"])
+    @route("branding/banner", ["POST"], "branding")
     def home_banner(program_id):
         content_type = payload().get("content_type")
         if content_type not in ("image/jpeg", "image/png", "image/webp"):
@@ -361,7 +372,7 @@ def register(club_bp):
         token = serializer().dumps({"program": program_id, "user": g.user_id, "path": upload["blob_path"]})
         return jsonify(upload=upload, upload_token=token), 201
 
-    @route("branding/banner/complete", ["POST"])
+    @route("branding/banner/complete", ["POST"], "branding")
     def home_banner_complete(program_id):
         try:
             grant = serializer().loads(payload().get("upload_token", ""), max_age=3600)

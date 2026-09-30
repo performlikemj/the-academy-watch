@@ -76,6 +76,8 @@ class VideoMatch(db.Model):
     # directly by a verified ClubProgram and may not have an API-backed Team.
     team_id = db.Column(db.Integer, db.ForeignKey("teams.id"), nullable=True, index=True)
     club_program_id = db.Column(db.Integer, db.ForeignKey("club_programs.id"), nullable=True, index=True)
+    # Squad the footage belongs to (club staff access scope). NULL = whole-club only.
+    squad_id = db.Column(db.Integer, db.ForeignKey("club_squads.id", ondelete="SET NULL"), nullable=True, index=True)
 
     # Match metadata (opponent stays free text — opposition players are numbers only)
     opponent_name = db.Column(db.String(200))

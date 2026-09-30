@@ -56,8 +56,16 @@ from src.models.tracked_player import TrackedPlayer
 from src.models.video import VideoMatch, VideoPlayerReport, VideoRosterEntry, VideoTracklet
 from src.services import season_rollup_service, video_retention, video_storage
 from src.services.capture_meta import merge_preflight
+from src.services.club_access import (
+    current_access,
+    match_in_scope,
+    member_in_scope,
+    require_club_permission,
+    scoped_squad_ids,
+    staff_access_enabled,
+)
 from src.services.club_player_authority import club_authorized_player_ids, club_has_authority_over_player
-from src.services.club_registry import is_manager_of_approved_program, require_club_manager
+from src.services.club_registry import is_manager_of_approved_program
 from src.services.coach_brief import MAX_BRIEF_CHARS, MAX_BRIEF_LINE_CHARS, MAX_BRIEF_LINES, brief_payload
 from src.services.player_identity import retained_shadow_identity_exists
 from src.services.player_subject import PlayerSubject, resolve_player_subject
@@ -457,7 +465,33 @@ def _capture_meta(value):
 
 
 def _club_match(program_id: int, match_id: int) -> VideoMatch | None:
-    return VideoMatch.query.filter_by(id=match_id, club_program_id=program_id).first()
+    match = VideoMatch.query.filter_by(id=match_id, club_program_id=program_id).first()
+    # Squad-scoped staff see only their squads' matches; out of scope reads as not found.
+    return match if match is not None and match_in_scope(match) else None
+
+
+def _match_squad_value(program_id: int, value):
+    """Validate a requested match squad (flag on only). Scoped staff must stay inside their squads."""
+    from src.models.funding import ClubSquad
+
+    scope = scoped_squad_ids()
+    if value is None:
+        if scope is not None:
+            raise ValueError("squad_id is required for squad-scoped staff")
+        return None
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError("squad_id must be an integer")
+    if ClubSquad.query.filter_by(id=value, program_id=program_id).first() is None:
+        raise ValueError("squad_id must be one of this club's squads")
+    if scope is not None and value not in scope:
+        raise ValueError("squad_id must be one of this club's squads")
+    return value
+
+
+def _with_squad(match: VideoMatch, out: dict) -> dict:
+    if staff_access_enabled():
+        out["squad_id"] = match.squad_id
+    return out
 
 
 def _tracked_player(player_api_id: int) -> TrackedPlayer | None:
@@ -768,7 +802,7 @@ def _resolve_team_id(program: ClubProgram) -> int | None:
 
 
 @club_bp.route("/club/<int:program_id>/profile", methods=["GET"])
-@require_club_manager()
+@require_club_permission("branding")
 def get_club_program_profile(program_id: int):
     program = db.session.get(ClubProgram, program_id)
     pending = (
@@ -788,7 +822,7 @@ def get_club_program_profile(program_id: int):
 
 
 @club_bp.route("/club/<int:program_id>/profile", methods=["PUT"])
-@require_club_manager()
+@require_club_permission("branding")
 @limiter.limit("20 per hour", key_func=_user_rate_limit_key)
 def put_club_program_profile(program_id: int):
     values, errors = _profile_values(request.get_json(silent=True))
@@ -821,7 +855,7 @@ def put_club_program_profile(program_id: int):
 
 
 @club_bp.route("/club/<int:program_id>/updates", methods=["GET"])
-@require_club_manager()
+@require_club_permission("branding")
 def get_club_program_updates(program_id: int):
     updates = (
         ClubProgramUpdate.query.filter_by(program_id=program_id)
@@ -832,7 +866,7 @@ def get_club_program_updates(program_id: int):
 
 
 @club_bp.route("/club/<int:program_id>/updates", methods=["POST"])
-@require_club_manager()
+@require_club_permission("branding")
 @limiter.limit("10 per hour", key_func=_user_rate_limit_key)
 def create_club_program_update(program_id: int):
     values, errors = _update_values(request.get_json(silent=True))
@@ -854,7 +888,7 @@ def create_club_program_update(program_id: int):
 
 
 @club_bp.route("/club/<int:program_id>/updates/<int:update_id>", methods=["DELETE"])
-@require_club_manager()
+@require_club_permission("branding")
 def delete_club_program_update(program_id: int, update_id: int):
     update = ClubProgramUpdate.query.filter_by(id=update_id, program_id=program_id).with_for_update().first()
     if update is None:
@@ -870,13 +904,16 @@ def delete_club_program_update(program_id: int, update_id: int):
 
 
 @club_bp.route("/club/<int:program_id>/roster", methods=["GET"])
-@require_club_manager()
+@require_club_permission("players.view")
 def list_club_roster(program_id: int):
     program = db.session.get(ClubProgram, program_id)
     from src.models.funding import ClubSquad
     from src.routes.club_home import HomeError, resource
 
     query = ClubRosterMember.query.filter_by(program_id=program_id)
+    scope = scoped_squad_ids()
+    if scope is not None:
+        query = query.filter(ClubRosterMember.squad_id.in_(sorted(scope)))
     squad_filter = request.args.get("squad_id")
     if squad_filter is not None:
         if squad_filter == "none":
@@ -884,6 +921,8 @@ def list_club_roster(program_id: int):
         else:
             try:
                 resource(ClubSquad, program_id, int(squad_filter))
+                if scope is not None and int(squad_filter) not in scope:
+                    raise HomeError("Not found", 404)
             except (ValueError, HomeError):
                 return jsonify(error="Not found"), 404
             query = query.filter_by(squad_id=int(squad_filter))
@@ -928,18 +967,26 @@ def list_club_roster(program_id: int):
     for member in members:
         if member["available"] and member["id"] in film:
             member["film"] = film[member["id"]]
+    system_brief = _brief_dict(program.system_brief_body, program.system_brief_updated_at)
+    access = current_access()
+    if access is not None and access.role == "viewer":
+        # Viewers are read-only: private coaching briefs stay with staff who coach.
+        system_brief = _brief_dict(None, None)
+        for member in members:
+            if "brief" in member:
+                member["brief"] = _brief_dict(None, None)
     return jsonify(
         {
             "program": program.manager_dict(),
             "members": members,
             "count": len(rows),
-            "system_brief": _brief_dict(program.system_brief_body, program.system_brief_updated_at),
+            "system_brief": system_brief,
         }
     )
 
 
 @club_bp.route("/club/<int:program_id>/roster", methods=["POST"])
-@require_club_manager()
+@require_club_permission("players.manage")
 def add_club_roster_member(program_id: int):
     from src.routes.club_home import HomeError, assign_roster
 
@@ -1013,7 +1060,7 @@ def add_club_roster_member(program_id: int):
 
 
 @club_bp.route("/club/<int:program_id>/roster/<int:member_id>/brief", methods=["PUT"])
-@require_club_manager()
+@require_club_permission("players.manage")
 def set_club_roster_member_brief(program_id: int, member_id: int):
     member = ClubRosterMember.query.filter_by(id=member_id, program_id=program_id).first()
     if member is None:
@@ -1032,7 +1079,7 @@ def set_club_roster_member_brief(program_id: int, member_id: int):
 
 
 @club_bp.route("/club/<int:program_id>/system-brief", methods=["PUT"])
-@require_club_manager()
+@require_club_permission("players.manage")
 def set_club_system_brief(program_id: int):
     program = db.session.get(ClubProgram, program_id)
     try:
@@ -1055,7 +1102,7 @@ def set_club_system_brief(program_id: int):
 
 
 @club_bp.route("/club/<int:program_id>/roster/<int:member_id>", methods=["DELETE"])
-@require_club_manager()
+@require_club_permission("players.manage")
 def delete_club_roster_member(program_id: int, member_id: int):
     member = ClubRosterMember.query.filter_by(id=member_id, program_id=program_id).first()
     if member is None:
@@ -1719,7 +1766,7 @@ def _write_stable_result(program_id, result_id=None):
 
 
 @club_bp.route("/club/<int:program_id>/results", methods=["POST"])
-@require_club_manager()
+@require_club_permission("results")
 @_result_transaction
 @_result_resource
 @_result_write_limit
@@ -1728,7 +1775,7 @@ def record_club_result(program_id):
 
 
 @club_bp.route("/club/<int:program_id>/results/<result_id>", methods=["PUT", "DELETE"])
-@require_club_manager()
+@require_club_permission("results")
 @_result_transaction
 @_result_resource
 @_result_write_limit
@@ -1737,7 +1784,7 @@ def correct_club_result(program_id, result_id):
 
 
 @club_bp.route("/club/<int:program_id>/results/<result_id>", methods=["GET"])
-@require_club_manager()
+@require_club_permission("results")
 @_result_transaction
 @_result_resource
 @limiter.limit("60 per minute", key_func=_result_limit_key, on_breach=_result_rate_rejected)
@@ -1749,7 +1796,7 @@ def get_club_result(program_id, result_id):
 
 
 @club_bp.route("/club/<int:program_id>/results", methods=["GET"])
-@require_club_manager()
+@require_club_permission("results")
 @_result_transaction
 @_result_resource
 @limiter.limit("60 per minute", key_func=_result_limit_key, on_breach=_result_rate_rejected)
@@ -1786,7 +1833,7 @@ def list_club_results(program_id):
 
 
 @club_bp.route("/club/<int:program_id>/matches", methods=["POST"])
-@require_club_manager()
+@require_club_permission("matches.upload")
 def create_club_match(program_id: int):
     try:
         data = _payload()
@@ -1808,6 +1855,8 @@ def create_club_match(program_id: int):
             )
 
         values = {field: _clean_optional(data.get(field), field, limit) for field, limit in TEXT_LIMITS.items()}
+        if staff_access_enabled():
+            values["squad_id"] = _match_squad_value(program_id, data.get("squad_id"))
         match = VideoMatch(
             team_id=_resolve_team_id(program),
             club_program_id=program_id,
@@ -1820,7 +1869,7 @@ def create_club_match(program_id: int):
         db.session.flush()
         match.blob_path = f"matches/{match.id}/{uuid.uuid4().hex}.mp4"
         db.session.commit()
-        out = match.to_dict()
+        out = _with_squad(match, match.to_dict())
         if video_storage.is_configured():
             out["upload"] = video_storage.mint_upload_sas(match.blob_path)
         else:
@@ -1833,24 +1882,24 @@ def create_club_match(program_id: int):
 
 
 @club_bp.route("/club/<int:program_id>/matches", methods=["GET"])
-@require_club_manager()
+@require_club_permission("matches.view")
 def list_club_matches(program_id: int):
     """List one program's matches, newest first. Quota caps a program at MAX_MATCH_QUOTA rows, so no paging."""
-    rows = (
-        VideoMatch.query.filter_by(club_program_id=program_id)
-        .order_by(VideoMatch.created_at.desc(), VideoMatch.id.desc())
-        .all()
-    )
+    query = VideoMatch.query.filter_by(club_program_id=program_id)
+    scope = scoped_squad_ids()
+    if scope is not None:
+        query = query.filter(VideoMatch.squad_id.in_(sorted(scope)))
+    rows = query.order_by(VideoMatch.created_at.desc(), VideoMatch.id.desc()).all()
     matches = []
     for match in rows:
-        out = match.to_dict(include_job=True)
+        out = _with_squad(match, match.to_dict(include_job=True))
         out["processing_request_status"] = "requested" if match.processing_requested_at else None
         matches.append(out)
     return jsonify({"matches": matches, "total": len(matches)})
 
 
 @club_bp.route("/club/<int:program_id>/matches/<int:match_id>/sas", methods=["POST"])
-@require_club_manager()
+@require_club_permission("matches.upload")
 def club_match_sas(program_id: int, match_id: int):
     match = _club_match(program_id, match_id)
     if match is None:
@@ -1865,7 +1914,7 @@ def club_match_sas(program_id: int, match_id: int):
 
 
 @club_bp.route("/club/<int:program_id>/matches/<int:match_id>/upload-complete", methods=["POST"])
-@require_club_manager()
+@require_club_permission("matches.upload")
 def club_match_upload_complete(program_id: int, match_id: int):
     match = _club_match(program_id, match_id)
     if match is None:
@@ -1904,7 +1953,7 @@ def club_match_upload_complete(program_id: int, match_id: int):
 
 
 @club_bp.route("/club/<int:program_id>/matches/<int:match_id>", methods=["PATCH"])
-@require_club_manager()
+@require_club_permission("matches.upload")
 def update_club_match(program_id: int, match_id: int):
     match = _club_match(program_id, match_id)
     if match is None:
@@ -1918,6 +1967,8 @@ def update_club_match(program_id: int, match_id: int):
                 setattr(match, field, _clean_optional(data[field], field, limit))
         if "match_date" in data:
             match.match_date = _match_date(data["match_date"])
+        if staff_access_enabled() and "squad_id" in data:
+            match.squad_id = _match_squad_value(program_id, data["squad_id"])
         for field in ("kickoff_s", "halftime_s", "second_half_kickoff_s", "duration_s"):
             if field in data:
                 setattr(match, field, _timeline_value(data[field], field))
@@ -1928,16 +1979,16 @@ def update_club_match(program_id: int, match_id: int):
     except ValueError as exc:
         return _bad_request(str(exc))
     db.session.commit()
-    return jsonify(match.to_dict())
+    return jsonify(_with_squad(match, match.to_dict()))
 
 
 @club_bp.route("/club/<int:program_id>/matches/<int:match_id>", methods=["GET"])
-@require_club_manager()
+@require_club_permission("matches.view")
 def get_club_match(program_id: int, match_id: int):
     match = _club_match(program_id, match_id)
     if match is None:
         return jsonify({"error": "Match not found"}), 404
-    out = match.to_dict(include_job=True)
+    out = _with_squad(match, match.to_dict(include_job=True))
     out["roster"] = [
         entry.to_dict()
         for entry in match.roster_entries
@@ -1951,7 +2002,7 @@ def get_club_match(program_id: int, match_id: int):
 
 
 @club_bp.route("/club/<int:program_id>/matches/<int:match_id>/media-token", methods=["GET"])
-@require_club_manager()
+@require_club_permission("matches.view")
 def get_club_match_media_token(program_id: int, match_id: int):
     match = _club_match(program_id, match_id)
     if match is None:
@@ -1961,12 +2012,14 @@ def get_club_match_media_token(program_id: int, match_id: int):
             match.id,
             email=getattr(g, "user_email", None),
             club_program_id=program_id,
+            # Flag on: bind the token to the caller so every byte request re-checks live access.
+            club_user_id=g.user_id if staff_access_enabled() else None,
         )
     )
 
 
 @club_bp.route("/club/<int:program_id>/matches/<int:match_id>/reel", methods=["GET"])
-@require_club_manager()
+@require_club_permission("matches.view")
 def get_club_match_reel(program_id: int, match_id: int):
     match = _club_match(program_id, match_id)
     if match is None:
@@ -1996,7 +2049,7 @@ def get_club_match_reel(program_id: int, match_id: int):
 
 
 @club_bp.route("/club/<int:program_id>/matches/<int:match_id>/roster", methods=["PUT"])
-@require_club_manager()
+@require_club_permission("matches.upload")
 def set_club_match_roster(program_id: int, match_id: int):
     match = _club_match(program_id, match_id)
     if match is None:
@@ -2030,7 +2083,7 @@ def set_club_match_roster(program_id: int, match_id: int):
                 ClubRosterMember.id.in_(member_ids),
             )
         }
-        if len(members) != len(member_ids):
+        if len(members) != len(member_ids) or not all(member_in_scope(m) for m in members.values()):
             return _bad_request("every match player must be on this club roster")
 
         resolved = {}
@@ -2074,7 +2127,7 @@ def set_club_match_roster(program_id: int, match_id: int):
 
 
 @club_bp.route("/club/<int:program_id>/matches/<int:match_id>/process", methods=["POST"])
-@require_club_manager()
+@require_club_permission("matches.upload")
 def request_club_match_processing(program_id: int, match_id: int):
     """Record a request only; no GPU job, tag access, or state transition."""
     match = _club_match(program_id, match_id)
@@ -2095,7 +2148,7 @@ def request_club_match_processing(program_id: int, match_id: int):
 
 
 @club_bp.route("/club/<int:program_id>/matches/<int:match_id>/report", methods=["GET"])
-@require_club_manager()
+@require_club_permission("matches.view")
 def get_club_match_report(program_id: int, match_id: int):
     match = _club_match(program_id, match_id)
     if match is None:
@@ -2262,7 +2315,7 @@ def _invitation_list_response(**scope):
 
 
 @club_bp.route("/club/<int:program_id>/invitations", methods=["POST"])
-@require_club_manager()
+@require_club_permission("player_invitations")
 @_require_relationships
 @limiter.limit("20 per hour", key_func=_invitation_limit_key, on_breach=_invitation_rate_rejected)
 def create_club_invitation(program_id):
@@ -2272,7 +2325,7 @@ def create_club_invitation(program_id):
 
 
 @club_bp.route("/club/<int:program_id>/invitations", methods=["GET"])
-@require_club_manager()
+@require_club_permission("player_invitations")
 @_require_relationships
 @limiter.limit("60 per minute", key_func=_invitation_limit_key, on_breach=_invitation_rate_rejected)
 def list_club_invitations(program_id):
@@ -2280,7 +2333,7 @@ def list_club_invitations(program_id):
 
 
 @club_bp.route("/club/<int:program_id>/invitations/<uuid:invitation_id>/revoke", methods=["POST"])
-@require_club_manager()
+@require_club_permission("player_invitations")
 @_require_relationships
 @limiter.limit("30 per hour", key_func=_invitation_limit_key, on_breach=_invitation_rate_rejected)
 def revoke_club_invitation(program_id, invitation_id):

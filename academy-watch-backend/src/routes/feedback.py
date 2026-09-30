@@ -14,7 +14,6 @@ from src.models.club_invitation import (
     ClubInvitation,
     effective_relationship,
     relationships_enabled,
-    strict_manager,
     utcnow,
 )
 from src.models.league import db
@@ -33,7 +32,12 @@ from src.models.player_feedback import (
     relationship_matches,
     uuid,
 )
-from src.services.club_registry import require_club_manager
+from src.services.club_access import (
+    club_actor_allowed,
+    require_club_permission,
+    scoped_signed_player_ids,
+    scoped_squad_ids,
+)
 from src.services.public_player_subject import resolve_public_adult_subject, user_owns_subject
 from werkzeug.exceptions import HTTPException
 
@@ -88,6 +92,11 @@ def transaction(view):
     return wrapped
 
 
+def _feedback_actor(program_id, subject_signed_id=None):
+    """Claim-verified manager, or (flag on) staff with feedback rights over this player's squad."""
+    return club_actor_allowed(db.session, program_id, g.user_id, "feedback", subject_signed_id=subject_signed_id)
+
+
 def authority(*, manager=False):
     def decorate(view):
         @wraps(view)
@@ -95,7 +104,7 @@ def authority(*, manager=False):
             if not relationships_enabled():
                 raise FeedbackError("feedback_not_found", 404)
             program_id = kwargs.get("program_id")
-            if manager and not strict_manager(db.session, program_id, g.user_id):
+            if manager and not _feedback_actor(program_id):
                 raise FeedbackError("Club manager access denied", 403)
             row_id = kwargs.get("revision_id")
             thread_id = kwargs.get("thread_id")
@@ -114,8 +123,11 @@ def authority(*, manager=False):
                 g.feedback_rows = lock_thread(db.session, row, g.user_id)
                 g.feedback = next(item for item in g.feedback_rows if item.id == row.id)
                 if manager:
-                    if not strict_manager(db.session, program_id, g.user_id):
+                    if not _feedback_actor(program_id):
                         raise FeedbackError("Club manager access denied", 403)
+                    if not _feedback_actor(program_id, g.feedback.player_api_id):
+                        # Out of the coach's squads: indistinguishable from a missing thread.
+                        raise FeedbackError("feedback_not_found", 404)
                     # Withdrawal remains possible after relationship closure.
                     if (
                         not request.path.endswith("/withdraw")
@@ -137,8 +149,10 @@ def authority(*, manager=False):
                 g.feedback_invitation = locked_invitation(db.session, invitation, g.user_id)
                 if not g.feedback_invitation:
                     raise FeedbackError("club_relationship_required", 409)
-                if not strict_manager(db.session, program_id, g.user_id):
+                if not _feedback_actor(program_id):
                     raise FeedbackError("Club manager access denied", 403)
+                if not _feedback_actor(program_id, g.feedback_invitation.player_api_id):
+                    raise FeedbackError("feedback_not_found", 404)
                 if not effective_relationship(db.session, g.feedback_invitation):
                     for row in PlayerFeedback.query.filter_by(invitation_id=g.feedback_invitation.id).all():
                         observe_closure(db.session, row)
@@ -184,7 +198,7 @@ def authority(*, manager=False):
 
 
 @feedback_bp.post("/club/<int:program_id>/player-feedback")
-@require_club_manager()
+@require_club_permission("feedback")
 @transaction
 @authority(manager=True)
 @limited("30 per hour")
@@ -194,7 +208,7 @@ def create_feedback(program_id):
 
 
 @feedback_bp.post("/club/<int:program_id>/player-feedback/<thread_id>/revisions")
-@require_club_manager()
+@require_club_permission("feedback")
 @transaction
 @authority(manager=True)
 @limited("30 per hour")
@@ -206,7 +220,7 @@ def revise_feedback(program_id, thread_id):
 
 
 @feedback_bp.post("/club/<int:program_id>/player-feedback/<thread_id>/withdraw")
-@require_club_manager()
+@require_club_permission("feedback")
 @transaction
 @authority(manager=True)
 @limited("30 per hour")
@@ -241,6 +255,9 @@ def list_feedback(*, manager=False):
     )
     if manager and g.feedback_invitation_id:
         query = query.filter_by(invitation_id=g.feedback_invitation_id)
+    if manager and (scope := scoped_squad_ids()) is not None:
+        visible = scoped_signed_player_ids(request.view_args["program_id"], scope)
+        query = query.filter(PlayerFeedback.player_api_id.in_(sorted(visible)))
     newer = sa.orm.aliased(PlayerFeedback)
     query = query.filter(
         ~sa.exists().where(newer.thread_id == PlayerFeedback.thread_id, newer.revision > PlayerFeedback.revision)
@@ -263,7 +280,7 @@ def list_feedback(*, manager=False):
     result = []
     for candidate in candidates[: g.feedback_limit]:
         rows = lock_thread(db.session, candidate, g.user_id)
-        if manager and not strict_manager(db.session, candidate.program_id, g.user_id):
+        if manager and not _feedback_actor(candidate.program_id, candidate.player_api_id):
             raise FeedbackError("Club manager access denied", 403)
         row = next(item for item in rows if item.id == candidate.id)
         if row.revision != rows[-1].revision:
@@ -299,7 +316,7 @@ def list_feedback(*, manager=False):
 
 
 @feedback_bp.get("/club/<int:program_id>/player-feedback")
-@require_club_manager()
+@require_club_permission("feedback")
 @transaction
 @authority(manager=True)
 @limited("60 per minute")
@@ -308,7 +325,7 @@ def manager_feedback(program_id):
 
 
 @feedback_bp.get("/club/<int:program_id>/player-feedback/<revision_id>")
-@require_club_manager()
+@require_club_permission("feedback")
 @transaction
 @authority(manager=True)
 @limited("60 per minute")
@@ -414,7 +431,7 @@ def purge_feedback():
 
 
 @feedback_bp.get("/club/<int:program_id>/player-feedback/suggestions")
-@require_club_manager()
+@require_club_permission("feedback")
 @transaction
 @feature_enabled
 @limited("30 per minute")
@@ -427,8 +444,10 @@ def feedback_suggestions(program_id):
     if invitation is None:
         raise FeedbackError("feedback_not_found", 404)
     invitation = locked_invitation(db.session, invitation, g.user_id)
-    if not strict_manager(db.session, program_id, g.user_id):
+    if not _feedback_actor(program_id):
         raise FeedbackError("Club manager access denied", 403)
+    if invitation and not _feedback_actor(program_id, invitation.player_api_id):
+        raise FeedbackError("feedback_not_found", 404)
     if not invitation or not effective_relationship(db.session, invitation):
         raise FeedbackError("club_relationship_required", 409)
     return jsonify(suggestions=evidence_candidates(db.session, invitation))
@@ -450,7 +469,7 @@ def player_development_progress(revision_id):
 
 
 @feedback_bp.post("/club/<int:program_id>/player-feedback/<thread_id>/progress-review")
-@require_club_manager()
+@require_club_permission("feedback")
 @transaction
 @authority(manager=True)
 @limited("30 per hour")

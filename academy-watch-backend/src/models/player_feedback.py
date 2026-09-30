@@ -19,7 +19,6 @@ from src.models.club_invitation import (
     effective_relationship,
     lock_context,
     relationships_enabled,
-    strict_manager,
     utcnow,
 )
 from src.models.league import UserAccount, db
@@ -334,7 +333,11 @@ def validate_reference(session, invitation, match_id, *, body, refs):
 
 
 def publish(session, invitation, author_id, data, *, rows=None):
-    if not strict_manager(session, invitation.program_id, author_id):
+    from src.services.club_access import club_actor_allowed
+
+    if not club_actor_allowed(
+        session, invitation.program_id, author_id, "feedback", subject_signed_id=invitation.player_api_id
+    ):
         raise FeedbackError("Club manager access denied", 403)
     if not effective_relationship(session, invitation):
         raise FeedbackError("club_relationship_required", 409)

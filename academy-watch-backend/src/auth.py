@@ -254,12 +254,16 @@ def mint_media_token(
     email: str | None = None,
     ttl_seconds: int = MEDIA_TOKEN_TTL,
     club_program_id: int | None = None,
+    club_user_id: int | None = None,
 ) -> dict:
     """Mint a media token scoped to one match. Called from an admin-authed JSON
     endpoint; the token then rides ?token= on media URLs."""
     payload = {"match_id": int(match_id), "scope": "media", "email": email, "iat": int(time.time())}
     if club_program_id is not None:
         payload["club_program_id"] = int(club_program_id)
+    if club_user_id is not None:
+        # Club staff access: the media route re-resolves this account's live access per request.
+        payload["club_user_id"] = int(club_user_id)
     return {"token": _media_serializer().dumps(payload), "expires_in": ttl_seconds}
 
 

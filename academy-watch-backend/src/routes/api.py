@@ -13215,7 +13215,11 @@ def features():
     service here would load the contact models into every test app and break their create_all().
     """
     enabled = os.getenv("CONTACT_RAIL_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}
-    return jsonify({"contact_rail": enabled})
+    flags = {"contact_rail": enabled}
+    # Dark club staff access: the key is absent (payload unchanged) until the flag is on.
+    if os.getenv("CLUB_STAFF_ACCESS_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}:
+        flags["club_staff_access"] = True
+    return jsonify(flags)
 
 
 @api_bp.route("/meta/data-mode", methods=["GET"])
