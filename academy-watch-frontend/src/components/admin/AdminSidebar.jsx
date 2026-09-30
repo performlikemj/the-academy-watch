@@ -39,6 +39,7 @@ const sidebarGroups = [
         items: [
             { icon: LayoutDashboard, label: 'Dashboard', href: '/admin/dashboard' },
             { icon: Inbox, label: 'Inbox', href: '/admin/inbox', badge: 'inbox' },
+            { icon: Mail, label: 'Interest sign-ups', href: '/admin/interest' },
         ],
     },
     {
