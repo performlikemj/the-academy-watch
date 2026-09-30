@@ -3,10 +3,10 @@
 - Goal: transactional notification outbox, append-only admin audit, canonical new-public adult rule, reversible club publication hold.
 - Branch: p2/a1-foundation; migration p2a1 → fl01; flag P2_FOUNDATION_ENABLED default OFF.
 - Constraints: no A2 registry/home/club guard/access edits; no legacy public caller changes; no child PII in queued payloads; no individual suppression mutation.
-- Status: in-progress.
+- Status: complete; draft PR ready for orchestrator review.
 - Done: read phase decisions, required recon sections, DESIGN 6–9, BUS, repository guidance; posted START/CLAIMs.
-- Now: commit/push/draft PR handback.
-- Next: draft PR + BUS DONE, final ledger handback.
+- Now: draft PR #1110 open against main; own work complete.
+- Next: orchestrator review/A2 integration, preapply/stamp/deploy with flag OFF; MJ decides flag activation.
 - Limitation: provider delivery is at-least-once across send-success/DB-commit failure.
 - Milestone: 31 foundation tests and 57 focused account/funding/foundation tests passed (before expanded hold matrix); Ruff/format pass.
 - PostgreSQL: target host/database verified, ch02 → fl01 → p2a1 applied; both new tables RLS true; preapply SQL reapplied twice successfully.
@@ -17,3 +17,4 @@
 - Decisions: account-recipient outbox only; orchestrator approved A2 synchronous invite email exception on BUS. Whole-page hold for any linked hidden club; age alone is not new-public DOB evidence. Account privacy export/erasure runs even after flag OFF, empty foundation exports preserve prior response shape.
 - Final review: turning rollout OFF preserves derived existing emergency holds; regression passes. Export timestamps serialize portably; final full pytest rerun pending. No blockers or unresolved product questions.
 - Final gates: 3179 passed, 40 skipped, 115 warnings in 193.22s; Ruff check + format check pass (531 files); Python 3.11 compilation pass. Evidence `~/codex-runs/aw-redesign/logs/P2A1.report.md`. Frontend untouched.
+- Delivery: code commit 44e412e8 pushed; draft PR #1110 https://github.com/performlikemj/the-academy-watch/pull/1110. All A1 CLAIMs released. Worktree retained, production untouched.
