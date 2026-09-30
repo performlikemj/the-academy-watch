@@ -4,10 +4,8 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { APIService } from '@/lib/api'
 import { track } from '@/lib/track'
 import { useAuth, useAuthUI } from '@/context/AuthContext'
-import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -17,12 +15,14 @@ import { SeasonSelect } from '@/components/ui/SeasonSelect'
 import { IntroduceDialog } from '@/components/contact/IntroduceDialog'
 import { ProvenanceChip } from '@/components/SelfReportedBadge'
 import { useContactRail } from '@/hooks/useContactRail.js'
+import { ScoutSurface, ScoutHeader, deskPillClass } from '@/components/scout/ScoutDesk'
+import { cn } from '@/lib/utils'
 import { seasonStore } from '@/lib/seasonStore'
 import { formatSeasonLabel, withSeasonParam } from '@/lib/seasons'
 import {
   Loader2, Search, ArrowUpDown, ArrowLeft, ArrowRight,
   Trophy, Zap, Clock, Gauge, X, GitCompareArrows, Globe,
-  Star, Download, Link2, ListChecks,
+  Star, Download, Link2,
   Crosshair, Sparkles, Send, Swords, Shield, ShieldCheck, Hand, UserPlus,
 } from 'lucide-react'
 import { STATUS_BADGE_CLASSES } from '../lib/theme-constants'
@@ -58,18 +58,18 @@ const fmtStat = (value) => (value === null || value === undefined ? '—' : valu
 const STAT_COLUMNS = {
   apps: { sortKey: 'appearances', label: 'Apps', render: (p) => p.appearances },
   mins: { sortKey: 'minutes', label: 'Mins', render: (p) => p.minutes_played?.toLocaleString() },
-  goals: { sortKey: 'goals', label: 'G', title: 'Goals', cellClass: 'font-semibold text-emerald-700', render: (p) => p.goals },
-  assists: { sortKey: 'assists', label: 'A', title: 'Assists', cellClass: 'font-semibold text-amber-700', render: (p) => p.assists },
+  goals: { sortKey: 'goals', label: 'G', title: 'Goals', cellClass: 'text-chalk', render: (p) => p.goals },
+  assists: { sortKey: 'assists', label: 'A', title: 'Assists', cellClass: 'text-chalk', render: (p) => p.assists },
   rating: { sortKey: 'rating', label: 'Rating', render: (p) => fmtStat(p.avg_rating) },
-  ga90: { sortKey: 'per90', label: 'G+A/90', cellClass: 'font-semibold text-primary', render: (p) => fmtStat(p.contributions_per90) },
+  ga90: { sortKey: 'per90', label: 'G+A/90', cellClass: 'text-gold', render: (p) => fmtStat(p.contributions_per90) },
   shots: { sortKey: 'shots', label: 'Sh (OT)', title: 'Shots (on target)', render: (p) => (p.shots_total == null ? '—' : `${p.shots_total} (${p.shots_on ?? 0})`) },
   dribbles: { sortKey: 'dribbles', label: 'Drb', title: 'Successful dribbles', render: (p) => fmtStat(p.dribbles_success) },
   foulsWon: { sortKey: 'fouls_won', label: 'FW', title: 'Fouls won', render: (p) => fmtStat(p.fouls_drawn) },
   passes: { sortKey: 'passes', label: 'Passes', render: (p) => (p.passes_total == null ? '—' : p.passes_total.toLocaleString()) },
   keyPasses: { sortKey: 'key_passes', label: 'KP', title: 'Key passes', render: (p) => fmtStat(p.key_passes) },
-  kp90: { sortKey: 'key_passes_per90', label: 'KP/90', title: 'Key passes per 90', cellClass: 'font-semibold text-primary', render: (p) => fmtStat(p.key_passes_per90) },
+  kp90: { sortKey: 'key_passes_per90', label: 'KP/90', title: 'Key passes per 90', cellClass: 'text-gold', render: (p) => fmtStat(p.key_passes_per90) },
   tackles: { sortKey: 'tackles', label: 'Tkl', title: 'Tackles', render: (p) => fmtStat(p.tackles) },
-  tkl90: { sortKey: 'tackles_per90', label: 'Tkl/90', title: 'Tackles per 90', cellClass: 'font-semibold text-primary', render: (p) => fmtStat(p.tackles_per90) },
+  tkl90: { sortKey: 'tackles_per90', label: 'Tkl/90', title: 'Tackles per 90', cellClass: 'text-gold', render: (p) => fmtStat(p.tackles_per90) },
   duelsWon: { sortKey: 'duels_won', label: 'Duels W', title: 'Duels won', render: (p) => fmtStat(p.duels_won) },
   duelPct: { label: 'Duel %', title: 'Duel win rate', render: (p) => (p.duel_win_pct == null ? '—' : `${p.duel_win_pct}%`) },
   cards: { label: 'Y/R', title: 'Yellow / red cards', render: (p) => (p.yellows == null ? '—' : `${p.yellows}/${p.reds ?? 0}`) },
@@ -77,7 +77,7 @@ const STAT_COLUMNS = {
   savePct: { sortKey: 'save_pct', label: 'Save %', title: 'Save percentage', render: (p) => (p.save_pct == null ? '—' : `${p.save_pct}%`) },
   conceded: { sortKey: 'goals_conceded', label: 'GA', title: 'Goals against', render: (p) => fmtStat(p.goals_conceded) },
   concededPer90: { sortKey: 'conceded_per90', label: 'GA/90', title: 'Goals against per 90', render: (p) => fmtStat(p.conceded_per90) },
-  cleanSheets: { sortKey: 'clean_sheets', label: 'CS', title: 'Clean sheets', cellClass: 'font-semibold text-primary', render: (p) => fmtStat(p.clean_sheets) },
+  cleanSheets: { sortKey: 'clean_sheets', label: 'CS', title: 'Clean sheets', cellClass: 'text-gold', render: (p) => fmtStat(p.clean_sheets) },
   penSaved: { label: 'Pen SV', title: 'Penalties saved', render: (p) => fmtStat(p.penalty_saved) },
 }
 
@@ -201,11 +201,6 @@ const PHASES = {
 
 const PHASE_ORDER = ['all', 'attack', 'midfield', 'defense', 'gk']
 
-const RANK_CHIP_CLASSES = [
-  'bg-primary text-primary-foreground',
-  'bg-amber-100 text-amber-900 border border-amber-300',
-  'bg-stone-100 text-stone-700 border border-stone-300',
-]
 
 const COMPARE_ROWS = [
   { section: 'Season', key: 'appearances', label: 'Appearances', source: 'totals' },
@@ -260,7 +255,7 @@ export function FormIndicator({ form }) {
           <span
             key={index}
             title={title}
-            className={`w-1.5 rounded-sm ${contributed ? 'bg-emerald-500' : 'bg-stone-300 dark:bg-stone-600'}`}
+            className={`w-1.5 rounded-sm ${contributed ? 'bg-gold' : 'bg-chalk/25'}`}
             style={{ height: `${height}px` }}
           />
         )
@@ -273,14 +268,14 @@ export function PlayerCell({ player, season }) {
   return (
     <Link to={withSeasonParam(`/players/${player.player_id}`, season)} className="flex items-center gap-3 no-underline hover:no-underline group">
       {player.player_photo ? (
-        <img src={player.player_photo} alt="" loading="lazy" className="h-9 w-9 rounded-full object-cover bg-secondary shrink-0" />
+        <img src={player.player_photo} alt="" loading="lazy" className="h-10 w-10 rounded-full object-cover bg-secondary opacity-90 shrink-0" />
       ) : (
-        <span className="h-9 w-9 rounded-full bg-secondary inline-flex items-center justify-center text-xs font-semibold text-muted-foreground shrink-0">
+        <span className="h-10 w-10 rounded-full bg-secondary inline-flex items-center justify-center font-mono text-[11px] text-muted-foreground shrink-0">
           {player.player_name?.slice(0, 2).toUpperCase()}
         </span>
       )}
       <span className="min-w-0">
-        <span className="block truncate text-sm font-semibold text-foreground group-hover:text-primary transition-colors">
+        <span className="block truncate text-[14.5px] font-medium text-foreground group-hover:text-gold transition-colors">
           {player.player_name}
         </span>
         <span className="block truncate text-xs text-muted-foreground">
@@ -294,46 +289,44 @@ export function PlayerCell({ player, season }) {
 function LeaderboardCard({ board, entries, loading, season, seasonOverride }) {
   const Icon = board.icon
   return (
-    <Card className="overflow-hidden border-border/80">
-      <div className="flex items-center gap-2 border-b border-border/60 bg-secondary/60 px-4 py-2.5">
-        <Icon className="h-4 w-4 text-primary" />
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-foreground/70">{board.title}</h3>
-        <span className="ml-auto text-[10px] font-medium tabular-nums text-muted-foreground">{formatSeasonLabel(season)}</span>
+    <section className="flex min-w-0 flex-col" aria-label={board.title}>
+      <div className="flex items-center gap-2 border-b border-chalk/70 pb-2.5">
+        <Icon className="h-3.5 w-3.5 text-gold" aria-hidden="true" />
+        <h3 className="font-mono text-[11px] font-medium uppercase tracking-[0.16em] text-chalk">{board.title}</h3>
+        <span className="ml-auto font-mono text-[10.5px] tabular-nums text-[#8C9791]">{formatSeasonLabel(season)}</span>
       </div>
-      <CardContent className="p-0">
-        {loading ? (
-          <div className="space-y-3 p-4">
-            {[0, 1, 2].map((i) => <Skeleton key={i} className="h-9 w-full" />)}
-          </div>
-        ) : entries?.length ? (
-          <ol className="divide-y divide-border/50">
-            {entries.map((player, index) => (
-              <li key={player.player_id}>
-                <Link
-                  to={withSeasonParam(`/players/${player.player_id}`, seasonOverride)}
-                  className="flex items-center gap-3 px-4 py-2.5 no-underline hover:no-underline hover:bg-secondary/50 transition-colors"
-                >
-                  <span className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold ${RANK_CHIP_CLASSES[index] || 'bg-secondary text-muted-foreground'}`}>
-                    {index + 1}
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-medium text-foreground">{player.player_name}</span>
-                    <span className="block truncate text-xs text-muted-foreground">{player.loan_team_name || player.primary_team_name}</span>
-                    <ProvenanceChip provenance={player.provenance} className="mt-1" />
-                  </span>
-                  <span className="shrink-0 text-right">
-                    <span className="block text-sm font-bold tabular-nums text-primary">{board.metric(player) ?? '—'}</span>
-                    <span className="block text-[10px] uppercase tracking-wide text-muted-foreground">{board.suffix}</span>
-                  </span>
-                </Link>
-              </li>
-            ))}
-          </ol>
-        ) : (
-          <p className="px-4 py-6 text-center text-sm text-muted-foreground">No data yet</p>
-        )}
-      </CardContent>
-    </Card>
+      {loading ? (
+        <div className="space-y-3 py-4">
+          {[0, 1, 2].map((i) => <Skeleton key={i} className="h-9 w-full" />)}
+        </div>
+      ) : entries?.length ? (
+        <ol className="flex flex-col">
+          {entries.map((player, index) => (
+            <li key={player.player_id}>
+              <Link
+                to={withSeasonParam(`/players/${player.player_id}`, seasonOverride)}
+                className="grid grid-cols-[22px_minmax(0,1fr)_auto] items-center gap-3 border-b border-hairline-dark py-3 no-underline transition-colors duration-150 hover:bg-chalk/[0.035] hover:no-underline"
+              >
+                <span className={cn('font-mono text-[11px] tabular-nums', index === 0 ? 'text-gold' : 'text-[#8C9791]')}>
+                  {String(index + 1).padStart(2, '0')}
+                </span>
+                <span className="min-w-0">
+                  <span className="block truncate font-serif text-[1.3rem] leading-tight text-chalk">{player.player_name}</span>
+                  <span className="block truncate text-[12.5px] text-muted-dark">{player.loan_team_name || player.primary_team_name}</span>
+                  <ProvenanceChip provenance={player.provenance} className="mt-1.5" />
+                </span>
+                <span className="shrink-0 text-right">
+                  <span className="block font-serif text-[1.75rem] leading-none tabular-nums text-chalk">{board.metric(player) ?? '—'}</span>
+                  <span className="mt-1 block font-mono text-[10px] uppercase tracking-[0.12em] text-[#8C9791]">{board.suffix}</span>
+                </span>
+              </Link>
+            </li>
+          ))}
+        </ol>
+      ) : (
+        <p className="py-6 text-sm text-muted-dark">No data yet</p>
+      )}
+    </section>
   )
 }
 
@@ -384,10 +377,10 @@ function CompareDialog({ open, onOpenChange, playerIds, season, seasonOverride, 
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl sm:max-w-4xl max-h-[85vh] overflow-y-auto">
+      <DialogContent className="max-w-4xl sm:max-w-4xl max-h-[85vh] overflow-y-auto border-hairline-dark bg-night">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <GitCompareArrows className="h-5 w-5 text-primary" />
+            <GitCompareArrows className="h-5 w-5 text-gold" aria-hidden="true" />
             Player Comparison · {formatSeasonLabel(data?.season ?? season)}
             <Button
               variant="ghost"
@@ -408,12 +401,12 @@ function CompareDialog({ open, onOpenChange, playerIds, season, seasonOverride, 
 
         {loading ? (
           <div className="flex items-center justify-center py-12">
-            <Loader2 className="h-6 w-6 animate-spin text-primary" />
+            <Loader2 className="h-6 w-6 animate-spin text-gold" />
           </div>
         ) : error ? (
           <p className="py-8 text-center text-sm text-destructive">{error}</p>
         ) : players.length ? (
-          <div className="overflow-x-auto">
+          <div className="relative overflow-x-auto">
             <table className="w-full min-w-[560px] border-collapse text-sm">
               <thead>
                 <tr>
@@ -428,7 +421,7 @@ function CompareDialog({ open, onOpenChange, playerIds, season, seasonOverride, 
                             {p.profile.player_name?.slice(0, 2).toUpperCase()}
                           </span>
                         )}
-                        <span className="text-sm font-semibold text-foreground group-hover:text-primary transition-colors">
+                        <span className="font-serif text-xl leading-tight text-foreground group-hover:text-gold transition-colors">
                           {p.profile.player_name}
                         </span>
                         <span className="text-xs text-muted-foreground font-normal">
@@ -469,16 +462,16 @@ function CompareDialog({ open, onOpenChange, playerIds, season, seasonOverride, 
                       {row.section && (
                         <tr>
                           <td colSpan={players.length + 1} className="pt-4 pb-1 px-2">
-                            <span className="text-[11px] font-semibold uppercase tracking-wider text-primary">{row.section}</span>
+                            <span className="font-mono text-[10.5px] font-medium uppercase tracking-[0.18em] text-gold">{row.section}</span>
                           </td>
                         </tr>
                       )}
-                      <tr className="border-t border-border/40">
-                        <td className="p-2 text-xs font-medium text-muted-foreground">{row.label}</td>
+                      <tr className="border-t border-hairline-dark">
+                        <td className="p-2 text-xs text-muted-foreground">{row.label}</td>
                         {values.map((value, i) => (
                           <td
                             key={i}
-                            className={`p-2 text-center tabular-nums ${!row.noHighlight && value !== null && numeric[i] === best && players.length > 1 && bestIsHighlightable ? 'font-bold text-primary' : 'text-foreground'}`}
+                            className={`p-2 text-center tabular-nums ${!row.noHighlight && value !== null && numeric[i] === best && players.length > 1 && bestIsHighlightable ? 'font-semibold text-gold' : 'text-foreground'}`}
                           >
                             {value === null ? '—' : typeof value === 'number' ? value.toLocaleString() : value}
                           </td>
@@ -774,12 +767,12 @@ export function ScoutPage() {
   const headerCell = (key, label, alignRight = true, title = undefined) => (
     <th
       title={title}
-      className={`px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground cursor-pointer select-none hover:text-foreground transition-colors whitespace-nowrap ${alignRight ? 'text-right' : 'text-left'}`}
+      className={`px-3 py-3 font-mono text-[10.5px] font-medium uppercase tracking-[0.14em] cursor-pointer select-none hover:text-chalk transition-colors whitespace-nowrap ${sort === key ? 'text-chalk' : 'text-[#8C9791]'} ${alignRight ? 'text-right' : 'text-left'}`}
       onClick={() => toggleSort(key)}
     >
       <span className="inline-flex items-center gap-1">
         {label}
-        <ArrowUpDown className={`h-3 w-3 ${sort === key ? 'text-primary' : 'opacity-40'}`} />
+        <ArrowUpDown className={`h-3 w-3 ${sort === key ? 'text-gold' : 'opacity-40'}`} />
       </span>
     </th>
   )
@@ -788,99 +781,86 @@ export function ScoutPage() {
   const tableColumnCount = 8 + statColumns.length
   const displaySeason = selectedSeason ?? resolvedSeason ?? currentSeason
 
+  const thClass = 'px-3 py-3 font-mono text-[10.5px] font-medium uppercase tracking-[0.14em] text-[#8C9791]'
+  const selectTriggerClass = 'h-11 w-full rounded-full px-4 text-[13.5px]'
+
   return (
-    <div className="min-h-screen bg-gradient-to-b from-secondary to-background">
-      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-        {/* Editorial header */}
-        <header className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <p className="mb-2 inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-primary">
-              <Globe className="h-3.5 w-3.5" />
-              Global talent discovery
-            </p>
-            <h1 className="text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
-              The Scout Desk
-            </h1>
-            <p className="mt-2 max-w-2xl text-sm text-muted-foreground sm:text-base">
-              Every tracked academy and loan player, ranked across clubs and leagues — viewing {formatSeasonLabel(displaySeason)}.
-            </p>
-          </div>
-          <div className="flex shrink-0 flex-wrap items-center gap-2 sm:justify-end sm:pt-7">
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-medium text-muted-foreground">Season</span>
-              <SeasonSelect
-                value={selectedSeason}
-                onValueChange={changeSeason}
-                onCurrentSeasonChange={setCurrentSeason}
-              />
-            </div>
-            <Button variant="outline" size="sm" asChild>
-              <Link to="/scout/watchlist" className="no-underline hover:no-underline">
-                <Star className="mr-1.5 h-4 w-4" />
-                Watchlist
-                {watchedIds && watchedIds.size > 0 && (
-                  <span className="ml-1.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[11px] font-bold tabular-nums text-primary-foreground">
-                    {watchedIds.size}
-                  </span>
-                )}
-              </Link>
-            </Button>
-            <Button variant="outline" size="sm" asChild>
-              <Link to="/scout/lists" className="no-underline hover:no-underline">
-                <ListChecks className="mr-1.5 h-4 w-4" />
-                Lists
-              </Link>
-            </Button>
-            {contactRail === true ? (
-              <Button variant="outline" size="sm" asChild>
-                <Link to="/introductions" className="no-underline hover:no-underline">
-                  <Send className="mr-1.5 h-4 w-4" />
-                  Introductions
+    <ScoutSurface>
+      <div className="floodlight-container pb-28">
+        <ScoutHeader
+          eyebrow={<span className="inline-flex items-center gap-2"><Globe className="h-3.5 w-3.5" aria-hidden="true" />Scout desk · Global talent discovery</span>}
+          title="Who are you"
+          accent="looking for?"
+          lede={`Every tracked academy and loan player, ranked across clubs and leagues — viewing ${formatSeasonLabel(displaySeason)}.`}
+          actions={(
+            <>
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-[10.5px] uppercase tracking-[0.16em] text-[#8C9791]">Season</span>
+                <SeasonSelect
+                  value={selectedSeason}
+                  onValueChange={changeSeason}
+                  onCurrentSeasonChange={setCurrentSeason}
+                />
+              </div>
+              <Button variant="outline" size="sm" asChild className={deskPillClass}>
+                <Link to="/scout/watchlist" className="no-underline hover:no-underline">
+                  <Star className="mr-1.5 h-4 w-4" />
+                  Watchlist
+                  {watchedIds && watchedIds.size > 0 && (
+                    <span className="ml-1.5 font-mono text-[11px] tabular-nums text-gold">
+                      {watchedIds.size}
+                    </span>
+                  )}
                 </Link>
               </Button>
-            ) : null}
-            <Button variant="ghost" size="sm" asChild>
-              <Link to="/scout/verification" className="no-underline hover:no-underline">
-                <ShieldCheck className="mr-1.5 h-4 w-4" />
-                Get verified
-              </Link>
-            </Button>
-            <Button variant="outline" size="sm" onClick={handleExportCsv} disabled={exporting}>
-              {exporting ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Download className="mr-1.5 h-4 w-4" />}
-              Export CSV
-            </Button>
-          </div>
-        </header>
-
-        {/* Phase-of-play view switcher */}
-        <section aria-label="Phase of play" className="mb-6">
-          <ToggleGroup
-            type="single"
-            variant="outline"
-            value={phase}
-            onValueChange={changePhase}
-            className="w-full overflow-x-auto sm:w-fit"
-          >
-            {PHASE_ORDER.map((key) => (
-              <ToggleGroupItem
-                key={key}
-                value={key}
-                aria-label={`${PHASES[key].label} view`}
-                className="px-4 text-xs font-semibold uppercase tracking-wide data-[state=on]:bg-primary data-[state=on]:text-primary-foreground"
+              <Button variant="outline" size="sm" onClick={handleExportCsv} disabled={exporting} className={deskPillClass}>
+                {exporting ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Download className="mr-1.5 h-4 w-4" />}
+                Export CSV
+              </Button>
+            </>
+          )}
+        >
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+            <label className="flex h-14 min-w-0 flex-1 items-center gap-3 rounded-full border border-chalk/25 px-5 transition-colors focus-within:border-gold">
+              <Search className="h-[18px] w-[18px] shrink-0 text-muted-dark" aria-hidden="true" />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search players by name…"
+                className="min-w-0 flex-1 border-0 bg-transparent text-base text-chalk outline-none placeholder:text-[#8C9791]"
+                aria-label="Search players"
+              />
+            </label>
+            {/* Phase-of-play view switcher */}
+            <section aria-label="Phase of play" className="min-w-0">
+              <ToggleGroup
+                type="single"
+                value={phase}
+                onValueChange={changePhase}
+                className="w-full overflow-x-auto rounded-full border border-chalk/20 p-1 sm:w-fit"
               >
-                {PHASES[key].label}
-              </ToggleGroupItem>
-            ))}
-          </ToggleGroup>
-          {phase !== 'all' && (
-            <p className="mt-2 text-xs text-muted-foreground">
+                {PHASE_ORDER.map((key) => (
+                  <ToggleGroupItem
+                    key={key}
+                    value={key}
+                    aria-label={`${PHASES[key].label} view`}
+                    className="h-11 shrink-0 rounded-full px-4 text-[13.5px] font-normal text-[#C9CFCB] first:rounded-full last:rounded-full hover:bg-chalk/[0.05] hover:text-chalk data-[state=on]:bg-chalk data-[state=on]:text-night"
+                  >
+                    {PHASES[key].label}
+                  </ToggleGroupItem>
+                ))}
+              </ToggleGroup>
+            </section>
+          </div>
+          {phase !== 'all' ? (
+            <p className="text-[13px] text-muted-dark">
               {phaseConfig.description} Dashes mean no per-match coverage for that player.
             </p>
-          )}
-        </section>
+          ) : null}
+        </ScoutHeader>
 
         {/* Leaderboards */}
-        <section aria-label="Leaderboards" className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <section aria-label="Leaderboards" className="mb-12 grid grid-cols-1 gap-x-8 gap-y-10 sm:grid-cols-2 xl:grid-cols-4">
           {phaseConfig.boards.map((board) => (
             <LeaderboardCard
               key={board.key}
@@ -894,40 +874,35 @@ export function ScoutPage() {
         </section>
 
         {/* Filters */}
-        <section aria-label="Filters" className="mb-4 flex flex-col gap-3">
+        <section aria-label="Filters" className="mb-4 flex flex-col gap-4">
+          <div className="flex flex-wrap items-baseline justify-between gap-3 border-b border-chalk pb-3">
+            <h2 className="display text-[1.875rem] leading-none sm:text-[2.125rem]">Players</h2>
+            <span className="font-mono text-[11px] uppercase tracking-[0.16em] tabular-nums text-[#8C9791]">
+              {loading ? 'Loading…' : `${total.toLocaleString()} players`}
+            </span>
+          </div>
           <div className="flex flex-wrap items-center gap-2">
+            <span className="mr-1 font-mono text-[10.5px] uppercase tracking-[0.16em] text-[#8C9791]">Age</span>
             {AGE_PRESETS.map((preset) => (
               <button
                 key={preset.key}
                 type="button"
                 onClick={() => setAgePreset(preset.key)}
-                className={`rounded-full px-3.5 py-1.5 text-xs font-semibold transition-colors ${
+                aria-pressed={agePreset === preset.key}
+                className={`h-9 rounded-full border px-3.5 text-[13px] transition-colors duration-150 ${
                   agePreset === preset.key
-                    ? 'bg-primary text-primary-foreground shadow-sm'
-                    : 'bg-card text-foreground/70 border border-border hover:bg-secondary'
+                    ? 'border-chalk bg-chalk text-night'
+                    : 'border-chalk/25 text-[#C9CFCB] hover:border-chalk/50 hover:text-chalk'
                 }`}
               >
                 {preset.label}
               </button>
             ))}
-            <span className="ml-auto text-xs text-muted-foreground tabular-nums">
-              {loading ? 'Loading…' : `${total.toLocaleString()} players`}
-            </span>
           </div>
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search players by name…"
-                className="pl-9"
-                aria-label="Search players"
-              />
-            </div>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:flex lg:flex-row">
             {phase === 'all' && (
               <Select value={position} onValueChange={setPosition}>
-                <SelectTrigger className="w-full sm:w-44" aria-label="Filter by position">
+                <SelectTrigger className={`${selectTriggerClass} lg:w-48`} aria-label="Filter by position">
                   <SelectValue placeholder="Position" />
                 </SelectTrigger>
                 <SelectContent>
@@ -940,7 +915,7 @@ export function ScoutPage() {
               </Select>
             )}
             <Select value={status} onValueChange={setStatus}>
-              <SelectTrigger className="w-full sm:w-44" aria-label="Filter by pathway status">
+              <SelectTrigger className={`${selectTriggerClass} lg:w-48`} aria-label="Filter by pathway status">
                 <SelectValue placeholder="Status" />
               </SelectTrigger>
               <SelectContent>
@@ -954,7 +929,7 @@ export function ScoutPage() {
               </SelectContent>
             </Select>
             <Select value={source} onValueChange={changeSource}>
-              <SelectTrigger className="w-full sm:w-48" aria-label="Filter by stats source">
+              <SelectTrigger className={`${selectTriggerClass} lg:w-52`} aria-label="Filter by stats source">
                 <SelectValue placeholder="Source" />
               </SelectTrigger>
               <SelectContent>
@@ -964,7 +939,7 @@ export function ScoutPage() {
               </SelectContent>
             </Select>
             <Select value={sort} onValueChange={(value) => { setSort(value); setOrder(ASC_DEFAULT_SORTS.has(value) ? 'asc' : 'desc') }}>
-              <SelectTrigger className="w-full sm:w-52" aria-label="Sort by">
+              <SelectTrigger className={`${selectTriggerClass} lg:ml-auto lg:w-56`} aria-label="Sort by">
                 <SelectValue placeholder="Sort by" />
               </SelectTrigger>
               <SelectContent>
@@ -977,23 +952,23 @@ export function ScoutPage() {
         </section>
 
         {/* Results table */}
-        <Card className="overflow-hidden border-border/80">
-          <div className="overflow-x-auto">
+        <section aria-label="Results" className="border-t border-hairline-dark">
+          <div className="relative overflow-x-auto">
             <table className={`w-full border-collapse ${statColumns.length > 6 ? 'min-w-[920px]' : 'min-w-[760px]'}`}>
               <thead>
-                <tr className="border-b border-border/60 bg-secondary/60">
-                  <th className="w-10 px-2 py-2 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                <tr className="border-b border-hairline-dark">
+                  <th className={`w-10 px-2 text-left ${thClass}`}>
                     <span className="sr-only">Watch</span>
                   </th>
-                  <th className="w-10 px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  <th className={`w-10 text-left ${thClass}`}>
                     <span className="sr-only">Compare</span>
                   </th>
                   {headerCell('name', 'Player', false)}
-                  <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Pos</th>
-                  <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Status</th>
-                  <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Club</th>
-                  <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Form</th>
-                  <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Source</th>
+                  <th className={`text-left ${thClass}`}>Pos</th>
+                  <th className={`text-left ${thClass}`}>Status</th>
+                  <th className={`text-left ${thClass}`}>Club</th>
+                  <th className={`text-left ${thClass}`}>Form</th>
+                  <th className={`text-left ${thClass}`}>Source</th>
                   {statColumns.map((col) =>
                     col.sortKey ? (
                       <Fragment key={col.label}>{headerCell(col.sortKey, col.label, true, col.title)}</Fragment>
@@ -1001,7 +976,7 @@ export function ScoutPage() {
                       <th
                         key={col.label}
                         title={col.title}
-                        className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground whitespace-nowrap"
+                        className={`text-right whitespace-nowrap ${thClass}`}
                       >
                         {col.label}
                       </th>
@@ -1009,11 +984,11 @@ export function ScoutPage() {
                   )}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-border/40">
+              <tbody className="divide-y divide-hairline-dark">
                 {loading ? (
                   Array.from({ length: 8 }).map((_, i) => (
                     <tr key={i}>
-                      <td colSpan={tableColumnCount} className="px-3 py-2.5"><Skeleton className="h-9 w-full" /></td>
+                      <td colSpan={tableColumnCount} className="px-3 py-3"><Skeleton className="h-10 w-full" /></td>
                     </tr>
                   ))
                 ) : players.length ? (
@@ -1021,30 +996,30 @@ export function ScoutPage() {
                     const selected = compareIds.includes(String(player.player_id))
                     const watched = !!watchedIds?.has(player.player_id)
                     return (
-                      <tr key={player.id} className={`transition-colors hover:bg-secondary/40 ${selected ? 'bg-primary/5' : ''}`}>
-                        <td className="px-2 py-2.5 whitespace-nowrap">
+                      <tr key={player.id} className={`transition-colors duration-150 hover:bg-chalk/[0.035] ${selected ? 'bg-gold/[0.06]' : ''}`}>
+                        <td className="px-2 py-3 whitespace-nowrap">
                           <button
                             type="button"
                             onClick={() => toggleWatch(player)}
-                            className="inline-flex h-7 w-7 items-center justify-center rounded-full transition-colors hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-full transition-colors hover:bg-chalk/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                             aria-label={watched ? `Unwatch ${player.player_name}` : `Watch ${player.player_name}`}
                             title={watched ? 'Remove from watchlist' : 'Add to watchlist'}
                           >
-                            <Star className={`h-4 w-4 transition-colors ${watched ? 'fill-amber-400 text-amber-500' : 'text-muted-foreground/50 hover:text-muted-foreground'}`} />
+                            <Star className={`h-4 w-4 transition-colors ${watched ? 'fill-gold text-gold' : 'text-muted-dark/60 hover:text-muted-dark'}`} />
                           </button>
                           {contactRail === true && player.contactable ? (
                             <button
                               type="button"
                               onClick={() => (auth?.token ? setIntroducePlayer(player) : openLoginModal())}
-                              className="ml-0.5 inline-flex h-7 w-7 items-center justify-center rounded-full transition-colors hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                              className="ml-0.5 inline-flex h-8 w-8 items-center justify-center rounded-full transition-colors hover:bg-chalk/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                               aria-label={`Introduce yourself to ${player.player_name}`}
                               title="Introduce yourself"
                             >
-                              <Send className="h-4 w-4 text-muted-foreground/60 hover:text-primary" />
+                              <Send className="h-4 w-4 text-muted-dark/70 hover:text-gold" />
                             </button>
                           ) : null}
                         </td>
-                        <td className="px-3 py-2.5">
+                        <td className="py-3">
                           <Checkbox
                             checked={selected}
                             onCheckedChange={() => toggleCompare(player.player_id)}
@@ -1052,20 +1027,20 @@ export function ScoutPage() {
                             aria-label={`Compare ${player.player_name}`}
                           />
                         </td>
-                        <td className="px-3 py-2.5"><PlayerCell player={player} season={seasonOverride} /></td>
-                        <td className="px-3 py-2.5 text-sm text-foreground/80 whitespace-nowrap">{player.position?.slice(0, 3) || '—'}</td>
-                        <td className="px-3 py-2.5"><StatusBadge status={player.status} /></td>
-                        <td className="px-3 py-2.5 max-w-44">
-                          <span className="block truncate text-sm text-foreground/90">{player.loan_team_name || player.primary_team_name || '—'}</span>
+                        <td className="px-3 py-3"><PlayerCell player={player} season={seasonOverride} /></td>
+                        <td className="px-3 py-3 font-mono text-[12px] text-muted-dark whitespace-nowrap">{player.position?.slice(0, 3) || '—'}</td>
+                        <td className="px-3 py-3"><StatusBadge status={player.status} /></td>
+                        <td className="px-3 py-3 max-w-44">
+                          <span className="block truncate text-sm text-chalk/90">{player.loan_team_name || player.primary_team_name || '—'}</span>
                           {player.loan_team_name && (player.owner_team_name || player.primary_team_name) && (
-                            <span className="block truncate text-xs text-muted-foreground">from {player.owner_team_name || player.primary_team_name}</span>
+                            <span className="block truncate text-xs text-muted-dark">from {player.owner_team_name || player.primary_team_name}</span>
                           )}
                         </td>
-                        <td className="px-3 py-2.5">
+                        <td className="px-3 py-3">
                           {player.appearances === 0 && player.data_depth === 'profile_only' ? (
                             <Link
                               to="/pricing"
-                              className="text-[11px] text-muted-foreground underline decoration-dotted hover:text-primary"
+                              className="text-[11px] text-muted-dark underline decoration-dotted hover:text-gold"
                               title="No stats provider covers this league — Film Room will fix that"
                             >
                               No coverage
@@ -1074,11 +1049,11 @@ export function ScoutPage() {
                             <FormIndicator form={player.recent_form} />
                           )}
                         </td>
-                        <td className="px-3 py-2.5 whitespace-nowrap">
+                        <td className="px-3 py-3 whitespace-nowrap">
                           <ProvenanceChip provenance={player.provenance} />
                         </td>
                         {statColumns.map((col) => (
-                          <td key={col.label} className={`px-3 py-2.5 text-right text-sm tabular-nums ${col.cellClass || ''}`}>
+                          <td key={col.label} className={`px-3 py-3 text-right font-mono text-[13px] tabular-nums ${col.cellClass || 'text-chalk/85'}`}>
                             {col.render(player)}
                           </td>
                         ))}
@@ -1087,16 +1062,16 @@ export function ScoutPage() {
                   })
                 ) : (
                   <tr>
-                    <td colSpan={tableColumnCount} className="px-3 py-12 text-center text-sm text-muted-foreground">
-                      <p>No players match these filters.</p>
-                      <div className="mt-4 flex flex-wrap justify-center gap-2">
-                        {!frozen && (<Button variant="outline" size="sm" asChild>
+                    <td colSpan={tableColumnCount} className="px-3 py-16 text-center">
+                      <p className="display text-3xl text-chalk">No players match these filters.</p>
+                      <div className="mt-6 flex flex-wrap justify-center gap-2">
+                        {!frozen && (<Button variant="outline" size="sm" asChild className={deskPillClass}>
                           <Link to="/scout/lists">
                             <Globe className="mr-1.5 h-4 w-4" />
                             Search worldwide
                           </Link>
                         </Button>)}
-                        <Button variant="outline" size="sm" asChild>
+                        <Button variant="outline" size="sm" asChild className={deskPillClass}>
                           <Link to="/local-players/new">
                             <UserPlus className="mr-1.5 h-4 w-4" />
                             Add a local player
@@ -1112,27 +1087,28 @@ export function ScoutPage() {
 
           {/* Pagination */}
           {totalPages > 1 && (
-            <div className="flex items-center justify-between border-t border-border/60 px-4 py-3">
-              <Button variant="outline" size="sm" disabled={page <= 1 || loading} onClick={() => setPage((p) => p - 1)}>
+            <div className="flex items-center justify-between border-t border-hairline-dark py-4">
+              <Button variant="outline" size="sm" className={deskPillClass} disabled={page <= 1 || loading} onClick={() => setPage((p) => p - 1)}>
                 <ArrowLeft className="mr-1 h-4 w-4" /> Previous
               </Button>
-              <span className="text-xs text-muted-foreground tabular-nums">Page {page} of {totalPages}</span>
-              <Button variant="outline" size="sm" disabled={page >= totalPages || loading} onClick={() => setPage((p) => p + 1)}>
+              <span className="font-mono text-[11px] uppercase tracking-[0.14em] tabular-nums text-[#8C9791]">Page {page} of {totalPages}</span>
+              <Button variant="outline" size="sm" className={deskPillClass} disabled={page >= totalPages || loading} onClick={() => setPage((p) => p + 1)}>
                 Next <ArrowRight className="ml-1 h-4 w-4" />
               </Button>
             </div>
           )}
-        </Card>
+        </section>
 
         {/* Compare tray */}
         {compareIds.length > 0 && (
-          <div className="fixed inset-x-0 bottom-4 z-40 flex justify-center px-4 pointer-events-none">
-            <div className="pointer-events-auto flex items-center gap-3 rounded-full border border-border bg-card/95 px-4 py-2.5 shadow-lg backdrop-blur">
-              <span className="text-sm text-foreground/80 tabular-nums">
+          <div className="fixed inset-x-0 bottom-6 z-40 flex justify-center px-4 pointer-events-none">
+            <div className="pointer-events-auto flex items-center gap-3 rounded-full border border-chalk/20 bg-ink/95 py-2 pl-5 pr-2 shadow-[0_12px_32px_rgb(0_0_0/0.4)] backdrop-blur">
+              <span className="font-mono text-[11px] uppercase tracking-[0.14em] tabular-nums text-[#C9CFCB]">
                 {compareIds.length} of 4 selected
               </span>
               <Button
                 size="sm"
+                variant="on-dark"
                 disabled={compareIds.length < 2}
                 onClick={() => setCompareOpen(true)}
                 className="rounded-full"
@@ -1143,7 +1119,7 @@ export function ScoutPage() {
               <button
                 type="button"
                 onClick={() => setCompareIds([])}
-                className="inline-flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-full text-muted-dark hover:bg-chalk/[0.06] hover:text-chalk transition-colors"
                 aria-label="Clear comparison selection"
               >
                 <X className="h-4 w-4" />
@@ -1166,6 +1142,6 @@ export function ScoutPage() {
           player={introducePlayer}
         />
       </div>
-    </div>
+    </ScoutSurface>
   )
 }

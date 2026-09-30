@@ -13,6 +13,10 @@ import { GolChatWindow } from './GolChatWindow'
 import { useGolChat } from '@/hooks/useGolChat'
 import { useAuth, useAuthUI } from '@/context/AuthContext'
 import { APIService } from '@/lib/api'
+import '@/styles/floodlight-night.css'
+
+// The GOL desk is always a night surface, whatever page it opens over.
+const NIGHT_PANEL = 'dark fl-night bg-night text-chalk border-hairline-dark'
 
 const STORAGE_KEY = 'gol-chat-expanded'
 
@@ -89,7 +93,12 @@ export function GolPanel() {
 
   const headerContent = (
     <div className="flex items-center justify-between w-full pr-8">
-      <span className="text-lg font-semibold">GOL Assistant</span>
+      <span className="flex flex-col gap-1 text-left">
+        <span className="eyebrow">Scout desk</span>
+        <span className="display text-[2rem] leading-none">
+          <span className="sr-only">GOL Assistant — </span>Ask <em className="text-gold">GOL</em>
+        </span>
+      </span>
       <Button
         variant="ghost"
         size="icon"
@@ -104,12 +113,12 @@ export function GolPanel() {
 
   const chatContent = accessState === 'signed_out' ? (
     <div className="flex flex-col items-center justify-center flex-1 px-6 py-12 text-center">
-      <MessageCircle className="h-12 w-12 text-muted-foreground mb-4" />
-      <h3 className="text-lg font-semibold mb-2">Sign in to ask GOL</h3>
-      <p className="text-sm text-muted-foreground mb-6">
+      <span className="mb-5 flex h-12 w-12 items-center justify-center rounded-full border border-gold font-serif text-2xl text-gold" aria-hidden="true">G</span>
+      <h3 className="display mb-3 text-4xl">Sign in to ask GOL</h3>
+      <p className="mb-7 max-w-sm text-[15px] leading-relaxed text-muted-dark">
         Sign in to start a private GOL conversation about academy players, loan spells, and career journeys.
       </p>
-      <Button onClick={handleSignIn}>
+      <Button variant="on-dark" onClick={handleSignIn}>
         <LogIn className="h-4 w-4 mr-2" />
         Sign in
       </Button>
@@ -132,16 +141,16 @@ export function GolPanel() {
       <Button
         onClick={handleOpen}
         aria-label="Open GOL Assistant chat"
-        className="fixed bottom-6 right-6 z-50 h-14 w-14 rounded-full shadow-lg bg-primary hover:bg-primary/90 pb-[env(safe-area-inset-bottom)]"
+        className="fixed bottom-6 right-6 z-50 h-14 w-14 rounded-full border border-gold/50 bg-night text-chalk shadow-[0_8px_24px_rgb(11_14_13/0.28)] hover:bg-ink hover:text-gold focus-visible:ring-gold pb-[env(safe-area-inset-bottom)]"
         size="icon"
       >
-        <MessageCircle className="h-6 w-6 text-white" />
+        <MessageCircle className="h-6 w-6" />
       </Button>
 
       {expanded ? (
         <Dialog open={open} onOpenChange={setOpen}>
-          <DialogContent className="flex flex-col max-w-5xl sm:max-w-5xl w-[90vw] h-[85dvh] max-h-[85dvh] p-0 gap-0 overflow-hidden">
-            <DialogHeader className="px-4 py-3 border-b shrink-0">
+          <DialogContent className={`${NIGHT_PANEL} flex flex-col max-w-5xl sm:max-w-5xl w-[90vw] h-[85dvh] max-h-[85dvh] p-0 gap-0 overflow-hidden`}>
+            <DialogHeader className="px-6 py-5 border-b border-hairline-dark shrink-0">
               <DialogTitle asChild>{headerContent}</DialogTitle>
               <DialogDescription className="sr-only">
                 Chat with the GOL Assistant to search for academy player data and loan information.
@@ -152,8 +161,8 @@ export function GolPanel() {
         </Dialog>
       ) : (
         <Sheet open={open} onOpenChange={setOpen}>
-          <SheetContent side="right" className="w-full sm:max-w-none sm:w-[520px] p-0 flex flex-col">
-            <SheetHeader className="px-4 py-3 border-b">
+          <SheetContent side="right" className={`${NIGHT_PANEL} w-full sm:max-w-none sm:w-[520px] p-0 flex flex-col`}>
+            <SheetHeader className="px-6 py-5 border-b border-hairline-dark">
               <SheetTitle asChild>{headerContent}</SheetTitle>
               <SheetDescription className="sr-only">
                 Chat with the GOL Assistant to search for academy player data and loan information.

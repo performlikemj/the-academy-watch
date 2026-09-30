@@ -54,7 +54,7 @@ import {
 // Tabs
 // ---------------------------------------------------------------------------
 
-const TABS = [
+export const INBOX_TABS = [
     { value: 'manual', label: 'Manual players' },
     { value: 'takes', label: 'Community takes' },
     { value: 'submissions', label: 'User submissions' },
@@ -63,7 +63,7 @@ const TABS = [
     { value: 'links', label: 'Player links' },
 ]
 
-const TAB_VALUES = TABS.map((t) => t.value)
+const TAB_VALUES = INBOX_TABS.map((t) => t.value)
 
 // ---------------------------------------------------------------------------
 // fetchInboxCounts — per-tab pending counts. Also consumed by the sidebar
@@ -1678,7 +1678,7 @@ export function AdminInbox() {
 
             <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-4">
                 <TabsList className="flex flex-wrap h-auto">
-                    {TABS.map((tab) => (
+                    {INBOX_TABS.map((tab) => (
                         <TabsTrigger key={tab.value} value={tab.value} data-testid={`inbox-tab-${tab.value}`}>
                             {tab.label}
                             {counts !== null && counts[tab.value] > 0 && (

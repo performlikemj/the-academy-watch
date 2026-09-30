@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Mail, Users, Shield, GraduationCap, Inbox, Sprout, ArrowRight, Activity, BarChart3, CircleDollarSign } from 'lucide-react'
+import { Mail, Users, Shield, GraduationCap, Inbox, Sprout, ArrowRight } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
+import { AdminPageHeader, BigStat, SectionTitle, textLinkClass } from '@/components/admin/ControlRoom'
 import { APIService } from '@/lib/api'
-import { fetchInboxCounts } from './AdminInbox'
+import { cn } from '@/lib/utils'
+import { fetchInboxCounts, INBOX_TABS } from './AdminInbox'
 
 const QUICK_ACTIONS = [
     {
@@ -14,61 +14,49 @@ const QUICK_ACTIONS = [
         description: 'Review pending submissions, takes, flags, and requests',
         icon: Inbox,
         href: '/admin/inbox',
-        iconBg: 'bg-rose-100',
-        iconColor: 'text-rose-600',
     },
     {
         title: 'Manage Players',
         description: 'View and manage all tracked academy players',
         icon: Users,
         href: '/admin/players',
-        iconBg: 'bg-blue-100',
-        iconColor: 'text-blue-600',
     },
     {
         title: 'Manage Teams',
         description: 'Track/untrack teams and configure data',
         icon: Shield,
         href: '/admin/teams',
-        iconBg: 'bg-indigo-100',
-        iconColor: 'text-indigo-600',
     },
     {
         title: 'Seeding & Rebuild',
         description: 'Seed players per team, all tracked, cohorts, or full rebuild',
         icon: Sprout,
         href: '/admin/seeding',
-        iconBg: 'bg-green-100',
-        iconColor: 'text-green-600',
     },
     {
         title: 'Generate Newsletter',
         description: 'Create newsletters for selected teams',
         icon: Mail,
         href: '/admin/newsletters',
-        iconBg: 'bg-orange-100',
-        iconColor: 'text-orange-600',
     },
     {
         title: 'Users & Writers',
         description: 'Manage users, invite writers, and assign team coverage',
         icon: GraduationCap,
         href: '/admin/users',
-        iconBg: 'bg-purple-100',
-        iconColor: 'text-purple-600',
     },
 ]
 
 function StatTile({ label, value, ok, okLabel = 'OK', warnLabel = 'needs repair', testId }) {
     return (
-        <div className="border rounded-lg p-3 space-y-1" data-testid={testId}>
-            <p className="text-xs text-muted-foreground">{label}</p>
-            <div className="flex items-center gap-2">
-                <span className="text-xl font-bold">{value}</span>
+        <div className="flex min-w-0 flex-col gap-1.5 border-t border-hairline-dark py-4 pr-4" data-testid={testId}>
+            <p className="font-mono text-[10.5px] uppercase tracking-[0.14em] text-[#8C9791]">{label}</p>
+            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                <span className="display text-[2.25rem] leading-none tabular-nums text-chalk">{value}</span>
                 {ok !== undefined && (
-                    ok
-                        ? <Badge className="bg-emerald-50 text-emerald-800 border-emerald-200">{okLabel}</Badge>
-                        : <Badge className="bg-amber-50 text-amber-800 border-amber-200">{warnLabel}</Badge>
+                    <span className={cn('font-mono text-[10.5px] uppercase tracking-[0.12em]', ok ? 'text-[#8FBFA4]' : 'text-[#E9C46A]')}>
+                        {ok ? okLabel : warnLabel}
+                    </span>
                 )}
             </div>
         </div>
@@ -141,84 +129,78 @@ function AnalyticsSummaryCard() {
     const daily = summary?.daily || []
     const maxDaily = daily.reduce((m, d) => Math.max(m, d.count || 0), 0)
 
+    const rangeButton = (value) => (
+        <button
+            type="button"
+            onClick={() => setDays(value)}
+            data-testid={`analytics-range-${value}`}
+            aria-pressed={days === value}
+            className={cn(
+                'h-8 rounded-full px-3.5 font-mono text-[11px] uppercase tracking-[0.12em] transition-colors',
+                days === value ? 'bg-chalk text-night' : 'text-muted-dark hover:text-chalk'
+            )}
+        >
+            {value}d
+        </button>
+    )
+
     return (
-        <Card data-testid="analytics-summary">
-            <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
-                    <div>
-                        <CardTitle className="text-base flex items-center gap-2">
-                            <BarChart3 className="h-4 w-4" />
-                            Product Analytics
-                        </CardTitle>
-                        <CardDescription>First-party events, last {days} days</CardDescription>
-                    </div>
-                    <div className="flex gap-1">
-                        <Button
-                            variant={days === 7 ? 'default' : 'outline'}
-                            size="sm"
-                            onClick={() => setDays(7)}
-                            data-testid="analytics-range-7"
-                        >
-                            7d
-                        </Button>
-                        <Button
-                            variant={days === 30 ? 'default' : 'outline'}
-                            size="sm"
-                            onClick={() => setDays(30)}
-                            data-testid="analytics-range-30"
-                        >
-                            30d
-                        </Button>
-                    </div>
-                </div>
-            </CardHeader>
-            <CardContent>
-                {failed ? (
-                    <p className="text-sm text-muted-foreground">
-                        Analytics summary unavailable.
-                    </p>
-                ) : !summary ? (
-                    <div className="grid gap-3 grid-cols-2 md:grid-cols-3">
-                        {ANALYTICS_EVENTS.map(([key]) => <Skeleton key={key} className="h-16 rounded-lg" />)}
-                    </div>
-                ) : (
-                    <div className="space-y-4">
-                        <div className="grid gap-3 grid-cols-2 md:grid-cols-3">
-                            {ANALYTICS_EVENTS.map(([key, label]) => (
-                                <StatTile
-                                    key={key}
-                                    label={label}
-                                    value={totals[key] ?? 0}
-                                    testId={`analytics-tile-${key}`}
-                                />
-                            ))}
-                        </div>
-                        <div>
-                            <div className="flex items-center justify-between mb-2">
-                                <p className="text-xs text-muted-foreground">Events per day</p>
-                                <p className="text-xs text-muted-foreground" data-testid="analytics-sessions">
-                                    {summary.distinct_sessions ?? 0} sessions
-                                </p>
-                            </div>
-                            {daily.length === 0 ? (
-                                <p className="text-xs text-muted-foreground">No activity in this window.</p>
-                            ) : (
-                                <div className="flex items-end gap-0.5 h-16" data-testid="analytics-sparkline">
-                                    {daily.map((d) => (
-                                        <div
-                                            key={d.date}
-                                            className="flex-1 bg-primary/70 rounded-sm min-h-[2px]"
-                                            style={{ height: `${maxDaily > 0 ? Math.round(((d.count || 0) / maxDaily) * 100) : 0}%` }}
-                                            title={`${d.date}: ${d.count}`}
-                                        />
-                                    ))}
-                                </div>
-                            )}
-                        </div>
+        <section data-testid="analytics-summary" aria-labelledby="analytics-heading" className="flex flex-col gap-2">
+            <SectionTitle
+                title={<span id="analytics-heading">Product analytics</span>}
+                action={(
+                    <div className="flex gap-1 rounded-full border border-chalk/20 p-1" role="group" aria-label="Analytics window">
+                        {rangeButton(7)}
+                        {rangeButton(30)}
                     </div>
                 )}
-            </CardContent>
-        </Card>
+            />
+            <p className="pt-2 text-[13px] text-[#8C9791]">First-party events, last {days} days</p>
+            {failed ? (
+                <p className="py-4 text-sm text-muted-dark">
+                    Analytics summary unavailable.
+                </p>
+            ) : !summary ? (
+                <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+                    {ANALYTICS_EVENTS.map(([key]) => <Skeleton key={key} className="h-16 rounded-lg" />)}
+                </div>
+            ) : (
+                <div className="flex flex-col gap-6">
+                    <div className="grid grid-cols-2 md:grid-cols-3">
+                        {ANALYTICS_EVENTS.map(([key, label]) => (
+                            <StatTile
+                                key={key}
+                                label={label}
+                                value={totals[key] ?? 0}
+                                testId={`analytics-tile-${key}`}
+                            />
+                        ))}
+                    </div>
+                    <div>
+                        <div className="mb-2 flex items-center justify-between font-mono text-[10.5px] uppercase tracking-[0.14em] text-[#8C9791]">
+                            <p>Events per day</p>
+                            <p data-testid="analytics-sessions">
+                                {summary.distinct_sessions ?? 0} sessions
+                            </p>
+                        </div>
+                        {daily.length === 0 ? (
+                            <p className="text-xs text-muted-dark">No activity in this window.</p>
+                        ) : (
+                            <div className="flex h-16 items-end gap-0.5 border-b border-hairline-dark" data-testid="analytics-sparkline">
+                                {daily.map((d) => (
+                                    <div
+                                        key={d.date}
+                                        className="min-h-[2px] flex-1 rounded-t-[2px] bg-gold/70"
+                                        style={{ height: `${maxDaily > 0 ? Math.round(((d.count || 0) / maxDaily) * 100) : 0}%` }}
+                                        title={`${d.date}: ${d.count}`}
+                                    />
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
+        </section>
     )
 }
 
@@ -241,65 +223,55 @@ function OpsSnapshotStrip() {
     }, [])
 
     return (
-        <Card data-testid="ops-snapshot">
-            <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
-                    <div>
-                        <CardTitle className="text-base flex items-center gap-2">
-                            <Activity className="h-4 w-4" />
-                            Ops Snapshot
-                        </CardTitle>
-                        <CardDescription>Data health at a glance</CardDescription>
-                    </div>
-                    <Button variant="outline" size="sm" asChild data-testid="ops-snapshot-link">
-                        <Link to="/admin/operations">
-                            Open Operations
-                            <ArrowRight className="h-4 w-4 ml-1" />
-                        </Link>
-                    </Button>
+        <section data-testid="ops-snapshot" aria-labelledby="ops-heading" className="flex flex-col">
+            <div className="flex items-baseline justify-between gap-3 pb-2">
+                <h2 id="ops-heading" className="font-mono text-[11.5px] font-medium uppercase tracking-[0.2em] text-[#8C9791]">Data health</h2>
+                <Link to="/admin/operations" data-testid="ops-snapshot-link" className={textLinkClass}>
+                    Open Operations
+                </Link>
+            </div>
+            {failed ? (
+                <p className="border-t border-hairline-dark py-4 text-sm text-muted-dark">
+                    Ops overview unavailable — open <Link to="/admin/operations" className="underline">Operations</Link> for details.
+                </p>
+            ) : !ops ? (
+                <div className="grid grid-cols-2 gap-3">
+                    {[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-16 rounded-lg" />)}
                 </div>
-            </CardHeader>
-            <CardContent>
-                {failed ? (
-                    <p className="text-sm text-muted-foreground">
-                        Ops overview unavailable — open <Link to="/admin/operations" className="underline">Operations</Link> for details.
-                    </p>
-                ) : !ops ? (
-                    <div className="grid gap-3 grid-cols-2 md:grid-cols-4">
-                        {[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-16 rounded-lg" />)}
-                    </div>
-                ) : (
-                    <div className="grid gap-3 grid-cols-2 md:grid-cols-4">
-                        <StatTile
-                            label="Active tracked players"
-                            value={ops.tracked?.active ?? 0}
-                            testId="ops-tile-active"
-                        />
-                        <StatTile
-                            label="Placeholder names"
-                            value={ops.tracked?.placeholder_names ?? 0}
-                            ok={(ops.tracked?.placeholder_names ?? 0) === 0}
-                            testId="ops-tile-placeholders"
-                        />
-                        <StatTile
-                            label="Owning-club actives"
-                            value={ops.tracked?.owning_club_active ?? 0}
-                            ok={(ops.tracked?.owning_club_active ?? 0) === 0}
-                            testId="ops-tile-owning-club"
-                        />
-                        <StatTile
-                            label="Active jobs"
-                            value={ops.jobs?.active ?? 0}
-                            testId="ops-tile-jobs"
-                        />
-                    </div>
-                )}
-            </CardContent>
-        </Card>
+            ) : (
+                <div className="grid grid-cols-2">
+                    <StatTile
+                        label="Active tracked players"
+                        value={ops.tracked?.active ?? 0}
+                        testId="ops-tile-active"
+                    />
+                    <StatTile
+                        label="Placeholder names"
+                        value={ops.tracked?.placeholder_names ?? 0}
+                        ok={(ops.tracked?.placeholder_names ?? 0) === 0}
+                        testId="ops-tile-placeholders"
+                    />
+                    <StatTile
+                        label="Owning-club actives"
+                        value={ops.tracked?.owning_club_active ?? 0}
+                        ok={(ops.tracked?.owning_club_active ?? 0) === 0}
+                        testId="ops-tile-owning-club"
+                    />
+                    <StatTile
+                        label="Active jobs"
+                        value={ops.jobs?.active ?? 0}
+                        testId="ops-tile-jobs"
+                    />
+                </div>
+            )}
+        </section>
     )
 }
 
+const INBOX_TAB_LABELS = Object.fromEntries(INBOX_TABS.map((tab) => [tab.value, tab.label]))
+
 function prettyTabLabel(key) {
+    if (INBOX_TAB_LABELS[key]) return INBOX_TAB_LABELS[key]
     return String(key)
         .replace(/[_-]+/g, ' ')
         .replace(/^\w/, (c) => c.toUpperCase())
@@ -324,60 +296,84 @@ function InboxPendingStrip() {
     }, [])
 
     const entries = counts && typeof counts === 'object'
-        ? Object.entries(counts).filter(([, v]) => typeof v === 'number')
+        ? Object.entries(counts).filter(([key, v]) => key !== 'total' && typeof v === 'number')
         : []
     const total = typeof counts === 'number'
         ? counts
         : entries.reduce((sum, [, v]) => sum + v, 0)
 
     return (
-        <Card data-testid="inbox-pending">
-            <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
-                    <div>
-                        <CardTitle className="text-base flex items-center gap-2">
-                            <Inbox className="h-4 w-4" />
-                            Inbox
-                            {counts !== null && !failed && (
-                                <Badge className={total > 0 ? 'bg-amber-50 text-amber-800 border-amber-200' : 'bg-emerald-50 text-emerald-800 border-emerald-200'}>
-                                    {total} pending
-                                </Badge>
-                            )}
-                        </CardTitle>
-                        <CardDescription>Items waiting on a decision</CardDescription>
-                    </div>
-                    <Button variant="outline" size="sm" asChild data-testid="inbox-pending-link">
-                        <Link to="/admin/inbox">
-                            Open Inbox
-                            <ArrowRight className="h-4 w-4 ml-1" />
-                        </Link>
-                    </Button>
-                </div>
-            </CardHeader>
-            <CardContent>
-                {failed ? (
-                    <p className="text-sm text-muted-foreground">
-                        Inbox counts unavailable — open the <Link to="/admin/inbox" className="underline">Inbox</Link> directly.
-                    </p>
-                ) : counts === null ? (
-                    <Skeleton className="h-6 w-2/3" />
-                ) : entries.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">Nothing pending. Inbox zero.</p>
-                ) : (
-                    <div className="flex flex-wrap gap-2">
-                        {entries.map(([key, value]) => (
-                            <Badge
-                                key={key}
-                                variant="outline"
-                                className={value > 0 ? 'border-amber-300 bg-amber-50 text-amber-900' : 'text-muted-foreground'}
-                            >
-                                {prettyTabLabel(key)}: {value}
-                            </Badge>
-                        ))}
-                    </div>
+        <section data-testid="inbox-pending" aria-labelledby="inbox-heading" className="flex flex-col">
+            <SectionTitle
+                title={<span id="inbox-heading">Waiting for a human</span>}
+                count={counts !== null && !failed ? `${total} pending` : null}
+                action={(
+                    <Link to="/admin/inbox" data-testid="inbox-pending-link" className={cn(textLinkClass, 'hidden sm:inline')}>
+                        Open review queue
+                    </Link>
                 )}
-            </CardContent>
-        </Card>
+            />
+            {failed ? (
+                <p className="py-5 text-sm text-muted-dark">
+                    Inbox counts unavailable — open the <Link to="/admin/inbox" className="underline">Inbox</Link> directly.
+                </p>
+            ) : counts === null ? (
+                <div className="flex flex-col gap-3 pt-4">
+                    {[0, 1, 2].map((i) => <Skeleton key={i} className="h-14 w-full" />)}
+                </div>
+            ) : entries.length === 0 || total === 0 ? (
+                <p className="py-6 text-[15px] text-muted-dark">Nothing pending. Inbox zero.</p>
+            ) : (
+                <ul className="flex flex-col">
+                    {entries.map(([key, value]) => (
+                        <li key={key}>
+                            <Link
+                                to={`/admin/inbox?tab=${encodeURIComponent(key)}`}
+                                className="grid grid-cols-[64px_minmax(0,1fr)_auto] items-center gap-4 border-b border-hairline-dark px-1.5 py-4 text-chalk no-underline transition-colors hover:bg-chalk/[0.04] hover:no-underline sm:grid-cols-[76px_minmax(0,1fr)_auto]"
+                            >
+                                <span className={cn('display text-[2.75rem] leading-[.9] tabular-nums', value > 0 ? 'text-chalk' : 'text-chalk/35')}>{value}</span>
+                                <span className="text-base">{prettyTabLabel(key)}</span>
+                                <span className={cn('font-mono text-[11px] uppercase tracking-[0.1em]', value > 0 ? 'text-[#E9C46A]' : 'text-[#8C9791]')}>
+                                    {value > 0 ? 'Needs review' : 'Clear'}
+                                </span>
+                            </Link>
+                        </li>
+                    ))}
+                </ul>
+            )}
+        </section>
+    )
+}
+
+function Funnel({ stats }) {
+    if (stats === null) {
+        return (
+            <div className="grid grid-cols-2 gap-4 border-y border-chalk/20 py-6 md:grid-cols-3 xl:grid-cols-6">
+                {[0, 1, 2, 3, 4, 5].map((i) => <Skeleton key={i} className="h-20" />)}
+            </div>
+        )
+    }
+    const tiles = [
+        { label: 'Tracked players', value: stats.players.total, sub: stats.players.released > 0 ? `${stats.players.released} released` : 'across tracked academies' },
+        { label: 'In the academy', value: stats.players.academy, sub: 'still at their club' },
+        { label: 'Out on loan', value: stats.players.on_loan, sub: 'playing elsewhere' },
+        { label: 'First team', value: stats.players.first_team, sub: 'made the step', subTone: 'gold' },
+        { label: 'Tracked teams', value: stats.teams.tracked, sub: 'Teams with academy tracking enabled' },
+        { label: 'Newsletters', value: stats.newsletters.total, sub: `${stats.newsletters.published} published, ${stats.newsletters.drafts} drafts` },
+    ]
+    return (
+        <section aria-label="Platform totals" className="grid grid-cols-2 border-y border-chalk/20 md:grid-cols-3 xl:grid-cols-6">
+            {tiles.map((tile) => (
+                <BigStat
+                    key={tile.label}
+                    label={tile.label}
+                    value={tile.value}
+                    sub={tile.sub}
+                    subTone={tile.subTone}
+                    className="border-hairline-dark py-6 pr-4 xl:border-r xl:last:border-r-0 [&:not(:first-child)]:xl:pl-5"
+                />
+            ))}
+        </section>
     )
 }
 
@@ -415,178 +411,99 @@ export function AdminDashboard() {
     }, [])
 
     return (
-        <div className="space-y-6">
-            <header>
-                <h2 className="text-3xl font-bold tracking-tight">Dashboard</h2>
-                <p className="text-muted-foreground mt-1">
-                    Overview of your academy tracking system
-                </p>
-            </header>
+        <div className="flex flex-col gap-11">
+            <AdminPageHeader
+                eyebrow="Overview · Today"
+                title="The game,"
+                accent="at a glance"
+                lede="Everything the platform is tracking, and everything waiting on an admin decision."
+            />
 
-            {/* Stats Grid */}
-            <div className="grid gap-4 md:grid-cols-3">
-                <Card>
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">Tracked Players</CardTitle>
-                        <Users className="h-4 w-4 text-muted-foreground" />
-                    </CardHeader>
-                    <CardContent>
-                        {stats === null ? (
-                            <Skeleton className="h-8 w-20" />
-                        ) : (
-                            <>
-                                <div className="text-2xl font-bold">{stats.players.total}</div>
-                                <div className="flex flex-wrap gap-x-3 text-xs text-muted-foreground mt-1">
-                                    <span>{stats.players.academy} academy</span>
-                                    <span>{stats.players.on_loan} on loan</span>
-                                    <span>{stats.players.first_team} first team</span>
-                                    {stats.players.released > 0 && <span>{stats.players.released} released</span>}
-                                </div>
-                            </>
-                        )}
-                    </CardContent>
-                </Card>
+            <Funnel stats={stats} />
 
-                <Card>
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">Tracked Teams</CardTitle>
-                        <Shield className="h-4 w-4 text-muted-foreground" />
-                    </CardHeader>
-                    <CardContent>
-                        {stats === null ? (
-                            <Skeleton className="h-8 w-20" />
-                        ) : (
-                            <>
-                                <div className="text-2xl font-bold">{stats.teams.tracked}</div>
-                                <p className="text-xs text-muted-foreground">
-                                    Teams with academy tracking enabled
-                                </p>
-                            </>
-                        )}
-                    </CardContent>
-                </Card>
-
-                <Card>
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">Newsletters</CardTitle>
-                        <Mail className="h-4 w-4 text-muted-foreground" />
-                    </CardHeader>
-                    <CardContent>
-                        {stats === null ? (
-                            <Skeleton className="h-8 w-20" />
-                        ) : (
-                            <>
-                                <div className="text-2xl font-bold">{stats.newsletters.total}</div>
-                                <p className="text-xs text-muted-foreground">
-                                    {stats.newsletters.published} published, {stats.newsletters.drafts} drafts
-                                </p>
-                            </>
-                        )}
-                    </CardContent>
-                </Card>
-            </div>
-
-            {revenue ? (
-                <Card data-testid="revenue-summary">
-                    <CardHeader className="pb-3"><CardTitle className="flex items-center gap-2 text-base"><CircleDollarSign className="h-4 w-4" />Revenue</CardTitle><CardDescription>Stripe subscriptions and rail health</CardDescription></CardHeader>
-                    <CardContent className="grid gap-3 grid-cols-2 md:grid-cols-4">
-                        <StatTile label="Active subscriptions" value={revenue.active_subscriptions ?? 0} />
-                        <StatTile label="Monthly recurring revenue" value={<MonthlyRecurringRevenue summary={revenue} />} />
-                        <StatTile label="Past due" value={revenue.past_due ?? 0} ok={(revenue.past_due ?? 0) === 0} />
-                        <StatTile label="Webhook failures · 24h" value={revenue.webhook_failed_last_24h ?? 0} ok={(revenue.webhook_failed_last_24h ?? 0) === 0} />
-                    </CardContent>
-                </Card>
-            ) : null}
-
-            {/* Ops snapshot + Inbox pending */}
-            <div className="grid gap-4 lg:grid-cols-2">
-                <OpsSnapshotStrip />
+            <div className="grid gap-12 xl:grid-cols-[minmax(0,1fr)_380px]">
                 <InboxPendingStrip />
-            </div>
 
-            {/* Product analytics summary */}
-            <AnalyticsSummaryCard />
+                <aside className="flex flex-col gap-10">
+                    <OpsSnapshotStrip />
 
-            {/* Seeding & Rebuild pointer (Full Rebuild moved to /admin/seeding) */}
-            <Card className="border-amber-200 bg-amber-50/30" data-testid="seeding-pointer">
-                <CardHeader>
-                    <div className="flex items-center justify-between gap-4">
-                        <div>
-                            <CardTitle className="flex items-center gap-2">
-                                <Sprout className="h-5 w-5" />
-                                Seeding &amp; Rebuild
-                            </CardTitle>
-                            <CardDescription>
-                                Per-team seeding, seed-all backfill, cohort seeding, and the Full Academy Rebuild now live on their own page.
-                            </CardDescription>
-                        </div>
-                        <Button asChild data-testid="seeding-pointer-link">
+                    {revenue ? (
+                        <section data-testid="revenue-summary" aria-labelledby="revenue-heading" className="flex flex-col">
+                            <div className="pb-2">
+                                <h2 id="revenue-heading" className="font-mono text-[11.5px] font-medium uppercase tracking-[0.2em] text-[#8C9791]">Revenue</h2>
+                                <p className="mt-1 text-[13px] text-[#8C9791]">Stripe subscriptions and rail health</p>
+                            </div>
+                            <div className="grid grid-cols-2">
+                                <StatTile label="Active subscriptions" value={revenue.active_subscriptions ?? 0} />
+                                <StatTile label="Monthly recurring revenue" value={<MonthlyRecurringRevenue summary={revenue} />} />
+                                <StatTile label="Past due" value={revenue.past_due ?? 0} ok={(revenue.past_due ?? 0) === 0} />
+                                <StatTile label="Webhook failures · 24h" value={revenue.webhook_failed_last_24h ?? 0} ok={(revenue.webhook_failed_last_24h ?? 0) === 0} />
+                            </div>
+                        </section>
+                    ) : null}
+
+                    {/* Seeding & Rebuild pointer (Full Rebuild moved to /admin/seeding) */}
+                    <section className="flex flex-col gap-3 rounded-[10px] border border-chalk/15 p-6" data-testid="seeding-pointer">
+                        <span className="eyebrow flex items-center gap-2"><Sprout className="h-3.5 w-3.5" aria-hidden="true" />Seeding &amp; Rebuild</span>
+                        <p className="text-[14.5px] leading-relaxed text-[#C9CFCB]">
+                            Per-team seeding, seed-all backfill, cohort seeding, and the Full Academy Rebuild now live on their own page.
+                        </p>
+                        <Button asChild variant="on-dark" size="sm" className="self-start" data-testid="seeding-pointer-link">
                             <Link to="/admin/seeding">
                                 Open Seeding &amp; Rebuild
-                                <ArrowRight className="h-4 w-4 ml-2" />
+                                <ArrowRight className="ml-2 h-4 w-4" />
                             </Link>
                         </Button>
-                    </div>
-                </CardHeader>
-            </Card>
-
-            {/* Quick Actions */}
-            <div>
-                <h3 className="text-xl font-semibold mb-4">Quick Actions</h3>
-                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                    {QUICK_ACTIONS.map((action) => (
-                        <Link key={action.title} to={action.href}>
-                            <Card className="hover:bg-accent hover:shadow-md transition-all cursor-pointer h-full">
-                                <CardHeader>
-                                    <div className="flex items-center gap-3">
-                                        <div className={`p-2 rounded-lg ${action.iconBg}`}>
-                                            <action.icon className={`h-5 w-5 ${action.iconColor}`} />
-                                        </div>
-                                        <div>
-                                            <CardTitle className="text-base">{action.title}</CardTitle>
-                                            <CardDescription>{action.description}</CardDescription>
-                                        </div>
-                                    </div>
-                                </CardHeader>
-                            </Card>
-                        </Link>
-                    ))}
-                </div>
+                    </section>
+                </aside>
             </div>
 
-            {/* Getting Started */}
-            <Card>
-                <CardHeader>
-                    <CardTitle>Getting Started</CardTitle>
-                    <CardDescription>Common admin tasks and workflows</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                    <div className="border-l-4 border-primary pl-4 py-2">
-                        <h4 className="font-semibold text-sm">1. Track a Team</h4>
-                        <p className="text-sm text-muted-foreground">
-                            Go to Teams and enable tracking for the clubs whose academies you want to follow
-                        </p>
-                    </div>
-                    <div className="border-l-4 border-emerald-500 pl-4 py-2">
-                        <h4 className="font-semibold text-sm">2. Seed Players</h4>
-                        <p className="text-sm text-muted-foreground">
-                            Use Seeding &amp; Rebuild to discover academy players for your tracked teams, or add one-offs manually on the Players page
-                        </p>
-                    </div>
-                    <div className="border-l-4 border-purple-500 pl-4 py-2">
-                        <h4 className="font-semibold text-sm">3. Generate Newsletters</h4>
-                        <p className="text-sm text-muted-foreground">
-                            Create newsletters for tracked teams with recent player activity
-                        </p>
-                    </div>
-                    <div className="border-l-4 border-orange-500 pl-4 py-2">
-                        <h4 className="font-semibold text-sm">4. Assign Writers & Curate</h4>
-                        <p className="text-sm text-muted-foreground">
-                            Invite writers and assign them to teams in Users &amp; Writers; review community takes, flags, and submissions in the Inbox
-                        </p>
-                    </div>
-                </CardContent>
-            </Card>
+            <AnalyticsSummaryCard />
+
+            <div className="grid gap-12 xl:grid-cols-2">
+                <section aria-labelledby="shortcuts-heading" className="flex flex-col">
+                    <SectionTitle title={<span id="shortcuts-heading">Shortcuts</span>} count={`${QUICK_ACTIONS.length} tools`} />
+                    <ul className="flex flex-col">
+                        {QUICK_ACTIONS.map((action) => (
+                            <li key={action.title}>
+                                <Link
+                                    to={action.href}
+                                    className="group grid grid-cols-[28px_minmax(0,1fr)_auto] items-center gap-4 border-b border-hairline-dark px-1.5 py-4 text-chalk no-underline transition-colors hover:bg-chalk/[0.04] hover:no-underline"
+                                >
+                                    <action.icon className="h-4 w-4 text-gold" aria-hidden="true" />
+                                    <span className="min-w-0">
+                                        <span className="block text-[15px]">{action.title}</span>
+                                        <span className="block text-[13px] text-[#8C9791]">{action.description}</span>
+                                    </span>
+                                    <ArrowRight className="h-4 w-4 text-muted-dark transition-transform duration-200 group-hover:translate-x-0.5" aria-hidden="true" />
+                                </Link>
+                            </li>
+                        ))}
+                    </ul>
+                </section>
+
+                <section aria-labelledby="getting-started-heading" className="flex flex-col">
+                    <SectionTitle title={<span id="getting-started-heading">Getting started</span>} count="4 steps" />
+                    <ol className="flex flex-col">
+                        {GETTING_STARTED.map((step, index) => (
+                            <li key={step.title} className="grid grid-cols-[28px_minmax(0,1fr)] gap-4 border-b border-hairline-dark px-1.5 py-4">
+                                <span className="font-mono text-[12px] text-gold">{String(index + 1).padStart(2, '0')}</span>
+                                <span>
+                                    <span className="block text-[15px] text-chalk">{step.title}</span>
+                                    <span className="block text-[13px] leading-relaxed text-[#8C9791]">{step.body}</span>
+                                </span>
+                            </li>
+                        ))}
+                    </ol>
+                </section>
+            </div>
         </div>
     )
 }
+
+const GETTING_STARTED = [
+    { title: 'Track a Team', body: 'Go to Teams and enable tracking for the clubs whose academies you want to follow' },
+    { title: 'Seed Players', body: 'Use Seeding & Rebuild to discover academy players for your tracked teams, or add one-offs manually on the Players page' },
+    { title: 'Generate Newsletters', body: 'Create newsletters for tracked teams with recent player activity' },
+    { title: 'Assign Writers & Curate', body: 'Invite writers and assign them to teams in Users & Writers; review community takes, flags, and submissions in the Inbox' },
+]

@@ -26,10 +26,14 @@ test.describe.serial('Admin overhaul smoke', () => {
     await setAdminKey(page, env.adminKey)
     await page.goto('/admin/dashboard')
 
+    // Floodlight control room: grouped Overview · Review · Clubs & people ·
+    // Operations, with the API-Football era tools under "Legacy tools".
+    const adminNav = page.getByRole('navigation', { name: 'Admin' })
+    await adminNav.getByRole('button', { name: 'Legacy tools' }).click()
     for (const label of [
-      'Dashboard', 'Inbox', 'Players', 'Teams', 'Youth Leagues', 'Cohorts',
-      'Seeding & Rebuild', 'Newsletters', 'Sponsors', 'Users & Writers',
-      'Film Room', 'Operations', 'API & Configs', 'Classifier Tester', 'Settings',
+      'Today', 'Review queue', 'Players', 'Teams', 'Youth leagues', 'Cohorts',
+      'Seeding & rebuild', 'Newsletters', 'Sponsors', 'Accounts & writers',
+      'Film Room', 'Operations', 'API & configs', 'Classifier tester', 'Settings',
     ]) {
       await expect(page.getByRole('link', { name: label, exact: false }).first()).toBeVisible()
     }
@@ -40,7 +44,7 @@ test.describe.serial('Admin overhaul smoke', () => {
     await setAdminKey(page, env.adminKey)
 
     const pages = [
-      ['/admin/dashboard', /Admin|Dashboard|Welcome/i],
+      ['/admin/dashboard', /Admin|Dashboard|Welcome|at a glance/i],
       ['/admin/inbox', /Inbox/i],
       ['/admin/operations', /Operations/i],
       ['/admin/seeding', /Seeding/i],
