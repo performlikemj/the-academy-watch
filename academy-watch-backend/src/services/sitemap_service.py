@@ -8,6 +8,7 @@ import os
 import threading
 import time
 import xml.etree.ElementTree as ET
+from urllib.parse import urlsplit
 
 import sqlalchemy as sa
 from flask import current_app, make_response
@@ -15,7 +16,8 @@ from src.models.funding import ClubProgram, FundingLeague
 from src.models.league import Newsletter, Team, TeamProfile, db
 from src.models.showcase import LocalPlayer
 from src.models.tracked_player import TrackedPlayer
-from src.services.player_suppression import without_active_suppression
+from src.services.club_publication_hold import held_subject_ids
+from src.services.player_suppression import public_player_visible_filter
 from src.services.public_player_subject import resolve_public_adult_subject
 
 logger = logging.getLogger(__name__)
@@ -93,7 +95,7 @@ def _player_candidate_ids() -> list[int]:
     tracked_ids = sa.select(TrackedPlayer.player_api_id.label("player_api_id")).where(
         TrackedPlayer.is_active.is_(True),
         TrackedPlayer.data_source != "owning-club",
-        without_active_suppression(TrackedPlayer.player_api_id),
+        public_player_visible_filter(TrackedPlayer.player_api_id),
     )
     local_ids = sa.select(LocalPlayer.api_player_id.label("player_api_id")).where(
         LocalPlayer.status == "approved",
@@ -101,7 +103,7 @@ def _player_candidate_ids() -> list[int]:
         LocalPlayer.merged_into_local_player_id.is_(None),
         LocalPlayer.api_player_id < 0,
         LocalPlayer.api_player_id == -LocalPlayer.id,
-        without_active_suppression(LocalPlayer.api_player_id),
+        public_player_visible_filter(LocalPlayer.api_player_id),
     )
     candidates = tracked_ids.union(local_ids).subquery()
     statement = (
@@ -261,6 +263,60 @@ def _sitemap_response(body: bytes | str, status: int, mimetype: str):
     return response
 
 
+def _without_held_urls(xml: bytes) -> bytes:
+    """Revalidate emergency holds even while serving a fresh/stale cached sitemap.
+
+    Filter a response copy so lifting a hold restores the cached links immediately.
+    Other sitemap eligibility rules retain their existing rebuild cadence.
+    """
+    root = ET.fromstring(xml)
+    player_urls = {}
+    program_urls = {}
+    for node in root:
+        location = node.find(f"{{{SITEMAP_NAMESPACE}}}loc")
+        if location is None or not location.text:
+            continue
+        parts = urlsplit(location.text).path.strip("/").split("/")
+        if len(parts) != 2:
+            continue
+        kind, identity = parts
+        if kind in {"players", "local-players", "p"}:
+            try:
+                signed_id = int(identity)
+            except ValueError:
+                continue
+            if kind == "local-players":
+                signed_id = -signed_id
+            player_urls[node] = signed_id
+        elif kind == "programs":
+            program_urls[node] = identity
+    ids = sorted(set(player_urls.values()))
+    held = set()
+    for offset in range(0, len(ids), 100):
+        held.update(held_subject_ids(ids[offset : offset + 100]))
+    held_programs = (
+        set(
+            db.session.execute(
+                sa.select(ClubProgram.slug).where(
+                    ClubProgram.slug.in_(set(program_urls.values())), ClubProgram.emergency_hidden.is_(True)
+                )
+            ).scalars()
+        )
+        if program_urls
+        else set()
+    )
+    removed = False
+    for node, identity in player_urls.items():
+        if identity in held:
+            root.remove(node)
+            removed = True
+    for node, identity in program_urls.items():
+        if identity in held_programs:
+            root.remove(node)
+            removed = True
+    return ET.tostring(root, encoding="utf-8", xml_declaration=True) if removed else xml
+
+
 def get_sitemap_response():
     """Serve cached XML immediately and refresh stale or missing XML off-request."""
 
@@ -274,7 +330,7 @@ def get_sitemap_response():
         ttl_seconds = _env_nonnegative_float("SITEMAP_TTL_SECONDS", SITEMAP_TTL_SECONDS)
         if not isinstance(built_at, (int, float)) or now - built_at >= ttl_seconds:
             _start_background_build(app, cache_generation)
-        return _sitemap_response(cached_xml, 200, "application/xml")
+        return _sitemap_response(_without_held_urls(cached_xml), 200, "application/xml")
 
     _start_background_build(app, cache_generation)
     response = _sitemap_response("Sitemap is being generated", 503, "text/plain")

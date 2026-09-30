@@ -25,6 +25,7 @@ from src.services.player_suppression import (
     PlayerSuppressedError,
     active_suppressed_player_ids,
     is_player_suppressed,
+    public_player_visible_filter,
     without_active_suppression,
 )
 from src.utils.sanitize import is_safe_https_url, sanitize_plain_text
@@ -295,7 +296,9 @@ def search_players(q, api_client=None):
             break
 
     pids = [r["player_api_id"] for r in results]
-    suppressed_ids = active_suppressed_player_ids(pids)
+    from src.services.club_publication_hold import held_subject_ids
+
+    suppressed_ids = active_suppressed_player_ids(pids) | held_subject_ids(pids)
     if suppressed_ids:
         results = [r for r in results if r["player_api_id"] not in suppressed_ids]
         pids = [r["player_api_id"] for r in results]
@@ -319,7 +322,7 @@ def search_players(q, api_client=None):
                 TrackedPlayer.player_api_id.in_(pids),
                 TrackedPlayer.is_active.is_(True),
                 TrackedPlayer.data_source != "owning-club",
-                without_active_suppression(TrackedPlayer.player_api_id),
+                public_player_visible_filter(TrackedPlayer.player_api_id),
             )
             .all()
         }
@@ -329,7 +332,7 @@ def search_players(q, api_client=None):
             .filter(
                 PlayerShadow.player_api_id.in_(pids),
                 PlayerShadow.is_active.is_(True),
-                without_active_suppression(PlayerShadow.player_api_id),
+                public_player_visible_filter(PlayerShadow.player_api_id),
             )
             .all()
         }

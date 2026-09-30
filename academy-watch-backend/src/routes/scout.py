@@ -60,6 +60,7 @@ from src.services.player_suppression import (
     active_suppressed_player_ids,
     is_player_suppressed,
     neutral_player_not_found,
+    public_player_visible_filter,
     without_active_suppression,
 )
 from src.services.scout_entitlements import decoded_bearer_role, scout_entitlements
@@ -469,7 +470,7 @@ def _scout_identity_subquery(*, include_local=None):
             TrackedPlayer.is_active.is_(True),
             TrackedPlayer.player_api_id > 0,
             TrackedPlayer.data_source != "owning-club",
-            without_active_suppression(TrackedPlayer.player_api_id),
+            public_player_visible_filter(TrackedPlayer.player_api_id),
             without_minor_local_bridge(TrackedPlayer.player_api_id),
             _preferred_row_filter(),
         )
@@ -525,7 +526,7 @@ def _scout_identity_subquery(*, include_local=None):
             LocalPlayer.status == "approved",
             LocalPlayer.provenance != "club",
             ~local_player_is_minor(LocalPlayer),
-            without_active_suppression(PlayerShadow.player_api_id),
+            public_player_visible_filter(PlayerShadow.player_api_id),
             ~active_local_suppression_exists(LocalPlayer.id),
         )
     )
@@ -1410,7 +1411,7 @@ def scout_compare():
             tracked_player = (
                 TrackedPlayer.query.filter_by(player_api_id=player_id, is_active=True)
                 .filter(TrackedPlayer.data_source != "owning-club")
-                .filter(without_active_suppression(TrackedPlayer.player_api_id))
+                .filter(public_player_visible_filter(TrackedPlayer.player_api_id))
                 .filter(without_minor_local_bridge(TrackedPlayer.player_api_id))
                 .order_by(TrackedPlayer.id)
                 .first()
@@ -1990,14 +1991,14 @@ def _player_display_name(player_api_id):
     tracked = (
         TrackedPlayer.query.filter_by(player_api_id=player_api_id, is_active=True)
         .filter(TrackedPlayer.data_source != "owning-club")
-        .filter(without_active_suppression(TrackedPlayer.player_api_id))
+        .filter(public_player_visible_filter(TrackedPlayer.player_api_id))
         .first()
     )
     if tracked:
         return tracked.player_name
     shadow = (
         PlayerShadow.query.filter_by(player_api_id=player_api_id, is_active=True)
-        .filter(without_active_suppression(PlayerShadow.player_api_id))
+        .filter(public_player_visible_filter(PlayerShadow.player_api_id))
         .first()
     )
     return shadow.player_name if shadow else None
@@ -2094,7 +2095,7 @@ def _follow_label_maps(follows):
             TrackedPlayer.player_api_id.in_(player_ids),
             TrackedPlayer.is_active.is_(True),
             TrackedPlayer.data_source != "owning-club",
-            without_active_suppression(TrackedPlayer.player_api_id),
+            public_player_visible_filter(TrackedPlayer.player_api_id),
         ).all():
             name_map.setdefault(tp.player_api_id, tp.player_name)
         remaining = {player_id for player_id in player_ids if player_id > 0} - set(name_map) - unavailable_player_ids
@@ -2102,7 +2103,7 @@ def _follow_label_maps(follows):
             for shadow in PlayerShadow.query.filter(
                 PlayerShadow.player_api_id.in_(remaining),
                 PlayerShadow.is_active.is_(True),
-                without_active_suppression(PlayerShadow.player_api_id),
+                public_player_visible_filter(PlayerShadow.player_api_id),
             ).all():
                 name_map.setdefault(shadow.player_api_id, shadow.player_name)
 

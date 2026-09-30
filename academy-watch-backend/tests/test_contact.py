@@ -73,7 +73,7 @@ def contact_app(monkeypatch):
                 text(
                     "CREATE TABLE club_programs ("
                     "id INTEGER PRIMARY KEY, name VARCHAR(180) NOT NULL, contact_email VARCHAR(254), "
-                    "team_api_id INTEGER, platform_status VARCHAR(20) NOT NULL, "
+                    "slug VARCHAR(200), team_api_id INTEGER, platform_status VARCHAR(20) NOT NULL, "
                     "emergency_hidden BOOLEAN NOT NULL)"
                 )
             )

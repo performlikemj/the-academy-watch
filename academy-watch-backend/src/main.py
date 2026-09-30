@@ -21,6 +21,7 @@ import src.models.billing  # noqa: E402, F401
 import src.models.contact  # noqa: E402, F401
 import src.models.gol_credits  # noqa: E402, F401
 import src.models.interest  # noqa: E402, F401
+import src.models.p2_foundation  # noqa: E402, F401
 import src.models.player_fan  # noqa: E402, F401
 import src.models.player_match_entry  # noqa: E402, F401
 import src.models.player_suppression  # noqa: E402, F401
@@ -34,6 +35,7 @@ from src.models.league import League, Newsletter, Team, UserSubscription, db
 from src.models.tracked_player import TrackedPlayer
 from src.routes.academy import academy_bp
 from src.routes.account import account_bp
+from src.routes.admin_programs import admin_programs_bp
 from src.routes.api import api_bp, require_api_key
 from src.routes.auth_routes import auth_bp
 from src.routes.billing import billing_bp
@@ -130,6 +132,7 @@ app.register_blueprint(seasons_bp, url_prefix="/api")
 # routes take priority over any api_bp /players/<id>/* catch-alls.
 app.register_blueprint(showcase_bp, url_prefix="/api")
 app.register_blueprint(funding_bp, url_prefix="/api")
+app.register_blueprint(admin_programs_bp, url_prefix="/api")
 app.register_blueprint(club_bp, url_prefix="/api")
 app.register_blueprint(feedback_bp, url_prefix="/api")
 app.register_blueprint(interest_bp, url_prefix="/api")

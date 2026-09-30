@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from functools import wraps
 
-from flask import current_app, jsonify
+from flask import current_app, jsonify, request
 from sqlalchemy import and_, exists, or_
 from src.models.league import db
 from src.models.player_suppression import PlayerSuppression
@@ -50,9 +50,18 @@ def active_local_suppression_exists(local_player_id):
 
 
 def without_active_suppression(player_api_id):
-    """SQL predicate retaining only players without an active suppression."""
-
+    """Exclude actual suppression only, including maintenance and write checks."""
     return ~active_suppression_exists(player_api_id)
+
+
+def public_player_visible_filter(player_api_id):
+    """Public discovery/read predicate: suppression plus derived publication hold.
+
+    Do not use for owner mutations, refresh sweeps or other maintenance work.
+    """
+    from src.services.club_publication_hold import subject_publication_hold_filter
+
+    return without_active_suppression(player_api_id) & ~subject_publication_hold_filter(player_api_id)
 
 
 def is_player_suppressed(player_api_id: int) -> bool:
@@ -103,8 +112,12 @@ def neutral_player_not_found():
     return jsonify(NEUTRAL_PLAYER_NOT_FOUND), 404
 
 
-def hide_suppressed_player(argument_name: str):
-    """Route decorator returning the neutral 404 before any player data loads."""
+def hide_suppressed_player(argument_name: str, *, public_read: bool = False):
+    """Keep suppression guards; opt public GET/HEAD reads into publication holds.
+
+    Owner writes use the default so incidents never block editing/removal.
+    Public reads must explicitly pass public_read=True; HEAD matches GET.
+    """
 
     def decorator(view):
         @wraps(view)
@@ -115,7 +128,12 @@ def hide_suppressed_player(argument_name: str):
             if current_app.extensions.get("sqlalchemy") is not db:
                 return view(*args, **kwargs)
             player_api_id = kwargs.get(argument_name)
-            if player_api_id is not None and is_player_suppressed(player_api_id):
+            from src.services.club_publication_hold import subject_publication_held
+
+            if player_api_id is not None and (
+                is_player_suppressed(player_api_id)
+                or (public_read and request.method in {"GET", "HEAD"} and subject_publication_held(player_api_id))
+            ):
                 return neutral_player_not_found()
             return view(*args, **kwargs)
 
@@ -135,4 +153,5 @@ __all__ = [
     "is_local_player_suppressed",
     "neutral_player_not_found",
     "without_active_suppression",
+    "public_player_visible_filter",
 ]
