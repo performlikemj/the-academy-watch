@@ -13,11 +13,16 @@ routes return 404.
 - Every club route uses `require_club_permission(capability)` (`src/services/club_access.py`).
   Squad-scoped roles (coach/analyst/viewer) are additionally filtered by the scope helpers.
 - **Match rule:** a scoped caller sees a match only if its squad label is in their squads **and every
-  club player on its roster is currently in their squads** (`match_visible_to`). A roster row that no
-  longer resolves to a current member refuses the whole match. The same check guards match
-  detail/report/reel/media-token, the byte routes (footage, crops, bbox), player-profile film and
-  feedback evidence/citations. Writes: a squad-labelled match may only hold that squad's players;
-  mixed-squad matches stay unlabelled (whole-club roles only).
+  player it covers is currently in their squads** (`match_visible_to`). Coverage = the current roster
+  plus, once a recording exists (upload-complete), the append-only `video_match_coverage` record:
+  an `origin` marker written at upload, a `member` row for every club player ever on the roster since,
+  and a permanent `uncertain` marker if an unidentified row was ever present. Removing or replacing
+  roster rows **never** narrows coverage; only a future explicitly verified trimmed asset may. A
+  recording with no `origin` marker (uploaded before p2a2) or with `uncertain` is whole-club only.
+  Coverage is recorded even with the flag off, so history is complete when it is switched on. The
+  same gate covers match detail/report/reel/media-token/list, footage/crops/bbox, profile film,
+  `/roster` film totals, feedback evidence and feedback citations. Writes: a squad-labelled match may
+  only hold that squad's players; mixed-squad matches stay unlabelled (whole-club roles only).
 - What each role may read is decided in one place: `member_view` / `profile_view` / `match_summary`
   (allowlists). Add new fields there deliberately.
 
@@ -42,5 +47,7 @@ upload started within the previous hour.
 ## Tests that pin this
 
 `tests/test_club_staff_access.py` (route matrix, invites, revocation) and
-`tests/test_club_staff_access_ra2.py` (RA2 security regressions: mixed-squad matches, profile and
-feedback scope, grant reconcile, viewer notes, HEAD parity with the flag off).
+`tests/test_club_staff_access_ra2.py`, `test_club_staff_access_ra2_denials.py`,
+`test_club_staff_access_ra2v.py` (RA2/RA2V security regressions incl. the 18 roster-cleanup
+sequences), `test_club_staff_access_coverage.py` (monotonic coverage) and
+`test_club_staff_access_flagoff_parity.py` (164 flag-off responses == origin/main).

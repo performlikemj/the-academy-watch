@@ -61,6 +61,7 @@ from src.services.club_access import (
     match_in_scope,
     member_in_scope,
     member_view,
+    record_coverage,
     require_club_permission,
     roster_fits_squad,
     scoped_squad_ids,
@@ -905,6 +906,42 @@ def delete_club_program_update(program_id: int, update_id: int):
     return jsonify({"deleted": True, "status": None})
 
 
+def _scoped_film_rows(program_id: int) -> list[tuple]:
+    """Per-member film aggregates restricted to matches passing ``match_in_scope``."""
+    rows = (
+        db.session.query(
+            VideoPlayerReport.club_roster_member_id_at_finalize,
+            VideoMatch,
+            VideoPlayerReport.minutes_visible,
+        )
+        .join(VideoMatch, VideoMatch.id == VideoPlayerReport.video_match_id)
+        .join(VideoRosterEntry, VideoRosterEntry.id == VideoPlayerReport.roster_entry_id)
+        .filter(
+            VideoMatch.club_program_id == program_id,
+            VideoMatch.status == "finalized",
+            VideoPlayerReport.club_program_id_at_finalize == program_id,
+            VideoPlayerReport.identity_confidence == "human_confirmed",
+            VideoRosterEntry.club_roster_member_id == VideoPlayerReport.club_roster_member_id_at_finalize,
+            VideoMatch.squad_id.in_(sorted(scoped_squad_ids() or ())),
+        )
+        .all()
+    )
+    visible: dict[int, bool] = {}
+    totals: dict[int, list] = {}
+    for member_id, match, minutes in rows:
+        if match.id not in visible:
+            visible[match.id] = match_in_scope(match)
+        if not visible[match.id]:
+            continue
+        entry = totals.setdefault(member_id, [0, None, None])
+        entry[0] += 1
+        if minutes is not None:
+            entry[1] = (entry[1] or 0) + minutes
+        if match.finalized_at and (entry[2] is None or match.finalized_at > entry[2]):
+            entry[2] = match.finalized_at
+    return [(member_id, count, minutes, latest) for member_id, (count, minutes, latest) in totals.items()]
+
+
 @club_bp.route("/club/<int:program_id>/roster", methods=["GET"])
 @require_club_permission("players.view")
 def list_club_roster(program_id: int):
@@ -952,6 +989,9 @@ def list_club_roster(program_id: int):
         .group_by(VideoPlayerReport.club_roster_member_id_at_finalize)
         .all()
     )
+    if scope is not None:
+        # Squad-scoped staff: only reports from matches they may see (same coverage gate as every match read).
+        film_rows = _scoped_film_rows(program_id)
     film = {
         member_id: {
             "report_count": count,
@@ -1950,6 +1990,7 @@ def club_match_upload_complete(program_id: int, match_id: int):
     if is_reattestation:
         match.processing_requested_at = None
         match.processing_requested_by_user_id = None
+    record_coverage(match, origin=True)
     db.session.commit()
     return jsonify(match.to_dict() | {"size_bytes": check["size_bytes"]})
 
@@ -2110,6 +2151,7 @@ def set_club_match_roster(program_id: int, match_id: int):
                 return _bad_request("every match player must be an available club roster member")
             resolved[member_id] = (subject, model)
 
+        record_coverage(match)  # snapshot rows before any are replaced or removed
         existing = {row.jersey_number: row for row in match.roster_entries}
         kept_numbers: set[int] = set()
         for payload_entry in entries:
@@ -2136,6 +2178,8 @@ def set_club_match_roster(program_id: int, match_id: int):
                 VideoPlayerReport.query.filter_by(roster_entry_id=row.id).delete(synchronize_session=False)
                 db.session.delete(row)
                 removed += 1
+        # Recording coverage only ever grows: rows removed above stay covered.
+        record_coverage(match)
         db.session.commit()
         return jsonify({"roster": [row.to_dict() for row in match.roster_entries], "removed": removed})
     except ValueError as exc:

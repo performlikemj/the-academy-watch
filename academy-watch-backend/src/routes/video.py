@@ -175,6 +175,9 @@ def upload_complete(match_id: int):
     if is_reattestation:
         match.processing_requested_at = None
         match.processing_requested_by_user_id = None
+    from src.services.club_access import record_coverage
+
+    record_coverage(match, origin=True)  # club matches only; append-only staff-access coverage
     db.session.commit()
     return jsonify(match.to_dict() | {"size_bytes": check["size_bytes"]})
 
@@ -265,6 +268,9 @@ def upsert_roster(match_id: int):
             return _bad_request(f"duplicate jersey_number {number}")
         seen_numbers.add(number)
 
+    from src.services.club_access import record_coverage
+
+    record_coverage(match)  # club matches only: snapshot rows before any are replaced or removed
     existing = {r.jersey_number: r for r in match.roster_entries}
     kept_numbers = set()
     for e in entries:
@@ -289,6 +295,7 @@ def upsert_roster(match_id: int):
             )
             db.session.delete(row)
             removed += 1
+    record_coverage(match)  # club matches only; name-only rows mark the recording uncertain
     db.session.commit()
     return jsonify(
         {

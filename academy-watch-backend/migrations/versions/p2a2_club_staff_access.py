@@ -1,4 +1,4 @@
-"""Club staff access: role grants, squad scope, staff invites, match squad.
+"""Club staff access: role grants, squad scope, staff invites, match squad, recording coverage.
 
 Revision ID: p2a2
 Revises: p2a1
@@ -96,6 +96,30 @@ def upgrade():
     create_index_safe("ix_club_access_grant_squads_squad_id", "club_access_grant_squads", ["squad_id"])
     op.execute("ALTER TABLE public.club_access_grant_squads ENABLE ROW LEVEL SECURITY")
 
+    if not table_exists("video_match_coverage"):
+        op.create_table(
+            "video_match_coverage",
+            sa.Column("id", sa.Integer(), primary_key=True),
+            sa.Column(
+                "video_match_id",
+                sa.Integer(),
+                sa.ForeignKey("video_matches.id", ondelete="CASCADE"),
+                nullable=False,
+            ),
+            sa.Column("kind", sa.String(20), nullable=False),
+            sa.Column("club_roster_member_id", sa.Integer(), nullable=True),
+            sa.Column("first_seen_at", sa.DateTime(), nullable=False, server_default=sa.func.now()),
+            sa.CheckConstraint("kind IN ('origin','member','uncertain')", name="ck_video_match_coverage_kind"),
+        )
+    create_index_safe("ix_video_match_coverage_match", "video_match_coverage", ["video_match_id"])
+    create_index_safe(
+        "uq_video_match_coverage_entry",
+        "video_match_coverage",
+        ["video_match_id", "kind", "club_roster_member_id"],
+        unique=True,
+    )
+    op.execute("ALTER TABLE public.video_match_coverage ENABLE ROW LEVEL SECURITY")
+
     add_column_safe("video_matches", sa.Column("squad_id", sa.Integer(), nullable=True))
     if not _fk_exists("video_matches", "fk_video_matches_squad_id"):
         op.create_foreign_key(
@@ -113,6 +137,6 @@ def downgrade():
         op.drop_constraint("fk_video_matches_squad_id", "video_matches", type_="foreignkey")
     if column_exists("video_matches", "squad_id"):
         op.drop_column("video_matches", "squad_id")
-    for table in ("club_access_grant_squads", "club_access_grants", "club_staff_invites"):
+    for table in ("video_match_coverage", "club_access_grant_squads", "club_access_grants", "club_staff_invites"):
         if table_exists(table):
             op.drop_table(table)

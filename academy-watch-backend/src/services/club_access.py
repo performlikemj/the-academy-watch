@@ -266,10 +266,12 @@ def member_in_scope(member) -> bool:
 
 
 def match_visible_to(access, match) -> bool:
-    """Scoped staff see a match only if its squad label AND every club player on its roster are in scope.
+    """Scoped staff see a match only if its squad label AND every player it covers are in their squads.
 
-    A squad label alone never grants access to out-of-squad players (call-ups, moved players, minors).
-    Roster rows that no longer resolve to a current member of this club refuse the whole match.
+    Coverage = the current roster plus, once a recording exists, every club member ever on the
+    roster since upload (``video_match_coverage``, append-only). A squad label alone never grants
+    access to out-of-squad players. Unidentified or dangling rows refuse the whole match, and a
+    recording without an ``origin`` marker or with an ``uncertain`` marker is whole-club only.
     """
     if access is None or access.whole_club:
         return True
@@ -283,12 +285,58 @@ def match_visible_to(access, match) -> bool:
     ]
     if any(member_id is None for member_id in member_ids):
         return False
+    if recording_exists(match):
+        # The recording is authoritative: everyone it ever covered, not just today's display roster.
+        from src.models.club_access import VideoMatchCoverage
+
+        coverage = VideoMatchCoverage.query.filter_by(video_match_id=match.id).all()
+        kinds = {row.kind for row in coverage}
+        if "origin" not in kinds or "uncertain" in kinds:
+            return False
+        member_ids = member_ids + [row.club_roster_member_id for row in coverage if row.kind == "member"]
+        if any(member_id is None for member_id in member_ids):
+            return False
     if not member_ids:
         return True
     rows = ClubRosterMember.query.filter(
         ClubRosterMember.id.in_(sorted(set(member_ids))), ClubRosterMember.program_id == match.club_program_id
     ).all()
     return len(rows) == len(set(member_ids)) and all(row.squad_id in access.squad_ids for row in rows)
+
+
+def recording_exists(match) -> bool:
+    """True once any upload was completed for this match (even if the raw file later expired)."""
+    return bool(getattr(match, "uploaded_at", None) or getattr(match, "blob_etag", None))
+
+
+def record_coverage(match, *, origin=False) -> None:
+    """Append (never remove) recording coverage for a club match, in the caller's transaction.
+
+    Called with ``origin=True`` at upload-complete, and after every roster write once a
+    recording exists. Runs regardless of the staff-access flag so history is complete when
+    the flag is switched on. Matches uploaded before this existed have no ``origin`` row and
+    therefore stay whole-club only for scoped staff.
+    """
+    from src.models.club_access import VideoMatchCoverage
+    from src.models.funding import ClubRosterMember
+    from src.models.video import VideoRosterEntry
+
+    if match is None or match.club_program_id is None or not (origin or recording_exists(match)):
+        return
+    db.session.flush()
+    have = {
+        (row.kind, row.club_roster_member_id)
+        for row in VideoMatchCoverage.query.filter_by(video_match_id=match.id).all()
+    }
+    want = {("origin", None)} if origin else set()
+    for (member_id,) in db.session.query(VideoRosterEntry.club_roster_member_id).filter_by(video_match_id=match.id):
+        member = db.session.get(ClubRosterMember, member_id) if member_id is not None else None
+        if member is None or member.program_id != match.club_program_id:
+            want.add(("uncertain", None))
+        else:
+            want.add(("member", member_id))
+    for kind, member_id in sorted(want - have, key=lambda item: (item[0], item[1] or 0)):
+        db.session.add(VideoMatchCoverage(video_match_id=match.id, kind=kind, club_roster_member_id=member_id))
 
 
 def match_in_scope(match) -> bool:

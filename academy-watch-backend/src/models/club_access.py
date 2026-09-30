@@ -139,3 +139,28 @@ class ClubStaffInvite(db.Model):
             "accepted_at": _iso(self.accepted_at),
             "revoked_at": _iso(self.revoked_at),
         }
+
+
+class VideoMatchCoverage(db.Model):
+    """Append-only record of who a club match RECORDING may show (club staff access).
+
+    Written from the first upload-complete onward and never narrowed by roster edits:
+    ``origin`` marks that tracking began at upload; ``member`` rows are every club roster
+    member ever on the match roster after that; ``uncertain`` means an unidentified row
+    was present at some point, which keeps the recording whole-club only forever.
+    Coverage may only narrow through a future explicitly verified trimmed asset.
+    """
+
+    __tablename__ = "video_match_coverage"
+    __table_args__ = (
+        db.CheckConstraint("kind IN ('origin','member','uncertain')", name="ck_video_match_coverage_kind"),
+        db.Index("ix_video_match_coverage_match", "video_match_id"),
+        db.Index("uq_video_match_coverage_entry", "video_match_id", "kind", "club_roster_member_id", unique=True),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    video_match_id = db.Column(db.Integer, db.ForeignKey("video_matches.id", ondelete="CASCADE"), nullable=False)
+    kind = db.Column(db.String(20), nullable=False)
+    # Deliberately NOT a foreign key: deleting the member must not erase the coverage fact.
+    club_roster_member_id = db.Column(db.Integer, nullable=True)
+    first_seen_at = db.Column(db.DateTime, nullable=False, default=_now)
