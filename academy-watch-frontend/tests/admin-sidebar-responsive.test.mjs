@@ -5,7 +5,7 @@ import fs from 'node:fs/promises'
 const layoutFile = new URL('../src/components/layouts/AdminLayout.jsx', import.meta.url)
 const sidebarFile = new URL('../src/components/admin/AdminSidebar.jsx', import.meta.url)
 
-test('admin layout exposes a mobile-only sidebar toggle', async () => {
+test('admin layout exposes a sidebar toggle below the lg breakpoint', async () => {
   const src = await fs.readFile(layoutFile, 'utf8')
 
   assert.match(
@@ -15,7 +15,9 @@ test('admin layout exposes a mobile-only sidebar toggle', async () => {
   )
 
   const toggleSection = src.split('data-testid="admin-menu-toggle"')[1] || ''
-  assert.match(toggleSection, /md:hidden/, 'mobile toggle should be hidden at md and up to avoid duplicate chrome on desktop')
+  // The persistent sidebar only renders from lg, so the menu toggle must stay
+  // available through tablet widths and hide exactly where the sidebar appears.
+  assert.match(toggleSection, /lg:hidden/, 'mobile toggle should be hidden at lg and up, where the persistent sidebar renders')
 })
 
 test('admin layout provides a desktop collapse control and sidebar supports a collapsed state', async () => {

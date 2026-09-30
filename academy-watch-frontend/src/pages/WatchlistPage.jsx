@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { APIService } from '@/lib/api'
 import { useAuth, useAuthUI } from '@/context/AuthContext'
-import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -10,6 +9,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Textarea } from '@/components/ui/textarea'
 import { Star, Download, StickyNote, X, Loader2, Search, ListChecks } from 'lucide-react'
 import { FormIndicator, StatusBadge, PlayerCell } from './ScoutPage'
+import { ScoutSurface, ScoutHeader, deskPillClass } from '@/components/scout/ScoutDesk'
 
 const NOTE_MAX = 2000
 
@@ -47,16 +47,16 @@ function NoteEditor({ entry, onSaved }) {
       <PopoverTrigger asChild>
         <button
           type="button"
-          className={`inline-flex h-7 w-7 items-center justify-center rounded-full transition-colors hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${entry.note ? 'text-primary' : 'text-muted-foreground/60 hover:text-muted-foreground'}`}
+          className={`inline-flex h-7 w-7 items-center justify-center rounded-full transition-colors hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${entry.note ? 'text-gold' : 'text-muted-foreground/60 hover:text-muted-foreground'}`}
           aria-label={`Edit note for ${playerName}`}
           title={entry.note ? 'Edit note' : 'Add note'}
         >
           <StickyNote className="h-4 w-4" />
         </button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-80">
+      <PopoverContent align="end" className="w-80 border-hairline-dark bg-ink">
         <div className="space-y-3">
-          <p className="text-sm font-semibold text-foreground">Scouting note</p>
+          <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-muted-foreground">My private note</p>
           <Textarea
             value={draft}
             onChange={(e) => setDraft(e.target.value.slice(0, NOTE_MAX))}
@@ -169,82 +169,69 @@ export function WatchlistPage() {
     }
   }, [entries])
 
+  const thClass = 'px-3 py-3 font-mono text-[10.5px] font-medium uppercase tracking-[0.14em] text-[#8C9791]'
+  const tdNum = 'px-3 py-3.5 text-right font-mono text-[13px] tabular-nums text-chalk/85'
+
   // Signed out
   if (!auth?.token) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-secondary to-background">
-        <div className="mx-auto flex max-w-7xl items-center justify-center px-4 py-24 sm:px-6 lg:px-8">
-          <Card className="w-full max-w-md overflow-hidden border-border/80">
-            <CardContent className="flex flex-col items-center gap-4 px-8 py-12 text-center">
-              <span className="inline-flex h-14 w-14 items-center justify-center rounded-full bg-primary/10">
-                <Star className="h-6 w-6 text-primary" />
-              </span>
-              <h1 className="text-xl font-bold tracking-tight text-foreground">Sign in to build your watchlist</h1>
-              <p className="text-sm text-muted-foreground">
-                Star players across the Scout Desk and keep their form, stats and availability one click away.
-              </p>
-              <Button onClick={openLoginModal}>Sign in</Button>
-            </CardContent>
-          </Card>
+      <ScoutSurface>
+        <div className="floodlight-container flex justify-center py-24">
+          <div className="flex w-full max-w-md flex-col items-center gap-5 text-center">
+            <span className="inline-flex h-14 w-14 items-center justify-center rounded-full border border-gold/60">
+              <Star className="h-6 w-6 text-gold" />
+            </span>
+            <h1 className="display text-4xl text-chalk sm:text-5xl">Sign in to build your watchlist</h1>
+            <p className="text-[15px] leading-relaxed text-muted-dark">
+              Star players across the Scout Desk and keep their form, stats and availability one click away.
+            </p>
+            <Button variant="on-dark" onClick={openLoginModal}>Sign in</Button>
+          </div>
         </div>
-      </div>
+      </ScoutSurface>
     )
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-secondary to-background">
-      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-        {/* Header */}
-        <header className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div>
-            <p className="mb-2 inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-primary">
-              <Star className="h-3.5 w-3.5" />
-              Scout Pro — free during beta
-            </p>
-            <h1 className="text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
-              Your Watchlist
-            </h1>
-            <p className="mt-2 max-w-2xl text-sm text-muted-foreground sm:text-base">
-              Every player you are tracking, with live form, season output and your own scouting notes.
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-3 lg:shrink-0 lg:pt-7">
-            <label className="flex items-center gap-2 text-sm text-foreground/80">
-              <Switch
-                checked={digestOptIn}
-                onCheckedChange={handleDigestToggle}
-                disabled={savingDigest}
-                aria-label="Weekly digest email"
-              />
-              Weekly digest
-            </label>
-            <Button variant="outline" size="sm" asChild>
-              <Link to="/scout/lists" className="no-underline hover:no-underline">
-                <ListChecks className="mr-1.5 h-4 w-4" />
-                Lists
-              </Link>
-            </Button>
-            <Button variant="outline" size="sm" onClick={handleExportCsv} disabled={exporting || !entries.length}>
-              {exporting ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Download className="mr-1.5 h-4 w-4" />}
-              Export CSV
-            </Button>
-            <Button size="sm" asChild>
-              <Link to="/scout" className="no-underline hover:no-underline">
-                <Search className="mr-1.5 h-4 w-4" />
-                Find players
-              </Link>
-            </Button>
-          </div>
-        </header>
+    <ScoutSurface>
+      <div className="floodlight-container pb-24">
+        <ScoutHeader
+          eyebrow={<span className="inline-flex items-center gap-2"><Star className="h-3.5 w-3.5" aria-hidden="true" />Watchlist{!loading ? ` · ${entries.length} player${entries.length === 1 ? '' : 's'}` : ''} · Scout Pro — free during beta</span>}
+          title="Players you’re"
+          accent="watching"
+          lede="Every player you are tracking, with live form, season output and your own scouting notes."
+          actions={(
+            <>
+              <label className="mr-2 flex items-center gap-3 text-sm text-[#C9CFCB]">
+                Weekly digest
+                <Switch
+                  checked={digestOptIn}
+                  onCheckedChange={handleDigestToggle}
+                  disabled={savingDigest}
+                  aria-label="Weekly digest email"
+                />
+              </label>
+              <Button variant="outline" size="sm" className={deskPillClass} onClick={handleExportCsv} disabled={exporting || !entries.length}>
+                {exporting ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Download className="mr-1.5 h-4 w-4" />}
+                Export CSV
+              </Button>
+              <Button size="sm" variant="on-dark" asChild>
+                <Link to="/scout" className="no-underline hover:no-underline">
+                  <Search className="mr-1.5 h-4 w-4" />
+                  Find players
+                </Link>
+              </Button>
+            </>
+          )}
+        />
 
         {/* Lists cross-link */}
-        <div className="mb-6 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/70 bg-primary/5 px-4 py-2.5">
-          <span className="text-sm text-foreground/80">
-            Your watchlist is now also a <span className="font-semibold text-foreground">List</span> — manage richer follows (clubs, countries, saved filters) in Lists.
+        <div className="mb-8 flex flex-wrap items-center justify-between gap-3 rounded-[10px] border border-hairline-dark px-5 py-4">
+          <span className="flex items-start gap-3 text-[14px] leading-relaxed text-[#C9CFCB]">
+            <ListChecks className="mt-0.5 h-4 w-4 shrink-0 text-gold" aria-hidden="true" />
+            <span>Your watchlist is now also a <span className="text-chalk">List</span> — manage richer follows (clubs, countries, saved filters) in Lists.</span>
           </span>
-          <Button variant="ghost" size="sm" asChild className="shrink-0">
-            <Link to="/scout/lists" className="no-underline hover:no-underline">Open Lists</Link>
-          </Button>
+          <Link to="/scout/lists" className="shrink-0 border-b border-chalk/40 pb-px text-sm text-chalk no-underline hover:border-gold hover:no-underline">Open Lists</Link>
         </div>
 
         {error && (
@@ -253,47 +240,45 @@ export function WatchlistPage() {
 
         {/* Empty state */}
         {!loading && !entries.length ? (
-          <Card className="overflow-hidden border-border/80">
-            <CardContent className="flex flex-col items-center gap-4 px-8 py-16 text-center">
-              <span className="inline-flex h-14 w-14 items-center justify-center rounded-full bg-primary/10">
-                <Star className="h-6 w-6 text-primary" />
-              </span>
-              <h2 className="text-lg font-bold tracking-tight text-foreground">Nothing watched yet</h2>
-              <p className="max-w-md text-sm text-muted-foreground">
-                Star players on the Scout Desk and they&apos;ll show up here with live form, stats and availability.
-              </p>
-              <Button asChild>
-                <Link to="/scout" className="no-underline hover:no-underline">Open the Scout Desk</Link>
-              </Button>
-            </CardContent>
-          </Card>
+          <div className="flex flex-col items-center gap-5 border-t border-hairline-dark px-6 py-20 text-center">
+            <span className="inline-flex h-14 w-14 items-center justify-center rounded-full border border-gold/60">
+              <Star className="h-6 w-6 text-gold" />
+            </span>
+            <h2 className="display text-4xl text-chalk">Nothing watched yet</h2>
+            <p className="max-w-md text-[15px] leading-relaxed text-muted-dark">
+              Star players on the Scout Desk and they&apos;ll show up here with live form, stats and availability.
+            </p>
+            <Button variant="on-dark" asChild>
+              <Link to="/scout" className="no-underline hover:no-underline">Open the Scout Desk</Link>
+            </Button>
+          </div>
         ) : (
-          <Card className="overflow-hidden border-border/80">
-            <div className="overflow-x-auto">
+          <section aria-label="Watched players" className="border-t border-hairline-dark">
+            <div className="relative overflow-x-auto">
               <table className="w-full min-w-[760px] border-collapse">
                 <thead>
-                  <tr className="border-b border-border/60 bg-secondary/60">
-                    <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Player</th>
-                    <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Pos</th>
-                    <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Status</th>
-                    <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Club</th>
-                    <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Form</th>
-                    <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">Apps</th>
-                    <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">G</th>
-                    <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">A</th>
-                    <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">Mins</th>
-                    <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">Rating</th>
-                    <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">G+A/90</th>
-                    <th className="w-20 px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  <tr className="border-b border-hairline-dark">
+                    <th className={`text-left ${thClass}`}>Player</th>
+                    <th className={`text-left ${thClass}`}>Pos</th>
+                    <th className={`text-left ${thClass}`}>Status</th>
+                    <th className={`text-left ${thClass}`}>Club</th>
+                    <th className={`text-left ${thClass}`}>Form</th>
+                    <th className={`text-right ${thClass}`}>Apps</th>
+                    <th className={`text-right ${thClass}`}>G</th>
+                    <th className={`text-right ${thClass}`}>A</th>
+                    <th className={`text-right ${thClass}`}>Mins</th>
+                    <th className={`text-right ${thClass}`}>Rating</th>
+                    <th className={`text-right ${thClass}`}>G+A/90</th>
+                    <th className={`w-20 text-right ${thClass}`}>
                       <span className="sr-only">Actions</span>
                     </th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-border/40">
+                <tbody className="divide-y divide-hairline-dark">
                   {loading ? (
                     Array.from({ length: 5 }).map((_, i) => (
                       <tr key={i}>
-                        <td colSpan={12} className="px-3 py-2.5"><Skeleton className="h-9 w-full" /></td>
+                        <td colSpan={12} className="px-3 py-3"><Skeleton className="h-10 w-full" /></td>
                       </tr>
                     ))
                   ) : (
@@ -301,52 +286,52 @@ export function WatchlistPage() {
                       const player = entry.player
                       const playerName = player?.player_name || `Player ${entry.player_api_id}`
                       return (
-                        <tr key={entry.player_api_id} className="transition-colors hover:bg-secondary/40">
+                        <tr key={entry.player_api_id} className="transition-colors duration-150 hover:bg-chalk/[0.035]">
                           {player ? (
                             <>
-                              <td className="px-3 py-2.5"><PlayerCell player={player} /></td>
-                              <td className="px-3 py-2.5 text-sm text-foreground/80 whitespace-nowrap">{player.position?.slice(0, 3) || '—'}</td>
-                              <td className="px-3 py-2.5"><StatusBadge status={player.status} /></td>
-                              <td className="px-3 py-2.5 max-w-44">
-                                <span className="block truncate text-sm text-foreground/90">{player.loan_team_name || player.primary_team_name || '—'}</span>
+                              <td className="px-3 py-3.5"><PlayerCell player={player} /></td>
+                              <td className="px-3 py-3.5 font-mono text-[12px] text-muted-dark whitespace-nowrap">{player.position?.slice(0, 3) || '—'}</td>
+                              <td className="px-3 py-3.5"><StatusBadge status={player.status} /></td>
+                              <td className="px-3 py-3.5 max-w-44">
+                                <span className="block truncate text-sm text-chalk/90">{player.loan_team_name || player.primary_team_name || '—'}</span>
                                 {player.loan_team_name && (player.owner_team_name || player.primary_team_name) && (
-                                  <span className="block truncate text-xs text-muted-foreground">from {player.owner_team_name || player.primary_team_name}</span>
+                                  <span className="block truncate text-xs text-muted-dark">from {player.owner_team_name || player.primary_team_name}</span>
                                 )}
                                 {entry.note && (
-                                  <span className="block max-w-44 truncate text-xs italic text-primary/80" title={entry.note}>
+                                  <span className="block max-w-44 truncate font-serif text-[15px] italic text-gold/90" title={entry.note}>
                                     “{entry.note}”
                                   </span>
                                 )}
                               </td>
-                              <td className="px-3 py-2.5"><FormIndicator form={player.recent_form} /></td>
-                              <td className="px-3 py-2.5 text-right text-sm tabular-nums">{player.appearances}</td>
-                              <td className="px-3 py-2.5 text-right text-sm font-semibold tabular-nums text-emerald-700">{player.goals}</td>
-                              <td className="px-3 py-2.5 text-right text-sm font-semibold tabular-nums text-amber-700">{player.assists}</td>
-                              <td className="px-3 py-2.5 text-right text-sm tabular-nums">{player.minutes_played?.toLocaleString()}</td>
-                              <td className="px-3 py-2.5 text-right text-sm tabular-nums">{player.avg_rating ?? '—'}</td>
-                              <td className="px-3 py-2.5 text-right text-sm font-semibold tabular-nums text-primary">{player.contributions_per90 ?? '—'}</td>
+                              <td className="px-3 py-3.5"><FormIndicator form={player.recent_form} /></td>
+                              <td className={tdNum}>{player.appearances}</td>
+                              <td className={tdNum}>{player.goals}</td>
+                              <td className={tdNum}>{player.assists}</td>
+                              <td className={tdNum}>{player.minutes_played?.toLocaleString()}</td>
+                              <td className={tdNum}>{player.avg_rating ?? '—'}</td>
+                              <td className={`${tdNum} text-gold`}>{player.contributions_per90 ?? '—'}</td>
                             </>
                           ) : (
                             <>
-                              <td className="px-3 py-2.5">
-                                <span className="block text-sm font-semibold text-foreground">{playerName}</span>
-                                <span className="block text-xs text-muted-foreground">No longer tracked</span>
+                              <td className="px-3 py-3.5">
+                                <span className="block text-[14.5px] font-medium text-chalk">{playerName}</span>
+                                <span className="block text-xs text-muted-dark">No longer tracked</span>
                                 {entry.note && (
-                                  <span className="block max-w-44 truncate text-xs italic text-primary/80" title={entry.note}>
+                                  <span className="block max-w-44 truncate font-serif text-[15px] italic text-gold/90" title={entry.note}>
                                     “{entry.note}”
                                   </span>
                                 )}
                               </td>
-                              <td colSpan={10} className="px-3 py-2.5 text-sm text-muted-foreground">—</td>
+                              <td colSpan={10} className="px-3 py-3.5 text-sm text-muted-dark">—</td>
                             </>
                           )}
-                          <td className="px-3 py-2.5">
+                          <td className="px-3 py-3.5">
                             <div className="flex items-center justify-end gap-1">
                               <NoteEditor entry={entry} onSaved={handleNoteSaved} />
                               <button
                                 type="button"
                                 onClick={() => handleRemove(entry.player_api_id)}
-                                className="inline-flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground/60 transition-colors hover:bg-secondary hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                className="inline-flex h-8 w-8 items-center justify-center rounded-full text-muted-dark/70 transition-colors hover:bg-chalk/[0.06] hover:text-[#E9967A] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                                 aria-label={`Remove ${playerName} from watchlist`}
                                 title="Remove from watchlist"
                               >
@@ -361,9 +346,9 @@ export function WatchlistPage() {
                 </tbody>
               </table>
             </div>
-          </Card>
+          </section>
         )}
       </div>
-    </div>
+    </ScoutSurface>
   )
 }

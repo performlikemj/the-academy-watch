@@ -72,17 +72,17 @@ export function GolMessage({ message, expanded, onPlayerClick }) {
 
   return (
     <div className={`flex gap-3 ${isUser ? 'flex-row-reverse' : ''}`}>
-      <Avatar className="h-8 w-8 shrink-0">
-        <AvatarFallback className={isUser ? 'bg-primary text-primary-foreground' : 'bg-emerald-600 text-white'}>
-          {isUser ? 'U' : 'G'}
-        </AvatarFallback>
-      </Avatar>
+      {isUser ? null : (
+        <Avatar className="h-9 w-9 shrink-0 border border-gold">
+          <AvatarFallback className="bg-transparent font-serif text-base text-gold">G</AvatarFallback>
+        </Avatar>
+      )}
 
       <div className={`flex-1 min-w-0 ${isUser ? 'text-right' : ''}`}>
-        <div className={`inline-block rounded-lg px-3 py-2 text-sm ${
+        <div className={`inline-block text-left ${
           isUser
-            ? 'max-w-[85%] bg-primary text-primary-foreground'
-            : 'max-w-full bg-muted text-foreground'
+            ? 'max-w-[85%] rounded-2xl bg-chalk px-4 py-3 text-[15px] leading-relaxed text-night'
+            : 'max-w-full py-1 text-[14.5px] leading-relaxed text-[#DCE0DC]'
         }`}>
           {contentEl}
         </div>

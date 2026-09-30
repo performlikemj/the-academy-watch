@@ -9,6 +9,7 @@ import { APIService } from '@/lib/api'
 import { useAuth, useAuthUI } from '@/context/AuthContext'
 import { useContactRail } from '@/hooks/useContactRail.js'
 import { ContactThread } from '@/components/contact/ContactThread'
+import { ScoutSurface, ScoutHeader } from '@/components/scout/ScoutDesk'
 import { statusLabel, counterpartName, canWithdraw, canRespond, previewText, upsertRequest, fetchAllRequests } from '@/lib/introductions'
 
 function formatDate(value) {
@@ -19,41 +20,42 @@ function formatDate(value) {
 
 function RequestList({ box, requests, loading, error, selectedId, onSelect, onAction, busyId }) {
   if (loading) return <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</p>
-  if (error) return <p className="text-sm text-rose-600">{error}</p>
+  if (error) return <p className="text-sm text-[#E9967A]">{error}</p>
   if (!requests.length) {
     return (
-      <p className="text-sm text-muted-foreground">
+      <p className="border-t border-hairline-dark py-6 text-[15px] leading-relaxed text-muted-dark">
         {box === 'sent' ? <>Nothing sent yet. Find a player on the <Link to="/scout" className="underline">Scout Desk</Link> and introduce yourself.</> : 'No introductions yet. When a verified scout reaches out, it shows up here.'}
       </p>
     )
   }
   return (
-    <ul className="space-y-2">
+    <ul className="flex flex-col border-t border-hairline-dark">
       {requests.map((request) => {
         const selected = request.id === selectedId
         const busy = busyId === request.id
         return (
-          <li key={request.id}>
+          <li key={request.id} className="border-b border-hairline-dark">
             <button
               type="button"
               onClick={() => onSelect(request.id)}
-              className={`w-full rounded-xl border p-3 text-left transition-colors ${selected ? 'border-primary/40 bg-primary/5' : 'border-border bg-card hover:bg-muted/30'}`}
+              aria-current={selected ? 'true' : undefined}
+              className={`w-full px-3 py-4 text-left transition-colors duration-150 ${selected ? 'bg-chalk/[0.05] shadow-[inset_2px_0_0_var(--color-gold)]' : 'hover:bg-chalk/[0.03]'}`}
             >
               <div className="flex items-center justify-between gap-2">
-                <span className="truncate font-semibold text-foreground">{counterpartName(request, box)}</span>
-                <Badge variant="secondary">{statusLabel(request.status)}</Badge>
+                <span className="truncate font-serif text-[1.5rem] leading-tight text-chalk">{counterpartName(request, box)}</span>
+                <Badge variant="outline" className="border-gold/50 text-gold">{statusLabel(request.status)}</Badge>
               </div>
-              <p className="mt-1 text-xs text-muted-foreground">{formatDate(request.created_at)}{request.participants?.club ? ` · via ${request.participants.club.display_name}` : ''}</p>
-              <p className="mt-1 text-sm text-foreground/80">{previewText(request.message)}</p>
+              <p className="mt-1 font-mono text-[10.5px] uppercase tracking-[0.12em] text-[#8C9791]">{formatDate(request.created_at)}{request.participants?.club ? ` · via ${request.participants.club.display_name}` : ''}</p>
+              <p className="mt-2 text-sm leading-relaxed text-[#C9CFCB]">{previewText(request.message)}</p>
             </button>
             {canRespond(request, box) ? (
-              <div className="mt-1 flex gap-2">
-                <Button size="sm" onClick={() => onAction('accept', request)} disabled={busy}>Accept</Button>
+              <div className="flex gap-2 px-3 pb-4">
+                <Button size="sm" variant="on-dark" onClick={() => onAction('accept', request)} disabled={busy}>Accept</Button>
                 <Button size="sm" variant="outline" onClick={() => onAction('decline', request)} disabled={busy}>Decline</Button>
               </div>
             ) : null}
             {canWithdraw(request, box) ? (
-              <div className="mt-1">
+              <div className="px-3 pb-4">
                 <Button size="sm" variant="ghost" onClick={() => onAction('withdraw', request)} disabled={busy}>Withdraw</Button>
               </div>
             ) : null}
@@ -137,47 +139,53 @@ export function IntroductionsPage() {
 
   if (contactRail === false) {
     return (
-      <div className="min-h-screen bg-background p-4">
-        <Card className="mx-auto w-full max-w-md">
-          <CardHeader><CardTitle>Introductions</CardTitle><CardDescription>Introductions aren&apos;t available right now. Please check back later.</CardDescription></CardHeader>
-          <CardContent><Button asChild variant="outline"><Link to="/">Return to Home</Link></Button></CardContent>
-        </Card>
-      </div>
+      <ScoutSurface>
+        <div className="floodlight-container py-20">
+          <Card className="mx-auto w-full max-w-md">
+            <CardHeader><CardTitle>Introductions</CardTitle><CardDescription>Introductions aren&apos;t available right now. Please check back later.</CardDescription></CardHeader>
+            <CardContent><Button asChild variant="outline"><Link to="/">Return to Home</Link></Button></CardContent>
+          </Card>
+        </div>
+      </ScoutSurface>
     )
   }
 
   if (!auth?.token) {
     return (
-      <div className="min-h-screen bg-background p-4">
-        <Card className="mx-auto w-full max-w-md">
-          <CardHeader><CardTitle>Introductions</CardTitle><CardDescription>Sign in to see introductions you sent or received.</CardDescription></CardHeader>
-          <CardContent><Button onClick={openLoginModal}>Sign in</Button></CardContent>
-        </Card>
-      </div>
+      <ScoutSurface>
+        <div className="floodlight-container py-20">
+          <Card className="mx-auto w-full max-w-md">
+            <CardHeader><CardTitle>Introductions</CardTitle><CardDescription>Sign in to see introductions you sent or received.</CardDescription></CardHeader>
+            <CardContent><Button variant="on-dark" onClick={openLoginModal}>Sign in</Button></CardContent>
+          </Card>
+        </div>
+      </ScoutSurface>
     )
   }
 
   return (
-    <div className="min-h-screen bg-background p-4">
-      <div className="mx-auto w-full max-w-6xl space-y-4">
-        <header>
-          <h1 className="text-2xl font-bold text-foreground">Introductions</h1>
-          <p className="text-sm text-muted-foreground">Scout ↔ player introductions. Messaging opens once an introduction is accepted (and, for contracted players, allowed by the club).</p>
-        </header>
+    <ScoutSurface>
+      <div className="floodlight-container pb-24">
+        <ScoutHeader
+          eyebrow="Introductions · Scout ↔ player"
+          title="Introductions,"
+          accent="done properly"
+          lede="Scout ↔ player introductions. Messaging opens once an introduction is accepted (and, for contracted players, allowed by the club)."
+        />
         <Tabs value={box} onValueChange={setBox}>
-          <TabsList>
+          <TabsList className="mb-6">
             <TabsTrigger value="sent"><Send className="mr-1.5 h-4 w-4" /> Sent</TabsTrigger>
             <TabsTrigger value="inbox"><Inbox className="mr-1.5 h-4 w-4" /> Inbox</TabsTrigger>
           </TabsList>
           {['sent', 'inbox'].map((which) => (
             <TabsContent key={which} value={which}>
-              <div className="grid items-start gap-4 lg:grid-cols-[22rem_minmax(0,1fr)]">
+              <div className="grid items-start gap-8 lg:grid-cols-[24rem_minmax(0,1fr)]">
                 <div>
                   <RequestList box={which} requests={requests[which] || []} loading={loading && box === which} error={box === which ? error : null} selectedId={selectedId} onSelect={setSelectedId} onAction={act} busyId={busyId} />
-                  {actionError && box === which ? <p className="mt-2 text-sm text-rose-600">{actionError}</p> : null}
+                  {actionError && box === which ? <p className="mt-2 text-sm text-[#E9967A]">{actionError}</p> : null}
                 </div>
-                <Card>
-                  <CardContent className="pt-6">
+                <Card className="py-0">
+                  <CardContent className="p-6">
                     {box === which ? <ContactThread request={selected} onRequestChange={applyUpdate} /> : null}
                   </CardContent>
                 </Card>
@@ -186,7 +194,7 @@ export function IntroductionsPage() {
           ))}
         </Tabs>
       </div>
-    </div>
+    </ScoutSurface>
   )
 }
 

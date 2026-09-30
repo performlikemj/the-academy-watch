@@ -24,6 +24,7 @@ import { Coins, Loader2, Plus, Video, Wrench } from 'lucide-react'
 import { APIService } from '@/lib/api'
 import { FilmRoomGuide } from '@/components/admin/FilmRoomGuide'
 import { HelpHint } from '@/components/ui/help-hint'
+import { AdminPageHeader } from '@/components/admin/ControlRoom'
 
 const STATUS_VARIANTS = {
     created: 'outline',
@@ -137,12 +138,14 @@ export function AdminVideo() {
 
     return (
         <div className="space-y-6">
-            <header className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                    <h1 className="text-2xl font-bold flex items-center gap-2"><Video className="h-6 w-6" /> Film Room</h1>
-                    <p className="text-sm text-muted-foreground">Match uploads, processing and tag review (concierge)</p>
-                </div>
-                <div className="flex items-center gap-2">
+            <header className="flex flex-wrap items-end justify-between gap-5">
+                <AdminPageHeader
+                    eyebrow={<span className="inline-flex items-center gap-2"><Video className="h-3.5 w-3.5" aria-hidden="true" />Operations · Film Room</span>}
+                    title="Film"
+                    accent="Room"
+                    lede="Match uploads, processing and tag review (concierge)"
+                />
+                <div className="flex flex-wrap items-center gap-2">
                     {balance !== null && (
                         <Badge variant="secondary" className="text-sm">
                             <Coins className="h-3.5 w-3.5 mr-1" /> {balance} credit{balance === 1 ? '' : 's'}

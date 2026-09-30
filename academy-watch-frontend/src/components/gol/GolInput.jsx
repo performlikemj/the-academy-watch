@@ -21,7 +21,7 @@ export function GolInput({ onSend, isStreaming, onStop, disabled = false }) {
   }
 
   return (
-    <div className="flex gap-2">
+    <div className="flex items-center gap-2 rounded-full border border-chalk/30 py-1.5 pl-5 pr-1.5 focus-within:border-gold">
       <input
         ref={inputRef}
         type="text"
@@ -31,14 +31,15 @@ export function GolInput({ onSend, isStreaming, onStop, disabled = false }) {
         onKeyDown={handleKeyDown}
         placeholder="Ask about any player or team…"
         disabled={isStreaming || disabled}
-        className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        aria-label="Ask GOL"
+        className="min-w-0 flex-1 border-0 bg-transparent py-2 text-[15px] text-chalk placeholder:text-[#8C9791] focus-visible:outline-none disabled:opacity-60"
       />
       {isStreaming ? (
-        <Button size="icon" variant="destructive" onClick={onStop} aria-label="Stop generating">
+        <Button size="icon" variant="destructive" className="rounded-full" onClick={onStop} aria-label="Stop generating">
           <Square className="h-4 w-4" />
         </Button>
       ) : (
-        <Button size="icon" onClick={handleSend} disabled={disabled || !text.trim()} aria-label="Send message">
+        <Button size="icon" variant="on-dark" className="rounded-full" onClick={handleSend} disabled={disabled || !text.trim()} aria-label="Send message">
           <Send className="h-4 w-4" />
         </Button>
       )}
