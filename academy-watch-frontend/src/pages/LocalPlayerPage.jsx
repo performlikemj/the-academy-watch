@@ -1,61 +1,59 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { AlertTriangle, ArrowRight, MapPin, ShieldAlert, UserPlus } from 'lucide-react'
+import { ArrowRight, MapPin, ShieldAlert, UserPlus } from 'lucide-react'
 import { APIService } from '@/lib/api'
 import { ContentReportDialog } from '@/components/ContentReportDialog'
 import { PlayerReachControls } from '@/components/PlayerReachControls'
 import { ShowcaseSection } from '@/components/ShowcaseSection'
 import { ProvenanceChip } from '@/components/SelfReportedBadge'
 import { useAuth } from '@/context/AuthContext'
-import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
+import { SectionHeading, StatFigure } from '@/components/public/Floodlight'
 import { Skeleton } from '@/components/ui/skeleton'
 import { formatSeasonLabel } from '@/lib/seasons'
 import { track } from '@/lib/track'
 
+function initialsOf(name) {
+  return String(name || '').trim().split(/\s+/).slice(0, 2).map((part) => part[0] || '').join('').toUpperCase() || '·'
+}
+
 function LoadingState() {
   return (
-    <div className="mx-auto max-w-6xl space-y-5 px-4 py-8 sm:px-6 lg:px-8" aria-busy="true">
+    <div aria-busy="true">
       <p className="sr-only" role="status" aria-live="polite">Loading player profile…</p>
-      <div className="space-y-3 py-4">
-        <Skeleton className="h-4 w-36" />
-        <Skeleton className="h-10 w-72 max-w-full" />
-        <Skeleton className="h-5 w-96 max-w-full" />
+      <div className="dark bg-night">
+        <div className="floodlight-container space-y-4 py-16">
+          <Skeleton className="h-4 w-36" />
+          <Skeleton className="h-14 w-96 max-w-full" />
+          <Skeleton className="h-5 w-72 max-w-full" />
+        </div>
       </div>
-      <Skeleton className="h-20 w-full rounded-xl" />
-      <Skeleton className="h-80 w-full rounded-xl" />
+      <div className="floodlight-container space-y-5 py-12">
+        <Skeleton className="h-20 w-full rounded-[10px]" />
+        <Skeleton className="h-80 w-full rounded-[10px]" />
+      </div>
     </div>
   )
 }
 
 function MissingState() {
   return (
-    <div className="mx-auto flex min-h-[65vh] max-w-6xl items-center justify-center px-4 py-12 sm:px-6 lg:px-8">
-      <Card className="w-full max-w-xl overflow-hidden border-dashed">
-        <CardContent className="flex flex-col items-center gap-4 px-6 py-12 text-center">
-          <span className="inline-flex h-14 w-14 items-center justify-center rounded-full bg-amber-100 text-amber-800">
-            <AlertTriangle className="h-6 w-6" />
-          </span>
-          <div className="space-y-2">
-            <h1 className="text-xl font-bold tracking-tight text-foreground">
-              This profile doesn&apos;t exist or isn&apos;t public yet
-            </h1>
-            <p className="text-sm leading-relaxed text-muted-foreground">
-              It may still be waiting for review, or the profile link may be incorrect.
-            </p>
-          </div>
-          <Link
-            to="/local-players/new"
-            className="inline-flex items-center gap-1.5 text-sm font-semibold text-primary hover:underline"
-          >
-            <UserPlus className="h-4 w-4" />
-            Create a player profile
-            <ArrowRight className="h-3.5 w-3.5" />
-          </Link>
-        </CardContent>
-      </Card>
+    <div className="floodlight-container flex min-h-[65vh] flex-col items-start justify-center py-20">
+      <p className="eyebrow">Player profile</p>
+      <h1 className="display mt-4 max-w-3xl text-[40px] sm:text-[60px]">
+        This profile doesn&apos;t exist or isn&apos;t public yet
+      </h1>
+      <p className="mt-4 max-w-lg leading-relaxed text-muted-foreground">
+        It may still be waiting for review, or the profile link may be incorrect.
+      </p>
+      <Link
+        to="/local-players/new"
+        className="mt-8 inline-flex h-11 items-center gap-2 rounded-full border border-ink px-5 text-sm font-medium transition-colors hover:bg-chalk-2"
+      >
+        <UserPlus className="h-4 w-4" />
+        Create a player profile
+        <ArrowRight className="h-3.5 w-3.5" />
+      </Link>
     </div>
   )
 }
@@ -77,36 +75,31 @@ function LocalSeasonStats({ stats, position }) {
 
   const totals = goalkeeper
     ? [
-        ['Appearances', stats.appearances ?? 0, 'text-foreground'],
-        ['Minutes', stats.minutes ?? 0, 'text-foreground'],
-        ['Saves', stats.saves ?? 0, 'text-emerald-600'],
-        ['Conceded', stats.goals_conceded ?? 0, 'text-orange-600'],
+        ['Appearances', stats.appearances ?? 0],
+        ['Minutes', stats.minutes ?? 0],
+        ['Saves', stats.saves ?? 0],
+        ['Conceded', stats.goals_conceded ?? 0],
       ]
     : [
-        ['Appearances', stats.appearances ?? 0, 'text-foreground'],
-        ['Minutes', stats.minutes ?? 0, 'text-foreground'],
-        ['Goals', stats.goals ?? 0, 'text-emerald-600'],
-        ['Assists', stats.assists ?? 0, 'text-amber-600'],
+        ['Appearances', stats.appearances ?? 0],
+        ['Minutes', stats.minutes ?? 0],
+        ['Goals', stats.goals ?? 0],
+        ['Assists', stats.assists ?? 0],
       ]
 
   return (
-    <section className="space-y-3" aria-labelledby="local-player-season-totals">
-      <div className="flex flex-wrap items-center gap-2">
-        <h2 id="local-player-season-totals" className="text-xl font-semibold tracking-tight text-foreground">
-          {formatSeasonLabel(stats.season)} Totals
-        </h2>
+    <section aria-labelledby="local-player-season-totals">
+      <SectionHeading
+        id="local-player-season-totals"
+        title={`${formatSeasonLabel(stats.season)} Totals`}
+      >
         <ProvenanceChip provenance={stats.provenance} />
-      </div>
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        {totals.map(([label, value, color]) => (
-          <Card key={label}>
-            <CardContent className="pt-4 text-center">
-              <div className={`text-3xl font-bold tabular-nums ${color}`}>
-                {label === 'Minutes' ? Number(value).toLocaleString() : value}
-              </div>
-              <div className="mt-1 text-xs uppercase tracking-wider text-muted-foreground">{label}</div>
-            </CardContent>
-          </Card>
+      </SectionHeading>
+      <div className="grid grid-cols-2 sm:grid-cols-4">
+        {totals.map(([label, value]) => (
+          <StatFigure key={label} label={label}>
+            {label === 'Minutes' ? Number(value).toLocaleString() : value}
+          </StatFigure>
         ))}
       </div>
     </section>
@@ -169,19 +162,13 @@ function LocalPlayerProfile({ numericPlayerId, onPublicConfirmed, onRetry }) {
 
   if (error || !player) {
     return (
-      <div className="mx-auto flex min-h-[65vh] max-w-6xl items-center justify-center px-4 py-12 sm:px-6 lg:px-8">
-        <Card className="w-full max-w-xl">
-          <CardContent className="flex flex-col items-center gap-4 px-6 py-12 text-center">
-            <AlertTriangle className="h-8 w-8 text-rose-600" />
-            <div>
-              <h1 className="font-semibold text-foreground">We couldn&apos;t load this profile</h1>
-              <p className="mt-1 text-sm text-muted-foreground">{error || 'Try again in a moment.'}</p>
-            </div>
-            <Button variant="outline" onClick={onRetry}>
-              Try again
-            </Button>
-          </CardContent>
-        </Card>
+      <div className="floodlight-container flex min-h-[65vh] flex-col items-start justify-center py-20">
+        <p className="eyebrow text-danger">Something went wrong</p>
+        <h1 className="display mt-4 text-[40px] sm:text-[56px]">We couldn&apos;t load this profile</h1>
+        <p className="mt-3 text-muted-foreground">{error || 'Try again in a moment.'}</p>
+        <Button variant="outline" className="mt-8" onClick={onRetry}>
+          Try again
+        </Button>
       </div>
     )
   }
@@ -197,35 +184,38 @@ function LocalPlayerProfile({ numericPlayerId, onPublicConfirmed, onRetry }) {
   ].filter(Boolean)
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-amber-50/60 via-background to-secondary/50">
-      <div className="mx-auto max-w-6xl space-y-6 px-4 py-8 sm:px-6 lg:px-8">
-        <header className="relative overflow-hidden rounded-2xl border border-border/70 bg-card px-5 py-7 shadow-sm sm:px-8 sm:py-9">
-          <div className="pointer-events-none absolute -right-20 -top-24 h-64 w-64 rounded-full bg-amber-200/25 blur-3xl" />
-          <div className="relative space-y-3">
+    <div className="min-h-screen bg-chalk">
+      <header className="dark bg-night text-chalk">
+        <div className="floodlight-container flex flex-col gap-8 py-12 sm:py-16 md:flex-row md:items-center md:gap-14">
+          <div className="relative flex h-32 w-32 shrink-0 items-center justify-center sm:h-44 sm:w-44" aria-hidden="true">
+            <span className="absolute inset-0 rounded-full border border-dashed border-gold/60" />
+            <span className="display flex h-[86%] w-[86%] items-center justify-center rounded-full bg-club text-[52px] text-gold sm:text-[72px]">
+              {initialsOf(player.display_name)}
+            </span>
+          </div>
+          <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-800">Community player</p>
+              <div className="eyebrow flex flex-wrap items-center gap-x-5 gap-y-1">
+                <span className="text-gold">Community player</span>
                 {player.status === 'pending' ? (
-                  <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-800">
-                    Pending review
-                  </Badge>
+                  <span className="text-warn">Pending review</span>
                 ) : null}
               </div>
               {/* Web-only local:<canonical id> subject_id; backend accepts free text (≤200 chars), disambiguating the two ID spaces. */}
               <ContentReportDialog subjectId={`local:${player.id}`} />
             </div>
-            <h1 className="break-words text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
+            <h1 className="display mt-3 break-words text-[48px] leading-[.92] [overflow-wrap:anywhere] sm:text-[80px] lg:text-[104px]">
               {player.display_name}
             </h1>
             {details.length > 0 || location ? (
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-muted-foreground sm:text-base">
-                {details.map((detail) => <span key={detail}>{detail}</span>)}
-                {location ? (
-                  <span className="inline-flex items-center gap-1.5">
-                    <MapPin className="h-4 w-4" />
-                    {location}
+              <div className="mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 text-base text-chalk/80 sm:text-[17px]">
+                {[...details, location].filter(Boolean).map((detail, index) => (
+                  <span key={detail} className="inline-flex items-center gap-2">
+                    {index > 0 ? <span aria-hidden="true" className="text-muted-dark">·</span> : null}
+                    {detail === location ? <MapPin className="h-4 w-4 text-muted-dark" /> : null}
+                    {detail}
                   </span>
-                ) : null}
+                ))}
               </div>
             ) : null}
             {canonicalPlayerApiId != null ? (
@@ -236,14 +226,14 @@ function LocalPlayerProfile({ numericPlayerId, onPublicConfirmed, onRetry }) {
               />
             ) : null}
           </div>
-        </header>
+        </div>
+      </header>
 
-        <Alert className="border-amber-300 bg-amber-50/95 shadow-sm">
-          <ShieldAlert className="h-4 w-4 text-amber-800" />
-          <AlertDescription className="font-medium leading-relaxed text-amber-950">
-            Community profile — self-reported. Not an official Academy Watch tracked player.
-          </AlertDescription>
-        </Alert>
+      <div className="floodlight-container space-y-14 py-12 sm:py-16">
+        <p className="flex items-start gap-3 border-y border-border py-4 text-[15px] leading-relaxed text-ink">
+          <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-gold-text" aria-hidden="true" />
+          <span>Community profile — self-reported. Not an official Academy Watch tracked player.</span>
+        </p>
 
         <ShowcaseSection
           local

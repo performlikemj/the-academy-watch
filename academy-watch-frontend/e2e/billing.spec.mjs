@@ -399,9 +399,9 @@ test('program page renders an external Patreon link and approved updates', async
   await expect(support).toHaveAttribute('target', '_blank')
   const rel = await support.getAttribute('rel')
   expect(new Set(rel.split(/\s+/))).toEqual(new Set(['noopener', 'noreferrer']))
-  await expect(page.getByText('Latest from the program', { exact: true })).toBeVisible()
+  await expect(page.getByText('Latest from the club', { exact: true })).toBeVisible()
   await expect(page.locator('article')).toHaveCount(2)
-  await expect(page.getByText('Support is not live yet')).toHaveCount(0)
+  await expect(page.getByText('Support isn’t open yet')).toHaveCount(0)
 })
 
 test('club console saves the moderated profile payload and submits an update', async ({ page }) => {
