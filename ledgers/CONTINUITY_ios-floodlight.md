@@ -11,7 +11,8 @@
 - complete: 44 paired light/dark review screens; visual inspection; 20 largest-accessibility-text checks; INDEX.md maps all 152 PNGs.
 - complete: final 235 main-scheme tests; offline UI suite and all seven bundled journeys; Release simulator build.
 - complete: owned simulators shut down; four DerivedData paths, temporary baseline source tree and font downloads removed.
-- pending: commit/push/draft PR, BUS DONE; temporary PR body removed after creation.
+- complete: committed and pushed; draft PR #1105 against main: https://github.com/performlikemj/the-academy-watch/pull/1105. DO NOT MERGE — awaiting MJ review.
+- complete: temporary PR body removed; BUS DONE handoff follows final documentation push.
 
 ## Validation
 - Main scheme offline: 235 tests, zero failures (`unit-tests-review-complete.xcresult`). Fonts registered; generic data decodes; unmatched/mutation requests fail closed; adaptive text AA contrast passes.
