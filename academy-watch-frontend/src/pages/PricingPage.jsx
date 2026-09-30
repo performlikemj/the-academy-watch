@@ -240,18 +240,18 @@ export function PricingPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-secondary to-background">
+    <div className="min-h-screen bg-chalk">
       <div className="mx-auto max-w-6xl px-4 py-12 sm:px-6 lg:px-8 lg:py-16">
         {showCanceled ? (
-          <div role="status" className="mx-auto mb-8 flex max-w-2xl items-center justify-between gap-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+          <div role="status" className="mx-auto mb-8 flex max-w-2xl items-center justify-between gap-4 rounded-lg border border-border bg-chalk-2 px-4 py-3 text-sm text-ink">
             <span>Checkout canceled — nothing was charged.</span>
             <Button variant="ghost" size="sm" onClick={() => setShowCanceled(false)}>Dismiss</Button>
           </div>
         ) : null}
         {/* Editorial header */}
         <header className="mx-auto mb-12 max-w-2xl text-center lg:mb-16">
-          <p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-primary">Plans</p>
-          <h1 className="text-3xl font-bold tracking-tight text-foreground sm:text-5xl">
+          <p className="eyebrow mb-4 text-gold-text">Plans</p>
+          <h1 className="display text-[44px] sm:text-[72px]">
             Scouting that pays for itself
           </h1>
           <p className="mt-4 text-base text-muted-foreground sm:text-lg">
@@ -261,7 +261,7 @@ export function PricingPage() {
         </header>
 
         {configFailed ? (
-          <div role="status" className="mx-auto mb-8 flex max-w-4xl items-center justify-between gap-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+          <div role="status" className="mx-auto mb-8 flex max-w-4xl items-center justify-between gap-4 rounded-lg border border-border bg-chalk-2 px-4 py-3 text-sm text-ink">
             <p><span className="font-semibold">Live pricing couldn&apos;t be loaded.</span> Showing our beta plans for now.</p>
             <Button size="sm" variant="outline" onClick={retryConfig}>Retry</Button>
           </div>
@@ -301,8 +301,8 @@ export function PricingPage() {
                   key={tier.key}
                   className={`flex flex-col overflow-hidden transition-shadow ${
                     elevated
-                      ? 'border-primary shadow-lg md:-translate-y-1 md:hover:shadow-xl'
-                      : 'border-border/80 hover:shadow-md'
+                      ? 'border-ink'
+                      : 'border-border'
                   }`}
                 >
                   <CardContent className="flex flex-1 flex-col p-6 sm:p-8">
@@ -323,12 +323,12 @@ export function PricingPage() {
                           </span>
                         )}
                       </div>
-                      <h2 className="text-xl font-bold tracking-tight text-foreground">{cardName}</h2>
+                      <h2 className="display text-[30px] leading-tight">{cardName}</h2>
                       <p className="mt-1.5 text-sm text-muted-foreground">{cardDescription}</p>
                     </div>
 
                     <div className="mb-6 border-y border-border/60 py-4">
-                      <p className="text-2xl font-bold tracking-tight text-foreground tabular-nums">{isGolCard ? packPriceText : tier.key === 'pro' && billingLive ? priceText : tier.priceLine}</p>
+                      <p className="display text-[40px] leading-none tabular-nums">{isGolCard ? packPriceText : tier.key === 'pro' && billingLive ? priceText : tier.priceLine}</p>
                       {isGolCard ? (
                         <p className="mt-0.5 text-xs text-muted-foreground">
                           {selectedPack ? `${selectedPack.label} · ${selectedPack.credits} questions` : 'Credit pack'}
