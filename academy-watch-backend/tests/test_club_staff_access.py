@@ -11,8 +11,9 @@ import pytest
 from flask import g
 from src.auth import issue_user_token
 from src.models.club_access import ClubAccessGrant, ClubAccessGrantSquad, ClubStaffInvite
-from src.models.funding import ClubRosterMember, ClubSquad, FundingAdminEvent
+from src.models.funding import ClubRosterMember, ClubSquad
 from src.models.league import UserAccount, db
+from src.models.p2_foundation import AdminActionEvent
 from src.models.video import VideoMatch
 from src.routes.club_access import club_access_bp
 from src.routes.feedback import feedback_bp
@@ -192,7 +193,7 @@ def test_owner_is_admin_only_and_audited(env, client, club_app):
         == 422
     )
     with club_app.app_context():
-        event = FundingAdminEvent.query.filter_by(action="club_access.owner_assigned", target_id=pid).one()
+        event = AdminActionEvent.query.filter_by(action="club_access_owner_assigned", target_id=str(pid)).one()
         assert event.reason == "Verified with the club secretary"
     me = client.get(f"{env['base']}/access/me", headers=_headers("a")).get_json()["access"]
     assert me["role"] == "owner" and "access.manage" in me["capabilities"]

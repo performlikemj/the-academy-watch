@@ -496,6 +496,9 @@ def build_account_export(user: UserAccount) -> dict:
 
     schema = _SchemaView()
     pilot_export = _pilot_export(user, schema)
+    from src.services.foundation_account import export_foundation_rows
+
+    foundation_export = export_foundation_rows(user, schema)
     normalized_email = (user.email or "").strip().lower()
     subscriptions = []
     if normalized_email:
@@ -536,6 +539,7 @@ def build_account_export(user: UserAccount) -> dict:
     club_access = _club_access_export(user)
     return {
         **pilot_export,
+        **foundation_export,
         **({"club_access": club_access} if club_access else {}),
         "exported_at": datetime.now(UTC).isoformat(),
         "account": account,
@@ -1224,6 +1228,11 @@ def delete_account(user: UserAccount) -> AccountDeletionEvent:
     counts["anonymized"]["cached_identity_rows"] = _redact_cached_content_identities(user_id)
 
     schema = _SchemaView()
+    from src.services.foundation_account import erase_foundation_rows
+
+    foundation_counts = erase_foundation_rows(user_id, email, schema)
+    if any(foundation_counts.values()):
+        counts["foundation"] = foundation_counts
     funding_deleted = _delete_optional_funding_rows(schema, user_id)
     counts["deleted"].update(funding_deleted)
     counts["deleted"].update(_erase_club_access_rows(schema, user_id, email))

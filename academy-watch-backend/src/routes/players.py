@@ -375,7 +375,7 @@ def _rollup_clubs(total: PlayerSeasonTotal) -> list[dict]:
 
 
 @players_bp.route("/players/<int(signed=True):player_id>/stats", methods=["GET"])
-@hide_suppressed_player("player_id")
+@hide_suppressed_player("player_id", public_read=True)
 def get_public_player_stats(player_id: int):
     """Get historical stats for a player (public endpoint).
 
@@ -642,7 +642,7 @@ def get_public_player_stats(player_id: int):
 
 
 @players_bp.route("/players/<int(signed=True):player_id>/profile", methods=["GET"])
-@hide_suppressed_player("player_id")
+@hide_suppressed_player("player_id", public_read=True)
 def get_public_player_profile(player_id: int):
     """Get player profile info including name, team, position, photo."""
     external_player = is_external_player_id(player_id)
@@ -865,7 +865,7 @@ def get_public_player_profile(player_id: int):
 
 
 @players_bp.route("/players/<int(signed=True):player_id>/season-stats", methods=["GET"])
-@hide_suppressed_player("player_id")
+@hide_suppressed_player("player_id", public_read=True)
 def get_public_player_season_stats(player_id: int):
     """Get aggregated season stats for a player at their LOAN CLUB only."""
     from src.services.public_data import separated_season_stats
@@ -1305,7 +1305,7 @@ def _degraded_availability_payload(player_id: int, season: int) -> dict:
 
 
 @players_bp.route("/players/<int(signed=True):player_id>/availability", methods=["GET"])
-@hide_suppressed_player("player_id")
+@hide_suppressed_player("player_id", public_read=True)
 def get_player_availability(player_id: int):
     """Get injury/absence history for a player this season.
 
@@ -1403,7 +1403,7 @@ def get_player_availability(player_id: int):
 
 
 @players_bp.route("/players/<int:player_id>/commentaries", methods=["GET"])
-@hide_suppressed_player("player_id")
+@hide_suppressed_player("player_id", public_read=True)
 def get_player_commentaries(player_id: int):
     """Get all commentaries/writeups that mention this player."""
     try:

@@ -1770,7 +1770,15 @@ def _subject_showcase_payload(subject: ShowcaseSubject, *, auth_context=None) ->
     return {"player_api_id": subject.player_api_id, **payload}
 
 
+def _local_player_publication_held(player):
+    from src.services.club_publication_hold import subject_publication_held
+
+    return subject_publication_held(player.api_player_id or -player.id)
+
+
 def _local_player_visible_to_context(player: LocalPlayer, auth_context) -> bool:
+    if _local_player_publication_held(player):
+        return False
     if player.provenance == "club" or _local_player_is_suppressed(player):
         return False
     user = auth_context["user"] if auth_context else None
@@ -1788,7 +1796,9 @@ def get_local_player(lp_id: int):
     """Public local-player identity, with claimant-only pending visibility."""
     try:
         requested = db.session.get(LocalPlayer, lp_id)
-        if requested is not None and _local_player_is_suppressed(requested):
+        if requested is not None and (
+            _local_player_is_suppressed(requested) or _local_player_publication_held(requested)
+        ):
             return jsonify({"error": "local player not found"}), 404
         player, merged_into = _resolved_local_player(lp_id)
         if player is None:
@@ -1813,7 +1823,9 @@ def get_local_player_showcase(lp_id: int):
     """Showcase-only local profile; local subjects never have Film Room evidence."""
     try:
         requested = db.session.get(LocalPlayer, lp_id)
-        if requested is not None and _local_player_is_suppressed(requested):
+        if requested is not None and (
+            _local_player_is_suppressed(requested) or _local_player_publication_held(requested)
+        ):
             return jsonify({"error": "local player not found"}), 404
         player, _ = _resolved_local_player(lp_id)
         if player is None:
@@ -1828,7 +1840,7 @@ def get_local_player_showcase(lp_id: int):
 
 
 @showcase_bp.route("/players/<int(signed=True):player_api_id>/showcase", methods=["GET"])
-@hide_suppressed_player("player_api_id")
+@hide_suppressed_player("player_api_id", public_read=True)
 def get_player_showcase(player_api_id: int):
     """Showcase payload: approved profile + reel + verified footage + claim status.
 

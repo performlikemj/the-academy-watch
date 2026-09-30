@@ -333,7 +333,7 @@ def list_academy_appearances():
 
 
 @academy_bp.route("/players/<int:player_id>/academy-stats", methods=["GET"])
-@hide_suppressed_player("player_id")
+@hide_suppressed_player("player_id", public_read=True)
 def get_player_academy_stats(player_id):
     """Get academy stats for a player (public endpoint).
 

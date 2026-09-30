@@ -491,57 +491,32 @@ def programs_with_capability(user_id, capability) -> list[int]:
 
 
 # ---------------------------------------------------------------------------
-# Audit adapter: A1's record_admin_event when merged, else FundingAdminEvent
+# Audit: A1's admin_action_events via record_admin_event
 # ---------------------------------------------------------------------------
 
 
-def _audit_model():
-    """A1's admin_action_events once p2a1 is merged; FundingAdminEvent (same columns) until then."""
-    try:
-        from src.models.p2_foundation import AdminActionEvent
-
-        return AdminActionEvent
-    except ImportError:
-        from src.models.funding import FundingAdminEvent
-
-        return FundingAdminEvent
-
-
 def audit(action, program_id, *, reason="club staff access", metadata=None, actor_email=None):
-    """Append an access event in the caller's transaction (never commits). Metadata: IDs/role codes only."""
+    """Append an access event via A1's admin audit (caller's transaction; never commits).
+
+    Metadata carries only IDs and role codes (``bounded_meta`` rejects anything else).
+    """
+    from src.services.admin_audit import record_admin_event
+
     actor = (actor_email or getattr(g, "user_email", None) or "system")[:254]
-    try:
-        from src.services.admin_audit import record_admin_event
-    except ImportError:
-        record_admin_event = None
-    if record_admin_event is not None:
-        return record_admin_event(
-            actor, f"club_access.{action}"[:80], "club_program", int(program_id), reason, metadata
-        )
-    model = _audit_model()
-    event = model(
-        actor_email=actor,
-        action=f"club_access.{action}"[:80],
-        target_type="club_program",
-        target_id=int(program_id),
-        reason=reason,
-        event_metadata=metadata or {},
-    )
-    db.session.add(event)
-    return event
+    return record_admin_event(actor, f"club_access_{action}", "club_program", int(program_id), reason, metadata)
 
 
 def recent_activity(program_id, limit=8) -> list[dict]:
     from src.models.league import UserAccount
+    from src.models.p2_foundation import AdminActionEvent
 
-    event_model = _audit_model()
     rows = (
-        event_model.query.filter(
-            event_model.target_type == "club_program",
-            event_model.target_id == program_id,
-            event_model.action.like("club_access.%"),
+        AdminActionEvent.query.filter(
+            AdminActionEvent.target_type == "club_program",
+            AdminActionEvent.target_id == str(program_id),
+            AdminActionEvent.action.like("club_access_%"),
         )
-        .order_by(event_model.created_at.desc(), event_model.id.desc())
+        .order_by(AdminActionEvent.created_at.desc(), AdminActionEvent.id.desc())
         .limit(limit)
         .all()
     )
@@ -551,10 +526,8 @@ def recent_activity(program_id, limit=8) -> list[dict]:
         meta = row.event_metadata or {}
         out.append(
             {
-                "action": row.action.removeprefix("club_access."),
-                "actor": (actor.display_name if actor and actor.display_name else "The Academy Watch")
-                if row.actor_email != "system"
-                else "The Academy Watch",
+                "action": row.action.removeprefix("club_access_"),
+                "actor": actor.display_name if actor and actor.display_name else "The Academy Watch",
                 "role": meta.get("role"),
                 "created_at": row.created_at.isoformat() if row.created_at else None,
             }

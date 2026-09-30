@@ -51,12 +51,12 @@ test('early access sends the selected role and recovers from a server error', as
   await expect(page.getByRole('status')).toContainText("You're on the list.")
 })
 
-test('mobile shell has reachable legacy destinations and closes on navigation', async ({ page }) => {
+test('mobile shell has primary destinations and closes on navigation', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/')
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   await page.getByRole('button', { name: 'Toggle navigation menu' }).click()
-  for (const label of ['Clubs', 'Players', 'Scouts', 'Opportunities', 'Newsletters', 'Journalists', 'Pricing', 'Dream XI', 'Academy tracker']) {
+  for (const label of ['Clubs', 'Players', 'Scouts', 'Opportunities']) {
     await expect(page.getByRole('link', { name: label, exact: true })).toBeVisible()
   }
   await page.getByRole('link', { name: 'Clubs', exact: true }).click()

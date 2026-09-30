@@ -25,7 +25,7 @@ from datetime import UTC, date, datetime
 from sqlalchemy import func
 from src.models.league import db
 from src.models.pulse import PlayerCardCache, PlayerPulse
-from src.services.player_suppression import without_active_suppression
+from src.services.player_suppression import public_player_visible_filter, without_active_suppression
 
 logger = logging.getLogger(__name__)
 
@@ -248,7 +248,7 @@ def latest_card_window() -> date | None:
     window for the digest lookup."""
     return (
         db.session.query(func.max(PlayerCardCache.window_end))
-        .filter(without_active_suppression(PlayerCardCache.player_api_id))
+        .filter(public_player_visible_filter(PlayerCardCache.player_api_id))
         .scalar()
     )
 
@@ -260,7 +260,7 @@ def get_cards_for_window(window_end, player_api_ids=None) -> dict[int, dict]:
     at render time."""
     window_end = _coerce_window_end(window_end)
     query = PlayerCardCache.query.filter_by(window_end=window_end).filter(
-        without_active_suppression(PlayerCardCache.player_api_id)
+        public_player_visible_filter(PlayerCardCache.player_api_id)
     )
     if player_api_ids is not None:
         ids = [int(pid) for pid in player_api_ids]

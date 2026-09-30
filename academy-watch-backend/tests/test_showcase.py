@@ -63,7 +63,8 @@ def app(monkeypatch):
             connection.execute(
                 text(
                     "CREATE TABLE club_programs ("
-                    "id INTEGER PRIMARY KEY, name VARCHAR(180) NOT NULL, contact_email VARCHAR(254))"
+                    "id INTEGER PRIMARY KEY, name VARCHAR(180) NOT NULL, contact_email VARCHAR(254), "
+                    "slug VARCHAR(200), team_api_id INTEGER, emergency_hidden BOOLEAN NOT NULL DEFAULT 0)"
                 )
             )
         db.create_all()
