@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { APIService } from '@/lib/api';
 import { initials } from './presentation';
+import { clubSurfaceColors } from './club-colors';
 const primarySwatches = ['#0F3D2E', '#7A1426', '#0B2A5B', '#1A1A1A', '#B3261E', '#4B2A7B'];
 const accentSwatches = ['#E3B23C', '#F2F2F2', '#7FC8F8', '#F28C28', '#9BE564', '#D4AF7A'];
 export function HomeSettings({
@@ -239,6 +240,7 @@ function Branding({
       <div>
         <h3 className="ch-preview-label">Live preview</h3>
         <div className="ch-brand-preview" style={{
+          ...clubSurfaceColors(colors.primary_color, colors.accent_color),
           '--preview-primary': /^#[0-9a-f]{6}$/i.test(colors.primary_color) ? colors.primary_color : '#0F3D2E',
           '--preview-accent': /^#[0-9a-f]{6}$/i.test(colors.accent_color) ? colors.accent_color : '#E3B23C'
         }}>

@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { PlayerPage } from './PlayerPage';
-import { Network, Users, Film, Send, Settings, ShieldCheck, Plus, LockKeyhole, Search } from 'lucide-react';
+import { Network, Users, Film, Send, Settings, ShieldCheck, Plus, LockKeyhole, Search, CalendarDays, ArrowRight } from 'lucide-react';
+import { ComingSoon } from '@/components/interest/ComingSoon';
 import { APIService } from '@/lib/api';
 import { AddRosterMemberDialog } from '../MyClubConsole';
 import { HomeSettings } from './HomeSettings';
 import { PitchMap, PlayerCard } from './PitchMap';
-import { initials, positionGroup } from './presentation';
+import { initials, positionGroup, countLabel } from './presentation';
+import { clubSurfaceColors } from './club-colors';
 import './club-home.css';
 export function ClubHome({
   program,
@@ -17,7 +19,12 @@ export function ClubHome({
   onProgramChange,
   panels,
   statusContent,
-  moderationCount
+  moderationCount,
+  matches = [],
+  matchesLoading = false,
+  matchesError,
+  rosterLoading = false,
+  rosterError
 }) {
   const [map, setMap] = useState(null);
   const [navigationOpen, setNavigationOpen] = useState(false);
@@ -103,12 +110,18 @@ export function ClubHome({
   const matchesQuery = value => (value || '').toLowerCase().includes(query.toLowerCase());
   const visibleSquads = squads.filter(s => matchesQuery(s.name) || members.some(m => m.squad_id === s.id && matchesQuery(m.display_name)));
   const settingsViews = ['branding', 'squads', 'staff', 'profile', 'affiliations', 'roster'];
-  const rail = [['Club', Network, 'map'], ['Squads', Users, 'squad'], ['Matches', Film, 'matches'], ['Scouts', Send, 'introductions'], ['Settings', Settings, 'branding']];
+  const rail = [['Today', CalendarDays, 'today'], ['Club', Network, 'map'], ['Squads', Users, 'squad'], ['Matches', Film, 'matches'], ['Recruiting', Users, 'recruiting'], ['Scouts', Send, 'introductions'], ['Settings', Settings, 'branding']];
   const activeRail = settingsViews.includes(view) ? 'branding' : view;
   const effectiveMembers = squadMembers.filter(m => m.available && matchesQuery(m.display_name));
+  const tasks = [
+    ...(!rosterLoading && !rosterError && map ? [{ count: map.unassigned_count || 0, title: 'Give every player a squad', detail: 'Players waiting for a place in your club pathway.', target: 'squad', unassigned: true }] : []),
+    ...(!matchesLoading && !matchesError ? [{ count: matches.filter(m => m.status === 'created').length, title: 'Bring the match into Film Room', detail: 'Matches awaiting a footage upload.', target: 'matches' }] : []),
+    { count: moderationCount || 0, title: 'Review club affiliations', detail: 'Players naming your club on their showcase.', target: 'affiliations' },
+  ].filter(task => task.count > 0);
   return <div className="club-home" style={{
     '--club-primary': brand.primary_color,
-    '--club-accent': brand.accent_color
+    '--club-accent': brand.accent_color,
+    ...clubSurfaceColors(brand.primary_color, brand.accent_color)
   }}>
     <nav className="ch-rail" aria-label="Club console">
       <div className="ch-mark">{club.crest_url ? <img src={club.crest_url} alt="" /> : initials(club.name)}</div>
@@ -125,7 +138,7 @@ export function ClubHome({
         <div className="ch-mark">{initials(club.name)}</div>
         <div>
           <strong>{club.name}</strong>
-          <small>{'Verified club · '}{members.length}{' players'}</small>
+          <small>{'Verified club · '}{countLabel(members.length, 'player')}</small>
         </div>
       </div>
       {programOptions.length > 1 && <select aria-label="Switch club program" value={programId} onChange={e => onProgramChange(Number(e.target.value))}>{programOptions.map(p => <option key={p.program.id} value={p.program.id}>{p.program.name}</option>)}</select>}
@@ -134,6 +147,7 @@ export function ClubHome({
         <input aria-label="Search squads and players" placeholder="Find a squad or player…" value={query} onChange={e => setQuery(e.target.value)} />
       </label>
       <div className="ch-eyebrow">Club</div>
+      {rail.filter(([, , target]) => !['map', 'squad'].includes(target)).map(([label, Icon, target]) => <button key={target} className={activeRail === target ? 'active' : ''} aria-current={activeRail === target ? 'page' : undefined} onClick={() => navigate(target)}><Icon size={17} />{label}</button>)}
       <button className={view === 'map' ? 'active' : ''} onClick={() => navigate('map')}>
         <Network size={17} />{' Club map'}</button>
       <button onClick={() => navigate('staff')}>
@@ -167,12 +181,12 @@ export function ClubHome({
         backgroundImage: `linear-gradient(#00000033, #00000033), linear-gradient(color-mix(in srgb, var(--club-primary) 88%, transparent), color-mix(in srgb, var(--club-primary) 88%, transparent)), url("${brand.banner_url}")`
       } : undefined}>
         <div className="ch-crest">{club.crest_url ? <img src={club.crest_url} alt={`${club.name} crest`} /> : initials(club.name)}</div>
-        <div>
+        <div className="ch-banner-title">
           <div className="ch-verified">
             <ShieldCheck size={15} />{' YOUR CLUB HOME'}</div>
           <h1>{club.name}</h1>
           <p>
-            {squads.length}{' squads · '}{members.length}{' players · One club'}</p>
+            {countLabel(squads.length, 'squad')}{' · '}{countLabel(members.length, 'player')}{' · One club'}</p>
         </div>
         <button className="ch-banner-edit" onClick={() => navigate('branding')}>Edit branding</button>
       </header>}
@@ -180,6 +194,17 @@ export function ClubHome({
       {view === 'player' && <PlayerPage key={`${programId}:${playerId}`} program={club} memberId={playerId} squads={squads} members={members} onReload={onReload} onAccessDenied={onAccessDenied} onClub={() => navigate('map')} onSquad={openSquad} onScouts={() => navigate('introductions')} />}
       <div className="ch-content">
         {error && <p className="ch-error" role="alert">{error}</p>}
+        {view === 'today' && <>
+          <div className="ch-heading"><div><p className="eyebrow">Your private workspace</p><h2>The club, today.</h2><p>A little attention. A stronger pathway.</p></div></div>
+          <div className="ch-today-grid">
+            <section aria-labelledby="ch-today-tasks"><div className="ch-section-heading"><h2 id="ch-today-tasks">Needs you today</h2><small>{tasks.length} {tasks.length === 1 ? 'thing' : 'things'}</small></div>
+              {tasks.map(task => <button key={task.target} className="ch-task rule-row" onClick={() => { if (task.unassigned) setFocus('none'); navigate(task.target); }}><span className="ch-task-number">{task.count}</span><span><strong>{task.title}</strong><small>{task.detail}</small></span><ArrowRight size={19} /></button>)}
+              {tasks.length === 0 && <p className="ch-player-empty">{matchesError || rosterError || error ? 'Some club information could not be checked. Open the relevant section to retry.' : matchesLoading || rosterLoading || !map ? 'Checking your club workspace…' : 'Nothing in the loaded club information needs your attention. Your squads and Film Room are ready when you are.'}</p>}
+            </section>
+            <aside><p className="eyebrow">Your club</p><div className="ch-today-stats"><span>{members.length}<small>{members.length === 1 ? 'Player' : 'Players'}</small></span><span>{squads.length}<small>{squads.length === 1 ? 'Squad' : 'Squads'}</small></span></div><p className="ch-privacy"><LockKeyhole size={17} />Player identities and footage stay within their existing privacy rules.</p><button className="ch-btn dark" onClick={() => navigate('map')}>Open club map <ArrowRight size={16} /></button></aside>
+          </div>
+        </>}
+        {view === 'recruiting' && <ComingSoon feature="recruiting" role="club" image="/media/club-match.webp" title="The next player. The right place." lede="Trials and applications will have a home here. Join the list to hear when recruiting opens." bullets={['Share the opportunities your club is ready to offer.', 'Keep applications and next steps together.', 'Build a clearer path into your squads.']} />}
         {view === 'map' && <>
           <div className="ch-heading">
             <div>
@@ -203,7 +228,7 @@ export function ClubHome({
               <div>
                 <h2>{squad?.name || 'Unassigned'}</h2>
                 <p>
-                  {squadMembers.length}{' players'}{lead ? ` · ${lead.display_name}, ${lead.title}` : ''}
+                  {countLabel(squadMembers.length, 'player')}{lead ? ` · ${lead.display_name}, ${lead.title}` : ''}
                 </p>
               </div>
               <button className="ch-btn accent" onClick={() => setAddOpen(true)}>

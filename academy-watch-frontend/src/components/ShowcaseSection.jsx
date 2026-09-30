@@ -1,3 +1,5 @@
+import '@/styles/floodlight-player.css'
+import { PlayerApplicationsTeaser } from '@/components/showcase/PlayerApplicationsTeaser'
 import { ShowcasePhoto } from '@/components/ShowcasePhoto'
 import { useDataMode } from '@/hooks/useDataMode'
 import PlayerFeedbackInbox from '@/components/showcase/PlayerFeedbackInbox'
@@ -394,7 +396,7 @@ export function ClaimantClubRelationships({ signedId, token, local, profile, onC
 
   if (disabled) return null
   const accepted = rows.filter((row) => row.status === 'accepted')
-  return <section aria-label="Club invitations" className="space-y-4 rounded-lg border border-border bg-card p-4 sm:p-6">
+  return <section aria-label="Club invitations" className="fl-player-invitations space-y-5">
     <div className="space-y-2"><h3 className="font-semibold">Club invitations</h3><p className="text-sm text-muted-foreground">Accepting adds you to this club’s private roster. Contract status and introductions require separate choices.</p></div>
     {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
     {notice && <p role="status" className="text-sm">{notice}</p>}
@@ -1715,12 +1717,12 @@ export function ShowcaseSection({
     && clubResultCount === 0
 
   return (
-    <Card>
+    <Card className={isOwner ? 'fl-owner-showcase' : undefined}>
       <CardContent className="space-y-8 py-6">
         {/* Header */}
         <SectionHeader
           icon={Sparkles}
-          eyebrow="Showcase"
+          eyebrow={isOwner ? 'Your player home' : 'Showcase'}
           title={`${playerName || 'Player'} — Showcase`}
           action={
             isOwner ? (
@@ -2357,6 +2359,7 @@ export function ShowcaseSection({
         profile={profile}
         onChanged={refresh}
       />}
+      {isOwner && myClaim?.relationship_type === 'player' && token && <PlayerApplicationsTeaser />}
 
       <Dialog open={!local && claimOpen} onOpenChange={setClaimOpen}>
         <DialogContent>
