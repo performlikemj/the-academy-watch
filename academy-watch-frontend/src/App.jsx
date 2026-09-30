@@ -32,12 +32,10 @@ import {
   TrendingUp,
   Globe,
   ListChecks,
-  Star,
   ArrowLeft,
   ArrowRight,
   CheckCircle,
   AlertCircle,
-  Home,
   UserPlus,
   FileText,
   Settings,
@@ -91,7 +89,7 @@ import { HomePage } from '@/pages/HomePage'
 import { ClubsNearYouTeaser } from '@/pages/teasers/ClubsNearYouTeaser'
 import { OpportunitiesTeaser } from '@/pages/teasers/OpportunitiesTeaser'
 import { AdminInterest } from '@/pages/admin/AdminInterest'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { PublicFormationBuilder } from '@/pages/PublicFormationBuilder'
 import { CohortBrowser } from '@/pages/CohortBrowser'
 import { ScoutPage } from '@/pages/ScoutPage'
@@ -195,6 +193,7 @@ const LEGAL_FOOTER_LINKS = [
   { to: '/privacy', label: 'Privacy' },
   { to: '/community-rules', label: 'Community Rules' },
   { to: '/support', label: 'Support' },
+  { to: '/pricing', label: 'Pricing' },
 ]
 
 const PLAYER_ONBOARDING_PROMPT_KEY = 'academyWatch.playerOnboardingPromptDismissed.v1'
@@ -552,41 +551,27 @@ function Navigation() {
 
   const adminUnlocked = !!token && isAdmin && hasApiKey
 
-  const navItems = useMemo(() => {
+  const primaryItems = [
+    { path: '/clubs', label: 'Clubs', icon: Users },
+    { path: '/onboarding/player', label: 'Players', icon: UserPlus },
+    { path: '/scout', label: 'Scouts', icon: Globe },
+    { path: '/opportunities', label: 'Opportunities', icon: ArrowRight },
+  ]
+  const accountItems = useMemo(() => {
     const items = [
-      { path: '/', label: 'Home', icon: Home },
-      { path: '/clubs', label: 'Clubs', icon: Users },
-      { path: '/onboarding/player', label: 'Players', icon: UserPlus },
-      { path: '/scout', label: 'Scouts', icon: Globe },
-      { path: '/opportunities', label: 'Opportunities', icon: ArrowRight },
       { path: '/my-club', label: 'My club', icon: Users },
-      { path: '/dream-team', label: 'Dream XI', icon: Trophy },
-      { path: '/academy', label: 'Academy tracker', icon: Star },
-      { path: '/teams', label: 'Teams', icon: Users },
-      // Dream XI demoted from top-level nav (2026-07-02, MJ) — the page stays
-      // at /dream-team and is featured on the Home grid.
-      { path: '/newsletters', label: 'Newsletters', icon: FileText },
-      { path: '/journalists', label: 'Journalists', icon: UserPlus },
-      { path: '/pricing', label: 'Pricing', icon: CreditCard },
+      { path: '/scout/lists', label: 'Lists', icon: ListChecks },
     ]
-    if (isJournalist) {
-      items.push({ path: '/writer/dashboard', label: 'Writer Dashboard', icon: FileText })
-    }
-    if (isCurator) {
-      items.push({ path: '/curator/dashboard', label: 'Curator', icon: FileText })
-    }
-    if (token) {
-      // The retention surface: logged-in scouts jump straight to their lists.
-      items.push({ path: '/scout/lists', label: 'Lists', icon: ListChecks })
-      if (contactRail === true) items.push({ path: '/introductions', label: 'Introductions', icon: Send })
-      items.push({ path: '/settings', label: 'Settings', icon: UserCog })
-      items.push({ path: '/account/billing', label: 'Billing', icon: CreditCard })
-    }
-    if (adminUnlocked) {
-      items.push({ path: '/admin', label: 'Admin', icon: Settings })
-    }
+    if (contactRail === true) items.push({ path: '/introductions', label: 'Introductions', icon: Send })
+    items.push(
+      { path: '/settings', label: 'Settings', icon: UserCog },
+      { path: '/account/billing', label: 'Billing', icon: CreditCard },
+    )
+    if (isJournalist) items.push({ path: '/writer/dashboard', label: 'Writer dashboard', icon: FileText })
+    if (isCurator) items.push({ path: '/curator/dashboard', label: 'Curator', icon: FileText })
+    if (adminUnlocked) items.push({ path: '/admin', label: 'Admin', icon: Settings })
     return items
-  }, [adminUnlocked, contactRail, isJournalist, isCurator, token])
+  }, [adminUnlocked, contactRail, isJournalist, isCurator])
 
   const linkClasses = (isActive) => (
     `inline-flex items-center gap-2 rounded-full px-3 py-2 text-sm font-medium transition-colors sm:px-3 whitespace-nowrap no-underline hover:no-underline ` +
@@ -596,8 +581,7 @@ function Navigation() {
     )
   )
 
-  const primaryPaths = ['/clubs', '/onboarding/player', '/scout']
-  const renderNavLinks = (variant, items = navItems) => items.map((item) => {
+  const renderNavLinks = (variant, items) => items.map((item) => {
     const { path, label, icon } = item
     const Icon = icon
     const isActive = location.pathname === path
@@ -647,10 +631,11 @@ function Navigation() {
                 <DrawerDescription>Find your side of the touchline.</DrawerDescription>
               </DrawerHeader>
               <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-4">
+                {renderNavLinks('mobile', primaryItems)}
                 <Button variant="ghost" className="justify-start" onClick={() => { setDrawerOpen(false); openSearch() }}>
                   <Search /> Search
                 </Button>
-                {renderNavLinks('mobile')}
+                {token && <div className="mt-2 flex flex-col gap-1 border-t pt-2">{renderNavLinks('mobile', accountItems)}</div>}
                 {!token && <Button asChild><Link to="/#early-access" onClick={() => setDrawerOpen(false)}>Get early access</Link></Button>}
               </div>
               <DrawerFooter className="shrink-0"><AuthControls isMobile onNavigate={() => setDrawerOpen(false)} /></DrawerFooter>
@@ -658,17 +643,11 @@ function Navigation() {
           </Drawer>
         ) : (
           <div className="flex min-w-0 flex-1 items-center justify-end gap-2 xl:gap-4">
-            {renderNavLinks('desktop', navItems.filter((item) => primaryPaths.includes(item.path)))}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild><Button variant="ghost" size="sm">More <ChevronDown /></Button></DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onSelect={openSearch}><Search className="h-4 w-4" /> Search</DropdownMenuItem>
-                {navItems.filter((item) => !primaryPaths.includes(item.path)).map((item) => (
-                  <DropdownMenuItem key={item.path} asChild><Link to={item.path}>{item.label}</Link></DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-            <AuthControls />
+            {renderNavLinks('desktop', primaryItems)}
+            <Button variant="ghost" size="icon" aria-label="Search" onClick={openSearch} className="shrink-0">
+              <Search className="h-5 w-5" />
+            </Button>
+            <AuthControls accountItems={accountItems} />
             {!token && <Button asChild><Link to="/#early-access">Get early access</Link></Button>}
           </div>
         )}
@@ -677,7 +656,7 @@ function Navigation() {
   )
 }
 
-function AuthControls({ isMobile = false, onNavigate }) {
+function AuthControls({ isMobile = false, onNavigate, accountItems = [] }) {
   const { token, displayName, isAdmin, hasApiKey } = useAuth()
   const { openLoginModal, logout } = useAuthUI()
 
@@ -738,12 +717,29 @@ function AuthControls({ isMobile = false, onNavigate }) {
         <span className="sr-only">Admin access requires API key</span>
       )}
       <div className="flex min-w-0 items-center gap-2 text-sm">
-        <span
-          className="min-w-0 max-w-[180px] truncate font-semibold text-foreground"
-          title={displayName || 'Signed in'}
-        >
-          {displayName || 'Signed in'}
-        </span>
+        {isMobile ? (
+          <span className="min-w-0 max-w-[180px] truncate font-semibold text-foreground" title={displayName || 'Signed in'}>
+            {displayName || 'Signed in'}
+          </span>
+        ) : (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="sm" className="min-w-0" title={displayName || 'Signed in'}>
+                <span className="min-w-0 max-w-[180px] truncate font-semibold">{displayName || 'Signed in'}</span>
+                <ChevronDown className="h-4 w-4 shrink-0" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-52">
+              {accountItems.map(({ path, label, icon: Icon }) => (
+                <DropdownMenuItem key={path} asChild>
+                  <Link to={path}><Icon className="h-4 w-4" />{label}</Link>
+                </DropdownMenuItem>
+              ))}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={logout}><LogOut className="h-4 w-4" />Log out</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
         {isAdmin ? (
           adminUnlocked ? (
             <Badge variant="default" className="bg-emerald-100 text-emerald-700 border-emerald-200">
@@ -857,10 +853,10 @@ function AuthControls({ isMobile = false, onNavigate }) {
             </Popover>
           )
         ) : (
-          <Badge variant="secondary">Go On Member</Badge>
+          isMobile && <Badge variant="secondary">Go On Member</Badge>
         )}
       </div>
-      <div className={isMobile ? 'flex flex-col gap-2' : 'flex shrink-0 items-center gap-2'}>
+      {isMobile && <div className="flex flex-col gap-2">
         <Button
           size="sm"
           variant="ghost"
@@ -869,9 +865,9 @@ function AuthControls({ isMobile = false, onNavigate }) {
             onNavigate?.()
           }}
         >
-          <LogOut className="mr-1 h-4 w-4" /> Log Out
+          <LogOut className="mr-1 h-4 w-4" /> Log out
         </Button>
-      </div>
+      </div>}
     </div>
   )
 }
