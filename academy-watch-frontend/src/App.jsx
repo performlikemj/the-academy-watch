@@ -629,7 +629,7 @@ function Navigation() {
 
   return (
     <nav aria-label="Main navigation" className="border-b bg-background text-foreground">
-      <div className="floodlight-container flex min-h-20 flex-wrap items-center justify-between gap-4 py-3">
+      <div className="floodlight-container flex min-h-20 flex-wrap items-center justify-between gap-4 py-3 lg:flex-nowrap">
         <Link to="/" className="flex shrink-0 items-center gap-3">
           <img src={BRAND_LOGO_SRC} alt="The Academy Watch logo" className="h-9 w-9 rounded-lg" />
           <span className="text-base font-semibold tracking-tight sm:text-lg">The Academy Watch</span>
@@ -641,23 +641,23 @@ function Navigation() {
                 <ListChecks className="h-5 w-5" />
               </Button>
             </DrawerTrigger>
-            <DrawerContent className="max-h-[90dvh] overflow-y-auto pb-6">
-              <DrawerHeader>
+            <DrawerContent className="h-[90dvh] overflow-hidden pb-[calc(1rem+env(safe-area-inset-bottom))] data-[vaul-drawer-direction=bottom]:max-h-[90dvh]">
+              <DrawerHeader className="shrink-0">
                 <DrawerTitle>The Academy Watch</DrawerTitle>
                 <DrawerDescription>Find your side of the touchline.</DrawerDescription>
               </DrawerHeader>
-              <div className="flex flex-col gap-1 px-4">
+              <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-4">
                 <Button variant="ghost" className="justify-start" onClick={() => { setDrawerOpen(false); openSearch() }}>
                   <Search /> Search
                 </Button>
                 {renderNavLinks('mobile')}
-                <Button asChild><Link to="/#early-access" onClick={() => setDrawerOpen(false)}>Get early access</Link></Button>
+                {!token && <Button asChild><Link to="/#early-access" onClick={() => setDrawerOpen(false)}>Get early access</Link></Button>}
               </div>
-              <DrawerFooter><AuthControls isMobile onNavigate={() => setDrawerOpen(false)} /></DrawerFooter>
+              <DrawerFooter className="shrink-0"><AuthControls isMobile onNavigate={() => setDrawerOpen(false)} /></DrawerFooter>
             </DrawerContent>
           </Drawer>
         ) : (
-          <div className="flex items-center gap-2 xl:gap-4">
+          <div className="flex min-w-0 flex-1 items-center justify-end gap-2 xl:gap-4">
             {renderNavLinks('desktop', navItems.filter((item) => primaryPaths.includes(item.path)))}
             <DropdownMenu>
               <DropdownMenuTrigger asChild><Button variant="ghost" size="sm">More <ChevronDown /></Button></DropdownMenuTrigger>
@@ -669,7 +669,7 @@ function Navigation() {
               </DropdownMenuContent>
             </DropdownMenu>
             <AuthControls />
-            <Button asChild><Link to="/#early-access">Get early access</Link></Button>
+            {!token && <Button asChild><Link to="/#early-access">Get early access</Link></Button>}
           </div>
         )}
       </div>
@@ -733,13 +733,13 @@ function AuthControls({ isMobile = false, onNavigate }) {
   }
 
   return (
-    <div className={isMobile ? 'flex flex-col gap-3' : 'flex items-center gap-4 min-w-0 max-w-xs'}>
+    <div className={isMobile ? 'flex flex-col gap-3' : 'flex min-w-0 items-center gap-3'}>
       {isAdmin && !adminUnlocked && (
         <span className="sr-only">Admin access requires API key</span>
       )}
-      <div className="flex items-center gap-2 text-sm">
+      <div className="flex min-w-0 items-center gap-2 text-sm">
         <span
-          className="max-w-[140px] truncate font-semibold text-foreground sm:max-w-[200px]"
+          className="min-w-0 max-w-[180px] truncate font-semibold text-foreground"
           title={displayName || 'Signed in'}
         >
           {displayName || 'Signed in'}
@@ -860,7 +860,7 @@ function AuthControls({ isMobile = false, onNavigate }) {
           <Badge variant="secondary">Go On Member</Badge>
         )}
       </div>
-      <div className={isMobile ? 'flex flex-col gap-2' : 'flex items-center gap-2'}>
+      <div className={isMobile ? 'flex flex-col gap-2' : 'flex shrink-0 items-center gap-2'}>
         <Button
           size="sm"
           variant="ghost"

@@ -7,7 +7,8 @@ import { APIService } from '@/lib/api';
 import { AddRosterMemberDialog } from '../MyClubConsole';
 import { HomeSettings } from './HomeSettings';
 import { PitchMap, PlayerCard } from './PitchMap';
-import { initials, positionGroup } from './presentation';
+import { initials, positionGroup, countLabel } from './presentation';
+import { clubSurfaceColors } from './club-colors';
 import './club-home.css';
 export function ClubHome({
   program,
@@ -119,7 +120,8 @@ export function ClubHome({
   ].filter(task => task.count > 0);
   return <div className="club-home" style={{
     '--club-primary': brand.primary_color,
-    '--club-accent': brand.accent_color
+    '--club-accent': brand.accent_color,
+    ...clubSurfaceColors(brand.primary_color, brand.accent_color)
   }}>
     <nav className="ch-rail" aria-label="Club console">
       <div className="ch-mark">{club.crest_url ? <img src={club.crest_url} alt="" /> : initials(club.name)}</div>
@@ -136,7 +138,7 @@ export function ClubHome({
         <div className="ch-mark">{initials(club.name)}</div>
         <div>
           <strong>{club.name}</strong>
-          <small>{'Verified club · '}{members.length}{' players'}</small>
+          <small>{'Verified club · '}{countLabel(members.length, 'player')}</small>
         </div>
       </div>
       {programOptions.length > 1 && <select aria-label="Switch club program" value={programId} onChange={e => onProgramChange(Number(e.target.value))}>{programOptions.map(p => <option key={p.program.id} value={p.program.id}>{p.program.name}</option>)}</select>}
@@ -179,12 +181,12 @@ export function ClubHome({
         backgroundImage: `linear-gradient(#00000033, #00000033), linear-gradient(color-mix(in srgb, var(--club-primary) 88%, transparent), color-mix(in srgb, var(--club-primary) 88%, transparent)), url("${brand.banner_url}")`
       } : undefined}>
         <div className="ch-crest">{club.crest_url ? <img src={club.crest_url} alt={`${club.name} crest`} /> : initials(club.name)}</div>
-        <div>
+        <div className="ch-banner-title">
           <div className="ch-verified">
             <ShieldCheck size={15} />{' YOUR CLUB HOME'}</div>
           <h1>{club.name}</h1>
           <p>
-            {squads.length}{' squads · '}{members.length}{' players · One club'}</p>
+            {countLabel(squads.length, 'squad')}{' · '}{countLabel(members.length, 'player')}{' · One club'}</p>
         </div>
         <button className="ch-banner-edit" onClick={() => navigate('branding')}>Edit branding</button>
       </header>}
@@ -199,7 +201,7 @@ export function ClubHome({
               {tasks.map(task => <button key={task.target} className="ch-task rule-row" onClick={() => { if (task.unassigned) setFocus('none'); navigate(task.target); }}><span className="ch-task-number">{task.count}</span><span><strong>{task.title}</strong><small>{task.detail}</small></span><ArrowRight size={19} /></button>)}
               {tasks.length === 0 && <p className="ch-player-empty">{matchesError || rosterError || error ? 'Some club information could not be checked. Open the relevant section to retry.' : matchesLoading || rosterLoading || !map ? 'Checking your club workspace…' : 'Nothing in the loaded club information needs your attention. Your squads and Film Room are ready when you are.'}</p>}
             </section>
-            <aside><p className="eyebrow">Your club</p><div className="ch-today-stats"><span>{members.length}<small>Players</small></span><span>{squads.length}<small>Squads</small></span></div><p className="ch-privacy"><LockKeyhole size={17} />Player identities and footage stay within their existing privacy rules.</p><button className="ch-btn dark" onClick={() => navigate('map')}>Open club map <ArrowRight size={16} /></button></aside>
+            <aside><p className="eyebrow">Your club</p><div className="ch-today-stats"><span>{members.length}<small>{members.length === 1 ? 'Player' : 'Players'}</small></span><span>{squads.length}<small>{squads.length === 1 ? 'Squad' : 'Squads'}</small></span></div><p className="ch-privacy"><LockKeyhole size={17} />Player identities and footage stay within their existing privacy rules.</p><button className="ch-btn dark" onClick={() => navigate('map')}>Open club map <ArrowRight size={16} /></button></aside>
           </div>
         </>}
         {view === 'recruiting' && <ComingSoon feature="recruiting" role="club" image="/media/club-match.webp" title="The next player. The right place." lede="Trials and applications will have a home here. Join the list to hear when recruiting opens." bullets={['Share the opportunities your club is ready to offer.', 'Keep applications and next steps together.', 'Build a clearer path into your squads.']} />}
@@ -226,7 +228,7 @@ export function ClubHome({
               <div>
                 <h2>{squad?.name || 'Unassigned'}</h2>
                 <p>
-                  {squadMembers.length}{' players'}{lead ? ` · ${lead.display_name}, ${lead.title}` : ''}
+                  {countLabel(squadMembers.length, 'player')}{lead ? ` · ${lead.display_name}, ${lead.title}` : ''}
                 </p>
               </div>
               <button className="ch-btn accent" onClick={() => setAddOpen(true)}>

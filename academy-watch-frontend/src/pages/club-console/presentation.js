@@ -12,3 +12,5 @@ export function ageDescription(member) {
   const age = member.age ?? member.age_label
   return age == null ? null : `Age ${age}`
 }
+
+export const countLabel = (count, noun) => `${count} ${noun}${Number(count) === 1 ? '' : 's'}`

@@ -1421,3 +1421,62 @@
   color: var(--color-chalk); border-color: var(--color-hairline-dark); background: transparent;
 }
 .club-home section[aria-labelledby="player-reels-heading"] .bg-slate-950 { background: var(--color-night); }
+
+/* Saved club colours are validated against white; use measured foregrounds. */
+.ch-rail, .ch-sidebar, .ch-banner, .ch-player-hero, .ch-squad-header,
+.ch-pitch, .ch-node, .ch-avatar { color: var(--club-foreground); }
+.ch-club-id small, .ch-sidebar button small, .ch-sidebar-foot, .ch-count,
+.ch-sidebar .ch-eyebrow, .ch-search, .ch-search input, .ch-search input::placeholder,
+.ch-banner p, .ch-verified, .ch-player-identity p, .ch-breadcrumb,
+.ch-squad-header > p, .ch-squad-header .ch-heading p,
+.ch-pitch-label, .ch-pitch-note, .ch-pitch-empty p, .ch-node small, .ch-no-lead {
+  color: var(--club-foreground); opacity: 1;
+}
+.ch-sidebar > button:hover, .ch-sidebar > button.active,
+.ch-rail > button:hover, .ch-rail > button[aria-current],
+.ch-node .ch-avatar, .ch-chips > button, .ch-chips > button[aria-pressed=true],
+.ch-player-chips span { background: var(--club-active); }
+.ch-node.squad.chosen { background: var(--club-active); }
+.ch-node-icon, .ch-chips .ch-open-squad, .ch-player-identity h1 span,
+.ch-empty-symbol { color: var(--club-emphasis); }
+.ch-sidebar button:focus-visible, .ch-sidebar input:focus-visible,
+.ch-rail button:focus-visible, .ch-banner button:focus-visible,
+.ch-player-hero button:focus-visible, .ch-player-hero a:focus-visible,
+.ch-squad-header button:focus-visible, .ch-pitch button:focus-visible,
+.ch-tree-scroll:focus-visible { outline-color: var(--club-focus); }
+.ch-tree-scroll:focus-visible { outline-offset: -3px; }
+.ch-pills button[aria-pressed=true]:focus-visible { outline-color: var(--club-focus); outline-offset: -3px; }
+.ch-pitch::before, .ch-pitch::after { content: none; }
+.ch-player-hero { background-image: none; }
+.ch-tree ul { padding-top: 32px; }
+.ch-tree > ul { padding-top: 0; }
+.ch-tree ul ul::before { height: 16px; }
+.ch-tree li::before {
+  display: block; top: -16px; left: 0; right: auto; width: 100%; height: 0;
+  border: 0; border-top: 1px solid var(--color-hairline-dark);
+}
+.ch-tree li::after {
+  display: block; top: -16px; left: 50%; width: 0; height: 16px;
+  border: 0; border-left: 1px solid var(--color-hairline-dark);
+}
+.ch-tree li:first-child::before { display: block; left: 50%; width: 50%; }
+.ch-tree li:last-child::before { left: 0; width: 50%; }
+.ch-tree li:last-child::after { display: block; }
+.ch-tree li:only-child::before, .ch-tree > ul > li::before,
+.ch-tree > ul > li:only-child::after { display: none; }
+.ch-banner-title, .ch-heading > div { min-width: 0; }
+.ch-banner-title h1, .ch-heading h2, .ch-preview-banner h2 { overflow-wrap: anywhere; }
+.ch-banner-title { flex: 1; }
+.ch-preview-banner, .ch-preview-node, .preview-primary { color: var(--club-foreground); }
+.ch-preview-banner p, .ch-preview-node p { color: var(--club-foreground); opacity: 1; }
+.ch-preview-banner > div { min-width: 0; }
+
+.ch-pills button[aria-pressed=true], .ch-btn.outline { color: var(--club-foreground); }
+.ch-node.squad { background: var(--club-primary); }
+.ch-node.squad.chosen { background: var(--club-active); }
+.ch-preview-node { background: var(--preview-primary); }
+.ch-breadcrumb button { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+
+.club-home button:disabled { opacity: 1; cursor: not-allowed; }
+.ch-tree li::before, .ch-tree li::after, .ch-tree ul ul::before,
+.ch-vacant-connector { border-color: color-mix(in srgb, var(--club-foreground) 75%, var(--club-primary)); }

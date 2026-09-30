@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { LockKeyhole, Users, Plus, ArrowUpRight } from 'lucide-react';
-import { initials, ageDescription } from './presentation';
+import { initials, ageDescription, countLabel } from './presentation';
 import { PlayerAvatar } from './PlayerAvatar';
 export function PitchMap({
   program,
@@ -28,13 +28,13 @@ export function PitchMap({
     ? <li className="ch-vacant-level"><span className="ch-vacant-connector" aria-hidden="true" /><ul>{unledBranch(level - 1)}</ul></li>
     : <li><div className="ch-node ch-no-lead"><Users size={18} /><strong>No lead yet</strong></div><ul>{unled.map(squadNode)}</ul></li>;
   const squadNode = s => <li key={`s${s.id}`}>
-    <button className={`ch-node squad ${focus === s.id ? 'chosen' : ''}`} onClick={() => onFocus(s.id)} aria-label={`Focus ${s.name}, ${s.member_count} players`}>
+    <button className={`ch-node squad ${focus === s.id ? 'chosen' : ''}`} onClick={() => onFocus(s.id)} aria-label={`Focus ${s.name}, ${countLabel(s.member_count, 'player')}`}>
       <span className="ch-node-icon">
         <Users size={18} />
       </span>
       <strong>{s.name}</strong>
       <small>
-        {s.member_count}{' players'}</small>
+        {countLabel(s.member_count, 'player')}</small>
     </button>
     {focus === s.id && <div className="ch-chips">
       {loading ? <span>Loading…</span> : members.slice(0, 4).map(m => <button key={m.id} aria-pressed={selected?.id === m.id} onClick={() => onSelect(m)}>

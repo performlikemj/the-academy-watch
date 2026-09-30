@@ -55,6 +55,7 @@ async function installApi(page, handler, { signedIn = false, account = ACCOUNT }
     const url = new URL(request.url())
     if (handler && await handler({ route, request, url })) return
     if (url.pathname === '/api/auth/me' && signedIn) return route.fulfill({ json: account })
+    if (url.pathname === '/api/club/7/map') return route.fulfill({ json: { program: { id: 7, name: 'Northbank Juniors' }, squads: [], staff: [], unassigned_count: 0 } })
     if (url.pathname === '/api/billing/config' && signedIn) return route.fulfill({ json: GOL_CONFIG })
     if (url.pathname === '/api/features') return route.fulfill({ json: { contact_rail: false } })
     if (url.pathname === '/api/sync-status') return route.fulfill({ json: { running: false } })
@@ -434,8 +435,7 @@ test('club console saves the moderated profile payload and submits an update', a
     return false
   }, { signedIn: true })
 
-  await page.goto('/my-club')
-  await page.getByRole('tab', { name: 'Club profile' }).click()
+  await page.goto('/my-club?view=profile')
   const summary = page.getByLabel('Summary')
   await expect.poll(() => profileGets).toBe(1)
   await expect(page.getByLabel('External support URL')).toHaveValue('https://patreon.com/northbankjuniors')
@@ -478,8 +478,7 @@ test('club profile falls back to the former read-only record when either editing
     return false
   }, { signedIn: true })
 
-  await page.goto('/my-club')
-  await page.getByRole('tab', { name: 'Club profile' }).click()
+  await page.goto('/my-club?view=profile')
   await expect(page.getByText('Read-only verified program record', { exact: true })).toBeVisible()
   await expect(page.getByText('Northern Youth League', { exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Save for review' })).toHaveCount(0)
@@ -509,8 +508,7 @@ test('club profile blocks mutations after a failed load and retries both request
     return false
   }, { signedIn: true })
 
-  await page.goto('/my-club')
-  await page.getByRole('tab', { name: 'Club profile' }).click()
+  await page.goto('/my-club?view=profile')
   await expect(page.getByText("Club profile couldn't be loaded.", { exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Save for review' })).toHaveCount(0)
   await page.getByRole('button', { name: 'Retry' }).click()
