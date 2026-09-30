@@ -45,6 +45,7 @@ import {
     ShieldCheck,
     X,
 } from 'lucide-react'
+import { AdminPageHeader } from '@/components/admin/ControlRoom'
 
 const STATUS_COLORS = {
     pending: 'bg-amber-50 text-amber-800 border-amber-200',
@@ -720,15 +721,12 @@ export function AdminTrust() {
 
     return (
         <div className="space-y-6">
-            <div className="flex items-center gap-3">
-                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10">
-                    <ShieldCheck className="h-5 w-5 text-primary" />
-                </div>
-                <div>
-                    <h2 className="text-3xl font-bold tracking-tight">Trust Desk</h2>
-                    <p className="text-muted-foreground">Identity review, content safety and contact-route oversight</p>
-                </div>
-            </div>
+            <AdminPageHeader
+                eyebrow={<span className="inline-flex items-center gap-2"><ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />Review · Trust &amp; safety</span>}
+                title="Trust"
+                accent="Desk"
+                lede="Identity review, content safety and contact-route oversight"
+            />
 
             {message ? (
                 <Alert className={message.type === 'error' ? 'border-rose-500 bg-rose-50' : 'border-emerald-500 bg-emerald-50'}>

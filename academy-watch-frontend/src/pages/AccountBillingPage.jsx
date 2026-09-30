@@ -230,9 +230,9 @@ export function AccountBillingPage() {
   const gol = state.billing?.gol
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-secondary to-background">
-      <main className="mx-auto max-w-4xl space-y-6 px-4 py-10 sm:px-6">
-        <header><p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">Account</p><h1 className="mt-2 text-3xl font-bold tracking-tight">Billing</h1><p className="mt-2 text-muted-foreground">Your purchases, credits, and subscription details.</p></header>
+    <div className="min-h-screen bg-background">
+      <main className="mx-auto max-w-4xl space-y-10 px-4 py-12 sm:px-6 sm:py-16">
+        <header><p className="eyebrow text-gold-text">Account</p><h1 className="display mt-3 text-5xl sm:text-6xl">Billing</h1><p className="mt-3 text-[15px] text-muted-foreground">Your purchases, credits, and subscription details.</p></header>
 
         {visibleCheckoutNotice?.type === 'waiting' ? <div role="status" className="flex items-center gap-3 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sky-950"><Loader2 className="h-5 w-5 animate-spin" />Confirming your GOL credits…</div> : null}
         {visibleCheckoutNotice?.type === 'added' ? <div role="status" className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-emerald-950"><CheckCircle2 className="h-5 w-5" />Added {visibleCheckoutNotice.credits} credits</div> : null}
@@ -242,23 +242,21 @@ export function AccountBillingPage() {
 
         {showGol ? (
           <section className="space-y-3" aria-labelledby="gol-credits-heading">
-            <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="flex flex-wrap items-end justify-between gap-4 border-b border-ink pb-3">
               <div>
-                <h2 id="gol-credits-heading" className="flex items-center gap-2 text-xl font-bold"><Coins className="h-5 w-5 text-primary" />GOL credits</h2>
+                <h2 id="gol-credits-heading" className="display flex items-center gap-2 text-[2.25rem] leading-none"><Coins className="h-5 w-5 text-gold-text" aria-hidden="true" />GOL credits</h2>
                 <p className="mt-1 text-sm text-muted-foreground">Free questions are used first, then prepaid credits.</p>
               </div>
               {selectedPack ? <Button onClick={buyCredits} disabled={checkoutBusy}>{checkoutBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CreditCard className="mr-2 h-4 w-4" />}{purchases.length ? 'Top up GOL credits' : 'Buy GOL credits'}</Button> : null}
             </div>
             {checkoutError ? <p className="text-sm text-destructive">{checkoutError}</p> : null}
-            <Card className="overflow-hidden border-primary/25">
-              <CardContent className="grid gap-4 p-5 sm:grid-cols-2">
-                <div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Free questions remaining</p><p className="mt-1 text-3xl font-bold tabular-nums">{gol.free_questions_remaining}<span className="ml-1 text-sm font-normal text-muted-foreground">of {gol.free_allowance}</span></p></div>
-                <div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Credit balance</p><p className="mt-1 text-3xl font-bold tabular-nums">{gol.credit_balance}</p></div>
-              </CardContent>
-            </Card>
+            <div className="grid gap-6 border-b border-hairline py-6 sm:grid-cols-2">
+                <div><p className="font-mono text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Free questions remaining</p><p className="display mt-2 text-6xl leading-none tabular-nums">{gol.free_questions_remaining}<span className="ml-2 font-sans text-sm text-muted-foreground">of {gol.free_allowance}</span></p></div>
+                <div><p className="font-mono text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Credit balance</p><p className="display mt-2 text-6xl leading-none tabular-nums">{gol.credit_balance}</p></div>
+            </div>
 
             <div className="space-y-2">
-              <h3 className="flex items-center gap-2 text-sm font-semibold"><ReceiptText className="h-4 w-4" />Purchases</h3>
+              <h3 className="flex items-center gap-2 font-mono text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground"><ReceiptText className="h-4 w-4" aria-hidden="true" />Purchases</h3>
               {purchases.length ? purchases.map((purchase) => (
                 <Card key={purchase.stripe_session_id}>
                   <CardContent className="flex flex-col justify-between gap-3 p-4 sm:flex-row sm:items-center">
@@ -279,7 +277,7 @@ export function AccountBillingPage() {
             </Card>
 
             <section className="space-y-3" aria-labelledby="subscriptions-heading">
-              <div className="flex items-center justify-between gap-4"><h2 id="subscriptions-heading" className="text-xl font-bold">Subscriptions</h2>{state.billing?.has_billing_account ? <Button onClick={openPortal} disabled={portalBusy}>{portalBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CreditCard className="mr-2 h-4 w-4" />}Manage billing</Button> : null}</div>
+              <div className="flex items-center justify-between gap-4"><h2 id="subscriptions-heading" className="display text-[2.25rem] leading-none">Subscriptions</h2>{state.billing?.has_billing_account ? <Button onClick={openPortal} disabled={portalBusy}>{portalBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CreditCard className="mr-2 h-4 w-4" />}Manage billing</Button> : null}</div>
               {portalError ? <p className="text-sm text-destructive">{portalError}</p> : null}
               {subscriptions.length ? subscriptions.map((subscription) => (
                 <Card key={subscription.id}>
