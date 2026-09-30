@@ -309,7 +309,7 @@ export function TeamDetailPage() {
 
     if (loading) {
         return (
-            <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-secondary to-background">
+            <div className="min-h-screen flex items-center justify-center bg-chalk">
                 <div className="text-center">
                     <Loader2 className="h-12 w-12 animate-spin text-primary mx-auto mb-4" />
                     <p className="text-muted-foreground">Loading team...</p>
@@ -320,7 +320,7 @@ export function TeamDetailPage() {
 
     if (error) {
         return (
-            <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-secondary to-background">
+            <div className="min-h-screen flex items-center justify-center bg-chalk">
                 <Card className="max-w-md">
                     <CardContent className="pt-6 text-center">
                         <p className="text-destructive mb-4">{error}</p>
@@ -335,7 +335,7 @@ export function TeamDetailPage() {
     }
 
     return (
-        <div className="min-h-screen bg-gradient-to-b from-secondary to-background">
+        <div className="min-h-screen bg-chalk">
             {/* Header */}
             <div className="bg-card border-b sticky top-0 z-10">
                 <div className="max-w-6xl mx-auto px-4 py-4">
@@ -358,7 +358,7 @@ export function TeamDetailPage() {
                                     </div>
                                 )}
                                 <div className="min-w-0">
-                                    <h1 className="text-2xl font-bold text-foreground truncate">{team?.name}</h1>
+                                    <h1 className="display text-[32px] sm:text-[44px] text-foreground truncate">{team?.name}</h1>
                                     <div className="flex flex-wrap items-center gap-2 mt-1">
                                         {team?.league_name && (
                                             <Badge variant="secondary">{team.league_name}</Badge>
@@ -401,9 +401,9 @@ export function TeamDetailPage() {
             {message && (
                 <div className="max-w-6xl mx-auto px-4 mt-4">
                     <div className={`p-3 rounded-lg text-sm flex items-center justify-between ${
-                        message.type === 'error' ? 'bg-rose-50 text-rose-700 border border-rose-200' :
+                        message.type === 'error' ? 'bg-danger/10 text-danger border border-danger/30' :
                         message.type === 'info' ? 'bg-primary/5 text-primary border border-primary/20' :
-                        'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                        'bg-good/10 text-good border border-good/30'
                     }`}>
                         <span>{message.text}</span>
                         <button onClick={() => setMessage(null)} className="ml-2 hover:opacity-70">
@@ -567,7 +567,7 @@ export function TeamDetailPage() {
 
                     {/* Academy Network Tab */}
                     <TabsContent value="alumni" className="mt-4">
-                        <div className="bg-slate-950 rounded-xl p-4 sm:p-6 space-y-5">
+                        <div className="bg-night rounded-[10px] p-4 sm:p-6 space-y-5">
                             <ToggleGroup
                                 type="single"
                                 value={academyView}

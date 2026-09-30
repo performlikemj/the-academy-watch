@@ -83,8 +83,8 @@ export function ClaimAccount() {
                 <Card className="w-full max-w-md">
                     <CardHeader>
                         <div className="flex items-center gap-3">
-                            <XCircle className="h-8 w-8 text-rose-500" />
-                            <CardTitle className="text-rose-700">Unable to Claim Account</CardTitle>
+                            <XCircle className="h-8 w-8 text-danger" />
+                            <CardTitle className="display text-3xl font-normal text-danger">Unable to Claim Account</CardTitle>
                         </div>
                     </CardHeader>
                     <CardContent>
@@ -112,8 +112,8 @@ export function ClaimAccount() {
                 <Card className="w-full max-w-md">
                     <CardHeader>
                         <div className="flex items-center gap-3">
-                            <CheckCircle className="h-8 w-8 text-emerald-500" />
-                            <CardTitle className="text-emerald-700">Account Claimed!</CardTitle>
+                            <CheckCircle className="h-8 w-8 text-good" />
+                            <CardTitle className="display text-3xl font-normal text-good">Account Claimed!</CardTitle>
                         </div>
                     </CardHeader>
                     <CardContent>
@@ -139,7 +139,7 @@ export function ClaimAccount() {
                             <User className="h-6 w-6 text-primary" />
                         </div>
                         <div>
-                            <CardTitle>Claim Your Account</CardTitle>
+                            <CardTitle className="display text-3xl font-normal">Claim Your Account</CardTitle>
                             <CardDescription>The Academy Watch Writer Account</CardDescription>
                         </div>
                     </div>

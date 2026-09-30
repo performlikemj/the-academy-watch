@@ -61,7 +61,7 @@ test('mobile shell has reachable legacy destinations and closes on navigation', 
   }
   await page.getByRole('link', { name: 'Clubs', exact: true }).click()
   await expect(page).toHaveURL(/\/clubs$/)
-  await expect(page.getByRole('heading', { name: 'Your game starts close to home.' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Clubs near you.' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Toggle navigation menu' })).toHaveAttribute('aria-expanded', 'false')
 })
 

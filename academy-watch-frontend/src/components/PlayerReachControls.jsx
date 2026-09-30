@@ -126,20 +126,18 @@ export function PlayerReachControls({ signedId, onPublicConfirmed }) {
 
   return (
     <div
-      className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-rose-200/80 bg-gradient-to-r from-rose-50/90 via-card to-card p-2.5 shadow-sm dark:border-rose-900/60 dark:from-rose-950/35"
+      className="mt-5 flex flex-wrap items-center gap-2.5"
       data-testid="player-reach-controls"
     >
-      <div className="inline-flex min-h-9 items-center gap-2 rounded-lg bg-card/80 px-3 text-sm font-semibold text-foreground">
-        <Heart className="h-4 w-4 fill-rose-500 text-rose-600" aria-hidden="true" />
+      <div className="inline-flex min-h-10 items-center gap-2 pr-2 font-mono text-xs uppercase tracking-[0.14em] text-muted-foreground">
+        <Heart className="h-4 w-4 fill-gold text-gold" aria-hidden="true" />
         <span className="tabular-nums">{fanLabel(reach.fans)}</span>
       </div>
       <Button
         type="button"
         size="sm"
         variant={reach.following ? 'default' : 'outline'}
-        className={reach.following
-          ? 'gap-1.5 bg-rose-600 text-white hover:bg-rose-700'
-          : 'gap-1.5 border-rose-300 text-rose-700 hover:bg-rose-50 hover:text-rose-800 dark:border-rose-800 dark:text-rose-300 dark:hover:bg-rose-950/50'}
+        className="gap-1.5 px-4"
         aria-pressed={reach.following}
         disabled={busy}
         onClick={toggleFollow}
@@ -156,13 +154,13 @@ export function PlayerReachControls({ signedId, onPublicConfirmed }) {
             Link copied
           </span>
         ) : null}
-        <Button type="button" size="sm" variant="ghost" className="gap-1.5" onClick={shareProfile}>
+        <Button type="button" size="sm" variant="secondary" className="gap-1.5 px-4" onClick={shareProfile}>
           <Share2 className="h-4 w-4" aria-hidden="true" />
           Share
         </Button>
       </div>
       {note?.requestKey === requestKey ? (
-        <p className="basis-full px-1 text-xs font-medium text-rose-700 dark:text-rose-300" role="status">
+        <p className="basis-full px-1 text-xs font-medium text-muted-foreground" role="status">
           {note.text}
         </p>
       ) : null}
