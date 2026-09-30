@@ -27,13 +27,14 @@ from datetime import UTC, date, datetime, timedelta
 from functools import wraps
 from urllib.parse import parse_qs, unquote, urlparse
 
-from flask import Blueprint, abort, g, jsonify, request, send_file
+from flask import Blueprint, abort, g, has_request_context, jsonify, request, send_file
 from sqlalchemy import case, func, literal, or_, text
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from src.auth import (
     _ensure_user_account,
     _safe_error_payload,
     _user_serializer,
+    get_client_ip,
     require_api_key,
     require_user_auth,
 )
@@ -49,7 +50,7 @@ from src.models.club_invitation import (
 )
 from src.models.contact import ContactRequest
 from src.models.follow import Follow, FollowList, FollowPlayerSnapshot, PlayerShadow, PlayerShadowStats
-from src.models.funding import ClubRosterMember
+from src.models.funding import ClubProgram, ClubRosterMember
 from src.models.journey import PlayerJourney
 from src.models.league import (
     CommunityTake,
@@ -743,14 +744,14 @@ def _link_dict(link: PlayerLink) -> dict:
     return payload
 
 
-def _media_dict(media: PlayerShowcaseMedia, *, include_preview: bool = False) -> dict:
+def _media_dict(media: PlayerShowcaseMedia, *, include_preview: bool = False, admin_preview: bool = False) -> dict:
     """Stable media JSON contract shared by public, owner, and admin routes."""
     payload = {
         "id": media.id,
         "player_api_id": media.player_api_id,
         "kind": media.kind,
         "status": media.status,
-        "public_url": media.public_url,
+        "public_url": showcase_media_storage.published_url(media.public_url) if _media_is_public(media) else None,
         "content_type": media.content_type,
         "size_bytes": media.size_bytes,
         "is_primary": bool(media.is_primary),
@@ -760,6 +761,9 @@ def _media_dict(media: PlayerShowcaseMedia, *, include_preview: bool = False) ->
     }
     if media.local_player_id is not None:
         payload["local_player_id"] = media.local_player_id
+    if include_preview and media.status == "approved" and not payload["public_url"]:
+        prefix = "/api/admin/showcase" if admin_preview else "/api/showcase"
+        payload["approved_preview_url"] = f"{prefix}/media/{media.id}/preview"
     if include_preview and media.status != "approved":
         if media.status == "rejected":
             payload["pending_preview_url"] = None
@@ -1855,6 +1859,132 @@ def get_player_showcase(player_api_id: int):
         return jsonify(_safe_error_payload(e, "Failed to load showcase")), 500
 
 
+def _media_is_public(media: PlayerShowcaseMedia) -> bool:
+    """One current visibility decision for public URLs and public byte access."""
+    if media.status != "approved" or media.kind != "photo" or not media.public_url:
+        return False
+    # The request owns this cache (including when tests hold an app context).
+    # Keep row eligibility above uncached; only the shared subject decision is reused.
+    cache = request.environ.setdefault("showcase.media_visibility", {}) if has_request_context() else {}
+    subject = ("local", media.local_player_id) if media.local_player_id is not None else ("api", media.player_api_id)
+    if subject not in cache:
+        cache[subject] = _media_subject_is_public(*subject)
+    return cache[subject]
+
+
+def _media_subject_is_public(kind, subject_id):
+    from src.services.public_player_subject import resolve_public_adult_subject
+
+    if kind == "local":
+        local = db.session.get(LocalPlayer, subject_id)
+        if local is None or local.merged_into_local_player_id or not _local_player_visible_to_context(local, None):
+            return False
+        return not local.api_player_id or resolve_public_adult_subject(local.api_player_id) is not None
+    return resolve_public_adult_subject(subject_id) is not None
+
+
+def _serve_published_media(blob_path, *, private_preview=False):
+    try:
+        response = showcase_media_storage.published_response(blob_path)
+        if private_preview:
+            response.headers["Cache-Control"] = "private, no-store"
+        return response
+    except Exception:
+        # Includes Azure auth, transport and storage failures without logging
+        # secrets/paths or a traceback per image on an image-heavy page.
+        showcase_media_storage.warn_once("read-failed", "Published media storage read failed; returning 404")
+        abort(404)
+
+
+def _approved_preview_media(media_id):
+    media = db.session.get(PlayerShowcaseMedia, media_id)
+    if media is None or media.kind != "photo" or media.status != "approved" or not media.public_url:
+        abort(404)
+    return media
+
+
+def _serve_approved_preview(media):
+    try:
+        path = showcase_media_storage.public_blob_path_from_reference(media.public_url)
+        if path != showcase_media_storage._published_blob_path(media.blob_path):
+            abort(404)
+    except (ValueError, TypeError):
+        abort(404)
+    return _serve_published_media(path, private_preview=True)
+
+
+@showcase_bp.get("/showcase/media/<int:media_id>/preview")
+@require_user_auth
+@limiter.limit("300 per minute", key_func=get_client_ip)
+def owner_approved_media_preview(media_id):
+    media = _approved_preview_media(media_id)
+    if media.local_player_id is not None:
+        local = db.session.get(LocalPlayer, media.local_player_id)
+        if local is None or local.status in ("merged", "rejected") or _local_player_is_suppressed(local):
+            abort(404)
+        from src.services.club_registry import is_manager_of_approved_program
+
+        if local.origin_program_id and is_manager_of_approved_program(g.user_id, local.origin_program_id):
+            return _serve_approved_preview(media)
+        subject = _local_subject(local.id)
+    else:
+        if is_player_suppressed(media.player_api_id):
+            abort(404)
+        subject = _api_subject(media.player_api_id)
+    _, error = _approved_subject_claim_or_403(subject)
+    if error:
+        abort(404)
+    return _serve_approved_preview(media)
+
+
+@showcase_bp.get("/admin/showcase/media/<int:media_id>/preview")
+@require_api_key
+@limiter.limit("300 per minute", key_func=get_client_ip)
+def admin_approved_media_preview(media_id):
+    return _serve_approved_preview(_approved_preview_media(media_id))
+
+
+@showcase_bp.get("/media/published/<path:blob_path>")
+@limiter.limit("300 per minute", key_func=get_client_ip)
+def get_published_media(blob_path: str):
+    """Authorize from current DB state before opening storage or returning 304."""
+    try:
+        blob_path = showcase_media_storage._validate_blob_path(blob_path)
+    except showcase_media_storage.InvalidBlobPathError:
+        abort(404)
+    if not blob_path.endswith(".jpg"):
+        abort(404)
+    if blob_path.startswith("club-banners/"):
+        allowed = (
+            ClubProgram.query.filter(
+                ClubProgram.banner_url == blob_path,
+                ClubProgram.emergency_hidden.is_(False),
+                ClubProgram.platform_status.in_(("pending", "approved")),
+            ).first()
+            is not None
+        )
+    elif blob_path.startswith(("players/", "local-players/")):
+        # Upload paths retain the source extension; published copies are JPEG.
+        stem = blob_path[:-4]
+        media = PlayerShowcaseMedia.query.filter(
+            PlayerShowcaseMedia.blob_path.in_([f"{stem}.{ext}" for ext in ("jpg", "png", "webp")]),
+            PlayerShowcaseMedia.kind == "photo",
+            PlayerShowcaseMedia.status == "approved",
+        ).first()
+        allowed = False
+        if media is not None and media.public_url:
+            try:
+                allowed = showcase_media_storage.public_blob_path_from_reference(media.public_url) == blob_path
+            except (ValueError, TypeError):
+                abort(404)
+            allowed = allowed and _media_is_public(media)
+    else:
+        allowed = False
+    if not allowed:
+        abort(404)
+    return _serve_published_media(blob_path)
+
+
 # ---------------------------------------------------------------------------
 # Local development media transport (never active with Azure or in prod/stage)
 # ---------------------------------------------------------------------------
@@ -1891,8 +2021,8 @@ def dev_put_showcase_media(blob_path: str):
 
 @showcase_bp.route("/dev/showcase-media/<path:blob_path>", methods=["GET"])
 def dev_get_showcase_media(blob_path: str):
-    """Serve a private preview or approved local artifact during development."""
-    if not showcase_media_storage.is_local_dev_enabled() or blob_path.startswith("club-player-photos/"):
+    """Serve a pending preview during development; published media uses the gated route."""
+    if not showcase_media_storage.is_local_dev_enabled() or blob_path.startswith(("club-player-photos/", "published/")):
         return jsonify({"error": "not found"}), 404
     try:
         path = showcase_media_storage.local_serving_path(blob_path)
@@ -4974,7 +5104,7 @@ def admin_review_affiliation(aff_id: int):
 @showcase_bp.route("/admin/showcase/media", methods=["GET"])
 @require_api_key
 def admin_list_showcase_media():
-    """List showcase media, optionally filtered by lifecycle status."""
+    """List a bounded page of showcase photos, optionally filtered by status."""
     try:
         status = (request.args.get("status") or "").strip().lower()
         query = PlayerShowcaseMedia.query.filter_by(kind="photo")
@@ -4982,8 +5112,26 @@ def admin_list_showcase_media():
             if status not in MEDIA_STATUSES:
                 return jsonify({"error": f"invalid status; one of {sorted(MEDIA_STATUSES)}"}), 400
             query = query.filter(PlayerShowcaseMedia.status == status)
-        rows = query.order_by(PlayerShowcaseMedia.created_at.desc(), PlayerShowcaseMedia.id.desc()).all()
-        return jsonify({"media": [_media_dict(row, include_preview=True) for row in rows]})
+        try:
+            limit = min(100, max(1, int(request.args.get("limit", 50))))
+            offset = max(0, int(request.args.get("offset", 0)))
+        except ValueError:
+            return jsonify({"error": "limit and offset must be integers"}), 400
+        total = query.count()
+        rows = (
+            query.order_by(PlayerShowcaseMedia.created_at.desc(), PlayerShowcaseMedia.id.desc())
+            .limit(limit)
+            .offset(offset)
+            .all()
+        )
+        return jsonify(
+            {
+                "media": [_media_dict(row, include_preview=True, admin_preview=True) for row in rows],
+                "total": total,
+                "limit": limit,
+                "offset": offset,
+            }
+        )
     except Exception as e:
         logger.error("Error in admin_list_showcase_media: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to load showcase media")), 500
@@ -5074,7 +5222,7 @@ def admin_review_showcase_media(media_id: int):
             )
         db.session.commit()
         published_url = None
-        return jsonify({"media": _media_dict(media, include_preview=action == "reject")})
+        return jsonify({"media": _media_dict(media, include_preview=True, admin_preview=True)})
     except Exception as e:
         db.session.rollback()
         _cleanup_failed_publication(published_url, media_id)
@@ -5497,6 +5645,13 @@ from src.routes.club import (
 
 def _subject_player_claim(subject, user_id):
     return subject_claim(db.session, -subject.local_player_id if subject.is_local else subject.player_api_id, user_id)
+
+
+@showcase_bp.after_app_request
+def _uncacheable_public_media_errors(response):
+    if request.path.startswith(showcase_media_storage.PUBLIC_ROUTE_PREFIX + "/") and response.status_code >= 400:
+        response.headers["Cache-Control"] = "private, no-store"
+    return response
 
 
 @showcase_bp.after_request

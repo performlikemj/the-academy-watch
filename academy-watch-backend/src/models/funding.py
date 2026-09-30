@@ -250,10 +250,12 @@ class ClubProgram(db.Model):
         return bool(self.connect_account and self.connect_account.is_ready)
 
     def brand_dict(self):
+        from src.services.showcase_media_storage import published_url
+
         return {
             "primary_color": self.brand_primary_color or "#0F3D2E",
             "accent_color": self.brand_accent_color or "#E3B23C",
-            "banner_url": self.banner_url,
+            "banner_url": published_url(self.banner_url),
         }
 
     def manager_dict(self):
