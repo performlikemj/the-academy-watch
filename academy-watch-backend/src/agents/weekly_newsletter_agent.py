@@ -3407,6 +3407,9 @@ def persist_newsletter(
     newsletter_type: str = "weekly",
 ) -> Newsletter:
     # Reset any prior failed transaction to avoid InFailedSqlTransaction
+    from src.utils.data_mode import require_newsletters_enabled
+
+    require_newsletters_enabled()
     try:
         db.session.rollback()
     except Exception:
@@ -3503,6 +3506,9 @@ def compose_team_weekly_newsletter(
     """Compose (but do not persist) a weekly newsletter.
     Returns a dict with keys: content_json (str), week_start (date), week_end (date), season_start_year (int).
     """
+    from src.utils.data_mode import require_newsletters_enabled
+
+    require_newsletters_enabled()
     # Compute week window
     week_start, week_end = _monday_range(target_date)
 
@@ -3920,6 +3926,9 @@ def generate_team_weekly_newsletter(team_db_id: int, target_date: date, force_re
     """Compose and persist a weekly newsletter; returns row.to_dict().
     Used by batch jobs. For API routes, prefer composing then persisting at the route level.
     """
+    from src.utils.data_mode import require_newsletters_enabled
+
+    require_newsletters_enabled()
     out = compose_team_weekly_newsletter(team_db_id, target_date, force_refresh=force_refresh)
     row = persist_newsletter(
         team_db_id=team_db_id,

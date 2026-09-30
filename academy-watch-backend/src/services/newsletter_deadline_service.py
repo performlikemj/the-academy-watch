@@ -28,6 +28,9 @@ def queue_newsletter_for_digest(user_id: int, newsletter_id: int) -> bool:
     Returns:
         bool: True if queued successfully, False if already queued
     """
+    from src.utils.data_mode import require_newsletters_enabled
+
+    require_newsletters_enabled()
     try:
         week_key = get_current_week_key()
 
@@ -62,6 +65,9 @@ def send_digest_emails(week_key: str = None) -> dict:
     Returns:
         dict: Results of the digest sending
     """
+    from src.utils.data_mode import require_newsletters_enabled
+
+    require_newsletters_enabled()
     try:
         if not week_key:
             week_key = get_current_week_key()
@@ -116,6 +122,9 @@ def _send_single_digest(user_id: int, week_key: str) -> dict:
     Returns:
         dict: Result of sending
     """
+    from src.utils.data_mode import require_newsletters_enabled
+
+    require_newsletters_enabled()
     try:
         user = UserAccount.query.get(user_id)
         if not user or not user.email:
@@ -347,6 +356,9 @@ def process_newsletter_deadline(week_start_date=None):
     Returns:
         dict: Summary of processing results
     """
+    from src.utils.data_mode import require_newsletters_enabled
+
+    require_newsletters_enabled()
     try:
         now = datetime.now(UTC)
 
@@ -394,6 +406,9 @@ def process_single_newsletter_deadline(newsletter: Newsletter) -> dict:
     Returns:
         dict: Processing results
     """
+    from src.utils.data_mode import require_newsletters_enabled
+
+    require_newsletters_enabled()
     try:
         # Find all commentaries for this newsletter
         commentaries = NewsletterCommentary.query.filter_by(newsletter_id=newsletter.id).all()

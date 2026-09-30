@@ -1,3 +1,4 @@
+import { useDataMode } from '@/hooks/useDataMode'
 import { useState, useEffect, useMemo, useCallback, useRef, Fragment } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { APIService } from '@/lib/api'
@@ -498,6 +499,7 @@ function CompareDialog({ open, onOpenChange, playerIds, season, seasonOverride, 
 }
 
 export function ScoutPage() {
+  const { api_football_frozen: frozen } = useDataMode()
   const [players, setPlayers] = useState([])
   const [total, setTotal] = useState(0)
   const [totalPages, setTotalPages] = useState(0)
@@ -1088,12 +1090,12 @@ export function ScoutPage() {
                     <td colSpan={tableColumnCount} className="px-3 py-12 text-center text-sm text-muted-foreground">
                       <p>No players match these filters.</p>
                       <div className="mt-4 flex flex-wrap justify-center gap-2">
-                        <Button variant="outline" size="sm" asChild>
+                        {!frozen && (<Button variant="outline" size="sm" asChild>
                           <Link to="/scout/lists">
                             <Globe className="mr-1.5 h-4 w-4" />
                             Search worldwide
                           </Link>
-                        </Button>
+                        </Button>)}
                         <Button variant="outline" size="sm" asChild>
                           <Link to="/local-players/new">
                             <UserPlus className="mr-1.5 h-4 w-4" />

@@ -1,3 +1,4 @@
+import { useDataMode } from '@/hooks/useDataMode'
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowRight, Globe2, Loader2, Search, ShieldCheck, UserPlus } from 'lucide-react'
@@ -53,6 +54,7 @@ function PlayerSearchResult({ player }) {
 }
 
 export function PlayerOnboarding() {
+  const { api_football_frozen: frozen } = useDataMode()
   const [query, setQuery] = useState('')
   const [searchState, setSearchState] = useState({
     query: '',
@@ -168,7 +170,7 @@ export function PlayerOnboarding() {
             <h2 id="player-next-steps" className="mt-1 text-2xl font-bold tracking-tight text-foreground">Can&apos;t find yourself?</h2>
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
-            <Card className="group border-border/80 transition-all hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md">
+            {!frozen && (<Card className="group border-border/80 transition-all hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md">
               <CardHeader>
                 <span className="mb-1 inline-flex h-10 w-10 items-center justify-center rounded-full bg-sky-100 text-sky-800">
                   <Globe2 className="h-5 w-5" />
@@ -184,7 +186,7 @@ export function PlayerOnboarding() {
                   </Link>
                 </Button>
               </CardContent>
-            </Card>
+            </Card>)}
             <Card className="group border-border/80 transition-all hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md">
               <CardHeader>
                 <span className="mb-1 inline-flex h-10 w-10 items-center justify-center rounded-full bg-amber-100 text-amber-900">

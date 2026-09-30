@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import importlib
 from copy import deepcopy
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 import sqlalchemy as sa
@@ -30,7 +30,8 @@ ADMIN_EMAIL = "transfer-operator@example.com"
 FERNET_KEY = "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA="
 PARENT_API_ID = 81_001
 DESTINATION_API_ID = 81_002
-EFFECTIVE_DATE = date.today().isoformat()
+# Match the transfer resolver’s UTC as-of date even on hosts ahead of UTC.
+EFFECTIVE_DATE = datetime.now(UTC).date().isoformat()
 
 
 @pytest.fixture

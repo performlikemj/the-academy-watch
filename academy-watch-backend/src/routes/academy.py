@@ -14,6 +14,7 @@ from src.models.league import AcademyAppearance, AcademyLeague, db
 from src.routes.api import require_api_key
 from src.services.academy_sync_service import academy_sync_service
 from src.services.player_suppression import hide_suppressed_player
+from src.utils.data_mode import api_enabled_route, api_football_frozen
 
 academy_bp = Blueprint("academy", __name__)
 logger = logging.getLogger(__name__)
@@ -156,6 +157,7 @@ def delete_academy_league(league_id):
 
 @academy_bp.route("/admin/academy-leagues/<int:league_id>/sync", methods=["POST"])
 @require_api_key
+@api_enabled_route
 def sync_academy_league(league_id):
     """Trigger a sync for a specific academy league.
 
@@ -200,6 +202,7 @@ def sync_academy_league(league_id):
 
 @academy_bp.route("/admin/academy-leagues/sync-all", methods=["POST"])
 @require_api_key
+@api_enabled_route
 def sync_all_academy_leagues():
     """Trigger a sync for all active academy leagues."""
     data = request.get_json() or {}
@@ -247,6 +250,7 @@ def sync_all_academy_leagues():
 
 @academy_bp.route("/admin/academy-stats/sync-players", methods=["POST"])
 @require_api_key
+@api_enabled_route
 def sync_academy_player_stats():
     """Sync season-level stats for all tracked academy players.
 
@@ -358,6 +362,13 @@ def get_player_academy_stats(player_id):
         date_to=date_to,
     )
 
+    if not api_football_frozen():
+        return jsonify(stats)
+
+    from src.services.public_data import public_match_metadata
+
+    metadata = public_match_metadata(player_id)
+    stats.update(public_match_data=metadata, as_of=metadata["as_of"], source_label=metadata["source"])
     return jsonify(stats)
 
 

@@ -23,6 +23,7 @@ from src.services.player_suppression import (
 )
 from src.utils.academy_window import age_from_birth_date as _age_from_birth_date
 from src.utils.academy_window import is_within_academy_window
+from src.utils.data_mode import api_football_frozen
 from src.utils.geocoding import get_team_coordinates
 from src.utils.player_names import is_placeholder_name, resolve_player_profile
 
@@ -59,7 +60,7 @@ def get_player_journey(player_id):
             }
         )
 
-    should_sync = request.args.get("sync", "false").lower() == "true"
+    should_sync = not api_football_frozen() and request.args.get("sync", "false").lower() == "true"
 
     # Try PlayerJourney first (the new, richer data source)
     journey = PlayerJourney.query.filter_by(player_api_id=player_id).first()
@@ -531,6 +532,11 @@ def admin_backfill_player_names():
 
     data = request.get_json(silent=True) or {}
     dry_run = bool(data.get("dry_run", True))
+    if api_football_frozen() and data.get("fetch_missing") is True:
+        return jsonify(
+            error="API-Football is frozen. Upstream profile repair is disabled; omit fetch_missing for DB-only repair.",
+            code="frozen",
+        ), 409
 
     examples = []
     unresolved = 0
@@ -684,7 +690,7 @@ def admin_backfill_player_names():
     api_fetched = 0
     next_fetch_cursor = None
     payload = request.get_json(silent=True) or {}
-    if payload.get("fetch_missing") is True and not dry_run:
+    if payload.get("fetch_missing") is True and not dry_run and not api_football_frozen():
         fetch_limit = payload.get("fetch_limit", 50)
         if not isinstance(fetch_limit, int) or isinstance(fetch_limit, bool) or fetch_limit < 1:
             fetch_limit = 50
@@ -960,3 +966,23 @@ def _build_legacy_journey(player_id: int, primary_team_id: int = None) -> dict:
         "is_multi_country": len(country_counts) > 1,
         "moved_on": moved_on,
     }
+
+
+@journey_bp.after_request
+def journey_data_labels(response):
+    if not api_football_frozen():
+        return response
+    if response.status_code != 200 or request.endpoint != "journey.get_player_journey":
+        return response
+    player_id = request.view_args.get("player_id")
+    if not player_id or player_id < 0:
+        return response
+    from flask import current_app
+    from src.services.public_data import public_match_metadata
+
+    payload = response.get_json(silent=True)
+    if isinstance(payload, dict):
+        metadata = public_match_metadata(player_id)
+        payload.update(public_match_data=metadata, as_of=metadata["as_of"], source_label=metadata["source"])
+        response.set_data(current_app.json.dumps(payload))
+    return response

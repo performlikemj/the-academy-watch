@@ -1,3 +1,4 @@
+import { useDataMode } from '@/hooks/useDataMode'
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { APIService } from '@/lib/api'
@@ -83,6 +84,7 @@ function followLabel(follow) {
 }
 
 function PlayerSearchTab({ onAdd, adding, addError }) {
+  const { api_football_frozen: frozen } = useDataMode()
   const [query, setQuery] = useState('')
   const [debounced, setDebounced] = useState('')
   const [results, setResults] = useState([])
@@ -122,12 +124,13 @@ function PlayerSearchTab({ onAdd, adding, addError }) {
 
   return (
     <div className="space-y-3">
+      {frozen && <p className="text-sm text-muted-foreground">Search stored records. Can’t find them? <Link className="underline" to="/local-players/new">Create a local profile</Link>.</p>}
       <div className="relative">
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <Input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search players worldwide by name…"
+          placeholder={frozen ? 'Search stored players by name…' : 'Search players worldwide by name…'}
           className="pl-9"
           aria-label="Search players"
           autoFocus
@@ -168,7 +171,7 @@ function PlayerSearchTab({ onAdd, adding, addError }) {
                         <span className="truncate text-sm font-medium text-foreground">{row.name}</span>
                         {!row.tracked && (
                           <Badge variant="outline" className="shrink-0 text-[10px] font-normal">
-                            {row.shadow ? 'Worldwide' : 'Worldwide — will start tracking'}
+                            {frozen ? 'Stored public record' : row.shadow ? 'Worldwide' : 'Worldwide — will start tracking'}
                           </Badge>
                         )}
                       </span>

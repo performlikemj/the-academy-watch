@@ -9,7 +9,7 @@ This blueprint handles:
 
 import logging
 
-from flask import Blueprint, g, jsonify, request
+from flask import Blueprint, current_app, g, jsonify, request
 from src.auth import _safe_error_payload, require_user_auth, resolve_bearer_user
 from src.extensions import limiter
 from src.models.league import (
@@ -32,6 +32,7 @@ from src.services.player_subject import resolve_player_subject
 from src.services.player_suppression import hide_suppressed_player, neutral_player_not_found
 from src.services.public_player_subject import resolve_public_adult_subject
 from src.services.reach_metrics import fan_counts, is_fan
+from src.utils.data_mode import api_football_frozen
 from src.utils.feature_flags import rollup_reads_enabled
 
 logger = logging.getLogger(__name__)
@@ -530,7 +531,7 @@ def get_public_player_stats(player_id: int):
         player_name_for_sync = tracked[0].player_name if tracked else None
 
         for loan_team_api_id in loan_team_api_ids:
-            if not external_player:
+            if not external_player or api_football_frozen():
                 continue
             try:
                 local_count = sum(1 for s, f in stats_query if s.team_api_id == loan_team_api_id)
@@ -867,6 +868,8 @@ def get_public_player_profile(player_id: int):
 @hide_suppressed_player("player_id")
 def get_public_player_season_stats(player_id: int):
     """Get aggregated season stats for a player at their LOAN CLUB only."""
+    from src.services.public_data import separated_season_stats
+
     external_player = is_external_player_id(player_id)
     if not external_player:
         subject = resolve_player_subject(player_id)
@@ -940,7 +943,7 @@ def get_public_player_season_stats(player_id: int):
                     "source_breakdown": _rollup_source_breakdown(player_id, season_start_year),
                 }
             )
-            return jsonify(result)
+            return jsonify(separated_season_stats(player_id, season_start_year, result))
 
         # On-read provenance for the resolved season — computed once here so every
         # return path below (limited-coverage, shadow, main) carries it. Additive:
@@ -1035,7 +1038,7 @@ def get_public_player_season_stats(player_id: int):
                     }
                 ]
 
-            return jsonify(result)
+            return jsonify(separated_season_stats(player_id, season_start_year, result))
 
         if not all_tracked:
             # Shadow player fallback — no tracked rows, but a worldwide-followed
@@ -1057,6 +1060,9 @@ def get_public_player_season_stats(player_id: int):
                         .filter(PlayerShadowStats.player_api_id == player_id)
                         .scalar()
                     )
+                if target_season is not None and requested_season is None and api_football_frozen():
+                    season_start_year = target_season
+                    result["season"] = f"{target_season}/{target_season + 1}"
                 totals = (
                     db.session.query(
                         func.coalesce(func.sum(PlayerShadowStats.appearances), 0),
@@ -1091,7 +1097,7 @@ def get_public_player_season_stats(player_id: int):
                             "is_current": True,
                         }
                     ]
-            return jsonify(result)
+            return jsonify(separated_season_stats(player_id, season_start_year, result))
 
         # Build list of clubs from FixturePlayerStats (source of truth for which
         # clubs the player actually played for this season) rather than deriving
@@ -1161,7 +1167,7 @@ def get_public_player_season_stats(player_id: int):
         result["has_multiple_clubs"] = len(loan_teams_info) > 1
 
         # Aggregate stats from API-Football for ALL loan clubs
-        api_client = APIFootballClient() if external_player else None
+        api_client = APIFootballClient() if external_player and not api_football_frozen() else None
         total_appearances = 0
         total_minutes = 0
         total_goals = 0
@@ -1267,7 +1273,7 @@ def get_public_player_season_stats(player_id: int):
 
             result["clean_sheets"] = clean_sheets_query.clean_sheets if clean_sheets_query else 0
 
-        return jsonify(result)
+        return jsonify(separated_season_stats(player_id, season_start_year, result))
 
     except Exception as e:
         logger.error(f"Error fetching season stats for player_id={player_id}: {e}")
@@ -1320,6 +1326,14 @@ def get_player_availability(player_id: int):
         season = request.args.get("season", type=int) or current_stats_season()
         payload = _degraded_availability_payload(player_id, season)
         payload["reason"] = "local_player"
+        return jsonify(payload), 200
+
+    if api_football_frozen():
+        from src.utils.academy_window import current_stats_season
+
+        season = request.args.get("season", type=int) or current_stats_season()
+        payload = _degraded_availability_payload(player_id, season)
+        payload["reason"] = "frozen"
         return jsonify(payload), 200
 
     try:
@@ -1467,3 +1481,39 @@ def get_player_commentaries(player_id: int):
 
         traceback.print_exc()
         return jsonify(_safe_error_payload(e, "Failed to fetch player commentaries")), 500
+
+
+@players_bp.after_request
+def public_data_labels(response):
+    if not api_football_frozen():
+        return response
+    if response.status_code != 200 or request.endpoint not in {
+        "players.get_public_player_profile",
+        "players.get_public_player_stats",
+    }:
+        return response
+    from src.services.public_data import public_match_metadata, separated_season_stats
+
+    player_id = request.view_args.get("player_id")
+    if not player_id or player_id < 0:
+        return response
+    payload = response.get_json(silent=True)
+    season = request.args.get("season", type=int)
+    metadata = public_match_metadata(player_id, season)
+    if isinstance(payload, list):
+        for match in payload:
+            match.update(source_label=metadata["source"], as_of=metadata["as_of"])
+    elif isinstance(payload, dict):
+        for match in payload.get("matches", []):
+            match.update(source_label=metadata["source"], as_of=metadata["as_of"])
+        payload.update(public_match_data=metadata, as_of=metadata["as_of"], source_label=metadata["source"])
+        if "summary" in payload and api_football_frozen():
+            summary = payload["summary"]
+            separated = separated_season_stats(player_id, summary["season"], dict(summary))
+            payload["summary"] = {key: separated[key] for key in summary}
+            for key in ("public_match_data", "club_verified", "self_reported"):
+                payload[key] = separated[key]
+    else:
+        return response
+    response.set_data(current_app.json.dumps(payload))
+    return response

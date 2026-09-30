@@ -4,11 +4,15 @@ from src.agents.errors import NoActiveLoaneesError
 from src.agents.weekly_newsletter_agent import generate_team_weekly_newsletter
 from src.main import app
 from src.models.league import db
+from src.utils.data_mode import job_entrypoint
 from src.utils.job_utils import is_job_paused, teams_with_active_tracked_players
 
 
 def run_for_date(target_date: date):
     # Ensure we start from a clean transaction (in case a prior request aborted)
+    from src.utils.data_mode import require_newsletters_enabled
+
+    require_newsletters_enabled()
     try:
         db.session.rollback()
     except Exception:
@@ -49,8 +53,13 @@ def run_for_date(target_date: date):
     return results
 
 
-if __name__ == "__main__":
+@job_entrypoint
+def main():
     # Ensure Flask application context is active for DB/session access
     today = datetime.now(UTC).date()
     with app.app_context():
         run_for_date(today)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

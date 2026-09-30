@@ -20,6 +20,7 @@ from src.models.league import (
     db,
 )
 from src.models.tracked_player import TrackedPlayer
+from src.utils.data_mode import newsletters_enabled_route
 from src.utils.sanitize import sanitize_comment_body, sanitize_plain_text
 
 curator_bp = Blueprint("curator", __name__)
@@ -99,6 +100,7 @@ def curator_newsletters():
 
 @curator_bp.route("/curator/newsletters/generate", methods=["POST"])
 @require_curator_auth
+@newsletters_enabled_route
 def curator_generate_newsletter():
     """Generate a newsletter for an approved team.
 
@@ -281,6 +283,7 @@ def curator_list_tweets():
 
 @curator_bp.route("/curator/tweets", methods=["POST"])
 @require_curator_auth
+@newsletters_enabled_route
 def curator_create_tweet():
     """Create a tweet take with attribution.
 
@@ -451,6 +454,7 @@ def curator_delete_tweet(tweet_id):
 
 @curator_bp.route("/curator/tweets/<int:tweet_id>/attach", methods=["POST"])
 @require_curator_auth
+@newsletters_enabled_route
 def curator_attach_tweet(tweet_id):
     """Attach a tweet to a newsletter.
 

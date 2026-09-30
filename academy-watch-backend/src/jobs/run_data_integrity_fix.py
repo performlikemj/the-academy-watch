@@ -23,6 +23,7 @@ from datetime import UTC, datetime
 from sqlalchemy import func, text
 from src.main import app
 from src.models.league import db
+from src.utils.data_mode import job_entrypoint
 from src.utils.job_utils import is_job_paused
 
 logger = logging.getLogger(__name__)
@@ -43,6 +44,9 @@ def phase_1_backfill_team_profiles(dry_run=False):
 
     Uses raw SQL INSERT ON CONFLICT to bypass ORM session issues.
     """
+    from src.utils.data_mode import require_api_enabled
+
+    require_api_enabled()
     from src.api_football_client import APIFootballClient
     from src.utils.slug import generate_unique_team_slug
 
@@ -138,6 +142,9 @@ def phase_2_backfill_players(dry_run=False):
 
     Uses raw SQL INSERT ON CONFLICT to bypass ORM session issues.
     """
+    from src.utils.data_mode import require_api_enabled
+
+    require_api_enabled()
     from src.api_football_client import APIFootballClient
 
     logger.info("=== Phase 2: Backfill players table ===")
@@ -269,6 +276,9 @@ def phase_3_recompute_academy_ids(dry_run=False):
 
 def phase_4_refresh_statuses(dry_run=False):
     """Refresh tracked player statuses using existing journey data + fresh transfers."""
+    from src.utils.data_mode import require_api_enabled
+
+    require_api_enabled()
     from src.services.transfer_heal_service import refresh_and_heal
     from src.utils.job_utils import teams_with_active_tracked_players
 
@@ -321,6 +331,9 @@ def phase_4_refresh_statuses(dry_run=False):
 
 def phase_5_backfill_formations(dry_run=False):
     """Backfill formation data for fixture_player_stats rows missing it."""
+    from src.utils.data_mode import require_api_enabled
+
+    require_api_enabled()
     from src.api_football_client import APIFootballClient
     from src.models.weekly import Fixture, FixturePlayerStats
     from src.utils.formation_roles import grid_to_role
@@ -391,6 +404,9 @@ def phase_5_backfill_formations(dry_run=False):
 
 
 def run(dry_run=False, start_phase=1):
+    from src.utils.data_mode import require_api_enabled
+
+    require_api_enabled()
     try:
         db.session.rollback()
     except Exception:
@@ -434,7 +450,8 @@ def run(dry_run=False, start_phase=1):
     return results
 
 
-if __name__ == "__main__":
+@job_entrypoint
+def main():
     dry_run = "--dry-run" in sys.argv
     start_phase = 1
     for arg in sys.argv:
@@ -445,3 +462,7 @@ if __name__ == "__main__":
                 pass
     with app.app_context():
         run(dry_run=dry_run, start_phase=start_phase)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

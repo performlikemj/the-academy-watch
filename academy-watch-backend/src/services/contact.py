@@ -143,6 +143,10 @@ def platform_contract_belief(player_api_id: int) -> tuple[str, str | None]:
     """
     if player_api_id is None or player_api_id <= 0:
         return "unknown", None
+    from src.utils.data_mode import api_football_frozen
+
+    if api_football_frozen():
+        return "unknown", None
     pathway_status = player_facing_status(player_api_id)
 
     normalized = (pathway_status or "").strip().lower()

@@ -708,6 +708,25 @@ def get_radar_chart_data(
     average. Both values are normalized to 0-100 where 100 = the best
     performer at that position in the league.
     """
+    from src.utils.data_mode import api_football_frozen
+
+    if api_football_frozen():
+        return {
+            "chart_type": "radar",
+            "position_group": None,
+            "position_group_label": None,
+            "formation_position": None,
+            "position_matches": 0,
+            "matches_count": len(fixtures_data),
+            "total_minutes": sum((f.get("stats", {}).get("minutes") or 0) for f in fixtures_data),
+            "min_minutes_met": False,
+            "league_name": None,
+            "league_peers": 0,
+            "data": [],
+            "available": False,
+            "reason": "frozen",
+            "message": "Radar comparison is not available while public data is frozen.",
+        }
     if season is None:
         # DISPLAY default (see resolve_player_league) — latest-season-with-data
         # fallback keeps the radar populated across the July/Aug rollover.

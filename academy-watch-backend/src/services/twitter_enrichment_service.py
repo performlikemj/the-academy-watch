@@ -147,6 +147,9 @@ class TwitterEnrichmentService:
     def enrich_newsletter(self, newsletter_id: int, team_db_id: int) -> dict:
         """Search Twitter for each player in a newsletter, persist candidates
         as pending CommunityTake rows for review."""
+        from src.utils.data_mode import require_newsletters_enabled
+
+        require_newsletters_enabled()
         from src.models.league import Newsletter, Team
 
         newsletter = Newsletter.query.get(newsletter_id)
@@ -193,6 +196,9 @@ class TwitterEnrichmentService:
         end: str,
     ) -> list[dict]:
         """Ad-hoc search for scripts and tests."""
+        from src.utils.data_mode import require_newsletters_enabled
+
+        require_newsletters_enabled()
         ctx = PlayerContext(
             player_name=player_name,
             player_api_id=0,
@@ -291,6 +297,9 @@ class TwitterEnrichmentService:
         return tweets
 
     def _api_call(self, query: str, start: str, end: str) -> dict | None:
+        from src.utils.data_mode import require_newsletters_enabled
+
+        require_newsletters_enabled()
         endpoint = _SEARCH_ALL if self._use_archive else _SEARCH_RECENT
         params = urllib.parse.urlencode(
             {

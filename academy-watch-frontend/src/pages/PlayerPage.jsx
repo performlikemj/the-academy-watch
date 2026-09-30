@@ -1,3 +1,5 @@
+import { PublicMatchPanels } from '@/components/PublicMatchPanels'
+import { useDataMode } from '@/hooks/useDataMode'
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -260,6 +262,7 @@ function AcademyStatsSection({ academyStats, defaultOpen = false }) {
 }
 
 export function PlayerPage() {
+    const { api_football_frozen: apiFootballFrozen } = useDataMode()
     const { playerId } = useParams()
     const navigate = useNavigate()
     const [searchParams, setSearchParams] = useSearchParams()
@@ -806,6 +809,7 @@ export function PlayerPage() {
                                 onCurrentSeasonChange={setCurrentSeason}
                             />
                         </div>
+                        {apiFootballFrozen && <PublicMatchPanels stats={seasonStats} />}
                         {stats.length === 0 && academyStats?.appearances > 0 ? (
                             /* Academy player with no loan stats — academy section below is the primary view */
                             null

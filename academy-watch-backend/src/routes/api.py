@@ -111,6 +111,7 @@ from src.utils.background_jobs import (
 from src.utils.background_jobs import (
     update_job as _update_job,
 )
+from src.utils.data_mode import api_enabled_route, api_football_frozen, newsletters_enabled_route, newsletters_frozen
 from src.utils.feature_flags import rollup_reads_enabled
 from src.utils.fixture_stats_mapper import map_player_stat_block
 from src.utils.newsletter_slug import compose_newsletter_public_slug
@@ -811,6 +812,7 @@ def _user_rate_limit_key() -> str | None:
 # In api.py
 @api_bp.route("/newsletters/generate-weekly-all", methods=["POST"])
 @require_api_key
+@newsletters_enabled_route
 def generate_weekly_all():
     try:
         data = request.get_json() or {}
@@ -847,6 +849,7 @@ def generate_weekly_all():
 
 @api_bp.route("/newsletters/generate-weekly-all-mcp", methods=["POST"])
 @require_api_key
+@newsletters_enabled_route
 def generate_weekly_all_mcp():
     try:
         payload = request.get_json() or {}
@@ -882,6 +885,9 @@ def generate_weekly_all_mcp():
 
 def _sync_season(window_key: str | None = None, season: int | None = None):
     """Set api_client season and prime cache. Returns the start-year int."""
+    from src.utils.data_mode import require_api_enabled
+
+    require_api_enabled()
     if window_key:
         season_start = int(window_key.split("::")[0].split("-")[0])
         api_client.set_season_from_window_key(window_key)
@@ -1124,6 +1130,8 @@ def update_my_subscriptions():
 
         existing_rows = UserSubscription.query.filter_by(email=email_norm).all()
         existing_map = {row.team_id: row for row in existing_rows}
+        if newsletters_frozen() and any(tid not in existing_map or not existing_map[tid].active for tid in valid_ids):
+            return jsonify(error="Newsletters are frozen. New subscriptions are disabled.", code="frozen"), 409
 
         created_count = 0
         reactivated_count = 0
@@ -1329,6 +1337,7 @@ def get_newsletter(newsletter_id):
 
 
 @api_bp.route("/newsletters/<int:newsletter_id>/refresh-fixtures", methods=["POST"])
+@api_enabled_route
 def refresh_newsletter_fixtures(newsletter_id: int):
     """
     Check upcoming fixtures in a newsletter and update with results if games have been played.
@@ -1559,6 +1568,9 @@ def _sync_player_club_fixtures(
     a matching player name is found with a different ID, updates the TrackedPlayer
     record and syncs with the correct ID.
     """
+    from src.utils.data_mode import require_api_enabled
+
+    require_api_enabled()
     if not is_external_player_id(player_id):
         logger.info("Skipping upstream fixture sync for local player %s", player_id)
         return 0
@@ -1984,6 +1996,7 @@ def admin_update_player_link(link_id: int):
 
 
 @api_bp.route("/newsletters/generate", methods=["POST"])
+@newsletters_enabled_route
 def generate_newsletter():
     """Generate a newsletter for a specific team and date."""
     try:
@@ -2180,6 +2193,9 @@ def get_subscriptions():
 
 
 def _activate_subscriptions(email: str, team_ids: list[int], preferred_frequency: str = "weekly") -> dict[str, Any]:
+    from src.utils.data_mode import require_newsletters_enabled
+
+    require_newsletters_enabled()
     created_ids: list[int] = []
     updated_ids: list[int] = []
     skipped: list[dict[str, Any]] = []
@@ -2359,6 +2375,7 @@ def _process_subscriptions(email: str, team_ids_raw: list[Any], preferred_freque
 
 
 @api_bp.route("/subscriptions", methods=["POST"])
+@newsletters_enabled_route
 def create_subscription():
     """Create a new subscription for a single team."""
     try:
@@ -2378,6 +2395,7 @@ def create_subscription():
 
 
 @api_bp.route("/subscriptions/bulk_create", methods=["POST"])
+@newsletters_enabled_route
 def bulk_create_subscriptions():
     """Create or update subscriptions for multiple teams in one request."""
     try:
@@ -2455,6 +2473,11 @@ def update_manage_state(token: str):
         payload = request.get_json() or {}
         team_ids = payload.get("team_ids") or []
         preferred_frequency = payload.get("preferred_frequency", "weekly")
+
+        if newsletters_frozen():
+            active_ids = {s.team_id for s in UserSubscription.query.filter_by(email=row.email, active=True).all()}
+            if any(int(tid) not in active_ids for tid in team_ids):
+                return jsonify(error="Newsletters are frozen. New subscriptions are disabled.", code="frozen"), 409
 
         # Deactivate all current subscriptions for this email first
         UserSubscription.query.filter_by(email=row.email, active=True).update({UserSubscription.active: False})
@@ -2752,6 +2775,8 @@ def verify_email_token(token: str):
 
         purpose = (row.purpose or "").strip().lower()
         if purpose == "subscribe_confirm":
+            if newsletters_frozen():
+                return jsonify(error="Newsletters are frozen. New subscriptions are disabled.", code="frozen"), 409
             meta = {}
             try:
                 meta = json.loads(row.metadata_json or "{}")
@@ -2889,6 +2914,7 @@ def init_data():
 
 @api_bp.route("/sync-leagues", methods=["POST"])
 @require_api_key
+@api_enabled_route
 def sync_leagues():
     """Sync European leagues from API-Football."""
     try:
@@ -2941,6 +2967,7 @@ def sync_leagues():
 
 @api_bp.route("/sync-teams/<int:season>", methods=["POST"])
 @require_api_key
+@api_enabled_route
 def sync_teams(season):
     """Sync teams from API-Football."""
     try:
@@ -4094,6 +4121,9 @@ def _deliver_newsletter_via_webhook(
     Note: webhook_url_override and http_method_override are kept for backward
     compatibility but are ignored when using the direct email service.
     """
+    from src.utils.data_mode import require_newsletters_enabled
+
+    require_newsletters_enabled()
     # Check email service is configured
     if not email_service.is_configured():
         raise RuntimeError("Email service is not configured (set MAILGUN_* or SMTP_* env vars)")
@@ -4468,6 +4498,7 @@ def download_newsletter_pdf(newsletter_id: int):
 
 @api_bp.route("/newsletters/<int:newsletter_id>/send", methods=["POST"])
 @require_api_key
+@newsletters_enabled_route
 def send_newsletter(newsletter_id: int):
     """Send a newsletter via n8n webhook.
     Body options:
@@ -4654,6 +4685,7 @@ def render_latest_newsletter(fmt: str):
 
 @api_bp.route("/newsletters/generate-weekly-mcp-team", methods=["POST"])
 @require_api_key
+@newsletters_enabled_route
 def generate_weekly_mcp_team():
     try:
         payload = request.get_json() or {}
@@ -4857,6 +4889,7 @@ from src.utils.team_resolver import (
 
 @api_bp.route("/admin/backfill-team-leagues/<int:season>", methods=["POST"])
 @require_api_key
+@api_enabled_route
 def admin_backfill_team_leagues(season: int):
     """Backfill league_id for teams in a given season that are missing their
     league mapping. Helpful if teams were created via admin seeding before
@@ -4944,6 +4977,7 @@ def admin_backfill_team_leagues(season: int):
 
 @api_bp.route("/admin/backfill-team-leagues", methods=["POST"])
 @require_api_key
+@api_enabled_route
 def admin_backfill_team_leagues_all():
     """
     Backfill Team.league_id across multiple seasons.
@@ -5055,6 +5089,7 @@ def admin_backfill_team_leagues_all():
 
 @api_bp.route("/admin/players/<int:player_id>/sync-fixtures", methods=["POST"])
 @require_api_key
+@api_enabled_route
 def admin_sync_player_fixtures(player_id: int):
     """
     Sync/backfill all fixtures for a player from API-Football.
@@ -5234,6 +5269,7 @@ def admin_sync_player_fixtures(player_id: int):
 
 @api_bp.route("/admin/teams/<int:team_id>/sync-all-fixtures", methods=["POST"])
 @require_api_key
+@api_enabled_route
 def admin_sync_team_fixtures(team_id: int):
     """
     Sync/backfill all fixtures for ALL active players loaned from a specific team.
@@ -5278,6 +5314,7 @@ def admin_sync_team_fixtures(team_id: int):
 
 @api_bp.route("/admin/sync-all-player-fixtures", methods=["POST"])
 @require_api_key
+@api_enabled_route
 def admin_sync_all_player_fixtures():
     """
     Batch sync fixture stats for ALL active tracked players.
@@ -5335,6 +5372,9 @@ def _run_batch_fixture_sync(data: dict, job_id: str = None) -> dict:
     2. For each finished fixture, fetch /fixtures/players once
     3. Extract stats for every tracked player at that club
     """
+    from src.utils.data_mode import require_api_enabled
+
+    require_api_enabled()
     import time
     from collections import defaultdict
 
@@ -5983,6 +6023,7 @@ def _run_batch_fixture_sync(data: dict, job_id: str = None) -> dict:
 
 @api_bp.route("/admin/fixtures/backfill-raw-json", methods=["POST"])
 @require_api_key
+@api_enabled_route
 def admin_backfill_fixture_raw_json():
     """
     Backfill raw_json for fixtures that are missing it.
@@ -6078,6 +6119,7 @@ def admin_backfill_fixture_raw_json():
 
 @api_bp.route("/admin/tracked-players/backfill-ages", methods=["POST"])
 @require_api_key
+@api_enabled_route
 def admin_backfill_ages():
     """Backfill age and birth_date on TrackedPlayer records.
 
@@ -6204,6 +6246,7 @@ def admin_backfill_ages():
 
 @api_bp.route("/admin/fixtures/backfill-formations", methods=["POST"])
 @require_api_key
+@api_enabled_route
 def admin_backfill_formations():
     """Backfill formation, grid, and formation_position on existing FixturePlayerStats.
 
@@ -6339,6 +6382,9 @@ def _run_team_fixtures_sync(team_id: int, data: dict, job_id: str = None) -> dic
     Uses TrackedPlayer (newer model) to find all active players for a team,
     including both on_loan and first_team players.
     """
+    from src.utils.data_mode import require_api_enabled
+
+    require_api_enabled()
     from src.api_football_client import APIFootballClient
     from src.models.tracked_player import TrackedPlayer
     from src.models.weekly import Fixture, FixturePlayerStats
@@ -7012,7 +7058,7 @@ def admin_update_team_tracking(team_id: int):
         }
 
         # Auto-seed academy players when a team is newly tracked
-        if team.is_tracked and not was_tracked:
+        if team.is_tracked and not was_tracked and not api_football_frozen():
             try:
                 seed_job_id = _start_background_seed(team.id)
                 response["seed_job_id"] = seed_job_id
@@ -7031,6 +7077,7 @@ def admin_update_team_tracking(team_id: int):
 
 @api_bp.route("/admin/teams/<int:team_id>/verify", methods=["POST"])
 @require_api_key
+@api_enabled_route
 def admin_verify_team(team_id: int):
     """Idempotent verify-and-repair pipeline for a single tracked team.
 
@@ -7161,6 +7208,7 @@ def admin_list_placeholder_team_names():
 
 @api_bp.route("/admin/teams/bulk-fix-names", methods=["POST"])
 @require_api_key
+@api_enabled_route
 def admin_bulk_fix_team_names():
     """
     Attempt to fix placeholder team names by fetching from API-Football.
@@ -7366,7 +7414,7 @@ def admin_bulk_update_team_tracking():
 
         # Auto-seed newly tracked teams in a single background process
         seed_info = None
-        if is_tracked:
+        if is_tracked and not api_football_frozen():
             newly_tracked = [
                 t for t in teams if t.id not in exclude_ids and t.is_active and not was_tracked.get(t.id, False)
             ]
@@ -7775,6 +7823,8 @@ def admin_get_newsletter(nid: int):
 @api_bp.route("/admin/newsletters/<int:nid>", methods=["PUT"])
 @require_api_key
 def admin_update_newsletter(nid: int):
+    if newsletters_frozen() and (request.get_json(silent=True) or {}).get("published"):
+        return jsonify(error="Newsletters are frozen. Publishing is disabled.", code="frozen"), 409
     try:
         n = Newsletter.query.get_or_404(nid)
         data = request.get_json() or {}
@@ -7856,6 +7906,7 @@ def admin_update_newsletter(nid: int):
 
 @api_bp.route("/admin/newsletters/bulk-publish", methods=["POST"])
 @require_api_key
+@newsletters_enabled_route
 def admin_bulk_publish_newsletters():
     """Bulk publish or unpublish newsletters.
 
@@ -8007,6 +8058,9 @@ def _maybe_post_to_reddit_on_publish(newsletters: list) -> list:
     Returns:
         List of result dicts per newsletter
     """
+    from src.utils.data_mode import require_newsletters_enabled
+
+    require_newsletters_enabled()
     results = []
 
     try:
@@ -8133,8 +8187,11 @@ def _append_run_history(event: dict):
 
 def _maybe_auto_send_on_publish(n: Newsletter, auto_send_trigger: bool):
     """Attempt to auto-send a newsletter after it is published."""
+    from src.utils.data_mode import require_newsletters_enabled
+
     if not auto_send_trigger:
         return None
+    require_newsletters_enabled()
     try:
         if os.getenv("NEWSLETTER_AUTO_SEND_ON_APPROVAL", "1").lower() not in ("1", "true", "yes"):
             return None
@@ -8289,6 +8346,7 @@ def admin_bulk_delete_newsletters():
 
 @api_bp.route("/admin/newsletters/<int:newsletter_id>/refresh-radar-charts", methods=["POST"])
 @require_api_key
+@api_enabled_route
 def admin_refresh_newsletter_radar_charts(newsletter_id: int):
     """Surgically re-render the radar chart PNGs inside an unsent newsletter.
 
@@ -8463,6 +8521,7 @@ def admin_refresh_newsletter_radar_charts(newsletter_id: int):
 
 @api_bp.route("/admin/newsletters/send-digests", methods=["POST"])
 @require_api_key
+@newsletters_enabled_route
 def admin_send_digest_emails():
     """Trigger sending of weekly digest emails to users who prefer digest delivery.
 
@@ -8728,6 +8787,7 @@ def admin_get_newsletter_reddit_posts(newsletter_id: int):
 
 @api_bp.route("/admin/newsletters/<int:newsletter_id>/post-to-reddit", methods=["POST"])
 @require_api_key
+@newsletters_enabled_route
 def admin_post_newsletter_to_reddit(newsletter_id: int):
     """Post a newsletter to Reddit.
 
@@ -10649,7 +10709,7 @@ def get_player_journey_map(player_id: int):
     try:
         from src.models.journey import ClubLocation, PlayerJourney
 
-        should_sync = request.args.get("sync", "false").lower() == "true"
+        should_sync = not api_football_frozen() and request.args.get("sync", "false").lower() == "true"
 
         journey = PlayerJourney.query.filter_by(player_api_id=player_id).first()
 
@@ -10745,6 +10805,7 @@ def get_player_journey_map(player_id: int):
 
 @api_bp.route("/admin/journey/sync/<int:player_id>", methods=["POST"])
 @require_api_key
+@api_enabled_route
 def admin_sync_player_journey(player_id: int):
     """
     Trigger journey sync for a specific player.
@@ -10773,6 +10834,7 @@ def admin_sync_player_journey(player_id: int):
 
 @api_bp.route("/admin/journey/bulk-sync", methods=["POST"])
 @require_api_key
+@api_enabled_route
 def admin_bulk_sync_journeys():
     """
     Trigger journey sync for multiple players.
@@ -10882,6 +10944,7 @@ def admin_journey_diagnostics():
 
 @api_bp.route("/admin/journey/repair", methods=["POST"])
 @require_api_key
+@api_enabled_route
 def admin_repair_journeys():
     """Re-sync broken journeys: those with sync_error or 0 entries.
 
@@ -11136,6 +11199,7 @@ def admin_api_cache_cleanup():
 
 @api_bp.route("/admin/players/search-api", methods=["GET"])
 @require_api_key
+@api_enabled_route
 def admin_search_api_players():
     """Proxy search to API-Football player search endpoint."""
     query = request.args.get("q", "").strip()
@@ -11171,6 +11235,7 @@ def admin_search_api_players():
 
 @api_bp.route("/admin/players/test-classify", methods=["POST"])
 @require_api_key
+@api_enabled_route
 def admin_test_classify():
     """Run the classifier pipeline on a single player and return detailed reasoning."""
     data = request.get_json() or {}
@@ -11320,6 +11385,7 @@ def admin_test_classify():
 
 @api_bp.route("/admin/players/explain-academy", methods=["POST"])
 @require_api_key
+@api_enabled_route
 def admin_explain_academy():
     """Explain why a player is (or isn't) classified as an academy product.
 
@@ -11811,6 +11877,7 @@ def admin_delete_tracked_player(player_id):
 
 @api_bp.route("/admin/tracked-players/refresh-statuses", methods=["POST"])
 @require_api_key
+@api_enabled_route
 def admin_refresh_tracked_player_statuses():
     """Re-derive status/loan fields for TrackedPlayers using the academy classifier.
 
@@ -11916,6 +11983,9 @@ def _seed_single_team(team, max_age=30, sync_journeys=True, years=4, season=None
     Can be called from the HTTP endpoint or from a background worker.
     Returns a dict with result stats.
     """
+    from src.utils.data_mode import require_api_enabled
+
+    require_api_enabled()
     from sqlalchemy import cast
     from sqlalchemy.dialects.postgresql import JSONB as PG_JSONB
     from src.models.journey import PlayerJourney
@@ -12269,6 +12339,9 @@ def _seed_single_team(team, max_age=30, sync_journeys=True, years=4, season=None
 
 def _run_seed_team_process(job_id, team_id, max_age=30, sync_journeys=True, years=4):
     """Background worker: seed TrackedPlayers for one team."""
+    from src.utils.data_mode import require_api_enabled
+
+    require_api_enabled()
     import signal
     import sys
 
@@ -12365,6 +12438,9 @@ def _run_seed_teams_process(job_id, team_db_ids, max_age=30, sync_journeys=True,
     regardless of existing TrackedPlayer rows — suitable for bulk-tracking
     where re-enabled teams need cohort refresh and player status updates.
     """
+    from src.utils.data_mode import require_api_enabled
+
+    require_api_enabled()
     import signal
     import sys
 
@@ -12502,6 +12578,9 @@ def _run_seed_all_tracked_process(job_id, max_age=30, sync_journeys=True, years=
     If team_db_ids is provided, only those teams are considered (used by
     bulk-tracking auto-seed).  Otherwise all tracked+active teams are used.
     """
+    from src.utils.data_mode import require_api_enabled
+
+    require_api_enabled()
     import signal
     import sys
 
@@ -12603,6 +12682,9 @@ def _run_seed_all_tracked_process(job_id, max_age=30, sync_journeys=True, years=
 
 def _start_background_seed(team_id, max_age=30, sync_journeys=True, years=4):
     """Launch a background process to seed TrackedPlayers for a team. Returns job_id."""
+    from src.utils.data_mode import require_api_enabled
+
+    require_api_enabled()
     import multiprocessing
 
     job_id = _create_background_job("seed_team")
@@ -12619,6 +12701,7 @@ def _start_background_seed(team_id, max_age=30, sync_journeys=True, years=4):
 
 @api_bp.route("/admin/tracked-players/seed-team", methods=["POST"])
 @require_api_key
+@api_enabled_route
 def admin_seed_tracked_players():
     """Seed TrackedPlayer records for a team using existing academy identification rules.
 
@@ -12656,6 +12739,7 @@ def admin_seed_tracked_players():
 
 @api_bp.route("/admin/tracked-players/seed-all-tracked", methods=["POST"])
 @require_api_key
+@api_enabled_route
 def admin_seed_all_tracked():
     """Backfill: seed TrackedPlayers for all tracked teams that have none.
 
@@ -12712,6 +12796,7 @@ def admin_seed_all_tracked():
 
 @api_bp.route("/admin/tracked-players/sync-journeys", methods=["POST"])
 @require_api_key
+@api_enabled_route
 def admin_sync_tracked_player_journeys():
     """Batch-sync PlayerJourney records for TrackedPlayers missing or broken journey data.
 
@@ -13131,3 +13216,10 @@ def features():
     """
     enabled = os.getenv("CONTACT_RAIL_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}
     return jsonify({"contact_rail": enabled})
+
+
+@api_bp.route("/meta/data-mode", methods=["GET"])
+def data_mode():
+    response = jsonify(api_football_frozen=api_football_frozen(), newsletters_frozen=newsletters_frozen())
+    response.headers["Cache-Control"] = "no-store"
+    return response

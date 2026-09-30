@@ -105,6 +105,9 @@ def run_big6_seed(
         cohort_discover_timeout: Seconds before skipping a cohort discovery (default: COHORT_DISCOVER_TIMEOUT)
         player_sync_timeout: Seconds before skipping a player sync (default: PLAYER_SYNC_TIMEOUT)
     """
+    from src.utils.data_mode import require_api_enabled
+
+    require_api_enabled()
     seasons = seasons or SEASONS
     team_ids = team_ids or list(BIG_6.keys())
     provided_league_ids = league_ids

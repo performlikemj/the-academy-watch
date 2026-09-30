@@ -1,4 +1,5 @@
 import { ShowcasePhoto } from '@/components/ShowcasePhoto'
+import { useDataMode } from '@/hooks/useDataMode'
 import PlayerFeedbackInbox from '@/components/showcase/PlayerFeedbackInbox'
 import { useState, useEffect, useLayoutEffect, useCallback, useRef } from 'react'
 import { Link } from 'react-router-dom'
@@ -442,6 +443,7 @@ export function ShowcaseSection({
   const [error, setError] = useState(false)
   const [showcase, setShowcase] = useState(null)
   const [loadedSubjectKey, setLoadedSubjectKey] = useState(null)
+  const { api_football_frozen: frozen } = useDataMode()
   const [myClaims, setMyClaims] = useState([])
 
   // User/club-fed game rows. Signed ids stay strings at this boundary so a
@@ -2336,7 +2338,7 @@ export function ShowcaseSection({
               <>
                 <p className="text-sm text-muted-foreground">Is this you, or someone you represent?</p>
                 <Button variant="outline" size="sm" onClick={openClaimDialog}>
-                  Claim this profile
+                  {frozen ? 'Claim your record' : 'Claim this profile'}
                 </Button>
               </>
             )}

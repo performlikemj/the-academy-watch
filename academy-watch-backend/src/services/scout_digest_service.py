@@ -498,6 +498,9 @@ def send_scout_digests(
     callers may pass a run-owned ``enrichment_cache`` to reuse player state
     across cursor pages; omission preserves the fresh per-call cache.
     """
+    from src.utils.data_mode import require_newsletters_enabled
+
+    require_newsletters_enabled()
     from src.services.email_service import email_service  # lazy so tests can monkeypatch send_email
 
     try:

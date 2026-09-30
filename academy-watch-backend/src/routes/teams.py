@@ -25,6 +25,7 @@ from src.models.league import (
 from src.models.tracked_player import TrackedPlayer
 from src.services.player_suppression import without_active_suppression
 from src.utils.academy_classifier import _get_latest_season, classify_tracked_player, is_same_club
+from src.utils.data_mode import api_football_frozen
 from src.utils.feature_flags import rollup_reads_enabled
 from src.utils.geocoding import get_team_coordinates
 from src.utils.slug import resolve_team_by_identifier
@@ -195,7 +196,7 @@ def get_teams():
         # Sort by name for consistent display
         teams.sort(key=lambda x: x.name)
 
-        if active_teams_count == 0 and european_only:
+        if active_teams_count == 0 and european_only and not api_football_frozen():
             # Lazy sync logic for European teams when none found
             try:
                 _lazy_sync_european_teams(season)
@@ -249,6 +250,9 @@ def get_teams():
 
 def _lazy_sync_european_teams(season: int | None):
     """Lazily sync European teams if none exist in database."""
+    from src.utils.data_mode import require_api_enabled
+
+    require_api_enabled()
     real_client = _get_api_client()
     season = season or real_client.current_season_start_year
     logger.info(f"Attempting lazy sync for European top leagues for season {season}")

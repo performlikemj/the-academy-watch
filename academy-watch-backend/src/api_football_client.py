@@ -19,6 +19,7 @@ import requests
 from sqlalchemy.exc import DataError, IntegrityError
 
 from src.data.transfer_windows import WINDOWS
+from src.utils.data_mode import api_football_frozen
 
 dotenv.load_dotenv(dotenv.find_dotenv())
 
@@ -117,6 +118,8 @@ def _record_transfer_payload(
     Missing migrations and all other persistence failures remain additive: they
     are logged but never change the API payload returned to the caller.
     """
+    if api_football_frozen():
+        return
     if not isinstance(transfer_blocks, list) or not transfer_blocks:
         return
 
@@ -364,19 +367,22 @@ class APIFootballClient:
         call_budget: APICallBudget | None = None,
         skip_handshake: bool = False,
     ):
+        frozen = api_football_frozen()
         self.call_budget = call_budget
         self.api_key = api_key or os.getenv("API_FOOTBALL_KEY")
         # ------------------------------------------------------------------
         # 🔧 Stub‑data toggle – must be explicitly enabled
         # ------------------------------------------------------------------
-        self.use_stub = os.getenv("API_USE_STUB_DATA", "false").lower() == "true"
-        if not self.api_key and not self.use_stub:
+        self.use_stub = not frozen and os.getenv("API_USE_STUB_DATA", "false").lower() == "true"
+        if not self.api_key and not self.use_stub and not frozen:
             raise RuntimeError(
                 "API_FOOTBALL_KEY is missing and API_USE_STUB_DATA is not enabled. "
                 "Set API_USE_STUB_DATA=true ONLY when you want to run offline tests."
             )
 
         mode_env = os.getenv("API_FOOTBALL_MODE", "direct").lower()
+        if frozen and mode_env not in {"direct", "rapidapi"}:
+            mode_env = "direct"
 
         # Force stub mode ONLY when explicitly requested
         if self.use_stub:
@@ -392,7 +398,7 @@ class APIFootballClient:
             self.base_url = "https://api-football-v1.p.rapidapi.com/v3"
             self.headers = {"X-RapidAPI-Key": self.api_key, "X-RapidAPI-Host": "api-football-v1.p.rapidapi.com"}
             logger.info("🔗 API‑Football mode: RAPIDAPI (api-football-v1.p.rapidapi.com)")
-        elif self.mode == "stub":
+        elif self.mode == "stub" and not api_football_frozen():
             if not self.use_stub:
                 raise RuntimeError(
                     "Stub mode was engaged implicitly. Enable it explicitly by setting API_USE_STUB_DATA=true."
@@ -470,7 +476,7 @@ class APIFootballClient:
 
         # Test API connection unless explicitly skipped
         self.handshake_failed = False
-        if not skip_handshake and not os.getenv("SKIP_API_HANDSHAKE") and self.mode != "stub":
+        if not frozen and not skip_handshake and not os.getenv("SKIP_API_HANDSHAKE") and self.mode != "stub":
             try:
                 self.handshake()
                 logger.info("✅ API handshake successful")
@@ -536,6 +542,8 @@ class APIFootballClient:
 
     def handshake(self):
         """Test API connection with minimal quota cost."""
+        if api_football_frozen():
+            return False
         logger.info("🤝 Testing API connection...")
         try:
             # Use status endpoint which has minimal quota cost
@@ -668,8 +676,27 @@ class APIFootballClient:
 
         # NOTE: The transfers endpoint does **not** accept a `season` query parameter (see API‑Football v3 docs).
 
+        if api_football_frozen():
+            # Even force_refresh must remain cache-only. Expired cache retention
+            # and its existing daily purge are deliberately unchanged.
+            try:
+                from src.models.api_cache import APICache
+
+                cached = APICache.get_cached(endpoint, params) if endpoint not in self._NO_CACHE_ENDPOINTS else None
+                if cached is not None:
+                    return cached
+            except Exception as exc:
+                logger.debug("Frozen cache unavailable for %s: %s", endpoint, exc)
+            return {
+                "response": [],
+                "results": 0,
+                "errors": {"frozen": "Stored data unavailable"},
+                "paging": {"current": 1, "total": 1},
+                "unavailable": True,
+            }
+
         # Explicit stub usage
-        if self.mode == "stub":
+        if self.mode == "stub" and not api_football_frozen():
             if not self.use_stub:
                 raise RuntimeError(
                     "Unexpected fallback to stub data. "
@@ -790,7 +817,7 @@ class APIFootballClient:
             return cached[0]
 
         # Avoid network calls in stub mode
-        if self.mode == "stub":
+        if self.mode == "stub" and not api_football_frozen():
             return {}
 
         try:
@@ -4792,9 +4819,9 @@ class APIFootballClient:
 
         logger.info(f"👥 Fetching all players for team {team_id}, season {season}")
 
-        if self.mode == "stub":
+        if self.mode == "stub" and not api_football_frozen():
             return self._get_sample_team_players(team_id, season)
-        if not self.api_key:
+        if not self.api_key and not api_football_frozen():
             raise TeamPlayersFetchError(
                 "Cannot fetch team players without API_FOOTBALL_KEY; "
                 "enable API_USE_STUB_DATA=true explicitly for sample data"
@@ -4915,10 +4942,10 @@ class APIFootballClient:
         # Cache miss or expired - fetch from API
         logger.info(f"🔄 Cache MISS - Fetching transfers for player {player_id} from API")
 
-        if self.mode == "stub":
+        if self.mode == "stub" and not api_football_frozen():
             # Sample data is valid only when stub mode was explicitly enabled.
             return self._get_sample_transfers(player_id=player_id)
-        if not self.api_key:
+        if not self.api_key and not api_football_frozen():
             raise TransferFetchError(
                 "Cannot fetch player transfers without API_FOOTBALL_KEY; "
                 "enable API_USE_STUB_DATA=true explicitly for sample data"
@@ -5020,6 +5047,9 @@ class APIFootballClient:
         - Fouls, penalties, offsides
         - Goalkeeper-specific stats (saves, goals conceded)
         """
+        from src.utils.data_mode import require_api_enabled
+
+        require_api_enabled()
         from src.models.weekly import FixturePlayerStats
         from src.utils.fixture_stats_mapper import map_player_stat_block
 
@@ -5053,6 +5083,9 @@ class APIFootballClient:
         return row
 
     def _upsert_fixture_team_stats(self, db_session, fixture_pk, team_api_id, stats_response):
+        from src.utils.data_mode import require_api_enabled
+
+        require_api_enabled()
         from src.models.weekly import FixtureTeamStats
 
         row = db_session.query(FixtureTeamStats).filter_by(fixture_id=fixture_pk, team_api_id=team_api_id).first()

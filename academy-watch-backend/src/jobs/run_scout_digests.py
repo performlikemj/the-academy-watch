@@ -18,6 +18,7 @@ from src.api_football_client import APICallBudget
 from src.main import app
 from src.routes.scout import _get_api_client
 from src.services.scout_digest_service import MAX_DIGEST_USERS, send_scout_digests
+from src.utils.data_mode import job_entrypoint
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -76,6 +77,9 @@ def _attach_api_budget(api_client, budget: APICallBudget):
 
 def run(dry_run: bool = False, min_interval_hours: int = DEFAULT_MIN_INTERVAL_HOURS) -> dict:
     """Send all due digest pages and return operator-facing totals."""
+    from src.utils.data_mode import require_newsletters_enabled
+
+    require_newsletters_enabled()
     if min_interval_hours < 0:
         raise ValueError("min_interval_hours must be non-negative")
 
@@ -152,7 +156,11 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+@job_entrypoint
 def main(argv: list[str] | None = None) -> int:
+    from src.utils.data_mode import require_newsletters_enabled
+
+    require_newsletters_enabled()
     args = _parse_args(argv)
     dry_run = args.dry_run or os.getenv("SCOUT_DIGEST_DRY_RUN", "").strip().lower() in ("1", "true", "yes", "on")
     with app.app_context():

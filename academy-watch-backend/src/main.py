@@ -362,6 +362,9 @@ def seed_teams_cmd():
     """Seed academy players for all tracked teams with < 20 players.
     Uses journey sync for proper academy classification. Max age 30.
     """
+    from src.utils.data_mode import require_api_enabled
+
+    require_api_enabled()
     from sqlalchemy import func
 
     from src.models.tracked_player import TrackedPlayer
@@ -408,6 +411,9 @@ def reclass_journeys_cmd():
     using the latest rules, without re-fetching career data from API-Football.
     Transfer records are fetched (cached) for accurate permanent-transfer gating.
     """
+    from src.utils.data_mode import require_api_enabled
+
+    require_api_enabled()
     from src.models.journey import PlayerJourney, PlayerJourneyEntry
     from src.services.journey_sync import JourneySyncService
 
@@ -477,6 +483,9 @@ def reclass_journeys_cmd():
 @app.cli.command("sync-fixtures")
 def sync_fixtures_cmd():
     """Sync match fixtures and player stats for all active tracked players."""
+    from src.utils.data_mode import require_api_enabled
+
+    require_api_enabled()
     from src.routes.api import _run_batch_fixture_sync
 
     print("Starting batch fixture sync ...", flush=True)
