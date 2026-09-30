@@ -892,3 +892,272 @@ def test_shadow_refresh_includes_held_rows_without_cursor_skip_and_discovery_hid
     assert suppressed.last_stats_sync_at is None
     assert {call.args[1]["id"] for call in client._make_request.call_args_list} == {7001, 7002}
     assert subject_publication_held(7001)  # updating stats never lifts the public incident hold
+
+
+@pytest.fixture
+def public_player_reads(foundation_app, monkeypatch):
+    from src.routes.academy import academy_bp
+    from src.routes.api import api_bp
+    from src.routes.journey import journey_bp
+    from src.routes.player_matches import player_matches_bp
+    from src.routes.players import players_bp
+    from src.routes.showcase import showcase_bp
+
+    for blueprint in (players_bp, showcase_bp, academy_bp, journey_bp, player_matches_bp, api_bp):
+        foundation_app.register_blueprint(blueprint, url_prefix="/api")
+    # Use only database-backed/stub data; no upstream fetches during this audit.
+    monkeypatch.setenv("API_FOOTBALL_FROZEN", "1")
+    return foundation_app.test_client()
+
+
+_PUBLIC_READ_CASES = [
+    (namespace, suffix)
+    for namespace in ("api", "local")
+    for suffix in (
+        "stats",
+        "profile",
+        "season-stats",
+        "availability",
+        "journey",
+        "journey/map",
+        "showcase",
+        "followers/count",
+        "matches",
+    )
+] + [("api", suffix) for suffix in ("academy-stats", "comments", "links", "commentaries")]
+
+
+@pytest.mark.parametrize("namespace,suffix", _PUBLIC_READ_CASES)
+def test_every_public_player_id_read_hold_and_lift(foundation_app, public_player_reads, monkeypatch, namespace, suffix):
+    program = _program()
+    local = _local(birth_date=date(1990, 1, 1), origin_program_id=program.id)
+    if namespace == "api":
+        local.api_player_id = 12345
+        db.session.add(
+            PlayerShadow(player_api_id=12345, player_name="Fixture", birth_date=date(1990, 1, 1), is_active=True)
+        )
+    db.session.commit()
+    if namespace == "api":
+        team = Team(team_id=9001, name="Fixture club", country="JP", season=2025)
+        db.session.add(team)
+        db.session.flush()
+        db.session.add(
+            TrackedPlayer(
+                player_api_id=local.api_player_id,
+                player_name="Fixture",
+                team_id=team.id,
+                birth_date="1990-01-01",
+                status="academy",
+                data_source="api-football",
+                is_active=True,
+            )
+        )
+        db.session.commit()
+    path = f"/api/players/{local.api_player_id}/{suffix}"
+    before = public_player_reads.get(path)
+    assert before.status_code == 200, (path, before.json)
+    program.emergency_hidden = True
+    db.session.commit()
+    monkeypatch.delenv("P2_FOUNDATION_ENABLED")
+    for method in (public_player_reads.get, public_player_reads.head):
+        held = method(path)
+        assert held.status_code == 404, (path, held.json)
+    assert public_player_reads.get(path).json == {"error": "Player not found"}
+    program.emergency_hidden = False
+    db.session.commit()
+    restored = public_player_reads.get(path)
+    assert restored.status_code == before.status_code, (path, restored.json)
+    assert PlayerSuppression.query.count() == 0
+
+
+@pytest.mark.parametrize("namespace", ["api", "local"])
+def test_reported_match_hold_preserves_owner_crud(foundation_app, public_player_reads, monkeypatch, namespace):
+    from src.models.player_match_entry import PlayerMatchEntry
+
+    owner = _user()
+    program = _program()
+    local = _local(birth_date=date(1990, 1, 1), origin_program_id=program.id)
+    if namespace == "api":
+        local.api_player_id = 12345
+        db.session.add(
+            PlayerShadow(player_api_id=12345, player_name="Fixture", birth_date=date(1990, 1, 1), is_active=True)
+        )
+    identity = {"player_api_id": local.api_player_id} if namespace == "api" else {"local_player_id": local.id}
+    db.session.add(
+        PlayerProfileClaim(**identity, user_account_id=owner.id, relationship_type="player", status="approved")
+    )
+    club_entry = PlayerMatchEntry(
+        player_api_id=local.api_player_id,
+        season=2025,
+        source="club",
+        status="club_confirmed",
+        reported_by_user_id=owner.id,
+        club_program_id=program.id,
+        match_date=date(2025, 9, 1),
+        opponent="Club fixture",
+        home_away="home",
+        minutes=90,
+        note="Club report",
+    )
+    db.session.add(club_entry)
+    db.session.commit()
+    path = f"/api/players/{local.api_player_id}/matches"
+    headers = {"Authorization": f"Bearer {issue_user_token(owner.email)['token']}"}
+    payload = {"match_date": "2025-09-02", "opponent": "Self fixture", "home_away": "away", "note": "Self report"}
+    created = public_player_reads.post(path, headers=headers, json=payload)
+    assert created.status_code == 201, created.json
+    entry_id = created.json["match"]["id"]
+    visible = public_player_reads.get(path)
+    assert visible.status_code == 200 and visible.json["total"] == 2
+    assert {entry["source"] for entry in visible.json["matches"]} == {"self", "club"}
+    program.emergency_hidden = True
+    db.session.commit()
+    monkeypatch.delenv("P2_FOUNDATION_ENABLED")
+    for auth in ({}, headers):
+        assert public_player_reads.get(path, headers=auth).json == {"error": "Player not found"}
+        assert public_player_reads.get(path, headers=auth).status_code == 404
+    updated = public_player_reads.patch(f"{path}/{entry_id}", headers=headers, json={"note": "Incident edit"})
+    assert updated.status_code == 200, updated.json
+    assert db.session.get(PlayerMatchEntry, entry_id).note == "Incident edit"
+    created_during = public_player_reads.post(path, headers=headers, json={**payload, "match_date": "2025-09-03"})
+    assert created_during.status_code == 201, created_during.json
+    assert public_player_reads.delete(f"{path}/{entry_id}", headers=headers).status_code == 200
+    program.emergency_hidden = False
+    db.session.commit()
+    assert public_player_reads.get(path).json["total"] == 2
+    assert PlayerSuppression.query.count() == 0
+
+
+@pytest.mark.parametrize("namespace", ["api", "local"])
+@pytest.mark.parametrize("suffix,surface", [("stats", "player_stats"), ("season-stats", "season_stats")])
+def test_rollup_public_reads_remain_held(foundation_app, public_player_reads, monkeypatch, namespace, suffix, surface):
+    from src.models.season_rollup import PlayerSeasonTotal
+
+    monkeypatch.setenv("SEASON_ROLLUP_READS", surface)
+    program = _program()
+    local = _local(birth_date=date(1990, 1, 1), origin_program_id=program.id)
+    if namespace == "api":
+        local.api_player_id = 12345
+        db.session.add(
+            PlayerShadow(player_api_id=12345, player_name="Fixture", birth_date=date(1990, 1, 1), is_active=True)
+        )
+    db.session.add(
+        PlayerSeasonTotal(
+            player_api_id=local.api_player_id,
+            season=2025,
+            level_group="senior",
+            primary_source="fixtures",
+            computed_at=datetime.now(UTC),
+            appearances=1,
+            minutes=90,
+            goals=1,
+            clubs=[],
+        )
+    )
+    db.session.commit()
+    path = f"/api/players/{local.api_player_id}/{suffix}?season=2025"
+    visible = public_player_reads.get(path)
+    assert visible.status_code == 200, visible.json
+    if suffix == "stats":
+        assert visible.json["provenance"]["primary_source"] == "fixtures", visible.json
+        assert visible.json["summary"]["minutes"] == 90
+    else:
+        assert visible.json["source"] == "season-rollup", visible.json
+    program.emergency_hidden = True
+    db.session.commit()
+    monkeypatch.delenv("P2_FOUNDATION_ENABLED")
+    assert public_player_reads.get(path).status_code == 404
+    program.emergency_hidden = False
+    db.session.commit()
+    restored = public_player_reads.get(path)
+    assert restored.status_code == 200
+    assert restored.json == visible.json
+
+
+def test_tracked_loan_journey_hold_and_lift(foundation_app, public_player_reads, monkeypatch):
+    program = _program()
+    local = _local(birth_date=date(1990, 1, 1), origin_program_id=program.id)
+    local.api_player_id = 12345
+    team = Team(team_id=9001, name="Fixture club", country="JP", season=2025)
+    db.session.add(team)
+    db.session.flush()
+    tracked = TrackedPlayer(
+        player_api_id=12345,
+        player_name="Fixture",
+        team_id=team.id,
+        birth_date="1990-01-01",
+        status="academy",
+        data_source="api-football",
+        is_active=True,
+    )
+    db.session.add(tracked)
+    db.session.commit()
+    path = f"/api/loans/{tracked.id}/journey"
+    assert public_player_reads.get(path).status_code == 200
+    program.emergency_hidden = True
+    db.session.commit()
+    monkeypatch.delenv("P2_FOUNDATION_ENABLED")
+    assert public_player_reads.get(path).status_code == 404
+    assert public_player_reads.head(path).status_code == 404
+    program.emergency_hidden = False
+    db.session.commit()
+    assert public_player_reads.get(path).status_code == 200
+
+
+@pytest.mark.parametrize("namespace", ["api", "local"])
+@pytest.mark.parametrize("stale", [False, True])
+def test_sitemap_cached_and_new_player_urls_hold_and_lift(foundation_app, monkeypatch, namespace, stale):
+    import time
+    import xml.etree.ElementTree as ET
+
+    from src.routes.share import share_bp
+    from src.services import sitemap_service
+
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://theacademywatch.com")
+    foundation_app.register_blueprint(share_bp)
+    program = _program()
+    local = _local(birth_date=date(1990, 1, 1), origin_program_id=program.id)
+    if namespace == "api":
+        local.api_player_id = 12345
+        team = Team(team_id=9001, name="Fixture club", country="JP", season=2025)
+        db.session.add(team)
+        db.session.flush()
+        db.session.add(
+            TrackedPlayer(
+                player_api_id=12345,
+                player_name="Fixture",
+                team_id=team.id,
+                birth_date="1990-01-01",
+                status="academy",
+                data_source="api-football",
+                is_active=True,
+            )
+        )
+    db.session.commit()
+    sitemap_service.clear_sitemap_cache()
+    xml = sitemap_service.build_sitemap_xml()
+    prefix = f"players/{local.api_player_id}" if namespace == "api" else f"local-players/{local.id}"
+    origin = "https://theacademywatch.com"
+    player_url, program_url = f"{origin}/{prefix}", f"{origin}/programs/fixture"
+
+    def locations(body):
+        return {node.text for node in ET.fromstring(body).iter(f"{{{sitemap_service.SITEMAP_NAMESPACE}}}loc")}
+
+    assert {player_url, program_url} <= locations(xml)
+    # Cache predates the incident. Avoid racing a background fixture DB connection.
+    monkeypatch.setattr(sitemap_service, "_start_background_build", Mock(return_value=False))
+    monkeypatch.setattr(sitemap_service, "_cache", {"xml": xml, "built_at": time.monotonic() - (7200 if stale else 0)})
+    client = foundation_app.test_client()
+    assert client.get("/sitemap.xml").data == xml
+    program.emergency_hidden = True
+    db.session.commit()
+    monkeypatch.delenv("P2_FOUNDATION_ENABLED")
+    for body in (sitemap_service.build_sitemap_xml(), client.get("/sitemap.xml").data):
+        assert player_url not in locations(body)
+        assert program_url not in locations(body)
+    assert sitemap_service._cache["xml"] == xml  # lifting can restore the original response copy
+    assert client.head("/sitemap.xml").status_code == 200
+    program.emergency_hidden = False
+    db.session.commit()
+    assert client.get("/sitemap.xml").data == xml
+    assert {player_url, program_url} <= locations(sitemap_service.build_sitemap_xml())

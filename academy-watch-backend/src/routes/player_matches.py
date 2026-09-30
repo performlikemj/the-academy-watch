@@ -15,6 +15,7 @@ from src.models.showcase import LocalPlayer, PlayerProfileClaim
 from src.services import season_rollup_service
 from src.services.club_registry import is_manager_of_approved_program
 from src.services.player_suppression import (
+    hide_suppressed_player,
     is_local_player_suppressed,
     is_player_suppressed,
     neutral_player_not_found,
@@ -274,6 +275,7 @@ def _apply_self_entry(
 
 
 @player_matches_bp.route("/players/<int(signed=True):player_api_id>/matches", methods=["GET"])
+@hide_suppressed_player("player_api_id", public_read=True)
 def list_player_matches(player_api_id: int):
     try:
         subject = _resolve_subject(player_api_id)

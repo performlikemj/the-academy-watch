@@ -161,6 +161,38 @@ ordering after this helper, then revalidate final reads/bytes with
   unavailable response. Actual `is_player_suppressed`, suppression rows and
   legacy age policy remain separate and unchanged.
 
+### Player-ID GET audit (fix round 3)
+
+The complete route audit includes `route(methods=["GET"])` and `.get()`
+registrations. HTTP hide/lift regressions cover these public surfaces:
+
+| Public surface | Current hold enforcement |
+| --- | --- |
+| `/api/players/<signed-id>/profile`, `/stats`, `/season-stats`, `/availability` | Explicit public GET/HEAD decorator; both legacy and enabled season-rollup reads tested |
+| `/api/players/<signed-id>/matches` | Explicit public GET/HEAD decorator added in round 3; self/club entries unavailable even to owners; owner POST/PATCH/DELETE remain usable |
+| `/api/players/<signed-id>/journey`, `/journey/map` | Explicit public GET/HEAD decorator |
+| `/api/loans/<tracked-row-id>/journey` | Hold-aware public query predicate |
+| `/api/players/<positive-id>/academy-stats`, `/comments`, `/links`, `/commentaries` | Explicit public GET/HEAD decorator; these legacy routes accept positive API IDs only |
+| `/api/players/<signed-id>/followers/count` | Hold-aware public-adult resolver (fan count and follow state) |
+| `/api/players/<signed-id>/showcase` | Explicit public GET/HEAD decorator |
+| `/api/local-players/<local-id>`, `/showcase` | Additive local visibility checks, including merged aliases |
+| `/api/media/published/players/...`, `/local-players/...` | Current subject visibility before storage/conditional responses |
+| `/p/<signed-id>`, `/p/<signed-id>/card.png` | Hold-aware public-adult resolver for share HTML, OG/meta and share image |
+| `/sitemap.xml` | Hold-aware candidate enumeration plus response-time filtering of cached player/program URLs added in round 3 |
+
+API and synthetic-local subjects are tested wherever the signed route accepts
+both. Production has no separate player fan-list, OG/meta or season-rollup URL:
+those are the follower-count, share HTML and stats routes above. Private writer,
+admin, club/staff and authenticated owner previews retain their access rules;
+the development-only pending-media preview is separate from published media.
+
+Sitemap cached XML is filtered in a response copy, in bounded batches, against
+current emergency holds independently of the rollout flag. Both fresh and stale
+caches drop held player/program links immediately; lifting restores cached links
+without waiting for a background rebuild. Other eligibility rules keep the
+existing sitemap rebuild cadence. Owner mutation and refresh sweep regressions
+from round 2 remain in the suite.
+
 ## Public reads versus owner writes and maintenance
 
 `src.services.player_suppression.without_active_suppression(id_expression)`
