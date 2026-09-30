@@ -409,7 +409,7 @@ def test_viewer_is_read_only(env, client, club_app):
     h = _h(_email("viewer"))
     base = env["base"]
     roster = client.get(f"{base}/roster", headers=h).get_json()
-    assert roster["members"][0]["brief"]["body"] is None and roster["system_brief"]["body"] is None
+    assert "brief" not in roster["members"][0] and roster["system_brief"]["body"] is None
     assert client.get(f"{base}/matches/{match_a}", headers=h).status_code == 200
     assert client.get(f"{base}/matches/{match_a}/media-token", headers=h).status_code == 200
     for method, path, body in (

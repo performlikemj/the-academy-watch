@@ -34,6 +34,7 @@ from src.models.player_feedback import (
 )
 from src.services.club_access import (
     club_actor_allowed,
+    match_in_scope,
     require_club_permission,
     scoped_signed_player_ids,
     scoped_squad_ids,
@@ -450,7 +451,10 @@ def feedback_suggestions(program_id):
         raise FeedbackError("feedback_not_found", 404)
     if not invitation or not effective_relationship(db.session, invitation):
         raise FeedbackError("club_relationship_required", 409)
-    return jsonify(suggestions=evidence_candidates(db.session, invitation))
+    scoped = scoped_squad_ids() is not None
+    return jsonify(
+        suggestions=evidence_candidates(db.session, invitation, match_filter=match_in_scope if scoped else None)
+    )
 
 
 @feedback_bp.post("/me/player-feedback/<revision_id>/progress")

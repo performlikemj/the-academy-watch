@@ -104,7 +104,8 @@ def member_photo(member, subject, player, *, player_photos=None):
     return None
 
 
-def profile_payload(member):
+def profile_payload(member, *, match_filter=None, match_dto=None):
+    """match_filter/match_dto: club staff access scope (None = legacy whole-club behaviour)."""
     from src.models.player_match_entry import ClubResult, PlayerMatchEntry
     from src.models.video import VideoMatch, VideoPlayerReport, VideoRosterEntry
     from src.routes.club import _member_dict, club_report_payload
@@ -163,6 +164,8 @@ def profile_payload(member):
         .order_by(VideoMatch.match_date.desc(), VideoMatch.id.desc())
         .all()
     ):
+        if match_filter is not None and not match_filter(match):
+            continue
         reel = _reel_payload(match, [entry])
         player_reel = next((p for p in reel["players"] if p["roster_entry_id"] == entry.id), None)
         reports = club_report_payload(match)["reports"] if match.status == "finalized" else []
@@ -187,7 +190,7 @@ def profile_payload(member):
         base = f"/api/club/{member.program_id}/matches/{match.id}"
         film.append(
             {
-                "match": match.to_dict(),
+                "match": match_dto(match) if match_dto is not None else match.to_dict(),
                 "roster_entry_id": entry.id,
                 "minutes_visible": report["minutes_visible"] if report else None,
                 "reel_available": bool(player_reel and player_reel["windows"]),

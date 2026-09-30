@@ -185,14 +185,16 @@ def club_can(user_id, program_id, capability) -> bool:
     return bool(access and access.can(capability))
 
 
-def require_club_permission(capability: str, program_id_arg: str = "program_id"):
+def require_club_permission(capability, program_id_arg: str = "program_id"):
     """Capability-checked replacement for ``require_club_manager``.
 
+    ``capability`` may be one name or a tuple that must ALL be held.
     Flag off: identical to ``require_club_manager`` (same neutral 403).
     Flag on: resolves the caller's role/scope, stores it on ``g.club_access``.
     Resource routes must still apply the scope helpers below.
     """
-    if capability not in CAPABILITIES:
+    capabilities = (capability,) if isinstance(capability, str) else tuple(capability)
+    if not capabilities or any(cap not in CAPABILITIES for cap in capabilities):
         raise ValueError(f"unknown club capability {capability}")
 
     def decorator(view):
@@ -206,7 +208,7 @@ def require_club_permission(capability: str, program_id_arg: str = "program_id")
                 g.club_access = _legacy_manager_access(program_id, user_id)
                 return view(*args, **kwargs)
             access = resolve_club_access(user_id, program_id)
-            if access is None or not access.can(capability):
+            if access is None or not all(access.can(cap) for cap in capabilities):
                 return jsonify({"error": DENIED_ERROR}), 403
             g.club_access = access
             return view(*args, **kwargs)
@@ -221,10 +223,20 @@ def require_club_permission_by_method(capabilities: dict):
 
     def decorator(view):
         guarded = {method: require_club_permission(cap)(view) for method, cap in capabilities.items()}
+        if "GET" in capabilities and "HEAD" not in capabilities:
+            # Flask adds HEAD to every GET route, but these views branch on request.method, so a HEAD
+            # runs their non-GET branch. Flag off: the GET guard == require_club_manager, i.e. the
+            # legacy behaviour byte-for-byte. Flag on: HEAD must hold every capability the view declares.
+            legacy_head = guarded["GET"]
+            strict_head = require_club_permission(tuple(sorted(set(capabilities.values()))))(view)
+            guarded["HEAD"] = lambda *a, **kw: (strict_head if staff_access_enabled() else legacy_head)(*a, **kw)
 
         @wraps(view)
         def dispatch(*args, **kwargs):
-            return guarded[request.method](*args, **kwargs)
+            handler = guarded.get(request.method)
+            if handler is None:
+                return jsonify({"error": "Method not allowed"}), 405
+            return handler(*args, **kwargs)
 
         return dispatch
 
@@ -253,9 +265,120 @@ def member_in_scope(member) -> bool:
     return access is None or access.squad_visible(member.squad_id)
 
 
+def match_visible_to(access, match) -> bool:
+    """Scoped staff see a match only if its squad label AND every club player on its roster are in scope.
+
+    A squad label alone never grants access to out-of-squad players (call-ups, moved players, minors).
+    Roster rows that no longer resolve to a current member of this club refuse the whole match.
+    """
+    if access is None or access.whole_club:
+        return True
+    if match is None or match.squad_id is None or match.squad_id not in access.squad_ids:
+        return False
+    from src.models.funding import ClubRosterMember
+    from src.models.video import VideoRosterEntry
+
+    member_ids = [
+        row[0] for row in db.session.query(VideoRosterEntry.club_roster_member_id).filter_by(video_match_id=match.id)
+    ]
+    if any(member_id is None for member_id in member_ids):
+        return False
+    if not member_ids:
+        return True
+    rows = ClubRosterMember.query.filter(
+        ClubRosterMember.id.in_(sorted(set(member_ids))), ClubRosterMember.program_id == match.club_program_id
+    ).all()
+    return len(rows) == len(set(member_ids)) and all(row.squad_id in access.squad_ids for row in rows)
+
+
 def match_in_scope(match) -> bool:
-    access = current_access()
-    return access is None or access.squad_visible(getattr(match, "squad_id", None))
+    return match_visible_to(current_access(), match)
+
+
+def roster_fits_squad(match_squad_id, members) -> bool:
+    """Write-side coverage rule (flag on): a squad-labelled match holds only that squad's players."""
+    return match_squad_id is None or all(member.squad_id == match_squad_id for member in members)
+
+
+# Role-aware allowlist serializers: one place decides what each staff role may read.
+MEMBER_FIELDS = frozenset(
+    {
+        "id",
+        "program_id",
+        "squad_id",
+        "shirt_number",
+        "role",
+        "created_at",
+        "available",
+        "public_stats_allowed",
+        "subject_type",
+        "player_api_id",
+        "local_player_id",
+        "display_name",
+        "position",
+        "is_minor",
+        "photo",
+        "age",
+        "age_label",
+        "film",
+        "squad",
+        "claim_status",
+        "has_club_photo",
+    }
+)
+PROFILE_FIELDS = frozenset({"identity", "pathway", "results", "film"})
+
+
+def _full_reader(access) -> bool:
+    return access is None or access.role in ("owner", "manager")
+
+
+def member_view(member_dict, access=None):
+    """Roster member DTO for the caller. Managers (and flag off) get the legacy dict unchanged."""
+    access = current_access() if access is None else access
+    if _full_reader(access) or not isinstance(member_dict, dict):
+        return member_dict
+    allowed = set(MEMBER_FIELDS)
+    if access.role != "viewer":
+        allowed.add("brief")
+    return {key: value for key, value in member_dict.items() if key in allowed}
+
+
+def match_summary(match) -> dict:
+    """Narrow match DTO for scoped staff: no blob paths, capture metadata or AI analysis."""
+    return {
+        "id": match.id,
+        "club_program_id": match.club_program_id,
+        "squad_id": match.squad_id,
+        "opponent_name": match.opponent_name,
+        "match_date": match.match_date.isoformat() if match.match_date else None,
+        "competition": match.competition,
+        "status": match.status,
+    }
+
+
+def profile_view(body, access=None):
+    """Club player profile for the caller (allowlist per capability)."""
+    access = current_access() if access is None else access
+    if _full_reader(access) or not isinstance(body, dict):
+        return body
+    allowed = set(PROFILE_FIELDS)
+    if access.role != "viewer":
+        allowed.add("coach_brief")
+    if access.can("players.manage"):
+        allowed.add("note")
+    if access.can("feedback"):
+        allowed.add("development")
+    out = {key: value for key, value in body.items() if key in allowed}
+    if "scout_interest" in body:
+        out["scout_interest"] = (
+            body["scout_interest"]
+            if access.can("contact")
+            else {k: v for k, v in body["scout_interest"].items() if k in {"locked", "reason"}}
+        )
+    if isinstance(out.get("identity"), dict):
+        out["identity"] = member_view(out["identity"], access)
+    return out
 
 
 def signed_member_id(member) -> int | None:
@@ -419,8 +542,15 @@ def _validate_scope(program_id, role, all_squads, squad_ids):
 
 
 def _apply_scope(grant, all_squads, squad_ids):
+    """Reconcile scope rows by squad id: keep retained rows, delete removed ones, insert only new ones."""
     grant.all_squads = all_squads
-    grant.squads = [ClubAccessGrantSquad(squad_id=sid) for sid in squad_ids]
+    wanted = set(squad_ids)
+    for row in list(grant.squads):
+        if row.squad_id not in wanted:
+            grant.squads.remove(row)
+    have = {row.squad_id for row in grant.squads}
+    for squad_id in sorted(wanted - have):
+        grant.squads.append(ClubAccessGrantSquad(squad_id=squad_id))
 
 
 def _user_by_email(email):

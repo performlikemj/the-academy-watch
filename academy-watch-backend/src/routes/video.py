@@ -850,7 +850,9 @@ def _club_media_access_live(club_user_id, match) -> bool:
         access = resolve_club_access(int(club_user_id), match.club_program_id)
     except (TypeError, ValueError):
         return False
-    return bool(access and access.can("matches.view") and access.squad_visible(match.squad_id))
+    from src.services.club_access import match_visible_to
+
+    return bool(access and access.can("matches.view") and match_visible_to(access, match))
 
 
 def _admin_or_media_token(f):

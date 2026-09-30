@@ -75,7 +75,7 @@ def update_progress(row, payload, *, coach=False):
     }
 
 
-def evidence_candidates(session, invitation):
+def evidence_candidates(session, invitation, *, match_filter=None):
     """Return a bounded allowlist of grounded captions for this finalized player.
 
     Never match names or shirt numbers alone, return footage URLs, or invent a
@@ -98,7 +98,13 @@ def evidence_candidates(session, invitation):
         else VideoPlayerReport.club_local_player_id_at_finalize == -invitation.player_api_id
     )
     candidates = []
-    for report, match in query.order_by(VideoMatch.id.desc(), VideoPlayerReport.id.desc()).limit(6):
+    rows = query.order_by(VideoMatch.id.desc(), VideoPlayerReport.id.desc())
+    if match_filter is not None:
+        # Club staff access: only matches the caller may see, bounded before the caption scan.
+        rows = [row for row in rows.limit(200) if match_filter(row[1])][:6]
+    else:
+        rows = rows.limit(6)
+    for report, match in rows:
         capture = match.capture_meta if isinstance(match.capture_meta, dict) else {}
         analysis = capture.get("qwen_analysis")
         if not isinstance(analysis, dict):

@@ -60,7 +60,9 @@ from src.services.club_access import (
     current_access,
     match_in_scope,
     member_in_scope,
+    member_view,
     require_club_permission,
+    roster_fits_squad,
     scoped_squad_ids,
     staff_access_enabled,
 )
@@ -972,9 +974,7 @@ def list_club_roster(program_id: int):
     if access is not None and access.role == "viewer":
         # Viewers are read-only: private coaching briefs stay with staff who coach.
         system_brief = _brief_dict(None, None)
-        for member in members:
-            if "brief" in member:
-                member["brief"] = _brief_dict(None, None)
+    members = [member_view(member, access) for member in members]
     return jsonify(
         {
             "program": program.manager_dict(),
@@ -1890,6 +1890,8 @@ def list_club_matches(program_id: int):
     if scope is not None:
         query = query.filter(VideoMatch.squad_id.in_(sorted(scope)))
     rows = query.order_by(VideoMatch.created_at.desc(), VideoMatch.id.desc()).all()
+    if scope is not None:
+        rows = [match for match in rows if match_in_scope(match)]
     matches = []
     for match in rows:
         out = _with_squad(match, match.to_dict(include_job=True))
@@ -1968,7 +1970,18 @@ def update_club_match(program_id: int, match_id: int):
         if "match_date" in data:
             match.match_date = _match_date(data["match_date"])
         if staff_access_enabled() and "squad_id" in data:
-            match.squad_id = _match_squad_value(program_id, data["squad_id"])
+            new_squad = _match_squad_value(program_id, data["squad_id"])
+            roster_members = [
+                db.session.get(ClubRosterMember, entry.club_roster_member_id) if entry.club_roster_member_id else None
+                for entry in match.roster_entries
+            ]
+            if new_squad is not None and (
+                any(member is None for member in roster_members) or not roster_fits_squad(new_squad, roster_members)
+            ):
+                raise ValueError(
+                    "every match player must be in the match's squad; clear the squad for a mixed-squad match"
+                )
+            match.squad_id = new_squad
         for field in ("kickoff_s", "halftime_s", "second_half_kickoff_s", "duration_s"):
             if field in data:
                 setattr(match, field, _timeline_value(data[field], field))
@@ -2085,6 +2098,10 @@ def set_club_match_roster(program_id: int, match_id: int):
         }
         if len(members) != len(member_ids) or not all(member_in_scope(m) for m in members.values()):
             return _bad_request("every match player must be on this club roster")
+        if staff_access_enabled() and not roster_fits_squad(match.squad_id, members.values()):
+            return _bad_request(
+                "every match player must be in the match's squad; clear the squad for a mixed-squad match"
+            )
 
         resolved = {}
         for member_id, member in members.items():

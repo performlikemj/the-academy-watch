@@ -1205,7 +1205,7 @@ function CreateMatchDialog({ open, onOpenChange, programId, onCreated, onAccessD
                 {squadRequired ? <option value="" disabled>Choose a squad</option> : <option value="">Whole club</option>}
                 {squads.map((squad) => <option key={squad.id} value={String(squad.id)}>{squad.name}</option>)}
               </select>
-              <p className="text-xs text-muted-foreground">Staff with access to this squad can see the footage and report.</p>
+              <p className="text-xs text-muted-foreground">Staff with access to this squad can see the footage and report. Leave it as whole club if players from more than one squad played.</p>
             </div>
           ) : null}
         </div>
@@ -1786,7 +1786,9 @@ function MatchDetail({ programId, match, uploadGrant, rosterMembers, onMatchChan
   const [rosterSaving, setRosterSaving] = useState(false)
   const [rosterError, setRosterError] = useState(null)
 
-  const availableMembers = useMemo(() => rosterMembers.filter((member) => member.available), [rosterMembers])
+  // Club staff access: a squad-labelled match may only list that squad's players (squad_id is absent when dark).
+  const matchSquadId = match.squad_id ?? null
+  const availableMembers = useMemo(() => rosterMembers.filter((member) => member.available && (matchSquadId === null || member.squad_id === matchSquadId)), [rosterMembers, matchSquadId])
   const selectedMemberIds = useMemo(() => new Set(matchRoster.map((entry) => entry.club_roster_member_id)), [matchRoster])
   const updateForm = (field, value) => {
     dirtyFieldsRef.current.add(field)
