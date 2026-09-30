@@ -115,6 +115,8 @@ Log one-liner in CONTINUITY.md's "Trivial Log" section.
 - iOS: `academy-watch-ios/project.yml` is the XcodeGen source of truth. Put generated Info.plist overrides (including `CFBundleShortVersionString = $(MARKETING_VERSION)`) in `info.properties` so regeneration preserves them.
 - iOS owner showcase writes use `APIClient.ownerShowcasePath`: community identities call `local-players/<positive-local-id>`, while discovery and club-feedback APIs use signed player IDs.
 - iOS player/coach UI checks use the offline `AcademyWatchExperience` scheme. `AcademyWatchUISmoke` is a separate live suite that sends login emails.
+- Phase 2 new public player paths use `services/public_adult.py` and derived `services/club_publication_hold.py` checks; legacy public callers stay unchanged.
+- Phase 2 email intents use transactional `notification_outbox.enqueue` plus a trusted template eligibility/renderer registered at app startup; never commit inside enqueue or persist credentials/child PII. Worker locks account before intent to match account erasure.
 
 ---
 
