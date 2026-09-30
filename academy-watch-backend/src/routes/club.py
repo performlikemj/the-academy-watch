@@ -467,10 +467,11 @@ def _capture_meta(value):
     return value
 
 
-def _club_match(program_id: int, match_id: int) -> VideoMatch | None:
+def _club_match(program_id: int, match_id: int, *, require_bytes: bool = False) -> VideoMatch | None:
     match = VideoMatch.query.filter_by(id=match_id, club_program_id=program_id).first()
     # Squad-scoped staff see only their squads' matches; out of scope reads as not found.
-    return match if match is not None and match_in_scope(match) else None
+    # require_bytes: footage and anything derived from it need a completed, fully covered upload.
+    return match if match is not None and match_in_scope(match, require_bytes=require_bytes) else None
 
 
 def _match_squad_value(program_id: int, value):
@@ -930,7 +931,7 @@ def _scoped_film_rows(program_id: int) -> list[tuple]:
     totals: dict[int, list] = {}
     for member_id, match, minutes in rows:
         if match.id not in visible:
-            visible[match.id] = match_in_scope(match)
+            visible[match.id] = match_in_scope(match, require_bytes=True)
         if not visible[match.id]:
             continue
         entry = totals.setdefault(member_id, [0, None, None])
@@ -1908,6 +1909,8 @@ def create_club_match(program_id: int):
         db.session.add(match)
         db.session.flush()
         match.blob_path = f"matches/{match.id}/{uuid.uuid4().hex}.mp4"
+        # Coverage history starts here, with the match and its first upload grant (flag on or off).
+        record_coverage(match, origin=True)
         db.session.commit()
         out = _with_squad(match, match.to_dict())
         if video_storage.is_configured():
@@ -1952,6 +1955,8 @@ def club_match_sas(program_id: int, match_id: int):
         return jsonify({"error": "retention deadline too close to issue an upload grant; create a new match"}), 409
     if not video_storage.is_configured():
         return jsonify({"error": "blob storage not configured"}), 503
+    record_coverage(match)  # re-grant: snapshot the roster (no-op for legacy matches)
+    db.session.commit()
     return jsonify(video_storage.mint_upload_sas(match.blob_path))
 
 
@@ -1990,7 +1995,8 @@ def club_match_upload_complete(program_id: int, match_id: int):
     if is_reattestation:
         match.processing_requested_at = None
         match.processing_requested_by_user_id = None
-    record_coverage(match, origin=True)
+    # Completion/re-attestation never creates provenance: appends only if grant-time origin exists.
+    record_coverage(match)
     db.session.commit()
     return jsonify(match.to_dict() | {"size_bytes": check["size_bytes"]})
 
@@ -2058,7 +2064,7 @@ def get_club_match(program_id: int, match_id: int):
 @club_bp.route("/club/<int:program_id>/matches/<int:match_id>/media-token", methods=["GET"])
 @require_club_permission("matches.view")
 def get_club_match_media_token(program_id: int, match_id: int):
-    match = _club_match(program_id, match_id)
+    match = _club_match(program_id, match_id, require_bytes=True)
     if match is None:
         return jsonify({"error": "Match not found"}), 404
     return jsonify(
@@ -2075,7 +2081,7 @@ def get_club_match_media_token(program_id: int, match_id: int):
 @club_bp.route("/club/<int:program_id>/matches/<int:match_id>/reel", methods=["GET"])
 @require_club_permission("matches.view")
 def get_club_match_reel(program_id: int, match_id: int):
-    match = _club_match(program_id, match_id)
+    match = _club_match(program_id, match_id, require_bytes=True)
     if match is None:
         return jsonify({"error": "Match not found"}), 404
 
@@ -2211,7 +2217,7 @@ def request_club_match_processing(program_id: int, match_id: int):
 @club_bp.route("/club/<int:program_id>/matches/<int:match_id>/report", methods=["GET"])
 @require_club_permission("matches.view")
 def get_club_match_report(program_id: int, match_id: int):
-    match = _club_match(program_id, match_id)
+    match = _club_match(program_id, match_id, require_bytes=True)
     if match is None:
         return jsonify({"error": "Match not found"}), 404
     if match.status != "finalized":

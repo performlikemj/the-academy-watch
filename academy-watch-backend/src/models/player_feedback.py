@@ -303,10 +303,10 @@ def validate_reference(session, invitation, match_id, *, body, refs):
     )
     reports = reports.all()
     if match is not None:
-        from src.services.club_access import match_in_scope
+        from src.services.club_access import match_bytes_in_scope
 
         # Same rule as reads: squad-scoped staff may only cite matches they can see.
-        if not match_in_scope(match):
+        if not match_bytes_in_scope(match):
             match = None
     if not match or not reports:
         raise FeedbackError("feedback_reference_unavailable", 409)

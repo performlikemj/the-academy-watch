@@ -87,14 +87,28 @@ def _join(client, env, key, role, **kw):
     return resp.get_json()
 
 
-def _match(client, env, squad_key):
+def _match(client, env, squad_key, *, uploaded=True):
+    """Create a club match (grant-time coverage origin is written here) and, by default, mark its
+    upload completed as a verified upload-complete would (uploaded_at + blob_etag)."""
     resp = client.post(
         f"{env['base']}/matches",
         json={"opponent_name": "Fictional Rovers", "match_date": "2026-09-01", "squad_id": env[squad_key]},
         headers=_headers("a"),
     )
     assert resp.status_code == 201, resp.get_json()
-    return resp.get_json()["id"]
+    mid = resp.get_json()["id"]
+    if uploaded:
+        _complete_upload(mid)
+    return mid
+
+
+def _complete_upload(mid):
+    from datetime import UTC, datetime
+
+    match = db.session.get(VideoMatch, mid)
+    match.uploaded_at = datetime.now(UTC).replace(tzinfo=None)
+    match.blob_etag = "fixture-etag"
+    db.session.commit()
 
 
 # ---------------------------------------------------------------------------

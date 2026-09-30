@@ -14,7 +14,7 @@ from src.models.showcase import LocalPlayer, local_player_is_minor
 from src.routes.club_home import HomeError, payload, resource, transaction
 from src.services import showcase_media_storage as storage
 from src.services.club_access import (
-    match_in_scope,
+    match_bytes_in_scope,
     match_summary,
     member_in_scope,
     profile_view,
@@ -64,7 +64,7 @@ def register(club_bp):
         scoped = scoped_squad_ids() is not None
         body = profile_payload(
             member_resource(program_id, member_id),
-            match_filter=match_in_scope if scoped else None,
+            match_filter=match_bytes_in_scope if scoped else None,
             match_dto=match_summary if scoped else None,
         )
         response = jsonify(profile_view(body))

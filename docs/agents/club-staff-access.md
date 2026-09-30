@@ -12,17 +12,37 @@ routes return 404.
   owner is set only by `POST /api/admin/programs/<id>/owner`, and only for a verified manager.
 - Every club route uses `require_club_permission(capability)` (`src/services/club_access.py`).
   Squad-scoped roles (coach/analyst/viewer) are additionally filtered by the scope helpers.
-- **Match rule:** a scoped caller sees a match only if its squad label is in their squads **and every
-  player it covers is currently in their squads** (`match_visible_to`). Coverage = the current roster
-  plus, once a recording exists (upload-complete), the append-only `video_match_coverage` record:
-  an `origin` marker written at upload, a `member` row for every club player ever on the roster since,
-  and a permanent `uncertain` marker if an unidentified row was ever present. Removing or replacing
-  roster rows **never** narrows coverage; only a future explicitly verified trimmed asset may. A
-  recording with no `origin` marker (uploaded before p2a2) or with `uncertain` is whole-club only.
-  Coverage is recorded even with the flag off, so history is complete when it is switched on. The
-  same gate covers match detail/report/reel/media-token/list, footage/crops/bbox, profile film,
-  `/roster` film totals, feedback evidence and feedback citations. Writes: a squad-labelled match may
-  only hold that squad's players; mixed-squad matches stay unlabelled (whole-club roles only).
+- **Match rule (`match_visible_to`):** a squad-scoped caller (coach/analyst/viewer) sees a club match
+  only if ALL hold: its squad label is in their squads; it has a **grant-time `origin`** coverage
+  marker; it has no `uncertain` marker; and every player it covers — today's roster plus every
+  `member` coverage row — is currently in their squads (dangling ids refuse). Anything that serves
+  footage or data derived from it (media token, footage/crops/bbox, reel, report, profile film,
+  `/roster` film totals, feedback evidence and citations) additionally needs a **completed upload**
+  (`uploaded_at` + `blob_etag`). Match detail/list and the upload workflow (re-grant, completion,
+  roster, processing request) use the gate without that last clause so scoped uploaders can work;
+  an in-progress match carries no footage-derived data. Whole-club roles are unaffected.
+- **Recording coverage (`video_match_coverage`, append-only):**
+  - `origin` is written only in `create_club_match`, in the same transaction as the match and its
+    first upload grant (the grant is always for the match's single `blob_path`), flag on or off. Coverage
+    history therefore starts before any bytes can exist in storage.
+  - Every roster write (club and admin, snapshotted before AND after the change), every upload-URL
+    re-mint and every completion appends `member` rows — but only to a match that already has an
+    `origin`. An unidentified/dangling/other-club roster row adds a permanent `uncertain` marker.
+  - Removing or replacing roster rows never deletes coverage; deleting a member leaves its id behind,
+    which then fails to resolve and keeps the match closed.
+  - Completion and re-attestation (any ETag, flag on or off) **never** create or upgrade an `origin`.
+- **Legacy recordings are managers-only.** A club match without a grant-time `origin` (every match
+  created before p2a2, or one whose history is otherwise unknown) is whole-club only, forever — no
+  roster edit, re-grant, re-upload, new ETag or flag change can open it to squad-scoped staff.
+- **The only way coverage may ever narrow** is a future, explicitly *verified trimmed asset*: a new
+  derived recording (new blob, its own `origin`) produced from the original by a reviewed trim/crop
+  step that records which club members appear in it, approved by a whole-club role and audited. It
+  would get its own coverage rows; the original recording's coverage never shrinks. Not built in
+  Phase 2 — do not add any code path that deletes or rewrites `video_match_coverage` rows (other than
+  the FK cascade when a match row itself is deleted; a future match-deletion route must keep provenance
+  for any blob it leaves behind).
+- Writes: a squad-labelled match may only hold that squad's players; mixed-squad matches stay
+  unlabelled (whole-club roles only).
 - What each role may read is decided in one place: `member_view` / `profile_view` / `match_summary`
   (allowlists). Add new fields there deliberately.
 
@@ -48,6 +68,7 @@ upload started within the previous hour.
 
 `tests/test_club_staff_access.py` (route matrix, invites, revocation) and
 `tests/test_club_staff_access_ra2.py`, `test_club_staff_access_ra2_denials.py`,
-`test_club_staff_access_ra2v.py` (RA2/RA2V security regressions incl. the 18 roster-cleanup
-sequences), `test_club_staff_access_coverage.py` (monotonic coverage) and
+`test_club_staff_access_ra2v.py` and `test_club_staff_access_ra2v2.py` (RA2/RA2V/RA2V2 security
+regressions incl. roster-cleanup, legacy re-attestation and pre-completion byte cases),
+`test_club_staff_access_coverage.py` (grant-time monotonic coverage, happy path) and
 `test_club_staff_access_flagoff_parity.py` (164 flag-off responses == origin/main).

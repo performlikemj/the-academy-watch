@@ -134,6 +134,10 @@ def remint_upload_sas(match_id: int):
         return jsonify({"error": "retention deadline too close to issue an upload grant; create a new match"}), 409
     if not video_storage.is_configured():
         return jsonify({"error": "blob storage not configured"}), 503
+    from src.services.club_access import record_coverage
+
+    record_coverage(match)  # club matches only: re-grant snapshot (no-op for legacy matches)
+    db.session.commit()
     return jsonify(video_storage.mint_upload_sas(match.blob_path))
 
 
@@ -177,7 +181,7 @@ def upload_complete(match_id: int):
         match.processing_requested_by_user_id = None
     from src.services.club_access import record_coverage
 
-    record_coverage(match, origin=True)  # club matches only; append-only staff-access coverage
+    record_coverage(match)  # club matches only; never creates provenance (legacy stays legacy)
     db.session.commit()
     return jsonify(match.to_dict() | {"size_bytes": check["size_bytes"]})
 
@@ -859,7 +863,7 @@ def _club_media_access_live(club_user_id, match) -> bool:
         return False
     from src.services.club_access import match_visible_to
 
-    return bool(access and access.can("matches.view") and match_visible_to(access, match))
+    return bool(access and access.can("matches.view") and match_visible_to(access, match, require_bytes=True))
 
 
 def _admin_or_media_token(f):
