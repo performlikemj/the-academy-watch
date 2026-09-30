@@ -135,6 +135,11 @@ ALLOWED_ADMIN_IPS = _get_allowed_admin_ips()
 
 def get_client_ip() -> str:
     """Get the real client IP, handling proxies and load balancers."""
+    # Cloudflare supplies the visitor address before the ingress proxy adds hops.
+    cloudflare_ip = request.headers.get("CF-Connecting-IP", "").strip()
+    if cloudflare_ip:
+        return cloudflare_ip
+
     # Check X-Forwarded-For header (from load balancers, proxies)
     forwarded_for = request.headers.get("X-Forwarded-For")
     if forwarded_for:

@@ -1,3 +1,4 @@
+import { ShowcasePhoto } from '@/components/ShowcasePhoto'
 import { useDataMode } from '@/hooks/useDataMode'
 import PlayerFeedbackInbox from '@/components/showcase/PlayerFeedbackInbox'
 import { useState, useEffect, useLayoutEffect, useCallback, useRef } from 'react'
@@ -1785,9 +1786,10 @@ export function ShowcaseSection({
                   return (
                     <div key={photo.id} className="min-w-0 space-y-2">
                       <div className="group relative aspect-[4/3] overflow-hidden rounded-lg border border-border/70 bg-secondary/50">
-                        {imageUrl ? (
-                          <img
+                        {imageUrl || photo.approved_preview_url ? (
+                          <ShowcasePhoto
                             src={imageUrl}
+                            previewUrl={photo.approved_preview_url}
                             alt={`${playerName || 'Player'} showcase photo ${index + 1}`}
                             width={640}
                             height={480}
