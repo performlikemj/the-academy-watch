@@ -52,7 +52,22 @@ import { seasonStore } from '@/lib/seasonStore'
 import { formatSeasonLabel, withSeasonParam } from '@/lib/seasons'
 import { track } from '@/lib/track'
 import { Tooltip as UiTooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { CHART_GRID_COLOR, CHART_AXIS_COLOR, CHART_TOOLTIP_BG, CHART_TOOLTIP_BORDER } from '../lib/theme-constants'
+// Floodlight chart palette (page-local; shared theme-constants stay untouched).
+const CHART_GRID_COLOR = '#D8D2C4'    // hairline
+const CHART_AXIS_COLOR = '#5A6560'    // muted
+const CHART_TOOLTIP_BG = '#F3F0E8'    // chalk
+const CHART_TOOLTIP_BORDER = '#D8D2C4'
+// Series step through clearly different lightness levels and dash patterns,
+// so lines stay distinguishable without relying on hue.
+const CHART_SERIES = [
+    { color: '#0E1311', dash: undefined },  // ink
+    { color: '#CFAE62', dash: undefined },  // gold
+    { color: '#0F3D2E', dash: '6 3' },      // club green
+    { color: '#A3ADA7', dash: '2 3' },      // light grey
+    { color: '#84661F', dash: '8 3 2 3' },  // gold text
+    { color: '#5A6560', dash: '4 4' },      // muted
+    { color: '#0E1311', dash: '1 3' },      // ink, dotted
+]
 
 /** Dims children when viewing a past career stop so SeasonStatsPanel takes focus. */
 function JourneyDimmer({ children, className = '' }) {
@@ -109,6 +124,33 @@ const METRIC_CONFIG = {
             { key: 'rating', label: 'Rating', color: '#84661F' },
         ]
     }
+}
+
+for (const config of Object.values(METRIC_CONFIG)) {
+    config.options.forEach((option, index) => {
+        const series = CHART_SERIES[index % CHART_SERIES.length]
+        option.color = series.color
+        option.dash = series.dash
+    })
+}
+
+// Writeups are stored as HTML. Parse into an inert document (DOMParser never
+// runs scripts or loads resources) and show only its text — never the markup.
+function plainTextExcerpt(html, maxLength = 150) {
+    if (!html) return ''
+    let text = String(html)
+    if (typeof DOMParser !== 'undefined') {
+        const doc = new DOMParser().parseFromString(text, 'text/html')
+        doc.querySelectorAll('script, style, noscript, template').forEach((node) => node.remove())
+        text = doc.body?.textContent || ''
+    } else {
+        text = text.replace(/<[^>]*>/g, ' ')
+    }
+    text = text.replace(/\s+/g, ' ').trim()
+    if (text.length <= maxLength) return text
+    const cut = text.slice(0, maxLength)
+    const lastSpace = cut.lastIndexOf(' ')
+    return `${(lastSpace > maxLength * 0.6 ? cut.slice(0, lastSpace) : cut).trimEnd()}…`
 }
 
 const DEFAULT_POSITION = 'Midfielder'
@@ -1085,6 +1127,7 @@ export function PlayerPage() {
                                                                     type="monotone"
                                                                     dataKey={opt.key}
                                                                     stroke={opt.color}
+                                                                    strokeDasharray={opt.dash}
                                                                     strokeWidth={2}
                                                                     dot={{ r: 3, fill: opt.color, strokeWidth: 0 }}
                                                                     activeDot={{ r: 6, strokeWidth: 0 }}
@@ -1339,7 +1382,7 @@ export function PlayerPage() {
                                                                 <div className="text-sm font-medium text-foreground mb-1">{commentary.title}</div>
                                                             )}
                                                             <div className="text-sm text-muted-foreground line-clamp-2">
-                                                                {commentary.content?.substring(0, 150)}...
+                                                                {plainTextExcerpt(commentary.content)}
                                                             </div>
                                                             <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
                                                                 {commentary.newsletter && (

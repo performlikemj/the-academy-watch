@@ -1251,8 +1251,10 @@ def public_program(slug):
     if program is None:
         return jsonify({"error": "program not found"}), 404
     payload = program.public_dict()
-    # The club's own colours and banner dress its public page (Floodlight).
-    payload["brand"] = program.brand_dict()
+    # Only the club's colours are public. Banners are uploaded without review
+    # and could show under-18s, so they stay off the anonymous payload.
+    brand = program.brand_dict()
+    payload["brand"] = {"primary_color": brand["primary_color"], "accent_color": brand["accent_color"]}
     revision = _approved_revision(program)
     serialized_revision = revision_dict(revision) if revision else None
     payload["program_provided"] = (

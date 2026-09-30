@@ -248,7 +248,7 @@ class TestClubAdmission:
             assert program["is_verified_program"] is True
             assert program["provenance"]["label"] == "Self-reported"
             assert program["program_provided"] is None
-            assert program["brand"] == {"primary_color": "#0F3D2E", "accent_color": "#E3B23C", "banner_url": None}
+            assert program["brand"] == {"primary_color": "#0F3D2E", "accent_color": "#E3B23C"}
 
     def test_rejection_requires_reason_and_records_audit(self, funding_app, funding_client, admin_headers):
         with funding_app.app_context():

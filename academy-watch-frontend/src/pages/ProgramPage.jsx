@@ -17,14 +17,17 @@ import { Button } from '@/components/ui/button'
 import { FactRow, QuietNote, SectionHeading, TeaserBlock } from '@/components/public/Floodlight'
 
 const PROVENANCE_COPY = {
-    'Provider-covered': 'Identity and roster linkage come from the platform’s football-data provider.',
-    'Film Room-verified': 'Identity is supported by finalized footage and human-confirmed Film Room review.',
-    'Self-reported': 'Program identity was supplied by the club and remains visibly labeled.',
+    'Provider-covered': 'The club’s identity and squad links come from our football-data provider.',
+    'Film Room-verified': 'The club’s identity is backed by match footage that a person has reviewed in the Film Room.',
+    'Self-reported': 'These details were supplied by the club itself, and we label them that way.',
 }
 
 // Floodlight club green when a club has not set its own colours.
 const DEFAULT_PRIMARY = '#0F3D2E'
 const DEFAULT_ACCENT = '#CFAE62'
+const CHALK = '#F3F0E8'
+const GOLD = '#CFAE62'
+const WHITE = '#FFFFFF'
 
 function initials(name) {
     return String(name || 'Program').split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase()
@@ -32,6 +35,26 @@ function initials(name) {
 
 function safeColor(value, fallback) {
     return /^#[0-9a-fA-F]{6}$/.test(String(value || '')) ? value : fallback
+}
+
+function luminance(hex) {
+    const [r, g, b] = [1, 3, 5].map((i) => {
+        const c = parseInt(hex.slice(i, i + 2), 16) / 255
+        return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+    })
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+}
+
+function contrast(a, b) {
+    const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x)
+    return (hi + 0.05) / (lo + 0.05)
+}
+
+// Club primaries are only guaranteed 4.5:1 against white, so chalk and gold
+// are used on the hero only when they also clear 4.5:1 on this club's colour.
+function heroInks(primary) {
+    const text = contrast(CHALK, primary) >= 4.5 ? CHALK : WHITE
+    return { text, accent: contrast(GOLD, primary) >= 4.5 ? GOLD : text }
 }
 
 function formatDate(value) {
@@ -61,7 +84,7 @@ function ProgramPageContent({ slug }) {
         let cancelled = false
         APIService.getProgram(slug)
             .then((data) => { if (!cancelled) setProgram(data?.program || null) })
-            .catch((err) => { if (!cancelled) setError(err.message || 'Program not found') })
+            .catch((err) => { if (!cancelled) setError(err.message || 'Club not found') })
             .finally(() => { if (!cancelled) setLoading(false) })
         return () => { cancelled = true }
     }, [slug])
@@ -77,7 +100,7 @@ function ProgramPageContent({ slug }) {
             await APIService.saveProgram(slug, true)
             setSaved(true)
         } catch (err) {
-            setError(err.message || 'Unable to save this program')
+            setError(err.message || 'Unable to save this club')
         } finally {
             setSaving(false)
         }
@@ -108,50 +131,41 @@ function ProgramPageContent({ slug }) {
     const provided = program.program_provided
     const primary = safeColor(program.brand?.primary_color, DEFAULT_PRIMARY)
     const accent = safeColor(program.brand?.accent_color, DEFAULT_ACCENT)
-    const banner = program.brand?.banner_url || null
+    const inks = heroInks(primary)
     const heroMeta = [program.league?.name, location].filter(Boolean)
     const updates = program.updates || []
 
     return (
         <div className="min-h-screen bg-chalk text-ink">
             <section
-                className="dark relative isolate overflow-hidden text-chalk"
-                style={{ backgroundColor: primary }}
+                className="dark relative isolate overflow-hidden"
+                style={{ backgroundColor: primary, color: inks.text }}
                 aria-labelledby="club-name"
             >
-                {banner ? (
-                    <>
-                        <img src={banner} alt="" className="absolute inset-0 -z-20 h-full w-full object-cover opacity-80" />
-                        <div className="absolute inset-0 -z-10 bg-night/35" />
-                        <div className="absolute inset-x-0 bottom-0 -z-10 h-3/5 bg-gradient-to-b from-night/0 to-night/95" />
-                    </>
-                ) : (
-                    <div className="absolute inset-x-0 bottom-0 -z-10 h-2/3 bg-gradient-to-b from-night/0 to-night/45" />
-                )}
-                <div className={`floodlight-container flex flex-col justify-end pb-12 pt-10 sm:pb-16 ${banner ? 'min-h-[520px] lg:min-h-[600px]' : 'min-h-[380px] lg:min-h-[440px]'}`}>
-                    <Link to="/programs/claim" className="eyebrow mb-auto inline-flex items-center gap-2 self-start text-chalk/70 hover:text-chalk">
+                <div className="floodlight-container flex min-h-[380px] flex-col justify-end pb-12 pt-10 sm:pb-16 lg:min-h-[440px]">
+                    <Link to="/programs/claim" className="eyebrow mb-auto inline-flex items-center gap-2 self-start underline-offset-4 hover:underline" style={{ color: inks.text }}>
                         <ArrowLeft className="h-3.5 w-3.5" />Club registry
                     </Link>
                     <div className="mt-12 flex flex-col gap-8 lg:flex-row lg:items-end">
                         <div
-                            className="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-[20px] border border-chalk/25 sm:h-[132px] sm:w-[132px] sm:rounded-[26px]"
-                            style={{ backgroundColor: primary, color: accent }}
+                            className="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-[20px] border sm:h-[132px] sm:w-[132px] sm:rounded-[26px]"
+                            style={{ backgroundColor: primary, borderColor: accent, color: inks.text }}
                         >
                             {program.crest_url
                                 ? <img src={program.crest_url} alt={`${program.name} crest`} width={132} height={132} className="h-full w-full object-contain p-3" />
                                 : <span className="display text-[44px] sm:text-[60px]">{initials(program.name)}</span>}
                         </div>
                         <div className="min-w-0 flex-1">
-                            <div className="eyebrow flex flex-wrap gap-x-5 gap-y-1">
-                                {program.is_verified_program ? <span className="text-gold">Verified club</span> : null}
-                                <span className="text-muted-dark">{provenanceLabel}</span>
+                            <div className="eyebrow flex flex-wrap gap-x-5 gap-y-1" style={{ color: inks.text }}>
+                                {program.is_verified_program ? <span style={{ color: inks.accent }}>Verified club</span> : null}
+                                <span>{provenanceLabel}</span>
                             </div>
                             <h1 id="club-name" className="display mt-3 break-words text-[48px] leading-[.92] [overflow-wrap:anywhere] sm:text-[72px] lg:text-[96px]">{program.name}</h1>
-                            {heroMeta.length ? <p className="mt-4 text-base text-chalk/80">{heroMeta.join(' · ')}</p> : null}
+                            {heroMeta.length ? <p className="mt-4 break-words text-base [overflow-wrap:anywhere]">{heroMeta.join(' · ')}</p> : null}
                         </div>
                         <Button onClick={save} disabled={saving || saved} variant="on-dark" size="lg" className="h-12 self-start lg:self-end">
                             {saving ? <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" /> : saved ? <Check className="h-4 w-4" /> : <Bell className="h-4 w-4" />}
-                            {saved ? 'Saved for future support' : 'Save this program'}
+                            {saved ? 'Saved for future support' : 'Save this club'}
                         </Button>
                     </div>
                 </div>
@@ -162,14 +176,14 @@ function ProgramPageContent({ slug }) {
                     {error ? <Alert className="border-danger/40 text-danger"><AlertDescription>{error}</AlertDescription></Alert> : null}
 
                     <section aria-labelledby="club-about">
-                        <SectionHeading id="club-about" title="About the club" meta={provided?.label || 'Program-provided'} />
+                        <SectionHeading id="club-about" title="About the club" meta={provided ? 'From the club' : null} />
                         {provided ? (
                             <div className="mt-6">
                                 {provided.summary ? <p className="display max-w-3xl whitespace-pre-line break-words text-[24px] leading-[1.25] [overflow-wrap:anywhere] sm:text-[28px]">{provided.summary}</p> : null}
                                 <div className="mt-8 border-t border-border">
                                     <FactRow label="Age groups">{provided.age_groups?.join(' · ') || 'Not supplied'}</FactRow>
                                     <FactRow label="Activities">{provided.activities?.join(' · ') || 'Not supplied'}</FactRow>
-                                    {provided.funding_purpose ? <FactRow label="Program-wide use">{provided.funding_purpose}</FactRow> : null}
+                                    {provided.funding_purpose ? <FactRow label="What support pays for">{provided.funding_purpose}</FactRow> : null}
                                 </div>
                             </div>
                         ) : (
@@ -211,11 +225,11 @@ function ProgramPageContent({ slug }) {
 
                     {program.roster_links?.team_page ? (
                         <section aria-labelledby="club-roster">
-                            <SectionHeading id="club-roster" title="Covered roster" meta="Provider data" />
+                            <SectionHeading id="club-roster" title="Squad & academy" meta="Football data" />
                             <Link to={program.roster_links.team_page} className="group flex items-center justify-between gap-6 border-b border-border px-1 py-6 transition-colors hover:bg-chalk-2">
                                 <span>
                                     <span className="display block text-[26px] leading-tight">View team + academy roster</span>
-                                    <span className="mt-1 block text-sm text-muted-foreground">This club maps to a team we already follow through our football-data provider.</span>
+                                    <span className="mt-1 block text-sm text-muted-foreground">We already follow this club’s team through our football-data provider.</span>
                                 </span>
                                 <ArrowUpRight className="h-5 w-5 shrink-0 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
                             </Link>
@@ -244,10 +258,10 @@ function ProgramPageContent({ slug }) {
                     <section aria-labelledby="club-badge" className="space-y-4">
                         <h2 id="club-badge" className="eyebrow">What the badge means</h2>
                         <div className="border-t border-border text-[15px] leading-relaxed text-ink/80">
-                            <p className="flex gap-3 border-b border-border py-4"><ShieldCheck className="mt-1 h-4 w-4 shrink-0 text-good" /><span>MJ approved the organization and an active adult manager grant exists.</span></p>
-                            <p className="flex gap-3 border-b border-border py-4"><Landmark className="mt-1 h-4 w-4 shrink-0 text-good" /><span>US programs also require test-mode Connect readiness; non-US programs remain informational.</span></p>
+                            <p className="flex gap-3 border-b border-border py-4"><ShieldCheck className="mt-1 h-4 w-4 shrink-0 text-good" /><span>The Academy Watch checked this organisation, and an adult club manager looks after this page.</span></p>
+                            <p className="flex gap-3 border-b border-border py-4"><Landmark className="mt-1 h-4 w-4 shrink-0 text-good" /><span>Clubs in the United States also complete a payments set-up check before the badge appears.</span></p>
                         </div>
-                        <p className="text-xs text-muted-foreground">It is not a charity, safeguarding, tax, or every-statement accreditation.</p>
+                        <p className="text-xs text-muted-foreground">The badge isn’t a charity, safeguarding or tax accreditation, and it doesn’t vouch for everything the club says.</p>
                     </section>
 
                     <section aria-labelledby="club-provenance" className="space-y-3">
