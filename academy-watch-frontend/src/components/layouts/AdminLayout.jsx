@@ -14,12 +14,16 @@ import { Label } from '@/components/ui/label'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { useAuth } from '@/context/AuthContext'
 import { BackgroundJobsProvider } from '@/context/BackgroundJobsContext'
+import { useNightSurface } from '@/hooks/useNightSurface'
 import { APIService } from '@/lib/api'
 
 const SIDEBAR_COLLAPSE_KEY = 'academy_watch_admin_sidebar_collapsed'
 
+const todayLabel = () => new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })
+
 export function AdminLayout() {
     const { token, isAdmin, hasApiKey } = useAuth()
+    useNightSurface()
     const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
     const [collapsed, setCollapsed] = useState(() => {
         if (typeof localStorage === 'undefined') return false
@@ -120,21 +124,24 @@ export function AdminLayout() {
 
     if (!hasApiKey || validatingKey || keyRejected) {
         return (
-            <div className="min-h-screen bg-secondary flex items-center justify-center p-4">
-                <Card className="w-full max-w-md" data-testid="admin-api-key-bootstrap">
+            <div className="flex min-h-screen items-center justify-center bg-night px-4 py-16">
+                <Card className="w-full max-w-md gap-5 px-2 py-8" data-testid="admin-api-key-bootstrap">
                     <CardHeader>
-                        <CardTitle className="flex items-center gap-2">
-                            <KeyRound className="h-5 w-5 text-primary" />
+                        <p className="eyebrow flex items-center gap-2">
+                            <KeyRound className="h-3.5 w-3.5" aria-hidden="true" />
+                            Control room
+                        </p>
+                        <CardTitle className="text-4xl">
                             Enter admin API key
                         </CardTitle>
-                        <CardDescription>
+                        <CardDescription className="leading-relaxed">
                             {keyRejected
                                 ? 'The admin API key stored on this device was rejected by the server. Paste a current key to continue — it is kept in local storage and only sent with admin requests.'
                                 : 'You are signed in as an admin, but no admin API key is stored on this device. It is kept in local storage and only sent with admin requests.'}
                         </CardDescription>
                     </CardHeader>
                     <CardContent>
-                        <form className="space-y-3" onSubmit={submitKey}>
+                        <form className="space-y-4" onSubmit={submitKey}>
                             {keyError && (
                                 <Alert className="border-rose-500 bg-rose-50">
                                     <AlertCircle className="h-4 w-4 text-rose-600" />
@@ -142,7 +149,7 @@ export function AdminLayout() {
                                 </Alert>
                             )}
                             <div className="space-y-2">
-                                <Label htmlFor="admin-bootstrap-key-input">Admin API key</Label>
+                                <Label htmlFor="admin-bootstrap-key-input" className="font-mono text-[11px] uppercase tracking-[0.16em] text-muted-dark">Admin API key</Label>
                                 <Input
                                     id="admin-bootstrap-key-input"
                                     data-testid="admin-api-key-input"
@@ -171,31 +178,31 @@ export function AdminLayout() {
 
     return (
         <BackgroundJobsProvider>
-            <div className="flex min-h-screen bg-secondary">
+            <div className="flex min-h-screen bg-night text-chalk">
                 <AdminSidebar
                     collapsed={collapsed}
-                    className="hidden lg:flex"
+                    className="sticky top-0 hidden h-screen self-start overflow-y-auto overscroll-contain lg:flex"
                 />
 
                 <Sheet open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
                     <SheetContent
                         side="left"
-                        className="p-0 w-72 sm:w-80 lg:hidden"
+                        className="h-dvh w-72 overflow-y-auto overscroll-contain border-hairline-dark bg-night p-0 sm:w-80 lg:hidden"
                         data-testid="admin-sidebar-sheet"
                     >
                         <SheetHeader className="sr-only">
                             <SheetTitle>Admin menu</SheetTitle>
                         </SheetHeader>
-                        <AdminSidebar onNavigate={() => setMobileSidebarOpen(false)} />
+                        <AdminSidebar onNavigate={() => setMobileSidebarOpen(false)} className="min-h-full w-full shrink-0 border-r-0" />
                     </SheetContent>
                 </Sheet>
 
-                <div className="flex-1 min-w-0 flex flex-col">
-                    <header className="sticky top-0 z-20 h-16 border-b bg-card/90 backdrop-blur flex items-center px-4 sm:px-6 justify-between gap-4">
-                        <div className="flex items-center gap-3 min-w-0">
+                <div className="flex min-w-0 flex-1 flex-col">
+                    <header className="sticky top-0 z-20 flex h-14 items-center justify-between gap-4 border-b border-hairline-dark bg-night/90 px-4 backdrop-blur sm:px-8 lg:px-14">
+                        <div className="flex min-w-0 items-center gap-3">
                             <Button
                                 data-testid="admin-menu-toggle"
-                                className="md:hidden"
+                                className="lg:hidden"
                                 variant="ghost"
                                 size="icon"
                                 aria-label="Open admin menu"
@@ -213,18 +220,18 @@ export function AdminLayout() {
                             >
                                 {collapsed ? <PanelLeftOpen className="h-5 w-5" /> : <PanelLeftClose className="h-5 w-5" />}
                             </Button>
-                            <div className="min-w-0">
-                                <h1 className="text-lg sm:text-xl font-semibold text-foreground truncate">Admin Dashboard</h1>
-                                <p className="text-xs text-muted-foreground hidden sm:block">Control center for journalists, loans, and newsletters</p>
-                            </div>
+                            <p className="eyebrow truncate">
+                                <span className="sr-only">Admin Dashboard · </span>
+                                Control room · {todayLabel()}
+                            </p>
                         </div>
-                        <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                            <span className="hidden sm:inline">Logged in as Admin</span>
+                        <div className="flex items-center gap-5 font-mono text-[11px] uppercase tracking-[0.12em]">
+                            <span className="hidden text-muted-dark sm:inline">Signed in as admin</span>
                         </div>
                     </header>
                     <div className="relative flex-1">
                         <SyncOverlay />
-                        <main className="p-4 sm:p-6">
+                        <main className="fl-admin-main px-4 pb-28 pt-8 sm:px-8 lg:px-14 lg:pt-11">
                             <Outlet />
                         </main>
                     </div>

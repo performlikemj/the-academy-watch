@@ -19,7 +19,7 @@ export async function loginWithCode(page, email, dbClient, { displayName = 'E2E 
   }
   await signInButton.click()
 
-  await page.getByLabel('Email').fill(email)
+  await page.getByLabel('Email', { exact: true }).fill(email)
   await page.getByRole('button', { name: /send login code/i }).click()
 
   const code = await waitForEmailToken(dbClient, email, 'login')

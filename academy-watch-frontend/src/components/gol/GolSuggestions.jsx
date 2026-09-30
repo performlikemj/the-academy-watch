@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react'
 import { APIService } from '@/lib/api'
-import { MessageCircle } from 'lucide-react'
 
 export function GolSuggestions({ onSelect, disabled = false }) {
   const [suggestions, setSuggestions] = useState([])
@@ -17,20 +16,24 @@ export function GolSuggestions({ onSelect, disabled = false }) {
   }, [])
 
   return (
-    <div className="flex flex-col items-center justify-center h-full py-8">
-      <MessageCircle className="h-12 w-12 text-muted-foreground mb-4" />
-      <h3 className="text-lg font-semibold mb-2">GOL Assistant</h3>
-      <p className="text-sm text-muted-foreground mb-6 text-center">
-        Ask me about players, academy pathways, career journeys, and more
-      </p>
-      <div className="grid gap-2 w-full max-w-sm">
+    <div className="flex h-full flex-col justify-center gap-6 py-8">
+      <div className="flex items-start gap-4">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-gold font-serif text-lg text-gold" aria-hidden="true">G</span>
+        <div>
+          <h3 className="display text-[1.75rem] leading-tight">GOL Assistant</h3>
+          <p className="mt-1 text-[14.5px] leading-relaxed text-muted-dark">
+            Ask me about players, academy pathways, career journeys, and more
+          </p>
+        </div>
+      </div>
+      <div className="flex flex-wrap gap-2">
         {suggestions.map((s, i) => (
           <button
             key={i}
             type="button"
             onClick={() => onSelect(s)}
             disabled={disabled}
-            className="w-full rounded-lg border bg-card text-card-foreground shadow-sm cursor-pointer hover:bg-muted/50 transition-colors p-3 text-sm text-left"
+            className="rounded-full border border-chalk/20 bg-transparent px-4 py-2.5 text-left text-[13.5px] leading-snug text-[#C9CFCB] transition-colors duration-150 hover:border-gold/60 hover:text-chalk disabled:cursor-not-allowed disabled:opacity-50"
           >
             {s}
           </button>

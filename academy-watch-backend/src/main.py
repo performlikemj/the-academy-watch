@@ -20,6 +20,7 @@ import src.models.account  # noqa: E402, F401
 import src.models.billing  # noqa: E402, F401
 import src.models.contact  # noqa: E402, F401
 import src.models.gol_credits  # noqa: E402, F401
+import src.models.interest  # noqa: E402, F401
 import src.models.player_fan  # noqa: E402, F401
 import src.models.player_match_entry  # noqa: E402, F401
 import src.models.player_suppression  # noqa: E402, F401
@@ -48,6 +49,7 @@ from src.routes.feeder import feeder_bp
 from src.routes.formation import formation_bp
 from src.routes.funding import funding_bp
 from src.routes.gol import gol_bp
+from src.routes.interest import interest_bp
 from src.routes.journalist import journalist_bp
 from src.routes.journey import journey_bp
 from src.routes.newsletter_deadline import newsletter_deadline_bp
@@ -130,6 +132,7 @@ app.register_blueprint(showcase_bp, url_prefix="/api")
 app.register_blueprint(funding_bp, url_prefix="/api")
 app.register_blueprint(club_bp, url_prefix="/api")
 app.register_blueprint(feedback_bp, url_prefix="/api")
+app.register_blueprint(interest_bp, url_prefix="/api")
 app.register_blueprint(trust_bp, url_prefix="/api")
 app.register_blueprint(contact_bp, url_prefix="/api")
 app.register_blueprint(billing_bp, url_prefix="/api")

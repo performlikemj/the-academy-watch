@@ -49,12 +49,13 @@ import {
     X,
     XCircle,
 } from 'lucide-react'
+import { AdminPageHeader } from '@/components/admin/ControlRoom'
 
 // ---------------------------------------------------------------------------
 // Tabs
 // ---------------------------------------------------------------------------
 
-const TABS = [
+export const INBOX_TABS = [
     { value: 'manual', label: 'Manual players' },
     { value: 'takes', label: 'Community takes' },
     { value: 'submissions', label: 'User submissions' },
@@ -63,7 +64,7 @@ const TABS = [
     { value: 'links', label: 'Player links' },
 ]
 
-const TAB_VALUES = TABS.map((t) => t.value)
+const TAB_VALUES = INBOX_TABS.map((t) => t.value)
 
 // ---------------------------------------------------------------------------
 // fetchInboxCounts — per-tab pending counts. Also consumed by the sidebar
@@ -1647,24 +1648,22 @@ export function AdminInbox() {
 
     return (
         <div className="space-y-6">
-            <header className="flex flex-col sm:flex-row sm:items-end justify-between gap-2">
-                <div>
-                    <h1 className="text-3xl font-bold tracking-tight">Inbox</h1>
-                    <p className="text-muted-foreground mt-1">
-                        Everything waiting on an admin decision — submissions, takes, flags and requests in one queue
-                    </p>
-                </div>
-                {counts === null ? (
+            <AdminPageHeader
+                eyebrow="Review · Queue"
+                title="Review"
+                accent="inbox"
+                lede="Everything waiting on an admin decision — submissions, takes, flags and requests in one queue"
+                meta={counts === null ? (
                     <Skeleton className="h-6 w-28" data-testid="inbox-counts-skeleton" />
                 ) : (
-                    <Badge
-                        variant={counts.total > 0 ? 'default' : 'secondary'}
+                    <span
                         data-testid="inbox-total-pending"
+                        className={`font-mono text-[11.5px] uppercase tracking-[0.14em] ${counts.total > 0 ? 'text-[#E9C46A]' : 'text-[#8FBFA4]'}`}
                     >
                         {counts.total} pending
-                    </Badge>
+                    </span>
                 )}
-            </header>
+            />
 
             {/* Message Display */}
             {message && (
@@ -1678,7 +1677,7 @@ export function AdminInbox() {
 
             <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-4">
                 <TabsList className="flex flex-wrap h-auto">
-                    {TABS.map((tab) => (
+                    {INBOX_TABS.map((tab) => (
                         <TabsTrigger key={tab.value} value={tab.value} data-testid={`inbox-tab-${tab.value}`}>
                             {tab.label}
                             {counts !== null && counts[tab.value] > 0 && (

@@ -1,3 +1,5 @@
+import '@/styles/floodlight-player.css'
+import { ComingSoon } from '@/components/interest/ComingSoon'
 import { useDataMode } from '@/hooks/useDataMode'
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -31,7 +33,7 @@ function PlayerSearchResult({ player }) {
     <li>
       <Link
         to={`/players/${playerApiId}`}
-        className="group flex items-center gap-3 rounded-xl border border-border/70 bg-card px-3 py-3 no-underline shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md hover:no-underline sm:px-4"
+        className="group rule-row flex items-center gap-3 no-underline hover:bg-chalk-2 hover:no-underline"
       >
         <Avatar className="h-11 w-11 shrink-0 border border-border/70 bg-secondary">
           <AvatarImage src={player.player_photo || player.photo} alt="" />
@@ -105,20 +107,20 @@ export function PlayerOnboarding() {
   const showNoResults = activeSearch && searchState.status === 'success' && results.length === 0
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-amber-50/70 via-background to-secondary/60">
-      <div className="mx-auto max-w-5xl px-4 py-10 sm:px-6 sm:py-14 lg:px-8">
-        <header className="mx-auto max-w-3xl text-center">
-          <span className="mx-auto inline-flex h-14 w-14 items-center justify-center rounded-full bg-amber-100 text-amber-900 shadow-sm ring-1 ring-amber-200">
+    <div className="fl-player-onboarding min-h-screen bg-chalk">
+      <div className="floodlight-container py-12 sm:py-20">
+        <header className="max-w-3xl">
+          <span className="inline-flex h-12 w-12 items-center justify-center rounded-full border border-hairline text-muted-foreground">
             <ShieldCheck className="h-6 w-6" />
           </span>
-          <p className="mt-5 text-xs font-semibold uppercase tracking-[0.22em] text-amber-800">Player identity</p>
-          <h1 className="mt-2 text-3xl font-bold tracking-tight text-foreground sm:text-5xl">Are you a player?</h1>
-          <p className="mx-auto mt-4 max-w-2xl text-sm leading-relaxed text-muted-foreground sm:text-base">
+          <p className="eyebrow mt-6">Player identity</p>
+          <h1 className="display mt-4 text-[56px] sm:text-[80px]">Are you a player?</h1>
+          <p className="mt-6 max-w-2xl text-sm leading-relaxed text-muted-foreground sm:text-base">
             Find your tracked profile, then open it and choose “This is me” to start your claim. Direct player claims are for adults aged 18 or older.
           </p>
         </header>
 
-        <Card className="mx-auto mt-8 max-w-3xl overflow-hidden border-border/80 shadow-sm sm:mt-10">
+        <Card className="mt-12 max-w-3xl overflow-hidden border-0 border-t border-hairline shadow-none sm:mt-14">
           <CardHeader className="border-b border-border/60 bg-card">
             <CardTitle>Find your profile</CardTitle>
             <CardDescription>Search by your name. Enter at least two characters.</CardDescription>
@@ -147,7 +149,7 @@ export function PlayerOnboarding() {
             </div>
 
             <div aria-live="polite" aria-busy={loading}>
-              {error ? <p className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800" role="alert">{error}</p> : null}
+              {error ? <p className="rounded-lg border border-danger/30 p-3 text-sm text-danger" role="alert">{error}</p> : null}
               {showNoResults ? (
                 <p className="rounded-lg border border-dashed border-border bg-background/70 px-4 py-7 text-center text-sm text-muted-foreground">
                   No tracked player matches “{searchState.query}”. Try a shorter name or use one of the options below.
@@ -164,15 +166,15 @@ export function PlayerOnboarding() {
           </CardContent>
         </Card>
 
-        <section className="mx-auto mt-10 max-w-3xl" aria-labelledby="player-next-steps">
+        <section className="mt-14 max-w-3xl" aria-labelledby="player-next-steps">
           <div className="mb-4">
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">Next steps</p>
-            <h2 id="player-next-steps" className="mt-1 text-2xl font-bold tracking-tight text-foreground">Can&apos;t find yourself?</h2>
+            <p className="eyebrow">Next steps</p>
+            <h2 id="player-next-steps" className="display mt-3 text-4xl">Can&apos;t find yourself?</h2>
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
-            {!frozen && (<Card className="group border-border/80 transition-all hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md">
+            {!frozen && (<Card className="border-0 border-t border-hairline shadow-none">
               <CardHeader>
-                <span className="mb-1 inline-flex h-10 w-10 items-center justify-center rounded-full bg-sky-100 text-sky-800">
+                <span className="mb-1 inline-flex h-10 w-10 items-center justify-center rounded-full bg-chalk-2 text-muted-foreground">
                   <Globe2 className="h-5 w-5" />
                 </span>
                 <CardTitle className="text-lg">Search worldwide</CardTitle>
@@ -187,9 +189,9 @@ export function PlayerOnboarding() {
                 </Button>
               </CardContent>
             </Card>)}
-            <Card className="group border-border/80 transition-all hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md">
+            <Card className="border-0 border-t border-hairline shadow-none">
               <CardHeader>
-                <span className="mb-1 inline-flex h-10 w-10 items-center justify-center rounded-full bg-amber-100 text-amber-900">
+                <span className="mb-1 inline-flex h-10 w-10 items-center justify-center rounded-full bg-chalk-2 text-muted-foreground">
                   <UserPlus className="h-5 w-5" />
                 </span>
                 <CardTitle className="text-lg">Create your profile</CardTitle>
@@ -207,6 +209,7 @@ export function PlayerOnboarding() {
           </div>
         </section>
       </div>
+      <ComingSoon feature="player_applications" role="player" image="/media/player-sundown.webp" title="Your next chapter." lede="Applications will have a place here. Join the list to hear when you can take the next step towards a new club." bullets={['Discover a place to develop your game.', 'Keep your applications and replies together.', 'Choose the opportunity that fits your next step.']} />
     </div>
   )
 }

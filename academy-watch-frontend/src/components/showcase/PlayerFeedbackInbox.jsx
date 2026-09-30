@@ -1,3 +1,4 @@
+import '@/styles/floodlight-player.css'
 import { DevelopmentActionSummary, DevelopmentProgress } from '@/components/showcase/DevelopmentAction'
 import { useEffect, useRef, useState } from 'react'
 import { Check, ChevronRight, LockKeyhole, RefreshCw } from 'lucide-react'
@@ -117,7 +118,7 @@ function Inbox({ signedId, token }) {
     } finally { if (!controller.signal.aborted) setBusy(false) }
   }
 
-  return <Card className="my-6 overflow-hidden border-primary/20" aria-label="Private player feedback">
+  return <Card className="fl-player-feedback my-10 overflow-hidden" aria-label="Private player feedback">
     <CardHeader className="border-b border-border/60 bg-muted/30">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
@@ -130,13 +131,13 @@ function Inbox({ signedId, token }) {
     <CardContent className="space-y-5 p-5">
       {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
       {loading ? <p role="status" className="text-sm text-muted-foreground">Loading feedback…</p> : !error && rows.length === 0 && !feedback ? <p className="py-4 text-sm text-muted-foreground">Your club has not published feedback yet.</p> : null}
-      {rows.map((row) => <button key={row.id} className="flex w-full items-center justify-between gap-3 rounded-lg border border-border p-4 text-left hover:bg-muted/40" onClick={() => openFeedback(row.id)}>
+      {rows.map((row) => <button key={row.id} className="fl-feedback-row flex w-full items-center justify-between gap-3 text-left" onClick={() => openFeedback(row.id)}>
         <span className="min-w-0 break-words"><span className="block text-xs text-muted-foreground">{row.program.name} · Revision {row.revision}</span><span className="mt-1 block font-medium">{row.title}</span>
           <span className="mt-2 block text-xs text-muted-foreground">{row.development_progress?.status === 'ready_for_review' ? 'Ready for coach review' : row.development_progress?.status === 'reviewed' ? 'Reviewed by your coach' : row.acknowledged_at ? 'Acknowledged' : row.revision > 1 ? 'Updated feedback — please read again' : 'Unread feedback'}</span></span>
         <ChevronRight className="h-4 w-4 shrink-0" />
       </button>)}
       {nextBefore && <Button variant="outline" onClick={loadMore} disabled={busy}>Load more feedback</Button>}
-      {feedback && <article className="space-y-4 rounded-lg border-l-4 border-primary bg-muted/25 p-5" aria-label="Feedback detail">
+      {feedback && <article className="fl-feedback-detail space-y-5" aria-label="Feedback detail">
         <p className="text-xs text-muted-foreground">{feedback.program.name} · {feedback.author.display_name} · Revision {feedback.revision}</p>
         <h3 className="break-words text-xl font-semibold">{feedback.title}</h3>
         <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">{feedback.body}</p>

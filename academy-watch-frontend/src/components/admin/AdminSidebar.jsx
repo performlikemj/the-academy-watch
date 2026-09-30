@@ -32,64 +32,62 @@ import { fetchInboxCounts } from '@/pages/admin/AdminInbox'
 import { APIService } from '@/lib/api'
 
 const GROUPS_KEY = 'academy_watch_admin_sidebar_groups'
+const BRAND_LOGO_SRC = '/assets/loan_army_assets/apple-touch-icon.png'
 
+// Control-room navigation, grouped like the Floodlight boards. Every admin
+// route stays reachable; the API-Football era tools sit in a collapsible
+// "Legacy tools" group at the bottom.
 const sidebarGroups = [
     {
-        label: null,
+        label: 'Overview',
         items: [
-            { icon: LayoutDashboard, label: 'Dashboard', href: '/admin/dashboard' },
-            { icon: Inbox, label: 'Inbox', href: '/admin/inbox', badge: 'inbox' },
+            { icon: LayoutDashboard, label: 'Today', href: '/admin/dashboard' },
+            { icon: Mail, label: 'Interest sign-ups', href: '/admin/interest' },
         ],
     },
     {
-        label: 'Academy Data',
-        icon: GraduationCap,
+        label: 'Review',
         items: [
+            { icon: Inbox, label: 'Review queue', href: '/admin/inbox', badge: 'inbox' },
+            { icon: ShieldCheck, label: 'Trust & safety', href: '/admin/trust', badge: 'trust' },
+        ],
+    },
+    {
+        label: 'Clubs & people',
+        items: [
+            { icon: Landmark, label: 'Clubs', href: '/admin/local-clubs' },
+            { icon: Shield, label: 'Club identities', href: '/admin/club-identities' },
+            { icon: Star, label: 'Showcase', href: '/admin/showcase' },
+            { icon: UserCog, label: 'Accounts & writers', href: '/admin/users' },
             { icon: Users, label: 'Players', href: '/admin/players' },
             { icon: Shield, label: 'Teams', href: '/admin/teams' },
-            { icon: Trophy, label: 'Youth Leagues', href: '/admin/academy' },
-            { icon: GraduationCap, label: 'Cohorts', href: '/admin/cohorts' },
-            { icon: Sprout, label: 'Seeding & Rebuild', href: '/admin/seeding' },
         ],
     },
     {
-        label: 'Content',
-        icon: Mail,
-        items: [
-            { icon: Mail, label: 'Newsletters', href: '/admin/newsletters' },
-            { icon: Megaphone, label: 'Sponsors', href: '/admin/sponsors' },
-        ],
-    },
-    {
-        label: 'People',
-        icon: UserCog,
-        items: [
-            { icon: UserCog, label: 'Users & Writers', href: '/admin/users' },
-            { icon: ShieldCheck, label: 'Trust Desk', href: '/admin/trust', badge: 'trust' },
-        ],
-    },
-    {
-        label: 'Club Services',
-        icon: Video,
+        label: 'Operations',
         items: [
             { icon: Video, label: 'Film Room', href: '/admin/video' },
-            { icon: Star, label: 'Showcase', href: '/admin/showcase' },
-            { icon: Landmark, label: 'Local Clubs', href: '/admin/local-clubs' },
-            { icon: Shield, label: 'Club identities', href: '/admin/club-identities' },
-            { icon: HandHeart, label: 'Funding Registry', href: '/admin/funding' },
-        ],
-    },
-    {
-        label: 'System',
-        icon: Settings,
-        items: [
+            { icon: HandHeart, label: 'Funding registry', href: '/admin/funding' },
             { icon: Wrench, label: 'Operations', href: '/admin/operations' },
-            { icon: Settings2, label: 'API & Configs', href: '/admin/tools' },
-            { icon: FlaskConical, label: 'Classifier Tester', href: '/admin/sandbox' },
             { icon: Settings, label: 'Settings', href: '/admin/settings' },
         ],
     },
+    {
+        label: 'Legacy tools',
+        collapsible: true,
+        items: [
+            { icon: Mail, label: 'Newsletters', href: '/admin/newsletters' },
+            { icon: Megaphone, label: 'Sponsors', href: '/admin/sponsors' },
+            { icon: Trophy, label: 'Youth leagues', href: '/admin/academy' },
+            { icon: GraduationCap, label: 'Cohorts', href: '/admin/cohorts' },
+            { icon: Sprout, label: 'Seeding & rebuild', href: '/admin/seeding' },
+            { icon: Settings2, label: 'API & configs', href: '/admin/tools' },
+            { icon: FlaskConical, label: 'Classifier tester', href: '/admin/sandbox' },
+        ],
+    },
 ]
+
+const isItemActive = (pathname, href) => pathname === href || pathname.startsWith(`${href}/`)
 
 function loadGroupState() {
     try {
@@ -152,160 +150,167 @@ export function AdminSidebar({ className, collapsed = false, onNavigate }) {
     }
 
     const isGroupActive = (group) =>
-        group.items.some((item) => location.pathname === item.href)
+        group.items.some((item) => isItemActive(location.pathname, item.href))
 
     const isOpen = (group) => {
-        if (!group.label) return true
+        if (!group.collapsible) return true
         if (groupOpen[group.label] !== undefined) return groupOpen[group.label]
         return isGroupActive(group)
     }
 
-    const toggleGroup = (label) => {
-        setGroupOpen((prev) => ({ ...prev, [label]: !isOpen({ label, items: [] }) }))
+    const toggleGroup = (group) => {
+        setGroupOpen((prev) => ({ ...prev, [group.label]: !isOpen(group) }))
     }
 
-    const renderItem = (item) => (
-        <Link key={item.href} to={item.href}>
-            <Button
-                variant={location.pathname === item.href ? 'secondary' : 'ghost'}
-                className={cn(
-                    'w-full justify-start gap-3',
-                    collapsed && 'justify-center px-2'
-                )}
-                aria-current={location.pathname === item.href ? 'page' : undefined}
+    const badgeValue = (item) => {
+        if (item.badge === 'inbox') return inboxCount
+        if (item.badge === 'trust') return trustCount
+        return 0
+    }
+
+    const renderItem = (item) => {
+        const active = isItemActive(location.pathname, item.href)
+        const count = badgeValue(item)
+        return (
+            <Link
+                key={item.href}
+                to={item.href}
                 onClick={handleNavigate}
+                aria-current={active ? 'page' : undefined}
+                title={collapsed ? item.label : undefined}
+                className={cn(
+                    'group flex h-[34px] items-center gap-3 rounded-[7px] px-2.5 text-sm no-underline transition-colors duration-150 hover:no-underline',
+                    'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold',
+                    active
+                        ? 'bg-chalk/[0.08] text-chalk'
+                        : 'text-muted-dark hover:bg-chalk/[0.04] hover:text-chalk',
+                    collapsed && 'justify-center px-0'
+                )}
             >
-                <item.icon className="h-4 w-4 shrink-0" />
-                {!collapsed && <span className="truncate">{item.label}</span>}
-                {!collapsed && item.badge === 'inbox' && inboxCount > 0 && (
-                    <span
-                        data-testid="sidebar-inbox-badge"
-                        className="ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[11px] font-bold tabular-nums text-primary-foreground"
-                    >
-                        {inboxCount > 99 ? '99+' : inboxCount}
+                <item.icon className={cn('h-4 w-4 shrink-0', active ? 'text-gold' : 'opacity-70')} aria-hidden="true" />
+                {collapsed ? (
+                    <span className="sr-only">{item.label}</span>
+                ) : (
+                    <span className="truncate">{item.label}</span>
+                )}
+                {!collapsed && item.badge === 'inbox' && count > 0 && (
+                    <span data-testid="sidebar-inbox-badge" className="ml-auto font-mono text-[11px] tabular-nums text-gold">
+                        {count > 99 ? '99+' : count}
                     </span>
                 )}
-                {!collapsed && item.badge === 'trust' && trustCount > 0 && (
-                    <span
-                        data-testid="sidebar-trust-badge"
-                        className="ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[11px] font-bold tabular-nums text-primary-foreground"
-                    >
-                        {trustCount > 99 ? '99+' : trustCount}
+                {!collapsed && item.badge === 'trust' && count > 0 && (
+                    <span data-testid="sidebar-trust-badge" className="ml-auto font-mono text-[11px] tabular-nums text-gold">
+                        {count > 99 ? '99+' : count}
                     </span>
                 )}
-            </Button>
-        </Link>
-    )
+            </Link>
+        )
+    }
+
+    const groupLabelClass = 'font-mono text-[10.5px] font-medium uppercase tracking-[0.18em] text-[#8C9791]'
 
     return (
-        <div
+        <nav
+            aria-label="Admin"
             className={cn(
-                'pb-10 min-h-screen bg-card border-r shadow-sm transition-[width] duration-200 ease-in-out flex flex-col',
-                collapsed ? 'w-16' : 'w-64',
+                'dark min-h-screen shrink-0 border-r border-hairline-dark bg-night text-chalk transition-[width] duration-200 ease-in-out flex flex-col',
+                collapsed ? 'w-16' : 'w-[260px]',
                 className
             )}
             data-state={collapsed ? 'collapsed' : 'expanded'}
         >
-            <div className="space-y-1 py-4 flex-1 flex flex-col">
-                <div className={cn('px-3 py-2', collapsed && 'px-2')}>
-                    {/* Logo */}
-                    <div
+            <div className={cn('flex flex-1 flex-col gap-5 px-[18px] py-6', collapsed && 'px-2')}>
+                <Link
+                    to="/admin/dashboard"
+                    onClick={handleNavigate}
+                    className={cn('flex items-center gap-3 px-2 no-underline hover:no-underline', collapsed && 'justify-center px-0')}
+                >
+                    <img src={BRAND_LOGO_SRC} alt="The Academy Watch logo" className="h-8 w-8 shrink-0 rounded-lg" />
+                    {!collapsed && (
+                        <span className="font-mono text-[11px] uppercase tracking-[0.2em] text-gold">Control room</span>
+                    )}
+                </Link>
+
+                {sidebarGroups.map((group) => {
+                    if (collapsed) {
+                        return (
+                            <div key={group.label} className="flex flex-col gap-0.5 border-t border-hairline-dark pt-3 first-of-type:border-t-0">
+                                {group.items.map(renderItem)}
+                            </div>
+                        )
+                    }
+
+                    if (!group.collapsible) {
+                        return (
+                            <div key={group.label} className="flex flex-col gap-0.5">
+                                <span className={cn(groupLabelClass, 'px-2.5 pb-1.5')}>{group.label}</span>
+                                {group.items.map(renderItem)}
+                            </div>
+                        )
+                    }
+
+                    const open = isOpen(group)
+                    return (
+                        <Collapsible
+                            key={group.label}
+                            open={open}
+                            onOpenChange={() => toggleGroup(group)}
+                            className="mt-auto border-t border-hairline-dark pt-3"
+                        >
+                            <CollapsibleTrigger asChild>
+                                <button
+                                    type="button"
+                                    className="flex w-full items-center justify-between rounded-[7px] px-2.5 py-2 text-left text-[13px] text-[#8C9791] transition-colors hover:text-chalk"
+                                >
+                                    <span>{group.label}</span>
+                                    <ChevronDown className={cn('h-3.5 w-3.5 transition-transform duration-200', open && 'rotate-180')} aria-hidden="true" />
+                                </button>
+                            </CollapsibleTrigger>
+                            <CollapsibleContent>
+                                <div className="flex flex-col gap-0.5 pt-1">
+                                    {group.items.map(renderItem)}
+                                </div>
+                            </CollapsibleContent>
+                        </Collapsible>
+                    )
+                })}
+
+                <div
+                    className={cn(
+                        'flex gap-1 border-t border-hairline-dark pt-3',
+                        collapsed ? 'flex-col items-center' : 'items-center justify-between'
+                    )}
+                    role="group"
+                    aria-label="Account"
+                >
+                    <Link
+                        to="/"
+                        onClick={handleNavigate}
+                        title={collapsed ? 'Public site' : undefined}
                         className={cn(
-                            'flex items-center gap-3 px-3 mb-6 transition-opacity',
-                            collapsed ? 'justify-center' : 'justify-start'
+                            'flex h-[34px] items-center gap-2.5 rounded-[7px] px-2.5 text-sm text-muted-dark no-underline transition-colors hover:bg-chalk/[0.04] hover:text-chalk hover:no-underline',
+                            collapsed && 'justify-center px-0'
                         )}
                     >
-                        <div className="h-9 w-9 rounded-lg bg-primary flex items-center justify-center">
-                            <GraduationCap className="h-5 w-5 text-primary-foreground" />
-                        </div>
-                        {!collapsed && (
-                            <h2 className="text-lg font-bold tracking-tight">The Academy Watch</h2>
+                        <Home className="h-4 w-4 opacity-70" aria-hidden="true" />
+                        {collapsed ? <span className="sr-only">Public site</span> : <span>Public site</span>}
+                    </Link>
+                    <Button
+                        variant="ghost"
+                        className={cn(
+                            'h-[34px] gap-2.5 rounded-[7px] px-2.5 text-sm font-normal text-[#E9967A] hover:bg-[#E9967A]/10 hover:text-[#E9967A]',
+                            collapsed && 'justify-center px-0'
                         )}
-                    </div>
-
-                    {/* Groups */}
-                    <div className="space-y-1">
-                        {sidebarGroups.map((group, gi) => {
-                            if (!group.label) {
-                                return (
-                                    <div key={gi}>
-                                        {group.items.map(renderItem)}
-                                    </div>
-                                )
-                            }
-
-                            if (collapsed) {
-                                return (
-                                    <div key={gi} className="space-y-1">
-                                        {gi > 0 && <hr className="my-2 border-border" />}
-                                        {group.items.map(renderItem)}
-                                    </div>
-                                )
-                            }
-
-                            const open = isOpen(group)
-                            return (
-                                <Collapsible key={gi} open={open} onOpenChange={() => toggleGroup(group.label)}>
-                                    <CollapsibleTrigger asChild>
-                                        <button className="flex items-center justify-between w-full px-3 py-2 mt-3 text-xs font-semibold tracking-tight text-muted-foreground uppercase hover:text-foreground transition-colors">
-                                            <span>{group.label}</span>
-                                            <ChevronDown
-                                                className={cn(
-                                                    'h-3.5 w-3.5 transition-transform',
-                                                    open && 'rotate-180'
-                                                )}
-                                            />
-                                        </button>
-                                    </CollapsibleTrigger>
-                                    <CollapsibleContent>
-                                        <div className="space-y-1">
-                                            {group.items.map(renderItem)}
-                                        </div>
-                                    </CollapsibleContent>
-                                </Collapsible>
-                            )
-                        })}
-                    </div>
-                </div>
-
-                {/* Bottom section */}
-                <div className={cn('px-3 py-2 mt-auto', collapsed && 'px-2')}>
-                    {!collapsed && (
-                        <h2 className="mb-2 px-3 text-sm font-semibold tracking-tight text-muted-foreground">
-                            Account
-                        </h2>
-                    )}
-                    <div className="space-y-1">
-                        <Link to="/">
-                            <Button
-                                variant="ghost"
-                                className={cn(
-                                    'w-full justify-start gap-3',
-                                    collapsed && 'justify-center px-2'
-                                )}
-                                onClick={onNavigate}
-                            >
-                                <Home className="h-4 w-4" />
-                                {!collapsed && <span>Public Site</span>}
-                            </Button>
-                        </Link>
-                        <Button
-                            variant="ghost"
-                            className={cn(
-                                'w-full justify-start gap-3 text-rose-600 hover:text-rose-600 hover:bg-rose-50',
-                                collapsed && 'justify-center px-2'
-                            )}
-                            onClick={() => {
-                                if (onNavigate) onNavigate()
-                                logout()
-                            }}
-                        >
-                            <LogOut className="h-4 w-4" />
-                            {!collapsed && <span>Logout</span>}
-                        </Button>
-                    </div>
+                        onClick={() => {
+                            if (onNavigate) onNavigate()
+                            logout()
+                        }}
+                    >
+                        <LogOut className="h-4 w-4" aria-hidden="true" />
+                        {collapsed ? <span className="sr-only">Log out</span> : <span>Log out</span>}
+                    </Button>
                 </div>
             </div>
-        </div>
+        </nav>
     )
 }

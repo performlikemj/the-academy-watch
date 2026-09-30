@@ -88,6 +88,10 @@ import { AdminLocalClubs } from '@/pages/admin/AdminLocalClubs'
 import { AdminClubIdentities } from '@/pages/admin/AdminClubIdentities'
 import { AdminFunding } from '@/pages/admin/AdminFunding'
 import { HomePage } from '@/pages/HomePage'
+import { ClubsNearYouTeaser } from '@/pages/teasers/ClubsNearYouTeaser'
+import { OpportunitiesTeaser } from '@/pages/teasers/OpportunitiesTeaser'
+import { AdminInterest } from '@/pages/admin/AdminInterest'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { PublicFormationBuilder } from '@/pages/PublicFormationBuilder'
 import { CohortBrowser } from '@/pages/CohortBrowser'
 import { ScoutPage } from '@/pages/ScoutPage'
@@ -538,27 +542,6 @@ function RequireAuth({ children, requireJournalist = false }) {
 // Navigation component
 const BRAND_LOGO_SRC = '/assets/loan_army_assets/apple-touch-icon.png'
 
-function SoccerBallToggleIcon({ spinning }) {
-  return (
-    <svg
-      viewBox="0 0 64 64"
-      className="h-10 w-10 text-foreground"
-      style={{ transform: spinning ? 'rotate(360deg)' : 'rotate(0deg)', transition: 'transform 0.6s ease' }}
-      aria-hidden="true"
-    >
-      <circle cx="32" cy="32" r="28" fill="#f5f5f5" stroke="currentColor" strokeWidth="4" />
-      <polygon points="32,22 38,26 36,34 28,34 26,26" fill="currentColor" />
-      <path d="M32 16L23 22L16 30L19 40L28 46H36L45 40L48 30L41 22Z" fill="none" stroke="currentColor" strokeWidth="3" strokeLinejoin="round" />
-      <path d="M23 22L18 14" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
-      <path d="M41 22L46 14" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
-      <path d="M19 40L11 43" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
-      <path d="M45 40L53 43" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
-      <path d="M28 46L25 56" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
-      <path d="M36 46L39 56" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
-    </svg>
-  )
-}
-
 function Navigation() {
   const location = useLocation()
   const isMobile = useIsMobile()
@@ -572,7 +555,13 @@ function Navigation() {
   const navItems = useMemo(() => {
     const items = [
       { path: '/', label: 'Home', icon: Home },
-      { path: '/scout', label: 'Scout', icon: Globe },
+      { path: '/clubs', label: 'Clubs', icon: Users },
+      { path: '/onboarding/player', label: 'Players', icon: UserPlus },
+      { path: '/scout', label: 'Scouts', icon: Globe },
+      { path: '/opportunities', label: 'Opportunities', icon: ArrowRight },
+      { path: '/my-club', label: 'My club', icon: Users },
+      { path: '/dream-team', label: 'Dream XI', icon: Trophy },
+      { path: '/academy', label: 'Academy tracker', icon: Star },
       { path: '/teams', label: 'Teams', icon: Users },
       // Dream XI demoted from top-level nav (2026-07-02, MJ) — the page stays
       // at /dream-team and is featured on the Home grid.
@@ -602,18 +591,19 @@ function Navigation() {
   const linkClasses = (isActive) => (
     `inline-flex items-center gap-2 rounded-full px-3 py-2 text-sm font-medium transition-colors sm:px-3 whitespace-nowrap no-underline hover:no-underline ` +
     (isActive
-      ? 'text-primary bg-primary/5 shadow-inner'
+      ? 'text-primary bg-accent'
       : 'text-foreground/80 hover:text-foreground hover:bg-secondary'
     )
   )
 
-  const renderNavLinks = (variant) => navItems.map((item) => {
+  const primaryPaths = ['/clubs', '/onboarding/player', '/scout']
+  const renderNavLinks = (variant, items = navItems) => items.map((item) => {
     const { path, label, icon } = item
     const Icon = icon
     const isActive = location.pathname === path
     const content = (
       <span className="flex items-center gap-2">
-        <Icon className="h-4 w-4" />
+        {variant === 'mobile' && <Icon className="h-4 w-4" />}
         {label}
       </span>
     )
@@ -638,73 +628,48 @@ function Navigation() {
   })
 
   return (
-    <nav className="border-b bg-background/90 backdrop-blur supports-[backdrop-filter]:bg-background/70">
-      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8 gap-4">
-        <Link to="/" className="flex items-center gap-2 text-foreground no-underline hover:no-underline sm:gap-3 shrink-0">
-          <span className="inline-flex h-10 w-10 items-center justify-center rounded bg-slate-900 shadow">
-            <img src={BRAND_LOGO_SRC} alt="The Academy Watch logo" className="h-7 w-7" />
-          </span>
-          <div className="flex flex-col leading-tight">
-            <span className="text-lg font-semibold">The Academy Watch</span>
-            <span className="hidden text-xs text-muted-foreground sm:block">Academy player tracker</span>
-          </div>
+    <nav aria-label="Main navigation" className="border-b bg-background text-foreground">
+      <div className="floodlight-container flex min-h-20 flex-wrap items-center justify-between gap-4 py-3 lg:flex-nowrap">
+        <Link to="/" className="flex shrink-0 items-center gap-3">
+          <img src={BRAND_LOGO_SRC} alt="The Academy Watch logo" className="h-9 w-9 rounded-lg" />
+          <span className="text-base font-semibold tracking-tight sm:text-lg">The Academy Watch</span>
         </Link>
-
         {isMobile ? (
           <Drawer open={drawerOpen} onOpenChange={setDrawerOpen} autoFocus>
             <DrawerTrigger asChild>
-              <button
-                type="button"
-                className="inline-flex items-center justify-center rounded-full border border-border bg-secondary p-2 shadow-sm transition hover:bg-muted"
-                aria-label="Toggle navigation menu"
-                aria-expanded={drawerOpen}
-              >
-                <SoccerBallToggleIcon spinning={drawerOpen} />
-              </button>
+              <Button variant="outline" size="icon" aria-label="Toggle navigation menu" aria-expanded={drawerOpen}>
+                <ListChecks className="h-5 w-5" />
+              </Button>
             </DrawerTrigger>
-            <DrawerContent className="pb-6">
-              <DrawerHeader>
-                <DrawerTitle className="text-base font-semibold">The Academy Watch</DrawerTitle>
-                <DrawerDescription>Quick access to every page.</DrawerDescription>
+            <DrawerContent className="h-[90dvh] overflow-hidden pb-[calc(1rem+env(safe-area-inset-bottom))] data-[vaul-drawer-direction=bottom]:max-h-[90dvh]">
+              <DrawerHeader className="shrink-0">
+                <DrawerTitle>The Academy Watch</DrawerTitle>
+                <DrawerDescription>Find your side of the touchline.</DrawerDescription>
               </DrawerHeader>
-              <div className="flex flex-col gap-2 px-4">
-                <DrawerClose asChild>
-                  <button
-                    type="button"
-                    onClick={() => { setDrawerOpen(false); openSearch(); }}
-                    className="inline-flex items-center gap-2 rounded-full px-3 py-2 text-sm font-medium text-foreground/80 hover:text-foreground hover:bg-secondary transition-colors justify-start"
-                  >
-                    <Search className="h-4 w-4" />
-                    Search
-                  </button>
-                </DrawerClose>
+              <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-4">
+                <Button variant="ghost" className="justify-start" onClick={() => { setDrawerOpen(false); openSearch() }}>
+                  <Search /> Search
+                </Button>
                 {renderNavLinks('mobile')}
+                {!token && <Button asChild><Link to="/#early-access" onClick={() => setDrawerOpen(false)}>Get early access</Link></Button>}
               </div>
-              <DrawerFooter>
-                <AuthControls isMobile onNavigate={() => setDrawerOpen(false)} />
-              </DrawerFooter>
+              <DrawerFooter className="shrink-0"><AuthControls isMobile onNavigate={() => setDrawerOpen(false)} /></DrawerFooter>
             </DrawerContent>
           </Drawer>
         ) : (
-          <div className="flex min-w-0 flex-1 items-center gap-4 overflow-hidden">
-            <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3 md:gap-4 overflow-x-auto pr-2">
-              {renderNavLinks('desktop')}
-            </div>
-            <div className="flex shrink-0 items-center gap-2">
-              <button
-                type="button"
-                onClick={openSearch}
-                className="inline-flex items-center gap-2 rounded-md border border-border bg-card px-3 py-1.5 text-sm text-muted-foreground shadow-sm hover:bg-secondary hover:text-foreground/80 transition-colors"
-                aria-label="Search"
-              >
-                <Search className="h-4 w-4" />
-                <span className="hidden sm:inline">Search</span>
-                <kbd className="hidden sm:inline-flex items-center gap-1 rounded border border-border bg-secondary px-1.5 font-mono text-xs text-muted-foreground">
-                  <span className="text-xs">⌘</span>K
-                </kbd>
-              </button>
-              <AuthControls />
-            </div>
+          <div className="flex min-w-0 flex-1 items-center justify-end gap-2 xl:gap-4">
+            {renderNavLinks('desktop', navItems.filter((item) => primaryPaths.includes(item.path)))}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild><Button variant="ghost" size="sm">More <ChevronDown /></Button></DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onSelect={openSearch}><Search className="h-4 w-4" /> Search</DropdownMenuItem>
+                {navItems.filter((item) => !primaryPaths.includes(item.path)).map((item) => (
+                  <DropdownMenuItem key={item.path} asChild><Link to={item.path}>{item.label}</Link></DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <AuthControls />
+            {!token && <Button asChild><Link to="/#early-access">Get early access</Link></Button>}
           </div>
         )}
       </div>
@@ -755,6 +720,7 @@ function AuthControls({ isMobile = false, onNavigate }) {
     return (
       <Button
         size={isMobile ? 'lg' : 'sm'}
+        variant="ghost"
         className={isMobile ? 'w-full' : ''}
         onClick={() => {
           openLoginModal()
@@ -767,13 +733,13 @@ function AuthControls({ isMobile = false, onNavigate }) {
   }
 
   return (
-    <div className={isMobile ? 'flex flex-col gap-3' : 'flex items-center gap-4 min-w-0 max-w-xs'}>
+    <div className={isMobile ? 'flex flex-col gap-3' : 'flex min-w-0 items-center gap-3'}>
       {isAdmin && !adminUnlocked && (
         <span className="sr-only">Admin access requires API key</span>
       )}
-      <div className="flex items-center gap-2 text-sm">
+      <div className="flex min-w-0 items-center gap-2 text-sm">
         <span
-          className="max-w-[140px] truncate font-semibold text-foreground sm:max-w-[200px]"
+          className="min-w-0 max-w-[180px] truncate font-semibold text-foreground"
           title={displayName || 'Signed in'}
         >
           {displayName || 'Signed in'}
@@ -894,7 +860,7 @@ function AuthControls({ isMobile = false, onNavigate }) {
           <Badge variant="secondary">Go On Member</Badge>
         )}
       </div>
-      <div className={isMobile ? 'flex flex-col gap-2' : 'flex items-center gap-2'}>
+      <div className={isMobile ? 'flex flex-col gap-2' : 'flex shrink-0 items-center gap-2'}>
         <Button
           size="sm"
           variant="ghost"
@@ -4066,8 +4032,9 @@ function AppWithRouter() {
 
   return (
     <GlobalSearchContext.Provider value={globalSearch}>
-      <div className="min-h-screen bg-secondary">
-        <Navigation />
+      <div className="min-h-screen bg-background">
+        {/* The admin control room carries its own chrome (sidebar + top bar). */}
+        {!isAdminRoute ? <Navigation /> : null}
         <SyncBanner />
         <GlobalSearchDialog
           open={globalSearch.isOpen}
@@ -4080,10 +4047,11 @@ function AppWithRouter() {
         <main>
           <AppRoutes />
         </main>
-        <footer className="bg-secondary border-t border-border py-8 mt-auto">
-          <div className="max-w-6xl mx-auto px-4 text-center">
-            <BuyMeCoffeeButton />
-            {!isAdminRoute ? (
+        {!isAdminRoute ? (
+          <footer className="dark bg-night text-chalk border-t border-border py-12 mt-auto">
+            <div className="floodlight-container text-center">
+              <p className="display text-3xl">For the whole game.</p>
+              <div className="mt-6"><BuyMeCoffeeButton /></div>
               <nav aria-label="Legal and support" className="mt-6 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-sm">
                 {LEGAL_FOOTER_LINKS.map((item) => (
                   <Link key={item.to} to={item.to} className="text-muted-foreground transition-colors hover:text-foreground">
@@ -4091,10 +4059,10 @@ function AppWithRouter() {
                   </Link>
                 ))}
               </nav>
-            ) : null}
-            <p className="text-sm text-muted-foreground mt-4">&copy; {new Date().getFullYear()} The Academy Watch. All rights reserved.</p>
-          </div>
-        </footer>
+              <p className="text-sm text-muted-foreground mt-4">&copy; {new Date().getFullYear()} The Academy Watch. All rights reserved.</p>
+            </div>
+          </footer>
+        ) : null}
         <LoginModal />
       </div>
     </GlobalSearchContext.Provider>
@@ -4106,6 +4074,8 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path="/" element={<HomePage />} />
+      <Route path="/clubs" element={<ClubsNearYouTeaser />} />
+      <Route path="/opportunities" element={<OpportunitiesTeaser />} />
       <Route path="/teams" element={<TeamsPage />} />
       <Route path="/teams/:teamSlug" element={<TeamDetailPage />} />
       <Route
@@ -4161,6 +4131,7 @@ function AppRoutes() {
       <Route path="/admin" element={<AdminLayout />}>
         <Route index element={<Navigate to="/admin/dashboard" replace />} />
         <Route path="dashboard" element={<AdminDashboard />} />
+        <Route path="interest" element={<AdminInterest />} />
         <Route path="inbox" element={<AdminInbox />} />
         <Route path="operations" element={<AdminOperations />} />
         <Route path="seeding" element={<AdminSeeding />} />
