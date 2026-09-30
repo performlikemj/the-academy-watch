@@ -813,6 +813,20 @@ export function ScoutPage() {
                   )}
                 </Link>
               </Button>
+              {contactRail === true ? (
+                <Button variant="outline" size="sm" asChild className={deskPillClass}>
+                  <Link to="/introductions" className="no-underline hover:no-underline">
+                    <Send className="mr-1.5 h-4 w-4" />
+                    Introductions
+                  </Link>
+                </Button>
+              ) : null}
+              <Button variant="outline" size="sm" asChild className={deskPillClass}>
+                <Link to="/scout/verification" className="no-underline hover:no-underline">
+                  <ShieldCheck className="mr-1.5 h-4 w-4" />
+                  Get verified
+                </Link>
+              </Button>
               <Button variant="outline" size="sm" onClick={handleExportCsv} disabled={exporting} className={deskPillClass}>
                 {exporting ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Download className="mr-1.5 h-4 w-4" />}
                 Export CSV

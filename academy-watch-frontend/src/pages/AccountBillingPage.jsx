@@ -218,11 +218,11 @@ export function AccountBillingPage() {
   }
 
   if (state.unavailable) {
-    return <div className="mx-auto max-w-2xl px-4 py-16"><Card><CardContent className="py-12 text-center"><CreditCard className="mx-auto h-8 w-8 text-muted-foreground" /><h1 className="mt-4 text-2xl font-bold">Billing isn&apos;t available yet.</h1><p className="mt-2 text-sm text-muted-foreground">Scout tools continue to work as usual.</p></CardContent></Card></div>
+    return <div className="mx-auto max-w-2xl px-4 py-16"><Card><CardContent className="py-12 text-center"><CreditCard className="mx-auto h-8 w-8 text-muted-foreground" /><h1 className="display mt-4 text-4xl">Billing isn&apos;t available yet.</h1><p className="mt-2 text-sm text-muted-foreground">Scout tools continue to work as usual.</p></CardContent></Card></div>
   }
 
   if (state.failed) {
-    return <div className="mx-auto max-w-2xl px-4 py-16"><Card><CardContent className="py-12 text-center"><CreditCard className="mx-auto h-8 w-8 text-muted-foreground" /><h1 className="mt-4 text-2xl font-bold">We couldn&apos;t load your billing details.</h1><p className="mt-2 text-sm text-muted-foreground">Try again.</p><Button className="mt-5" onClick={() => setLoadAttempt((current) => current + 1)}>Retry</Button></CardContent></Card></div>
+    return <div className="mx-auto max-w-2xl px-4 py-16"><Card><CardContent className="py-12 text-center"><CreditCard className="mx-auto h-8 w-8 text-muted-foreground" /><h1 className="display mt-4 text-4xl">We couldn&apos;t load your billing details.</h1><p className="mt-2 text-sm text-muted-foreground">Try again.</p><Button className="mt-5" onClick={() => setLoadAttempt((current) => current + 1)}>Retry</Button></CardContent></Card></div>
   }
 
   const entitlements = state.entitlements

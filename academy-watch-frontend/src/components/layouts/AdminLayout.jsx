@@ -14,7 +14,6 @@ import { Label } from '@/components/ui/label'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { useAuth } from '@/context/AuthContext'
 import { BackgroundJobsProvider } from '@/context/BackgroundJobsContext'
-import { useDataMode } from '@/hooks/useDataMode'
 import { useNightSurface } from '@/hooks/useNightSurface'
 import { APIService } from '@/lib/api'
 
@@ -25,7 +24,6 @@ const todayLabel = () => new Date().toLocaleDateString('en-GB', { weekday: 'long
 export function AdminLayout() {
     const { token, isAdmin, hasApiKey } = useAuth()
     useNightSurface()
-    const { api_football_frozen: frozen } = useDataMode()
     const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
     const [collapsed, setCollapsed] = useState(() => {
         if (typeof localStorage === 'undefined') return false
@@ -228,9 +226,6 @@ export function AdminLayout() {
                             </p>
                         </div>
                         <div className="flex items-center gap-5 font-mono text-[11px] uppercase tracking-[0.12em]">
-                            {frozen ? (
-                                <span className="text-[#E9C46A]" title="API-Football frozen mode is on: pages read stored data only">Data frozen</span>
-                            ) : null}
                             <span className="hidden text-muted-dark sm:inline">Signed in as admin</span>
                         </div>
                     </header>
