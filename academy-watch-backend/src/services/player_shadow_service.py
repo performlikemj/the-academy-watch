@@ -306,19 +306,19 @@ def search_players(q, api_client=None):
 
     if enabled():
         from src.models.showcase import LocalPlayer
-        from src.services.public_adult import public_adult_ids
+        from src.services.public_adult import filter_public_adult_query
 
+        local_query = LocalPlayer.query.filter(
+            LocalPlayer.provenance == "club",
+            LocalPlayer.display_name.ilike(f"%{query}%"),
+            local_publication_filter(LocalPlayer),
+        )
         locals_ = (
-            LocalPlayer.query.filter(
-                LocalPlayer.provenance == "club",
-                LocalPlayer.display_name.ilike(f"%{query}%"),
-                local_publication_filter(LocalPlayer),
-            )
-            .order_by(LocalPlayer.display_name)
+            filter_public_adult_query(local_query, -LocalPlayer.id)
+            .order_by(LocalPlayer.display_name, LocalPlayer.id)
             .limit(MAX_SEARCH_RESULTS)
             .all()
         )
-        eligible = public_adult_ids([-p.id for p in locals_])
         results.extend(
             {
                 "player_api_id": -p.id,
@@ -329,7 +329,7 @@ def search_players(q, api_client=None):
                 "club_name": p.club_name,
             }
             for p in locals_
-            if -p.id in eligible
+            if -p.id not in seen
         )
     pids = [r["player_api_id"] for r in results]
     from src.services.club_publication_hold import held_subject_ids
@@ -372,6 +372,7 @@ def search_players(q, api_client=None):
             )
             .all()
         }
+    results = list({r["player_api_id"]: r for r in results}.values())[:MAX_SEARCH_RESULTS]
     for result in results:
         result["tracked"] = result["player_api_id"] in tracked_ids
         result["shadow"] = result["player_api_id"] in shadow_ids

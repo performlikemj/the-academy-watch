@@ -34,7 +34,10 @@ def purge_invited_emails(*, limit=100, at=None):
         row.recipient_email = None
         row.invite_token_hash = None
         row.invite_expires_at = None
-    return {"invited_emails_purged": len(rows)}
+    from src.services.club_player_publication import clear_club_follow_labels
+
+    labels = clear_club_follow_labels(limit=limit)
+    return {"invited_emails_purged": len(rows), "follow_labels_cleared": labels}
 
 
 def export_publications(user, schema):

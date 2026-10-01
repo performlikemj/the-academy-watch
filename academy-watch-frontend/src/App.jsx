@@ -4057,6 +4057,7 @@ function AppWithRouter() {
   const globalSearch = useGlobalSearch()
   const location = useLocation()
   const isAdminRoute = location.pathname.startsWith('/admin')
+  const PageContainer = isAdminRoute ? 'div' : 'main'
 
   // Central pageview tracking — fires on every route change (inside <Router> so useLocation is safe)
   useEffect(() => {
@@ -4078,9 +4079,9 @@ function AppWithRouter() {
         />
         <PlayerOnboardingPrompt />
         {isLegacyPublicRoute(location.pathname) && !LEGACY_PUBLIC_PAGES ? <meta name="robots" content="noindex, nofollow" /> : null}
-        <main>
+        <PageContainer>
           <AppRoutes />
-        </main>
+        </PageContainer>
         {!isAdminRoute ? (
           <footer className="dark bg-night text-chalk border-t border-border py-12 mt-auto">
             <div className="floodlight-container text-center">

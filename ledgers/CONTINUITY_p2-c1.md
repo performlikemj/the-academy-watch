@@ -11,6 +11,8 @@
 - Own local aw_p2_c1 and foreground ports5150/5201; no provider sends/prod writes.
 
 ## State
+- Now: C1F2 union implemented; final full flags-off + modern browser gates running foreground. Final regressions48 + real PG7 pass; affected192 earlier; lane browser30 + actual PG/HTTP-browser1, Node221, Ruff-format595, OSV547, lint0err191warn/build pass. Reverse41 failures on reviewed head, actual-main dark local parity4 pass. Main784b1490/B3 46a4274f already included; push pending.
+- Contract C1F2: p2c1 SHA2567ff6c7d208d3e5f5ff2c185058f4b9e75f878eebe85c548be951415ff7c95685; new retired-claim partial uniqueness + legacy follow-name scrub; preapply twice+upgrade == direct whole public schema hash3ce8618429c17aeb4e3975042ebefe207044fe3cd68806db2b26884eaf59acdd. BUS CONTRACT posted C2/C4.
 - Done (fix round 1): RC1 F1–F11 FIXED; read full RC1 and reverse probes. Flag OFF provider response/query parity vs actual main, local-only ON gate/admin unlink, export withholding + independent erasure, masked moderation/self-invite block, claimed-consented queue, revoke cooldown, permanent reject closure, invited-email purge/index, playbook/router/hand-back, normal dark SPA fallback.
 - Done: main/B2 release784b1490 + B2 head55b1d3ac + latest B3 head46a4274f included; application source frozen at b01b2f0d. Later ledger-only delivery commit requires no application rerun.
 - Done: final foreground flag-off pytest4385pass90skip0fail153warnings877.72s; affected C1+N3+PG186pass, PG5, final cache/RC1/parity58pass, actual-main parity8pass; Node219, modern offline browser250pass5skip0fail, focused browser22, Ruff clean/format594, OSV547/no issues, lint0err191inherited warnings/build pass. No separate TS target (JS repo).

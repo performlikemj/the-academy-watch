@@ -1777,19 +1777,18 @@ def public_player_search():
 
         if enabled():
             from src.models.showcase import LocalPlayer
-            from src.services.public_adult import public_adult_ids
 
+            local_query = LocalPlayer.query.filter(
+                LocalPlayer.provenance == "club",
+                LocalPlayer.display_name.ilike(f"%{q}%"),
+                local_publication_filter(LocalPlayer),
+            )
             local_rows = (
-                LocalPlayer.query.filter(
-                    LocalPlayer.provenance == "club",
-                    LocalPlayer.display_name.ilike(f"%{q}%"),
-                    local_publication_filter(LocalPlayer),
-                )
-                .order_by(LocalPlayer.display_name)
+                filter_public_adult_query(local_query, -LocalPlayer.id)
+                .order_by(LocalPlayer.display_name, LocalPlayer.id)
                 .limit(8)
                 .all()
             )
-            eligible = public_adult_ids([-p.id for p in local_rows])
             results.extend(
                 {
                     "player_api_id": -p.id,
@@ -1800,9 +1799,9 @@ def public_player_search():
                     "current_club_name": p.club_name,
                 }
                 for p in local_rows
-                if -p.id in eligible
+                if -p.id not in seen
             )
-        return jsonify(results)
+        return jsonify(results[:8])
     except Exception as e:
         return jsonify(_safe_error_payload(e, "Player search failed")), 500
 

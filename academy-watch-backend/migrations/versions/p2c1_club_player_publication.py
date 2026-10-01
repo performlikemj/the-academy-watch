@@ -37,6 +37,10 @@ DDL = """CREATE TABLE public.club_player_publications (
 )"""
 
 
+RECOVERY_INDEX = """CREATE UNIQUE INDEX uq_profile_claim_local_player_user ON public.player_profile_claims(local_player_id, user_account_id) WHERE verification_method IS NULL OR verification_method <> 'club_vouch_retired'"""
+LABEL_CLEANUP = """UPDATE public.follows f SET label = NULL FROM public.local_players p WHERE f.kind = 'player' AND f.label IS NOT NULL AND f.selector->>'player_api_id' = (-p.id)::text AND p.provenance = 'club'"""
+
+
 def upgrade():
     add_column_safe(
         "contact_requests", sa.Column("club_first", sa.Boolean(), nullable=False, server_default=sa.false())
@@ -51,6 +55,10 @@ def upgrade():
         "CREATE INDEX IF NOT EXISTS ix_publication_local_player ON public.club_player_publications(local_player_id)"
     )
     op.execute("ALTER TABLE public.club_player_publications ENABLE ROW LEVEL SECURITY")
+    op.execute("DROP INDEX IF EXISTS public.uq_profile_claim_local_player_user")
+    op.execute(RECOVERY_INDEX)
+    if table_exists("follows"):
+        op.execute(LABEL_CLEANUP)
 
 
 def downgrade():

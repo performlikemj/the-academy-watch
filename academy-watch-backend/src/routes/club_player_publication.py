@@ -2,6 +2,7 @@
 
 from functools import wraps
 
+import sqlalchemy as sa
 from flask import Blueprint, abort, g, jsonify, request
 from sqlalchemy.exc import IntegrityError
 from src.auth import require_api_key, require_user_auth
@@ -9,7 +10,7 @@ from src.extensions import limiter
 from src.models.club_player_publication import ClubPlayerPublication as Publication
 from src.models.funding import ClubRosterMember
 from src.models.league import UserAccount, db
-from src.models.showcase import LocalPlayer, local_player_is_minor
+from src.models.showcase import LocalPlayer, PlayerProfileClaim, local_player_is_minor
 from src.services import club_player_publication as service
 from src.services.club_access import require_club_permission
 
@@ -143,13 +144,19 @@ def notice(publication):
 @require_club_permission("player_invitations")
 def club_list(program_id):
     rows = Publication.query.filter_by(program_id=program_id).order_by(Publication.id.desc()).limit(100).all()
-    return jsonify(publications=[service.dto(r) for r in rows])
+    return jsonify(publications=service.dto_list(rows))
 
 
 @publication_bp.get("/club/<int:program_id>/publication-candidates")
 @flagged
 @require_club_permission("player_invitations")
 def candidates(program_id):
+    from src.models.funding import ClubProgram
+    from src.services.club_directory import is_listed
+    from src.services.player_suppression import without_active_suppression
+
+    if not is_listed(db.session.get(ClubProgram, program_id)):
+        return jsonify(players=[])
     rows = (
         LocalPlayer.query.join(ClubRosterMember, ClubRosterMember.local_player_id == LocalPlayer.id)
         .filter(
@@ -158,6 +165,28 @@ def candidates(program_id):
             LocalPlayer.provenance == "club",
             LocalPlayer.merged_into_local_player_id.is_(None),
             ~local_player_is_minor(LocalPlayer),
+            without_active_suppression(-LocalPlayer.id),
+            ~sa.exists().where(
+                PlayerProfileClaim.local_player_id == LocalPlayer.id,
+                sa.or_(
+                    PlayerProfileClaim.verification_method.is_(None),
+                    PlayerProfileClaim.verification_method != "club_vouch_retired",
+                ),
+                ~sa.exists().where(
+                    Publication.claim_id == PlayerProfileClaim.id,
+                    sa.or_(
+                        Publication.club_revoked_at.is_not(None),
+                        sa.and_(Publication.withdrawn_at.is_not(None), Publication.consented_at.is_(None)),
+                    ),
+                ),
+            ),
+            sa.or_(LocalPlayer.api_player_id.is_(None), LocalPlayer.api_player_id == -LocalPlayer.id),
+            ~sa.exists().where(
+                Publication.local_player_id == LocalPlayer.id,
+                Publication.claimed_at.is_not(None),
+                Publication.club_revoked_at.is_(None),
+                sa.or_(Publication.withdrawn_at.is_(None), Publication.consented_at.is_not(None)),
+            ),
         )
         .order_by(LocalPlayer.display_name, LocalPlayer.id)
         .limit(100)
@@ -210,7 +239,7 @@ def redeem(action):
 @require_user_auth
 def mine():
     rows = Publication.query.filter_by(recipient_user_id=g.user_id).order_by(Publication.id.desc()).all()
-    return jsonify(publications=[service.dto(r) for r in rows])
+    return jsonify(publications=service.dto_list(rows))
 
 
 @publication_bp.post("/me/player-publications/<int:publication_id>/<string:action>")
@@ -248,7 +277,7 @@ def admin_list():
         .limit(100)
         .all()
     )
-    return jsonify(publications=[service.dto(r, admin=True) for r in rows])
+    return jsonify(publications=service.dto_list(rows, admin=True))
 
 
 @publication_bp.post("/admin/player-publications/<int:publication_id>/review")

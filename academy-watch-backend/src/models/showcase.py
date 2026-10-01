@@ -165,6 +165,8 @@ class PlayerProfileClaim(db.Model):
             "local_player_id",
             "user_account_id",
             unique=True,
+            postgresql_where=sa.text("verification_method IS NULL OR verification_method <> 'club_vouch_retired'"),
+            sqlite_where=sa.text("verification_method IS NULL OR verification_method <> 'club_vouch_retired'"),
         ),
         db.Index("ix_profile_claims_player", "player_api_id"),
         db.Index("ix_profile_claims_local_player", "local_player_id"),

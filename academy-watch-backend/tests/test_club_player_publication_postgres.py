@@ -276,9 +276,78 @@ def test_postgres_invite_email_privacy_retains_evidence_while_dark(pg, monkeypat
     row.invite_expires_at = service.now() - timedelta(seconds=1)
     db.session.commit()
     monkeypatch.setenv("CLUB_PLAYER_PUBLICATION_ENABLED", "false")
-    assert purge_invited_emails(limit=1) == {"invited_emails_purged": 1}
+    assert purge_invited_emails(limit=1)["invited_emails_purged"] == 1
     db.session.commit()
     db.session.expire_all()
     row = db.session.get(Publication, id_)
     assert row.recipient_email is row.invite_token_hash is row.invite_expires_at is None
     assert row.adult_invited_at and row.association_confirmed_at and row.creator_user_id == ids["owner"]
+
+
+def test_postgres_recovery_keeps_retired_claim_and_creates_fresh_keys(pg):
+    from src.models.showcase import PlayerProfileClaim
+
+    app, ids = pg
+    id_ = make_consented(ids)
+    row = db.session.get(Publication, id_)
+    service.review(
+        row,
+        "c1-test-reviewer",
+        {"expected_version": row.version, "action": "approve", "reason": "Original independent review"},
+    )
+    old_id = row.claim_id
+    service.revoke(row, club=True)
+    db.session.commit()
+    row, token = service.invite(
+        ids["program"], ids["local"], ids["owner"], {"recipient_email": ids["email"], "expected_version": row.version}
+    )
+    db.session.commit()
+    assert row.claim_id is None and row.consented_at is None
+    user = db.session.get(UserAccount, ids["adult"])
+    service.redeem(user, {"token": token, "self_claim": True})
+    db.session.commit()
+    assert row.claim_id != old_id
+    old = db.session.get(PlayerProfileClaim, old_id)
+    assert old.local_player_id == ids["local"] and old.status == "revoked"
+    assert old.verification_method == "club_vouch_retired"
+    assert not public_adult_ids([-ids["local"]])
+    service.consent(
+        row,
+        user.id,
+        {"expected_version": row.version, "public_profile_consent": True, "consent_version": service.CONSENT_VERSION},
+    )
+    service.review(
+        row,
+        "c1-test-reviewer",
+        {"expected_version": row.version, "action": "approve", "reason": "Fresh independent review"},
+    )
+    db.session.commit()
+    assert public_adult_ids([-ids["local"]])
+    assert PlayerProfileClaim.query.filter_by(local_player_id=ids["local"], user_account_id=ids["adult"]).count() == 2
+    # The relaxation applies only to C1 retired evidence; another active claim still conflicts.
+    from sqlalchemy.exc import IntegrityError
+
+    with pytest.raises(IntegrityError), db.session.begin_nested():
+        db.session.add(
+            PlayerProfileClaim(
+                local_player_id=ids["local"], user_account_id=ids["adult"], relationship_type="player", status="pending"
+            )
+        )
+        db.session.flush()
+
+
+def test_postgres_recovery_version_race(pg):
+    app, ids = pg
+    id_ = make_consented(ids)
+    row = db.session.get(Publication, id_)
+    service.revoke(row, club=True)
+    db.session.commit()
+    version = row.version
+
+    def work(index):
+        service.invite(
+            ids["program"], ids["local"], ids["owner"], {"recipient_email": ids["email"], "expected_version": version}
+        )
+        return "invited"
+
+    assert sorted(race(app, work)) == ["invited", "version_conflict"]

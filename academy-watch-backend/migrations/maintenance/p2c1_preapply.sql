@@ -31,4 +31,11 @@ CREATE INDEX IF NOT EXISTS ix_publication_recipient ON public.club_player_public
 ALTER TABLE public.club_player_publications ALTER COLUMN recipient_email DROP NOT NULL;
 CREATE INDEX IF NOT EXISTS ix_publication_local_player ON public.club_player_publications(local_player_id);
 ALTER TABLE public.club_player_publications ENABLE ROW LEVEL SECURITY;
+DROP INDEX IF EXISTS public.uq_profile_claim_local_player_user;
+CREATE UNIQUE INDEX uq_profile_claim_local_player_user ON public.player_profile_claims(local_player_id, user_account_id) WHERE verification_method IS NULL OR verification_method <> 'club_vouch_retired';
+DO $$ BEGIN
+IF to_regclass('public.follows') IS NOT NULL THEN
+UPDATE public.follows f SET label = NULL FROM public.local_players p WHERE f.kind = 'player' AND f.label IS NOT NULL AND f.selector->>'player_api_id' = (-p.id)::text AND p.provenance = 'club';
+END IF;
+END $$;
 COMMIT;

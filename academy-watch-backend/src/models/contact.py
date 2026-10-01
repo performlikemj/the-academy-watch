@@ -25,8 +25,9 @@ def _iso(value):
 
 
 class ContactRequest(db.Model):
-    club_first = db.Column(db.Boolean, nullable=False, default=False, server_default="false")
     """A verified scout's introduction request to an adult player claimant."""
+
+    club_first = db.Column(db.Boolean, nullable=False, default=False, server_default="false")
 
     __tablename__ = "contact_requests"
     __table_args__ = (
@@ -133,13 +134,17 @@ class ContactRequest(db.Model):
             metadata = created_metadata
         return bool(metadata.get("status_contradiction")) if isinstance(metadata, dict) else False
 
-    def to_dict(self, *, include_user_ids: bool = False):
-        latest = self.latest_outcome()
+    def to_dict(self, *, include_user_ids: bool = False, context=None):
+        latest = context["outcomes"].get(self.id) if context is not None else self.latest_outcome()
         club_participant = None
         if self.routing_mode == "club_included" and self.club_program_id is not None:
             from src.services.club_registry import get_club_program
 
-            program = get_club_program(self.club_program_id)
+            program = (
+                context["programs"].get(self.club_program_id)
+                if context is not None
+                else get_club_program(self.club_program_id)
+            )
             club_participant = {
                 "club_program_id": self.club_program_id,
                 "display_name": program.get("name") if program else None,
@@ -163,14 +168,22 @@ class ContactRequest(db.Model):
             "message": self.message,
             "status": self.status,
             "routing_mode": self.routing_mode,
-            "status_contradiction": self.status_contradiction_at_creation(),
+            "status_contradiction": self.status_contradiction_at_creation(
+                created_metadata=context["created"].get(self.id)
+            )
+            if context is not None
+            else self.status_contradiction_at_creation(),
             "club_program_id": self.club_program_id,
             "club_consent_status": self.club_consent_status,
             "club_consent_at": _iso(self.club_consent_at),
             "club_consent_note": self.club_consent_note,
             "permission_attestation": bool(self.permission_attestation),
             "permission_attested_at": _iso(self.permission_attested_at),
-            "messaging_open": club_request_available(self)
+            "messaging_open": (
+                not self.club_first or self.id in context["available"]
+                if context is not None
+                else club_request_available(self)
+            )
             and self.status == "accepted"
             and (self.routing_mode != "club_included" or self.club_consent_status == "granted"),
             "created_at": _iso(self.created_at),

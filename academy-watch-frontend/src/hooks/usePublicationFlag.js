@@ -5,8 +5,11 @@ export function usePublicationFlag() {
   const [enabled, setEnabled] = useState(null)
   useEffect(() => {
     let live = true
-    APIService.getFeatures().then(flags => { if (live) setEnabled(flags?.club_player_publication === true) }).catch(() => { if (live) setEnabled(false) })
-    return () => { live = false }
+    const refresh = () => APIService.getFeatures().then(flags => { if (live) setEnabled(flags?.club_player_publication === true) }).catch(() => { if (live) setEnabled(false) })
+    refresh()
+    const timer = window.setInterval(refresh, 30000)
+    window.addEventListener('focus', refresh)
+    return () => { live = false; window.clearInterval(timer); window.removeEventListener('focus', refresh) }
   }, [])
   return enabled
 }

@@ -464,12 +464,13 @@ def build_account_export(user: UserAccount) -> dict:
             .order_by(ContactRequest.created_at.asc(), ContactRequest.id.asc())
             .all()
         )
-        from src.services.club_player_publication import club_request_available
+        from src.services.club_player_publication import available_club_requests
 
+        available = available_club_requests(received_requests)
         received_requests = [
             row
             for row in received_requests
-            if not row.club_first or (row.club_consent_status == "granted" and club_request_available(row))
+            if not row.club_first or (row.club_consent_status == "granted" and row.id in available)
         ]
     received_request_ids = {row.id for row in received_requests}
 
@@ -545,8 +546,12 @@ def build_account_export(user: UserAccount) -> dict:
             (row.selector or {}).get("player_api_id")
             for row in Follow.query.filter(Follow.list_id.in_(list_ids), Follow.kind == "player").all()
         ]
-    suppressed_player_ids = active_suppressed_player_ids(
-        [row.player_api_id for row in watchlist_entries] + direct_follow_ids
+    from src.services.club_player_publication import clear_club_follow_labels, hidden_club_subject_ids
+
+    signed_ids = [row.player_api_id for row in watchlist_entries] + direct_follow_ids
+    clear_club_follow_labels([-i for i in signed_ids if isinstance(i, int) and not isinstance(i, bool) and i < 0])
+    suppressed_player_ids = active_suppressed_player_ids(signed_ids) | hidden_club_subject_ids(
+        signed_ids, include_dark=True
     )
 
     watchlist_payloads = []
@@ -609,6 +614,17 @@ def build_account_export(user: UserAccount) -> dict:
             "sent": [_contact_request_dict(row) for row in sent_requests],
             "received": [_contact_request_dict(row) for row in received_requests],
             "club": [_contact_request_dict(row) for row in club_requests],
+            "authored_messages": [
+                {
+                    "id": m.id,
+                    "contact_request_id": m.contact_request_id,
+                    "body": m.body,
+                    "created_at": _iso(m.created_at),
+                }
+                for m in ContactMessage.query.filter_by(sender_user_id=user.id)
+                .order_by(ContactMessage.created_at, ContactMessage.id)
+                .all()
+            ],
         },
         "content_reports": [
             row.to_dict()

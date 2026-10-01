@@ -1779,12 +1779,13 @@ def _local_player_publication_held(player):
 def _local_player_visible_to_context(player: LocalPlayer, auth_context) -> bool:
     if _local_player_publication_held(player):
         return False
-    if _local_player_is_suppressed(player):
-        return False
     if player.provenance == "club":
+        from src.services.club_player_publication import enabled
         from src.services.public_adult import is_public_adult
 
-        return is_public_adult(-player.id)
+        return enabled() and is_public_adult(-player.id)
+    if _local_player_is_suppressed(player):
+        return False
     user = auth_context["user"] if auth_context else None
     # Minor academy records are club-private even after an identity moderator
     # approves the row. Their claimant may still manage it.
@@ -5306,13 +5307,25 @@ def admin_review_showcase_media(media_id: int):
         return jsonify(_safe_error_payload(e, "Failed to review showcase media")), 500
 
 
+def _c1_claim_filter():
+    import sqlalchemy as sa
+
+    return sa.or_(
+        sa.and_(
+            PlayerProfileClaim.verification_method.is_not(None),
+            PlayerProfileClaim.verification_method == "club_vouch_retired",
+        ),
+        sa.exists().where(LocalPlayer.id == PlayerProfileClaim.local_player_id, LocalPlayer.provenance == "club"),
+    )
+
+
 @showcase_bp.route("/admin/showcase/claims", methods=["GET"])
 @require_api_key
 def admin_list_claims():
     """List profile claims, optionally filtered by status."""
     try:
         status = (request.args.get("status") or "").strip().lower()
-        query = PlayerProfileClaim.query
+        query = PlayerProfileClaim.query.filter(~_c1_claim_filter())
         if status:
             if status not in CLAIM_STATUSES:
                 return jsonify({"error": f"invalid status; one of {sorted(CLAIM_STATUSES)}"}), 400
@@ -5338,6 +5351,8 @@ def admin_recheck_claim(claim_id: int):
         claim = db.session.get(PlayerProfileClaim, claim_id)
         if claim is None:
             return jsonify({"error": "claim not found"}), 404
+        if PlayerProfileClaim.query.filter(PlayerProfileClaim.id == claim.id, _c1_claim_filter()).first():
+            return jsonify({"error": "publication_review_required"}), 409
         proof_url = (claim.verification_proof_url or "").strip()
         if not proof_url:
             return jsonify({"error": "claim has no stored proof_url"}), 400
@@ -5367,6 +5382,8 @@ def admin_review_claim(claim_id: int):
         claim = db.session.get(PlayerProfileClaim, claim_id)
         if claim is None:
             return jsonify({"error": "claim not found"}), 404
+        if PlayerProfileClaim.query.filter(PlayerProfileClaim.id == claim.id, _c1_claim_filter()).first():
+            return jsonify({"error": "publication_review_required"}), 409
 
         payload = request.get_json(silent=True) or {}
         action = (payload.get("action") or "").strip().lower()
