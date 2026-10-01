@@ -1,7 +1,7 @@
 # Phase 2 C4 — scout attendance / Today / distance
 
 - Owner: /root; branch p2/c4-scout-attend, stacked on #1115; no merge/deploy.
-- State: fix round 1 in progress; RC4 ten findings read, stack refresh then attendance lifecycle/trust/queue fixes and full foreground gates. Current PR/CI/cleanup record: `~/codex-runs/aw-redesign/logs/C4.final.md`.
+- State: fix round 1 complete; source3fb2d984 verified, final documentation commit/push follows. PR #1120 open/unmerged; hand-back `~/codex-runs/aw-redesign/logs/C4F1.final.md`.
 - Constraints: SCOUT_ATTEND_ENABLED default OFF; p2c3 -> p2c2; no applicants exposed to scouts; published future trial/open-session adverts may advertise youth/unknown age bands (P2R §2); public player identities retain canonical N3 strict adult rules. Coordinates stay in POST bodies and browser memory.
 - Done: fully read PHASE2/DESIGN/BUS/P2R, repo agent docs and N04/N08/N15/N16 mockups; implemented verified scout requests, club decisions, capability-scoped Today, approved-pin distance, audit/outbox, privacy and retention.
 - Done: real B1 811fabca + B2 6589f568 product fixes, B3 d49ec794 and main/N3 adea5177 integrated. B2 product code matches final 16540e03; preserved canonical N3 evidence controls and B2 trusted hold-bypass option. Ancestor C1/C2 migration copies are verbatim, no placeholders.
@@ -13,3 +13,12 @@
 - Next (release): B1→B2→B3 merge first, then C4 review/merge. Apply guarded p2c3 preapply after p2c2, schedule daily retention before enabling flags. No production schema/flag actions authorized or performed.
 
 - Fix round 1 milestone: main e82bb4e3 + B2 16540e03 and B3 d49ec794 refreshed; lifecycle/trust/hold deferral/one retry/bounded queues/export safeguards implemented. SQLite57 pass; Today18 SQL for1/50 pending. Real PG + full flag-OFF + frontend gates in progress. Updated p2c3/preapply CONTRACT posted on BUS; daily maintenance rollout prerequisite retained.
+
+- Fix round 1 final source: main/B2 784b1490 + B2 55b1d3ac + latest B3 46a4274f integrated; main/B3 runtime refresh diffs both ZERO. C1 migration c11e36f1 and C2 migration 6a641362 copied verbatim per BUS contracts.
+- Fix round 1 gates: focused68 (SQLite61 + PG7) pass; Today16SQL for1/50 pending and50 expired pending, read-only; full modern offline browser242pass4skip; Ruff597 and lint0errors195existing warnings pass. Final full flags-off + Node/build pending.
+- Fix round 1 schema: latest ancestor clean upgrade/reapply twice == p2c2 + p2c3preapply twice + upgrade; whole schema SHA256 8352da52047ecb9f8fcb0637c2fbd67ecb4058f94d58fd63391dc4c9cf8f2ec9. Repo/external p2c3preapply equal55af2691ba9e6641180f3e8595b03d80bf74add89a5e039faeff4d7f2e9e30c5.
+- Fix round 1 evidence:30 PNGs incl real PG/HTTP youth session request201/applicant403/closed-intake accept200/rescind200, desktop/mobile accepted list/instructions removal; no page errors/overflow. Unrelated player tables/boards/sync-status only were stubbed in live capture.
+- Verification handoff: REVIEW-DUEL protocol read; ORCH must independently verify final pushed head with both models before release. No lane merge/deploy/flag actions.
+- Final M2 check-in fix: accepted list stays visible after session start during retained history (pending expiry remains separate). Before-fix regression2fail/2pass; final focused68pass. Earlier whole suite4300pass92skip0fail; whole suite rerunning with2 added cases on3fb2d984.
+- Final gates: full flags-off4302pass92skip149warnings0fail (1129.11s); focused68 inclPG7; Node219, modern Playwright242pass4skip, Ruff/format597, lint0err195inherited warnings, build/OSV547 pass. Raw unfiltered legacy browser1fail/280notrun because ADMIN_API_KEY absent; not presented as passing.
+- Cleanup/delivery: owned5152/5203 servers stopped, capture credentials/scripts/browser/build outputs removed; remaining scratch DB/helper cleanup and exact remote verification in external hand-back. Baseline dependencies/tracked report retained. All C4 claims release at BUS DONE; ORCH dual verification must use final pushed head (runtime differs from ef823d07 by3fb2d984 accepted-list fix).
