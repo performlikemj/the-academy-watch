@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Link, Navigate } from 'react-router-dom'
 import { APIService } from '@/lib/api'
 import { useAuth, useAuthUI } from '@/context/AuthContext'
 import { useNightSurface } from '@/hooks/useNightSurface'
-import { useHighlights, write, message } from './useHighlights'
+import { useHighlights, useHighlightsState, write, message } from './useHighlights'
 import './highlights.css'
 
 function Preview({ row }) {
@@ -32,19 +32,20 @@ function Inbox() {
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(null)
   const [error, setError] = useState('')
+  const pollDelay = useRef(30000)
   const load = useCallback(async () => {
     if (!token) { setLoading(false); return }
     setLoading(true)
     try { const data = await APIService.request(`/me/highlight-requests?page=${page}`); setRows(data.highlights); setMore(data.has_more); setError('') }
-    catch { setError('We could not load your requests. Please refresh to try again.') }
+    catch { pollDelay.current = Math.min(pollDelay.current * 2, 300000); setError('We could not load your requests. Please refresh to try again.') }
     finally { setLoading(false) }
   }, [token, page])
   useEffect(() => { load() }, [load])
   // Poll only while preparing; never manufacture a public state before the server says so.
   useEffect(() => {
     if (!rows.some(row => ['queued', 'running'].includes(row.render_status)) || document.hidden) return
-    const timer = setInterval(load, 10000)
-    return () => clearInterval(timer)
+    const timer = setTimeout(() => { pollDelay.current = Math.min(pollDelay.current * 2, 300000); load() }, pollDelay.current)
+    return () => clearTimeout(timer)
   }, [rows, load])
   async function act(row, action, decision) {
     setBusy(row.id); setError('')
@@ -75,21 +76,23 @@ function Inbox() {
           {row.player_decision !== 'approve' && row.can_approve && <button className="hl-button hl-primary" disabled={busy === row.id} onClick={() => act(row, 'decision', 'approve')}>Make public</button>}
           {row.player_decision !== 'private' && <button className="hl-button" disabled={busy === row.id} onClick={() => act(row, 'decision', 'private')}>Keep private</button>}
           {row.player_decision === 'approve' && <button className="hl-button" disabled={busy === row.id} onClick={() => act(row, 'revoke')}>Take it back</button>}
-          {row.render_status === 'failed' && row.can_approve && <button className="hl-button" disabled={busy === row.id} onClick={() => act(row, 'retry')}>Try again</button>}
+          {row.can_retry && <button className="hl-button" disabled={busy === row.id} onClick={() => act(row, 'retry')}>Try again</button>}
         </div>}
       </article>)}
     </div>
     {token && <div className="flex gap-3 mt-6">{page > 1 && <button className="hl-button" onClick={() => setPage(page-1)}>Previous</button>}{more && <button className="hl-button" onClick={() => setPage(page+1)}>Next</button>}</div>}
-    <p className="hl-muted mt-8">Only the short clip is shared. The full match stays private. You can take your approval back whenever you like; new requests stop seeing the clip immediately.</p>
+    <p className="hl-muted mt-8">Only the short clip is shared. The full match stays private. You can take your approval back whenever you like; new grants stop immediately. An already issued clip link lasts at most 60 seconds; a download already underway may finish.</p>
   </section>
 }
 
 export function HighlightApprovals() {
-  const enabled = useHighlights()
+  const { enabled, loaded } = useHighlightsState()
   useNightSurface()
+  if (!loaded) return null
+  if (!enabled) return <Navigate to="/" replace />
   return <div className="floodlight-container py-12 max-w-5xl">
     <Link to="/" className="inline-flex min-h-11 items-center text-chalk mb-6">← Home</Link>
-    {enabled ? <Inbox /> : <p className="text-muted-dark">Highlights are not available yet.</p>}
+    <Inbox />
   </div>
 }
 

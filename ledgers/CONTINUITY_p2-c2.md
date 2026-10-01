@@ -5,10 +5,13 @@
 - Branch p2/c2-highlights from origin/p2/b3-admin; PR against main stacked on #1115, ready at end; no merge/deploy.
 - HIGHLIGHTS_ENABLED default OFF; p2c2 -> real p2c1 ancestor copied verbatim; no placeholder.
 - Reuse A1 adult/holds/outbox/audit, A2 capability+byte scope, B1 is_listed. No public minors, youth/mixed footage, raw match SAS or metadata.
-- Own ports5151/5202 and scratch aw_p2_c2; foreground only; clean own resources.
+- Own port5202 and scratch aw_c2f1/aw_c2f1_pre; foreground only; clean own resources.
 
 ## State
-- In progress (fix round 1): RC2 F1–F16; foreground gates and scratch database configurable; preserve raw-independent takedown and verified-staff-only safe default.
+- In progress (fix round 1): RC2 F1–F16 implemented; final full flags-OFF/backend/PG/browser gates running foreground.
+- Fix gates: SQLite+real-app101 pass1 optional C1 skip; first PG53 pass; exact real-app98 dark-method/path pairs/zeroSQL; OSV547/Node219/lint0errors192warnings/build pass.
+- Fix migration: p2c1 copied verbatim c11e36f; p2c2 6a641362 (C4 notified); whole public schema upgrade == preapply twice (38ffed21).
+- Fix policy: raw-independent revoke; 60s single-clip redirects; verified club key; preview-ready approvals; institutional staff keys survive erasure; pending14d per current user task. BUS conflicts with14d; optional direct user clarification pending.
 - Complete: private tables, source fences, capability routes, independent consent, standalone worker+private bytes, outbox, erasure/export and dark web mounts.
 - Complete: dependency cut B1811fabca/B216540e03/B3d49ec794/N3adea5177; main B1 squash e82bb4e3 refreshed with byte-identical application/test tree.
 - Complete: recording-date DOB checks prevent childhood/unknown/future footage; independent clips survive raw expiry; UTC SQL/ORM guards fence source/date/identity changes and delayed cleanup.
@@ -24,6 +27,6 @@
 ## Acceptance / checks
 - Both keys required; revoke removes lists+bytes immediately; minors/unknown ages/private matches blocked.
 - Source/identity/window changes invalidate consent; concurrent job completion fenced.
-- Candidate preview only standalone clip; public bytes proxy private blob, no SAS redirect.
+- Candidate preview only standalone clip; 60s read-only single-blob redirect, expected ETag, no raw/container grant; documented expiry plus in-flight-transfer bound.
 - Every new table guarded DDL + RLS; export/erasure remains effective when flag OFF.
 - Full Ruff/format/backend/Node/lint/build and current Playwright completed before push.

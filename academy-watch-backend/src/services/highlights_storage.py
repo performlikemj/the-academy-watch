@@ -46,12 +46,13 @@ def upload_output(blob_path, file_path):
     return result["etag"], size
 
 
-def read_output(blob_path, etag, offset, length):
-    from azure.core import MatchConditions
+def output_read_url(blob_path, etag):
+    """One immutable attempt blob, read only, 60 seconds. Never a raw/container grant."""
+    import re
 
-    if not etag or not 0 < length <= MAX_OUTPUT_BYTES:
+    if not etag or not re.fullmatch(r"highlights/[a-f0-9-]{36}/[a-f0-9-]{36}\.mp4", blob_path):
         raise ValueError("invalid_output")
-    blob = video_storage._service_client().get_blob_client(video_storage._container(), blob_path)
-    return blob.download_blob(
-        offset=offset, length=length, etag=etag, match_condition=MatchConditions.IfNotModified, timeout=30
-    ).readall()
+    client = video_storage._service_client().get_blob_client(video_storage._container(), blob_path)
+    if client.get_blob_properties(timeout=5).etag != etag:
+        raise ValueError("output_changed")
+    return video_storage.mint_media_read_sas(blob_path, seconds=60)

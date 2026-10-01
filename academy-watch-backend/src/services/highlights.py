@@ -11,7 +11,7 @@ from functools import wraps
 import sqlalchemy as sa
 from flask import abort, g, has_request_context, request
 from src.models.follow import PlayerShadow
-from src.models.funding import ClubProgram, ClubRosterMember, ClubSquad
+from src.models.funding import ClubProgram, ClubRosterMember, ClubSquad, FundingLeague
 from src.models.highlights import (
     HighlightConsentEvent,
     HighlightFootageReview,
@@ -20,14 +20,14 @@ from src.models.highlights import (
     now,
 )
 from src.models.journey import PlayerJourney
-from src.models.league import db
+from src.models.league import UserAccount, db
 from src.models.showcase import LocalPlayer, PlayerProfileClaim
 from src.models.tracked_player import TrackedPlayer
 from src.models.video import VideoMatch, VideoPlayerReport, VideoRosterEntry, VideoTracklet
-from src.services.account_standing import is_account_active
+from src.services.account_standing import account_can_act, is_account_active
 from src.services.admin_audit import record_admin_event
-from src.services.club_directory import is_listed
-from src.services.club_publication_hold import club_publication_held, subject_publication_held
+from src.services.club_directory import directory_eligibility, is_listed
+from src.services.club_publication_hold import club_publication_held
 from src.services.public_adult import is_public_adult, public_adult_ids
 from src.services.public_player_subject import resolve_public_adult_subject
 from src.utils.academy_window import age_from_birth_date
@@ -54,12 +54,180 @@ def digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), default=str).encode()).hexdigest()
 
 
+def read_evidence():
+    return (
+        getattr(g, "highlight_evidence", None) if has_request_context() and request.method in {"GET", "HEAD"} else None
+    )
+
+
+def lookup(model, key):
+    evidence = read_evidence()
+    if evidence is not None:
+        return evidence["models"].get(model, {}).get(key)
+    return db.session.get(model, key) if key is not None else None
+
+
+def roster_entries(match_id):
+    evidence = read_evidence()
+    if evidence is not None:
+        return evidence["rosters"].get(match_id, [])
+    return VideoRosterEntry.query.filter_by(video_match_id=match_id).order_by(VideoRosterEntry.id).all()
+
+
+def prepare_reads(rows, *, matches=(), candidates=False):
+    """Bounded set reads; no policy/source/claim work per clip. Request lifetime only."""
+    if not has_request_context() or request.method not in {"GET", "HEAD"}:
+        return
+    from sqlalchemy.orm import aliased
+
+    match_ids = {row.video_match_id for row in rows if row.video_match_id} | {match.id for match in matches}
+    program_ids = {row.program_id for row in rows} | {match.club_program_id for match in matches}
+    evidence = {"models": defaultdict(dict), "rosters": defaultdict(list), "listed": set(), "eligible": {}}
+    g.highlight_evidence = evidence
+
+    def remember(*objects):
+        for obj in objects:
+            if obj is not None:
+                key = obj.video_match_id if isinstance(obj, HighlightFootageReview) else obj.id
+                evidence["models"][type(obj)][key] = obj
+
+    if not rows and not matches:
+        evidence.update(adults=set(), dates={}, years={})
+        return
+    for program, match, squad, review, listed in (
+        db.session.query(ClubProgram, VideoMatch, ClubSquad, HighlightFootageReview, directory_eligibility())
+        .join(FundingLeague, FundingLeague.id == ClubProgram.funding_league_id)
+        .outerjoin(VideoMatch, sa.and_(VideoMatch.club_program_id == ClubProgram.id, VideoMatch.id.in_(match_ids)))
+        .outerjoin(ClubSquad, ClubSquad.id == VideoMatch.squad_id)
+        .outerjoin(HighlightFootageReview, HighlightFootageReview.video_match_id == VideoMatch.id)
+        .filter(ClubProgram.id.in_(program_ids))
+        .populate_existing()
+        .all()
+    ):
+        remember(program, match, squad, review)
+        if listed:
+            evidence["listed"].add(program.id)
+    claim_local = aliased(LocalPlayer)
+    # Include every self claim for candidate subjects too, without per-player lookup.
+    roster_subjects = set()
+    for entry, member, local, report in (
+        db.session.query(VideoRosterEntry, ClubRosterMember, LocalPlayer, VideoPlayerReport)
+        .outerjoin(ClubRosterMember, ClubRosterMember.id == VideoRosterEntry.club_roster_member_id)
+        .outerjoin(LocalPlayer, LocalPlayer.id == ClubRosterMember.local_player_id)
+        .outerjoin(
+            VideoPlayerReport,
+            sa.and_(
+                VideoPlayerReport.video_match_id == VideoRosterEntry.video_match_id,
+                VideoPlayerReport.roster_entry_id == VideoRosterEntry.id,
+            ),
+        )
+        .filter(VideoRosterEntry.video_match_id.in_(match_ids))
+        .order_by(VideoRosterEntry.id)
+        .populate_existing()
+        .all()
+    ):
+        remember(entry, member, local, report)
+        evidence["rosters"][entry.video_match_id].append(entry)
+        pid = member_subject(member)
+        if pid is not None:
+            roster_subjects.add(pid)
+    ids = {row.signed_id for row in rows} | roster_subjects
+    for claim, user, local in (
+        db.session.query(PlayerProfileClaim, UserAccount, claim_local)
+        .outerjoin(claim_local, claim_local.id == PlayerProfileClaim.local_player_id)
+        .outerjoin(UserAccount, UserAccount.id == PlayerProfileClaim.user_account_id)
+        .filter(
+            sa.or_(
+                PlayerProfileClaim.id.in_({row.claim_id for row in rows}),
+                PlayerProfileClaim.player_api_id.in_(ids),
+                claim_local.api_player_id.in_(ids),
+            )
+        )
+        .populate_existing()
+        .all()
+    ):
+        remember(claim, user, local)
+    for track in VideoTracklet.query.filter(VideoTracklet.video_match_id.in_(match_ids)).populate_existing():
+        remember(track)
+    evidence["adults"] = public_adult_ids(ids)
+    # A single narrow UNION adds historical DOB evidence without per-source queries.
+    dates, years = defaultdict(list), defaultdict(list)
+    birth_evidence = sa.union_all(
+        sa.select(
+            LocalPlayer.api_player_id.label("pid"),
+            sa.cast(LocalPlayer.birth_date, sa.String).label("born"),
+            LocalPlayer.birth_year.label("year"),
+        ).where(sa.or_(LocalPlayer.api_player_id.in_(ids), LocalPlayer.id.in_({-pid for pid in ids if pid < 0}))),
+        sa.select(TrackedPlayer.player_api_id, TrackedPlayer.birth_date, sa.literal(None)).where(
+            TrackedPlayer.player_api_id.in_(ids)
+        ),
+        sa.select(PlayerJourney.player_api_id, PlayerJourney.birth_date, sa.literal(None)).where(
+            PlayerJourney.player_api_id.in_(ids)
+        ),
+        sa.select(PlayerShadow.player_api_id, sa.cast(PlayerShadow.birth_date, sa.String), sa.literal(None)).where(
+            PlayerShadow.player_api_id.in_(ids), PlayerShadow.is_active.is_(True)
+        ),
+    )
+    for pid, born, year in db.session.execute(birth_evidence):
+        if born is not None:
+            dates[pid].append(born)
+        if year is not None:
+            years[pid].append(year)
+    evidence.update(dates=dates, years=years)
+
+
+def recording_date_error(match):
+    if not match.match_date or match.match_date > now().date():
+        return "recording_date_unknown_or_future"
+    uploaded = match.uploaded_at or match.created_at
+    if not uploaded or match.match_date > uploaded.date():
+        return "recording_date_after_upload"
+    return None
+
+
+def squad_classification(squad):
+    if squad is None:
+        return "unknown"
+    if squad.age_limit is not None and squad.age_limit <= 18:
+        return "youth"
+    if squad.kind == "age_group" and (squad.age_limit is None or squad.age_limit <= 18):
+        return "youth"
+    label = squad.name or ""
+    if re.search(r"\b(?:youth|academy|juniors?|colts|minis)\b", label, re.I):
+        return "youth"
+    if any(int(m[1]) <= 18 for m in re.finditer(r"\b(?:u|under)[\s-]?(\d{1,2})(?:s|\b)", label, re.I)):
+        return "youth"
+    return "adult" if squad.kind in {"first_team", "reserves"} or (squad.age_limit or 0) > 18 else "unknown"
+
+
+def recording_block_reason(match, *, frozen_etag=None):
+    if recording_date_error(match):
+        return recording_date_error(match)
+    squad = lookup(ClubSquad, match.squad_id) if match.squad_id else None
+    kind = squad_classification(squad)
+    if kind == "youth":
+        return "youth_recording_private"
+    review = lookup(HighlightFootageReview, match.id)
+    if kind == "unknown" and not (review and review.squad_adult_attested):
+        return "senior_squad_attestation_required"
+    if not (
+        review
+        and review.classification == "adult_only"
+        and review.source_etag == (frozen_etag or match.blob_etag)
+        and review.source_snapshot == match.scoped_snapshot
+    ):
+        return "review_required"
+    if not adult_recording(match, frozen_etag=frozen_etag):
+        return "roster_or_source_unavailable"
+    return None
+
+
 def member_subject(member):
     if member is None:
         return None
     if member.player_api_id is not None:
         return member.player_api_id
-    local = db.session.get(LocalPlayer, member.local_player_id)
+    local = lookup(LocalPlayer, member.local_player_id)
     return local.api_player_id if local and local.api_player_id is not None else None
 
 
@@ -68,15 +236,26 @@ def own_claim(claim, signed_id, user_id=None):
         return False
     if user_id is not None and claim.user_account_id != user_id:
         return False
-    if not is_account_active(claim.user_account_id):
+    evidence = read_evidence()
+    if not (
+        account_can_act(lookup(UserAccount, claim.user_account_id))
+        if evidence is not None
+        else is_account_active(claim.user_account_id)
+    ):
         return False
     if claim.local_player_id is not None:
-        local = db.session.get(LocalPlayer, claim.local_player_id)
+        local = lookup(LocalPlayer, claim.local_player_id)
         return bool(local and local.api_player_id == signed_id and local.merged_into_local_player_id is None)
     return claim.player_api_id == signed_id
 
 
 def claim_for_subject(signed_id):
+    evidence = read_evidence()
+    if evidence is not None:
+        claims = [
+            claim for claim in evidence["models"].get(PlayerProfileClaim, {}).values() if own_claim(claim, signed_id)
+        ]
+        return claims[0] if len(claims) == 1 else None
     claims = (
         PlayerProfileClaim.query.outerjoin(LocalPlayer, LocalPlayer.id == PlayerProfileClaim.local_player_id)
         .filter(
@@ -108,6 +287,18 @@ def recording_adults(ids, recorded_on):
     """Current canonical adults must also have been adults when this footage was recorded."""
     if recorded_on is None or recorded_on > now().date():
         return set()
+    batch = read_evidence()
+    if batch is not None:
+        dates, years = batch["dates"], batch["years"]
+        return {
+            pid
+            for pid in set(ids) & batch["adults"]
+            if all((age_from_birth_date(born, today=recorded_on) or 0) >= 18 for born in dates.get(pid, []))
+            and (
+                bool(dates.get(pid))
+                or (bool(years.get(pid)) and all(year < recorded_on.year - 18 for year in years[pid]))
+            )
+        }
     adults = public_adult_ids(ids)
     evidence = defaultdict(list)
     years = defaultdict(list)
@@ -142,28 +333,26 @@ def _adult_recording(match, *, frozen_etag=None):
     etag = frozen_etag or (match.blob_etag if match else None)
     if not match or not etag or not match.scoped_snapshot or match.scoped_ready_etag != etag:
         return False
-    review = db.session.get(HighlightFootageReview, match.id)
+    review = lookup(HighlightFootageReview, match.id)
     if not (
         review
         and review.classification == "adult_only"
         and review.source_etag == etag
         and review.source_snapshot == match.scoped_snapshot
-        and review.reviewer_user_id
-        and is_account_active(review.reviewer_user_id)
     ):
         return False
-    squad = db.session.get(ClubSquad, match.squad_id) if match.squad_id else None
-    label = getattr(squad, "name", "") or ""
-    if squad and squad.age_limit is not None and squad.age_limit <= 18:
+    squad = lookup(ClubSquad, match.squad_id) if match.squad_id else None
+    if recording_date_error(match):
         return False
-    if re.search(r"\b(?:u|under[ -]?)(?:1[0-8]|[5-9])\b", label, re.I):
+    kind = squad_classification(squad)
+    if kind == "youth" or (kind == "unknown" and not review.squad_adult_attested):
         return False
-    entries = VideoRosterEntry.query.filter_by(video_match_id=match.id).all()
+    entries = roster_entries(match.id)
     if not entries:
         return False
     ids = set()
     for entry in entries:
-        member = db.session.get(ClubRosterMember, entry.club_roster_member_id) if entry.club_roster_member_id else None
+        member = lookup(ClubRosterMember, entry.club_roster_member_id) if entry.club_roster_member_id else None
         pid = member_subject(member)
         if not member or member.program_id != match.club_program_id or pid is None:
             return False
@@ -172,12 +361,10 @@ def _adult_recording(match, *, frozen_etag=None):
 
 
 def source_fingerprint(match, entry, tracklet, *, frozen_etag=None):
-    review = db.session.get(HighlightFootageReview, match.id)
+    review = lookup(HighlightFootageReview, match.id)
     members = []
-    for roster in VideoRosterEntry.query.filter_by(video_match_id=match.id).order_by(VideoRosterEntry.id):
-        member = (
-            db.session.get(ClubRosterMember, roster.club_roster_member_id) if roster.club_roster_member_id else None
-        )
+    for roster in roster_entries(match.id):
+        member = lookup(ClubRosterMember, roster.club_roster_member_id) if roster.club_roster_member_id else None
         members.append([roster.id, roster.club_roster_member_id, roster.jersey_number, member_subject(member)])
     return digest(
         {
@@ -206,19 +393,37 @@ def source_fingerprint(match, entry, tracklet, *, frozen_etag=None):
                 tracklet.last_s,
                 tracklet.evidence,
             ],
-            "review": [review.classification, review.reviewed_at, review.source_etag, review.source_snapshot]
+            "review": [
+                review.classification,
+                review.reviewed_at,
+                review.source_etag,
+                review.source_snapshot,
+                review.squad_adult_attested,
+            ]
             if review
             else None,
         }
     )
 
 
-def reviewed_window(match, entry, tracklet_id, start_s, end_s):
+def reviewed_window(match, entry, tracklet_id, start_s, end_s, *, reel=None):
     """Client selects a window; its time range and identity are resolved by the server."""
     from src.routes.video import _reel_payload
 
-    track = db.session.get(VideoTracklet, tracklet_id)
-    report = VideoPlayerReport.query.filter_by(video_match_id=match.id, roster_entry_id=entry.id).first()
+    track = lookup(VideoTracklet, tracklet_id)
+    evidence = read_evidence()
+    report = (
+        next(
+            (
+                r
+                for r in evidence["models"].get(VideoPlayerReport, {}).values()
+                if r.video_match_id == match.id and r.roster_entry_id == entry.id
+            ),
+            None,
+        )
+        if evidence is not None
+        else VideoPlayerReport.query.filter_by(video_match_id=match.id, roster_entry_id=entry.id).first()
+    )
     if not (
         match.status == "finalized"
         and track
@@ -243,7 +448,7 @@ def reviewed_window(match, entry, tracklet_id, start_s, end_s):
         return None
     if end_s - start_s >= (match.duration_s or 0):  # a short recording still cannot become a full-match public URL
         return None
-    reel = _reel_payload(match, [entry])
+    reel = reel or _reel_payload(match, [entry])
     player = next((row for row in reel["players"] if row["roster_entry_id"] == entry.id), None)
     if not player or player["number_mismatch"]:
         return None
@@ -259,14 +464,14 @@ def reviewed_window(match, entry, tracklet_id, start_s, end_s):
 
 
 def current_source(row):
-    match = db.session.get(VideoMatch, row.video_match_id) if row.video_match_id else None
-    entry = db.session.get(VideoRosterEntry, row.roster_entry_id) if row.roster_entry_id else None
-    track = db.session.get(VideoTracklet, row.tracklet_id) if row.tracklet_id else None
+    match = lookup(VideoMatch, row.video_match_id) if row.video_match_id else None
+    entry = lookup(VideoRosterEntry, row.roster_entry_id) if row.roster_entry_id else None
+    track = lookup(VideoTracklet, row.tracklet_id) if row.tracklet_id else None
     if not match or not entry or not track or entry.video_match_id != match.id:
         return False
-    member = db.session.get(ClubRosterMember, entry.club_roster_member_id) if entry.club_roster_member_id else None
+    member = lookup(ClubRosterMember, entry.club_roster_member_id) if entry.club_roster_member_id else None
     expired = match.status == "expired" and match.blob_path is None and match.blob_etag is None
-    if expired and row.render_status != "ready":
+    if expired and (row.render_status != "ready" or row.player_decision != "approve"):
         return False  # a missing source cannot create a new cut
     frozen_etag = row.source_etag if expired else None
     return bool(
@@ -280,30 +485,49 @@ def current_source(row):
 
 
 def eligible(row):
-    program = db.session.get(ClubProgram, row.program_id)
-    claim = db.session.get(PlayerProfileClaim, row.claim_id) if row.claim_id else None
-    return bool(
+    evidence = read_evidence()
+    if evidence is not None and row.id in evidence["eligible"]:
+        return evidence["eligible"][row.id]
+    program = lookup(ClubProgram, row.program_id)
+    claim = lookup(PlayerProfileClaim, row.claim_id) if row.claim_id else None
+    # Pending/private previews never outlive either their response window or raw retention.
+    if row.player_decision != "approve":
+        from datetime import timedelta
+
+        match = lookup(VideoMatch, row.video_match_id)
+        raw_deadline = (
+            match.expires_at or ((match.uploaded_at or match.created_at) + timedelta(days=90)) if match else None
+        )
+        if row.created_at < now() - timedelta(days=14) or (raw_deadline is not None and raw_deadline <= now()):
+            return False
+    allowed = bool(
         enabled()
         and not row.revoked_at
         and row.club_picked_at
         and program
-        and is_listed(program)
-        and not club_publication_held(row.program_id)
-        and not subject_publication_held(row.signed_id)
-        and is_public_adult(row.signed_id)
-        and resolve_public_adult_subject(row.signed_id)
+        and (row.program_id in evidence["listed"] if evidence is not None else is_listed(program))
+        and (row.signed_id in evidence["adults"] if evidence is not None else is_public_adult(row.signed_id))
         and own_claim(claim, row.signed_id, row.recipient_user_id)
         and current_source(row)
     )
+    if evidence is not None:
+        evidence["eligible"][row.id] = allowed
+    return allowed
 
 
-def public(row):
+def public(row, *, allowed=None):
     return bool(
-        eligible(row)
+        (eligible(row) if allowed is None else allowed)
         and row.player_decision == "approve"
         and row.decision_user_id == row.recipient_user_id
         and row.approved_source_version == row.source_version
-        and row.render_status == "ready"
+        and preview_ready(row)
+    )
+
+
+def preview_ready(row):
+    return bool(
+        row.render_status == "ready"
         and row.render_source_version == row.source_version
         and row.output_blob_path
         and row.output_etag
@@ -369,7 +593,7 @@ def pick(match, data, actor):
     if selected is None:
         raise ValueError("reviewed_window_required")
     track, window = selected
-    member = db.session.get(ClubRosterMember, entry.club_roster_member_id)
+    member = lookup(ClubRosterMember, entry.club_roster_member_id)
     pid = member_subject(member)
     claim = claim_for_subject(pid)
     if not claim or not is_public_adult(pid) or not resolve_public_adult_subject(pid):
@@ -388,8 +612,20 @@ def pick(match, data, actor):
         existing = PlayerHighlight.query.filter_by(pick_key=key).first()
     if existing:
         return existing, False
-    if PlayerHighlight.query.filter_by(video_match_id=match.id).count() >= MAX_CLIPS_PER_MATCH:
+    if (
+        PlayerHighlight.query.filter_by(video_match_id=match.id).filter(PlayerHighlight.revoked_at.is_(None)).count()
+        >= MAX_CLIPS_PER_MATCH
+    ):
         raise ValueError("highlight_limit_reached")
+    from datetime import timedelta
+
+    if (
+        PlayerHighlight.query.filter_by(video_match_id=match.id)
+        .filter(PlayerHighlight.created_at >= now() - timedelta(days=1))
+        .count()
+        >= 500
+    ):
+        raise ValueError("highlight_daily_limit_reached")
     row = PlayerHighlight(
         program_id=match.club_program_id,
         video_match_id=match.id,
@@ -425,7 +661,19 @@ def pick(match, data, actor):
 
 
 def report_subject(match, entry):
-    report = VideoPlayerReport.query.filter_by(video_match_id=match.id, roster_entry_id=entry.id).first()
+    evidence = read_evidence()
+    report = (
+        next(
+            (
+                r
+                for r in evidence["models"].get(VideoPlayerReport, {}).values()
+                if r.video_match_id == match.id and r.roster_entry_id == entry.id
+            ),
+            None,
+        )
+        if evidence is not None
+        else VideoPlayerReport.query.filter_by(video_match_id=match.id, roster_entry_id=entry.id).first()
+    )
     return (
         (
             report.club_player_api_id_at_finalize
@@ -466,10 +714,10 @@ def decide(row, actor, decision, version):
     if decision not in {"approve", "private"}:
         raise ValueError("invalid_decision")
     if row.recipient_user_id != actor.id or not own_claim(
-        db.session.get(PlayerProfileClaim, row.claim_id), row.signed_id, actor.id
+        lookup(PlayerProfileClaim, row.claim_id), row.signed_id, actor.id
     ):
         raise ValueError("adult_self_claim_required")
-    if decision == "approve" and not eligible(row):
+    if decision == "approve" and (not eligible(row) or not preview_ready(row)):
         raise ValueError("highlight_unavailable")
     row.player_decision = decision
     row.decision_at = now()
@@ -477,12 +725,31 @@ def decide(row, actor, decision, version):
     row.approved_source_version = row.source_version if decision == "approve" else None
     row.version += 1
     event(row, actor.id, decision)
-    if decision == "approve" and row.render_status == "failed":
-        queue_cut(row)
+    if decision == "private":
+        discard_preview(row)
+
+
+def discard_preview(row):
+    from src.workers.highlight_worker import queue_cleanup
+
+    paths = {job.blob_path for job in HighlightRenderJob.query.filter_by(highlight_id=row.id) if job.blob_path}
+    if row.output_blob_path:
+        paths.add(row.output_blob_path)
+    for path in paths:
+        queue_cleanup(path)
+    HighlightRenderJob.query.filter_by(highlight_id=row.id).filter(
+        HighlightRenderJob.kind == "highlight_cut", HighlightRenderJob.status.in_(("queued", "running"))
+    ).update({"status": "cancelled", "lease_token": None}, synchronize_session=False)
+    row.render_status = "stale"
+    row.output_blob_path = None
+    row.output_etag = None
+    row.output_bytes = None
+    row.render_source_version = None
 
 
 def dto(row, *, private=False):
-    is_public = public(row)
+    allowed = eligible(row)
+    is_public = public(row, allowed=allowed)
     if row.revoked_at:
         label = "Taken back" if row.revoke_reason == "player_revoke" else "Removed · private"
     elif is_public:
@@ -490,12 +757,12 @@ def dto(row, *, private=False):
     elif row.render_status == "failed":
         label = "Clip not made · still private"
     elif row.player_decision == "approve":
-        label = "Approved · preparing clip" if eligible(row) else "Unavailable · still private"
+        label = "Approved · preparing clip" if allowed else "Unavailable · still private"
     elif row.player_decision == "private":
         label = "Kept private"
     else:
         label = "Waiting for you"
-    program = db.session.get(ClubProgram, row.program_id)
+    program = lookup(ClubProgram, row.program_id)
     out = {
         "id": row.id,
         "title": row.title,
@@ -511,11 +778,10 @@ def dto(row, *, private=False):
             player_decision=row.player_decision,
             render_status=row.render_status,
             status_label=label,
-            can_approve=eligible(row),
+            can_approve=allowed and preview_ready(row),
+            can_retry=allowed and row.render_status in {"failed", "stale"},
             revoked=bool(row.revoked_at),
-            preview_url=f"/api/me/highlight-requests/{row.id}/preview"
-            if row.render_status == "ready" and eligible(row)
-            else None,
+            preview_url=f"/api/me/highlight-requests/{row.id}/preview" if preview_ready(row) and allowed else None,
             start_s=row.start_s,
             end_s=row.end_s,
             roster_entry_id=row.roster_entry_id,
@@ -550,16 +816,33 @@ def candidates(match):
     from src.routes.video import _reel_payload
 
     out = []
-    for player in _reel_payload(match)["players"]:
-        entry = db.session.get(VideoRosterEntry, player["roster_entry_id"])
-        member = db.session.get(ClubRosterMember, entry.club_roster_member_id) if entry.club_roster_member_id else None
+    evidence = read_evidence()
+    if evidence is not None:
+        from src.services.video_reels import build_reel_payload
+
+        tracks = [
+            t
+            for t in evidence["models"].get(VideoTracklet, {}).values()
+            if t.video_match_id == match.id and t.kind != "tombstone"
+        ]
+        reel = build_reel_payload(match, roster_entries(match.id), tracks)
+    else:
+        reel = _reel_payload(match)
+    for player in reel["players"]:
+        entry = lookup(VideoRosterEntry, player["roster_entry_id"])
+        member = lookup(ClubRosterMember, entry.club_roster_member_id) if entry.club_roster_member_id else None
         pid = member_subject(member)
-        if not pid or not is_public_adult(pid) or not claim_for_subject(pid) or report_subject(match, entry) != pid:
+        if (
+            not pid
+            or not (pid in evidence["adults"] if evidence is not None else is_public_adult(pid))
+            or not claim_for_subject(pid)
+            or report_subject(match, entry) != pid
+        ):
             continue
         for window in player["windows"]:
             if len(out) >= 100:
                 return out
-            if reviewed_window(match, entry, window["tracklet_id"], window["start_s"], window["end_s"]):
+            if reviewed_window(match, entry, window["tracklet_id"], window["start_s"], window["end_s"], reel=reel):
                 out.append(
                     {"roster_entry_id": entry.id, "player_name": player["player_name"], "player_id": pid, **window}
                 )

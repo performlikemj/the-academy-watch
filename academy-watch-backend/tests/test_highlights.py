@@ -53,14 +53,15 @@ def world(monkeypatch):
         RATELIMIT_ENABLED=False,
     )
     if os.getenv("C2_POSTGRES_TESTS") == "1":
-        app.config["SQLALCHEMY_DATABASE_URI"] = "postgresql+psycopg://mjjones@localhost/aw_p2_c2"
+        app.config["SQLALCHEMY_DATABASE_URI"] = os.environ["C2_POSTGRES_URL"]
         app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {"connect_args": {"options": "-c search_path=c2_checks"}}
     db.init_app(app)
     limiter.init_app(app)
     app.register_blueprint(highlights_bp, url_prefix="/api")
     highlights.register_notifications()
-    monkeypatch.setattr("src.services.club_access.scoped_recording_intact", lambda match: True)
-    monkeypatch.setattr("src.routes.highlights.scoped_recording_intact", lambda match: True)
+    # Stub storage itself; exercise the real recording verification path.
+    monkeypatch.setattr("src.services.video_storage.is_configured", lambda: True)
+    monkeypatch.setattr("src.services.video_storage.verify_expected_blob", lambda *args: {"ok": True})
     monkeypatch.setattr("src.services.video_dev_artifacts.local_artifacts", lambda match: None)
     with app.app_context():
         db.create_all()
@@ -251,16 +252,17 @@ def test_both_keys_required_and_private_standalone_preview(world, monkeypatch):
     assert response.status_code == 201, response.json
     row = db.session.get(PlayerHighlight, response.json["id"])
     assert client.get(f"/api/highlights/{row.id}/clip").status_code == 404
-    assert approve(world, row).status_code == 200
+    assert approve(world, row).status_code == 422
     assert client.get(f"/api/highlights/{row.id}/clip").status_code == 404
     claimed = claim_next()
     assert finish(*claimed, output_etag="clip-v1", output_size=20)
-    read = Mock(return_value=b"c" * 20)
-    monkeypatch.setattr(highlights_storage, "read_output", read)
+    assert approve(world, row).status_code == 200
+    read = Mock(return_value="https://clips.example.test/clip?read-only-60s")
+    monkeypatch.setattr(highlights_storage, "output_read_url", read)
     response = client.get(f"/api/highlights/{row.id}/clip")
-    assert response.status_code == 200 and response.data == b"c" * 20
+    assert response.status_code == 302 and response.location == "https://clips.example.test/clip?read-only-60s"
     assert response.headers["Cache-Control"] == "private, no-store, max-age=0"
-    assert "Location" not in response.headers
+    assert response.headers["Referrer-Policy"] == "no-referrer"
     assert "matches/" not in read.call_args.args[0] and read.call_args.args[0].startswith("highlights/")
     assert client.get(f"/api/players/{row.signed_id}/highlights").json["highlights"][0]["id"] == row.id
     assert client.get("/api/programs/test-fc/highlights").json["highlights"][0]["id"] == row.id
@@ -270,9 +272,9 @@ def test_both_keys_required_and_private_standalone_preview(world, monkeypatch):
 def test_preview_without_player_key_does_not_grant_raw_match(world, monkeypatch):
     row = ready(world)
     client = world["app"].test_client()
-    monkeypatch.setattr(highlights_storage, "read_output", lambda *args: b"clip-only")
+    monkeypatch.setattr(highlights_storage, "output_read_url", lambda *args: "https://clips.example.test/clip")
     assert (
-        client.get(f"/api/me/highlight-requests/{row.id}/preview", headers=headers(world["player"])).status_code == 200
+        client.get(f"/api/me/highlight-requests/{row.id}/preview", headers=headers(world["player"])).status_code == 302
     )
     assert (
         client.get(f"/api/me/highlight-requests/{row.id}/preview", headers=headers(world["stranger"])).status_code
@@ -299,7 +301,7 @@ def test_revoke_effective_next_request(world, monkeypatch, action):
         )
     assert response.status_code == 200
     read = Mock()
-    monkeypatch.setattr(highlights_storage, "read_output", read)
+    monkeypatch.setattr(highlights_storage, "output_read_url", read)
     for method in ["get", "head"]:
         assert getattr(client, method)(f"/api/highlights/{row.id}/clip").status_code == 404
     assert client.get(f"/api/players/{row.signed_id}/highlights").json == {"highlights": []}
@@ -486,6 +488,8 @@ def test_duplicate_pick_and_decision_version(world):
         and NotificationOutbox.query.count() == 1
     )
     row = PlayerHighlight.query.one()
+    claimed = claim_next()
+    assert finish(*claimed, output_etag="clip-v1", output_size=20)
     assert approve(world, row).status_code == 200
     response = (
         world["app"]
@@ -512,22 +516,20 @@ def test_export_erase_outputs_and_history_even_dark(world, monkeypatch):
     assert cleanup.blob_path.startswith("highlights/") and cleanup.highlight_id is None
 
 
-def test_range_endpoint_never_redirects_or_reads_other_assets(world, monkeypatch):
+def test_redirect_only_grants_standalone_output(world, monkeypatch):
     row = ready(world)
     assert approve(world, row).status_code == 200
-    read = Mock(return_value=b"clip")
-    monkeypatch.setattr(highlights_storage, "read_output", read)
+    mint = Mock(return_value="https://clips.example.test/clip?read-only-60s")
+    monkeypatch.setattr(highlights_storage, "output_read_url", mint)
     client = world["app"].test_client()
     path = f"/api/highlights/{row.id}/clip"
-    response = client.get(path, headers={"Range": "bytes=2-5"})
-    assert response.status_code == 206 and response.headers["Content-Range"] == "bytes 2-5/20"
-    assert read.call_args.args[2:] == (2, 4)
-    assert client.get(path, headers={"Range": "bytes=0-5,7-8"}).status_code == 416
+    assert client.get(path, headers={"Range": "bytes=2-5"}).status_code == 302
+    assert mint.call_args.args == (row.output_blob_path, row.output_etag)
     row.output_blob_path = world["match"].blob_path
     db.session.commit()
-    read.reset_mock()
+    mint.reset_mock()
     assert client.get(path).status_code == 404
-    read.assert_not_called()
+    mint.assert_not_called()
 
 
 def test_scoped_staff_need_a2_footage_provenance(world):
@@ -543,7 +545,7 @@ def test_scoped_staff_need_a2_footage_provenance(world):
     client = world["app"].test_client()
     path = f"/api/club/{world['program'].id}/matches/{world['match'].id}/highlights"
     # No grant-time origin exists in this legacy fixture: even an in-squad analyst is denied footage-derived reads.
-    assert client.get(path, headers=headers(analyst)).status_code == 404
+    assert client.get(path, headers=headers(analyst)).status_code == 403
 
 
 def test_worker_upload_finishes_after_revoke_cannot_publish(world, monkeypatch):
@@ -646,8 +648,8 @@ def test_rendered_clip_survives_normal_raw_retention_expiry(world, monkeypatch):
     db.session.refresh(row)
     assert row.source_version == 1 and row.player_decision == "approve" and row.revoked_at is None
     assert highlights.public(row)
-    monkeypatch.setattr(highlights_storage, "read_output", lambda *args: b"standalone-clip-bytes")
-    assert world["app"].test_client().get(f"/api/highlights/{row.id}/clip").status_code == 200
+    monkeypatch.setattr(highlights_storage, "output_read_url", lambda *args: "https://clips.example.test/clip")
+    assert world["app"].test_client().get(f"/api/highlights/{row.id}/clip").status_code == 302
 
 
 def test_c1_club_origin_requires_current_canonical_publication(world, monkeypatch):

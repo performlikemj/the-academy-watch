@@ -2,15 +2,19 @@ import { useEffect, useState } from 'react'
 import { APIService } from '@/lib/api'
 
 let flags
-export function useHighlights() {
-  const [enabled, setEnabled] = useState(false)
+export function useHighlightsState() {
+  const [state, setState] = useState({ enabled: false, loaded: false })
   useEffect(() => {
     let live = true
     flags ||= APIService.getFeatures().catch(() => ({}))
-    flags.then(value => { if (live) setEnabled(value.highlights === true) })
+    flags.then(value => { if (live) setState({ enabled: value.highlights === true, loaded: true }) })
     return () => { live = false }
   }, [])
-  return enabled
+  return state
+}
+
+export function useHighlights() {
+  return useHighlightsState().enabled
 }
 
 export function write(path, body, method = 'POST') {

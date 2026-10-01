@@ -59,14 +59,11 @@ def export_highlights(user, schema):
 def erase_highlights(user_id, schema):
     if not schema.has_columns("player_highlights", "recipient_user_id"):
         return {}
-    # Revoke/remove the subject's cuts; remove picks and footage reviews authored by the erased account too.
+    # The club key belongs to the club. Staff erasure only anonymizes their role.
     ids = [
         row[0]
         for row in db.session.execute(
-            sa.text(
-                "SELECT id FROM player_highlights WHERE recipient_user_id=:uid OR picker_user_id=:uid OR decision_user_id=:uid "
-                "OR video_match_id IN (SELECT video_match_id FROM highlight_footage_reviews WHERE reviewer_user_id=:uid)"
-            ),
+            sa.text("SELECT id FROM player_highlights WHERE recipient_user_id=:uid OR decision_user_id=:uid"),
             {"uid": user_id},
         )
     ]
@@ -103,6 +100,14 @@ def erase_highlights(user_id, schema):
             sa.text("DELETE FROM player_highlights WHERE id IN :ids").bindparams(sa.bindparam("ids", expanding=True)),
             params,
         )
-    db.session.execute(sa.text("DELETE FROM highlight_consent_events WHERE actor_user_id=:uid"), {"uid": user_id})
-    db.session.execute(sa.text("DELETE FROM highlight_footage_reviews WHERE reviewer_user_id=:uid"), {"uid": user_id})
+    db.session.execute(
+        sa.text("UPDATE player_highlights SET picker_user_id=NULL WHERE picker_user_id=:uid"), {"uid": user_id}
+    )
+    db.session.execute(
+        sa.text("UPDATE highlight_consent_events SET actor_user_id=NULL WHERE actor_user_id=:uid"), {"uid": user_id}
+    )
+    db.session.execute(
+        sa.text("UPDATE highlight_footage_reviews SET reviewer_user_id=NULL WHERE reviewer_user_id=:uid"),
+        {"uid": user_id},
+    )
     return {"highlights_deleted": len(ids)} if ids else {}

@@ -1,3 +1,108 @@
+BEGIN;
+CREATE TABLE IF NOT EXISTS player_highlights (
+	id VARCHAR(36) NOT NULL, 
+	program_id INTEGER NOT NULL, 
+	video_match_id INTEGER, 
+	roster_entry_id INTEGER, 
+	tracklet_id INTEGER, 
+	player_api_id INTEGER, 
+	local_player_id INTEGER, 
+	claim_id INTEGER, 
+	recipient_user_id INTEGER, 
+	picker_user_id INTEGER, 
+	pick_key VARCHAR(64) NOT NULL, 
+	source_etag VARCHAR(100) NOT NULL, 
+	source_snapshot VARCHAR(64) NOT NULL, 
+	source_fingerprint VARCHAR(64) NOT NULL, 
+	source_version INTEGER DEFAULT '1' NOT NULL, 
+	start_s FLOAT NOT NULL, 
+	end_s FLOAT NOT NULL, 
+	title VARCHAR(160) NOT NULL, 
+	version INTEGER DEFAULT '1' NOT NULL, 
+	club_picked_at TIMESTAMP WITHOUT TIME ZONE NOT NULL, 
+	player_decision VARCHAR(20) DEFAULT 'pending' NOT NULL, 
+	decision_user_id INTEGER, 
+	decision_at TIMESTAMP WITHOUT TIME ZONE, 
+	approved_source_version INTEGER, 
+	revoked_at TIMESTAMP WITHOUT TIME ZONE, 
+	revoke_reason VARCHAR(30), 
+	render_status VARCHAR(20) DEFAULT 'queued' NOT NULL, 
+	output_blob_path VARCHAR(500), 
+	output_etag VARCHAR(100), 
+	output_bytes INTEGER, 
+	render_source_version INTEGER, 
+	created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL, 
+	PRIMARY KEY (id), 
+	CONSTRAINT uq_player_highlights_pick UNIQUE (pick_key), 
+	CONSTRAINT ck_highlight_subject_xor CHECK ((player_api_id IS NOT NULL AND local_player_id IS NULL) OR (player_api_id IS NULL AND local_player_id IS NOT NULL)), 
+	CONSTRAINT ck_highlight_range CHECK (start_s >= 0 AND end_s > start_s AND end_s-start_s <= 60), 
+	CONSTRAINT ck_highlight_decision CHECK (player_decision IN ('pending','approve','private')), 
+	CONSTRAINT ck_highlight_render CHECK (render_status IN ('queued','running','ready','failed','stale')), 
+	FOREIGN KEY(program_id) REFERENCES club_programs (id) ON DELETE CASCADE, 
+	FOREIGN KEY(video_match_id) REFERENCES video_matches (id) ON DELETE SET NULL, 
+	FOREIGN KEY(roster_entry_id) REFERENCES video_roster_entries (id) ON DELETE SET NULL, 
+	FOREIGN KEY(tracklet_id) REFERENCES video_tracklets (id) ON DELETE SET NULL, 
+	FOREIGN KEY(local_player_id) REFERENCES local_players (id) ON DELETE CASCADE, 
+	FOREIGN KEY(claim_id) REFERENCES player_profile_claims (id) ON DELETE SET NULL, 
+	FOREIGN KEY(recipient_user_id) REFERENCES user_accounts (id) ON DELETE SET NULL, 
+	FOREIGN KEY(picker_user_id) REFERENCES user_accounts (id) ON DELETE SET NULL, 
+	FOREIGN KEY(decision_user_id) REFERENCES user_accounts (id) ON DELETE SET NULL
+);
+ALTER TABLE public.player_highlights ENABLE ROW LEVEL SECURITY;
+CREATE TABLE IF NOT EXISTS highlight_consent_events (
+	id SERIAL NOT NULL, 
+	highlight_id VARCHAR(36) NOT NULL, 
+	actor_user_id INTEGER, 
+	action VARCHAR(30) NOT NULL, 
+	version INTEGER NOT NULL, 
+	source_version INTEGER NOT NULL, 
+	created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL, 
+	PRIMARY KEY (id), 
+	FOREIGN KEY(highlight_id) REFERENCES player_highlights (id) ON DELETE CASCADE, 
+	FOREIGN KEY(actor_user_id) REFERENCES user_accounts (id) ON DELETE SET NULL
+);
+ALTER TABLE public.highlight_consent_events ENABLE ROW LEVEL SECURITY;
+CREATE TABLE IF NOT EXISTS highlight_footage_reviews (
+	video_match_id INTEGER NOT NULL, 
+	reviewer_user_id INTEGER, 
+	classification VARCHAR(20) NOT NULL, 
+	source_etag VARCHAR(100) NOT NULL, 
+	source_snapshot VARCHAR(64) NOT NULL, 
+	reviewed_at TIMESTAMP WITHOUT TIME ZONE NOT NULL, 
+	PRIMARY KEY (video_match_id), 
+	CONSTRAINT ck_highlight_footage_review CHECK (classification IN ('adult_only','private')), 
+	FOREIGN KEY(video_match_id) REFERENCES video_matches (id) ON DELETE CASCADE, 
+	FOREIGN KEY(reviewer_user_id) REFERENCES user_accounts (id) ON DELETE SET NULL
+);
+ALTER TABLE public.highlight_footage_reviews ENABLE ROW LEVEL SECURITY;
+CREATE TABLE IF NOT EXISTS highlight_render_jobs (
+	id VARCHAR(36) NOT NULL, 
+	highlight_id VARCHAR(36), 
+	kind VARCHAR(30) NOT NULL, 
+	source_version INTEGER, 
+	status VARCHAR(20) DEFAULT 'queued' NOT NULL, 
+	attempt INTEGER DEFAULT '0' NOT NULL, 
+	lease_token VARCHAR(36), 
+	lease_expires_at TIMESTAMP WITHOUT TIME ZONE, 
+	blob_path VARCHAR(500), 
+	error_code VARCHAR(40), 
+	created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL, 
+	completed_at TIMESTAMP WITHOUT TIME ZONE, 
+	PRIMARY KEY (id), 
+	CONSTRAINT ck_highlight_job_kind CHECK (kind IN ('highlight_cut','highlight_delete')), 
+	CONSTRAINT ck_highlight_job_status CHECK (status IN ('queued','running','succeeded','failed','cancelled')), 
+	FOREIGN KEY(highlight_id) REFERENCES player_highlights (id) ON DELETE SET NULL
+);
+ALTER TABLE public.highlight_render_jobs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.highlight_footage_reviews ADD COLUMN IF NOT EXISTS squad_adult_attested BOOLEAN NOT NULL DEFAULT false;
+CREATE INDEX IF NOT EXISTS ix_player_highlights_local_player_id ON player_highlights (local_player_id);
+CREATE INDEX IF NOT EXISTS ix_player_highlights_recipient_user_id ON player_highlights (recipient_user_id);
+CREATE INDEX IF NOT EXISTS ix_player_highlights_video_match_id ON player_highlights (video_match_id);
+CREATE INDEX IF NOT EXISTS ix_player_highlights_player_api_id ON player_highlights (player_api_id);
+CREATE INDEX IF NOT EXISTS ix_player_highlights_program_id ON player_highlights (program_id);
+CREATE INDEX IF NOT EXISTS ix_highlight_consent_events_highlight_id ON highlight_consent_events (highlight_id);
+CREATE INDEX IF NOT EXISTS ix_highlight_render_jobs_highlight_id ON highlight_render_jobs (highlight_id);
+CREATE INDEX IF NOT EXISTS ix_highlight_render_jobs_status ON highlight_render_jobs (status);
 -- Schema-only, idempotent source-version fencing. Included verbatim by p2c2 and preapply.
 CREATE OR REPLACE FUNCTION public.p2c2_invalidate_match(mid integer) RETURNS void LANGUAGE plpgsql AS $$
 DECLARE changed RECORD;
@@ -80,3 +185,5 @@ BEGIN
 END $$;
 DROP TRIGGER IF EXISTS p2c2_delete_highlight ON public.player_highlights;
 CREATE TRIGGER p2c2_delete_highlight BEFORE DELETE ON public.player_highlights FOR EACH ROW EXECUTE FUNCTION public.p2c2_delete_highlight();
+
+COMMIT;

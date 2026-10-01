@@ -109,40 +109,63 @@ def cut_file(source, destination, start_s, end_s):
 
 
 def claim_next():
-    job = (
-        HighlightRenderJob.query.filter(
-            HighlightRenderJob.kind.in_(
-                ("highlight_cut", "highlight_delete") if highlights.enabled() else ("highlight_delete",)
-            ),
-            HighlightRenderJob.created_at <= now(),
-            (HighlightRenderJob.status == "queued")
-            | ((HighlightRenderJob.status == "running") & (HighlightRenderJob.lease_expires_at < now())),
+    # Bounded scan: exhausted leases must not hide the next healthy job.
+    for _ in range(20):
+        candidate = (
+            HighlightRenderJob.query.outerjoin(PlayerHighlight, PlayerHighlight.id == HighlightRenderJob.highlight_id)
+            .filter(
+                HighlightRenderJob.kind.in_(
+                    ("highlight_cut", "highlight_delete") if highlights.enabled() else ("highlight_delete",)
+                ),
+                HighlightRenderJob.created_at <= now(),
+                (HighlightRenderJob.status == "queued")
+                | ((HighlightRenderJob.status == "running") & (HighlightRenderJob.lease_expires_at < now())),
+            )
+            .order_by(
+                HighlightRenderJob.kind.desc(),
+                PlayerHighlight.video_match_id,
+                HighlightRenderJob.created_at,
+                HighlightRenderJob.id,
+            )
+            .first()
         )
-        .order_by(HighlightRenderJob.created_at, HighlightRenderJob.id)
-        .with_for_update(skip_locked=True)
-        .first()
-    )
-    if job is None:
+        if candidate is None:
+            db.session.commit()
+            return None
+        row = db.session.get(PlayerHighlight, candidate.highlight_id) if candidate.highlight_id else None
+        if row and row.video_match_id:
+            VideoMatch.query.filter_by(id=row.video_match_id).with_for_update().first()
+        if row:
+            row = PlayerHighlight.query.filter_by(id=row.id).populate_existing().with_for_update().first()
+        job = (
+            HighlightRenderJob.query.filter_by(id=candidate.id)
+            .populate_existing()
+            .with_for_update(skip_locked=True)
+            .first()
+        )
+        if not job or not (job.status == "queued" or (job.status == "running" and job.lease_expires_at < now())):
+            db.session.commit()
+            continue
+        if job.attempt >= MAX_ATTEMPTS:
+            if job.kind == "highlight_cut" and job.blob_path:
+                queue_cleanup(job.blob_path)
+            job.status, job.error_code, job.completed_at = "failed", "attempt_limit", now()
+            job.lease_token = None
+            if row and row.render_status != "ready":
+                row.render_status = "failed"
+            db.session.commit()
+            continue
+        if job.kind == "highlight_cut" and job.blob_path:
+            queue_cleanup(job.blob_path)
+        job.status = "running"
+        job.attempt += 1
+        job.lease_token = uuid4()
+        job.lease_expires_at = now() + timedelta(seconds=LEASE_SECONDS)
+        if job.kind == "highlight_cut":
+            job.blob_path = f"highlights/{job.highlight_id}/{job.lease_token}.mp4"
         db.session.commit()
-        return None
-    if job.attempt >= MAX_ATTEMPTS:
-        job.status = "failed"
-        job.error_code = "attempt_limit"
-        row = db.session.get(PlayerHighlight, job.highlight_id) if job.highlight_id else None
-        if row and row.render_status != "ready":
-            row.render_status = "failed"
-        db.session.commit()
-        return None
-    if job.kind == "highlight_cut" and job.blob_path:
-        queue_cleanup(job.blob_path)
-    job.status = "running"
-    job.attempt += 1
-    job.lease_token = uuid4()
-    job.lease_expires_at = now() + timedelta(seconds=LEASE_SECONDS)
-    if job.kind == "highlight_cut":
-        job.blob_path = f"highlights/{job.highlight_id}/{job.lease_token}.mp4"
-    db.session.commit()
-    return job.id, job.lease_token
+        return job.id, job.lease_token
+    return None
 
 
 def finish(job_id, lease, *, output_etag=None, output_size=None, error=None):
@@ -162,7 +185,12 @@ def finish(job_id, lease, *, output_etag=None, output_size=None, error=None):
         if job.status == "queued":
             job.created_at = now() + timedelta(minutes=job.attempt)
 
-    elif not row or row.source_version != job.source_version or not highlights.eligible(row):
+    elif (
+        not row
+        or row.player_decision == "private"
+        or row.source_version != job.source_version
+        or not highlights.eligible(row)
+    ):
         job.status = "cancelled"
     elif error:
         job.status = "failed"
@@ -200,7 +228,31 @@ def cleanup_output(path):
         db.session.commit()
 
 
-def run_one(job_id, lease):
+class SourceBatch:
+    """One frozen match download per grouped batch, disk capped at one source."""
+
+    def __init__(self, directory):
+        self.source = Path(directory) / "source.mp4"
+        self.key = None
+        self.failed_key = None
+
+    def get(self, blob, snapshot, etag):
+        key = (blob, snapshot, etag)
+        if key == self.failed_key:
+            raise ValueError("source_batch_download_failed")
+        if key != self.key:
+            self.key = None
+            self.source.unlink(missing_ok=True)
+            try:
+                highlights_storage.download_source(blob, snapshot, etag, self.source)
+            except Exception:
+                self.failed_key = key
+                raise
+            self.key = key
+        return self.source
+
+
+def run_one(job_id, lease, *, source_batch=None):
     job = db.session.get(HighlightRenderJob, job_id)
     output_path = job.blob_path
     if job.kind == "highlight_delete":
@@ -212,7 +264,12 @@ def run_one(job_id, lease):
         finish(job_id, lease, error=None if ok else "storage_delete_failed")
         return ok
     row = db.session.get(PlayerHighlight, job.highlight_id) if job.highlight_id else None
-    if not row or job.source_version != row.source_version or not highlights.eligible(row):
+    if (
+        not row
+        or row.player_decision == "private"
+        or job.source_version != row.source_version
+        or not highlights.eligible(row)
+    ):
         finish(job_id, lease, error="ineligible")
         return False
     match = db.session.get(VideoMatch, row.video_match_id)
@@ -221,7 +278,10 @@ def run_one(job_id, lease):
     try:
         with tempfile.TemporaryDirectory(prefix="aw-highlight-") as folder:
             source, output = Path(folder) / "source.mp4", Path(folder) / "clip.mp4"
-            highlights_storage.download_source(*args[:3], source)
+            if source_batch is None:
+                highlights_storage.download_source(*args[:3], source)
+            else:
+                source = source_batch.get(*args[:3])
             cut_file(source, output, *args[3:])
             etag, size = highlights_storage.upload_output(output_path, output)
         ok = finish(job_id, lease, output_etag=etag, output_size=size)
@@ -246,12 +306,17 @@ def main():
 
     with app.app_context():
         completed = 0
-        for _ in range(args.limit):
-            claimed = claim_next()
-            if claimed is None:
-                break
-            completed += int(run_one(*claimed))
-        print(json.dumps({"enabled": highlights.enabled(), "completed": completed}))
+        from src.services.highlights_retention import sweep_highlights
+
+        retention = sweep_highlights(limit=100)
+        with tempfile.TemporaryDirectory(prefix="aw-highlight-batch-") as directory:
+            batch = SourceBatch(directory)
+            for _ in range(args.limit):
+                claimed = claim_next()
+                if claimed is None:
+                    break
+                completed += int(run_one(*claimed, source_batch=batch))
+        print(json.dumps({"enabled": highlights.enabled(), "completed": completed, "retention": retention}))
 
 
 if __name__ == "__main__":

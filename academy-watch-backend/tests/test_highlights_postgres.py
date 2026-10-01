@@ -98,3 +98,91 @@ def test_sql_source_removal_revokes_and_queues_cleanup(world):
     db.session.refresh(row)
     assert row.video_match_id is None and row.revoked_at and row.approved_source_version is None
     assert HighlightRenderJob.query.filter_by(kind="highlight_delete").count() == 1
+
+
+def test_f13_raw_child_then_match_writer_uses_match_before_highlight(world):
+    import time
+    from threading import Event
+
+    row = ready(world)
+    assert approve(world, row).status_code == 200
+    match_id, track_id, hid = world["match"].id, world["track"].id, row.id
+    engine = db.engine
+    db.session.commit()
+    started = Event()
+
+    def writer():
+        with engine.begin() as conn:
+            conn.execute(sa.text("SET LOCAL lock_timeout='5s'"))
+            started.set()
+            conn.execute(
+                sa.text("UPDATE c2_checks.video_tracklets SET first_s=first_s+1 WHERE id=:id"), {"id": track_id}
+            )
+            conn.execute(
+                sa.text("UPDATE c2_checks.video_matches SET duration_s=duration_s+1 WHERE id=:id"), {"id": match_id}
+            )
+
+    with engine.connect() as decision, ThreadPoolExecutor(max_workers=1) as pool:
+        transaction = decision.begin()
+        decision.execute(sa.text("SET LOCAL lock_timeout='1s'"))
+        decision.execute(sa.text("SELECT id FROM c2_checks.video_matches WHERE id=:id FOR UPDATE"), {"id": match_id})
+        pending = pool.submit(writer)
+        assert started.wait(2)
+        time.sleep(0.15)  # writer reaches its source trigger, waiting on the match lock
+        # Before F13 the trigger held this row and waited for our match: deadlock.
+        decision.execute(sa.text("SELECT id FROM c2_checks.player_highlights WHERE id=:id FOR UPDATE"), {"id": hid})
+        transaction.commit()
+        pending.result(timeout=8)
+    db.session.refresh(row)
+    assert row.revoked_at and row.player_decision == "pending"
+    assert world["app"].test_client().get(f"/api/highlights/{hid}/clip").status_code == 404
+
+
+@pytest.mark.parametrize("parent", ["local_players", "club_programs"])
+def test_f14_parent_cascade_queues_standalone_asset_cleanup(world, parent):
+    from uuid import uuid4
+
+    from src.models.funding import ClubProgram
+    from src.models.showcase import LocalPlayer
+
+    original = ready(world)
+    values = {column.name: getattr(original, column.name) for column in PlayerHighlight.__table__.columns}
+    program = ClubProgram(
+        funding_league_id=world["program"].funding_league_id,
+        name="Cascade test",
+        legal_name="Cascade test",
+        slug="cascade-only",
+        country="JP",
+        region="Test",
+        platform_status="approved",
+    )
+    local = LocalPlayer(display_name="Cascade test", status="approved")
+    db.session.add_all([program, local])
+    db.session.flush()
+    local.api_player_id = -local.id
+    hid, attempt = str(uuid4()), str(uuid4())
+    path = f"highlights/{hid}/{attempt}.mp4"
+    values.update(
+        id=hid,
+        pick_key=uuid4().hex,
+        program_id=program.id,
+        local_player_id=local.id,
+        video_match_id=None,
+        roster_entry_id=None,
+        tracklet_id=None,
+        claim_id=None,
+        output_blob_path=path,
+    )
+    db.session.add(PlayerHighlight(**values))
+    db.session.flush()
+    db.session.add(
+        HighlightRenderJob(
+            highlight_id=hid, kind="highlight_cut", blob_path=path, status="succeeded", completed_at=now()
+        )
+    )
+    db.session.commit()
+    parent_id = local.id if parent == "local_players" else program.id
+    db.session.execute(sa.text(f"DELETE FROM c2_checks.{parent} WHERE id=:id"), {"id": parent_id})
+    db.session.commit()
+    assert PlayerHighlight.query.filter_by(id=hid).count() == 0
+    assert HighlightRenderJob.query.filter_by(kind="highlight_delete", blob_path=path).count() == 1

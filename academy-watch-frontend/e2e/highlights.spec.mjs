@@ -5,7 +5,7 @@ import path from 'node:path'
 
 // Synthetic workflow fixtures, clearly labelled; production has no fallback data.
 const id = '00000000-0000-4000-8000-000000000001'
-const clip = { id, title: 'Synthetic reviewed moment', club_name: 'Synthetic C2 Club', duration_s: 20, player_id: -7, version: 1, player_decision: 'pending', status_label: 'Waiting for you', render_status: 'ready', can_approve: true, revoked: false, preview_url: null, clip_url: null }
+const clip = { id, title: 'Synthetic reviewed moment', club_name: 'Synthetic C2 Club', duration_s: 20, player_id: -7, version: 1, player_decision: 'pending', status_label: 'Waiting for you', render_status: 'ready', can_approve: true, revoked: false, preview_url: `/api/me/highlight-requests/${id}/preview`, clip_url: null }
 async function fixture(page, { enabled = true, empty = false, fail = false, conflict = false } = {}) {
   await page.addInitScript(() => {
     localStorage.setItem('academy_watch_user_token', 'synthetic-c2-browser-token')
@@ -22,11 +22,14 @@ async function fixture(page, { enabled = true, empty = false, fail = false, conf
     if (p === '/api/auth/me') return reply({ email: 'c2@example.test', display_name: 'Synthetic C2 User', display_name_confirmed: true, role: 'user' })
     if (p === '/api/meta/data-mode') return reply({ api_football_frozen: false })
     if (p === '/api/me/highlight-requests') return fail ? route.fulfill({ status: 503, json: { error: 'unavailable' } }) : reply({ highlights: empty ? [] : [current], has_more: false })
+    if (p.endsWith(`/${id}/preview`)) return route.fulfill({ contentType: 'video/mp4', body: Buffer.from([0, 0, 0, 0]) })
     if (p.startsWith(`/api/me/highlight-requests/${id}/`)) {
       writes.push({ path: p, body: req.postDataJSON() })
       if (conflict) return route.fulfill({ status: 409, json: { error: 'version_conflict' } })
       current = { ...current, version: current.version + 1, player_decision: p.endsWith('/revoke') ? 'private' : req.postDataJSON().decision, revoked: p.endsWith('/revoke') }
-      current.status_label = current.revoked ? 'Taken back' : current.player_decision === 'approve' ? 'Public on your page' : 'Kept private'
+      if (p.endsWith('/retry')) current = { ...current, player_decision: 'pending', render_status: 'ready', can_approve: true, can_retry: false, preview_url: clip.preview_url }
+      else if (current.player_decision === 'private') current = { ...current, render_status: 'stale', can_approve: false, can_retry: !current.revoked, preview_url: null }
+      current.status_label = current.revoked ? 'Taken back' : current.player_decision === 'approve' ? 'Public on your page' : current.player_decision === 'pending' ? 'Waiting for you' : 'Kept private'
       return reply(current)
     }
     return reply({})
@@ -49,14 +52,16 @@ for (const width of [1440, 390]) {
     await shot(page, `inbox-${width}`)
     await page.getByRole('button', { name: 'Keep private', exact: true }).click()
     await expect(page.getByText('Kept private', { exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Make public', exact: true })).toHaveCount(0)
+    await page.getByRole('button', { name: 'Try again', exact: true }).click()
     await page.getByRole('button', { name: 'Make public', exact: true }).click()
     await expect(page.getByText('Public on your page', { exact: true })).toBeVisible()
     await shot(page, `approved-${width}`)
     await page.getByRole('button', { name: 'Take it back', exact: true }).click()
     await expect(page.getByText('Taken back', { exact: true })).toBeVisible()
     await shot(page, `revoked-${width}`)
-    expect(writes.map(x => x.body.decision)).toEqual(['private', 'approve', undefined])
-    expect(writes[1].body.version).toBe(2)
+    expect(writes.map(x => x.body.decision)).toEqual(['private', undefined, 'approve', undefined])
+    expect(writes[2].body.version).toBe(3)
   })
   test(`empty and error states at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 844 })
@@ -71,7 +76,8 @@ test('dark flag sends no inbox requests', async ({ page }) => {
   const reads = []
   page.on('request', req => { if (req.url().includes('/me/highlight-requests')) reads.push(req.url()) })
   await page.goto('/highlight-approvals')
-  await expect(page.getByText('Highlights are not available yet.')).toBeVisible()
+  await expect(page).toHaveURL(/\/$/)
+  await expect(page.getByRole('heading', { name: 'Your moments, your call.' })).toHaveCount(0)
   expect(reads).toEqual([])
 })
 test('unavailable inbox has a retry and no approval actions', async ({ page }) => {
@@ -98,10 +104,10 @@ for (const width of [1440, 390]) {
     const candidate = { roster_entry_id: 1, tracklet_id: 2, start_s: 10, end_s: 30, player_name: 'Synthetic Adult' }
     await page.route('**/api/club/7/matches/41/**', route => {
       const req = route.request(), p = new URL(req.url()).pathname
-      if (p.endsWith('/highlight-review')) { expect(req.postDataJSON().all_visible_people_adults).toBe(true); reviewed = true }
+      if (p.endsWith('/highlight-review')) { if (req.postDataJSON().classification === 'private') { reviewed = false; picked = false } else { expect(req.postDataJSON().all_visible_people_adults).toBe(true); reviewed = true } }
       else if (req.method() === 'POST') { expect(req.postDataJSON().start_s).toBe(10); expect(req.postDataJSON().end_s).toBe(30); picked = true }
       else if (req.method() === 'DELETE') picked = false
-      return route.fulfill({ json: { adult_recording: reviewed, can_review: true, candidates: reviewed ? [candidate] : [], highlights: picked ? [{ ...clip, ...candidate }] : [] } })
+      return route.fulfill({ json: { adult_recording: reviewed, review_classification: reviewed ? 'adult_only' : 'private', can_review: true, candidates: reviewed ? [candidate] : [], highlights: picked ? [{ ...clip, ...candidate }] : [] } })
     })
     await page.goto('/highlight-approvals')
     await page.evaluate(async () => {
@@ -155,4 +161,86 @@ test('recipient preview fetches authenticated standalone bytes only', async ({ p
   await page.getByRole('button', { name: 'Make public' }).click()
   await expect(page.locator('video')).toHaveCount(0)
   expect(fullMatchReads).toEqual([])
+})
+
+async function mountPicker(page) {
+  await page.evaluate(async () => {
+    const { default: React } = await import('/node_modules/.vite/deps/react.js')
+    const { default: ReactDOM } = await import('/node_modules/.vite/deps/react-dom_client.js')
+    const { ClubHighlightPicker } = await import('/src/components/highlights/ClubHighlightPicker.jsx')
+    const host = document.createElement('div'); host.className = 'floodlight-container'; document.body.replaceChildren(host)
+    ReactDOM.createRoot(host).render(React.createElement(ClubHighlightPicker, { programId: 7, matchId: 41 }))
+  })
+}
+for (const width of [1440, 390]) {
+  test(`expired raw recording retains remove and un-attest controls at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 })
+    await fixture(page)
+    let picked = true, reviewed = true
+    await page.route('**/api/club/7/matches/41/**', route => {
+      const request = route.request()
+      if (request.method() === 'DELETE') picked = false
+      if (new URL(request.url()).pathname.endsWith('/highlight-review')) {
+        expect(request.postDataJSON().classification).toBe('private')
+        reviewed = false; picked = false
+      }
+      return route.fulfill({ json: { adult_recording: false, recording_block_reason: 'source_unavailable', review_classification: reviewed ? 'adult_only' : 'private', can_review: false, candidates: [], highlights: picked ? [{ ...clip, player_decision: 'approve', status_label: 'Public on your page' }] : [] } })
+    })
+    await page.goto('/highlight-approvals')
+    await mountPicker(page)
+    await expect(page.getByRole('button', { name: 'Remove pick' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Mark recording private' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Confirm adult-only recording' })).toHaveCount(0)
+    await shot(page, `expired-controls-${width}`)
+    await page.getByRole('button', { name: 'Remove pick' }).click()
+    await expect(page.getByRole('button', { name: 'Remove pick' })).toHaveCount(0)
+    await page.getByRole('button', { name: 'Mark recording private' }).click()
+    await expect(page.getByRole('button', { name: 'Mark recording private' })).toHaveCount(0)
+  })
+}
+test('queued preview cannot be approved and polling backs off from thirty seconds', async ({ page }) => {
+  await fixture(page)
+  await page.clock.install()
+  let reads = 0
+  await page.route('**/api/me/highlight-requests?*', route => {
+    reads += 1
+    return route.fulfill({ json: { highlights: [{ ...clip, render_status: 'queued', can_approve: false, preview_url: null }], has_more: false } })
+  })
+  await page.goto('/highlight-approvals')
+  await expect(page.getByText('Waiting for you', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Make public' })).toHaveCount(0)
+  await shot(page, 'preparing-no-approval')
+  const initial = reads
+  await page.clock.fastForward(29000)
+  expect(reads).toBe(initial)
+  await page.clock.fastForward(1000)
+  await expect.poll(() => reads).toBe(initial + 1)
+  await expect(page.getByText('Waiting for you', { exact: true })).toBeVisible()
+  await page.clock.fastForward(59000)
+  expect(reads).toBe(initial + 1)
+  await page.clock.fastForward(1000)
+  await expect.poll(() => reads).toBe(initial + 2)
+})
+test('admin can take down one clip without raw footage', async ({ page }) => {
+  await fixture(page)
+  const actions = []
+  await page.route(`**/api/admin/highlights/${id}/takedown`, route => {
+    actions.push(route.request().url())
+    return route.fulfill({ json: { id, revoked: true } })
+  })
+  await page.goto('/highlight-approvals')
+  await page.evaluate(async () => {
+    const { default: React } = await import('/node_modules/.vite/deps/react.js')
+    const { default: ReactDOM } = await import('/node_modules/.vite/deps/react-dom_client.js')
+    const { AdminHighlightTakedown } = await import('/src/components/highlights/AdminHighlightTakedown.jsx')
+    const { APIService } = await import('/src/lib/api.js')
+    APIService.setAdminKey('synthetic-c2-admin-key')
+    const host = document.createElement('div'); host.className = 'floodlight-container dark'; document.body.replaceChildren(host)
+    ReactDOM.createRoot(host).render(React.createElement(AdminHighlightTakedown))
+  })
+  await page.getByLabel('Highlight ID').fill(id)
+  await page.getByRole('button', { name: 'Take down clip', exact: true }).click()
+  await expect(page.getByRole('status')).toContainText('Clip taken down.')
+  expect(actions).toHaveLength(1)
+  await shot(page, 'admin-clip-takedown')
 })

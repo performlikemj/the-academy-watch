@@ -91,6 +91,7 @@ class HighlightFootageReview(db.Model):
     source_etag = db.Column(db.String(100), nullable=False)
     source_snapshot = db.Column(db.String(64), nullable=False)
     reviewed_at = db.Column(db.DateTime, nullable=False, default=now)
+    squad_adult_attested = db.Column(db.Boolean, nullable=False, default=False, server_default="false")
     __table_args__ = (
         db.CheckConstraint("classification IN ('adult_only','private')", name="ck_highlight_footage_review"),
     )

@@ -54,7 +54,10 @@ def invalidate_sources(session, flush_context, instances):
             if row in session.deleted or any(state.attrs[key].history.has_changes() for key in MATCH_FIELDS):
                 matches.add(row.id)
         elif isinstance(row, HighlightFootageReview):
-            if row in session.deleted or session.is_modified(row, include_collections=False):
+            if row in session.deleted or any(
+                state.attrs[key].history.has_changes()
+                for key in ("classification", "source_etag", "source_snapshot", "reviewed_at", "squad_adult_attested")
+            ):
                 matches.add(row.video_match_id)
         elif isinstance(row, ClubRosterMember):
             if row in session.deleted or any(

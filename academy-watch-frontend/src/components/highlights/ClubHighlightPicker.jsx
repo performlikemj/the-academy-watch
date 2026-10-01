@@ -9,6 +9,7 @@ function Picker({ programId, matchId }) {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [confirmed, setConfirmed] = useState(false)
+  const [seniorConfirmed, setSeniorConfirmed] = useState(false)
   const [titles, setTitles] = useState({})
   const load = useCallback(async () => {
     try { setData(await APIService.request(`${base}/highlights`)); setError('') }
@@ -25,17 +26,21 @@ function Picker({ programId, matchId }) {
     <p className="hl-label">Club key · reviewed adult footage</p><h2 id={`highlight-picker-${matchId}`} className="mt-3">Pick highlights</h2>
     <p className="hl-muted mt-4">Picking is the first key. The adult player holds the second. Only a separately cut clip can become public.</p>
     {error && <p role="alert" className="hl-error mt-4">{error}</p>}
-    {data && !data.adult_recording && <div className="hl-row">
+    {data && !data.adult_recording && data.can_review && <div className="hl-row">
       <h3>Review the whole recording first</h3><p className="hl-muted mt-3">Youth, mixed-age and unknown-age footage stays private. Review every person visible, including the opposition and bystanders.</p>
-      {data.can_review ? <><label className="flex gap-3 items-start py-5 min-h-11"><input type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} /><span>I reviewed the whole recording and verified that the match date is correct and every visible person was an adult when recorded. No minor or person of unknown age appears.</span></label><button className="hl-button" disabled={!confirmed || busy} onClick={() => act(`${base}/highlight-review`, { classification: 'adult_only', all_visible_people_adults: true })}>Confirm adult-only recording</button></> : <p className="hl-muted mt-3">A club owner or manager must complete this review.</p>}
+      {data.can_review ? <><label className="flex gap-3 items-start py-5 min-h-11"><input type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} /><span>I reviewed the whole recording and verified that the match date is correct and every visible person was an adult when recorded. No minor or person of unknown age appears.</span></label>{data.unknown_squad && <label className="flex gap-3 items-start py-5"><input type="checkbox" checked={seniorConfirmed} onChange={event => setSeniorConfirmed(event.target.checked)} /><span>I confirm this is a senior squad. Unknown or youth squad footage otherwise stays private.</span></label>}<button className="hl-button" disabled={!confirmed || (data.unknown_squad && !seniorConfirmed) || busy} onClick={() => act(`${base}/highlight-review`, { classification: 'adult_only', all_visible_people_adults: true, squad_adult_attested: data.unknown_squad && seniorConfirmed })}>Confirm adult-only recording</button></> : <p className="hl-muted mt-3">A club owner or manager must complete this review.</p>}
     </div>}
     {data?.adult_recording && !data.candidates.length && <p className="hl-muted py-6">No eligible moments yet. Picks need a human-reviewed identity, a short reel window and the adult&apos;s own approved profile.</p>}
-    {(data?.candidates || []).map(window => {
+    {data?.recording_block_reason && !data.can_review && <p className="hl-muted py-4">{data.recording_block_reason === 'source_unavailable' ? 'The raw recording is unavailable. You can still remove existing picks or mark the recording private.' : 'This recording stays private because its squad, date, roster or source could not be verified. Re-confirming a review cannot fix those records.'}</p>}
+    {data?.review_classification === 'adult_only' && <button className="hl-button my-4" disabled={busy} onClick={() => act(`${base}/highlight-review`, { classification: 'private' })}>Mark recording private</button>}
+    {(data?.highlights || []).filter(row => !row.revoked).map(row => <article className="hl-row" key={row.id}>
+      <h3>{row.title}</h3><div className="flex flex-wrap items-center gap-4 mt-4"><p className="hl-muted">{row.status_label === 'Waiting for you' ? 'Waiting for player' : row.status_label}</p><button className="hl-button" disabled={busy} onClick={() => act(`${base}/highlights/${row.id}`, null, 'DELETE')}>Remove pick</button></div>
+    </article>)}
+    {(data?.candidates || []).filter(window => !data.highlights.some(row => !row.revoked && row.roster_entry_id === window.roster_entry_id && row.tracklet_id === window.tracklet_id && row.start_s === window.start_s && row.end_s === window.end_s)).map(window => {
       const key = `${window.roster_entry_id}:${window.tracklet_id}:${window.start_s}`
-      const picked = data.highlights.find(row => !row.revoked && row.roster_entry_id === window.roster_entry_id && row.tracklet_id === window.tracklet_id && row.start_s === window.start_s && row.end_s === window.end_s)
       return <article className="hl-row" key={key}>
         <p className="hl-label">{window.start_s}s–{window.end_s}s · {Math.round(window.end_s-window.start_s)}s clip</p><h3 className="mt-3">{window.player_name}</h3>
-        {picked ? <div className="flex flex-wrap items-center gap-4 mt-4"><p className="hl-muted">{picked.status_label === 'Waiting for you' ? 'Waiting for player' : picked.status_label}</p><button className="hl-button" disabled={busy} onClick={() => act(`${base}/highlights/${picked.id}`, null, 'DELETE')}>Remove pick</button></div> : <><label className="block text-sm my-4">Clip title<input className="hl-input mt-2" maxLength={160} value={titles[key] || ''} placeholder="Match moment" onChange={event => setTitles(current => ({ ...current, [key]: event.target.value }))} /></label><button className="hl-button hl-primary" disabled={busy} onClick={() => act(`${base}/highlights`, { roster_entry_id: window.roster_entry_id, tracklet_id: window.tracklet_id, start_s: window.start_s, end_s: window.end_s, title: titles[key] || 'Match moment' })}>Pick moment</button></>}
+        <label className="block text-sm my-4">Clip title<input className="hl-input mt-2" maxLength={160} value={titles[key] || ''} placeholder="Match moment" onChange={event => setTitles(current => ({ ...current, [key]: event.target.value }))} /></label><button className="hl-button hl-primary" disabled={busy} onClick={() => act(`${base}/highlights`, { roster_entry_id: window.roster_entry_id, tracklet_id: window.tracklet_id, start_s: window.start_s, end_s: window.end_s, title: titles[key] || 'Match moment' })}>Pick moment</button>
       </article>
     })}
     <button className="hl-button mt-6" onClick={load} disabled={busy}>Refresh highlights</button>
