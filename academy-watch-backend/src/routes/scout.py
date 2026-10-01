@@ -64,6 +64,7 @@ from src.services.player_suppression import (
     public_player_visible_filter,
     without_active_suppression,
 )
+from src.services.public_adult import filter_public_adult_query, is_public_adult, public_adult_ids
 from src.services.scout_entitlements import decoded_bearer_role, scout_entitlements
 from src.services.stripe_billing import require_billing_rail
 from src.utils.data_mode import api_enabled_route, api_football_frozen, newsletters_enabled_route
@@ -541,7 +542,9 @@ def _scout_identity_subquery(*, include_local=None):
     return tracked.union_all(local).subquery("scout_identity")
 
 
-def _base_scout_query(requested_season=None, *, allow_rollup=True, legacy_season=None, include_local=None):
+def _base_scout_query(
+    requested_season=None, *, allow_rollup=True, legacy_season=None, include_local=None, adult_filter=True
+):
     """Normalized player-universe rows joined to one season's stats."""
     from src.utils.academy_window import resolve_stats_season, stats_season_with_data
 
@@ -714,6 +717,8 @@ def _base_scout_query(requested_season=None, *, allow_rollup=True, legacy_season
     }
     for key in PHASE_STAT_KEYS:
         columns[key] = phase_column_exprs[key]
+    if adult_filter:
+        query = filter_public_adult_query(query, columns["player_api_id"])
     return query, columns
 
 
@@ -967,7 +972,7 @@ def scout_players():
     - page / per_page: pagination (per_page max 100)
     """
     try:
-        query, columns = _base_scout_query(request.args.get("season") or None)
+        query, columns = _base_scout_query(request.args.get("season") or None, adult_filter=False)
         query, error = _apply_filters(query, columns)
         if error:
             return error
@@ -981,6 +986,7 @@ def scout_players():
             min_minutes = request.args.get("min_minutes", type=int) or 0
             query = query.filter(columns["minutes_played"] >= max(min_minutes, PER90_MIN_MINUTES))
 
+        query = filter_public_adult_query(query, columns["player_api_id"])
         default_order = "asc" if sort in ("name", "age") else "desc"
         order = request.args.get("order", default_order).strip().lower()
         if order == "desc":
@@ -1093,21 +1099,28 @@ def scout_leaderboards():
             allow_history=use_rollup,
         )
 
+        # Immutable base queries and one caller-owned eligibility snapshot serve
+        # every board, including the mixed rollup/fixture phases.
+        base_queries = {}
+        eligibility_cache = {}
+
         def board(sort_key, extra_min_minutes=0, board_order="desc"):
             board_uses_rollup = use_rollup and sort_key in ROLLUP_LEADERBOARD_SORT_KEYS
-            query, columns = _base_scout_query(
-                requested_season if board_uses_rollup else None,
-                allow_rollup=board_uses_rollup,
-                legacy_season=season if use_rollup and not board_uses_rollup else None,
-            )
-            query, error = _apply_filters(query, columns, exclude_self_by_default=True)
-            if error:
-                return None, error
-            if phase == "gk":
-                # Outfielders aggregate goals_conceded/saves as 0, which would
-                # top every ascending GK board — clamp regardless of the
-                # caller's position filter.
-                query = query.filter(columns["position"] == "Goalkeeper")
+            if board_uses_rollup not in base_queries:
+                query, columns = _base_scout_query(
+                    requested_season if board_uses_rollup else None,
+                    allow_rollup=board_uses_rollup,
+                    legacy_season=season,
+                    adult_filter=False,
+                )
+                query, error = _apply_filters(query, columns, exclude_self_by_default=True)
+                if error:
+                    return None, error
+                if phase == "gk":
+                    query = query.filter(columns["position"] == "Goalkeeper")
+                query = filter_public_adult_query(query, columns["player_api_id"], eligibility_cache=eligibility_cache)
+                base_queries[board_uses_rollup] = query, columns
+            query, columns = base_queries[board_uses_rollup]
             if extra_min_minutes:
                 query = query.filter(columns["minutes_played"] >= extra_min_minutes)
             sort_expr = _sort_expression(sort_key, columns)
@@ -1360,11 +1373,12 @@ def scout_compare():
             else {}
         )
 
-        candidate_query, candidate_columns = _base_scout_query(requested_season)
+        candidate_query, candidate_columns = _base_scout_query(requested_season, adult_filter=False)
         candidate_query = candidate_query.filter(candidate_columns["player_api_id"].in_(player_ids))
         candidate_query, source_error = _apply_source_filter(candidate_query, candidate_columns)
         if source_error:
             return source_error
+        candidate_query = filter_public_adult_query(candidate_query, candidate_columns["player_api_id"])
         candidate_payloads = {}
         for candidate_row in candidate_query.all():
             candidate_payload = _row_to_dict(candidate_row)
@@ -1602,8 +1616,9 @@ def _watched_player_dicts(player_api_ids):
     ids = [pid for pid in set(player_api_ids) if pid]
     if not ids:
         return {}
-    query, columns = _base_scout_query(include_local=True)
-    rows = query.filter(columns["player_api_id"].in_(ids)).all()
+    query, columns = _base_scout_query(include_local=True, adult_filter=False)
+    query = query.filter(columns["player_api_id"].in_(ids))
+    rows = filter_public_adult_query(query, columns["player_api_id"]).all()
     players = [_row_to_dict(row) for row in rows]
     _attach_recent_form(players)
     return {p["player_id"]: p for p in players}
@@ -1655,6 +1670,8 @@ def scout_watchlist():
             .order_by(ScoutWatchlistEntry.created_at.desc(), ScoutWatchlistEntry.id.desc())
             .all()
         )
+        adult_ids = public_adult_ids(entry.player_api_id for entry in entries)
+        entries = [entry for entry in entries if entry.player_api_id in adult_ids]
         suppressed_ids = _active_suppressed_subject_ids(entry.player_api_id for entry in entries)
         players = _watched_player_dicts([entry.player_api_id for entry in entries])
         return jsonify(
@@ -1695,6 +1712,8 @@ def scout_watchlist_add():
         if not isinstance(player_api_id, int) or isinstance(player_api_id, bool) or player_api_id == 0:
             return jsonify({"error": "player_api_id must be a non-zero integer"}), 400
 
+        if not is_public_adult(player_api_id):
+            return neutral_player_not_found()
         subject = _resolve_subject(player_api_id)
         if player_api_id < 0:
             if subject is None or not subject.is_public or subject.local_player is None or subject.shadow is None:
@@ -1728,7 +1747,8 @@ def scout_watchlist_add():
                 return neutral_player_not_found()
             return jsonify({"error": "No active tracked player with that id"}), 404
 
-        if ScoutWatchlistEntry.query.filter_by(user_account_id=user.id).count() >= WATCHLIST_LIMIT:
+        watched_ids = db.session.query(ScoutWatchlistEntry.player_api_id).filter_by(user_account_id=user.id).all()
+        if len(public_adult_ids(row[0] for row in watched_ids)) >= WATCHLIST_LIMIT:
             return jsonify({"error": f"watchlist limit reached ({WATCHLIST_LIMIT})"}), 409
 
         entry = ScoutWatchlistEntry(user_account_id=user.id, player_api_id=player_api_id)
@@ -1789,6 +1809,8 @@ def scout_watchlist_note(player_api_id):
         user = _current_user_account()
         if user is None:
             return jsonify({"error": "auth context missing email"}), 401
+        if not is_public_adult(player_api_id):
+            return neutral_player_not_found()
         subject = _resolve_subject(player_api_id)
         if subject is None or not subject.is_public:
             return neutral_player_not_found()
@@ -1843,7 +1865,8 @@ def scout_watchlist_ids():
             .order_by(ScoutWatchlistEntry.created_at.desc(), ScoutWatchlistEntry.id.desc())
             .all()
         )
-        return jsonify({"player_ids": [row[0] for row in rows]})
+        adult_ids = public_adult_ids(row[0] for row in rows)
+        return jsonify({"player_ids": [row[0] for row in rows if row[0] in adult_ids]})
     except Exception as e:
         logger.error(f"Error in scout_watchlist_ids: {e}")
         return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
@@ -1882,7 +1905,7 @@ def scout_export_csv():
     other filters except sort/order. Capped at 1000 rows.
     """
     try:
-        query, columns = _base_scout_query(request.args.get("season") or None)
+        query, columns = _base_scout_query(request.args.get("season") or None, adult_filter=False)
 
         raw_ids = [p.strip() for p in request.args.get("ids", "").split(",") if p.strip()]
         if raw_ids:
@@ -1909,6 +1932,7 @@ def scout_export_csv():
             min_minutes = request.args.get("min_minutes", type=int) or 0
             query = query.filter(columns["minutes_played"] >= max(min_minutes, PER90_MIN_MINUTES))
 
+        query = filter_public_adult_query(query, columns["player_api_id"])
         default_order = "asc" if sort in ("name", "age") else "desc"
         order = request.args.get("order", default_order).strip().lower()
         if order == "desc":
@@ -1994,6 +2018,8 @@ def scout_admin_send_digests():
 
 def _player_display_name(player_api_id):
     """Best-effort display name for a follow label (tracked, else shadow)."""
+    if not is_public_adult(player_api_id):
+        return None
     if player_api_id < 0:
         subject = _resolve_subject(player_api_id)
         if subject is None or not subject.is_public or subject.local_player is None or subject.shadow is None:
@@ -2151,12 +2177,26 @@ def _follow_read_payload(follow, name_map, team_map, unavailable_player_ids=None
     return payload
 
 
+def _visible_follows(follows, adult_player_ids=None):
+    """Match saved-read visibility and capacity with one batched eligibility check.
+
+    Hidden rows remain stored; reappearing rows are never truncated to the cap.
+    Collection reads supply eligibility shared across all their lists.
+    """
+    if adult_player_ids is None:
+        adult_player_ids = public_adult_ids(
+            (f.selector or {}).get("player_api_id") for f in follows if f.kind == "player"
+        )
+    return [f for f in follows if f.kind != "player" or (f.selector or {}).get("player_api_id") in adult_player_ids]
+
+
 def _follow_list_payload(
     follow_list,
     follows=None,
     name_map=None,
     team_map=None,
     unavailable_player_ids=None,
+    adult_player_ids=None,
 ):
     """List payload with embedded read-time-labelled follows.
 
@@ -2167,11 +2207,7 @@ def _follow_list_payload(
     if follows is None:
         follows = follow_list.follows.order_by(Follow.created_at.asc(), Follow.id.asc()).all()
         name_map, team_map, unavailable_player_ids = _follow_label_maps(follows)
-    club_ids = {(f.selector or {}).get("player_api_id") for f in follows if f.kind == "player"}
-    from src.services.club_player_publication import hidden_club_subject_ids
-
-    hidden = hidden_club_subject_ids(club_ids)
-    follows = [f for f in follows if f.kind != "player" or (f.selector or {}).get("player_api_id") not in hidden]
+    follows = _visible_follows(follows, adult_player_ids)
     return {
         "id": follow_list.id,
         "name": follow_list.name,
@@ -2259,6 +2295,9 @@ def scout_lists():
             for follow in all_follows:
                 follows_by_list.setdefault(follow.list_id, []).append(follow)
         name_map, team_map, unavailable_player_ids = _follow_label_maps(all_follows)
+        adult_player_ids = public_adult_ids(
+            (f.selector or {}).get("player_api_id") for f in all_follows if f.kind == "player"
+        )
         return jsonify(
             {
                 "lists": [
@@ -2268,6 +2307,7 @@ def scout_lists():
                         name_map=name_map,
                         team_map=team_map,
                         unavailable_player_ids=unavailable_player_ids,
+                        adult_player_ids=adult_player_ids,
                     )
                     for fl in lists
                 ]
@@ -2400,11 +2440,12 @@ def scout_list_add_follow(list_id):
         if kind == "player" and is_player_suppressed(clean_selector["player_api_id"]):
             return neutral_player_not_found()
 
-        if follow_list.follows.count() >= MAX_FOLLOWS_PER_LIST:
+        follows = follow_list.follows.all()
+        if len(_visible_follows(follows)) >= MAX_FOLLOWS_PER_LIST:
             return jsonify({"error": f"follow limit reached for this list ({MAX_FOLLOWS_PER_LIST})"}), 409
 
-        for follow in follow_list.follows.filter(Follow.kind == kind).all():
-            if follow.selector == clean_selector:
+        for follow in follows:
+            if follow.kind == kind and follow.selector == clean_selector:
                 return jsonify({"error": "this follow already exists in the list"}), 409
 
         note = payload.get("note")
@@ -2479,6 +2520,10 @@ def scout_list_add_follow(list_id):
                 label = derive_label("academy_club", clean_selector, team.name if team else None)
         else:
             label = derive_label(kind, clean_selector)
+
+        if kind == "player" and not is_public_adult(clean_selector["player_api_id"]):
+            db.session.rollback()
+            return neutral_player_not_found()
 
         notify_when_fundable = payload.get("notify_when_fundable", False)
         if not isinstance(notify_when_fundable, bool):

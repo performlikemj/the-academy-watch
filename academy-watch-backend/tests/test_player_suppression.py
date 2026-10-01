@@ -169,6 +169,7 @@ def seeded_players(suppression_app):
         ]
     )
     visible = TrackedPlayer(
+        birth_date="2000-01-01",
         player_api_id=VISIBLE_ID,
         player_name="Visible Prospect",
         position="Attacker",
@@ -183,6 +184,7 @@ def seeded_players(suppression_app):
         is_active=True,
     )
     hidden = TrackedPlayer(
+        birth_date="2000-01-01",
         player_api_id=SUPPRESSED_ID,
         player_name="Suppressed Prospect",
         position="Midfielder",
@@ -904,7 +906,7 @@ def test_public_player_showcase_and_new_claim_are_neutral_then_restore_on_lift(c
     assert restored_claim.status_code == 201
 
 
-def test_watchlist_and_follow_lists_render_inert_removable_entries_and_restore(client, seeded_players):
+def test_watchlist_and_follow_lists_hide_ineligible_entries_preserve_rows_and_restore(client, seeded_players):
     user, headers = _user_headers("list-owner@example.com")
     follow_list = FollowList(
         user_account_id=user.id,
@@ -938,16 +940,14 @@ def test_watchlist_and_follow_lists_render_inert_removable_entries_and_restore(c
 
     watchlist = client.get("/api/scout/watchlist", headers=headers)
     assert watchlist.status_code == 200
-    watch_entry = watchlist.get_json()["entries"][0]
-    assert watch_entry["unavailable"] is True
-    assert watch_entry["player"] is None
+    assert watchlist.get_json()["entries"] == []
+    assert ScoutWatchlistEntry.query.filter_by(player_api_id=SUPPRESSED_ID).count() == 1
     assert "Suppressed Prospect" not in watchlist.get_data(as_text=True)
 
     lists = client.get("/api/scout/lists", headers=headers)
     assert lists.status_code == 200
-    inert_follow = lists.get_json()["lists"][0]["follows"][0]
-    assert inert_follow["unavailable"] is True
-    assert inert_follow["label"] == "Unavailable"
+    assert lists.get_json()["lists"][0]["follows"] == []
+    assert Follow.query.get(follow_id) is not None
     assert "Suppressed Prospect" not in lists.get_data(as_text=True)
 
     existing_add = client.post(
@@ -955,8 +955,7 @@ def test_watchlist_and_follow_lists_render_inert_removable_entries_and_restore(c
         json={"player_api_id": SUPPRESSED_ID},
         headers=headers,
     )
-    assert existing_add.status_code == 200
-    assert existing_add.get_json()["entry"]["unavailable"] is True
+    assert existing_add.status_code == 404
     assert (
         client.post(
             f"/api/scout/lists/{list_id}/follows",

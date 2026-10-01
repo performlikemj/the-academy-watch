@@ -1737,16 +1737,19 @@ def _sync_player_club_fixtures(
 @api_bp.route("/players/search", methods=["GET"])
 def public_player_search():
     """Public search for tracked players by name."""
+    from src.services.public_adult import filter_public_adult_query
+
     q = (request.args.get("q") or "").strip()
     if len(q) < 2:
         return jsonify([])
     try:
+        query = TrackedPlayer.query.filter(
+            TrackedPlayer.player_name.ilike(f"%{q}%"),
+            TrackedPlayer.is_active,
+            public_player_visible_filter(TrackedPlayer.player_api_id),
+        )
         rows = (
-            TrackedPlayer.query.filter(
-                TrackedPlayer.player_name.ilike(f"%{q}%"),
-                TrackedPlayer.is_active,
-                public_player_visible_filter(TrackedPlayer.player_api_id),
-            )
+            filter_public_adult_query(query, TrackedPlayer.player_api_id)
             .order_by(TrackedPlayer.player_name)
             .limit(20)
             .all()

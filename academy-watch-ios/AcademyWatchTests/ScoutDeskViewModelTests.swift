@@ -2,6 +2,12 @@ import XCTest
 @testable import AcademyWatch
 
 final class ScoutDeskViewModelTests: XCTestCase {
+    func testScoutAgeChipsOfferOnlyAdultRanges() {
+        XCTAssertEqual(ScoutAgePreset.allCases, [.all, .under21, .under23])
+        XCTAssertEqual(ScoutAgePreset.under21.maximumAge, 20)
+        XCTAssertEqual(ScoutAgePreset.under23.maximumAge, 22)
+    }
+
     @MainActor
     func testTrueFirstLoadIsArmedBeforeDelayedSeasonDiscoveryCompletes() async throws {
         let playersResponse = try capturedPlayersResponse()
