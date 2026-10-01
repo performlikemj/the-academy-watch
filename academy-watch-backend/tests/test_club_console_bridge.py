@@ -40,6 +40,9 @@ def bridge_app(monkeypatch):
     monkeypatch.setenv("ADMIN_API_KEY", ADMIN_KEY)
     monkeypatch.setenv("ADMIN_IP_WHITELIST", "")
     monkeypatch.setenv("SKIP_API_HANDSHAKE", "1")
+    # p2-b1: these tests pin the club directory's flag-off contract (a console club has no public page).
+    # The flag-on contract (a listed console club opens) lives in tests/test_club_directory.py.
+    monkeypatch.delenv("CLUB_DIRECTORY_ENABLED", raising=False)
     monkeypatch.setenv(
         "FUNDING_EVIDENCE_ENCRYPTION_KEY",
         "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=",

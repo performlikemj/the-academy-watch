@@ -43,7 +43,6 @@ from src.models.funding import (
     ClubProgramUpdate,
     ClubRosterMember,
     approved_revision_for,
-    revision_dict,
     update_dict,
 )
 from src.models.journey import PlayerJourney
@@ -54,7 +53,7 @@ from src.models.season_rollup import PlayerSeasonTotal
 from src.models.showcase import LocalPlayer, local_player_is_minor
 from src.models.tracked_player import TrackedPlayer
 from src.models.video import VideoMatch, VideoPlayerReport, VideoRosterEntry, VideoTracklet
-from src.services import season_rollup_service, video_retention, video_storage
+from src.services import club_directory, season_rollup_service, video_retention, video_storage
 from src.services.capture_meta import merge_preflight, strip_server_owned
 from src.services.club_access import (
     current_access,
@@ -835,8 +834,9 @@ def get_club_program_profile(program_id: int):
     return jsonify(
         {
             "program": {"id": program.id, "slug": program.slug, "name": program.name},
-            "approved": revision_dict(approved) if approved else None,
-            "pending": revision_dict(pending) if pending else None,
+            # p2-b1: revision_payload == revision_dict while CLUB_DIRECTORY_ENABLED is off.
+            "approved": club_directory.revision_payload(approved),
+            "pending": club_directory.revision_payload(pending),
             "limits": PROGRAM_PROFILE_LIMITS,
         }
     )
@@ -847,6 +847,10 @@ def get_club_program_profile(program_id: int):
 @limiter.limit("20 per hour", key_func=_user_rate_limit_key)
 def put_club_program_profile(program_id: int):
     values, errors = _profile_values(request.get_json(silent=True))
+    # --- p2-b1 begin ---
+    directory_values, directory_errors = club_directory.submitted_directory_values(request.get_json(silent=True))
+    errors.update(directory_errors)
+    # --- p2-b1 end ---
     if errors:
         return _validation_failed(errors)
     db.session.get(ClubProgram, program_id, with_for_update=True)
@@ -867,12 +871,15 @@ def put_club_program_profile(program_id: int):
             created_at=datetime.now(UTC).replace(tzinfo=None),
         )
         db.session.add(pending)
+        # p2-b1: a new draft keeps the approved location unless the club sends a new one.
+        club_directory.carry_directory_forward(pending, approved_revision_for(db.session.get(ClubProgram, program_id)))
     else:
         pending.submitted_by_user_id = g.user_id
     for field, value in values.items():
         setattr(pending, field, value)
+    club_directory.apply_directory_values(pending, directory_values)  # p2-b1
     db.session.commit()
-    return jsonify({"pending": revision_dict(pending)})
+    return jsonify({"pending": club_directory.revision_payload(pending)})
 
 
 @club_bp.route("/club/<int:program_id>/updates", methods=["GET"])
