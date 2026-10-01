@@ -97,6 +97,9 @@ Draft, stacked on A2 #1109. No production switch-on is part of this lane.
   never repeated cumulative `amount_refunded`. Unique source keys handle duplicate
   and out-of-order webhook delivery. Modern payments/truncated refunds are paged
   via Stripe read APIs; provider reads happen before the projection transaction; failures are logged and never roll back billing. Signed webhook replay repairs missing rows. Run `python -m src.jobs.reconcile_business_cash` periodically to repair the latest 50 provider events (bounded, idempotent); older gaps require signed event replay.
+- Receipt arrival/replay backfills product, scope and purchaser metadata on unmapped
+  refunds with the same payment intent and currency. Refund amounts, IDs and dates
+  remain unchanged; already-mapped refunds are retained.
 - Historical GOL grants supplement receipts only when no matching cash projection
   exists. Earlier subscription receipts/refund timestamps cannot be reconstructed
   from price/MRR or mutable cumulative settlements. Coverage is explicit in the UI.
@@ -117,8 +120,8 @@ Draft, stacked on A2 #1109. No production switch-on is part of this lane.
   anonymize purchaser/user scope in retained cash. Foundation outbox erasure handles
   account-bound pending intents. No credentials or child PII enter outbox payloads.
 - Apply A2's latest p2a2 and B1/B2 before p2b3; pre-apply on production is the
-  orchestrator's responsibility. Four shared migration-head pins remain p2a2 per BUS;
-  integration updates them once to the final chain head.
+  orchestrator's responsibility. Merge order B1 → B2 → B3. The four migration-head
+  assertions expect this branch's top revision p2b3 per BUS 12:50.
 - Schema-only SQL for orchestrator review: `~/codex-runs/aw-redesign/p2b3_preapply.sql`.
   Generated from the migration operations/constants and reapplied twice on the scratch DB.
   It changes no flags and does not stamp Alembic.
@@ -171,8 +174,10 @@ Draft, stacked on A2 #1109. No production switch-on is part of this lane.
 - Suspension reason stays private to administrators/audit. Account export contains
   only neutral standing and suspension date. User DTOs and generic emails include
   no suspension reason. Normal-bearer 401 bodies match the existing auth decorator.
-- Dark routes use the exact unrouted 404 response for all methods, including no
-  `Allow` or private-response header. Offset is an integer from 0 to 2147483647.
+- Dark routes match unknown paths through the real app's SPA fallback and error
+  handlers for each method, including OPTIONS and wrong-method Allow headers.
+  Disabled B3 rules are removed from a cached routing map; existing sibling tools
+  retain their handlers. Offset is an integer from 0 to 2147483647.
   Last-owner warning uses claim-verified active managers while staff access is OFF.
 - A2 `33a86d02` adds one active owner per program and locks the program before grant
   rows. Reapply the latest `p2a2_preapply.sql` to databases already stamped p2a2.

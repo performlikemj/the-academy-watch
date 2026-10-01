@@ -137,3 +137,10 @@ def test_postgres_huge_offset_rejected(pg_control):
 
     for path in ("people", "programs", "safety/cases", "business/summary"):
         check(pg_control, path)
+
+
+@pytest.mark.parametrize("receipt_type", ["invoice.paid", "modern_invoice", "checkout.session.completed"])
+def test_postgres_early_refund_metadata_backfill(pg_control, receipt_type):
+    from test_admin_control_rb3v2 import test_early_refund_metadata_backfills_once_without_replaying_refund as check
+
+    check(pg_control, receipt_type)
