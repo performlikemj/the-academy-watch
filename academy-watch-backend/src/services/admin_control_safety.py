@@ -76,6 +76,8 @@ def _recipient(case):
 
 
 def _notification_eligible(intent, user):
+    if not safety_enabled():
+        return False
     case = db.session.get(SafeguardingCase, intent.payload.get("case_id"), populate_existing=True)
     recipient = _recipient(case) if case else None
     if recipient is None or recipient.id != user.id or recipient.is_tombstone:
@@ -94,20 +96,33 @@ def _notification_render(intent, user):
 
 
 def notify(case, state):
+    if not safety_enabled():
+        case.notification_state = "safety_disabled"
+        return
     user = _recipient(case)
     if user is None or user.is_tombstone:
         case.notification_state = "no_account_recipient"
         return
-    intent = enqueue(
-        dedupe_key=f"safety:{case.id}:{state}:{user.id}",
-        recipient_user_id=user.id,
-        event_type="safeguarding_update",
-        entity_type="user_account",
-        entity_id=user.id,
-        template="safeguarding_update",
-        payload={"case_id": case.id, "version": case.version, "state": state},
-    )
-    case.notification_state = "queued" if intent else "foundation_disabled"
+    try:
+        # The savepoint isolates even a DB-aborting notification failure from moderation.
+        with db.session.begin_nested():
+            intent = enqueue(
+                dedupe_key=f"safety:{case.id}:{state}:{user.id}",
+                recipient_user_id=user.id,
+                event_type="safeguarding_update",
+                entity_type="user_account",
+                entity_id=user.id,
+                template="safeguarding_update",
+                payload={"case_id": case.id, "state": state},
+            )
+        case.notification_state = "queued" if intent else "foundation_disabled"
+    except ValueError:
+        # Includes legacy versioned payloads using this key: never duplicate the notice.
+        case.notification_state = "deduplicated"
+        logging.getLogger(__name__).warning("Safeguarding notification collision for case %s", case.id)
+    except Exception:
+        case.notification_state = "failed"
+        logging.getLogger(__name__).exception("Safeguarding notification deferred for case %s", case.id)
 
 
 def bounded_id(value):
@@ -209,6 +224,17 @@ def _hide(case, actor, reason):
         .with_for_update()
         .first()
     )
+    if suppression is None and case.suppression_id:
+        # Reuse this case's lifted source; evidence and provenance stay stable across cycles.
+        suppression = (
+            PlayerSuppression.query.filter(
+                PlayerSuppression.id == case.suppression_id,
+                column == abs(subject),
+                PlayerSuppression.status == "lifted",
+            )
+            .with_for_update()
+            .first()
+        )
     if suppression is None:
         suppression = PlayerSuppression(
             player_api_id=subject if subject > 0 else None,
@@ -222,13 +248,16 @@ def _hide(case, actor, reason):
         suppression._skip_safety_intake = True
         db.session.add(suppression)
         db.session.flush()
-        case.suppression_id = suppression.id  # durable source identity survives restore/ownership changes
-    # Never own a pre-existing active suppression: restoring this case cannot lift it.
+        if case.suppression_id is None:
+            case.suppression_id = suppression.id  # source identity never changes
+    # A different requester owns their pending/active request, even when this hide activates it.
     if suppression.status != "active":
-        case.owned_suppression_id = suppression.id
+        if case.suppression_id == suppression.id:
+            case.owned_suppression_id = suppression.id
         from src.services.suppression_decision import decide_suppression
 
         decide_suppression(suppression, "activate", actor, reason, preserve_notes=True)
+        sync_source_case(suppression, actor, reason, exclude_case_id=case.id)
         return True
     return False
 
@@ -264,6 +293,7 @@ def _restore(case, actor, reason):
             from src.services.suppression_decision import decide_suppression
 
             decide_suppression(suppression, "lift", actor, reason)
+            sync_source_case(suppression, actor, reason, exclude_case_id=case.id)
         case.owned_suppression_id = None
     else:
         raise ValueError("This case does not own a hold; use the original moderation tool")
@@ -354,7 +384,7 @@ def reconcile_safety_boot(app):
         db.session.commit()
 
 
-def sync_source_case(source, actor, reason):
+def sync_source_case(source, actor, reason, *, exclude_case_id=None):
     """Both existing moderation paths update linked cases in their own transaction."""
     if not sa.inspect(db.session.connection()).has_table("safeguarding_cases"):
         return
@@ -363,7 +393,10 @@ def sync_source_case(source, actor, reason):
     predicate = key == source.id
     if not report:
         predicate = sa.or_(predicate, SafeguardingCase.owned_suppression_id == source.id)
-    for case in SafeguardingCase.query.filter(predicate).with_for_update():
+    query = SafeguardingCase.query.filter(predicate)
+    if exclude_case_id is not None:
+        query = query.filter(SafeguardingCase.id != exclude_case_id)
+    for case in query.with_for_update():
         closed = source.status in {"resolved", "dismissed", "lifted", "rejected"}
         acted = source.resolved_at if report else source.decided_at
         case.first_action_at = case.first_action_at or acted or now()

@@ -204,3 +204,20 @@ for (const width of [1440, 390]) {
         if (process.env.B3_SHOTS_DIR) await page.screenshot({ path: `${process.env.B3_SHOTS_DIR}/account-access-${width === 390 ? 'mobile' : 'desktop'}.png`, fullPage: true })
     })
 }
+
+
+test('a report cannot restore another requester hold and keeps original evidence visible', async ({ page }) => {
+    const incident = { id: 4, target_type: 'player_profile', target_id: '321', status: 'investigating', hidden: true, owns_hold: false, version: 2, notification_state: 'queued' }
+    await mockControl(page, url => {
+        if (url.pathname.endsWith('/hidden')) return { programs: [], suppressions: [] }
+        if (url.pathname === '/api/admin/safety/cases/4') return { case: incident, evidence: { statement: 'Guardian original evidence' }, events: [{ id: 1, action: 'hide', reason: 'Separate admin review' }] }
+        return { ...empty, total: 1, rows: [incident], open_count: 1, overdue_count: 0, active_suppressions: 1, hidden_programs: 0 }
+    })
+    await page.goto('/admin/safety')
+    await page.getByRole('button', { name: /Case 4/ }).click()
+    await expect(page.getByText('Guardian original evidence', { exact: true })).toBeVisible()
+    await expect(page.getByText('Separate admin review', { exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Restore case hold', exact: true })).toHaveCount(0)
+    await expect(page.getByText(/Another moderation decision owns this hold/)).toBeVisible()
+    await expect(page.getByRole('link', { name: 'Open existing report moderation' })).toBeVisible()
+})

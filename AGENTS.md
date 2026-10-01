@@ -119,6 +119,7 @@ Log one-liner in CONTINUITY.md's "Trivial Log" section.
 - Phase 2 new public player paths use `services/public_adult.py` and derived `services/club_publication_hold.py` checks; existing public reads enforce holds while retaining their age rules.
 - Phase 2 email intents use transactional `notification_outbox.enqueue` plus a trusted template eligibility/renderer registered at app startup; never commit inside enqueue or persist credentials/child PII. Worker commits a sending lease, sends without DB locks, then finalizes after rechecking tombstones; delivery is at-least-once.
 - Phase 2 case-created suppressions retain `suppression_id` after hold ownership clears; existing report/suppression decisions call `sync_source_case` in their transaction, and both suppression paths use `suppression_decision.decide_suppression`.
+- B3 case notifications omit the mutable case version from both key and payload and isolate enqueue in a savepoint; Safety OFF gates enqueue and delivery. Case hide/restore sync sibling cases, retain/reuse original suppression evidence, and never own another requester's pending hold. Stripe 15 cash boundaries use recursive `to_dict()`, including provider list pages.
 - Phase 2 account suspension uses `services/account_standing.py` plus persisted `account_status`/`auth_epoch`; central bearer, user-bound media and service grants recheck standing even after the admin page flag is OFF. Restore requires fresh login.
 
 ---

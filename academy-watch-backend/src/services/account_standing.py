@@ -76,9 +76,9 @@ def require_account_access(view):
     """Normal auth or a fresh OTP-bound credential for three account rights only."""
     from functools import wraps
 
-    from flask import current_app, g, jsonify, request
+    from flask import current_app, g, request
     from itsdangerous import URLSafeTimedSerializer
-    from src.auth import resolve_bearer_user
+    from src.auth import require_user_auth, resolve_bearer_user
 
     @wraps(view)
     def wrapped(*args, **kwargs):
@@ -101,7 +101,8 @@ def require_account_access(view):
                 ):
                     raise BadSignature("invalid account access")
             except (BadSignature, KeyError, TypeError):
-                return jsonify(error="invalid auth token"), 401
+                # Delegate normal-bearer failures to the original decorator verbatim.
+                return require_user_auth(view)(*args, **kwargs)
         g.user, g.user_id, g.user_email = user, user.id, user.email
         return view(*args, **kwargs)
 

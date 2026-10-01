@@ -59,6 +59,7 @@ def page(which):
 
             return require_api_key(authorized)(*args, **kwargs)
 
+        wrapped.control_page = which
         return wrapped
 
     return decorate
@@ -66,34 +67,41 @@ def page(which):
 
 @admin_control_bp.before_app_request
 def hide_dark_control_routes():
-    path = request.path.rstrip("/")
-    for name, prefix in (
-        ("programs", "/api/admin/programs"),
-        ("people", "/api/admin/people"),
-        ("people", "/api/admin/users"),
-        ("safety", "/api/admin/safety"),
-        ("business", "/api/admin/business"),
-    ):
-        # Existing tools (users, owner/emergency) retain their separate gates.
-        endpoint = request.endpoint or ""
-        if (
-            endpoint.startswith("admin_control.")
-            and (path == prefix or path.startswith(prefix + "/"))
-            and not flag_enabled(FLAGS[name])
-        ):
-            abort(404)
+    # Matching independently of the method also handles Flask's method-only 405s.
+    # Match the actual rule so A1/A2 tools sharing these prefixes keep their own gates.
+    from werkzeug.exceptions import MethodNotAllowed, NotFound
+    from werkzeug.routing import RequestRedirect
+
+    adapter = current_app.url_map.bind_to_environ(request.environ)
+    try:
+        rule, _ = adapter.match(method="GET", return_rule=True)
+    except MethodNotAllowed as error:
+        rule, _ = adapter.match(method=error.valid_methods[0], return_rule=True)
+    except (NotFound, RequestRedirect):
+        return
+    if not rule.endpoint.startswith("admin_control."):
+        return
+    view = current_app.view_functions[rule.endpoint]
+    if not flag_enabled(FLAGS[view.control_page]):
+        abort(404)
 
 
 @admin_control_bp.after_request
 def private_response(response):
-    response.headers["Cache-Control"] = "no-store"
+    # Dark routes use the application's normal unrouted response, headers included.
+    if request.endpoint and flag_enabled(FLAGS[current_app.view_functions[request.endpoint].control_page]):
+        response.headers["Cache-Control"] = "no-store"
     return response
 
 
 def pagination():
-    return max(1, min(100, request.args.get("limit", 30, type=int) or 30)), max(
-        0, request.args.get("offset", 0, type=int) or 0
-    )
+    try:
+        offset = int(request.args.get("offset", "0"))
+    except ValueError:
+        abort(400, description="Invalid offset")
+    if not 0 <= offset <= 2147483647:
+        abort(400, description="Offset is out of range")
+    return max(1, min(100, request.args.get("limit", 30, type=int) or 30)), offset
 
 
 def iso(value):
@@ -327,42 +335,36 @@ def person_detail(user_id):
 
 
 def last_owner_programs(uid):
-    other = sa.orm.aliased(ClubAccessGrant)
-    qualified_other = (
-        db.session.query(other.id)
-        .join(UserAccount, UserAccount.id == other.user_account_id)
-        .join(
-            ClubProgramManager,
-            sa.and_(
-                ClubProgramManager.program_id == other.program_id,
-                ClubProgramManager.user_account_id == UserAccount.id,
-                ClubProgramManager.status == "active",
-            ),
-        )
-        .join(
-            ClubProgramClaim,
-            sa.and_(ClubProgramClaim.id == ClubProgramManager.source_claim_id, ClubProgramClaim.status == "approved"),
-        )
+    # Before staff rollout, the verified manager set is the club's ownership fallback.
+    qualified = (
+        db.session.query(ClubProgramManager.program_id, UserAccount.id)
+        .join(UserAccount, UserAccount.id == ClubProgramManager.user_account_id)
+        .join(ClubProgramClaim, ClubProgramClaim.id == ClubProgramManager.source_claim_id)
         .filter(
-            other.program_id == ClubProgram.id,
-            other.role == "owner",
-            other.status == "active",
+            ClubProgramManager.status == "active",
+            ClubProgramClaim.status == "approved",
             UserAccount.account_status == "active",
             UserAccount.is_tombstone.is_(False),
-            UserAccount.id != uid,
         )
     )
-    return [
-        name
-        for (name,) in db.session.query(ClubProgram.name)
-        .join(ClubAccessGrant, ClubAccessGrant.program_id == ClubProgram.id)
-        .filter(
-            ClubAccessGrant.user_account_id == uid,
-            ClubAccessGrant.status == "active",
-            ClubAccessGrant.role == "owner",
-            ~qualified_other.exists(),
+    if flag_enabled("CLUB_STAFF_ACCESS_ENABLED"):
+        qualified = qualified.join(
+            ClubAccessGrant,
+            sa.and_(
+                ClubAccessGrant.program_id == ClubProgramManager.program_id,
+                ClubAccessGrant.user_account_id == UserAccount.id,
+                ClubAccessGrant.role == "owner",
+                ClubAccessGrant.status == "active",
+            ),
         )
-        .order_by(ClubProgram.id)
+    managers = qualified.subquery()
+    only = (
+        sa.select(managers.c.program_id)
+        .group_by(managers.c.program_id)
+        .having(sa.func.count(sa.distinct(managers.c.id)) == 1, sa.func.min(managers.c.id) == uid)
+    )
+    return [
+        name for (name,) in db.session.query(ClubProgram.name).filter(ClubProgram.id.in_(only)).order_by(ClubProgram.id)
     ]
 
 
@@ -422,6 +424,7 @@ def case_dict(case):
         "overdue": case.first_action_at is None and case.status != "closed" and case.first_action_due_at < now(),
         "closed_at": iso(case.closed_at),
         "hidden": case_hidden(case),
+        "owns_hold": bool(case.held_program_id or case.owned_suppression_id),
         "notification_state": case.notification_state,
         "version": case.version,
     }

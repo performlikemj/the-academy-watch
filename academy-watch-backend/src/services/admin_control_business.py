@@ -18,6 +18,11 @@ def enabled():
     return os.getenv("ADMIN_BUSINESS_ENABLED", "").lower() in {"1", "true", "yes", "on"}
 
 
+def _provider_dict(value):
+    """Stripe 15 objects expose recursive to_dict(); all projection code gets plain data."""
+    return deepcopy(value) if isinstance(value, dict) else value.to_dict()
+
+
 def _id(value):
     return value if isinstance(value, str) else (value or {}).get("id")
 
@@ -29,7 +34,7 @@ def _remote_rows(resource, **params):
     configure_stripe()
     rows = []
     for _ in range(10):
-        page = getattr(stripe, resource).list(limit=100, **params)
+        page = _provider_dict(getattr(stripe, resource).list(limit=100, **params))
         items = page.get("data", [])
         rows.extend(items)
         if not page.get("has_more"):
@@ -42,7 +47,7 @@ def _remote_rows(resource, **params):
 
 def prepare_cash(event_type, obj):
     """Fetch missing provider rows before opening any projection transaction."""
-    obj = deepcopy(dict(obj))
+    obj = _provider_dict(obj)
     if event_type == "invoice.paid":
         payments = obj.get("payments") or {}
         if payments.get("has_more") or (
@@ -311,6 +316,6 @@ def reconcile_cash(*, limit=50):
 
     configure_stripe()
     db.session.remove()
-    events = stripe.Event.list(limit=max(1, min(100, limit)))
+    events = _provider_dict(stripe.Event.list(limit=max(1, min(100, limit))))
     for event in events.get("data", []):
         project_cash_isolated(event["type"], event["data"]["object"], event["id"], event["created"])

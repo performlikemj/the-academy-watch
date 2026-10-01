@@ -337,7 +337,8 @@ def test_case_hide_preserves_existing_pending_statement_and_notes(control_app):
     assert source.request_statement == "Original statement" and source.notes == "Original pending moderation note"
 
 
-def test_last_owner_warning_ignores_suspended_or_inert_other_owners(control_app):
+def test_last_owner_warning_ignores_revoked_owners_and_unverified_managers(control_app, monkeypatch):
+    monkeypatch.setenv("CLUB_STAFF_ACCESS_ENABLED", "1")
     from src.models.club_access import ClubAccessGrant
     from src.models.funding import ClubProgramClaim, ClubProgramManager
     from src.routes.admin_control import last_owner_programs
@@ -358,7 +359,7 @@ def test_last_owner_warning_ignores_suspended_or_inert_other_owners(control_app)
     )
     db.session.add(ClubAccessGrant(program_id=row.id, user_account_id=owner.id, role="owner", status="active"))
     other = UserAccount.query.filter_by(email="admin@example.test").one()
-    db.session.add(ClubAccessGrant(program_id=row.id, user_account_id=other.id, role="owner", status="active"))
+    db.session.add(ClubAccessGrant(program_id=row.id, user_account_id=other.id, role="owner", status="revoked"))
     db.session.commit()
     assert last_owner_programs(owner.id) == [row.name]  # inert grant provides no safety net
     other_claim = ClubProgramClaim(program_id=row.id, user_account_id=other.id, status="approved")
@@ -374,7 +375,7 @@ def test_last_owner_warning_ignores_suspended_or_inert_other_owners(control_app)
         )
     )
     db.session.commit()
-    assert last_owner_programs(owner.id) == []
+    assert last_owner_programs(owner.id) == [row.name]  # A2 permits only one active owner per club
     other.account_status = "suspended"
     db.session.commit()
     assert last_owner_programs(owner.id) == [row.name]

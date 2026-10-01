@@ -1104,13 +1104,13 @@ def handle_webhook(raw_body: bytes, signature_header: str | None) -> tuple[dict,
     finally:
         _email_intents.reset(token)
 
+    for intent in intents:
+        _send_email_intent(intent)
     # --- p2-b3 begin ---
     from src.services.admin_control_business import project_cash_isolated
 
     project_cash_isolated(event_type, obj, event_id, int(event_created or 0))
     # --- p2-b3 end ---
-    for intent in intents:
-        _send_email_intent(intent)
     return {"received": True, "duplicate": False}, 200
 
 

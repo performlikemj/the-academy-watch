@@ -10,7 +10,6 @@ def export_admin_control(user, schema):
         result["account_standing"] = {
             "status": user.account_status,
             "suspended_at": user.suspended_at.isoformat() if user.suspended_at else None,
-            "reason": user.suspension_reason,
         }
     if schema.has_columns("safeguarding_cases", "report_id") and schema.has_columns(
         "content_reports", "reporter_user_id"

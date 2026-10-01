@@ -77,8 +77,8 @@ Draft, stacked on A2 #1109. No production switch-on is part of this lane.
 - Detail exposes only its reported statement/reason and its action history; unrelated
   feedback/notes/messages are never queried. Evidence reads are audited.
 - A1 outbox `safeguarding_update` sends generic, PII-free hidden/closed updates and
-  rechecks authoritative recipient/source/hold state. Payload carries only case ID,
-  version and registered enum. Reporters use their account ID; anonymous
+  rechecks authoritative recipient/source/hold state. Payload carries only case ID
+  and registered enum. Reporters use their account ID; anonymous
   takedowns never select a notification recipient, and duplicates preserve original evidence.
   No account is created for anonymous intake. Missing recipient/foundation-disabled
   states are shown honestly; email providers are not called from requests.
@@ -151,3 +151,42 @@ Draft, stacked on A2 #1109. No production switch-on is part of this lane.
   Do not delete evidence or reset auth epochs to force a downgrade. Empty scratch
   installations may downgrade. Keep safety recovery available and restore accounts
   through audited administration if policy calls for it; flags OFF preserve standing.
+
+## RB3V round 2 contracts
+
+- Case notification keys and payloads both omit the mutable version. A savepoint
+  contains outbox failures; collisions (including old versioned intents) suppress a
+  duplicate notice and never refuse a moderation action. Safety OFF suppresses both
+  enqueue and delivery while source-case synchronization still runs.
+- A case reuses its lifted suppression instead of replacing its original evidence.
+  Requester statement/contact/reason remain the source; admin reasons live in case
+  history and moderation notes. Hide/restore synchronize linked sibling cases.
+  A report that activates another requester's pending takedown does not own it:
+  restore is refused there; review/lift through the original request's moderation
+  tool. This preserves the requester's hold and updates its case/action time.
+- Stripe 15 provider objects/list pages are normalized recursively via `to_dict()`
+  at the projection boundary. Subscription emails send before cash provider reads.
+  Signed real webhooks cover invoice paid, individual refunds, replay and reversed
+  delivery order on SQLite and PostgreSQL.
+- Suspension reason stays private to administrators/audit. Account export contains
+  only neutral standing and suspension date. User DTOs and generic emails include
+  no suspension reason. Normal-bearer 401 bodies match the existing auth decorator.
+- Dark routes use the exact unrouted 404 response for all methods, including no
+  `Allow` or private-response header. Offset is an integer from 0 to 2147483647.
+  Last-owner warning uses claim-verified active managers while staff access is OFF.
+- A2 `33a86d02` adds one active owner per program and locks the program before grant
+  rows. Reapply the latest `p2a2_preapply.sql` to databases already stamped p2a2.
+
+## Decisions for MJ
+
+- Suspended users retain cancellation, export and deletion rights via a separately
+  salted, OTP-issued, epoch-bound 15-minute credential; ordinary access stays denied.
+- A suspended person can delete their account and re-register with the same email,
+  producing an active account with no retained claims or roles. **Should suspension
+  stick to the email address?** No suspended-email marker is implemented pending that
+  policy decision (and its retention/privacy rules).
+- Last-owner suspension warns before confirmation; managers provide the fallback
+  while staff access is OFF. Whether to require ownership transfer remains a policy
+  choice; the current behavior allows the administrator to proceed.
+- Clip safeguarding hides the whole player page, with an explicit confirmation
+  warning. Per-clip suppression would need a separate visibility design.

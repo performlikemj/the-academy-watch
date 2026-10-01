@@ -13,7 +13,7 @@
 - Done: four pages/backend flows, standing/audit, case intake/actions/outbox, authoritative cash/deployment views, tests, 14 reviewed screenshots and schema-only SQL.
 - Done: latest A2 ef005e35 stack (includes c576762e snapshots); only B3 marked additive shared blocks, permitted narrow standing hooks.
 - Done: draft PR #1115 to main, stacked on #1109: https://github.com/performlikemj/the-academy-watch/pull/1115
-- Now: RB3 fix round 1 complete; all 6 MED/10 LOW fixed and safe policy defaults implemented. Hand-back `~/codex-runs/aw-redesign/logs/B3F1.final.md`; push/PR #1115, no merge.
+- Now: RB3V fix round 2 in progress (3 MED/6 LOW); latest A2 33a86d02 merged. Prior RB3 fix round 1 complete; all 6 MED/10 LOW fixed and safe policy defaults implemented. Hand-back `~/codex-runs/aw-redesign/logs/B3F1.final.md`; push/PR #1115, no merge.
 - Next: orchestrator adversarial review and integration; four head pins updated there, B1/B2 precede p2b3. No flag switch-on authorized.
 
 ## Validation
@@ -43,3 +43,8 @@
 - PostgreSQL real chain upgrade with Safety/Business ON before B3 tables, DB-down CLI boot, invalid-SQL/provider projection isolation + replay, case idempotency, source timestamp/backfill twice, retained downgrade guard and preapply SQL twice pass.
 - shots/B3 refreshed:22 visually reviewed PNGs (20 live +2 labelled account-access browser fixtures). All live page journeys200, no errors/overflow; confirmations cancelled.
 - Cleanup: owned5142/5198 stopped, aw_p2_b3 dropped/absence verified, own credentials/scripts/reports/montages and borrowed B1/B2 migrations removed; tracked legacy report restored. No production/provider writes or flag changes.
+
+## RB3V fix round 2 — in progress
+- Nine findings accepted for regression-driven fixes; no schema change planned beyond merged A2 owner index.
+- A2 lock order: program row before grant rows; latest p2a2 preapply required twice on scratch DB.
+- Next: fix/tests, full foreground gates, screenshots, push/PR evidence, cleanup.
