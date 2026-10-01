@@ -15,6 +15,7 @@ import { useAuth, useAuthUI } from '@/context/AuthContext'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { FactRow, QuietNote, SectionHeading, TeaserBlock } from '@/components/public/Floodlight'
+import { LEVEL_LABELS, osmLink, programmeList } from '@/lib/club-directory' // p2-b1
 
 const PROVENANCE_COPY = {
     'Provider-covered': 'The club’s identity and squad links come from our football-data provider.',
@@ -132,7 +133,18 @@ function ProgramPageContent({ slug }) {
     const primary = safeColor(program.brand?.primary_color, DEFAULT_PRIMARY)
     const accent = safeColor(program.brand?.accent_color, DEFAULT_ACCENT)
     const inks = heroInks(primary)
-    const heroMeta = [program.league?.name, location].filter(Boolean)
+    // --- p2-b1 begin --- approved "clubs near you" details; the key is absent while the flag is off
+    const directory = program.directory || null
+    const venue = directory?.venue || null
+    const programmes = programmeList(directory?.gender_programs)
+    const pinned = Number.isFinite(venue?.latitude) && Number.isFinite(venue?.longitude)
+    const directoryMeta = directory ? [
+        venue?.name,
+        LEVEL_LABELS[directory.club_level],
+        directory.squad_count > 0 ? `${directory.squad_count} ${directory.squad_count === 1 ? 'squad' : 'squads'}` : null,
+    ] : []
+    // --- p2-b1 end ---
+    const heroMeta = [...directoryMeta.slice(0, 1), program.league?.name, location, ...directoryMeta.slice(1)].filter(Boolean)
     const updates = program.updates || []
 
     return (
@@ -143,8 +155,8 @@ function ProgramPageContent({ slug }) {
                 aria-labelledby="club-name"
             >
                 <div className="floodlight-container flex min-h-[380px] flex-col justify-end pb-12 pt-10 sm:pb-16 lg:min-h-[440px]">
-                    <Link to="/programs/claim" className="eyebrow mb-auto inline-flex items-center gap-2 self-start underline-offset-4 hover:underline" style={{ color: inks.text }}>
-                        <ArrowLeft className="h-3.5 w-3.5" />Club registry
+                    <Link to={directory ? '/clubs' : '/programs/claim'} className="eyebrow mb-auto inline-flex items-center gap-2 self-start underline-offset-4 hover:underline" style={{ color: inks.text }}>
+                        <ArrowLeft className="h-3.5 w-3.5" />{directory ? 'All clubs' : 'Club registry'}
                     </Link>
                     <div className="mt-12 flex flex-col gap-8 lg:flex-row lg:items-end">
                         <div
@@ -203,6 +215,27 @@ function ProgramPageContent({ slug }) {
                             lede="Clubs will be able to post trials and open sessions here, and you’ll apply in about a minute. Leave your email and we’ll tell you when it opens."
                         />
                     </section>
+
+                    {/* --- p2-b1 begin --- */}
+                    {directory && (venue || programmes.length || directory.squad_count > 0) ? (
+                        <section aria-labelledby="club-find" data-testid="club-find-us">
+                            <SectionHeading id="club-find" title="Find the club" meta="Approved details" />
+                            <div className="mt-2">
+                                {venue?.name ? <FactRow label="Ground">{venue.name}</FactRow> : null}
+                                {venue?.postcode ? <FactRow label="Postcode">{venue.postcode}</FactRow> : null}
+                                {LEVEL_LABELS[directory.club_level] ? <FactRow label="Level">{LEVEL_LABELS[directory.club_level]}</FactRow> : null}
+                                {programmes.length ? <FactRow label="Football for">{programmes.join(' · ')}</FactRow> : null}
+                                {directory.squad_count > 0 ? <FactRow label="Squads">{directory.squad_count}</FactRow> : null}
+                            </div>
+                            {pinned ? (
+                                <Button asChild variant="outline" className="mt-6">
+                                    <a href={osmLink(venue.latitude, venue.longitude)} target="_blank" rel="noopener noreferrer">Open the ground on a map<ArrowUpRight className="h-4 w-4" /></a>
+                                </Button>
+                            ) : null}
+                            <p className="mt-4 text-[13px] leading-relaxed text-muted-foreground">Squads are counted, not listed. Young players’ names, photos and clips are never public.</p>
+                        </section>
+                    ) : null}
+                    {/* --- p2-b1 end --- */}
 
                     {updates.length ? (
                         <section aria-labelledby="club-updates">
