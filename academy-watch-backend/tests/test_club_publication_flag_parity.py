@@ -140,3 +140,33 @@ def test_cache_policy_performs_no_sql_while_dark_or_for_provider_ids(parity, mon
     finally:
         event.remove(db.engine, "before_cursor_execute", count)
     assert statements == []
+
+
+def test_flag_withdrawal_during_sitemap_cache_publish_never_serves_club_urls(parity, monkeypatch):
+    from threading import Event
+
+    from src.services import sitemap_service
+
+    published, finish = Event(), Event()
+
+    class PausedCache(dict):
+        def update(self, *args, **kwargs):
+            super().update(*args, **kwargs)
+            published.set()
+            assert finish.wait(timeout=5)
+
+    xml = b'<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://theacademywatch.com/local-players/23</loc></url></urlset>'
+    monkeypatch.setenv("CLUB_PLAYER_PUBLICATION_ENABLED", "true")
+    monkeypatch.setattr(sitemap_service, "_cache", PausedCache(xml=None, built_at=None))
+    monkeypatch.setattr(sitemap_service, "build_sitemap_xml", lambda: xml)
+    assert sitemap_service._start_background_build(parity.application, sitemap_service._cache_generation)
+    try:
+        assert published.wait(timeout=5)
+        monkeypatch.setenv("CLUB_PLAYER_PUBLICATION_ENABLED", "false")
+        response, statements = measured(parity, "/sitemap.xml")
+        assert response.status_code == 503
+        assert b"local-players/23" not in response.data
+        assert not statements
+    finally:
+        finish.set()
+        assert sitemap_service.wait_for_build(timeout=5)

@@ -226,10 +226,13 @@ def _run_background_build(app) -> None:
         publication_enabled = enabled()
         with app.app_context():
             xml = build_sitemap_xml()
-        _cache.update(xml=xml, built_at=time.monotonic())
+        values = {"xml": xml, "built_at": time.monotonic()}
         if publication_enabled:
-            _cache["publication_enabled"] = True
-        else:
+            values["publication_enabled"] = True
+        # Publish the ON marker with its XML in one atomic dict update, so a
+        # simultaneous flag withdrawal cannot observe unmarked club URLs.
+        _cache.update(values)
+        if not publication_enabled:
             _cache.pop("publication_enabled", None)
         _cache_generation += 1
     except Exception:
