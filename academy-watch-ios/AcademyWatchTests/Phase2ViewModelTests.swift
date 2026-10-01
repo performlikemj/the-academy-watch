@@ -50,6 +50,51 @@ private actor SlowDirectoryAPI: Phase2API {
 @MainActor
 final class Phase2ViewModelTests: XCTestCase {
     private static var fixtureNow: Date { Phase2Time.date("2026-10-01T10:00:00Z")! }
+    func testClubResolutionRefusalPreservesPublicFlagsAndRemovesDeniedClub() async {
+        for status in [403, 404] {
+            let api = ClubResolutionAPI()
+            let workspace = Phase2Workspace(client: api)
+            await workspace.load(authenticated: true)
+            XCTAssertEqual(workspace.clubs.count, 1)
+            await api.refuse(access: status)
+            await workspace.load(authenticated: true)
+            XCTAssertTrue(workspace.flags.directory)
+            XCTAssertTrue(workspace.flags.applications)
+            XCTAssertTrue(workspace.clubs.isEmpty)
+            XCTAssertNil(workspace.error)
+            XCTAssertTrue(RootTab.available(for: .player, flags: workspace.flags).contains(.trials))
+        }
+    }
+    func testClaimsTransientFailureKeepsFlagsAndLastConfirmedClub() async {
+        let api = ClubResolutionAPI(claimsStatus: 500)
+        let workspace = Phase2Workspace(client: api)
+        await workspace.load(authenticated: true)
+        XCTAssertTrue(workspace.flags.directory)
+        XCTAssertTrue(workspace.flags.opportunities)
+        XCTAssertTrue(workspace.clubs.isEmpty)
+        XCTAssertNotNil(workspace.error)
+        await api.refuse()
+        await workspace.load(authenticated: true)
+        await api.refuse(claims: 500)
+        await workspace.load(authenticated: true)
+        XCTAssertEqual(workspace.selected?.id, 101)
+        await api.refuse(claims: 401)
+        await workspace.load(authenticated: true)
+        XCTAssertTrue(workspace.clubs.isEmpty)
+        XCTAssertTrue(workspace.flags.directory)
+    }
+    func testHomeAndAppliedReadOlderInvitationAndTrueTotalBeyondFirstPage() async {
+        let client = PagedPlayerAPI()
+        let model = ApplicationsViewModel(client: client)
+        await model.load()
+        XCTAssertTrue(model.isComplete)
+        XCTAssertEqual(model.applications.count, 31)
+        XCTAssertEqual(model.applications.filter { $0.canRespond(now: Self.fixtureNow) }.count, 1)
+        XCTAssertEqual(model.current?.id, "older-invitation")
+        XCTAssertFalse(model.hasMore)
+        let pages = await client.pages
+        XCTAssertEqual(pages, [1, 2])
+    }
     func testRevalidationNeverTemporarilyDropsKnownTabsOrMembership() async {
         let client = RecordingPhase2API("owner")
         let model = Phase2Workspace(client: client)
@@ -114,7 +159,7 @@ final class Phase2ViewModelTests: XCTestCase {
         XCTAssertTrue(workspace.selected?.access.canRecruit == true)
         XCTAssertEqual(
             RootTab.available(for: .club, flags: workspace.flags, access: workspace.selected?.access),
-            [.home, .squads, .matches, .recruiting, .account])
+            [.home, .recruiting, .account])
     }
     func testInitialFailedFlagsStayClosed() async {
         let client = RecordingPhase2API("owner")
@@ -517,6 +562,65 @@ private actor PagedPipelineAPI: Phase2API {
             rows[0]["status"] = "offer"
         }
         response["applications"] = rows
+        response["has_more"] = page == 1
+        return try JSONSerialization.data(withJSONObject: response)
+    }
+}
+
+private actor ClubResolutionAPI: Phase2API {
+    var accessStatus: Int?
+    var claimsStatus: Int?
+    init(accessStatus: Int? = nil, claimsStatus: Int? = nil) {
+        self.accessStatus = accessStatus
+        self.claimsStatus = claimsStatus
+    }
+    func refuse(access: Int? = nil, claims: Int? = nil) { accessStatus = access; claimsStatus = claims }
+    func phase2Data(path: String, method: String, query: [URLQueryItem], body: Data?) async throws
+        -> Data
+    {
+        switch path {
+        case "features":
+            return Data(#"{"club_directory":true,"club_staff_access":true,"contact_rail":true}"#.utf8)
+        case "opportunities/features":
+            return Data(#"{"opportunities":true,"applications":true}"#.utf8)
+        case "me/club-access": return Data(#"{"programs":[]}"#.utf8)
+        case "funding/claims/me":
+            if let claimsStatus { throw APIClientError.httpStatus(claimsStatus) }
+            return Data(
+                #"{"claims":[{"status":"approved","program":{"id":101,"name":"Quillmere Athletic","slug":"quillmere-athletic"}}]}"#
+                    .utf8)
+        case "club/101/access/me":
+            if let accessStatus { throw APIClientError.httpStatus(accessStatus) }
+            return Data(
+                #"{"access":{"program_id":101,"role":"owner","verified":true,"whole_club":true,"all_squads":true,"squad_ids":[],"capabilities":["recruiting","players.view"]}}"#
+                    .utf8)
+        default: throw APIClientError.httpStatus(404)
+        }
+    }
+}
+
+
+private actor PagedPlayerAPI: Phase2API {
+    private(set) var pages: [Int] = []
+    let fixture = Phase2FixtureTransport(mode: "player")
+    func phase2Data(path: String, method: String, query: [URLQueryItem], body: Data?) async throws -> Data {
+        let page = Int(query.first?.value ?? "1") ?? 1
+        pages.append(page)
+        let raw = try await fixture.phase2Data(path: path, method: method, query: query, body: body)
+        var response = try JSONSerialization.jsonObject(with: raw) as! [String: Any]
+        let base = (response["applications"] as! [[String: Any]])[0]
+        response["applications"] = page == 1 ? (0..<30).map { index -> [String: Any] in
+            var row = base
+            row["id"] = "newer-\(index)"
+            row["status"] = "signed"
+            row["reservation_state"] = "none"
+            return row
+        } : [{ () -> [String: Any] in
+            var row = base
+            row["id"] = "older-invitation"
+            return row
+        }()]
+        response["page"] = page
         response["has_more"] = page == 1
         return try JSONSerialization.data(withJSONObject: response)
     }

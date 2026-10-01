@@ -6,12 +6,16 @@ private actor EditorAPI: Phase2API {
   let fixture = Phase2FixtureTransport(mode: "editor")
   var failure: Error?
   var bodies: [[String: Any]] = []
+  var delayed = false
+  func delayWrites() { delayed = true }
+  func writeCount() -> Int { bodies.count }
   func refuse(_ error: Error?) { failure = error }
   func lastBody() -> [String: Any] { bodies.last ?? [:] }
   func phase2Data(path: String, method: String, query: [URLQueryItem], body: Data?) async throws
     -> Data
   {
     if let body { bodies.append(try JSONSerialization.jsonObject(with: body) as! [String: Any]) }
+    if body != nil && delayed { try await Task.sleep(for: .milliseconds(150)) }
     if let failure { throw failure }
     return try await fixture.phase2Data(path: path, method: method, query: query, body: body)
   }
@@ -32,6 +36,70 @@ final class OpportunityEditorTests: XCTestCase {
     m.draft.closesAt = now.addingTimeInterval(86400)
     m.draft.startsAt = now.addingTimeInterval(2 * 86400)
     m.draft.endsAt = now.addingTimeInterval(2 * 86400 + 7200)
+  }
+  func testZoneChangeKeepsWallTimesAndEncodesTheNewZoneInstant() async throws {
+    let m = model(EditorAPI())
+    await m.load()
+    fill(m)
+    m.draft.startsAt = Phase2Time.date("2026-10-10T17:00:00Z")!
+    m.draft.endsAt = Phase2Time.date("2026-10-10T19:00:00Z")!
+    let close = Phase2Time.shortDate(Phase2Time.submission(m.draft.closesAt, zone: "Europe/London"), zone: "Europe/London", format: "yyyy-MM-dd HH:mm")
+    m.changeZone("America/New_York")
+    XCTAssertEqual(m.draft.timezone, "America/New_York")
+    XCTAssertEqual(Phase2Time.submission(m.draft.startsAt!, zone: m.draft.timezone), "2026-10-10T18:00:00-04:00")
+    XCTAssertEqual(Phase2Time.submission(m.draft.endsAt!, zone: m.draft.timezone), "2026-10-10T20:00:00-04:00")
+    XCTAssertEqual(Phase2Time.shortDate(Phase2Time.submission(m.draft.closesAt, zone: m.draft.timezone), zone: m.draft.timezone, format: "yyyy-MM-dd HH:mm"), close)
+    let encoder = JSONEncoder()
+    encoder.keyEncodingStrategy = .convertToSnakeCase
+    let body = try JSONSerialization.jsonObject(with: encoder.encode(OpportunityEditSubmission(draft: m.draft, status: "draft", expectedVersion: nil, locked: false))) as! [String: Any]
+    XCTAssertEqual(body["starts_at"] as? String, "2026-10-10T18:00:00-04:00")
+    XCTAssertTrue(m.isDirty)
+  }
+  func testZoneChangeRejectsDSTGapWithoutMovingDraft() async {
+    let m = model(EditorAPI())
+    await m.load()
+    fill(m)
+    m.draft.timezone = "UTC"
+    m.draft.startsAt = Phase2Time.date("2027-03-14T02:30:00Z")!
+    m.draft.endsAt = nil
+    let previous = m.draft
+    m.changeZone("America/New_York")
+    XCTAssertEqual(m.draft, previous)
+    XCTAssertNotNil(m.fieldErrors["starts_at"])
+    XCTAssertNotNil(m.error)
+  }
+  func testInFlightWriteRejectsSecondSaveAndZoneChange() async {
+    let api = EditorAPI()
+    let m = model(api)
+    await m.load()
+    fill(m)
+    await api.delayWrites()
+    let original = m.draft
+    let writing = Task { await m.save(status: "draft", now: now) }
+    try? await Task.sleep(for: .milliseconds(30))
+    XCTAssertTrue(m.isBusy)
+    m.changeZone("America/New_York")
+    XCTAssertEqual(m.draft, original)
+    let second = await m.save(status: "draft", now: now)
+    XCTAssertFalse(second)
+    _ = await writing.value
+    let count = await api.writeCount()
+    XCTAssertEqual(count, 1)
+  }
+  func testSavedDraftIsCleanAndRefusedWriteStaysDirty() async {
+    let api = EditorAPI()
+    let m = model(api)
+    XCTAssertFalse(m.isDirty)
+    await m.load()
+    fill(m)
+    XCTAssertTrue(m.isDirty)
+    let saved = await m.save(status: "draft", now: now)
+    XCTAssertTrue(saved)
+    XCTAssertFalse(m.isDirty)
+    m.draft.title = "Keep this edit"
+    await api.refuse(APIClientError.httpStatus(503))
+    _ = await m.save(status: "draft", now: now)
+    XCTAssertTrue(m.isDirty)
   }
   func testCreatePublishReconcileApplicationLockAndClose() async throws {
     let api = EditorAPI()

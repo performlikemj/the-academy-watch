@@ -101,3 +101,8 @@
 - Evidence:60 round2 PNGs with18 initial viewports,34 final UI state/scrolled captures,6 journey captures and2 Reduce Motion snapshots. INDEX + source/reference/shot hashes in ~/codex-runs/aw-redesign/shots/I1; logs/results ~/codex-runs/aw-redesign/logs/I1F2. Final hand-back ~/codex-runs/aw-redesign/logs/I1F2.final.md.
 - Owned simulators36372A24-5FA3-4FA8-97FF-B1050AD0E45D andC9A15843-FDCA-45CC-A74F-1390C556E128 deleted; three /tmp/aw-I1F2-* DerivedData directories and generator/scratch script removed. Optional owned post-success diagnostic collectors stopped after all cases passed; xcodebuild returned TEST SUCCEEDED. Other lanes untouched.
 - Foreground commands only; no frontend dependencies/lock changes, servers, production writes, live login emails, deployment, flag enablement or merge. Push draft1118; external hand-back/BUS record final SHA.
+
+## I1F3 review-duel fix round
+- Now: implement union O1-O7/O9-O13/X1-X4 + N1; O8 excluded with cross-exam evidence.
+- Next: targeted regression tests; separate backend commit; merge current main; final governed native/Release/backend gates and screenshot evidence; push/no merge.
+- Release dependency: UXB #1124 parent-interest anchor. MJ question: approved N17 live-thread other-states legend.

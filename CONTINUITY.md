@@ -32,7 +32,7 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
 
 ## State
 
-- **Now (2026-10-01):** I1 round 2 complete: native Post-a-trial editor + exact N5F1 low-cut cleat loader on feat/ios-phase2, draft #1118. Unit292/offline42pass2skip/finalUI4/backend80 and Release green;60 round2 PNGs indexed. See `ledgers/CONTINUITY_ios-phase2.md`; hand-back `~/codex-runs/aw-redesign/logs/I1F2.final.md`.
+- **Now (2026-10-02):** I1F3 review-duel fixes in progress; see `ledgers/CONTINUITY_ios-phase2.md`. Prior I1 round 2 complete: native Post-a-trial editor + exact N5F1 low-cut cleat loader on feat/ios-phase2, draft #1118. Unit292/offline42pass2skip/finalUI4/backend80 and Release green;60 round2 PNGs indexed. See `ledgers/CONTINUITY_ios-phase2.md`; hand-back `~/codex-runs/aw-redesign/logs/I1F2.final.md`.
 
 ### Done
 - **2026-10-01 I1 round 2:** native owner/manager opportunity editor, exact N5F1 solid low-cut loader/static launch;56 staging contracts,292 unit tests,42 offline pass/2 opt-in skips,4 final affected UI pass,80 backend and Release green.60 indexed round2 PNGs; owned simulators/DerivedData removed. Draft #1118 unmerged. See `ledgers/CONTINUITY_ios-phase2.md`.

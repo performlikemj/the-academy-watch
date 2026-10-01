@@ -57,6 +57,7 @@ final class EditorialTabBar: UITabBar {
             config.contentInsets = .zero
             var title = AttributedString(tab.editorialTitle(role: role))
             title.font = UIFont(name: "Geist-Regular", size: 11) ?? .systemFont(ofSize: 11)
+            title.foregroundColor = UIColor(AcademyColors.text)
             config.attributedTitle = title
             config.baseForegroundColor = UIColor(tab == selected ? AcademyColors.accent : AcademyColors.text)
             button.configuration = config

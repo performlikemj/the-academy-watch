@@ -15,8 +15,11 @@ struct RecruitingView: View {
     let membership: ClubMembership
     @EnvironmentObject private var workspace: Phase2Workspace
     @StateObject private var model: OpportunitiesViewModel
-    @State private var editorPresented = false
-    @State private var editingPost: Phase2Opportunity?
+    private struct EditorDestination: Identifiable {
+        let id = UUID()
+        let post: Phase2Opportunity?
+    }
+    @State private var editorDestination: EditorDestination?
     init(client: APIClient, membership: ClubMembership) {
         self.client = client
         self.membership = membership
@@ -26,7 +29,7 @@ struct RecruitingView: View {
         Phase2Page(title: "Build the next team.", eyebrow: "\(membership.program.name) · Recruiting") {
             Phase2ClubSelector()
             if membership.access.canRecruit && workspace.flags.opportunities {
-                Button("Post a trial") { editingPost = nil; editorPresented = true }
+                Button("Post a trial") { editorDestination = EditorDestination(post: nil) }
                     .buttonStyle(FloodlightPillStyle()).accessibilityIdentifier("recruiting-create")
                 if model.isLoading { CleatLoader("Loading recruiting…") }
                 Phase2ErrorView(message: model.error, retry: reload)
@@ -45,7 +48,7 @@ struct RecruitingView: View {
                         OpportunityRow(post: post)
                     }
                     Button(["closed", "cancelled"].contains(post.status) ? "View post" : "Edit opportunity") {
-                        editingPost = post; editorPresented = true
+                        editorDestination = EditorDestination(post: post)
                     }.buttonStyle(FloodlightPillStyle(variant: .outline)).accessibilityIdentifier("recruiting-edit-\(post.id)")
                 }
                 if !model.isLoading, model.posts.isEmpty, model.error == nil {
@@ -65,9 +68,9 @@ struct RecruitingView: View {
             .refreshable {
                 if membership.access.canRecruit && workspace.flags.opportunities { await model.load(programId: membership.id, club: true) }
             }
-            .sheet(isPresented: $editorPresented) {
+            .sheet(item: $editorDestination) { destination in
                 NavigationStack {
-                    OpportunityEditorView(programId: membership.id, post: editingPost, flags: workspace.flags, client: client) { _ in reload() }
+                    OpportunityEditorView(programId: membership.id, post: destination.post, flags: workspace.flags, client: client) { _ in reload() }
                 }
             }.accessibilityIdentifier("phase2-recruiting")
     }
@@ -558,7 +561,7 @@ struct SquadQuickView: View {
                     membership.access.wholeClub
                         ? "Your access covers the whole club."
                         : membership.access.allSquads
-                            ? "Your access covers all squads. Recruiting and staff administration remain outside a coach's access."
+                            ? "Your access covers all squads. Recruiting and staff administration remain outside your staff access."
                             : "Your access covers " + model.squads.map(\.name).joined(separator: ", ")
                                 + ". These are the squads you see here."
                 )

@@ -171,27 +171,32 @@ struct Phase2PlayerHome: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
-                ZStack(alignment: .bottomLeading) {
-                    Image("FootballAtmosphere").resizable().scaledToFill().frame(height: 174).clipped()
-                        .opacity(0.42)
-                    LinearGradient(
-                        colors: [AcademyColors.night.opacity(0.15), AcademyColors.night.opacity(0.92)],
-                        startPoint: .top, endPoint: .bottom)
-                    VStack(alignment: .leading, spacing: 9) {
+                VStack(alignment: .leading, spacing: 9) {
                         Text(dateEyebrow)
                             .font(AcademyType.mono(10)).tracking(2).foregroundStyle(AcademyColors.gold)
                         (Text(greeting + " ").font(AcademyType.serif(40)).foregroundColor(AcademyColors.chalk)
                             + Text(firstName + ".").font(AcademyType.serif(40, italic: true)).foregroundColor(
                                 AcademyColors.gold))
-                            .fixedSize(horizontal: false, vertical: true)
+                            .fixedSize(horizontal: false, vertical: true).accessibilityIdentifier("home-greeting")
                         Text(
-                            waiting == 0
-                                ? "You're all caught up."
+                            !applications.isComplete && workspace.flags.applications && auth.isAuthenticated
+                                ? (applications.error == nil ? "Checking what needs you…" : "Applications could not be checked.")
+                                : waiting == 0 ? "You're all caught up."
                                 : "\(waiting) \(waiting == 1 ? "thing is" : "things are") waiting on you."
                         )
                         .font(AcademyType.subheadline).foregroundStyle(AcademyColors.mutedDark)
-                    }.padding(.horizontal, 20).padding(.bottom, 18)
-                }.frame(height: 174).background(AcademyColors.night)
+                        .fixedSize(horizontal: false, vertical: true).accessibilityIdentifier("home-waiting")
+                    }.padding(.horizontal, 20).padding(.vertical, 18)
+                    .frame(maxWidth: .infinity, minHeight: 174, alignment: .bottomLeading)
+                    .background {
+                        GeometryReader { geometry in
+                            Image("FootballAtmosphere").resizable().scaledToFill()
+                                .frame(width: geometry.size.width, height: geometry.size.height).clipped().opacity(0.42)
+                        }
+                        LinearGradient(
+                            colors: [AcademyColors.night.opacity(0.15), AcademyColors.night.opacity(0.92)],
+                            startPoint: .top, endPoint: .bottom)
+                    }.background(AcademyColors.night).accessibilityIdentifier("home-hero")
                 VStack(alignment: .leading, spacing: 20) {
                     if waiting > 0 {
                         VStack(spacing: 0) {
@@ -226,8 +231,9 @@ struct Phase2PlayerHome: View {
                     }
                     if workspace.flags.applications && auth.isAuthenticated {
                         VStack(alignment: .leading, spacing: 0) {
+                            Phase2ErrorView(message: applications.error, retry: { Task { await applications.load() } })
                             Phase2Section(
-                                title: "Applications", trailing: "\(applications.applications.count) sent")
+                                title: "Applications", trailing: applications.isComplete ? "\(applications.applications.count) sent" : "")
                             ForEach(applications.applications.prefix(3)) { application in
                                 NavigationLink {
                                     ApplicationDetailView(id: application.id, client: client)

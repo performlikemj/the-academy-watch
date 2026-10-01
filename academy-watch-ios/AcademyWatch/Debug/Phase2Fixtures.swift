@@ -25,7 +25,7 @@
                     ? "owner" : screen == "N14" ? "coach" : "player")
         }
         static var isClubExperience: Bool {
-            ["owner", "editor", "coach", "recruiting", "signed", "draft", "full", "conflict", "nostaff", "membership-error", "pendingclub", "club-signed-out"].contains(resolvedMode)
+            ["owner", "terminal", "editor", "coach", "recruiting", "signed", "draft", "full", "conflict", "nostaff", "membership-error", "pendingclub", "club-signed-out"].contains(resolvedMode)
         }
         static func contactFixture(_ data: Data, messages: Bool) throws -> Data {
             guard screen == "N17" || screen == "N01" else { return data }
@@ -186,7 +186,7 @@
             }
             if method == "GET", path == "funding/claims/me" {
                 return try json([
-                    "claims": ["owner", "editor", "recruiting", "signed", "full", "conflict", "draft", "nostaff"]
+                    "claims": ["owner", "terminal", "editor", "recruiting", "signed", "full", "conflict", "draft", "nostaff"]
                         .contains(mode)
                         ? [
                             [
@@ -507,6 +507,7 @@
                     ? "draft" : "published",
                 "type": "open_session", "version": published ? 2 : 1,
             ]
+            if mode == "terminal" { dto["status"] = "closed" }
             if privateDTO {
                 dto["created_at"] = "2026-10-01T10:00:00Z"
                 dto["trial_invite_deadline"] = "2026-12-30T10:00:00Z"

@@ -15,7 +15,7 @@ final class Phase2UITests: XCTestCase {
         app.launch()
         XCTAssertTrue(
             app.tabBars.buttons[
-                ["owner", "editor", "coach", "signed", "draft", "full", "conflict"].contains(mode) ? "Today" : "Home"
+                ["owner", "terminal", "editor", "coach", "signed", "draft", "full", "conflict"].contains(mode) ? "Today" : "Home"
             ].waitForExistence(timeout: 15))
     }
     private func tap(_ element: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
@@ -30,6 +30,91 @@ final class Phase2UITests: XCTestCase {
         }
         XCTAssertTrue(element.isHittable, file: file, line: line)
         element.tap()
+    }
+    private enum ScrollDirection { case up, down }
+    private func scrollTo(_ element: XCUIElement, direction: ScrollDirection = .up) {
+        XCTAssertTrue(element.waitForExistence(timeout: 10))
+        for _ in 0..<12 {
+            if element.isHittable && element.frame.minY > app.frame.minY + 70 && element.frame.maxY < app.frame.maxY - 90 { return }
+            let scroll = app.scrollViews.firstMatch
+            if direction == .up { scroll.swipeUp() } else { scroll.swipeDown() }
+        }
+        XCTAssertTrue(element.isHittable)
+    }
+    func testFirstEditorPresentationEditsExistingAndTerminalPosts() {
+        for mode in ["owner", "terminal"] {
+            launch(mode, tab: "recruiting")
+            tap(app.tabBars.buttons["Recruiting"])
+            tap(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'recruiting-edit-'")).firstMatch)
+            let title = app.textFields["post-title"]
+            XCTAssertTrue(title.waitForExistence(timeout: 10))
+            XCTAssertTrue(app.navigationBars["Edit opportunity"].exists)
+            XCTAssertEqual(title.value as? String, "Open training night with the Reserves")
+            XCTAssertFalse(title.isEnabled)
+            if mode == "terminal" { XCTAssertFalse(app.buttons["post-publish"].exists) }
+            capture("first-edit-" + mode)
+            app.terminate()
+        }
+    }
+    func testFlagsOffSignOutKeepsAccountSelected() {
+        app.launchArguments = ["-phase2Fixture", "off"]
+        app.launch()
+        tap(app.tabBars.buttons["Account"])
+        tap(app.buttons["Sign Out"])
+        if app.alerts.buttons["Sign Out"].waitForExistence(timeout: 2) { app.alerts.buttons["Sign Out"].tap() }
+        XCTAssertTrue(app.buttons["Sign In"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.tabBars.buttons["Account"].isSelected)
+        capture("flags-off-sign-out-account")
+    }
+    func testDirtyEditorRequiresDiscardAndSwipeKeepsDraft() {
+        launch("editor", tab: "recruiting")
+        tap(app.buttons["recruiting-create"])
+        let title = app.textFields["post-title"]
+        tap(title); title.typeText("Retained draft\n")
+        app.navigationBars.firstMatch.swipeDown()
+        XCTAssertEqual(title.value as? String, "Retained draft")
+        app.navigationBars.buttons["Done"].tap()
+        XCTAssertTrue(app.buttons["Keep editing"].waitForExistence(timeout: 5))
+        tap(app.buttons["Keep editing"])
+        XCTAssertEqual(title.value as? String, "Retained draft")
+        capture("dirty-editor-kept")
+        app.navigationBars.buttons["Done"].tap()
+        tap(app.buttons["Discard changes"])
+        XCTAssertTrue(app.buttons["recruiting-create"].waitForExistence(timeout: 5))
+    }
+    func testHomeHeroGrowsAtLargestTextWithoutOverlappingNeedsYou() {
+        for longName in [false, true] {
+            app.launchArguments = ["-phase2Preview", "N01", "-reviewCapture", "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
+            if longName { app.launchArguments.append("-reviewLongName") }
+            app.launch()
+            let greeting = app.staticTexts["home-greeting"]
+            let waiting = app.staticTexts["home-waiting"]
+            XCTAssertTrue(greeting.waitForExistence(timeout: 10))
+            XCTAssertTrue(waiting.waitForExistence(timeout: 10))
+            let needs = app.staticTexts["Needs you"]
+            XCTAssertTrue(needs.waitForExistence(timeout: 10))
+            XCTAssertGreaterThan(greeting.frame.height, 100)
+            XCTAssertLessThanOrEqual(greeting.frame.maxY, waiting.frame.minY)
+            XCTAssertLessThanOrEqual(waiting.frame.maxY, needs.frame.minY)
+            capture("home-390-largest-" + (longName ? "long-name" : "default-name"))
+            app.terminate()
+        }
+    }
+    func testClubDetailReturnKeepsSearchAndLocation() {
+        app.launchArguments = ["-phase2Fixture", "player", "-initialTab", "clubs", "-reviewLocation"]
+        app.launch()
+        tap(app.tabBars.buttons["Clubs"])
+        let query = app.textFields["clubs-search"]
+        tap(query); query.typeText("Quillmere\n")
+        tap(app.switches["clubs-location"])
+        XCTAssertTrue(app.staticTexts["0.8"].waitForExistence(timeout: 5))
+        tap(app.buttons["club-101"])
+        XCTAssertTrue(app.staticTexts["The Saltings 3G"].waitForExistence(timeout: 5))
+        app.navigationBars.buttons.firstMatch.tap()
+        XCTAssertTrue(query.waitForExistence(timeout: 5))
+        XCTAssertEqual(query.value as? String, "Quillmere")
+        XCTAssertTrue(app.staticTexts["0.8"].exists)
+        capture("clubs-return-location")
     }
     private func capture(_ name: String) {
         let shot = XCTAttachment(screenshot: app.screenshot())
@@ -73,7 +158,7 @@ final class Phase2UITests: XCTestCase {
         XCTAssertTrue(app.buttons["post-timezone"].label.contains("Kolkata"))
         tap(app.buttons["post-save-draft"])
         XCTAssertTrue(app.staticTexts["post-error-title"].exists)
-        for _ in 0..<8 { app.swipeDown() }
+        scrollTo(app.staticTexts["post-error-title"], direction: .down)
         capture("post-field-validation")
         XCTAssertTrue(app.staticTexts["post-error-title"].isHittable)
     }
@@ -184,6 +269,11 @@ final class Phase2UITests: XCTestCase {
         XCTAssertFalse(
             app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'approved adult self-profile'"))
                 .firstMatch.exists)
+        XCTAssertFalse(app.textFields["apply-position"].exists)
+        XCTAssertFalse(app.textFields["apply-current-club"].exists)
+        XCTAssertFalse(app.switches["apply-contact-consent"].exists)
+        XCTAssertFalse(app.buttons["apply-send"].exists)
+        capture("claims-failure-retry-only")
     }
     func testFlaggedExplorePlayersCanOpenGol() {
         launch("player")
@@ -433,6 +523,10 @@ final class Phase2UITests: XCTestCase {
                     .exists,
                 screen)
             XCTAssertFalse(app.otherElements["phase2-error"].exists, screen)
+            if screen == "N17" {
+                XCTAssertTrue(app.staticTexts["contact-original-introduction"].exists)
+                XCTAssertEqual(app.staticTexts["contact-original-introduction"].label, "A conversation about the next step.")
+            }
             capture("review-\(screen)-top")
             if longBoards.contains(screen) {
                 app.swipeUp()

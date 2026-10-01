@@ -19,8 +19,8 @@ enum RootTab: String, Hashable, Identifiable {
         if let flags, role == .club, let access,
             flags.staff || (flags.opportunities && access.canRecruit)
         {
-            return [.home] + (access.can("players.view") == true ? [.squads] : [])
-                + (access.can("matches.view") == true ? [.matches] : [])
+            return [.home] + (flags.staff && access.can("players.view") ? [.squads] : [])
+                + (flags.staff && access.can("matches.view") ? [.matches] : [])
                 + (access.canRecruit && flags.opportunities ? [.recruiting] : []) + [.account]
         }
         if role == .scout {
@@ -44,7 +44,7 @@ enum RootTab: String, Hashable, Identifiable {
         launchOverride(from: arguments) ?? .home
     }
 
-    private static func launchOverride(from arguments: [String]) -> RootTab? {
+    static func launchOverride(from arguments: [String]) -> RootTab? {
         guard let flagIndex = arguments.firstIndex(of: "-initialTab"),
             arguments.indices.contains(flagIndex + 1)
         else {
@@ -95,6 +95,8 @@ struct RootTabView: View {
     @StateObject private var sentRequestsViewModel: SentContactRequestsViewModel
     @StateObject private var incomingRequestsViewModel: IncomingContactRequestsViewModel
     @State private var hasLoadedWorkspace = false
+    @State private var didApplyLaunchOverride = false
+    @State private var didSelectTab = false
     @State private var selectedTab: RootTab
     @State private var isSignInPresented: Bool
     @State private var accountDestination: AccountDestination?
@@ -129,7 +131,7 @@ struct RootTabView: View {
                     ? .signedOut
                     : .signedIn(
                         email: "phase2@fixture.invalid", accountRole: .player,
-                        displayName: "Reuben Castellane",
+                        displayName: ProcessInfo.processInfo.arguments.contains("-reviewLongName") ? "Alexanderthegreat Castellane" : "Reuben Castellane",
                         isVerifiedScout: false)
             } else if FloodlightPreview.isActive {
                 fixtureState =
@@ -269,8 +271,11 @@ struct RootTabView: View {
             await workspace.load(authenticated: authManager.isAuthenticated)
             guard !Task.isCancelled else { return }
             hasLoadedWorkspace = true
-            let requested = RootTab.fromLaunchArguments(launchArguments)
-            if availableTabs.contains(requested) { selectedTab = requested }
+            if !didApplyLaunchOverride {
+                didApplyLaunchOverride = true
+                if !didSelectTab, let requested = RootTab.launchOverride(from: launchArguments),
+                    availableTabs.contains(requested) { selectedTab = requested }
+            }
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active && hasLoadedWorkspace {
@@ -365,7 +370,7 @@ struct RootTabView: View {
     }
 
     private var tabTreeIdentity: String {
-        roleValue + "|" + (authManager.email ?? "signed-out")
+        roleValue
     }
 
     @ViewBuilder private var homeTab: some View {
@@ -392,26 +397,27 @@ struct RootTabView: View {
 
     @ViewBuilder private var phase2Tabs: some View {
         if availableTabs.contains(.clubs) {
-            NavigationStack { ClubsNearYouView(client: apiClient) }.tabItem {
+            NavigationStack { ClubsNearYouView(client: apiClient) }
+                .environment(\.directoryTabActive, selectedTab == .clubs).id(authManager.email ?? "signed-out").tabItem {
                 Label("Clubs", systemImage: "mappin.and.ellipse")
             }
             .tag(RootTab.clubs)
         }
         if availableTabs.contains(.trials) {
-            NavigationStack { TrialsView(client: apiClient) }.tabItem {
+            NavigationStack { TrialsView(client: apiClient) }.id(authManager.email ?? "signed-out").tabItem {
                 Label("Trials", systemImage: "flag")
             }
             .tag(RootTab.trials)
         }
         if availableTabs.contains(.applied) {
-            NavigationStack { MyApplicationsView(client: apiClient) }.tabItem {
+            NavigationStack { MyApplicationsView(client: apiClient) }.id(authManager.email ?? "signed-out").tabItem {
                 Label("Applied", systemImage: "tray")
             }.tag(RootTab.applied)
         }
         if let membership = workspace.selected {
             if availableTabs.contains(.squads) {
                 NavigationStack { SquadQuickView(membership: membership, client: apiClient) }.id(
-                    membership.id
+                    "\(authManager.email ?? "signed-out")|\(membership.id)"
                 ).tabItem {
                     Label("Squads", systemImage: "person.3")
                 }.tag(RootTab.squads)
@@ -419,12 +425,12 @@ struct RootTabView: View {
             if availableTabs.contains(.matches) {
                 NavigationStack {
                     SquadQuickView(membership: membership, client: apiClient, matchesOnly: true)
-                }.id(membership.id).tabItem { Label("Matches", systemImage: "play.rectangle") }.tag(
+                }.id("\(authManager.email ?? "signed-out")|\(membership.id)").tabItem { Label("Matches", systemImage: "play.rectangle") }.tag(
                     RootTab.matches)
             }
             if availableTabs.contains(.recruiting) {
                 NavigationStack { RecruitingView(client: apiClient, membership: membership) }.id(
-                    membership.id
+                    "\(authManager.email ?? "signed-out")|\(membership.id)"
                 ).tabItem {
                     Label("Recruiting", systemImage: "person.badge.plus")
                 }.tag(RootTab.recruiting)
@@ -572,6 +578,7 @@ struct RootTabView: View {
     }
 
     private func select(_ tab: RootTab) {
+        didSelectTab = true
         selectedTab =
             availableTabs.contains(tab)
             ? tab

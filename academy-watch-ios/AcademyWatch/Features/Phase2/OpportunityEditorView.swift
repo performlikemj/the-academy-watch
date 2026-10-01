@@ -8,6 +8,7 @@ struct OpportunityEditorView: View {
   @State private var choosingZone = false
   @State private var zoneSearch = ""
   @State private var confirmation: String?
+  @State private var confirmingDiscard = false
   private let onSaved: (Phase2Opportunity) -> Void
   init(
     programId: Int, post: Phase2Opportunity? = nil, flags: Phase2Flags,
@@ -133,7 +134,11 @@ struct OpportunityEditorView: View {
     }
     .navigationTitle(model.post == nil ? "Post a trial" : "Edit opportunity")
     .toolbar {
-      ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+      ToolbarItem(placement: .confirmationAction) {
+        Button("Done") {
+          if model.isDirty { confirmingDiscard = true } else { dismiss() }
+        }.disabled(model.isBusy)
+      }
       ToolbarItemGroup(placement: .keyboard) {
         Spacer()
         Button("Done") { focused = nil }
@@ -146,7 +151,12 @@ struct OpportunityEditorView: View {
       #endif
     }
     .onChange(of: workspace.flags) { _, flags in model.updateFlags(flags) }
+    .interactiveDismissDisabled(model.isDirty || model.isBusy)
     .sheet(isPresented: $choosingZone) { zonePicker }
+    .confirmationDialog("Discard unsaved changes?", isPresented: $confirmingDiscard, titleVisibility: .visible) {
+      Button("Discard changes", role: .destructive) { dismiss() }
+      Button("Keep editing", role: .cancel) {}
+    }
     .confirmationDialog(
       confirmation == "cancelled"
         ? "Cancel this opportunity and release outstanding reservations?"
@@ -236,7 +246,7 @@ struct OpportunityEditorView: View {
           Section(region) {
             ForEach(groups[region] ?? [], id: \.self) { zone in
               Button {
-                model.draft.timezone = zone
+                model.changeZone(zone)
                 choosingZone = false
               } label: {
                 HStack {

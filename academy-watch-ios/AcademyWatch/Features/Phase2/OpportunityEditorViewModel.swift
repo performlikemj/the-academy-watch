@@ -117,13 +117,17 @@ final class OpportunityEditorViewModel: ObservableObject {
   let programId: Int
   private let client: any Phase2API
   private var creationClock: Date?
+  private var savedDraft: OpportunityDraft
+  var isDirty: Bool { draft != savedDraft }
   private var flags: Phase2Flags
   init(programId: Int, post: Phase2Opportunity? = nil, flags: Phase2Flags, client: any Phase2API) {
     self.programId = programId
     self.post = post
     self.flags = flags
     self.client = client
-    draft = post.map(OpportunityDraft.init) ?? OpportunityDraft()
+    let initial = post.map(OpportunityDraft.init) ?? OpportunityDraft()
+    draft = initial
+    savedDraft = initial
   }
   var locked: Bool { (post?.applicationCount ?? 0) > 0 }
   var terminal: Bool { ["closed", "cancelled"].contains(post?.status ?? "") }
@@ -140,6 +144,40 @@ final class OpportunityEditorViewModel: ObservableObject {
   }
   var inviteDeadline: Date? {
     draft.type == "position" ? draft.closesAt.addingTimeInterval(14 * 86400) : horizon
+  }
+  /// Changing a posting zone changes the intended instant, never the entered wall time.
+  /// Reject a DST gap instead of Calendar silently normalizing it into another time.
+  func changeZone(_ zone: String) {
+    guard !isBusy, !locked, !terminal, OpportunityZones.allowed.contains(zone) else { return }
+    var old = Calendar(identifier: .gregorian)
+    old.timeZone = Phase2Time.zone(draft.timezone)
+    var target = old
+    target.timeZone = Phase2Time.zone(zone)
+    let parts: Set<Calendar.Component> = [.year, .month, .day, .hour, .minute, .second]
+    func remap(_ date: Date) -> Date? {
+      let components = old.dateComponents(parts, from: date)
+      guard let result = target.date(from: components),
+        target.dateComponents(parts, from: result) == components else { return nil }
+      return result
+    }
+    var changed = draft
+    for (key, date) in [("closes_at", Optional(draft.closesAt)), ("starts_at", draft.startsAt), ("ends_at", draft.endsAt)] {
+      guard let date else { continue }
+      guard let value = remap(date) else {
+        fieldErrors[key] = "This wall time does not exist in \(zone) because the clocks change. Choose another time first."
+        error = "Time zone was not changed. Check the highlighted date."
+        return
+      }
+      switch key {
+      case "closes_at": changed.closesAt = value
+      case "starts_at": changed.startsAt = value
+      default: changed.endsAt = value
+      }
+    }
+    changed.timezone = zone
+    draft = changed
+    fieldErrors = [:]
+    error = nil
   }
   func updateFlags(_ flags: Phase2Flags) { self.flags = flags }
   func load() async {
@@ -191,6 +229,7 @@ final class OpportunityEditorViewModel: ObservableObject {
       if creating { creationClock = now }
       post = response.opportunity
       draft = OpportunityDraft(response.opportunity)
+      savedDraft = draft
       notice =
         status == "draft"
         ? "Draft saved. Visible only to your club." : "Published. Adult players can now apply."
@@ -236,6 +275,7 @@ final class OpportunityEditorViewModel: ObservableObject {
         if let fresh = response.opportunities.first(where: { $0.id == post.id }) {
           self.post = fresh
           draft = OpportunityDraft(fresh)
+          savedDraft = draft
           conflict = false
           fieldErrors = [:]
           error = nil

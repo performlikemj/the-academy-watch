@@ -141,8 +141,17 @@ final class DirectoryLocation: NSObject, ObservableObject, @preconcurrency CLLoc
     }
 }
 
+private struct DirectoryTabActiveKey: EnvironmentKey { static let defaultValue = true }
+extension EnvironmentValues {
+    var directoryTabActive: Bool {
+        get { self[DirectoryTabActiveKey.self] }
+        set { self[DirectoryTabActiveKey.self] = newValue }
+    }
+}
 struct ClubsNearYouView: View {
+    @Environment(\.directoryTabActive) private var tabActive
     let client: APIClient
+    @State private var hasLoaded = false
     @StateObject private var model: DirectoryViewModel
     @StateObject private var location = DirectoryLocation()
     @State private var query = ""
@@ -196,8 +205,9 @@ struct ClubsNearYouView: View {
                     if value {
                         location.request()
                     } else {
+                        let hadCoordinate = location.coordinate != nil
                         location.clear()
-                        search()
+                        if !hadCoordinate { search() }
                     }
                 }
                 if locationOn && location.coordinate != nil {
@@ -312,14 +322,24 @@ struct ClubsNearYouView: View {
             .font(AcademyType.footnote).foregroundStyle(AcademyColors.secondaryText)
         }.navigationTitle("Clubs").accessibilityIdentifier("phase2-clubs")
             .task {
+                guard !hasLoaded else { return }
+                hasLoaded = true
                 if locationOn { location.request() }
                 await model.search(filter)
             }.refreshable { await model.search(filter) }
-            .onChange(of: location.coordinate?.latitude) { _, _ in search() }
+            .onChange(of: tabActive) { _, active in
+                if !active { location.clear(); hasLoaded = false }
+                else if !hasLoaded {
+                    hasLoaded = true
+                    if locationOn { location.request() }
+                    search()
+                }
+            }
+            .onChange(of: location.coordinate?.latitude) { _, _ in if tabActive { search() } }
             .onChange(of: radius) { _, _ in search() }
             .onChange(of: level) { _, _ in search() }
             .onChange(of: programme) { _, _ in search() }
-            .onDisappear { location.clear() }
+
     }
     private func search() { Task { await model.search(filter) } }
 }
@@ -687,6 +707,9 @@ struct TrialDetailView: View {
                                     NavigationLink("Find or claim your profile") {
                                         MyProfilesView(apiClient: client)
                                     }
+                                } else if model.claims.isEmpty {
+                                    if model.isLoading { CleatLoader("Checking your profile…") }
+                                    // The error and retry below replace unusable inputs.
                                 } else {
                                     if let claim = model.claims.first(where: {
                                         $0.id == model.selectedClaimId
@@ -788,7 +811,7 @@ struct MyApplicationsView: View {
         self.client = client
         _model = StateObject(wrappedValue: ApplicationsViewModel(client: client))
     }
-    private var current: Phase2Application? { model.applications.first(where: { !$0.isTerminal }) }
+    private var current: Phase2Application? { model.current }
     var body: some View {
         Phase2Page(title: "", eyebrow: "") {
             if !auth.isAuthenticated {

@@ -33,28 +33,38 @@ final class Phase2Workspace: ObservableObject {
                 directory: base.clubDirectory == true, opportunities: posts.opportunities,
                 applications: posts.opportunities && posts.applications,
                 staff: base.clubStaffAccess == true, contact: base.contactRail == true)
-            if authenticated && (next.flags.staff || next.flags.opportunities) {
-                async let grants: ClubMembershipsResponse =
-                    next.flags.staff
-                    ? client.read("me/club-access") : ClubMembershipsResponse(programs: [])
-                async let claims: Phase2ClubClaimsResponse = client.read("funding/claims/me")
-                let (memberships, ownClaims) = try await (grants, claims)
-                var resolved = memberships.programs
-                for claim in ownClaims.claims
-                where claim.status == "approved" && !resolved.contains(where: { $0.id == claim.program.id }) {
-                    let result: ClubAccessResponse = try await client.read(
-                        "club/\(claim.program.id)/access/me")
-                    resolved.append(ClubMembership(program: claim.program, access: result.access))
-                }
-                next.clubs = resolved
-            } else {
-                next.clubs = []
-            }
         } catch {
-            // A failed fetch is not a new flag/access decision. Mutations still
-            // recheck current capabilities on the server; initial state is closed.
-            next = snapshot
             failure = phase2Error(error)
+        }
+        // Public flags and private access are independent decisions. A refused
+        // club never turns successfully fetched public features off.
+        if failure == nil {
+            if authenticated && (next.flags.staff || next.flags.opportunities) {
+                do {
+                    async let grants: ClubMembershipsResponse = next.flags.staff
+                        ? client.read("me/club-access") : ClubMembershipsResponse(programs: [])
+                    async let claims: Phase2ClubClaimsResponse = client.read("funding/claims/me")
+                    let (memberships, ownClaims) = try await (grants, claims)
+                    var resolved = memberships.programs
+                    for claim in ownClaims.claims
+                    where claim.status == "approved" && !resolved.contains(where: { $0.id == claim.program.id }) {
+                        do {
+                            let result: ClubAccessResponse = try await client.read("club/\(claim.program.id)/access/me")
+                            resolved.append(ClubMembership(program: claim.program, access: result.access))
+                        } catch {
+                            if [403, 404].contains(phase2Status(error) ?? 0) {
+                                next.clubs.removeAll { $0.id == claim.program.id }
+                                continue
+                            }
+                            throw error
+                        }
+                    }
+                    next.clubs = resolved
+                } catch {
+                    failure = phase2Error(error)
+                    if [401, 403, 404].contains(phase2Status(error) ?? 0) { next.clubs = [] }
+                }
+            } else { next.clubs = [] }
         }
         guard request == generation, !Task.isCancelled else { return }
         if !authenticated { next.clubs = [] }
@@ -253,6 +263,10 @@ final class ApplicationsViewModel: ObservableObject {
     @Published private(set) var isLoading = false
     @Published private(set) var page = 1
     @Published private(set) var hasMore = false
+    @Published private(set) var isComplete = false
+    var current: Phase2Application? {
+        applications.first(where: { $0.canRespond() }) ?? applications.first(where: { !$0.isTerminal })
+    }
     private let client: any Phase2API
     private var generation = 0
     init(client: any Phase2API) { self.client = client }
@@ -263,13 +277,14 @@ final class ApplicationsViewModel: ObservableObject {
         error = nil
         applications = []
         hasMore = false
+        isComplete = false
         let path =
             programId.flatMap { pid in
                 opportunityId.map { "club/\(pid)/opportunities/\($0)/applications" }
             }
             ?? "me/applications"
         do {
-            var nextPage = programId == nil ? page : 1
+            var nextPage = 1
             var rows: [Phase2Application] = []
             var result: ApplicationsResponse
             repeat {
@@ -278,10 +293,11 @@ final class ApplicationsViewModel: ObservableObject {
                 guard request == generation, !Task.isCancelled else { return }
                 rows += result.applications
                 nextPage += 1
-            } while programId != nil && result.hasMore
+            } while result.hasMore
             applications = rows
-            self.page = programId == nil ? result.page : 1
-            hasMore = programId == nil && result.hasMore
+            self.page = 1
+            hasMore = false
+            isComplete = true
         } catch {
             guard request == generation, !Task.isCancelled else { return }
             self.error = phase2Error(error)

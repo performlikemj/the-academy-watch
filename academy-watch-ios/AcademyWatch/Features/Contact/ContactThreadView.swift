@@ -177,7 +177,7 @@ struct ContactThreadView: View {
                         ? (viewModel.contactRequest.participants.club?.displayName ?? "Club") + " said yes"
                         : viewModel.contactRequest.clubConsentStatus == .declined ? "Club declined" : "Waiting on club",
                     detail: [
-                        viewModel.contactRequest.clubConsentAt.map { Phase2Time.shortDate($0, zone: "UTC") },
+                        viewModel.contactRequest.clubConsentAt.map { Phase2Time.shortDate($0, zone: TimeZone.current.identifier) },
                         viewModel.contactRequest.clubConsentNote,
                     ].compactMap { $0 }.joined(separator: " · "))
             }
@@ -186,7 +186,7 @@ struct ContactThreadView: View {
                 title: viewModel.contactRequest.status == .accepted
                     ? (viewModel.contactRequest.participants.player.displayName?.split(separator: " ").first.map(
                         String.init) ?? "Player") + " accepted" : viewModel.contactRequest.status.displayName,
-                detail: viewModel.contactRequest.respondedAt.map { Phase2Time.shortDate($0, zone: "UTC") }
+                detail: viewModel.contactRequest.respondedAt.map { Phase2Time.shortDate($0, zone: TimeZone.current.identifier) }
                     ?? "The player decides who they talk to.")
             HStack(alignment: .top, spacing: 12) {
                 Image(systemName: "bubble.left").font(.system(size: 15, weight: .light)).foregroundStyle(
@@ -196,11 +196,13 @@ struct ContactThreadView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(viewModel.contactRequest.messagingOpen ? "Conversation open" : "Conversation not open").font(
                         AcademyType.headline)
-                    Text(
-                        viewModel.contactRequest.routingMode == .clubIncluded
-                            ? "The club is in the thread and sees every message." : viewModel.contactRequest.message
-                    )
-                    .font(AcademyType.subheadline).foregroundStyle(AcademyColors.secondaryText)
+                    Text(viewModel.contactRequest.message)
+                        .font(AcademyType.subheadline).foregroundStyle(AcademyColors.secondaryText)
+                        .accessibilityIdentifier("contact-original-introduction")
+                    if viewModel.contactRequest.routingMode == .clubIncluded {
+                        Text("The club is in the thread and sees every message.")
+                            .font(AcademyType.subheadline).foregroundStyle(AcademyColors.secondaryText)
+                    }
                 }
             }
             if let accountID = viewModel.counterpartAccountID {
@@ -378,7 +380,7 @@ private struct ContactMessageBubble: View {
                                 ?? rendering.displayLabel) + " · "
                                 + (rendering.kind == .club ? clubDisplayName ?? "Club" : message.senderRole.rawValue))
                             .uppercased() + " · "
-                            + Phase2Time.shortDate(message.createdAt, zone: "UTC", format: "d MMM").uppercased()
+                            + Phase2Time.shortDate(message.createdAt, zone: TimeZone.current.identifier, format: "d MMM").uppercased()
                     )
                     .font(AcademyType.mono(9)).tracking(1.2).foregroundStyle(
                         rendering.kind == .club ? AcademyColors.accent : AcademyColors.secondaryText)
