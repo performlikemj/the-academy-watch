@@ -24,7 +24,7 @@ from src.models.trust import ContentReport, ScoutVerification
 from src.models.video import VideoMatch
 from src.services.admin_audit import record_admin_event
 from src.services.admin_control_business import money_query
-from src.services.admin_control_safety import act, case_hidden
+from src.services.admin_control_safety import act, case_hidden, case_hide_intent
 from src.utils.data_mode import api_football_frozen, newsletters_frozen
 
 admin_control_bp = Blueprint("admin_control", __name__)
@@ -411,7 +411,8 @@ def last_owner_programs(uid):
     ]
 
 
-@admin_control_bp.post("/admin/users/<int:user_id>/<action>")
+@admin_control_bp.post("/admin/users/<int:user_id>/suspend", defaults={"action": "suspend"})
+@admin_control_bp.post("/admin/users/<int:user_id>/restore", defaults={"action": "restore"})
 @page("people")
 def account_action(user_id, action):
     if action not in {"suspend", "restore"}:
@@ -468,6 +469,7 @@ def case_dict(case):
         "closed_at": iso(case.closed_at),
         "hidden": case_hidden(case),
         "owns_hold": bool(case.held_program_id or case.owned_suppression_id),
+        "hold_requested": case_hide_intent(case),
         "notification_state": case.notification_state,
         "version": case.version,
     }
@@ -533,6 +535,12 @@ def case_action(case_id):
     if not isinstance(payload, dict):
         return jsonify(error="JSON object required"), 400
     try:
+        from src.services.admin_control_safety import lock_target
+
+        snapshot = db.session.get(SafeguardingCase, case_id)
+        if snapshot is None:
+            return jsonify(error="Not found"), 404
+        lock_target(snapshot.target_type, snapshot.target_id)
         case = SafeguardingCase.query.filter_by(id=case_id).populate_existing().with_for_update().first()
         if case is None:
             return jsonify(error="Not found"), 404
@@ -553,21 +561,36 @@ def case_action(case_id):
 @page("safety")
 def hidden():
     limit, offset = pagination()
+
+    def inventory_offset(name):
+        try:
+            value = int(request.args.get(name, offset))
+        except ValueError:
+            abort(400, description="Invalid inventory offset")
+        if not 0 <= value <= 2147483647:
+            abort(400, description="Inventory offset is out of range")
+        return value
+
+    suppression_offset = inventory_offset("suppression_offset")
+    program_offset = inventory_offset("program_offset")
+    suppressions = PlayerSuppression.query.filter_by(status="active")
+    programs = ClubProgram.query.filter_by(emergency_hidden=True)
+    suppression_total, program_total = suppressions.count(), programs.count()
     return jsonify(
         suppressions=[
             {"id": row.id, "player_api_id": row.player_api_id, "local_player_id": row.local_player_id}
-            for row in PlayerSuppression.query.filter_by(status="active")
-            .order_by(PlayerSuppression.id)
-            .offset(offset)
-            .limit(limit)
+            for row in suppressions.order_by(PlayerSuppression.id).offset(suppression_offset).limit(limit)
         ],
         programs=[
             {"id": row.id, "name": row.name}
-            for row in ClubProgram.query.filter_by(emergency_hidden=True)
-            .order_by(ClubProgram.id)
-            .offset(offset)
-            .limit(limit)
+            for row in programs.order_by(ClubProgram.id).offset(program_offset).limit(limit)
         ],
+        suppression_total=suppression_total,
+        suppression_has_more=suppression_offset + limit < suppression_total,
+        suppression_offset=suppression_offset,
+        program_total=program_total,
+        program_has_more=program_offset + limit < program_total,
+        program_offset=program_offset,
         limit=limit,
         offset=offset,
     )

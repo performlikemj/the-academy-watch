@@ -76,3 +76,22 @@
 - Final refresh: main9f329ea5 (A2 squash) merged8e099b92; latest A2d1eb66ad mergedcf12ab26. Both merge trees equal first parent49206302, no implementation change after gates; B3 standing guards and p2b3 pins retained.
 - Final local prerequisites: B1 14b26fbc/B2 5cd45b0b migrations byte-identical (same SHA256 as prior round); neither re-copied. No schema/lockfile changes.
 - Delivery: fix3242113a; PR1115 body includes exact merge order B1 → B2 → B3 and final gates. Hand-back ~/codex-runs/aw-redesign/logs/B3F3.final.md; no merge/deploy/flag changes/provider sends. Cleaned owned foreground services/aw_p2_b3/temp/browser outputs.
+
+## B3 fix round 5 — complete
+- Read all four RB3FINAL reports; union nine factual findings accepted (O6 optional).
+- Priority: O5; X2/O2, O3, O4; X1, O1, X4, X3; O6.
+- Now: reproduce probes as regressions and bound migration/preapply lock wait.
+- Next: refresh main, full flags-OFF/PG/frontend/browser gates, preapply twice=upgrade CONTRACT, screenshots, push, hand-back/no merge.
+
+- Milestone: O5 exact SQL/migration contention2 passed; eleven pre-fix regressions failed as expected. Focused191, final focused/PG77 passed; frontend Node219/Playwright16+media/lint/build proceeding.
+- Migration/preapply parity: p2b2→p2b3 upgrade == exact SQL twice, schema diff0/backfill5 identical/RLS4; CONTRACT posted new hashes. B1/B2 final heads already squash-merged in main784b1490; main current, A2d1eb66ad included; prerequisites byte-identical, pins p2b3.
+- Now: full flags-OFF suite in foreground; browser screenshots refresh, final static gates/hand-back/push.
+
+- Final inspection: canonical numeric club aliases now share target lock/intent; SQLite17 + PostgreSQL32 pass. Initial full4257/100skip/0fail passed; final full rerun after that narrow fix underway.
+- Affected Safety screenshots4 refreshed/inspected at1440/390; final browser16 + existing media1 pass, screenshot4 rerun pass; Vite5198 stopped.
+- Final OSV547/Node219/lint0err190warn/build/Ruff+format587 green; no separate JS typecheck script.
+
+- Final foreground full4258 pass/101skip/0fail912.59s; PostgreSQL32 (16 prior +14 final-duel +2 shipped lock-timeout probes); Node219, admin/media browser17 +affected screenshot4 repeat, Ruff/format587, OSV547/lint0err190warn/build pass. No separate JS typecheck script.
+- Full actual main HTTP deletion on real s4d1→p2b3 schema/RLS/append-only guard also passed after hide→restore→hide→close and flagsOFF: account removed, generated copies redacted, genuine requester evidence +holds retained, cash facts retained/unlinked.
+- Cleanup: owned Vite5198 stopped; aw_p2_b3, aw_p2_b3_lock, aw_p2_b3_upgrade and aw_p2_b3_preapply dropped; prefix catalog count0. Browser/build/Vite outputs removed; retained named evidence/logs/screenshots only.
+- Now: all nine findings FIXED; final release review/integration on PR1115. Exact delivery SHA/CI status on BUS and external B3F5.final.md; no merge, deployment or production enablement.

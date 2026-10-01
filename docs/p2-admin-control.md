@@ -148,7 +148,7 @@ Draft, stacked on A2 #1109. No production switch-on is part of this lane.
   Reconciliation excludes case-owned suppressions and intake deduplicates by source ID.
 - **Rollback page flags/frontend while retaining the additive schema and standing guards.**
   Backend image rollback must use a compatible build that still enforces account standing
-  and auth epochs; a pre-B3 backend would lose those protections. Migration
+  and auth epochs plus retained erasure/source-sync adapters; a pre-B3 backend would lose those protections. Migration
   backfill creates retained cases on real data; destructive Alembic downgrade refuses
   them, cash/history/deployment rows and changed account standing. This is deliberate.
   Do not delete evidence or reset auth epochs to force a downgrade. Empty scratch
@@ -195,3 +195,49 @@ Draft, stacked on A2 #1109. No production switch-on is part of this lane.
   choice; the current behavior allows the administrator to proceed.
 - Clip safeguarding hides the whole player page, with an explicit confirmation
   warning. Per-clip suppression would need a separate visibility design.
+
+## B3F5 review-duel contracts
+
+- p2b3 migration and preapply set transaction-local `lock_timeout = '5s'` before
+  account DDL. Run `psql -X -v ON_ERROR_STOP=1 -f p2b3_preapply.sql` in a dedicated
+  connection **before deploying code**. SQLSTATE 55P03 is a failed attempt: disconnect
+  (rollback), or issue ROLLBACK interactively. Wait for the blocker to end, then retry
+  the whole repeat-safe script. Never continue deployment after a failed attempt.
+- `/admin/users/<id>/suspend` and `/restore` are fixed paths. With flags OFF, existing
+  author-permission OPTIONS retains its original Allow methods.
+- Anonymous intake has one pending/active request per player. Repeats **do not add
+  or correct contact/evidence**. The same neutral acknowledgment explains this for
+  known, unknown, first and repeated requests. Original encrypted evidence/identity
+  remains authoritative; anonymous repeats cannot change notification recipients.
+  Supplemental intake is not offered. This policy, bounded IDs, retained source sync
+  and DSR hooks are persistent privacy changes alongside account standing while OFF.
+- Lazy handover repair refreshes at most 500 discrepancies per source/pass, only
+  imported/intake cases with no decision events (received is allowed) and no owned
+  hold. It rechecks eligibility after ordered target locks. It never resets case
+  decisions or lifts a hold. Both report and suppression preapply-window changes
+  are repaired, including changes during a compatible rollback.
+- PostgreSQL target transaction locks precede case/source row locks for case actions,
+  public intake and original moderation tools. Signed/local/showcase player aliases
+  share the resolved target lock; numeric club aliases also share one key.
+  Absent-suppression inserts recover unique
+  index winners inside a savepoint for older writers. Reconciliation acquires
+  multiple target locks in sorted order. Stale case versions still return 409.
+- Each case's latest hide/restore/source-lift event records current hide intent.
+  Close retains it, including closed cases. An owner restore is refused while
+  another case still requires the hold. A nonowner can withdraw only its intent
+  from a case-owned shared hold; the physical hold remains. It cannot restore a
+  guardian's original hold. Original-tool lifts retire all case intents on that
+  target, so a historical hide cannot block a new cycle. Restore requires a
+  named confirmation and reason; `hold_requested` describes this intent in DTOs.
+- Newly case-generated suppressions use fixed contact/evidence markers; admin
+  identity/reason stays in decision/history fields. Erasure also removes old
+  generated copies using the report's source link and first hide event before
+  actor redaction, scrubs that actor's decision notes, and preserves genuine
+  requester evidence and active holds. These erasure hooks remain active OFF.
+- Hidden inventory accepts independent `program_offset` / `suppression_offset`,
+  with `program_total`, `suppression_total`, independent `*_has_more` and offsets,
+  plus bounded `limit` (default30, maximum100). Legacy `offset` sets both defaults.
+  Each UI collection shows its total and its own pager.
+- `/auth/me` reuses the role/user validated by its auth decorator, removing the
+  second decode/standing query. Each real decode still checks current persisted
+  standing/epoch; there is no request-wide or cross-request authorization cache.

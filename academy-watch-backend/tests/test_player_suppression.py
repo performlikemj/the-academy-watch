@@ -461,7 +461,10 @@ def test_public_intake_is_neutral_sanitized_encrypted_and_not_contact_gated(clie
     assert (
         known.get_json()
         == unknown.get_json()
-        == {"message": "Your takedown request has been received and will be reviewed."}
+        == {
+            "message": "Takedown requests are reviewed per player. If a request is already pending or active, "
+            "this submission does not replace or add to its contact or evidence."
+        }
     )
     known_row = PlayerSuppression.query.filter_by(player_api_id=SUPPRESSED_ID).one()
     assert known_row.status == "requested"
