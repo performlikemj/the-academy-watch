@@ -46,6 +46,7 @@ test.describe.serial('Academy Watch Features', () => {
         const testTakeContent = `E2E Test Take - Great performance today! ${Date.now()}`
 
         test('public user can submit a take via /submit-take', async ({ page }) => {
+            test.skip(true, 'legacy page hidden 2026-10-01')
             await page.goto('/submit-take')
 
             // Verify page title
@@ -70,6 +71,7 @@ test.describe.serial('Academy Watch Features', () => {
         })
 
         test('admin can see pending submission in the inbox', async ({ page }) => {
+            test.skip(true, 'legacy page hidden 2026-10-01')
             await loginWithCode(page, env.adminEmail, dbClient, { displayName: 'E2E Admin' })
             await setAdminKey(page, env.adminKey)
 
@@ -96,6 +98,7 @@ test.describe.serial('Academy Watch Features', () => {
         })
 
         test('admin can approve a submission', async ({ page }) => {
+            test.skip(true, 'legacy page hidden 2026-10-01')
             await loginWithCode(page, env.adminEmail, dbClient, { displayName: 'E2E Admin' })
             await setAdminKey(page, env.adminKey)
 

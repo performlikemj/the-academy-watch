@@ -629,3 +629,47 @@ def test_season_context_structure():
     trends = season_context["trends"]
     assert "goals_per_90" in trends
     assert "goals_last_5" in trends
+
+
+@pytest.mark.parametrize("legacy_visible", [False, True])
+def test_commentary_snippet_omits_hidden_read_more_link(monkeypatch, legacy_visible):
+    from src.agents import weekly_agent
+    from src.utils import legacy_pages
+
+    monkeypatch.setattr(legacy_pages, "LEGACY_PUBLIC_PAGES", legacy_visible)
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://example.com")
+    monkeypatch.setenv("PUBLIC_MANAGE_PATH", "/settings")
+    commentary = SimpleNamespace(
+        id=42,
+        title="Writer analysis",
+        author_name="Fixture Writer",
+        commentary_type="intro",
+        content="Writer insight.",
+        to_dict=lambda: {},
+    )
+    news = {"title": "Fixture newsletter", "public_slug": "fixture-issue", "sections": []}
+    # Capture the production context as well as exercising the actual template.
+    contexts = []
+    build_context = weekly_agent._build_template_context
+
+    def capture_context(*args, **kwargs):
+        ctx = build_context(*args, **kwargs)
+        contexts.append(ctx)
+        return ctx
+
+    monkeypatch.setattr(weekly_agent, "_build_template_context", capture_context)
+    html = weekly_agent._render_variants_custom(
+        news, "Fixture FC", [commentary], use_snippets=True, render_mode="email"
+    )["email_html"]
+    # Keep the existing URL byte-for-byte when enabled, including its manage prefix.
+    prior_url = "https://example.com/settings/newsletters/fixture-issue#commentary-42"
+    assert contexts[0]["headlines_commentary"][0]["read_more_url"] == (prior_url if legacy_visible else None)
+    assert (prior_url in html) is legacy_visible
+    assert ("Read full analysis" in html) is legacy_visible
+    assert "Writer insight." in html
+    assert "Fixture Writer" in html
+    assert 'href="https://example.com/settings"' in html
+    assert 'href=""' not in html
+    assert 'href="None"' not in html
+    text = weekly_agent._plain_text_from_news_only(news)
+    assert "/newsletters/" not in text
