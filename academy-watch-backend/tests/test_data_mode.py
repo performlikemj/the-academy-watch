@@ -296,7 +296,7 @@ def test_gol_and_meta(frozen_app, monkeypatch):
     }
     monkeypatch.setenv("API_FOOTBALL_FROZEN", "0")
     monkeypatch.delenv("NEWSLETTERS_FROZEN", raising=False)
-    assert len(active_tool_schemas()) == 3
+    assert len(active_tool_schemas()) == 2  # unverified web discovery is never a scout tool
     assert frozen_app.test_client().get("/api/meta/data-mode").json == {
         "api_football_frozen": False,
         "newsletters_frozen": False,
@@ -628,7 +628,9 @@ def test_frozen_local_approval_and_shadow_reactivation(frozen_app, player_api_id
 def test_refollow_inactive_stored_shadow(frozen_app):
     from src.auth import issue_user_token
 
-    db.session.add(PlayerShadow(player_api_id=990009, player_name="Stored Follow", is_active=False))
+    db.session.add(
+        PlayerShadow(player_api_id=990009, player_name="Stored Follow", birth_date=date(2000, 1, 1), is_active=False)
+    )
     db.session.commit()
     response = frozen_app.test_client().post(
         f"/api/scout/lists/{FollowList.query.one().id}/follows",
