@@ -14,7 +14,7 @@ struct SentContactRequestsView: View {
             AcademyColors.background.ignoresSafeArea()
 
             if viewModel.isLoading, !viewModel.hasLoaded {
-                ProgressView("Loading sent requests…")
+                CleatLoader("Loading sent requests…")
                     .tint(AcademyColors.accent)
             } else if let error = viewModel.errorMessage, viewModel.requests.isEmpty {
                 ContentUnavailableView {
@@ -79,7 +79,7 @@ struct SentContactRequestsView: View {
                 }
 
                 if viewModel.isLoadingMore {
-                    ProgressView("Loading more…")
+                    CleatLoader("Loading more…")
                         .frame(maxWidth: .infinity)
                         .padding()
                 }
@@ -211,7 +211,7 @@ private struct ContactRequestCard: View {
                 Divider()
                 Button(role: .destructive, action: onWithdraw) {
                     HStack(spacing: 7) {
-                        if isWithdrawing { ProgressView().controlSize(.small) }
+                        if isWithdrawing { CleatLoader().controlSize(.small) }
                         Text(isWithdrawing ? "Withdrawing…" : "Withdraw request")
                     }
                     .font(AcademyType.subheadline.weight(.semibold))

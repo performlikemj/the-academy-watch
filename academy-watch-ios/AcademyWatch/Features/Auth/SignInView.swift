@@ -213,7 +213,7 @@ struct SignInView: View {
         Button(action: action) {
             HStack(spacing: 9) {
                 if isLoading {
-                    ProgressView()
+                    CleatLoader()
                         .tint(AcademyColors.onPrimary)
                 }
                 Text(title)

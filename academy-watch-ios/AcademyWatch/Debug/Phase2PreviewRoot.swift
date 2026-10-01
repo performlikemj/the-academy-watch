@@ -68,6 +68,22 @@
                 RootTabView(launchArguments: ["-initialTab", chosenTab.rawValue])
             } else {
                 switch screen {
+                case "loader-green", "loader-claret", "loader-navy", "loader-gold", "loader-still":
+                    CleatLoader(phase: screen == "loader-claret" ? 1 : screen == "loader-navy" ? 2 : screen == "loader-gold" ? 3 : 0,
+                                reduceMotionOverride: screen == "loader-still")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity).background(AcademyColors.background)
+                case "post-empty", "post-error":
+                    NavigationStack {
+                        if workspace.flags.opportunities {
+                            OpportunityEditorView(programId: 101, flags: workspace.flags, client: client)
+                        }
+                    }
+                case "post-filled", "post-locked":
+                    NavigationStack {
+                        if let post {
+                            OpportunityEditorView(programId: 101, post: post, flags: workspace.flags, client: client)
+                        }
+                    }
                 case "N01": RootTabView(launchArguments: ["-initialTab", "home"])
                 case "N02", "N02b": RootTabView(launchArguments: ["-initialTab", "clubs"])
                 case "N03":

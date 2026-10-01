@@ -97,6 +97,8 @@ struct Phase2Opportunity: Decodable, Identifiable, Sendable {
     let status: String
     let version: Int
     // These fields exist only on the club DTO. Public views never render them.
+    var squadId: Int? = nil
+    var createdAt: String? = nil
     let trialInviteDeadline: String?
     let capacity: Int?
     let placesLeft: Int?

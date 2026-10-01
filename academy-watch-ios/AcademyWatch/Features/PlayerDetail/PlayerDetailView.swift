@@ -111,7 +111,7 @@ struct PlayerDetailView: View {
             AcademyColors.background.ignoresSafeArea()
 
             if viewModel.isLoading(.profile), viewModel.profile == nil {
-                ProgressView("Loading player…")
+                CleatLoader("Loading player…")
                     .tint(AcademyColors.accent)
             } else if let message = viewModel.errorMessage(for: .profile), viewModel.profile == nil {
                 PlayerDetailPageError(message: message) {
@@ -552,7 +552,7 @@ private struct PlayerProfileHeader: View {
                     case let .success(image):
                         image.resizable().scaledToFill()
                     case .empty:
-                        ProgressView().tint(AcademyColors.accent)
+                        CleatLoader().tint(AcademyColors.accent)
                     case .failure:
                         photoPlaceholder
                     @unknown default:
@@ -586,7 +586,7 @@ private struct PlayerProfileHeader: View {
                 AsyncImage(url: logoURL) { image in
                     image.resizable().scaledToFit()
                 } placeholder: {
-                    ProgressView().controlSize(.small)
+                    CleatLoader().controlSize(.small)
                 }
             } else {
                 Image(systemName: "shield.fill")
@@ -791,7 +791,7 @@ private struct SeasonClubCard: View {
                 AsyncImage(url: logoURL) { image in
                     image.resizable().scaledToFit()
                 } placeholder: {
-                    ProgressView().controlSize(.small)
+                    CleatLoader().controlSize(.small)
                 }
             } else {
                 Image(systemName: "shield.fill")
@@ -1028,7 +1028,7 @@ private struct JourneyTimelineCard: View {
                 AsyncImage(url: logoURL) { image in
                     image.resizable().scaledToFit()
                 } placeholder: {
-                    ProgressView().controlSize(.mini)
+                    CleatLoader().controlSize(.mini)
                 }
             } else {
                 Image(systemName: "shield.fill")
@@ -1123,7 +1123,7 @@ private struct PlayerDetailLoadingCard: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            ProgressView().tint(AcademyColors.accent)
+            CleatLoader().tint(AcademyColors.accent)
             Text(label)
                 .font(AcademyType.footnote)
                 .foregroundStyle(AcademyColors.secondaryText)

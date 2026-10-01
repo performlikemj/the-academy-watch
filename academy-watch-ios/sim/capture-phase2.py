@@ -8,7 +8,7 @@ from pathlib import Path
 import subprocess
 import time
 
-SCREENS = ["N01", "N02", "N02b", "N03", "N04", "N05", "N06", "N06b", "N09", "N09b", "N10", "N13", "N14", "N17"]
+SCREENS = ["N01", "N02", "N02b", "N03", "N04", "N05", "N06", "N06b", "N09", "N09b", "N10", "N13", "N14", "N17", "post-empty", "post-filled", "post-error", "post-locked", "loader-green", "loader-claret", "loader-navy", "loader-gold", "loader-still"]
 
 
 def run(*args):

@@ -60,7 +60,7 @@ struct WatchlistView: View {
         if !authManager.isAuthenticated {
             signedOutState
         } else if viewModel.isLoading, viewModel.entries.isEmpty {
-            ProgressView("Loading your watchlist…")
+            CleatLoader("Loading your watchlist…")
                 .tint(AcademyColors.accent)
         } else if let message = viewModel.errorMessage, viewModel.entries.isEmpty {
             errorState(message: message)

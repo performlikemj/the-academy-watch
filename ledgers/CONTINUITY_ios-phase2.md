@@ -11,7 +11,7 @@
 
 ## State
 - Done: merged B3 + final B1/B2 dependencies; conflicts preserved owned feature blocks. Native role tabs, browse/apply/application actions, recruiting/invites/notes/signing, owner staff grants and scoped squads implemented.
-- Now: I1F1 complete; exact source passes all gates, evidence refreshed, draft #1118 ready for independent re-review (unmerged).
+- Now: I1 round 2 implemented; final offline/evidence gates in progress. Draft #1118 stays unmerged.
 - Next: orchestrator independent RI1 re-review; web lane supplies L2 parent-interest anchor; no merge.
 
 ## Validation
@@ -84,3 +84,11 @@
 - 28 fresh initial light/dark shots, nine final scrolled viewports, 28 current IMF1 comparisons, source/hash manifests and 51 named Phase 2 UI screenshots: ~/codex-runs/aw-redesign/shots/I1/INDEX.md. Per-finding results/remaining RIM gaps: ~/codex-runs/aw-redesign/logs/I1F1.final.md.
 - Owned review/capture simulators 1A649F0A-6B8E-41E5-A06B-ECF2F45050C0 / 4583A7BD-8437-45E5-A34B-DA39FD00BAC6 deleted; /tmp/aw-I1F1-derived + /tmp/aw-I1F1-release and owned interim evidence removed. Other lanes untouched. Foreground commands only; no live login-email suite, background server, production writes or dependency restore.
 - Push feat/ios-phase2 to draft #1118; no merge. External hand-back records final pushed SHA and BUS DONE.
+
+## I1 round 2
+- Now: native Post-a-trial editor and N5-aligned shared cleat loader in progress; RI1 fix72fc5884 present.
+- Next: staging editor contracts, view-model/offline UI tests, light/dark screenshots, unit/offline/Release gates, cleanup and push.
+
+- Native editor + shared loader implemented. First289 native unit tests and80 focused backend tests pass; staging editor success/refusal contracts refreshed. UI fixture funding bridge corrected to include editor owner; screenshot and final gates ongoing.
+
+- Full offline Experience gate:42 pass/2 inherited opt-in skips/0 fail across all four classes. Renewal19:00 low-cut/solid-upper redraw applied with exact N5F1 paths;292 native unit tests and Release arm64/x86_64 pass. Final affected UI/capture checks and push/cleanup ongoing.

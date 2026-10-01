@@ -97,7 +97,7 @@ struct GolChatView: View {
                         }
                         if model.isStreaming {
                             HStack {
-                                ProgressView()
+                                CleatLoader()
                                 Text(model.isUsingTool ? "Looking up football data…" : "GOL is answering…")
                                     .font(AcademyType.footnote)
                             }

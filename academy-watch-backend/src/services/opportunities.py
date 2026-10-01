@@ -223,6 +223,7 @@ def opportunity_dict(row, *, private=False, program=None, squad=None, reserved=N
     reserved = (reservations(row.id) if reserved is None else reserved) if private else 0
     if private:
         data.update(
+            created_at=iso(row.created_at),
             trial_invite_deadline=iso(
                 row.closes_at + timedelta(days=14)
                 if row.type == "position"

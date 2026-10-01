@@ -32,7 +32,7 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
 
 ## State
 
-- **Now (2026-10-01):** Phase 2 B2 fix round 3 housekeeping validated for #1113: anonymous claims gate + list/detail request regressions, four head pins → p2b2, latest main/N4 + A2 current. Full foreground gates green with zero pytest failures. PR stays draft/unmerged; hand-back `~/codex-runs/aw-redesign/logs/B2F3.final.md`. See `ledgers/CONTINUITY_p2-b2.md`.
+- **Now (2026-10-01):** I1 round 2 native recruiting editor + N5 cleat loader implemented on feat/ios-phase2, draft #1118. Unit291/backend80 + Release pass; full offline UI/evidence finishing. See `ledgers/CONTINUITY_ios-phase2.md`.
 
 ### Done
 - **2026-10-01 I1 fix round 1 complete:** RI1 fixes on fidelity67fa3244; 279 unit/API + 39 offline UI pass (2 opt-in skips), Release green; 47 real staging contracts and 28 fresh light/dark shots/comparisons. Draft #1118 unmerged; L2 web anchor handed off; remaining board gaps recorded. See `ledgers/CONTINUITY_ios-phase2.md`.

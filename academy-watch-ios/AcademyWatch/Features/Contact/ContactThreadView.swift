@@ -42,7 +42,7 @@ struct ContactThreadView: View {
                             outcomeCard
 
                             if viewModel.isLoading, !viewModel.hasLoaded {
-                                ProgressView("Loading conversation…")
+                                CleatLoader("Loading conversation…")
                                     .padding(.vertical, 28)
                             } else if viewModel.messages.isEmpty {
                                 FloodlightEmptyState(
@@ -281,7 +281,7 @@ struct ContactThreadView: View {
             } label: {
                 Group {
                     if viewModel.isSending {
-                        ProgressView().tint(AcademyColors.onPrimary)
+                        CleatLoader().tint(AcademyColors.onPrimary)
                     } else {
                         Image(systemName: "arrow.right")
                             .font(AcademyType.body.weight(.semibold))
@@ -487,7 +487,7 @@ private struct OutcomeSheet: View {
                     } label: {
                         HStack {
                             Spacer()
-                            if viewModel.isReportingOutcome { ProgressView() }
+                            if viewModel.isReportingOutcome { CleatLoader() }
                             Text(viewModel.isReportingOutcome ? "Saving…" : "Save outcome")
                                 .fontWeight(.semibold)
                             Spacer()

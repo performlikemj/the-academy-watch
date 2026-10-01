@@ -21,7 +21,9 @@ python3 academy-watch-ios/sim/refresh-phase2-contracts.py --exercise-writes --ca
 
 The explicit write mode creates a labelled synthetic scratch trial and adult
 application, publishes it, shortlists/invites/confirms/reschedules, writes a note,
-then withdraws the application and cancels the post. It creates and revokes a
+then withdraws the application and closes the post. A second scratch position is created and cancelled.
+Editor contracts include edit success, field 422, horizon 422, stale-version 409,
+application-lock 409, and the locked private list after submission. It creates and revokes a
 synthetic staff invite (staging SMTP sink only). A seeded coach's scope PATCH is
 an exact no-op apart from the server version/audit record. DELETE is captured as
 a genuine missing-grant refusal rather than removing a seeded user's access.

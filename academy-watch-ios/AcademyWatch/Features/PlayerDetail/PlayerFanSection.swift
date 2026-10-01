@@ -172,7 +172,7 @@ struct PlayerFanSectionView: View {
         } label: {
             HStack(spacing: 6) {
                 if viewModel.isPending {
-                    ProgressView()
+                    CleatLoader()
                         .controlSize(.small)
                         .tint(isFollowing ? AcademyColors.accent : AcademyColors.onPrimary)
                 }

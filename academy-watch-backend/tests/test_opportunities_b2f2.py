@@ -170,3 +170,14 @@ def test_trial_after_creation_horizon_still_requires_privacy_cap(client, env):
         ).status_code
         == 200
     )
+
+
+def test_private_posting_exposes_original_creation_clock_only(client, env):
+    row = create(client, env)
+    stored = service.opportunity(row["id"], env["pid"])
+    stored.created_at = now() - timedelta(days=10)
+    db.session.commit()
+    private = client.get(f"/api/club/{env['pid']}/opportunities", headers=_headers("a")).get_json()["opportunities"][0]
+    assert private["created_at"] == service.iso(stored.created_at)
+    assert private["trial_invite_deadline"] == service.iso(stored.created_at + timedelta(days=90))
+    assert "created_at" not in service.opportunity_dict(stored)

@@ -112,7 +112,7 @@ struct ScoutDeskView: View {
 
                 if isShowingInitialLoadingCard {
                     TimelineView(.periodic(from: .now, by: 1)) { _ in
-                        WingLiftLoadingView(
+                        CleatLoader(
                             feedback: viewModel.initialLoadFeedback()
                                 ?? ScoutInitialLoadFeedback(elapsedSeconds: 0)
                         )
@@ -217,7 +217,7 @@ struct ScoutDeskView: View {
     }
 
     private var isShowingInitialLoadingCard: Bool {
-        navigationPath.isEmpty && viewModel.shouldShowWingLiftLoadingCard
+        navigationPath.isEmpty && viewModel.shouldShowCleatLoadingCard
     }
 
     private var hidesTabBarForInitialGrace: Bool {
@@ -280,7 +280,7 @@ struct ScoutDeskView: View {
                         .font(AcademyType.caption2.weight(.medium))
                         .foregroundStyle(AcademyColors.secondaryText)
                 } else if viewModel.isLoadingLeaderboards {
-                    ProgressView()
+                    CleatLoader()
                         .controlSize(.small)
                         .tint(AcademyColors.accent)
                 }
@@ -477,7 +477,7 @@ struct ScoutDeskView: View {
             TimelineView(.periodic(from: .now, by: 1)) { _ in
                 VStack(spacing: 7) {
                     if let feedback = viewModel.initialLoadFeedback() {
-                        ProgressView()
+                        CleatLoader()
                             .tint(AcademyColors.accent)
                         Text(feedback.title)
                             .font(AcademyType.subheadline.weight(.semibold))
@@ -489,7 +489,7 @@ struct ScoutDeskView: View {
                             .font(AcademyType.caption2)
                             .foregroundStyle(AcademyColors.secondaryText)
                     } else {
-                        ProgressView("Scouting talent…")
+                        CleatLoader("Scouting talent…")
                             .tint(AcademyColors.accent)
                     }
                 }
@@ -566,7 +566,7 @@ struct ScoutDeskView: View {
             if viewModel.isLoadingNextPage {
                 HStack {
                     Spacer()
-                    ProgressView()
+                    CleatLoader()
                         .tint(AcademyColors.accent)
                         .padding(.vertical, 16)
                     Spacer()

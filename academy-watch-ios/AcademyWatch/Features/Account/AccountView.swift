@@ -401,7 +401,7 @@ struct AccountView: View {
                             Spacer(minLength: 6)
                             if incomingRequestsViewModel.isLoading,
                                !incomingRequestsViewModel.hasLoaded {
-                                ProgressView().controlSize(.small)
+                                CleatLoader().controlSize(.small)
                             } else {
                                 Image(systemName: "chevron.right")
                                     .font(AcademyType.subheadline.weight(.semibold))
@@ -440,7 +440,7 @@ struct AccountView: View {
 
                         Spacer(minLength: 6)
                         if sentRequestsViewModel.isLoading, !sentRequestsViewModel.hasLoaded {
-                            ProgressView().controlSize(.small)
+                            CleatLoader().controlSize(.small)
                         } else {
                             Image(systemName: "chevron.right")
                                 .font(AcademyType.subheadline.weight(.semibold))
@@ -481,7 +481,7 @@ struct AccountView: View {
                     }
                     Spacer(minLength: 6)
                     if exportState == .loading {
-                        ProgressView().controlSize(.small)
+                        CleatLoader().controlSize(.small)
                     } else {
                         Image(systemName: "chevron.right")
                             .font(AcademyType.subheadline.weight(.semibold))
@@ -726,7 +726,7 @@ private struct DeleteAccountSheet: View {
                 } label: {
                     HStack {
                         Spacer()
-                        if isDeleting { ProgressView() }
+                        if isDeleting { CleatLoader() }
                         Text(isDeleting ? "Deleting…" : "Continue to Delete")
                             .fontWeight(.semibold)
                         Spacer()

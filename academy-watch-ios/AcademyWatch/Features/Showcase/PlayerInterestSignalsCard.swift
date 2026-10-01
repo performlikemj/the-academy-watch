@@ -67,14 +67,14 @@ struct PlayerInterestSignalsCard: View {
 
     private var loadingContent: some View {
         HStack(spacing: 10) {
-            ProgressView()
+            CleatLoader()
                 .tint(AcademyColors.accent)
             Text("Checking your profile interest…")
                 .font(AcademyType.subheadline)
                 .foregroundStyle(AcademyColors.secondaryText)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Loading profile interest")
+        .accessibilityLabel("Loading")
     }
 
     @ViewBuilder

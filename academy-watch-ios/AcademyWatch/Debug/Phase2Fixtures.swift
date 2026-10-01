@@ -21,11 +21,11 @@
         static var active: Bool { mode != nil || screen != nil }
         static var resolvedMode: String {
             mode
-                ?? (["N09", "N09b", "N10", "N13"].contains(screen ?? "")
+                ?? ((["N09", "N09b", "N10", "N13"].contains(screen ?? "") || (screen ?? "").hasPrefix("post-"))
                     ? "owner" : screen == "N14" ? "coach" : "player")
         }
         static var isClubExperience: Bool {
-            ["owner", "coach", "recruiting", "signed", "draft", "full", "conflict", "nostaff", "membership-error", "pendingclub", "club-signed-out"].contains(resolvedMode)
+            ["owner", "editor", "coach", "recruiting", "signed", "draft", "full", "conflict", "nostaff", "membership-error", "pendingclub", "club-signed-out"].contains(resolvedMode)
         }
         static func contactFixture(_ data: Data, messages: Bool) throws -> Data {
             guard screen == "N17" || screen == "N01" else { return data }
@@ -116,6 +116,7 @@
         private var invited = false
         private var published = false
         private var notes: [[String: Any]] = []
+        private var editorPost: [String: Any]?
         init(mode: String) {
             self.mode = mode
             if mode == "recruiting" || mode == "owner" || mode == "full" || mode == "conflict" {
@@ -185,7 +186,7 @@
             }
             if method == "GET", path == "funding/claims/me" {
                 return try json([
-                    "claims": ["owner", "recruiting", "signed", "full", "conflict", "draft", "nostaff"]
+                    "claims": ["owner", "editor", "recruiting", "signed", "full", "conflict", "draft", "nostaff"]
                         .contains(mode)
                         ? [
                             [
@@ -232,6 +233,35 @@
                     "gender_programs": ["men", "boys"], "squad_count": 5,
                 ]
                 return try json(["program": page])
+            }
+            if mode == "editor", path == "club/101/opportunities", method == "GET" {
+                if var value = editorPost, value["status"] as? String == "published" {
+                    // A retained application arrives between the publication response and the next read.
+                    value["application_count"] = 1; editorPost = value
+                }
+                return try json(["opportunities": editorPost.map { [$0] } ?? [], "page": 1, "has_more": false])
+            }
+            if mode == "editor", path == "club/101/opportunities", method == "POST" {
+                guard body["title"] is String, body["closes_at"] is String else {
+                    throw APIClientError.server(statusCode: 422, message: "required_opportunity_details")
+                }
+                var value = body
+                value["id"] = Self.postId; value["program_id"] = 101; value["club_name"] = "Quillmere Athletic"
+                value["club_slug"] = "quillmere-athletic"; value["version"] = 1; value["application_count"] = 0
+                value["created_at"] = "2026-10-01T10:00:00Z"; value["trial_invite_deadline"] = "2026-12-30T10:00:00Z"
+                editorPost = value
+                return try json(["opportunity": value])
+            }
+            if mode == "editor", path.hasPrefix("club/101/opportunities/"), method == "PATCH" || path.hasSuffix("/close") {
+                guard var value = editorPost, body["expected_version"] as? Int == value["version"] as? Int else {
+                    throw APIClientError.server(statusCode: 409, message: "version_conflict")
+                }
+                if (value["application_count"] as? Int ?? 0) > 0 && Set(body.keys).subtracting(["expected_version", "status"]).count > 0 {
+                    throw APIClientError.server(statusCode: 409, message: "advertised_terms_locked")
+                }
+                value.merge(body) { _, new in new }; value.removeValue(forKey: "expected_version")
+                value["version"] = (value["version"] as? Int ?? 0) + 1; editorPost = value
+                return try json(["opportunity": value])
             }
             if path == "opportunities" || path == "club/101/opportunities", method == "GET" {
                 return try json([
@@ -472,17 +502,24 @@
                 "timezone": "Europe/London",
                 "starts_at": "2026-10-07T18:30:00Z", "ends_at": "2026-10-07T20:00:00Z",
                 "closes_at": "2026-10-06T19:00:00Z", "venue": "The Saltings 3G",
-                "address": "Quillmere XW4 2QA",
+                "address": "Quillmere XW4 2QA", "squad_id": 3,
                 "status": (mode == "draft" || Phase2Fixtures.screen == "N09b") && !published
                     ? "draft" : "published",
                 "type": "open_session", "version": published ? 2 : 1,
             ]
             if privateDTO {
+                dto["created_at"] = "2026-10-01T10:00:00Z"
+                dto["trial_invite_deadline"] = "2026-12-30T10:00:00Z"
                 dto["capacity"] = 24
                 dto["places_left"] = 22
                 dto["application_count"] =
                     mode == "draft" || Phase2Fixtures.screen == "N09b"
                     ? 0 : Phase2Fixtures.screen == "N09" ? 14 : 1
+            }
+            if ["post-filled", "post-locked"].contains(Phase2Fixtures.screen ?? "") {
+                dto["title"] = "Open trial — Reserves"; dto["type"] = "trial"
+                dto["status"] = Phase2Fixtures.screen == "post-filled" ? "draft" : "published"
+                if privateDTO { dto["application_count"] = Phase2Fixtures.screen == "post-filled" ? 0 : 1 }
             }
             if Phase2Fixtures.screen == "N09" {
                 dto["title"] = "Open trial — First Team"

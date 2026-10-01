@@ -124,6 +124,16 @@ def main():
                                  {"expected_version": post["version"], "status": "published"}, "PATCH",
                                  "publish-opportunity", "OpportunityResponse")
             post = updated["opportunity"]
+            request(f'club/{pid}/opportunities/{post["id"]}', "club_owner",
+                    {"expected_version": post["version"], "title": ""}, "PATCH", "editor-title-422", "OpportunityResponse")
+            request(f'club/{pid}/opportunities/{post["id"]}', "club_owner",
+                    {"expected_version": post["version"] + 99, "status": "published"}, "PATCH", "editor-version-409", "OpportunityResponse")
+            request(f'club/{pid}/opportunities/{post["id"]}', "club_owner",
+                    {"expected_version": post["version"], "closes_at": stamp(91)}, "PATCH", "editor-horizon-422", "OpportunityResponse")
+            _, updated = request(f'club/{pid}/opportunities/{post["id"]}', "club_owner",
+                    {"expected_version": post["version"], "title": "I1 native editor contract — scratch", "timezone": "Asia/Kolkata", "squad_id": None},
+                    "PATCH", "edit-opportunity", "OpportunityResponse")
+            post = updated["opportunity"]
             status, submitted = request(f'opportunities/{post["id"]}/applications', "adult_player",
                                        dict(claim_id=self_claims["claims"][0]["claim_id"], position="Midfield",
                                             current_club="", contact_consent=True, client_request_id=str(uuid.uuid4())),
@@ -131,6 +141,9 @@ def main():
             if status != 201:
                 raise RuntimeError("Scratch application refused: " + str(submitted))
             app = submitted["application"]
+            request(f'club/{pid}/opportunities', "club_owner", name="editor-locked-posts", dto="OpportunitiesResponse")
+            request(f'club/{pid}/opportunities/{post["id"]}', "club_owner",
+                    {"expected_version": post["version"], "title": "Must not overwrite"}, "PATCH", "editor-terms-409", "OpportunityResponse")
             def transition(target, name, **fields):
                 nonlocal app
                 status, response = request(f'club/{pid}/applications/{app["id"]}/transition', "club_owner",
@@ -167,8 +180,16 @@ def main():
             if invite:
                 request(f'club/{pid}/staff-invites/{invite["id"]}/revoke', "club_owner", {}, "POST",
                         "revoke-staff-invite", "Phase2Empty")
-            request(f'club/{pid}/opportunities/{post["id"]}', "club_owner",
-                    {"expected_version": post["version"], "status": "cancelled"}, "PATCH")
+            _, closed = request(f'club/{pid}/opportunities/{post["id"]}/close', "club_owner",
+                    {"expected_version": post["version"], "status": "closed"}, "POST", "close-opportunity", "OpportunityResponse")
+            # A second labelled scratch position exercises cancellation without changing seed data.
+            status, position = request(f"club/{pid}/opportunities", "club_owner",
+                    body | {"type": "position", "starts_at": None, "ends_at": None, "title": "I1 position contract — scratch"},
+                    "POST", "create-position", "OpportunityResponse")
+            if status == 201:
+                vacancy = position["opportunity"]
+                request(f'club/{pid}/opportunities/{vacancy["id"]}/close', "club_owner",
+                    {"expected_version": vacancy["version"], "status": "cancelled"}, "POST", "cancel-opportunity", "OpportunityResponse")
     if args.capture_rate_limit:
         for _ in range(200):
             status, _ = request("club-directory/search", "visitor", {"q": "Quillmere"}, "POST")

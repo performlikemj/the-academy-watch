@@ -15,7 +15,7 @@ final class Phase2UITests: XCTestCase {
         app.launch()
         XCTAssertTrue(
             app.tabBars.buttons[
-                ["owner", "coach", "signed", "draft", "full", "conflict"].contains(mode) ? "Today" : "Home"
+                ["owner", "editor", "coach", "signed", "draft", "full", "conflict"].contains(mode) ? "Today" : "Home"
             ].waitForExistence(timeout: 15))
     }
     private func tap(_ element: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
@@ -36,6 +36,46 @@ final class Phase2UITests: XCTestCase {
         shot.name = "I1-" + name
         shot.lifetime = .keepAlways
         add(shot)
+    }
+    func testNativePostCreatePublishAndAdvertisedTermsLock() {
+        launch("editor", tab: "recruiting")
+        tap(app.buttons["recruiting-create"])
+        XCTAssertTrue(app.textFields["post-title"].waitForExistence(timeout: 10))
+        capture("post-empty")
+        for (key, value) in [("title", "Open trial — Reserves"), ("description", "A training session for adult players."),
+                             ("instructions", "Bring boots and shin pads."), ("venue", "The Saltings 3G")] {
+            let field = app.descendants(matching: .any).matching(identifier: "post-" + key).firstMatch
+            tap(field); field.typeText(value)
+            if app.toolbars.buttons["Done"].exists { app.toolbars.buttons["Done"].tap() }
+        }
+        capture("post-filled")
+        tap(app.buttons["post-save-draft"])
+        XCTAssertTrue(app.staticTexts["post-notice"].waitForExistence(timeout: 10))
+        capture("post-draft-saved")
+        tap(app.buttons["post-publish"])
+        XCTAssertTrue(app.staticTexts["Published. Adult players can now apply."].waitForExistence(timeout: 10))
+        capture("post-published")
+        app.navigationBars.buttons["Done"].tap()
+        tap(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'recruiting-edit-'")).firstMatch)
+        XCTAssertTrue(app.staticTexts["post-terms-locked"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.textFields["post-title"].isEnabled)
+        capture("post-locked-after-application")
+        XCTAssertFalse(app.buttons["post-timezone"].isEnabled)
+    }
+    func testPostValidationAndAllowedZonePicker() {
+        launch("editor", tab: "recruiting")
+        tap(app.buttons["recruiting-create"])
+        tap(app.buttons["post-timezone"])
+        XCTAssertTrue(app.navigationBars["Time zone"].waitForExistence(timeout: 10))
+        let search = app.searchFields.firstMatch
+        tap(search); search.typeText("Kolkata")
+        tap(app.buttons["post-zone-Asia/Kolkata"])
+        XCTAssertTrue(app.buttons["post-timezone"].label.contains("Kolkata"))
+        tap(app.buttons["post-save-draft"])
+        XCTAssertTrue(app.staticTexts["post-error-title"].exists)
+        for _ in 0..<8 { app.swipeDown() }
+        capture("post-field-validation")
+        XCTAssertTrue(app.staticTexts["post-error-title"].isHittable)
     }
     func testTrialsDraftSurvivesSettingsAndFailedForegroundRefresh() {
         for mode in ["apply", "foreground-failure"] {
@@ -346,6 +386,32 @@ final class Phase2UITests: XCTestCase {
         XCTAssertTrue(declan.waitForExistence(timeout: 10))
         XCTAssertTrue(app.tabBars.buttons["Recruiting"].exists)
         capture("fidelity-shortlisted")
+    }
+    func testRound2FormAndLoaderReviewEvidence() {
+        for style in ["Light", "Dark"] {
+            for screen in ["post-empty", "post-filled", "post-error", "post-locked"] {
+                app.launchArguments = ["-phase2Preview", screen, "-reviewCapture", "-AppleInterfaceStyle", style]
+                app.launch()
+                XCTAssertTrue(app.textFields["post-title"].waitForExistence(timeout: 15))
+                Thread.sleep(forTimeInterval: 2)
+                if screen == "post-error" { XCTAssertTrue(app.staticTexts["post-error-title"].exists) }
+                if screen == "post-locked" { XCTAssertFalse(app.textFields["post-title"].isEnabled) }
+                capture("round2-\(screen)-\(style.lowercased())-top")
+                app.swipeUp(); app.swipeUp()
+                capture("round2-\(screen)-\(style.lowercased())-schedule")
+                app.swipeUp(); app.swipeUp()
+                capture("round2-\(screen)-\(style.lowercased())-publication")
+                app.terminate()
+            }
+            for screen in ["loader-green", "loader-claret", "loader-navy", "loader-gold", "loader-still"] {
+                app.launchArguments = ["-phase2Preview", screen, "-reviewCapture", "-AppleInterfaceStyle", style]
+                app.launch()
+                XCTAssertTrue(app.otherElements["cleat-loader"].waitForExistence(timeout: 15))
+                XCTAssertEqual(app.otherElements["cleat-loader"].label, "Loading")
+                capture("round2-\(screen)-\(style.lowercased())")
+                app.terminate()
+            }
+        }
     }
     func testReviewBoardsAndScrolledContent() {
         let screens = [

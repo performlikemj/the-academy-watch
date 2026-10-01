@@ -15,6 +15,8 @@ struct RecruitingView: View {
     let membership: ClubMembership
     @EnvironmentObject private var workspace: Phase2Workspace
     @StateObject private var model: OpportunitiesViewModel
+    @State private var editorPresented = false
+    @State private var editingPost: Phase2Opportunity?
     init(client: APIClient, membership: ClubMembership) {
         self.client = client
         self.membership = membership
@@ -24,7 +26,9 @@ struct RecruitingView: View {
         Phase2Page(title: "Build the next team.", eyebrow: "\(membership.program.name) · Recruiting") {
             Phase2ClubSelector()
             if membership.access.canRecruit && workspace.flags.opportunities {
-                if model.isLoading { ProgressView("Loading recruiting…") }
+                Button("Post a trial") { editingPost = nil; editorPresented = true }
+                    .buttonStyle(FloodlightPillStyle()).accessibilityIdentifier("recruiting-create")
+                if model.isLoading { CleatLoader("Loading recruiting…") }
                 Phase2ErrorView(message: model.error, retry: reload)
                 ForEach(model.posts) { post in
                     if workspace.flags.applications {
@@ -40,6 +44,9 @@ struct RecruitingView: View {
                     } else {
                         OpportunityRow(post: post)
                     }
+                    Button(["closed", "cancelled"].contains(post.status) ? "View post" : "Edit opportunity") {
+                        editingPost = post; editorPresented = true
+                    }.buttonStyle(FloodlightPillStyle(variant: .outline)).accessibilityIdentifier("recruiting-edit-\(post.id)")
                 }
                 if !model.isLoading, model.posts.isEmpty, model.error == nil {
                     FloodlightEmptyState(
@@ -52,9 +59,16 @@ struct RecruitingView: View {
                     Task { await model.load(programId: membership.id, club: true, page: page) }
                 }
             }
-        }.navigationTitle("Recruiting").task { await model.load(programId: membership.id, club: true) }
+        }.navigationTitle("Recruiting").task {
+            if membership.access.canRecruit && workspace.flags.opportunities { await model.load(programId: membership.id, club: true) }
+        }
             .refreshable {
-                await model.load(programId: membership.id, club: true)
+                if membership.access.canRecruit && workspace.flags.opportunities { await model.load(programId: membership.id, club: true) }
+            }
+            .sheet(isPresented: $editorPresented) {
+                NavigationStack {
+                    OpportunityEditorView(programId: membership.id, post: editingPost, flags: workspace.flags, client: client) { _ in reload() }
+                }
             }.accessibilityIdentifier("phase2-recruiting")
     }
     private func reload() { Task { await model.load(programId: membership.id, club: true) } }
@@ -67,6 +81,8 @@ struct RecruitingPipelineView: View {
     @State private var stage = "all"
     @State private var error: String?
     @State private var isPublishing = false
+    @State private var editorPresented = false
+    @EnvironmentObject private var workspace: Phase2Workspace
     @ScaledMetric(relativeTo: .body) private var applicantRowHeight: CGFloat = 98
     init(post: Phase2Opportunity, client: APIClient) {
         self.client = client
@@ -111,8 +127,12 @@ struct RecruitingPipelineView: View {
                     Phase2Eyebrow(text: "Stage counts across all applicants")
                 }
             }
+            if post.status != "draft", workspace.flags.opportunities, workspace.selected?.access.canRecruit == true {
+                Button("Edit opportunity") { editorPresented = true }.buttonStyle(FloodlightPillStyle(variant: .outline))
+                    .accessibilityIdentifier("pipeline-edit-post")
+            }
             Rectangle().fill(AcademyColors.text).frame(height: 1)
-            if model.isLoading { ProgressView("Loading applicants…") }
+            if model.isLoading { CleatLoader("Loading applicants…") }
             Phase2ErrorView(message: model.error, retry: reload)
             Phase2ErrorView(message: error)
             List {
@@ -176,8 +196,8 @@ struct RecruitingPipelineView: View {
                             .buttonStyle(
                                 FloodlightPillStyle()
                             ).disabled(isPublishing).accessibilityIdentifier("recruiting-publish")
-                        LegalSafariLink(destination: .clubConsole) { Text("Edit the post") }.buttonStyle(
-                            FloodlightPillStyle(variant: .outline))
+                        Button("Edit the post") { editorPresented = true }.buttonStyle(
+                            FloodlightPillStyle(variant: .outline)).accessibilityIdentifier("pipeline-edit-post")
                     }
                     Divider().padding(.top, 14)
                     Text(
@@ -188,6 +208,12 @@ struct RecruitingPipelineView: View {
             }
             Phase2Pagination(page: model.page, hasMore: model.hasMore, busy: model.isLoading) { page in
                 Task { await model.load(programId: post.programId, opportunityId: post.id, page: page) }
+            }
+        }.sheet(isPresented: $editorPresented) {
+            NavigationStack {
+                OpportunityEditorView(programId: post.programId, post: post, flags: workspace.flags, client: client) { fresh in
+                    post = fresh; reload()
+                }
             }
         }.navigationTitle("Applicants").task {
             await model.load(programId: post.programId, opportunityId: post.id)
@@ -297,7 +323,7 @@ struct RecruitingApplicantView: View {
     }
     var body: some View {
         Phase2Page(title: "", eyebrow: "") {
-            if model.isBusy { ProgressView("Updating applicant…") }
+            if model.isBusy { CleatLoader("Updating applicant…") }
             Phase2ErrorView(message: model.error, retry: { Task { await model.load() } })
             if let application = model.application {
                 HStack(spacing: 14) {
@@ -555,7 +581,7 @@ struct SquadQuickView: View {
                     ForEach(model.squads) { squad in Text(squad.name).tag(Optional(squad.id)) }
                 }.pickerStyle(.menu).accessibilityIdentifier("squad-picker")
             }
-            if model.isLoading { ProgressView("Loading your squads…") }
+            if model.isLoading { CleatLoader("Loading your squads…") }
             Phase2ErrorView(
                 message: model.error, retry: { Task { await model.load(programId: membership.id) } })
             Rectangle().fill(AcademyColors.text).frame(height: 1)
@@ -646,7 +672,7 @@ struct StaffAccessView: View {
             Text("Who can sign in, and which squads they see. Owner only.").font(AcademyType.subheadline)
                 .foregroundStyle(
                     AcademyColors.secondaryText)
-            if model.isBusy { ProgressView("Updating access…") }
+            if model.isBusy { CleatLoader("Updating access…") }
             Phase2ErrorView(message: model.error, retry: { Task { await model.load() } })
             if let notice = model.notice {
                 Text(notice).font(AcademyType.subheadline).accessibilityIdentifier("staff-notice")

@@ -6,11 +6,11 @@ struct AcademyWatchApp: App {
     private let onboardingFixture = OnboardingFixtureDestination.fromLaunchArguments(
         ProcessInfo.processInfo.arguments
     )
-    private let wingLiftFixtureElapsedSeconds = WingLiftLoadingView.fixtureElapsedSeconds(
+    private let cleatFixtureElapsedSeconds = CleatLoader.fixtureElapsedSeconds(
         from: ProcessInfo.processInfo.arguments
     )
-    private let wingLiftFixtureReducesMotion = ProcessInfo.processInfo.arguments.contains(
-        "-wingLiftFixtureReduceMotion"
+    private let cleatFixtureReducesMotion = ProcessInfo.processInfo.arguments.contains(
+        "-cleatFixtureReduceMotion"
     )
     #endif
     private let initialPhase = ScoutPhase.fromLaunchArguments(ProcessInfo.processInfo.arguments)
@@ -81,10 +81,10 @@ struct AcademyWatchApp: App {
 
     @ViewBuilder private var normalRoot: some View {
         #if DEBUG
-        if let wingLiftFixtureElapsedSeconds {
-            WingLiftLoadingView(
-                feedback: ScoutInitialLoadFeedback(elapsedSeconds: wingLiftFixtureElapsedSeconds),
-                reduceMotionOverride: wingLiftFixtureReducesMotion
+        if let cleatFixtureElapsedSeconds {
+            CleatLoader(
+                feedback: ScoutInitialLoadFeedback(elapsedSeconds: cleatFixtureElapsedSeconds),
+                reduceMotionOverride: cleatFixtureReducesMotion
             )
         } else if let onboardingFixture {
             OnboardingEvidenceRoot(destination: onboardingFixture)

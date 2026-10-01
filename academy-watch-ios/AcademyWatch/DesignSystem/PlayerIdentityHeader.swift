@@ -65,7 +65,7 @@ struct PlayerIdentityHeader: View {
                             .resizable()
                             .scaledToFill()
                     case .empty:
-                        ProgressView()
+                        CleatLoader()
                             .tint(AcademyColors.accent)
                     case .failure:
                         photoPlaceholder

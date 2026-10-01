@@ -209,7 +209,7 @@ struct ClubsNearYouView: View {
                     .frame(minHeight: 44).overlay(Capsule().stroke(AcademyColors.hairline, lineWidth: 1))
                 }
             }
-            if location.isWaiting { ProgressView("Finding your location…") }
+            if location.isWaiting { CleatLoader("Finding your location…") }
             if !locationOn || location.coordinate == nil {
                 Text(location.message ?? "Location is off, so there are no distances.").font(
                     AcademyType.footnote
@@ -230,7 +230,7 @@ struct ClubsNearYouView: View {
             if !model.clubs.isEmpty {
                 Phase2Section(title: "Near you", trailing: phase2Count(model.total, "club"))
             }
-            if model.isLoading { ProgressView("Finding clubs…") }
+            if model.isLoading { CleatLoader("Finding clubs…") }
             Phase2ErrorView(message: model.error, retry: search)
             ForEach(model.clubs) { club in
                 NavigationLink {
@@ -445,7 +445,7 @@ struct PublicClubView: View {
                         .font(AcademyType.footnote).foregroundStyle(AcademyColors.secondaryText)
                     }.padding(16)
                 } else if error == nil {
-                    ProgressView("Loading club…").padding(20)
+                    CleatLoader("Loading club…").padding(20)
                 }
                 Phase2ErrorView(message: error, retry: { Task { await load() } }).padding(.horizontal, 16)
             }
@@ -563,7 +563,7 @@ struct TrialsView: View {
                         + Phase2Time.zoneLabel(post.timezone, at: post.startsAt ?? post.closesAt))
             }
             Rectangle().fill(AcademyColors.text).frame(height: 1)
-            if model.isLoading { ProgressView("Finding opportunities…") }
+            if model.isLoading { CleatLoader("Finding opportunities…") }
             Phase2ErrorView(message: model.error, retry: reload)
             ForEach(model.posts) { post in
                 NavigationLink {
@@ -745,7 +745,7 @@ struct TrialDetailView: View {
                         Phase2ErrorView(message: model.error, retry: reload)
                     }.padding(16)
                 } else {
-                    ProgressView("Loading opportunity…").padding(20)
+                    CleatLoader("Loading opportunity…").padding(20)
                     Phase2ErrorView(message: model.error, retry: reload).padding(16)
                 }
             }
@@ -794,7 +794,7 @@ struct MyApplicationsView: View {
             if !auth.isAuthenticated {
                 Text("Sign in from Account to see your applications.")
             } else {
-                if model.isLoading { ProgressView("Checking your applications…") }
+                if model.isLoading { CleatLoader("Checking your applications…") }
                 Phase2ErrorView(message: model.error, retry: reload)
                 if let current {
                     NavigationLink {
@@ -928,7 +928,7 @@ struct ApplicationDetailView: View {
             title: model.application?.opportunityTitle ?? "Your application",
             eyebrow: model.application?.statusLabel ?? "Applications"
         ) {
-            if model.isBusy { ProgressView("Updating application…") }
+            if model.isBusy { CleatLoader("Updating application…") }
             Phase2ErrorView(message: model.error, retry: { Task { await model.load() } })
             if let application = model.application {
                 Text("\(application.clubName) · Applied as \(application.position)").font(

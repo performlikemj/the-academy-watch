@@ -113,7 +113,7 @@ struct ListsView: View {
         if !authManager.isAuthenticated {
             signedOutState
         } else if viewModel.isLoading, viewModel.lists.isEmpty {
-            ProgressView("Loading your lists…")
+            CleatLoader("Loading your lists…")
                 .tint(AcademyColors.accent)
         } else if let message = viewModel.errorMessage, viewModel.lists.isEmpty {
             errorState(message: message)
@@ -320,7 +320,7 @@ struct FollowListDetailView: View {
                 } else if detailViewModel.players.isEmpty, detailViewModel.isLoading {
                     HStack {
                         Spacer()
-                        ProgressView("Resolving players…")
+                        CleatLoader("Resolving players…")
                             .tint(AcademyColors.accent)
                         Spacer()
                     }
@@ -347,7 +347,7 @@ struct FollowListDetailView: View {
                             HStack {
                                 Spacer()
                                 if detailViewModel.isLoading {
-                                    ProgressView()
+                                    CleatLoader()
                                         .controlSize(.small)
                                 }
                                 Text(detailViewModel.isLoading ? "Loading…" : "Load more")
