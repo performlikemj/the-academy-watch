@@ -32,9 +32,10 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
 
 ## State
 
-- **Now (2026-10-01):** Phase 2 B2 opportunities/adult applications/recruiting on p2/b2-opportunities, stacked #1109; see `ledgers/CONTINUITY_p2-b2.md`.
+- **Now (2026-10-01):** Phase 2 B2 delivered as draft #1113, stacked #1109; integration/review owns merge and rollout. See `ledgers/CONTINUITY_p2-b2.md`.
 
 ### Done
+- **2026-10-01 P2 B2:** draft PR #1113 to main, stacked #1109 (A2 ef005e35); public opportunities, adult approved-self-claim applications, private recruiting, append-only events/outbox, retention/export/erasure. 57 focused backend +13 real HTTP +47 browser +193 Node pass; full pytest3535 pass/54 skip/4 expected migration-head failures per orchestrator; Ruff/lint/build pass. p2b2->p2b1 placeholder scratch-only; migration/SQL reapply and empty rollback verified; 14 reviewed PNGs. Own servers/aw_p2_b2/env/scratch cleaned. Hand-back `~/codex-runs/aw-redesign/logs/B2.final.md`.
 - **2026-10-01 N1 header simplification:** non-draft PR #1111 to main on feat/nav-simplify; lint/build + 193 Node + 52 Playwright pass (1 expected skip); eight reviewed desktop/mobile screenshots in `~/codex-runs/aw-redesign/shots/N1/`; own servers/aw_n1/env/temp cleaned. see `ledgers/CONTINUITY_n1-nav.md`.
 - **2026-10-01 P2 A1 fix round 3:** public matches hold added with owner CRUD preserved; all public player-ID GETs audited/tested, including cached sitemap URL holds. 33 added regressions; full pytest 3241 pass/47 skip, Ruff/format clean. Older owner-mutation review comment confirmed fixed/replied; PR #1110 delivery and review request; report `~/codex-runs/aw-redesign/logs/A1F3.final.md`.
 - **2026-10-01 P2 A1 fix round 2:** publication holds explicitly limited to public GET/HEAD and discovery/read predicates; owner mutations/maintenance retain original suppression-only checks. Ten new owner/refresh regressions; full pytest 3208 pass/47 skip, Ruff/format clean. Delivery through PR #1110 with @codex review request; report `~/codex-runs/aw-redesign/logs/A1F2.final.md`.
