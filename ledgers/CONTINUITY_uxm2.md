@@ -5,9 +5,9 @@
 - Constraints: staging read-only; foreground commands; no dependencies/migrations; preserve A2 scope/viewer redaction/minor privacy; no UXM1-owned edits without BUS agreement; draft PR, no merge.
 - Sources: DESIGN §§3/6–9; BUS tail; SUX.product-bugs.md; CLAUDE.md; docs/agents/{frontend,backend,invariants,club-staff-access}.md; PHASE2 decision 2.
 - Done: instructions/evidence read; START/CLAIM posted; live read-only staging reproduction recorded in external logs/uxm2/staging-readonly.json; OSV clean + frozen dependency restore; first scoped fixes implemented.
-- Status: in-progress (UXM2F2 review-duel union fixes; final full gate/push pending).
-- Now: UXM2F2 code/regressions/browser/PG gates green; full flags-off pytest running; see milestones below.
-- Next: full pytest closure, final BUS/main refresh, push + hand-back; independent duel verification; no merge authorized.
+- Status: complete (UXM2F2 implementation and final gates; delivery SHA in external hand-back).
+- Now: UXM2F2 final gates green at code28a4883c; draft #1123 delivery and independent duel handoff.
+- Next: independent duel verification of updated draft #1123; no merge authorized.
 - Decision: orchestrator BUS 14:29 explicitly authorizes in-scope Coach’s brief writes via players.manage OR feedback; implemented with member scope/redacted response; viewers and analysts denied.
 - Gates: Ruff check/format pass (553 files); Node 210 pass; lint 0 errors/181 inherited warnings; build pass. Relevant Playwright 93 pass/1 expected skip + trust desk 1 pass. Final UXM2 20 pass; correction suite 4 pass on isolated rerun after one fixed-delay harness startup flake. Full offline pytest 3645 pass/50 skip/146 warnings (675.74s). No standalone typecheck script/config in this JavaScript frontend; build passes.
 
@@ -48,3 +48,5 @@
 - UXM2F2 milestone: lane35 pass; real PostgreSQL9 incl suppressed-manager name refusal pass; OSV547/no issues, Node225, lint0err186 inherited warnings/build/Ruff-format571 pass. Browser38 incl real served stats and brief422/429 pass; six390/1440 full-page screenshots reviewed. Flags-off full pytest + adjacent browser gates in progress. Free-text membership signal is bounded by20/hour, not eliminated; documented. Main784b1490 already included; no migrations changed. aw_uxm2f2_test dropped.
 
 - UXM2F2 adjacent browsers102pass/1existing billing-build skip; total140pass/1skip across lane + neighbours. Six screenshots reviewed. Own foreground Vite5211/Flask5161 stopped; listeners absent; memory fixture discarded; generated dist/browser outputs/Vite cache and temporary test-creation script removed. Full flags-off pytest remains running with no failures through43%.
+
+- UXM2F2 final: full flags-off pytest4111pass/70skip/147warnings/0fail (749.95s); PG9/Node225/Playwright140pass1existing skip/Ruff-format571/OSV547/lint0err186warn/build pass. No standalone JS typecheck configured. All8 tested implementation/fixture/browser blobs unchanged. Final origin/main784b1490 fetch/merge already up to date; no stacked lower lane or migration/preapply changes. Final BUS reread: no UXM2 name-policy ruling, retain all-name refusal switchFalse per user fallback. Six refreshed PNGs reviewed. Own servers/aw_uxm2f2_test/cache/temp/generated outputs cleaned; pre-existing matching deps and tracked report restored. Hand-back `~/codex-runs/aw-redesign/logs/UXM2F2.final.md` records delivery SHA; no merge/deploy. Residual free-text name-status oracle explicitly documented as bounded, not eliminated.
