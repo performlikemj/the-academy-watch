@@ -11,8 +11,8 @@
 
 ## State
 - Done: merged B3 + final B1/B2 dependencies; conflicts preserved owned feature blocks. Native role tabs, browse/apply/application actions, recruiting/invites/notes/signing, owner staff grants and scoped squads implemented.
-- Now: I1F fidelity delivery complete; all 14 boards refined/compared with current IMF1 references; draft #1118 remains unmerged.
-- Next: orchestrator’s separate I1F1 correctness fix round for RI1 findings; no merge.
+- Now: I1F1 complete; exact source passes all gates, evidence refreshed, draft #1118 ready for independent re-review (unmerged).
+- Next: orchestrator independent RI1 re-review; web lane supplies L2 parent-interest anchor; no merge.
 
 ## Validation
 - Debug simulator compile passes. First XCTest launch hit simulator infrastructure error before tests; rerun on booted dedicated simulator, parallel testing disabled.
@@ -66,3 +66,21 @@
 - Logs/result bundles: ~/codex-runs/aw-redesign/logs/I1F/. Hand-back: ~/codex-runs/aw-redesign/logs/I1F.final.md.
 - Owned simulators 12A44BED-AC86-4A10-9133-38C73C1CCE2A / B6BEDF10-6865-4149-B922-0C451D97DC38 shut down/deleted; /tmp/aw-I1F-derived, /tmp/aw-I1F-release and /tmp/aw-I1F-capture removed. Other lanes’ resources untouched. No background shell commands, live emails/servers, backend changes or dependency restores.
 - Draft #1118 retains the exact requested title and targets main; DO NOT MERGE. Final commit identity is recorded in the external hand-back. RI1 correctness fixes remain for the queued I1F1 lane.
+
+## I1 fix round 1
+- Now: RI1 full findings read; clean pull to fidelity67fa3244. Fix all findings with evidence; L2 anchor handed to web lane.
+- Next: native state/navigation/errors, real staging contract capture + decode tests, all unit/offline UI/Release gates, refreshed light/dark evidence, push + external hand-back.
+
+- Native refresh retains one confirmed flags/access snapshot and stable account/role tab identity; drafts survive successful/failed foreground refresh. Legacy club fallback, saved-list destinations and flags-off Explore tab switching restored.
+- Real staging contracts: 47 unedited response bodies, all five personas, verified-owner empty membership/funding bridge, genuine 422/429, success writes and confirmation/reschedule history; tokens excluded. Refresh script commits provenance and cleans synthetic writes. DELETE captures missing-grant refusal rather than deleting a seeded grant.
+- All 279 native unit/API/contract tests pass on final source. Focused regressions confirm Trials draft through Settings + failed flag fetch, first location alert, saved lists, staff email clearing and legacy club fallback. Full offline scheme (four classes) and final Release running.
+- Backend focused integration: 164 pass; independently gated recruiting access and private exact invitation deadline covered. Ruff check/format and diff whitespace pass. No frontend dependency/lock changes.
+- Final Release simulator build passes for arm64/x86_64. All 28 initial viewports refreshed on separate owned capture simulator. Final offline run has passed claims-error copy, location permission, Explore/GOL, saved destinations, legacy flags-off navigation and invite/private-note Settings drafts; board and inherited regressions finishing.
+- Remaining fidelity/board gaps explicitly retained: RIM16 gold light-tab label on chalk-2 (~4.40:1); RIM18 chrome superseded by dedicated role tabs while saved routes restored; public age groups/proximity/claim age and scoped captain/playing-up/score DTO fields absent; C2/C4 proposals outside I1 scope. L2 anchor web handoff remains open.
+
+## I1F1 final gates / delivery
+- Exact final source: 279/279 unit/API tests; offline Experience 39 pass / 2 inherited opt-in skips / 0 fail across all four classes, including all 23 Phase 2 journeys. Release simulator arm64/x86_64 build passes. Backend 164 focused checks + exact final two new regressions pass; Ruff and diff whitespace pass.
+- 47 raw staging contracts with refresh script committed; no saved credentials. Narrow backend access/me independent-flag and private invitation-deadline additions included. Fidelity67fa3244 is retained as an ancestor.
+- 28 fresh initial light/dark shots, nine final scrolled viewports, 28 current IMF1 comparisons, source/hash manifests and 51 named Phase 2 UI screenshots: ~/codex-runs/aw-redesign/shots/I1/INDEX.md. Per-finding results/remaining RIM gaps: ~/codex-runs/aw-redesign/logs/I1F1.final.md.
+- Owned review/capture simulators 1A649F0A-6B8E-41E5-A06B-ECF2F45050C0 / 4583A7BD-8437-45E5-A34B-DA39FD00BAC6 deleted; /tmp/aw-I1F1-derived + /tmp/aw-I1F1-release and owned interim evidence removed. Other lanes untouched. Foreground commands only; no live login-email suite, background server, production writes or dependency restore.
+- Push feat/ios-phase2 to draft #1118; no merge. External hand-back records final pushed SHA and BUS DONE.

@@ -44,12 +44,36 @@ struct PlayerHomeView: View {
     var body: some View {
         NavigationStack {
             if role == .player
-                && (workspace.flags.directory || workspace.flags.opportunities || workspace.flags.applications)
+                && (workspace.flags.directory || workspace.flags.opportunities
+                    || workspace.flags.applications)
             {
-                Phase2PlayerHome(client: apiClient, incoming: incoming, availability: availability)
-                    .navigationTitle("Home").navigationBarTitleDisplayMode(.inline)
-                    .toolbar { ToolbarItem(placement: .topBarTrailing) { GolEntryButton(action: onGolRequested) } }
-                    .accessibilityIdentifier("player-club-home")
+                Phase2PlayerHome(
+                    client: apiClient, incoming: incoming, availability: availability, onNavigate: onNavigate
+                )
+                .navigationTitle("Home").navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Menu {
+                            if auth.isAuthenticated {
+                                NavigationLink("My profiles") { MyProfilesView(apiClient: apiClient) }
+                                NavigationLink("Club invitations") { ClubInboxView(apiClient: apiClient) }
+                            } else {
+                                Button("Sign in", action: onSignIn)
+                            }
+                            ForEach(ExperienceRole.allCases) { choice in
+                                Button(choice.title) {
+                                    roleValue = choice.rawValue
+                                    onRoleSelected(choice)
+                                }
+                            }
+                        } label: {
+                            Image(systemName: "slider.horizontal.3").frame(width: 44, height: 44)
+                        }
+                        .accessibilityLabel("Your home tools").accessibilityIdentifier("home-tools")
+                    }
+                    ToolbarItem(placement: .topBarTrailing) { GolEntryButton(action: onGolRequested) }
+                }
+                .accessibilityIdentifier("player-club-home")
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 22) {
@@ -64,8 +88,10 @@ struct PlayerHomeView: View {
                                 .font(AcademyType.caption.weight(.medium)).tracking(1.4)
                                 .foregroundStyle(AcademyColors.gold)
                             Text(headline).font(AcademyType.largeTitle).foregroundStyle(AcademyColors.chalk)
-                            Text(subtitle).font(AcademyType.subheadline).foregroundStyle(AcademyColors.mutedDark)
-                                .fixedSize(horizontal: false, vertical: true)
+                            Text(subtitle).font(AcademyType.subheadline).foregroundStyle(
+                                AcademyColors.mutedDark
+                            )
+                            .fixedSize(horizontal: false, vertical: true)
                         }
                         .padding(24)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -123,25 +149,35 @@ struct PlayerHomeView: View {
                                     }.buttonStyle(.plain).accessibilityIdentifier("home-club-invitations")
                                 } else {
                                     VStack(alignment: .leading, spacing: 12) {
-                                        Text(role == .club ? "Bring your team together" : "Make your next step count")
-                                            .font(AcademyType.title3)
-                                        Text("Sign in with an email code. We'll keep your place here.").foregroundStyle(
-                                            AcademyColors.secondaryText)
+                                        Text(
+                                            role == .club
+                                                ? "Bring your team together" : "Make your next step count"
+                                        )
+                                        .font(AcademyType.title3)
+                                        Text("Sign in with an email code. We'll keep your place here.")
+                                            .foregroundStyle(
+                                                AcademyColors.secondaryText)
                                         Button("Sign in to get started", action: onSignIn)
                                             .buttonStyle(FloodlightPillStyle()).controlSize(.large)
-                                            .tint(AcademyColors.primaryFill).foregroundStyle(AcademyColors.onPrimary)
+                                            .tint(AcademyColors.primaryFill).foregroundStyle(
+                                                AcademyColors.onPrimary
+                                            )
                                             .accessibilityIdentifier("home-sign-in")
                                     }.homeCard()
                                 }
-                                NavigationLink {
-                                    ScoutDeskView(
-                                        apiClient: apiClient, playerDetailAPIClient: apiClient,
-                                        onSignInRequested: onSignIn)
-                                } label: {
-                                    OnboardingActionRow(
-                                        icon: "binoculars.fill", title: "Explore players",
-                                        detail: "Discover profiles, follow players, and build your watchlist.")
-                                }.buttonStyle(.plain)
+                                scoutingLink(
+                                    tab: .scoutDesk, icon: "binoculars.fill", title: "Explore players",
+                                    detail: "Discover profiles, follow players, and build your watchlist.")
+                                if role == .club, workspace.selected != nil,
+                                    workspace.flags.staff || workspace.flags.opportunities
+                                {
+                                    scoutingLink(
+                                        tab: .watchlist, icon: "star", title: "Watchlist",
+                                        detail: "The players you follow.")
+                                    scoutingLink(
+                                        tab: .lists, icon: "list.bullet.rectangle", title: "Lists",
+                                        detail: "Your scouting shortlists.")
+                                }
                             }
                             Menu {
                                 ForEach(ExperienceRole.allCases) { choice in
@@ -207,7 +243,8 @@ struct PlayerHomeView: View {
             MyClubHomeView(apiClient: apiClient)
         } label: {
             OnboardingActionRow(
-                icon: "shield.fill", title: "My club", detail: "Check club verification and open your team's workspace."
+                icon: "shield.fill", title: "My club",
+                detail: "Check club verification and open your team's workspace."
             )
         }.buttonStyle(.plain).accessibilityIdentifier("home-my-club")
     }
@@ -238,7 +275,8 @@ struct MyProfilesView: View {
                     .foregroundStyle(AcademyColors.secondaryText)
                 if model.isLoading { ProgressView("Checking your profiles…") }
                 if let error = model.error {
-                    Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(AcademyColors.danger)
+                    Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(
+                        AcademyColors.danger)
                     Button("Try again") { Task { await model.load() } }
                 }
                 ForEach(model.claims) { claim in
@@ -302,7 +340,8 @@ struct MyPlayerProfileView: View {
                         ProfileEditorView(playerID: id, apiClient: apiClient)
                     } label: {
                         OnboardingActionRow(
-                            icon: "pencil", title: "Edit profile", detail: "Your photo, bio, position, and highlights.")
+                            icon: "pencil", title: "Edit profile",
+                            detail: "Your photo, bio, position, and highlights.")
                     }.buttonStyle(.plain).accessibilityIdentifier("my-profile-edit")
                     if claim.relationshipType == "player" {
                         NavigationLink {
@@ -326,8 +365,10 @@ struct MyPlayerProfileView: View {
                         Label("View player profile", systemImage: "person.crop.rectangle")
                     }
                     if let shareURL {
-                        ShareLink(item: shareURL) { Label("Share public profile", systemImage: "square.and.arrow.up") }
-                            .accessibilityIdentifier("my-profile-share")
+                        ShareLink(item: shareURL) {
+                            Label("Share public profile", systemImage: "square.and.arrow.up")
+                        }
+                        .accessibilityIdentifier("my-profile-share")
                     }
                 }
                 if let url = claim.webURL {
@@ -335,8 +376,9 @@ struct MyPlayerProfileView: View {
                         url: url,
                         title: claim.status == .approved
                             ? "More profile tools on the web" : "Review claim and verification on the web")
-                    Text("Use the same email to sign in on the web.").font(AcademyType.caption).foregroundStyle(
-                        AcademyColors.secondaryText)
+                    Text("Use the same email to sign in on the web.").font(AcademyType.caption)
+                        .foregroundStyle(
+                            AcademyColors.secondaryText)
                 }
                 LegalSafariLink(destination: .support) {
                     Label("Get help with this profile", systemImage: "questionmark.circle")
@@ -383,8 +425,10 @@ struct MyClubHomeView: View {
                         icon: "person.3", title: "Open club workspace",
                         detail: "Manage your players, invitations, match footage, and feedback on the web.")
                 }.buttonStyle(.plain).accessibilityIdentifier("my-club-workspace")
-                Text("Sign in with the same email. Club access is available after your official claim is approved.")
-                    .font(AcademyType.footnote).foregroundStyle(AcademyColors.secondaryText)
+                Text(
+                    "Sign in with the same email. Club access is available after your official claim is approved."
+                )
+                .font(AcademyType.footnote).foregroundStyle(AcademyColors.secondaryText)
                 VStack(alignment: .leading, spacing: 14) {
                     Text("Your first team session").font(AcademyType.headline)
                     Label("Ask each adult player to claim or create their profile.", systemImage: "1.circle")

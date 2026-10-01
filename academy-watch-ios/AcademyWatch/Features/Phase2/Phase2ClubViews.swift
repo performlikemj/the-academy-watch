@@ -52,9 +52,10 @@ struct RecruitingView: View {
                     Task { await model.load(programId: membership.id, club: true, page: page) }
                 }
             }
-        }.navigationTitle("Recruiting").task { await model.load(programId: membership.id, club: true) }.refreshable {
-            await model.load(programId: membership.id, club: true)
-        }.accessibilityIdentifier("phase2-recruiting")
+        }.navigationTitle("Recruiting").task { await model.load(programId: membership.id, club: true) }
+            .refreshable {
+                await model.load(programId: membership.id, club: true)
+            }.accessibilityIdentifier("phase2-recruiting")
     }
     private func reload() { Task { await model.load(programId: membership.id, club: true) } }
 }
@@ -73,14 +74,18 @@ struct RecruitingPipelineView: View {
         _model = StateObject(wrappedValue: ApplicationsViewModel(client: client))
     }
     private var filtered: [Phase2Application] {
-        model.applications.filter { stage == "all" || (stage == "closed" ? $0.isTerminal : $0.status == stage) }
+        model.applications.filter {
+            stage == "all" || (stage == "closed" ? $0.isTerminal : $0.status == stage)
+        }
     }
     private var stageChoices: [(String, String)] {
         [
-            ("new", "New"), ("shortlisted", "Shortlisted"), ("invited", "Invited"), ("attended", "Attended"),
+            ("new", "New"), ("shortlisted", "Shortlisted"), ("invited", "Invited"),
+            ("attended", "Attended"),
             ("offer", "Offer"), ("closed", "Closed"),
         ].map { key, name in
-            let count = model.applications.filter { key == "closed" ? $0.isTerminal : $0.status == key }.count
+            let count = model.applications.filter { key == "closed" ? $0.isTerminal : $0.status == key }
+                .count
             return (key, "\(name)  \(count)")
         }
     }
@@ -93,13 +98,18 @@ struct RecruitingPipelineView: View {
             Phase2Eyebrow(
                 text: phase2Count(post.applicationCount ?? model.applications.count, "applicant") + " · "
                     + (post.status == "draft"
-                        ? "Not published" : post.capacity.map { phase2Count($0, "place") } ?? "No capacity limit")
+                        ? "Not published"
+                        : post.capacity.map { phase2Count($0, "place") } ?? "No capacity limit")
                     + (post.status == "draft" ? "" : post.placesLeft.map { " · \($0) available" } ?? ""))
             if post.status != "draft" {
                 Phase2Eyebrow(
-                    text: "Trial times in " + Phase2Time.zoneLabel(post.timezone, at: post.startsAt ?? post.closesAt))
-                Phase2Chips(choices: stageChoices, selection: $stage).accessibilityIdentifier("pipeline-stage")
-                if model.hasMore || model.page > 1 { Phase2Eyebrow(text: "Stage counts on this page") }
+                    text: "Trial times in "
+                        + Phase2Time.zoneLabel(post.timezone, at: post.startsAt ?? post.closesAt))
+                Phase2Chips(choices: stageChoices, selection: $stage).accessibilityIdentifier(
+                    "pipeline-stage")
+                if model.hasMore || model.page > 1 {
+                    Phase2Eyebrow(text: "Stage counts across all applicants")
+                }
             }
             Rectangle().fill(AcademyColors.text).frame(height: 1)
             if model.isLoading { ProgressView("Loading applicants…") }
@@ -110,7 +120,8 @@ struct RecruitingPipelineView: View {
                     ApplicantSwipeRow(
                         application: application, post: post, client: client,
                         changed: {
-                            await model.load(programId: post.programId, opportunityId: post.id, page: model.page)
+                            await model.load(
+                                programId: post.programId, opportunityId: post.id, page: model.page)
                         }
                     ) {
                         NavigationLink {
@@ -118,17 +129,21 @@ struct RecruitingPipelineView: View {
                         } label: {
                             VStack(spacing: 0) {
                                 HStack(spacing: 16) {
-                                    Phase2Avatar(name: application.applicantName ?? "Adult applicant", size: 48)
+                                    Phase2Avatar(
+                                        name: application.applicantName ?? "Adult applicant", size: 48)
                                     VStack(alignment: .leading, spacing: 5) {
-                                        Text(application.applicantName ?? "Adult applicant").font(AcademyType.serif(22))
-                                            .lineLimit(1)
+                                        Text(application.applicantName ?? "Adult applicant").font(
+                                            AcademyType.serif(22)
+                                        )
+                                        .lineLimit(1)
                                         Text(
                                             [
                                                 application.position,
                                                 application.currentClub.isEmpty
                                                     ? "no current club" : application.currentClub,
                                             ].joined(separator: " · ")
-                                        ).font(AcademyType.subheadline).foregroundStyle(AcademyColors.secondaryText)
+                                        ).font(AcademyType.subheadline).foregroundStyle(
+                                            AcademyColors.secondaryText)
                                         Phase2Eyebrow(
                                             text: "Applied "
                                                 + Phase2Time.shortDate(
@@ -153,13 +168,14 @@ struct RecruitingPipelineView: View {
                     title: post.status == "draft" ? "Nobody can see this yet." : "A place for someone new.",
                     detail: post.status == "draft"
                         ? "It is a draft, visible only to the owner and manager. Publish it and adult players can apply with their profile. Applicants appear here, newest first."
-                        : "No applicants in this stage on this page. Applications will appear here as they arrive.",
+                        : "No applicants in this stage. Applications will appear here as they arrive.",
                     icon: "eye")
                 if post.status == "draft" {
                     HStack {
-                        Button(isPublishing ? "Publishing…" : "Publish") { Task { await publish() } }.buttonStyle(
-                            FloodlightPillStyle()
-                        ).disabled(isPublishing).accessibilityIdentifier("recruiting-publish")
+                        Button(isPublishing ? "Publishing…" : "Publish") { Task { await publish() } }
+                            .buttonStyle(
+                                FloodlightPillStyle()
+                            ).disabled(isPublishing).accessibilityIdentifier("recruiting-publish")
                         LegalSafariLink(destination: .clubConsole) { Text("Edit the post") }.buttonStyle(
                             FloodlightPillStyle(variant: .outline))
                     }
@@ -176,10 +192,13 @@ struct RecruitingPipelineView: View {
         }.navigationTitle("Applicants").task {
             await model.load(programId: post.programId, opportunityId: post.id)
             if stage == "all" { stage = model.applications.first?.status ?? "new" }
-        }.refreshable { await model.load(programId: post.programId, opportunityId: post.id) }.accessibilityIdentifier(
-            "phase2-pipeline")
+        }.refreshable { await model.load(programId: post.programId, opportunityId: post.id) }
+            .accessibilityIdentifier(
+                "phase2-pipeline")
     }
-    private func reload() { Task { await model.load(programId: post.programId, opportunityId: post.id) } }
+    private func reload() {
+        Task { await model.load(programId: post.programId, opportunityId: post.id) }
+    }
     private func publish() async {
         guard !isPublishing else { return }
         isPublishing = true
@@ -209,7 +228,8 @@ private struct ApplicantSwipeRow<Content: View>: View {
         self.changed = changed
         self.content = content
         _detail = StateObject(
-            wrappedValue: ApplicationDetailViewModel(id: application.id, programId: post.programId, client: client))
+            wrappedValue: ApplicationDetailViewModel(
+                id: application.id, programId: post.programId, client: client))
     }
     var body: some View {
         VStack(spacing: 0) {
@@ -221,7 +241,8 @@ private struct ApplicantSwipeRow<Content: View>: View {
                         } label: {
                             Label("Not selected", systemImage: "xmark")
                         }
-                        .tint(AcademyColors.danger).accessibilityIdentifier("pipeline-reject-" + application.id)
+                        .tint(AcademyColors.danger).accessibilityIdentifier(
+                            "pipeline-reject-" + application.id)
                     }
                     if application.canTransition(to: "shortlisted") {
                         Button {
@@ -229,11 +250,14 @@ private struct ApplicantSwipeRow<Content: View>: View {
                         } label: {
                             Label("Shortlist", systemImage: "arrow.right")
                         }
-                        .tint(AcademyColors.good).accessibilityIdentifier("pipeline-shortlist-" + application.id)
+                        .tint(AcademyColors.good).accessibilityIdentifier(
+                            "pipeline-shortlist-" + application.id)
                     }
                 }
             Phase2ErrorView(message: detail.error)
-        }.confirmationDialog("Not select this applicant?", isPresented: $reject, titleVisibility: .visible) {
+        }.confirmationDialog(
+            "Not select this applicant?", isPresented: $reject, titleVisibility: .visible
+        ) {
             Button("Not selected", role: .destructive) { Task { await move("rejected") } }
         }
     }
@@ -259,6 +283,18 @@ struct RecruitingApplicantView: View {
         _model = StateObject(
             wrappedValue: ApplicationDetailViewModel(id: id, programId: post.programId, client: client))
     }
+    private var inviteRange: ClosedRange<Date> {
+        let lower = Phase2Time.now
+        let applicationLimit =
+            Phase2Time.date(model.application?.submittedAt)?.addingTimeInterval(90 * 86400)
+            ?? lower.addingTimeInterval(90 * 86400)
+        let postLimit =
+            Phase2Time.date(post.trialInviteDeadline)
+            ?? (post.type == "position"
+                ? Phase2Time.date(post.closesAt)?.addingTimeInterval(14 * 86400) : nil)
+            ?? applicationLimit
+        return lower...max(lower, min(applicationLimit, postLimit))
+    }
     var body: some View {
         Phase2Page(title: "", eyebrow: "") {
             if model.isBusy { ProgressView("Updating applicant…") }
@@ -278,7 +314,8 @@ struct RecruitingApplicantView: View {
                 HStack {
                     Phase2Eyebrow(text: application.statusLabel)
                     Spacer()
-                    Phase2Eyebrow(text: application.canTransition(to: "invited") ? "Next · Invite" : "Recruiting")
+                    Phase2Eyebrow(
+                        text: application.canTransition(to: "invited") ? "Next · Invite" : "Recruiting")
                 }
                 Divider()
                 NavigationLink {
@@ -293,21 +330,27 @@ struct RecruitingApplicantView: View {
                 Divider()
                 if application.canTransition(to: "invited") {
                     Phase2FormCard {
-                        Text("Invite to a trial").font(AcademyType.serif(28))
+                        Text(application.status == "invited" ? "Reschedule the trial" : "Invite to a trial")
+                            .font(AcademyType.serif(28))
                         HStack(alignment: .top, spacing: 12) {
                             VStack(alignment: .leading, spacing: 8) {
                                 Phase2Eyebrow(text: "Date")
-                                Phase2DateControl(date: $model.trialDate, zone: Phase2Time.zone(application.timezone))
-                                    .accessibilityIdentifier("invite-trial-date")
+                                Phase2DateControl(
+                                    date: $model.trialDate, zone: Phase2Time.zone(application.timezone),
+                                    range: inviteRange
+                                )
+                                .accessibilityIdentifier("invite-trial-date")
                             }
                             VStack(alignment: .leading, spacing: 8) {
                                 Phase2Eyebrow(
                                     text: "Time ("
                                         + Phase2Time.shortDate(
-                                            Phase2Time.submission(model.trialDate, zone: application.timezone),
+                                            Phase2Time.submission(
+                                                model.trialDate, zone: application.timezone),
                                             zone: application.timezone, format: "z") + ")")
                                 Phase2DateControl(
-                                    date: $model.trialDate, zone: Phase2Time.zone(application.timezone), timeOnly: true
+                                    date: $model.trialDate, zone: Phase2Time.zone(application.timezone),
+                                    timeOnly: true, range: inviteRange
                                 ).accessibilityIdentifier("invite-trial-time")
                             }
                         }.environment(\.timeZone, Phase2Time.zone(application.timezone))
@@ -319,22 +362,26 @@ struct RecruitingApplicantView: View {
                         TextField("Where", text: $model.venue).textFieldStyle(Phase2InputStyle())
                             .accessibilityIdentifier("invite-venue")
                         Phase2Eyebrow(text: "What to tell them")
-                        TextField("What to tell them", text: $model.instructions, axis: .vertical).textFieldStyle(
-                            Phase2InputStyle()
-                        ).accessibilityIdentifier("invite-instructions")
+                        TextField("What to tell them", text: $model.instructions, axis: .vertical)
+                            .textFieldStyle(
+                                Phase2InputStyle()
+                            ).accessibilityIdentifier("invite-instructions")
                         if let available = post.placesLeft {
                             Phase2Eyebrow(text: phase2Count(available, "place") + " available · Club only")
                         }
-                        Text("Reserves one place; confirmation keeps it, decline or withdrawal releases it.").font(
-                            AcademyType.footnote
-                        ).foregroundStyle(AcademyColors.secondaryText)
+                        Text("Reserves one place; confirmation keeps it, decline or withdrawal releases it.")
+                            .font(
+                                AcademyType.footnote
+                            ).foregroundStyle(AcademyColors.secondaryText)
                         HStack(spacing: 10) {
                             if application.canTransition(to: "rejected") {
                                 Button("Not selected") { transitionConfirmation = "rejected" }.buttonStyle(
                                     FloodlightPillStyle(variant: .outline)
                                 ).accessibilityIdentifier("applicant-rejected")
                             }
-                            Button("Send invite") { Task { await model.transition("invited") } }.buttonStyle(
+                            Button(application.status == "invited" ? "Send new time" : "Send invite") {
+                                Task { await model.transition("invited") }
+                            }.buttonStyle(
                                 FloodlightPillStyle()
                             ).disabled(model.venue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                                 .accessibilityIdentifier("applicant-invite")
@@ -354,13 +401,17 @@ struct RecruitingApplicantView: View {
                     }, id: \.self
                 ) { target in
                     Button(
-                        target == "rejected" ? "Not selected" : "Mark \(Phase2Application.label(target).lowercased())"
+                        target == "rejected"
+                            ? "Not selected" : "Mark \(Phase2Application.label(target).lowercased())"
                     ) { transitionConfirmation = target }
-                    .buttonStyle(FloodlightPillStyle(variant: target == "rejected" ? .outline : .primary)).disabled(
+                    .buttonStyle(FloodlightPillStyle(variant: target == "rejected" ? .outline : .primary))
+                    .disabled(
                         !application.canTransition(to: target)
                     ).accessibilityIdentifier("applicant-\(target)")
                 }
-                if application.transitions?.contains("attended") == true && !application.canTransition(to: "attended") {
+                if application.transitions?.contains("attended") == true
+                    && !application.canTransition(to: "attended")
+                {
                     Text("Attendance unlocks after the player confirms and the trial has passed.").font(
                         AcademyType.footnote)
                 }
@@ -379,12 +430,15 @@ struct RecruitingApplicantView: View {
                     Button {
                         Task { await model.addNote() }
                     } label: {
-                        Image(systemName: "plus").font(.system(size: 22, weight: .light)).frame(width: 44, height: 44)
-                            .foregroundStyle(AcademyColors.onPrimary).background(
-                                AcademyColors.primaryFill, in: Circle())
-                    }.disabled(model.note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty).accessibilityLabel(
-                        "Save note"
-                    ).accessibilityIdentifier("applicant-save-note")
+                        Image(systemName: "plus").font(.system(size: 22, weight: .light)).frame(
+                            width: 44, height: 44
+                        )
+                        .foregroundStyle(AcademyColors.onPrimary).background(
+                            AcademyColors.primaryFill, in: Circle())
+                    }.disabled(model.note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .accessibilityLabel(
+                            "Save note"
+                        ).accessibilityIdentifier("applicant-save-note")
                 }
                 Text(
                     "The applicant never sees notes. Deleted by \(Phase2Time.shortDate(application.retentionExpiresAt, zone: application.timezone, format: "EEE d MMM yyyy")), signed or not. \(applicationRetentionCopy)"
@@ -396,7 +450,8 @@ struct RecruitingApplicantView: View {
                 if Phase2Fixtures.screen == "N10" {
                     model.trialDate = Phase2Time.date("2026-10-06T18:15:00Z")!
                     model.venue = "The Saltings — main pitch"
-                    model.instructions = "Report to the clubhouse at 18:45. Grass boots. You train with the full squad."
+                    model.instructions =
+                        "Report to the clubhouse at 18:45. Grass boots. You train with the full squad."
                 }
             #endif
         }.refreshable { await model.load() }.disabled(model.isBusy)
@@ -420,7 +475,8 @@ struct RecruitingApplicantView: View {
             ) {
                 NavigationStack {
                     Phase2Page(
-                        title: transitionConfirmation == "signed" ? "Mark as signed?" : "Record this decision?",
+                        title: transitionConfirmation == "signed"
+                            ? "Mark as signed?" : "Record this decision?",
                         eyebrow: "Recruiting"
                     ) {
                         if transitionConfirmation == "signed" {
@@ -485,10 +541,14 @@ struct SquadQuickView: View {
                 AcademyColors.elevatedSurface, in: RoundedRectangle(cornerRadius: 14))
             Phase2Eyebrow(text: membership.program.name, gold: true)
             Text(
-                matchesOnly ? "Film Room" : model.squads.first(where: { $0.id == selectedSquadId })?.name ?? "My squads"
+                matchesOnly
+                    ? "Film Room"
+                    : model.squads.first(where: { $0.id == selectedSquadId })?.name ?? "My squads"
             ).font(AcademyType.serif(42))
-            Label("CLUB-PRIVATE · NEVER ON A PUBLIC PAGE", systemImage: "checkmark.shield").font(AcademyType.mono(9))
-                .tracking(1).foregroundStyle(AcademyColors.secondaryText)
+            Label("CLUB-PRIVATE · NEVER ON A PUBLIC PAGE", systemImage: "checkmark.shield").font(
+                AcademyType.mono(9)
+            )
+            .tracking(1).foregroundStyle(AcademyColors.secondaryText)
             if model.squads.count > 1 {
                 Picker("Squad", selection: $selectedSquadId) {
                     Text("My squads").tag(Optional<Int>.none)
@@ -496,7 +556,8 @@ struct SquadQuickView: View {
                 }.pickerStyle(.menu).accessibilityIdentifier("squad-picker")
             }
             if model.isLoading { ProgressView("Loading your squads…") }
-            Phase2ErrorView(message: model.error, retry: { Task { await model.load(programId: membership.id) } })
+            Phase2ErrorView(
+                message: model.error, retry: { Task { await model.load(programId: membership.id) } })
             Rectangle().fill(AcademyColors.text).frame(height: 1)
             HStack(spacing: 20) {
                 if !matchesOnly { squadStat(members.count, "Player") }
@@ -525,14 +586,16 @@ struct SquadQuickView: View {
             }
             ForEach(matches) { match in
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("FILM ROOM · " + match.status.replacingOccurrences(of: "_", with: " ").uppercased()).font(
-                        AcademyType.mono(10)
-                    ).tracking(1.5).foregroundStyle(AcademyColors.gold)
+                    Text("FILM ROOM · " + match.status.replacingOccurrences(of: "_", with: " ").uppercased())
+                        .font(
+                            AcademyType.mono(10)
+                        ).tracking(1.5).foregroundStyle(AcademyColors.gold)
                     Text(match.opponentName.map { "v \($0)" } ?? match.title ?? "Club match").font(
                         AcademyType.serif(24)
                     ).foregroundStyle(AcademyColors.chalk)
                     if let date = match.matchDate {
-                        Text(date).font(AcademyType.footnote).foregroundStyle(AcademyColors.mutedDark)
+                        Text(Phase2Time.calendarDate(date)).font(AcademyType.footnote).foregroundStyle(
+                            AcademyColors.mutedDark)
                     }
                 }.padding(18).frame(maxWidth: .infinity, alignment: .leading).background(
                     AcademyColors.night, in: RoundedRectangle(cornerRadius: 14))
@@ -540,7 +603,9 @@ struct SquadQuickView: View {
             if matches.isEmpty && !model.isLoading && model.error == nil {
                 Text("No filmed matches in your scope yet.").font(AcademyType.subheadline)
             }
-            Text("Check Film Room for analysis. Your access includes only the squads assigned by the club owner.").font(
+            Text(
+                "Check Film Room for analysis. Your access includes only the squads assigned by the club owner."
+            ).font(
                 AcademyType.footnote
             ).foregroundStyle(AcademyColors.secondaryText)
         }.navigationTitle(matchesOnly ? "Matches" : "Squads").toolbar {
@@ -548,7 +613,9 @@ struct SquadQuickView: View {
         }
         .task {
             await model.load(programId: membership.id)
-            if selectedSquadId == nil && model.squads.count == 1 { selectedSquadId = model.squads.first?.id }
+            if selectedSquadId == nil && model.squads.count == 1 {
+                selectedSquadId = model.squads.first?.id
+            }
         }
         .refreshable { await model.load(programId: membership.id) }.accessibilityIdentifier(
             matchesOnly ? "phase2-matches" : "phase2-squads")
@@ -592,7 +659,8 @@ struct StaffAccessView: View {
                             HStack(spacing: 12) {
                                 Phase2Avatar(name: person.displayName ?? person.email ?? "Staff", size: 38)
                                 VStack(alignment: .leading, spacing: 4) {
-                                    Text(person.displayName ?? person.email ?? "Club staff").font(AcademyType.headline)
+                                    Text(person.displayName ?? person.email ?? "Club staff").font(
+                                        AcademyType.headline)
                                     Text(
                                         person.role == "owner"
                                             ? "Everything, including billing and staff"
@@ -605,17 +673,21 @@ struct StaffAccessView: View {
                                     Button {
                                         editing = person
                                     } label: {
-                                        Text(person.role.uppercased()).font(AcademyType.mono(9)).tracking(1).padding(
-                                            .horizontal, 10
-                                        ).padding(.vertical, 5).overlay(
-                                            Capsule().stroke(AcademyColors.hairline, lineWidth: 1)
-                                        ).frame(minHeight: 44)
-                                    }.accessibilityLabel("Edit " + (person.displayName ?? "staff") + " access")
-                                        .accessibilityIdentifier("staff-edit-\(person.id)")
+                                        Text(person.role.uppercased()).font(AcademyType.mono(9)).tracking(1)
+                                            .padding(
+                                                .horizontal, 10
+                                            ).padding(.vertical, 5).overlay(
+                                                Capsule().stroke(AcademyColors.hairline, lineWidth: 1)
+                                            ).frame(minHeight: 44)
+                                    }.accessibilityLabel(
+                                        "Edit " + (person.displayName ?? "staff") + " access"
+                                    )
+                                    .accessibilityIdentifier("staff-edit-\(person.id)")
                                 } else {
                                     Phase2Eyebrow(text: person.role, gold: person.role == "owner")
                                         .padding(.horizontal, 10).padding(.vertical, 5)
-                                        .overlay(Capsule().stroke(AcademyColors.hairline, lineWidth: 1)).frame(
+                                        .overlay(Capsule().stroke(AcademyColors.hairline, lineWidth: 1))
+                                        .frame(
                                             minHeight: 44)
                                 }
                             }.padding(.vertical, 8)
@@ -630,7 +702,8 @@ struct StaffAccessView: View {
                     }
                 }
                 Phase2Section(
-                    title: "Invites", trailing: "\(board.invites.filter { $0.status == "pending" }.count) open")
+                    title: "Invites",
+                    trailing: "\(board.invites.filter { $0.status == "pending" }.count) open")
                 ForEach(board.invites) { invite in
                     VStack(alignment: .leading, spacing: 8) {
                         HStack(spacing: 12) {
@@ -658,7 +731,7 @@ struct StaffAccessView: View {
                         }
                         Phase2Eyebrow(
                             text:
-                                "\(invite.status) · Expires \(Phase2Time.shortDate(invite.expiresAt, zone: "UTC")) · UTC"
+                                "\(invite.status) · Expires \(Phase2Time.display(invite.expiresAt, zone: TimeZone.current.identifier))"
                         )
                         Divider()
                     }
@@ -667,15 +740,22 @@ struct StaffAccessView: View {
                     Text("Invite someone").font(AcademyType.serif(28))
                     Phase2Eyebrow(text: "Their email")
                     TextField("name@club.example", text: $email).keyboardType(.emailAddress)
-                        .textInputAutocapitalization(.never).autocorrectionDisabled().textFieldStyle(Phase2InputStyle())
+                        .textInputAutocapitalization(.never).autocorrectionDisabled().textFieldStyle(
+                            Phase2InputStyle()
+                        )
                         .accessibilityIdentifier("staff-invite-email")
                         .focused($inviteEmailFocused)
                         .submitLabel(.done).onSubmit { inviteEmailFocused = false }
-                    StaffScopeForm(role: $role, allSquads: $allSquads, squadIds: $squadIds, squads: model.squads)
+                    StaffScopeForm(
+                        role: $role, allSquads: $allSquads, squadIds: $squadIds, squads: model.squads)
                     Button("Send invite") {
                         Task {
-                            await model.invite(
+                            if await model.invite(
                                 email: email, role: role, allSquads: allSquads, squadIds: Array(squadIds))
+                            {
+                                email = ""
+                                inviteEmailFocused = false
+                            }
                         }
                     }
                     .buttonStyle(FloodlightPillStyle()).disabled(
@@ -713,7 +793,9 @@ struct StaffAccessView: View {
         }.accessibilityIdentifier("phase2-staff")
     }
     private func scopeLabel(all: Bool, ids: [Int]) -> String {
-        all ? "All squads" : model.squads.filter { ids.contains($0.id) }.map(\.name).joined(separator: ", ")
+        all
+            ? "All squads"
+            : model.squads.filter { ids.contains($0.id) }.map(\.name).joined(separator: ", ")
     }
 }
 struct StaffScopeForm: View {
@@ -724,7 +806,8 @@ struct StaffScopeForm: View {
     var identifierPrefix = "staff"
     private var roleDescription: String {
         switch role {
-        case "manager": "Manager: the whole club, including recruiting. No billing or staff administration."
+        case "manager":
+            "Manager: the whole club, including recruiting. No billing or staff administration."
         case "analyst": "Analyst: players and matches in their squads. No recruiting, billing or staff."
         case "viewer": "Viewer: read-only access to their squads. No recruiting, billing or staff."
         default:
@@ -738,9 +821,11 @@ struct StaffScopeForm: View {
                 Button {
                     role = choice
                 } label: {
-                    Text(choice.capitalized).font(AcademyType.ui(13)).frame(maxWidth: .infinity).frame(height: 44)
-                        .foregroundStyle(role == choice ? AcademyColors.background : AcademyColors.text)
-                        .background(role == choice ? AcademyColors.text : .clear, in: Capsule())
+                    Text(choice.capitalized).font(AcademyType.ui(13)).frame(maxWidth: .infinity).frame(
+                        height: 44
+                    )
+                    .foregroundStyle(role == choice ? AcademyColors.background : AcademyColors.text)
+                    .background(role == choice ? AcademyColors.text : .clear, in: Capsule())
                 }.buttonStyle(.plain).accessibilityAddTraits(role == choice ? .isSelected : [])
             }
         }.accessibilityIdentifier(identifierPrefix + "-role")
@@ -749,8 +834,9 @@ struct StaffScopeForm: View {
         if role != "manager" {
             Phase2Eyebrow(text: "Squads they can see")
             Phase2Flow {
-                Toggle("All squads", isOn: $allSquads).toggleStyle(Phase2ChipToggleStyle()).accessibilityIdentifier(
-                    identifierPrefix + "-all-squads")
+                Toggle("All squads", isOn: $allSquads).toggleStyle(Phase2ChipToggleStyle())
+                    .accessibilityIdentifier(
+                        identifierPrefix + "-all-squads")
                 if !allSquads {
                     ForEach(squads) { squad in
                         Toggle(
@@ -792,7 +878,8 @@ struct StaffEditSheet: View {
                     identifierPrefix: "staff-edit")
                 Phase2ErrorView(message: model.error)
                 DisclosureGroup("Permissions") {
-                    ForEach(Array((model.board?.matrix.rows ?? []).enumerated()), id: \.offset) { index, label in
+                    ForEach(Array((model.board?.matrix.rows ?? []).enumerated()), id: \.offset) {
+                        index, label in
                         Label(
                             label,
                             systemImage: index < person.permissions.count && person.permissions[index]
@@ -803,7 +890,8 @@ struct StaffEditSheet: View {
                 }.font(AcademyType.footnote)
                 Button("Save access") {
                     Task {
-                        await model.update(person, role: role, allSquads: allSquads, squadIds: Array(squadIds))
+                        await model.update(
+                            person, role: role, allSquads: allSquads, squadIds: Array(squadIds))
                         if model.error == nil { dismiss() }
                     }
                 }.buttonStyle(FloodlightPillStyle()).disabled(

@@ -11,11 +11,18 @@ private actor RecordingPhase2API: Phase2API {
     }
     private(set) var calls: [Call] = []
     let fixture: Phase2FixtureTransport
+    private var delay = false
+    func delayFlags() { delay = true }
     private var failure: Int?
     init(_ mode: String = "player") { fixture = Phase2FixtureTransport(mode: mode) }
     func fail(_ status: Int?) { failure = status }
-    func phase2Data(path: String, method: String, query: [URLQueryItem], body: Data?) async throws -> Data {
+    func phase2Data(path: String, method: String, query: [URLQueryItem], body: Data?) async throws
+        -> Data
+    {
         calls.append(Call(path: path, method: method, query: query, body: body))
+        if delay && ["features", "opportunities/features"].contains(path) {
+            try await Task.sleep(for: .milliseconds(100))
+        }
         if let failure { throw APIClientError.httpStatus(failure) }
         if fixture.mode == "legacy", path == "funding/claims/me" {
             return Data(
@@ -29,7 +36,9 @@ private actor RecordingPhase2API: Phase2API {
 
 private actor SlowDirectoryAPI: Phase2API {
     let fixture = Phase2FixtureTransport(mode: "player")
-    func phase2Data(path: String, method: String, query: [URLQueryItem], body: Data?) async throws -> Data {
+    func phase2Data(path: String, method: String, query: [URLQueryItem], body: Data?) async throws
+        -> Data
+    {
         if let body, let text = String(data: body, encoding: .utf8), text.contains("slow") {
             try await Task.sleep(for: .milliseconds(120))
             return Data(#"{"clubs":[],"page":1,"has_more":false,"total":999}"#.utf8)
@@ -41,6 +50,123 @@ private actor SlowDirectoryAPI: Phase2API {
 @MainActor
 final class Phase2ViewModelTests: XCTestCase {
     private static var fixtureNow: Date { Phase2Time.date("2026-10-01T10:00:00Z")! }
+    func testRevalidationNeverTemporarilyDropsKnownTabsOrMembership() async {
+        let client = RecordingPhase2API("owner")
+        let model = Phase2Workspace(client: client)
+        await model.load(authenticated: true)
+        let flags = model.flags
+        let id = model.selected?.id
+        await client.delayFlags()
+        let refresh = Task { await model.load(authenticated: true) }
+        try? await Task.sleep(for: .milliseconds(20))
+        XCTAssertTrue(model.isLoading)
+        XCTAssertEqual(model.flags, flags)
+        XCTAssertEqual(model.selected?.id, id)
+        await refresh.value
+        XCTAssertEqual(model.flags, flags)
+        XCTAssertEqual(model.selected?.id, id)
+    }
+    func testClaimsFetchFailureIsNotAnAdultEligibilityDecision() async {
+        let model = TrialDetailViewModel(
+            id: Phase2FixtureTransport.postId, client: RecordingPhase2API("claims-error"))
+        await model.load(authenticated: true, applications: true)
+        XCTAssertNotNil(model.post)
+        XCTAssertNotNil(model.error)
+        XCTAssertTrue(model.claims.isEmpty)
+        XCTAssertFalse(model.canSend)
+    }
+    func testDeniedPrivateRecordStillClearsButKeepsUnsentDraft() async {
+        let client = RecordingPhase2API("owner")
+        let model = ApplicationDetailViewModel(
+            id: Phase2FixtureTransport.applicationId, programId: 101, client: client)
+        await model.load()
+        model.note = "Unsent draft"
+        await client.fail(403)
+        await model.addNote()
+        XCTAssertNil(model.application)
+        XCTAssertEqual(model.note, "Unsent draft")
+    }
+    func testFidelitySingularCountsRemainCorrect() {
+        XCTAssertEqual(phase2Count(1, "applicant"), "1 applicant")
+        XCTAssertEqual(phase2Count(1, "open opportunity", plural: "open opportunities"), "1 open opportunity")
+        XCTAssertEqual(phase2Count(1, "squad"), "1 squad")
+    }
+    func testUnconfirmedClubMembershipAlwaysKeepsLegacyTabs() async {
+        let flags = Phase2Flags(directory: true, opportunities: true, applications: true, staff: true)
+        XCTAssertEqual(
+            RootTab.available(for: .club, flags: flags),
+            [.home, .scoutDesk, .watchlist, .lists, .account])
+        let workspace = Phase2Workspace(client: RecordingPhase2API("membership-error"))
+        await workspace.load(authenticated: true)
+        XCTAssertNil(workspace.selected)
+        XCTAssertNotNil(workspace.error)
+        XCTAssertEqual(
+            RootTab.available(for: .club, flags: workspace.flags),
+            [.home, .scoutDesk, .watchlist, .lists, .account])
+        let signedOut = Phase2Workspace(client: RecordingPhase2API("owner"))
+        await signedOut.load(authenticated: false)
+        XCTAssertNil(signedOut.selected)
+    }
+    func testRecruitingWorksWithoutStaffAdministrationFlag() async {
+        let workspace = Phase2Workspace(client: RecordingPhase2API("nostaff"))
+        await workspace.load(authenticated: true)
+        XCTAssertFalse(workspace.flags.staff)
+        XCTAssertTrue(workspace.selected?.access.canRecruit == true)
+        XCTAssertEqual(
+            RootTab.available(for: .club, flags: workspace.flags, access: workspace.selected?.access),
+            [.home, .squads, .matches, .recruiting, .account])
+    }
+    func testInitialFailedFlagsStayClosed() async {
+        let client = RecordingPhase2API("owner")
+        await client.fail(503)
+        let model = Phase2Workspace(client: client)
+        await model.load(authenticated: true)
+        XCTAssertEqual(model.flags, Phase2Flags())
+        XCTAssertNil(model.selected)
+    }
+    func testRefusalsNeverSuggestTransportRetry() {
+        for status in [400, 401, 403, 404, 409, 413, 422, 429, 500, 503] {
+            XCTAssertFalse(phase2Error(APIClientError.httpStatus(status)).contains("Could not connect"))
+        }
+        XCTAssertTrue(phase2Error(URLError(.notConnectedToInternet)).contains("Could not connect"))
+        XCTAssertTrue(
+            phase2Error(APIClientError.server(statusCode: 409, message: "already_has_access")).contains(
+                "already has club access"))
+    }
+    func testStageFilterCanSeeApplicantsBeyondFirstPage() async {
+        let client = PagedPipelineAPI()
+        let model = ApplicationsViewModel(client: client)
+        await model.load(programId: 101, opportunityId: Phase2FixtureTransport.postId)
+        XCTAssertEqual(model.applications.count, 2)
+        XCTAssertTrue(model.applications.contains { $0.status == "offer" })
+        XCTAssertFalse(model.hasMore)
+        let pages = await client.pages
+        XCTAssertEqual(pages, [1, 2])
+    }
+    func testValidationRefusalKeepsTrialInviteForm() async {
+        let model = ApplicationDetailViewModel(
+            id: Phase2FixtureTransport.applicationId, programId: 101,
+            client: RecordingPhase2API("invalid-trial"), now: { Self.fixtureNow })
+        await model.load()
+        model.venue = "Draft venue"
+        await model.transition("invited")
+        XCTAssertNotNil(model.application)
+        XCTAssertEqual(model.venue, "Draft venue")
+        XCTAssertTrue(model.error?.contains("invitation window") == true)
+    }
+    func testSuccessfulInviteReturnsSuccessAndConflictKeepsStaffBoard() async {
+        let client = RecordingPhase2API("owner")
+        let model = StaffViewModel(programId: 101, client: client)
+        await model.load()
+        let sent = await model.invite(
+            email: "fixture@example.test", role: "coach", allSquads: true, squadIds: [])
+        XCTAssertTrue(sent)
+        await client.fail(409)
+        let refused = await model.invite(
+            email: "fixture@example.test", role: "coach", allSquads: true, squadIds: [])
+        XCTAssertFalse(refused)
+        XCTAssertNotNil(model.board)
+    }
     func testDirectorySearchNeverPutsSearchOrCoordinatesInURL() async throws {
         let client = RecordingPhase2API()
         let model = DirectoryViewModel(client: client)
@@ -50,7 +176,8 @@ final class Phase2ViewModelTests: XCTestCase {
         XCTAssertEqual(call.path, "club-directory/search")
         XCTAssertEqual(call.method, "POST")
         XCTAssertTrue(call.query.isEmpty)
-        let body = try XCTUnwrap(JSONSerialization.jsonObject(with: try XCTUnwrap(call.body)) as? [String: Any])
+        let body = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: try XCTUnwrap(call.body)) as? [String: Any])
         XCTAssertEqual(body["q"] as? String, "Quillmere")
         XCTAssertEqual(body["lat"] as? Double, 51)
         XCTAssertEqual(model.clubs.count, 1)
@@ -84,10 +211,11 @@ final class Phase2ViewModelTests: XCTestCase {
         let calls = await client.snapshot()
         XCTAssertEqual(calls.first?.path, "club/101/opportunities")
         XCTAssertEqual(calls.first?.query.first?.value, "2")
-        XCTAssertEqual(calls.last?.path, "club/101/opportunities/\(Phase2FixtureTransport.postId)/applications")
-        XCTAssertEqual(calls.last?.query.first?.value, "3")
+        XCTAssertEqual(
+            calls.last?.path, "club/101/opportunities/\(Phase2FixtureTransport.postId)/applications")
+        XCTAssertEqual(calls.last?.query.first?.value, "1")
         XCTAssertEqual(posts.page, 2)
-        XCTAssertEqual(applications.page, 3)
+        XCTAssertEqual(applications.page, 1)
     }
     func testMissingClubFailsWithoutConstructingInvalidRoute() async {
         let client = RecordingPhase2API()
@@ -102,7 +230,8 @@ final class Phase2ViewModelTests: XCTestCase {
         let model = DirectoryViewModel(client: client)
         await model.search(DirectorySearch(q: "Quillmere", radiusKm: 50))
         let calls = await client.snapshot()
-        let body = try JSONSerialization.jsonObject(with: try XCTUnwrap(calls.first?.body)) as! [String: Any]
+        let body =
+            try JSONSerialization.jsonObject(with: try XCTUnwrap(calls.first?.body)) as! [String: Any]
         XCTAssertNil(body["lat"])
         XCTAssertNil(body["radius_km"])
         XCTAssertNil(model.clubs.first?.distanceKm)
@@ -121,16 +250,19 @@ final class Phase2ViewModelTests: XCTestCase {
         XCTAssertEqual(model.flags, Phase2Flags())
         XCTAssertTrue(model.clubs.isEmpty)
     }
-    func testFeatureFailureFailsClosedAndAuthResetClearsScope() async {
+    func testFeatureFailureKeepsLastConfirmedFlagsAndAuthResetClearsScope() async {
         let client = RecordingPhase2API("owner")
         let model = Phase2Workspace(client: client)
         await model.load(authenticated: true)
         XCTAssertTrue(model.selected?.access.canRecruit == true)
         await client.fail(503)
         await model.load(authenticated: true)
+        XCTAssertTrue(model.flags.opportunities)
+        XCTAssertTrue(model.selected?.access.canRecruit == true)
+        XCTAssertNotNil(model.error)
+        model.reset()
         XCTAssertEqual(model.flags, Phase2Flags())
         XCTAssertTrue(model.clubs.isEmpty)
-        model.reset()
         XCTAssertNil(model.selectedClubId)
     }
     func testCoachWithAllSquadsNeverGetsRecruitingOrStaff() async throws {
@@ -147,9 +279,12 @@ final class Phase2ViewModelTests: XCTestCase {
     }
     func testPlayerAndOwnerHaveDedicatedTabsScoutKeepsItsTabs() async throws {
         let flags = Phase2Flags(directory: true, opportunities: true, applications: true, staff: true)
-        XCTAssertEqual(RootTab.available(for: .player, flags: flags), [.home, .clubs, .trials, .applied, .account])
-        XCTAssertEqual(RootTab.available(for: .scout, flags: flags), [.scoutDesk, .watchlist, .lists, .account])
-        let result: ClubAccessResponse = try await RecordingPhase2API("owner").read("club/101/access/me")
+        XCTAssertEqual(
+            RootTab.available(for: .player, flags: flags), [.home, .clubs, .trials, .applied, .account])
+        XCTAssertEqual(
+            RootTab.available(for: .scout, flags: flags), [.scoutDesk, .watchlist, .lists, .account])
+        let result: ClubAccessResponse = try await RecordingPhase2API("owner").read(
+            "club/101/access/me")
         XCTAssertEqual(
             RootTab.available(for: .club, flags: flags, access: result.access),
             [.home, .squads, .matches, .recruiting, .account])
@@ -158,7 +293,8 @@ final class Phase2ViewModelTests: XCTestCase {
     }
     func testSignedOutTrialReadNeverFetchesClaims() async {
         let client = RecordingPhase2API()
-        let model = TrialDetailViewModel(id: Phase2FixtureTransport.postId, client: client, now: { Self.fixtureNow })
+        let model = TrialDetailViewModel(
+            id: Phase2FixtureTransport.postId, client: client, now: { Self.fixtureNow })
         await model.load(authenticated: false, applications: true)
         let calls = await client.snapshot()
         XCTAssertEqual(calls.map(\.path), ["opportunities/\(Phase2FixtureTransport.postId)"])
@@ -167,7 +303,8 @@ final class Phase2ViewModelTests: XCTestCase {
     }
     func testApplicationRequiresConsentAndUsesStableRetryKey() async throws {
         let client = RecordingPhase2API("apply")
-        let model = TrialDetailViewModel(id: Phase2FixtureTransport.postId, client: client, now: { Self.fixtureNow })
+        let model = TrialDetailViewModel(
+            id: Phase2FixtureTransport.postId, client: client, now: { Self.fixtureNow })
         await model.load(authenticated: true, applications: true)
         model.position = "Midfield"
         XCTAssertFalse(model.canSend)
@@ -185,14 +322,18 @@ final class Phase2ViewModelTests: XCTestCase {
         XCTAssertNotNil(model.sent)
         calls = await client.snapshot()
         let writes = calls.filter { $0.method == "POST" }
-        let bodies = try writes.map { try JSONSerialization.jsonObject(with: XCTUnwrap($0.body)) as! [String: Any] }
+        let bodies = try writes.map {
+            try JSONSerialization.jsonObject(with: XCTUnwrap($0.body)) as! [String: Any]
+        }
         XCTAssertEqual(bodies.count, 2)
-        XCTAssertEqual(bodies[0]["client_request_id"] as? String, bodies[1]["client_request_id"] as? String)
+        XCTAssertEqual(
+            bodies[0]["client_request_id"] as? String, bodies[1]["client_request_id"] as? String)
         XCTAssertEqual(bodies[0]["contact_consent"] as? Bool, true)
     }
     func testGuardianCannotApplyWithoutEligibleSelfClaim() async {
         let client = RecordingPhase2API("parent")
-        let model = TrialDetailViewModel(id: Phase2FixtureTransport.postId, client: client, now: { Self.fixtureNow })
+        let model = TrialDetailViewModel(
+            id: Phase2FixtureTransport.postId, client: client, now: { Self.fixtureNow })
         await model.load(authenticated: true, applications: true)
         model.position = "Forward"
         model.contactConsent = true
@@ -216,7 +357,8 @@ final class Phase2ViewModelTests: XCTestCase {
     }
     func testConfirmKeepsPlaceAndWithdrawalRemovesActions() async {
         let model = ApplicationDetailViewModel(
-            id: Phase2FixtureTransport.applicationId, client: RecordingPhase2API(), now: { Self.fixtureNow })
+            id: Phase2FixtureTransport.applicationId, client: RecordingPhase2API(),
+            now: { Self.fixtureNow })
         await model.load()
         await model.applicantAction("accept")
         XCTAssertEqual(model.application?.reservationState, "confirmed")
@@ -224,16 +366,17 @@ final class Phase2ViewModelTests: XCTestCase {
         await model.applicantAction("withdraw")
         XCTAssertTrue(model.application?.isTerminal == true)
     }
-    func testPrivateConflictDropsStaleApplicantButPreservesDraft() async {
+    func testPrivateConflictRevalidatesApplicantAndPreservesDraft() async {
         let client = RecordingPhase2API("conflict")
         let model = ApplicationDetailViewModel(
-            id: Phase2FixtureTransport.applicationId, programId: 101, client: client, now: { Self.fixtureNow })
+            id: Phase2FixtureTransport.applicationId, programId: 101, client: client,
+            now: { Self.fixtureNow })
         await model.load()
         model.venue = "Saltings"
         model.instructions = "Bring boots"
         model.note = "Draft note"
         await model.transition("invited")
-        XCTAssertNil(model.application)
+        XCTAssertNotNil(model.application)
         XCTAssertEqual(model.venue, "Saltings")
         XCTAssertEqual(model.note, "Draft note")
         XCTAssertNotNil(model.error)
@@ -246,13 +389,14 @@ final class Phase2ViewModelTests: XCTestCase {
         model.venue = "Saltings"
         await model.transition("invited")
         XCTAssertEqual(model.venue, "Saltings")
-        XCTAssertNil(model.application)
+        XCTAssertNotNil(model.application)
         XCTAssertTrue(model.error?.contains("full") == true)
     }
     func testSignedRequiresSeparateEnrollment() async {
         let client = RecordingPhase2API("signed")
         let model = ApplicationDetailViewModel(
-            id: Phase2FixtureTransport.applicationId, programId: 101, client: client, now: { Self.fixtureNow })
+            id: Phase2FixtureTransport.applicationId, programId: 101, client: client,
+            now: { Self.fixtureNow })
         await model.load()
         await model.transition("signed")
         var calls = await client.snapshot()
@@ -272,7 +416,8 @@ final class Phase2ViewModelTests: XCTestCase {
     func testPrivateNoteIsClearedOnlyAfterSuccess() async {
         let client = RecordingPhase2API("owner")
         let model = ApplicationDetailViewModel(
-            id: Phase2FixtureTransport.applicationId, programId: 101, client: client, now: { Self.fixtureNow })
+            id: Phase2FixtureTransport.applicationId, programId: 101, client: client,
+            now: { Self.fixtureNow })
         await model.load()
         model.note = "Club-private observation"
         await client.fail(503)
@@ -294,7 +439,8 @@ final class Phase2ViewModelTests: XCTestCase {
         let model = StaffViewModel(programId: 101, client: client)
         await model.load()
         let person = try XCTUnwrap(model.board?.people.first)
-        await model.update(person, role: "analyst", allSquads: person.allSquads, squadIds: person.squadIds)
+        await model.update(
+            person, role: "analyst", allSquads: person.allSquads, squadIds: person.squadIds)
         let calls = await client.snapshot()
         let call = try XCTUnwrap(calls.first { $0.method == "PATCH" })
         let body = try JSONSerialization.jsonObject(with: XCTUnwrap(call.body)) as! [String: Any]
@@ -312,9 +458,12 @@ final class Phase2ViewModelTests: XCTestCase {
         XCTAssertFalse(calls.contains { $0.method == "PATCH" })
     }
     func testTimeUsesPostingZoneAcrossDSTAndLabelledFallback() {
-        XCTAssertTrue(Phase2Time.zoneLabel("Europe/London", at: "2026-10-07T18:30:00Z").contains("UTC+01:00"))
-        XCTAssertTrue(Phase2Time.display("2026-10-07T18:30:00Z", zone: "Europe/London").contains("19:30"))
-        XCTAssertTrue(Phase2Time.zoneLabel("Europe/London", at: "2026-10-27T18:30:00Z").contains("UTC+00:00"))
+        XCTAssertTrue(
+            Phase2Time.zoneLabel("Europe/London", at: "2026-10-07T18:30:00Z").contains("UTC+01:00"))
+        XCTAssertTrue(
+            Phase2Time.display("2026-10-07T18:30:00Z", zone: "Europe/London").contains("19:30"))
+        XCTAssertTrue(
+            Phase2Time.zoneLabel("Europe/London", at: "2026-10-27T18:30:00Z").contains("UTC+00:00"))
         XCTAssertTrue(Phase2Time.zoneLabel("Unknown/Zone", at: nil).contains("UTC fallback"))
         XCTAssertEqual(Phase2Time.display("bad", zone: "Europe/London"), "Date unavailable")
     }
@@ -324,20 +473,51 @@ final class Phase2ViewModelTests: XCTestCase {
         XCTAssertEqual(naive, Phase2Time.date("2026-08-26T12:15:00+01:00"))
         XCTAssertEqual(
             Phase2Time.date("2026-08-26T11:15:00.123456"), Phase2Time.date("2026-08-26T11:15:00.123456Z"))
-        XCTAssertTrue(Phase2Time.display("2026-08-26T11:15:00", zone: "Europe/London").contains("12:15 BST"))
+        XCTAssertTrue(
+            Phase2Time.display(
+                "2026-08-26T11:15:00", zone: "Europe/London", locale: Locale(identifier: "en_GB")
+            ).contains("12:15 BST"))
         XCTAssertNil(Phase2Time.date("2026-08-26"))
         XCTAssertNil(Phase2Time.date("2026-08-26T11:15:00junk"))
     }
     func testTimeRangePreservesEndTimeAndBothZonesAcrossDST() {
-        XCTAssertEqual(
-            Phase2Time.interval("2026-10-07T18:30:00Z", "2026-10-07T20:00:00Z", zone: "Europe/London"),
-            "Wed 7 Oct, 19:30–21:00 BST")
-        let change = Phase2Time.interval("2026-10-25T00:30:00Z", "2026-10-25T01:30:00Z", zone: "Europe/London")
+        let locale = Locale(identifier: "en_GB")
+        let range = Phase2Time.interval(
+            "2026-10-07T18:30:00Z", "2026-10-07T20:00:00Z", zone: "Europe/London", locale: locale)
+        XCTAssertTrue(range.contains("19:30–21:00 BST"), range)
+        let change = Phase2Time.interval(
+            "2026-10-25T00:30:00Z", "2026-10-25T01:30:00Z", zone: "Europe/London", locale: locale)
         XCTAssertTrue(change.contains("BST"))
         XCTAssertTrue(change.contains("GMT"))
-        let midnight = Phase2Time.interval("2026-10-07T22:30:00Z", "2026-10-08T01:00:00Z", zone: "Europe/London")
-        XCTAssertTrue(midnight.contains("Wed 7 Oct"))
-        XCTAssertTrue(midnight.contains("Thu 8 Oct"))
+        let midnight = Phase2Time.interval(
+            "2026-10-07T22:30:00Z", "2026-10-08T01:00:00Z", zone: "Europe/London", locale: locale)
+        XCTAssertTrue(midnight.contains("7 Oct"), midnight)
+        XCTAssertTrue(midnight.contains("8 Oct"), midnight)
+        XCTAssertNotEqual(
+            Phase2Time.display("2026-10-07T18:30:00Z", zone: "Europe/London", locale: locale),
+            Phase2Time.display(
+                "2026-10-07T18:30:00Z", zone: "Europe/London", locale: Locale(identifier: "ja_JP")))
         XCTAssertEqual(Phase2Time.interval(nil, nil, zone: "Europe/London"), "No fixed date")
+    }
+}
+
+private actor PagedPipelineAPI: Phase2API {
+    private(set) var pages: [Int] = []
+    let fixture = Phase2FixtureTransport(mode: "owner")
+    func phase2Data(path: String, method: String, query: [URLQueryItem], body: Data?) async throws
+        -> Data
+    {
+        let page = Int(query.first?.value ?? "1") ?? 1
+        pages.append(page)
+        let raw = try await fixture.phase2Data(path: path, method: method, query: query, body: body)
+        var response = try JSONSerialization.jsonObject(with: raw) as! [String: Any]
+        var rows = response["applications"] as! [[String: Any]]
+        if page == 2 {
+            rows[0]["id"] = "second-page"
+            rows[0]["status"] = "offer"
+        }
+        response["applications"] = rows
+        response["has_more"] = page == 1
+        return try JSONSerialization.data(withJSONObject: response)
     }
 }

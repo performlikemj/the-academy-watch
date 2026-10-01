@@ -6,12 +6,16 @@
     enum Phase2Fixtures {
         static var mode: String? {
             let args = ProcessInfo.processInfo.arguments
-            guard let i = args.firstIndex(of: "-phase2Fixture"), args.indices.contains(i + 1) else { return nil }
+            guard let i = args.firstIndex(of: "-phase2Fixture"), args.indices.contains(i + 1) else {
+                return nil
+            }
             return args[i + 1]
         }
         static var screen: String? {
             let args = ProcessInfo.processInfo.arguments
-            guard let i = args.firstIndex(of: "-phase2Preview"), args.indices.contains(i + 1) else { return nil }
+            guard let i = args.firstIndex(of: "-phase2Preview"), args.indices.contains(i + 1) else {
+                return nil
+            }
             return args[i + 1]
         }
         static var active: Bool { mode != nil || screen != nil }
@@ -21,7 +25,7 @@
                     ? "owner" : screen == "N14" ? "coach" : "player")
         }
         static var isClubExperience: Bool {
-            ["owner", "coach", "recruiting", "signed", "draft", "full", "conflict"].contains(resolvedMode)
+            ["owner", "coach", "recruiting", "signed", "draft", "full", "conflict", "nostaff", "membership-error", "pendingclub", "club-signed-out"].contains(resolvedMode)
         }
         static func contactFixture(_ data: Data, messages: Bool) throws -> Data {
             guard screen == "N17" || screen == "N01" else { return data }
@@ -51,7 +55,9 @@
                 return request
             }
             if messages {
-                if let request = dto["contact_request"] as? [String: Any] { dto["contact_request"] = restyle(request) }
+                if let request = dto["contact_request"] as? [String: Any] {
+                    dto["contact_request"] = restyle(request)
+                }
                 var rows = dto["messages"] as? [[String: Any]] ?? []
                 let samples = [
                     (
@@ -66,7 +72,10 @@
                         "club", "Idris Penhalow",
                         "All fine with us. Sunil has moved Nabil's individual session so he is fresh. Please let me know how he gets on, good or bad."
                     ),
-                    ("player", "Nabil Ferhane", "My dad will drive me. Is it okay if he watches from the side?"),
+                    (
+                        "player", "Nabil Ferhane",
+                        "My dad will drive me. Is it okay if he watches from the side?"
+                    ),
                 ]
                 if rows.count == 3, var last = rows.first {
                     last["id"] = "50505050-1111-4111-8111-010101010104"
@@ -96,6 +105,7 @@
         static let applicationId = "20202020-1111-4111-8111-010101010101"
         let mode: String
         private let lock = NSLock()
+        private var flagReads = 0
         private var submitted = false
         private var version = 1
         private var status = "invited"
@@ -128,44 +138,72 @@
             let method = request.httpMethod ?? "GET"
             let requestedPage =
                 Int(
-                    URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.first(where: {
-                        $0.name == "page"
-                    })?.value ?? "1") ?? 1
-            let body = request.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
+                    URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.first(
+                        where: {
+                            $0.name == "page"
+                        })?.value ?? "1") ?? 1
+            let body =
+                request.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+                ?? [:]
             func json(_ value: Any) throws -> Data { try JSONSerialization.data(withJSONObject: value) }
             if path == "auth/me", method == "GET" {
                 return try json([
                     "email": "phase2@fixture.invalid", "role": "user", "user_id": 7,
-                    "display_name": "Reuben Castellane", "display_name_confirmed": true, "is_journalist": false,
+                    "display_name": "Reuben Castellane", "display_name_confirmed": true,
+                    "is_journalist": false,
                     "is_curator": false, "is_verified_scout": false,
                 ])
             }
             if path == "features" {
+                flagReads += 1
+                if mode == "foreground-failure" && flagReads > 1 { throw URLError(.timedOut) }
                 return try json(
                     mode == "off"
                         ? ["contact_rail": false]
-                        : ["club_directory": true, "club_staff_access": true, "contact_rail": true])
+                        : [
+                            "club_directory": true, "club_staff_access": mode != "nostaff",
+                            "contact_rail": true,
+                        ])
             }
             if path == "opportunities/features" {
                 if mode == "off" { throw APIClientError.httpStatus(404) }
                 return try json(["opportunities": true, "applications": true])
             }
             if method == "GET", path == "me/club-access" {
+                if mode == "membership-error" { throw URLError(.timedOut) }
                 return try json([
-                    "programs": ["owner", "coach", "recruiting", "signed", "full", "conflict", "draft"].contains(mode)
+                    "programs": ["coach"].contains(mode)
                         ? [
                             [
-                                "program": ["id": 101, "name": "Quillmere Athletic", "slug": "quillmere-athletic"],
+                                "program": [
+                                    "id": 101, "name": "Quillmere Athletic", "slug": "quillmere-athletic",
+                                ],
                                 "access": access,
                             ]
                         ] : []
                 ])
             }
-            if method == "GET", path == "funding/claims/me" { return try json(["claims": []]) }
+            if method == "GET", path == "funding/claims/me" {
+                return try json([
+                    "claims": ["owner", "recruiting", "signed", "full", "conflict", "draft", "nostaff"]
+                        .contains(mode)
+                        ? [
+                            [
+                                "status": "approved",
+                                "program": [
+                                    "id": 101, "name": "Quillmere Athletic", "slug": "quillmere-athletic",
+                                ],
+                            ]
+                        ] : []
+                ])
+            }
             if method == "GET", path == "club/101/access/me" { return try json(["access": access]) }
             if path == "club-directory/search", method == "POST" {
+                if mode == "rate-limit" { throw APIClientError.httpStatus(429) }
                 var card = club
-                if let lat = body["lat"] as? Double, let lng = body["lng"] as? Double, lat.isFinite, lng.isFinite {
+                if let lat = body["lat"] as? Double, let lng = body["lng"] as? Double, lat.isFinite,
+                    lng.isFinite
+                {
                     card["distance_km"] = 0.8
                 }
                 let empty =
@@ -177,10 +215,13 @@
                     "has_more": false,
                 ])
             }
-            if path == "programs/thrandby-wrens", method == "GET", ["N02", "N04"].contains(Phase2Fixtures.screen ?? "")
+            if path == "programs/thrandby-wrens", method == "GET",
+                ["N02", "N04"].contains(Phase2Fixtures.screen ?? "")
             {
                 var page = directoryCards(club, body: [:])[1]
-                page["directory"] = ["club_level": "amateur", "gender_programs": ["women", "girls"], "squad_count": 2]
+                page["directory"] = [
+                    "club_level": "amateur", "gender_programs": ["women", "girls"], "squad_count": 2,
+                ]
                 return try json(["program": page])
             }
             if path == "programs/quillmere-athletic", method == "GET" {
@@ -197,7 +238,8 @@
                     "opportunities": mode == "empty"
                         ? []
                         : reviewPosts(private: path.hasPrefix("club/")).filter { dto in
-                            let type = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?
+                            let type = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?
+                                .queryItems?
                                 .first(where: { $0.name == "type" })?.value
                             return type == nil || type == dto["type"] as? String
                         },
@@ -216,6 +258,7 @@
                 return try json(["opportunity": post(private: false)])
             }
             if path == "me/application-claims", method == "GET" {
+                if mode == "claims-error" { throw URLError(.timedOut) }
                 return try json([
                     "claims": mode == "parent" || mode == "ineligible"
                         ? [] : [["claim_id": 71, "signed_player_id": 900001, "name": "Reuben Castellane"]]
@@ -225,12 +268,16 @@
                 guard body["contact_consent"] as? Bool == true, body["client_request_id"] is String else {
                     throw APIClientError.server(statusCode: 400, message: "invalid_payload")
                 }
-                if mode == "closed" { throw APIClientError.server(statusCode: 409, message: "opportunity_closed") }
+                if mode == "closed" {
+                    throw APIClientError.server(statusCode: 409, message: "opportunity_closed")
+                }
                 if mode == "ineligible" { throw APIClientError.httpStatus(403) }
                 submitted = true
                 status = "new"
                 reservation = "none"
-                return try json(["application": application(private: false, position: body["position"] as? String)])
+                return try json([
+                    "application": application(private: false, position: body["position"] as? String)
+                ])
             }
             if path == "me/applications" || path == "club/101/opportunities/\(Self.postId)/applications",
                 method == "GET"
@@ -251,19 +298,22 @@
                 published = true
                 return try json(["opportunity": post(private: true)])
             }
-            if method == "GET", path.hasPrefix("me/applications/") || path.hasPrefix("club/101/applications/"),
+            if method == "GET",
+                path.hasPrefix("me/applications/") || path.hasPrefix("club/101/applications/"),
                 let dto = reviewApplications(private: path.hasPrefix("club/")).first(where: {
                     path.hasSuffix("/" + ($0["id"] as? String ?? ""))
                 })
             {
                 return try json(["application": dto])
             }
-            if path == "me/applications/\(Self.applicationId)" || path == "club/101/applications/\(Self.applicationId)",
+            if path == "me/applications/\(Self.applicationId)"
+                || path == "club/101/applications/\(Self.applicationId)",
                 method == "GET"
             {
                 return try json(["application": application(private: path.hasPrefix("club/"))])
             }
-            if path.hasSuffix("/withdraw") || path.hasSuffix("/trial-response") || path.hasSuffix("/transition"),
+            if path.hasSuffix("/withdraw") || path.hasSuffix("/trial-response")
+                || path.hasSuffix("/transition"),
                 method == "POST"
             {
                 guard path.contains("/applications/\(Self.applicationId)/") else {
@@ -273,6 +323,9 @@
                     throw APIClientError.server(statusCode: 409, message: "version_conflict")
                 }
                 if mode == "full" { throw APIClientError.server(statusCode: 409, message: "trial_full") }
+                if mode == "invalid-trial" {
+                    throw APIClientError.server(statusCode: 422, message: "invalid_trial_at")
+                }
                 if path.hasSuffix("/withdraw") || body["response"] as? String == "decline" {
                     status = "withdrawn"
                     reservation = body["response"] as? String == "decline" ? "declined" : "released"
@@ -280,7 +333,7 @@
                     reservation = "confirmed"
                 } else if let target = body["status"] as? String {
                     if target == "signed", body["enrollment_confirmed"] as? Bool != true {
-                        throw APIClientError.server(statusCode: 400, message: "separate_enrollment_required")
+                        throw APIClientError.server(statusCode: 422, message: "separate_enrollment_required")
                     }
                     status = target
                     if status == "invited" { reservation = "pending" }
@@ -302,7 +355,8 @@
                     "squads": mode == "coach"
                         ? [squad(3, "Under-18s")]
                         : [
-                            squad(1, "First Team"), squad(2, "Reserves"), squad(3, "Under-18s"), squad(4, "Under-16s"),
+                            squad(1, "First Team"), squad(2, "Reserves"), squad(3, "Under-18s"),
+                            squad(4, "Under-16s"),
                             squad(5, "Under-21s"),
                         ]
                 ])
@@ -323,7 +377,8 @@
                 return try json([
                     "matches": [
                         [
-                            "id": 501, "squad_id": 3, "opponent_name": "Marrowby Colts U18", "status": "finalized",
+                            "id": 501, "squad_id": 3, "opponent_name": "Marrowby Colts U18",
+                            "status": "finalized",
                             "match_date": "2026-09-26",
                         ]
                     ]
@@ -344,7 +399,8 @@
                                     "squad_ids": staffScope, "version": 1, "editable": true,
                                     "permissions": [true, true, false, false],
                                 ]
-                            ], "invites": Phase2Fixtures.screen == "N13" ? reviewInvites : invited ? [invite] : [],
+                            ],
+                    "invites": Phase2Fixtures.screen == "N13" ? reviewInvites : invited ? [invite] : [],
                     "matrix": ["rows": ["Players", "Matches", "Recruiting", "Staff access"]],
                 ])
             }
@@ -372,9 +428,12 @@
                             ? "contact_requests_inbox" : "contact_requests_sent"), messages: false)
             }
             if method == "GET", path.hasPrefix("contact/requests/"), path.hasSuffix("/messages") {
-                return try Phase2Fixtures.contactFixture(FloodlightPreview.fixture("contact_messages"), messages: true)
+                return try Phase2Fixtures.contactFixture(
+                    FloodlightPreview.fixture("contact_messages"), messages: true)
             }
-            if method == "GET" { return try PlayerClubExperienceFixtures.data(for: request, mode: "development") }
+            if method == "GET" {
+                return try PlayerClubExperienceFixtures.data(for: request, mode: "development")
+            }
             throw ExperienceFixtureError.unmatchedRequest(method: method, path: path)
         }
         private var access: [String: Any] {
@@ -406,19 +465,24 @@
             var dto: [String: Any] = [
                 "id": Self.postId, "program_id": 101, "club_name": "Quillmere Athletic",
                 "club_slug": "quillmere-athletic", "title": "Open training night with the Reserves",
-                "description": "A training night, not a trial: no cuts. Bring 3G boots, shin pads and a drink.",
+                "description":
+                    "A training night, not a trial: no cuts. Bring 3G boots, shin pads and a drink.",
                 "instructions": "Meet at 19:15. No metal studs.", "position_requirements": "All positions",
-                "birth_year_min": 1980, "birth_year_max": 2008, "gender_program": "men", "timezone": "Europe/London",
+                "birth_year_min": 1980, "birth_year_max": 2008, "gender_program": "men",
+                "timezone": "Europe/London",
                 "starts_at": "2026-10-07T18:30:00Z", "ends_at": "2026-10-07T20:00:00Z",
-                "closes_at": "2026-10-06T19:00:00Z", "venue": "The Saltings 3G", "address": "Quillmere XW4 2QA",
-                "status": (mode == "draft" || Phase2Fixtures.screen == "N09b") && !published ? "draft" : "published",
+                "closes_at": "2026-10-06T19:00:00Z", "venue": "The Saltings 3G",
+                "address": "Quillmere XW4 2QA",
+                "status": (mode == "draft" || Phase2Fixtures.screen == "N09b") && !published
+                    ? "draft" : "published",
                 "type": "open_session", "version": published ? 2 : 1,
             ]
             if privateDTO {
                 dto["capacity"] = 24
                 dto["places_left"] = 22
                 dto["application_count"] =
-                    mode == "draft" || Phase2Fixtures.screen == "N09b" ? 0 : Phase2Fixtures.screen == "N09" ? 14 : 1
+                    mode == "draft" || Phase2Fixtures.screen == "N09b"
+                    ? 0 : Phase2Fixtures.screen == "N09" ? 14 : 1
             }
             if Phase2Fixtures.screen == "N09" {
                 dto["title"] = "Open trial — First Team"
@@ -439,11 +503,14 @@
         private func application(private privateDTO: Bool, position: String? = nil) -> [String: Any] {
             var dto: [String: Any] = [
                 "id": Self.applicationId, "opportunity_id": Self.postId, "program_id": 101, "claim_id": 71,
-                "signed_player_id": 900001, "status": status, "status_label": Phase2Application.label(status),
-                "position": position ?? "Central midfield", "current_club": "Hallowfen Rovers", "version": version,
+                "signed_player_id": 900001, "status": status,
+                "status_label": Phase2Application.label(status),
+                "position": position ?? "Central midfield", "current_club": "Hallowfen Rovers",
+                "version": version,
                 "reservation_state": reservation, "submitted_at": "2026-09-23T10:00:00Z",
                 "retention_expires_at": "2027-01-05T19:30:00Z",
-                "opportunity_title": "Open training night with the Reserves", "club_name": "Quillmere Athletic",
+                "opportunity_title": "Open training night with the Reserves",
+                "club_name": "Quillmere Athletic",
                 "timezone": "Europe/London",
             ]
             if status == "invited" {
@@ -456,7 +523,8 @@
                 dto["transitions"] =
                     [
                         "new": ["shortlisted", "rejected"], "shortlisted": ["invited", "rejected"],
-                        "invited": ["attended", "rejected"], "offer": ["signed", "rejected"],
+                        "invited": ["attended", "rejected"], "attended": ["offer", "rejected"],
+                        "offer": ["signed", "rejected"],
                     ][status] ?? []
                 dto["notes"] =
                     Phase2Fixtures.screen == "N10"
@@ -469,8 +537,21 @@
                         ]
                     ] + notes : notes
                 dto["events"] = [
-                    ["from_state": NSNull(), "to_state": "new", "version": 1, "created_at": "2026-09-23T10:00:00Z"]
+                    [
+                        "from_state": NSNull(), "to_state": "new", "version": 1,
+                        "created_at": "2026-09-23T10:00:00Z",
+                    ]
                 ]
+                if reservation == "confirmed" {
+                    dto["events"] =
+                        (dto["events"] as! [[String: Any]]) + [
+                            [
+                                "from_state": "invited", "to_state": "invited",
+                                "reason_code": "trial_confirmed",
+                                "version": version, "created_at": "2026-10-01T10:00:00Z",
+                            ]
+                        ]
+                }
             }
             return dto
         }
@@ -496,12 +577,15 @@
         }
         private var reviewSquadMembers: [[String: Any]] {
             [
-                ("Alfie Rowe", "Goalkeeper", 1), ("Kian Marsh", "Right-back", 2), ("Deji Adeyemi", "Centre-back", 4),
+                ("Alfie Rowe", "Goalkeeper", 1), ("Kian Marsh", "Right-back", 2),
+                ("Deji Adeyemi", "Centre-back", 4),
                 ("Tomasz Ward", "Centre-back", 5), ("Rory Holt", "Central midfield", 6),
-                ("Ibrahim Saleh", "Central midfield", 8), ("Jude Evans", "Striker", 9), ("Freddie Owen", "Winger", 11),
+                ("Ibrahim Saleh", "Central midfield", 8), ("Jude Evans", "Striker", 9),
+                ("Freddie Owen", "Winger", 11),
             ].enumerated().map { index, sample in
                 [
-                    "id": 401 + index, "squad_id": 3, "display_name": sample.0, "is_minor": true, "position": sample.1,
+                    "id": 401 + index, "squad_id": 3, "display_name": sample.0, "is_minor": true,
+                    "position": sample.1,
                     "shirt_number": sample.2, "available": true,
                 ]
             }
@@ -513,11 +597,13 @@
                 ("Tobias Wrenfield", "analyst", [5, 3]), ("Gwen Ostler", "viewer", [4]),
             ].enumerated().map { index, sample in
                 [
-                    "user_account_id": index == 0 ? 7 : 20 + index, "grant_id": index == 0 ? NSNull() : 5 + index,
+                    "user_account_id": index == 0 ? 7 : 20 + index,
+                    "grant_id": index == 0 ? NSNull() : 5 + index,
                     "display_name": sample.0, "email": "staff\(index)@fixture.invalid", "role": sample.1,
                     "all_squads": false, "squad_ids": sample.2, "version": 1, "editable": index != 0,
                     "permissions": [
-                        true, sample.1 != "viewer", sample.1 == "owner" || sample.1 == "manager", sample.1 == "owner",
+                        true, sample.1 != "viewer", sample.1 == "owner" || sample.1 == "manager",
+                        sample.1 == "owner",
                     ],
                 ]
             }
@@ -527,7 +613,8 @@
             if Phase2Fixtures.screen == "N09" {
                 let samples = [
                     ("Declan Farrimond", "Centre-back", "new"), ("Yaw Boadu-Sterling", "Winger", "new"),
-                    ("Lewis Carmody", "Goalkeeper", "new"), ("Antoni Kurek", "Central midfield", "shortlisted"),
+                    ("Lewis Carmody", "Goalkeeper", "new"),
+                    ("Antoni Kurek", "Central midfield", "shortlisted"),
                     ("Hugh Penhalow", "Striker", "shortlisted"), ("Alfie Rowe", "Full-back", "invited"),
                     ("Robin Wren", "Goalkeeper", "invited"), ("Kian Marsh", "Defender", "attended"),
                     ("Deji Adeyemi", "Midfield", "attended"), ("Rory Holt", "Winger", "offer"),
@@ -536,7 +623,9 @@
                 ]
                 return samples.enumerated().map { index, sample in
                     var row = base
-                    row["id"] = index == 0 ? Self.applicationId : String(format: "20202020-1111-4111-8111-%012d", index)
+                    row["id"] =
+                        index == 0
+                        ? Self.applicationId : String(format: "20202020-1111-4111-8111-%012d", index)
                     row["applicant_name"] = sample.0
                     row["position"] = sample.1
                     row["status"] = index == 0 ? status : sample.2
@@ -607,8 +696,10 @@
         }
         private var invite: [String: Any] {
             [
-                "id": "30303030-1111-4111-8111-010101010101", "email": "new.coach@fixture.invalid", "role": "coach",
-                "all_squads": false, "squad_ids": [3, 4], "status": "pending", "expires_at": "2026-10-08T10:00:00Z",
+                "id": "30303030-1111-4111-8111-010101010101", "email": "new.coach@fixture.invalid",
+                "role": "coach",
+                "all_squads": false, "squad_ids": [3, 4], "status": "pending",
+                "expires_at": "2026-10-08T10:00:00Z",
             ]
         }
         private func squad(_ id: Int, _ name: String) -> [String: Any] {
@@ -630,7 +721,9 @@
     }
 
     extension Phase2FixtureTransport: Phase2API {
-        func phase2Data(path: String, method: String, query: [URLQueryItem], body: Data?) async throws -> Data {
+        func phase2Data(path: String, method: String, query: [URLQueryItem], body: Data?) async throws
+            -> Data
+        {
             var components = URLComponents(string: "https://fixture.invalid/api/" + path)!
             components.queryItems = query.isEmpty ? nil : query
             var request = URLRequest(url: components.url!)

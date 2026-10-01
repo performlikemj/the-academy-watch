@@ -1,6 +1,7 @@
 import SwiftUI
 
-enum RootTab: String, Hashable {
+enum RootTab: String, Hashable, Identifiable {
+    var id: String { rawValue }
     case home
     case scoutDesk
     case watchlist
@@ -8,16 +9,19 @@ enum RootTab: String, Hashable {
     case account
     case clubs, trials, applied, squads, matches, recruiting
 
-    static func available(for role: ExperienceRole?, flags: Phase2Flags? = nil, access: ClubAccess? = nil) -> [RootTab]
-    {
+    static func available(
+        for role: ExperienceRole?, flags: Phase2Flags? = nil, access: ClubAccess? = nil
+    ) -> [RootTab] {
         if let flags, role == .player, flags.directory || flags.opportunities || flags.applications {
             return [.home] + (flags.directory ? [.clubs] : []) + (flags.opportunities ? [.trials] : [])
                 + (flags.applications ? [.applied] : []) + [.account]
         }
-        if let flags, role == .club, flags.staff {
-            return [.home] + (access?.can("players.view") == true ? [.squads] : [])
-                + (access?.can("matches.view") == true ? [.matches] : [])
-                + (access?.canRecruit == true && flags.opportunities ? [.recruiting] : []) + [.account]
+        if let flags, role == .club, let access,
+            flags.staff || (flags.opportunities && access.canRecruit)
+        {
+            return [.home] + (access.can("players.view") == true ? [.squads] : [])
+                + (access.can("matches.view") == true ? [.matches] : [])
+                + (access.canRecruit && flags.opportunities ? [.recruiting] : []) + [.account]
         }
         if role == .scout {
             return [.scoutDesk, .watchlist, .lists, .account]
@@ -94,6 +98,9 @@ struct RootTabView: View {
     @State private var selectedTab: RootTab
     @State private var isSignInPresented: Bool
     @State private var accountDestination: AccountDestination?
+    private enum LegacyAction { case signIn, verification, gol }
+    @State private var pendingLegacyAction: LegacyAction?
+    @State private var legacyDestination: RootTab?
     @State private var isGolPresented = false
     @StateObject private var golChatViewModel: GolChatViewModel
 
@@ -117,9 +124,13 @@ struct RootTabView: View {
         let fixtureState: AuthState?
         #if DEBUG && targetEnvironment(simulator)
             if Phase2Fixtures.active {
-                fixtureState = .signedIn(
-                    email: "phase2@fixture.invalid", accountRole: .player, displayName: "Reuben Castellane",
-                    isVerifiedScout: false)
+                fixtureState =
+                    Phase2Fixtures.mode == "club-signed-out"
+                    ? .signedOut
+                    : .signedIn(
+                        email: "phase2@fixture.invalid", accountRole: .player,
+                        displayName: "Reuben Castellane",
+                        isVerifiedScout: false)
             } else if FloodlightPreview.isActive {
                 fixtureState =
                     ["auth", "chooser", "account-signed-out"].contains(FloodlightPreview.screen ?? "")
@@ -135,7 +146,8 @@ struct RootTabView: View {
                 switch fixtureDestination {
                 case .fanRow:
                     fixtureState = nil
-                case .playerInbox, .declineConfirmation, .watchingYou, .messageReport, .claimGate, .takedown:
+                case .playerInbox, .declineConfirmation, .watchingYou, .messageReport, .claimGate,
+                    .takedown:
                     fixtureState = .signedIn(
                         email: "habeeb.player@fixture.example",
                         accountRole: .player,
@@ -163,7 +175,8 @@ struct RootTabView: View {
         let tokenStore: any TokenStoreProtocol
         #if DEBUG && targetEnvironment(simulator)
             tokenStore =
-                PlayerClubExperienceFixtures.mode == nil && !FloodlightPreview.isActive && !Phase2Fixtures.active
+                PlayerClubExperienceFixtures.mode == nil && !FloodlightPreview.isActive
+                    && !Phase2Fixtures.active
                 ? KeychainTokenStore() : ExperienceTokenStore()
         #else
             tokenStore = KeychainTokenStore()
@@ -252,6 +265,7 @@ struct RootTabView: View {
             if !tabs.contains(selectedTab) { selectedTab = role == .scout ? .scoutDesk : .home }
         }
         .task(id: authManager.email) {
+            workspace.reset()
             await workspace.load(authenticated: authManager.isAuthenticated)
             guard !Task.isCancelled else { return }
             hasLoadedWorkspace = true
@@ -277,6 +291,32 @@ struct RootTabView: View {
                 sentRequestsViewModel.resetForSignOut()
                 incomingRequestsViewModel.resetForSignOut()
             }
+        }
+        .sheet(item: $legacyDestination, onDismiss: completeLegacyDismissal) { destination in
+            Group {
+                switch destination {
+                case .watchlist:
+                    WatchlistView(
+                        playerDetailAPIClient: apiClient, onSignInRequested: presentSignIn,
+                        onVerificationRequested: presentVerification)
+                case .lists:
+                    ListsView(
+                        apiClient: apiClient, playerDetailAPIClient: apiClient,
+                        onSignInRequested: presentSignIn,
+                        onVerificationRequested: presentVerification)
+                default:
+                    ScoutDeskView(
+                        apiClient: apiClient, playerDetailAPIClient: apiClient,
+                        onSignInRequested: presentSignIn, onVerificationRequested: presentVerification,
+                        onGolRequested: {
+                            pendingLegacyAction = .gol
+                            legacyDestination = nil
+                        })
+                }
+            }
+            .environmentObject(authManager)
+            .environmentObject(watchlistViewModel)
+            .environmentObject(followListsViewModel)
         }
         .sheet(isPresented: $isGolPresented) {
             GolChatView(model: golChatViewModel)
@@ -325,8 +365,7 @@ struct RootTabView: View {
     }
 
     private var tabTreeIdentity: String {
-        roleValue + "|" + (authManager.email ?? "signed-out") + "|"
-            + availableTabs.map(\.rawValue).joined(separator: ",") + "|" + String(workspace.selected?.id ?? 0)
+        roleValue + "|" + (authManager.email ?? "signed-out")
     }
 
     @ViewBuilder private var homeTab: some View {
@@ -335,7 +374,7 @@ struct RootTabView: View {
             PlayerHomeView(
                 apiClient: apiClient,
                 onSignIn: presentSignIn,
-                onNavigate: select,
+                onNavigate: selectHomeDestination,
                 onRoleSelected: selectInitialTab,
                 onGolRequested: { isGolPresented = true },
                 incoming: incomingRequestsViewModel,
@@ -343,7 +382,7 @@ struct RootTabView: View {
             )
             .id(authManager.email ?? "signed-out")
             .tabItem {
-                Label(role == .club && workspace.flags.staff ? "Today" : "Home", systemImage: "house")
+                Label(role == .club && usesEditorialTabs ? "Today" : "Home", systemImage: "house")
                     .accessibilityIdentifier("tab-bar-home")
             }
             .tag(RootTab.home)
@@ -359,8 +398,10 @@ struct RootTabView: View {
             .tag(RootTab.clubs)
         }
         if availableTabs.contains(.trials) {
-            NavigationStack { TrialsView(client: apiClient) }.tabItem { Label("Trials", systemImage: "flag") }
-                .tag(RootTab.trials)
+            NavigationStack { TrialsView(client: apiClient) }.tabItem {
+                Label("Trials", systemImage: "flag")
+            }
+            .tag(RootTab.trials)
         }
         if availableTabs.contains(.applied) {
             NavigationStack { MyApplicationsView(client: apiClient) }.tabItem {
@@ -369,16 +410,22 @@ struct RootTabView: View {
         }
         if let membership = workspace.selected {
             if availableTabs.contains(.squads) {
-                NavigationStack { SquadQuickView(membership: membership, client: apiClient) }.tabItem {
+                NavigationStack { SquadQuickView(membership: membership, client: apiClient) }.id(
+                    membership.id
+                ).tabItem {
                     Label("Squads", systemImage: "person.3")
                 }.tag(RootTab.squads)
             }
             if availableTabs.contains(.matches) {
-                NavigationStack { SquadQuickView(membership: membership, client: apiClient, matchesOnly: true) }.tabItem
-                { Label("Matches", systemImage: "play.rectangle") }.tag(RootTab.matches)
+                NavigationStack {
+                    SquadQuickView(membership: membership, client: apiClient, matchesOnly: true)
+                }.id(membership.id).tabItem { Label("Matches", systemImage: "play.rectangle") }.tag(
+                    RootTab.matches)
             }
             if availableTabs.contains(.recruiting) {
-                NavigationStack { RecruitingView(client: apiClient, membership: membership) }.tabItem {
+                NavigationStack { RecruitingView(client: apiClient, membership: membership) }.id(
+                    membership.id
+                ).tabItem {
                     Label("Recruiting", systemImage: "person.badge.plus")
                 }.tag(RootTab.recruiting)
             }
@@ -460,13 +507,36 @@ struct RootTabView: View {
     }
 
     private func presentSignIn() {
+        if legacyDestination != nil {
+            pendingLegacyAction = .signIn
+            legacyDestination = nil
+            return
+        }
+        legacyDestination = nil
         isSignInPresented = true
     }
 
     private func presentVerification() {
+        if legacyDestination != nil {
+            pendingLegacyAction = .verification
+            legacyDestination = nil
+            return
+        }
+        legacyDestination = nil
         isSignInPresented = false
         select(.account)
         accountDestination = .verification
+    }
+
+    private func completeLegacyDismissal() {
+        let action = pendingLegacyAction
+        pendingLegacyAction = nil
+        switch action {
+        case .signIn: presentSignIn()
+        case .verification: presentVerification()
+        case .gol: isGolPresented = true
+        case nil: break
+        }
     }
 
     private var role: ExperienceRole? {
@@ -475,8 +545,11 @@ struct RootTabView: View {
 
     private var usesEditorialTabs: Bool {
         (role == .player
-            && (workspace.flags.directory || workspace.flags.opportunities || workspace.flags.applications))
-            || (role == .club && workspace.flags.staff)
+            && (workspace.flags.directory || workspace.flags.opportunities
+                || workspace.flags.applications))
+            || (role == .club && workspace.selected != nil
+                && (workspace.flags.staff
+                    || (workspace.flags.opportunities && workspace.selected?.access.canRecruit == true)))
     }
 
     private var availableTabs: [RootTab] {
@@ -492,6 +565,10 @@ struct RootTabView: View {
             },
             set: { select($0) }
         )
+    }
+
+    private func selectHomeDestination(_ tab: RootTab) {
+        if availableTabs.contains(tab) { select(tab) } else { legacyDestination = tab }
     }
 
     private func select(_ tab: RootTab) {

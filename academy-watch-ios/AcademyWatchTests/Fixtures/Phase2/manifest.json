@@ -1,0 +1,414 @@
+{
+  "source": "https://basecamp.tail37b60.ts.net:15443/api/",
+  "captured_at": "2026-10-01T08:43:14.391026+00:00",
+  "fixtures": [
+    {
+      "file": "create-opportunity.json",
+      "persona": "club_owner",
+      "method": "POST",
+      "path": "club/126905366/opportunities",
+      "status": 201,
+      "dto": "OpportunityResponse"
+    },
+    {
+      "file": "publish-opportunity.json",
+      "persona": "club_owner",
+      "method": "PATCH",
+      "path": "club/126905366/opportunities/2177486d-8892-41f1-8334-226e0b53e717",
+      "status": 200,
+      "dto": "OpportunityResponse"
+    },
+    {
+      "file": "submit-application.json",
+      "persona": "adult_player",
+      "method": "POST",
+      "path": "opportunities/2177486d-8892-41f1-8334-226e0b53e717/applications",
+      "status": 201,
+      "dto": "ApplicationResponse"
+    },
+    {
+      "file": "shortlist-application.json",
+      "persona": "club_owner",
+      "method": "POST",
+      "path": "club/126905366/applications/a4792ed5-8d4b-4405-971a-a71a2b2ab4e7/transition",
+      "status": 200,
+      "dto": "ApplicationResponse"
+    },
+    {
+      "file": "invalid-trial-422.json",
+      "persona": "club_owner",
+      "method": "POST",
+      "path": "club/126905366/applications/a4792ed5-8d4b-4405-971a-a71a2b2ab4e7/transition",
+      "status": 422,
+      "dto": "Error"
+    },
+    {
+      "file": "invite-application.json",
+      "persona": "club_owner",
+      "method": "POST",
+      "path": "club/126905366/applications/a4792ed5-8d4b-4405-971a-a71a2b2ab4e7/transition",
+      "status": 200,
+      "dto": "ApplicationResponse"
+    },
+    {
+      "file": "create-note.json",
+      "persona": "club_owner",
+      "method": "POST",
+      "path": "club/126905366/applications/a4792ed5-8d4b-4405-971a-a71a2b2ab4e7/notes",
+      "status": 201,
+      "dto": "NoteResponse"
+    },
+    {
+      "file": "confirm-application.json",
+      "persona": "adult_player",
+      "method": "POST",
+      "path": "me/applications/a4792ed5-8d4b-4405-971a-a71a2b2ab4e7/trial-response",
+      "status": 200,
+      "dto": "ApplicationResponse"
+    },
+    {
+      "file": "reschedule-application.json",
+      "persona": "club_owner",
+      "method": "POST",
+      "path": "club/126905366/applications/a4792ed5-8d4b-4405-971a-a71a2b2ab4e7/transition",
+      "status": 200,
+      "dto": "ApplicationResponse"
+    },
+    {
+      "file": "update-grant.json",
+      "persona": "club_owner",
+      "method": "PATCH",
+      "path": "club/126905366/access/2",
+      "status": 200,
+      "dto": "Phase2Empty"
+    },
+    {
+      "file": "create-staff-invite.json",
+      "persona": "club_owner",
+      "method": "POST",
+      "path": "club/126905366/staff-invites",
+      "status": 201,
+      "dto": "StaffInviteResponse"
+    },
+    {
+      "file": "delete-grant-refusal.json",
+      "persona": "club_owner",
+      "method": "DELETE",
+      "path": "club/126905366/access/2147483647",
+      "status": 404,
+      "dto": "Error"
+    },
+    {
+      "file": "withdraw-application.json",
+      "persona": "adult_player",
+      "method": "POST",
+      "path": "me/applications/a4792ed5-8d4b-4405-971a-a71a2b2ab4e7/withdraw",
+      "status": 200,
+      "dto": "ApplicationResponse"
+    },
+    {
+      "file": "revoke-staff-invite.json",
+      "persona": "club_owner",
+      "method": "POST",
+      "path": "club/126905366/staff-invites/4e8fd8a2-16f2-431a-a945-542616155f3e/revoke",
+      "status": 200,
+      "dto": "Phase2Empty"
+    },
+    {
+      "file": "directory-rate-limit-429.json",
+      "persona": "visitor",
+      "method": "POST",
+      "path": "club-directory/search",
+      "status": 429,
+      "dto": "Error"
+    },
+    {
+      "file": "owner-claims.json",
+      "captured_at": "2026-10-01T08:43:12.070188+00:00",
+      "persona": "club_owner",
+      "method": "GET",
+      "path": "funding/claims/me",
+      "status": 200,
+      "dto": "Phase2ClubClaimsResponse"
+    },
+    {
+      "file": "club_owner-memberships.json",
+      "captured_at": "2026-10-01T08:43:12.135330+00:00",
+      "persona": "club_owner",
+      "method": "GET",
+      "path": "me/club-access",
+      "status": 200,
+      "dto": "ClubMembershipsResponse"
+    },
+    {
+      "file": "coach_u18-memberships.json",
+      "captured_at": "2026-10-01T08:43:12.202953+00:00",
+      "persona": "coach_u18",
+      "method": "GET",
+      "path": "me/club-access",
+      "status": 200,
+      "dto": "ClubMembershipsResponse"
+    },
+    {
+      "file": "adult_player-memberships.json",
+      "captured_at": "2026-10-01T08:43:12.229758+00:00",
+      "persona": "adult_player",
+      "method": "GET",
+      "path": "me/club-access",
+      "status": 200,
+      "dto": "ClubMembershipsResponse"
+    },
+    {
+      "file": "scout_verified-memberships.json",
+      "captured_at": "2026-10-01T08:43:12.255319+00:00",
+      "persona": "scout_verified",
+      "method": "GET",
+      "path": "me/club-access",
+      "status": 200,
+      "dto": "ClubMembershipsResponse"
+    },
+    {
+      "file": "features.json",
+      "captured_at": "2026-10-01T08:43:12.269146+00:00",
+      "persona": "visitor",
+      "method": "GET",
+      "path": "features",
+      "status": 200,
+      "dto": "Phase2FeatureResponse"
+    },
+    {
+      "file": "opportunity-features.json",
+      "captured_at": "2026-10-01T08:43:12.290458+00:00",
+      "persona": "visitor",
+      "method": "GET",
+      "path": "opportunities/features",
+      "status": 200,
+      "dto": "OpportunityFeatures"
+    },
+    {
+      "file": "public-club.json",
+      "captured_at": "2026-10-01T08:43:12.329833+00:00",
+      "persona": "visitor",
+      "method": "GET",
+      "path": "programs/quillmere-athletic",
+      "status": 200,
+      "dto": "PublicClubResponse"
+    },
+    {
+      "file": "public-opportunities.json",
+      "captured_at": "2026-10-01T08:43:12.370938+00:00",
+      "persona": "visitor",
+      "method": "GET",
+      "path": "opportunities",
+      "status": 200,
+      "dto": "OpportunitiesResponse"
+    },
+    {
+      "file": "public-club-opportunities.json",
+      "captured_at": "2026-10-01T08:43:12.418573+00:00",
+      "persona": "visitor",
+      "method": "GET",
+      "path": "opportunities?program_id=126905366",
+      "status": 200,
+      "dto": "OpportunitiesResponse"
+    },
+    {
+      "file": "directory.json",
+      "captured_at": "2026-10-01T08:43:12.462924+00:00",
+      "persona": "visitor",
+      "method": "POST",
+      "path": "club-directory/search",
+      "status": 200,
+      "dto": "ClubDirectoryResponse"
+    },
+    {
+      "file": "public-opportunity.json",
+      "captured_at": "2026-10-01T08:43:12.493777+00:00",
+      "persona": "visitor",
+      "method": "GET",
+      "path": "opportunities/4b4a0163-e2c2-4bfe-99fe-5c7dacd903c2",
+      "status": 200,
+      "dto": "OpportunityResponse"
+    },
+    {
+      "file": "club_owner-access-me.json",
+      "captured_at": "2026-10-01T08:43:12.554435+00:00",
+      "persona": "club_owner",
+      "method": "GET",
+      "path": "club/126905366/access/me",
+      "status": 200,
+      "dto": "ClubAccessResponse"
+    },
+    {
+      "file": "club_owner-squads.json",
+      "captured_at": "2026-10-01T08:43:12.644165+00:00",
+      "persona": "club_owner",
+      "method": "GET",
+      "path": "club/126905366/squads",
+      "status": 200,
+      "dto": "SquadsResponse"
+    },
+    {
+      "file": "club_owner-roster.json",
+      "captured_at": "2026-10-01T08:43:13.121339+00:00",
+      "persona": "club_owner",
+      "method": "GET",
+      "path": "club/126905366/roster",
+      "status": 200,
+      "dto": "RosterResponse"
+    },
+    {
+      "file": "club_owner-matches.json",
+      "captured_at": "2026-10-01T08:43:13.186818+00:00",
+      "persona": "club_owner",
+      "method": "GET",
+      "path": "club/126905366/matches",
+      "status": 200,
+      "dto": "MatchesResponse"
+    },
+    {
+      "file": "coach_u18-access-me.json",
+      "captured_at": "2026-10-01T08:43:13.279655+00:00",
+      "persona": "coach_u18",
+      "method": "GET",
+      "path": "club/126905366/access/me",
+      "status": 200,
+      "dto": "ClubAccessResponse"
+    },
+    {
+      "file": "coach_u18-squads.json",
+      "captured_at": "2026-10-01T08:43:13.363002+00:00",
+      "persona": "coach_u18",
+      "method": "GET",
+      "path": "club/126905366/squads",
+      "status": 200,
+      "dto": "SquadsResponse"
+    },
+    {
+      "file": "coach_u18-roster.json",
+      "captured_at": "2026-10-01T08:43:13.475588+00:00",
+      "persona": "coach_u18",
+      "method": "GET",
+      "path": "club/126905366/roster",
+      "status": 200,
+      "dto": "RosterResponse"
+    },
+    {
+      "file": "coach_u18-matches.json",
+      "captured_at": "2026-10-01T08:43:13.536554+00:00",
+      "persona": "coach_u18",
+      "method": "GET",
+      "path": "club/126905366/matches",
+      "status": 200,
+      "dto": "MatchesResponse"
+    },
+    {
+      "file": "staff-board.json",
+      "captured_at": "2026-10-01T08:43:13.658484+00:00",
+      "persona": "club_owner",
+      "method": "GET",
+      "path": "club/126905366/access",
+      "status": 200,
+      "dto": "StaffBoardResponse"
+    },
+    {
+      "file": "club-opportunities.json",
+      "captured_at": "2026-10-01T08:43:13.757995+00:00",
+      "persona": "club_owner",
+      "method": "GET",
+      "path": "club/126905366/opportunities",
+      "status": 200,
+      "dto": "OpportunitiesResponse"
+    },
+    {
+      "file": "pipeline.json",
+      "captured_at": "2026-10-01T08:43:13.856841+00:00",
+      "persona": "club_owner",
+      "method": "GET",
+      "path": "club/126905366/opportunities/2177486d-8892-41f1-8334-226e0b53e717/applications",
+      "status": 200,
+      "dto": "ApplicationsResponse"
+    },
+    {
+      "file": "private-application.json",
+      "captured_at": "2026-10-01T08:43:13.982820+00:00",
+      "persona": "club_owner",
+      "method": "GET",
+      "path": "club/126905366/applications/a4792ed5-8d4b-4405-971a-a71a2b2ab4e7",
+      "status": 200,
+      "dto": "ApplicationResponse"
+    },
+    {
+      "file": "application-claims.json",
+      "captured_at": "2026-10-01T08:43:14.030828+00:00",
+      "persona": "adult_player",
+      "method": "GET",
+      "path": "me/application-claims",
+      "status": 200,
+      "dto": "ApplicationClaimsResponse"
+    },
+    {
+      "file": "my-applications.json",
+      "captured_at": "2026-10-01T08:43:14.082635+00:00",
+      "persona": "adult_player",
+      "method": "GET",
+      "path": "me/applications",
+      "status": 200,
+      "dto": "ApplicationsResponse"
+    },
+    {
+      "file": "my-application.json",
+      "captured_at": "2026-10-01T08:43:14.126653+00:00",
+      "persona": "adult_player",
+      "method": "GET",
+      "path": "me/applications/a4792ed5-8d4b-4405-971a-a71a2b2ab4e7",
+      "status": 200,
+      "dto": "ApplicationResponse"
+    },
+    {
+      "file": "scout-applications.json",
+      "captured_at": "2026-10-01T08:43:14.150318+00:00",
+      "persona": "scout_verified",
+      "method": "GET",
+      "path": "me/applications",
+      "status": 200,
+      "dto": "ApplicationsResponse"
+    },
+    {
+      "file": "invalid-email-422.json",
+      "captured_at": "2026-10-01T08:43:14.198702+00:00",
+      "persona": "club_owner",
+      "method": "POST",
+      "path": "club/126905366/staff-invites",
+      "status": 422,
+      "dto": "Error"
+    },
+    {
+      "file": "player-introductions.json",
+      "captured_at": "2026-10-01T08:43:14.247818+00:00",
+      "persona": "adult_player",
+      "method": "GET",
+      "path": "contact/requests?box=inbox&limit=50&offset=0",
+      "status": 200,
+      "dto": "ContactRequestsResponse"
+    },
+    {
+      "file": "scout-introductions.json",
+      "captured_at": "2026-10-01T08:43:14.335674+00:00",
+      "persona": "scout_verified",
+      "method": "GET",
+      "path": "contact/requests?box=sent&limit=50&offset=0",
+      "status": 200,
+      "dto": "ContactRequestsResponse"
+    },
+    {
+      "file": "scout_verified-introduction-thread.json",
+      "captured_at": "2026-10-01T08:43:14.390982+00:00",
+      "persona": "scout_verified",
+      "method": "GET",
+      "path": "contact/requests/a885da46-1cf5-53b7-92cc-94b50a8ee28c/messages?limit=50&offset=0",
+      "status": 200,
+      "dto": "ContactMessagesResponse"
+    }
+  ]
+}

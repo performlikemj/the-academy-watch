@@ -93,6 +93,7 @@
 		69932DC2E1BD201FFC965DBD /* contact_requests_sent.json in Resources */ = {isa = PBXBuildFile; fileRef = 68756DFB957E683BCB83F348 /* contact_requests_sent.json */; };
 		709E4BF03EF75C38D4C9D6FA /* OnboardingAPIClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 366791C18BED2289E1AC7C15 /* OnboardingAPIClientTests.swift */; };
 		71AC538A21D58D6CAB36955F /* Phase2PreviewRoot.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF6E7C2BB1080DB5C52140CC /* Phase2PreviewRoot.swift */; };
+		71AF6B6C8AFA2C78CB6BDADF /* Phase2 in Resources */ = {isa = PBXBuildFile; fileRef = 1DAF380CC01BFF0B56D46895 /* Phase2 */; };
 		739EE2118AB6C9352D4C6723 /* ClubInboxView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 605273186A55DDDC9FED81DD /* ClubInboxView.swift */; };
 		754CBF209CAA8001C0491A68 /* PlayerClubExperienceFixtures.swift in Sources */ = {isa = PBXBuildFile; fileRef = 246C9AFB2966932AE07A38EE /* PlayerClubExperienceFixtures.swift */; };
 		760826272357BDD689936BDB /* PlayerClaimViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7734BDF6553BB70CCE9F2E5 /* PlayerClaimViewModel.swift */; };
@@ -203,6 +204,7 @@
 		F8F0863DCB85CE951D6FEE3F /* watchlist_response.json in Resources */ = {isa = PBXBuildFile; fileRef = 106F02E06486103330CAEC86 /* watchlist_response.json */; };
 		FA5585CF4D62ED2353951F06 /* scout_verification.json in Resources */ = {isa = PBXBuildFile; fileRef = 15A5D03D62B011100335BFF0 /* scout_verification.json */; };
 		FC2EB18CBDA1377AA8162389 /* contact_messages.json in Resources */ = {isa = PBXBuildFile; fileRef = E19FD42E5E124D0E918AC192 /* contact_messages.json */; };
+		FE37D9A7BEB0EAEEF0BA973D /* Phase2ContractTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22C15391706E4FDD0A681282 /* Phase2ContractTests.swift */; };
 		FFC839CBC5B0F9BE594E09A4 /* contact_outcome.json in Resources */ = {isa = PBXBuildFile; fileRef = F2F79D3532C4CD5175678438 /* contact_outcome.json */; };
 /* End PBXBuildFile section */
 
@@ -242,10 +244,12 @@
 		195C7DE51601295E9CB38A32 /* player-my-profiles.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "player-my-profiles.json"; sourceTree = "<group>"; };
 		1B96D7182E52BB416E523F05 /* CompareModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompareModels.swift; sourceTree = "<group>"; };
 		1C377BF23ADAC48A567B53E0 /* Phase2Presentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Phase2Presentation.swift; sourceTree = "<group>"; };
+		1DAF380CC01BFF0B56D46895 /* Phase2 */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Phase2; path = AcademyWatchTests/Fixtures/Phase2; sourceTree = SOURCE_ROOT; };
 		20775AFDD179F6193F841538 /* PlayerInterestSignalsCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerInterestSignalsCard.swift; sourceTree = "<group>"; };
 		2080A198B95A570E819AB7EA /* AccountAndBlocksAPIClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountAndBlocksAPIClientTests.swift; sourceTree = "<group>"; };
 		2252CAEE325045A81DFD4C4E /* SignInCodeInputTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignInCodeInputTests.swift; sourceTree = "<group>"; };
 		225A1AC53B0306B6C6813DD0 /* BlockModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlockModels.swift; sourceTree = "<group>"; };
+		22C15391706E4FDD0A681282 /* Phase2ContractTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Phase2ContractTests.swift; sourceTree = "<group>"; };
 		23588E1E29EB3E6AEDC228EC /* WingLiftLoadingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WingLiftLoadingView.swift; sourceTree = "<group>"; };
 		246C9AFB2966932AE07A38EE /* PlayerClubExperienceFixtures.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerClubExperienceFixtures.swift; sourceTree = "<group>"; };
 		2687F181ABF0D1F0ECD4BD83 /* Phase2API.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Phase2API.swift; sourceTree = "<group>"; };
@@ -618,6 +622,7 @@
 		68778EFE0C2A90DA1F7968D5 = {
 			isa = PBXGroup;
 			children = (
+				1DAF380CC01BFF0B56D46895 /* Phase2 */,
 				FABDE93B9A3928584764A924 /* AcademyWatch */,
 				D38BDDF89C0D906C03A9DD4E /* AcademyWatchTests */,
 				54954EBF90DF4D2D1FBAD3BA /* AcademyWatchUITests */,
@@ -827,6 +832,7 @@
 				366791C18BED2289E1AC7C15 /* OnboardingAPIClientTests.swift */,
 				6F4EFA4B7541D831A8141A83 /* OnboardingBirthDateTests.swift */,
 				11EB506FDCE09344B455AD78 /* OnboardingViewModelTests.swift */,
+				22C15391706E4FDD0A681282 /* Phase2ContractTests.swift */,
 				F5AA40D0859781C42784DE40 /* Phase2ViewModelTests.swift */,
 				CC3CD9C647C57730170E9D13 /* PlayerClaimFlowTests.swift */,
 				674E6567E4AF7172D11ED1E6 /* PlayerClubAPIClientTests.swift */,
@@ -1027,6 +1033,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				71AF6B6C8AFA2C78CB6BDADF /* Phase2 in Resources */,
 				31F7BD902C2298BF9DEF0D88 /* contact_messages.json in Resources */,
 				FFC839CBC5B0F9BE594E09A4 /* contact_outcome.json in Resources */,
 				A20A96E297CA57CAC1F8EE08 /* contact_requests_inbox.json in Resources */,
@@ -1126,6 +1133,7 @@
 				709E4BF03EF75C38D4C9D6FA /* OnboardingAPIClientTests.swift in Sources */,
 				5257FD344E3CA8BA645FA9FD /* OnboardingBirthDateTests.swift in Sources */,
 				AD94E0B5B810F9B11E7CBCE3 /* OnboardingViewModelTests.swift in Sources */,
+				FE37D9A7BEB0EAEEF0BA973D /* Phase2ContractTests.swift in Sources */,
 				C65F74CEF0B2377DAF3CEC2F /* Phase2ViewModelTests.swift in Sources */,
 				8A053C15CA10CFF873A3DA43 /* PlayerClaimFlowTests.swift in Sources */,
 				C3F01060056A57B0EF2B7AB8 /* PlayerClubAPIClientTests.swift in Sources */,

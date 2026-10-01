@@ -53,6 +53,11 @@ targets:
     deploymentTarget: "17.0"
     sources:
       - path: AcademyWatchTests
+        excludes:
+          - Fixtures/Phase2
+      - path: AcademyWatchTests/Fixtures/Phase2
+        type: folder
+        buildPhase: resources
     dependencies:
       - target: AcademyWatch
     settings:

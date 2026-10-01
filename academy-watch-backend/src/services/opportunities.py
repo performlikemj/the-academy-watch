@@ -223,7 +223,13 @@ def opportunity_dict(row, *, private=False, program=None, squad=None, reserved=N
     reserved = (reservations(row.id) if reserved is None else reserved) if private else 0
     if private:
         data.update(
-            capacity=row.capacity, places_left=max(0, row.capacity - reserved) if row.capacity is not None else None
+            trial_invite_deadline=iso(
+                row.closes_at + timedelta(days=14)
+                if row.type == "position"
+                else row.created_at + timedelta(days=EVENT_HORIZON_DAYS)
+            ),
+            capacity=row.capacity,
+            places_left=max(0, row.capacity - reserved) if row.capacity is not None else None,
         )
     if private:
         data["application_count"] = (

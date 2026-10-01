@@ -81,12 +81,13 @@ struct Phase2DateControl: View {
     @Binding var date: Date
     let zone: TimeZone
     var timeOnly = false
+    var range: ClosedRange<Date> = Phase2Time.now...Phase2Time.now.addingTimeInterval(90 * 86400)
     @State private var presented = false
     private var formatted: String {
         let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_GB")
+        formatter.locale = .current
         formatter.timeZone = zone
-        formatter.dateFormat = timeOnly ? "HH:mm" : "EEE d MMM yyyy"
+        formatter.setLocalizedDateFormatFromTemplate(timeOnly ? "jmm" : "EEE d MMM yyyy")
         return formatter.string(from: date)
     }
     var body: some View {
@@ -97,23 +98,28 @@ struct Phase2DateControl: View {
                 .padding(13).frame(minHeight: 44)
                 .background(AcademyColors.elevatedSurface, in: RoundedRectangle(cornerRadius: 12))
                 .overlay(RoundedRectangle(cornerRadius: 12).stroke(AcademyColors.hairline, lineWidth: 1))
-        }.buttonStyle(.plain).accessibilityLabel(timeOnly ? "Trial time" : "Trial date").accessibilityValue(formatted)
+        }.buttonStyle(.plain).accessibilityLabel(timeOnly ? "Trial time" : "Trial date")
+            .accessibilityValue(formatted)
             .sheet(isPresented: $presented) {
                 NavigationStack {
                     VStack {
                         if timeOnly {
-                            DatePicker("Trial time", selection: $date, displayedComponents: .hourAndMinute)
-                                .datePickerStyle(.wheel)
+                            DatePicker(
+                                "Trial time", selection: $date, in: range, displayedComponents: .hourAndMinute
+                            )
+                            .datePickerStyle(.wheel)
                         } else {
                             DatePicker(
-                                "Trial date", selection: $date, in: Phase2Time.now..., displayedComponents: .date
+                                "Trial date", selection: $date, in: range, displayedComponents: .date
                             ).datePickerStyle(.graphical)
                         }
                         Phase2Eyebrow(text: zone.identifier)
                     }.padding(16).environment(\.timeZone, zone)
                         .navigationTitle(timeOnly ? "Trial time" : "Trial date")
                         .toolbar {
-                            ToolbarItem(placement: .confirmationAction) { Button("Done") { presented = false } }
+                            ToolbarItem(placement: .confirmationAction) {
+                                Button("Done") { presented = false }
+                            }
                         }
                 }.presentationDetents([.medium, .large])
             }
@@ -125,11 +131,14 @@ struct Phase2Flow: Layout {
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         arrange(width: proposal.width ?? 390, subviews: subviews).size
     }
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+    func placeSubviews(
+        in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()
+    ) {
         let result = arrange(width: bounds.width, subviews: subviews)
         for (index, position) in result.points.enumerated() {
             subviews[index].place(
-                at: CGPoint(x: bounds.minX + position.x, y: bounds.minY + position.y), proposal: .unspecified)
+                at: CGPoint(x: bounds.minX + position.x, y: bounds.minY + position.y),
+                proposal: .unspecified)
         }
     }
     private func arrange(width: CGFloat, subviews: Subviews) -> (size: CGSize, points: [CGPoint]) {
@@ -160,11 +169,17 @@ struct Phase2ChipToggleStyle: ToggleStyle {
                 if configuration.isOn { Image(systemName: "checkmark").font(.system(size: 11)) }
                 configuration.label.font(AcademyType.ui(13))
             }.padding(.horizontal, 12).frame(height: 34)
-                .background(configuration.isOn ? AcademyColors.text : AcademyColors.background, in: Capsule())
+                .background(
+                    configuration.isOn ? AcademyColors.text : AcademyColors.background, in: Capsule()
+                )
                 .foregroundStyle(configuration.isOn ? AcademyColors.background : AcademyColors.text)
-                .overlay(Capsule().stroke(configuration.isOn ? .clear : AcademyColors.hairline, lineWidth: 1)).frame(
+                .overlay(
+                    Capsule().stroke(configuration.isOn ? .clear : AcademyColors.hairline, lineWidth: 1)
+                ).frame(
                     minHeight: 44)
-        }.buttonStyle(.plain).accessibilityRepresentation { Toggle(isOn: configuration.$isOn) { configuration.label } }
+        }.buttonStyle(.plain).accessibilityRepresentation {
+            Toggle(isOn: configuration.$isOn) { configuration.label }
+        }
     }
 }
 struct Phase2LocationToggleStyle: ToggleStyle {
@@ -175,9 +190,13 @@ struct Phase2LocationToggleStyle: ToggleStyle {
             configuration.label.font(AcademyType.ui(13)).padding(.horizontal, 14).frame(height: 36)
                 .foregroundStyle(configuration.isOn ? AcademyColors.background : AcademyColors.text)
                 .background(configuration.isOn ? AcademyColors.text : .clear, in: Capsule())
-                .overlay(Capsule().stroke(configuration.isOn ? .clear : AcademyColors.hairline, lineWidth: 1))
+                .overlay(
+                    Capsule().stroke(configuration.isOn ? .clear : AcademyColors.hairline, lineWidth: 1)
+                )
                 .frame(minHeight: 44)
-        }.buttonStyle(.plain).accessibilityRepresentation { Toggle(isOn: configuration.$isOn) { configuration.label } }
+        }.buttonStyle(.plain).accessibilityRepresentation {
+            Toggle(isOn: configuration.$isOn) { configuration.label }
+        }
     }
 }
 struct Phase2CheckboxStyle: ToggleStyle {
@@ -189,7 +208,8 @@ struct Phase2CheckboxStyle: ToggleStyle {
                 Image(systemName: configuration.isOn ? "checkmark.square.fill" : "square")
                     .font(.system(size: 22, weight: .light)).foregroundStyle(AcademyColors.text)
                 configuration.label.font(AcademyType.subheadline).multilineTextAlignment(.leading)
-            }.frame(minHeight: 44).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+            }.frame(minHeight: 44).frame(maxWidth: .infinity, alignment: .leading).contentShape(
+                Rectangle())
         }.buttonStyle(.plain).accessibilityRepresentation {
             Toggle(isOn: configuration.$isOn) { configuration.label }
         }
@@ -256,7 +276,8 @@ struct Phase2ClubCrest: View {
     var body: some View {
         ZStack {
             Shield().fill(phase2BrandColor(brand?.primaryColor, fallback: AcademyColors.club))
-            Shield().stroke(phase2BrandColor(brand?.accentColor, fallback: AcademyColors.gold), lineWidth: 2)
+            Shield().stroke(
+                phase2BrandColor(brand?.accentColor, fallback: AcademyColors.gold), lineWidth: 2)
             Text(name.split(separator: " ").prefix(2).compactMap(\.first).map(String.init).joined())
                 .font(AcademyType.serif(size * 0.38)).foregroundStyle(
                     phase2BrandColor(brand?.accentColor, fallback: AcademyColors.gold))
@@ -268,8 +289,10 @@ struct Phase2ClubCrest: View {
                 p.move(to: CGPoint(x: r.midX, y: 0))
                 p.addLine(to: CGPoint(x: r.maxX, y: r.height * 0.14))
                 p.addLine(to: CGPoint(x: r.maxX, y: r.height * 0.53))
-                p.addQuadCurve(to: CGPoint(x: r.midX, y: r.maxY), control: CGPoint(x: r.maxX, y: r.height * 0.84))
-                p.addQuadCurve(to: CGPoint(x: 0, y: r.height * 0.53), control: CGPoint(x: 0, y: r.height * 0.84))
+                p.addQuadCurve(
+                    to: CGPoint(x: r.midX, y: r.maxY), control: CGPoint(x: r.maxX, y: r.height * 0.84))
+                p.addQuadCurve(
+                    to: CGPoint(x: 0, y: r.height * 0.53), control: CGPoint(x: 0, y: r.height * 0.84))
                 p.addLine(to: CGPoint(x: 0, y: r.height * 0.14))
                 p.closeSubpath()
             }
@@ -277,7 +300,8 @@ struct Phase2ClubCrest: View {
     }
 }
 func phase2BrandColor(_ raw: String?, fallback: Color) -> Color {
-    guard let raw, raw.hasPrefix("#"), raw.count == 7, let hex = UInt32(raw.dropFirst(), radix: 16) else {
+    guard let raw, raw.hasPrefix("#"), raw.count == 7, let hex = UInt32(raw.dropFirst(), radix: 16)
+    else {
         return fallback
     }
     return Color(hex: hex)
@@ -286,12 +310,24 @@ func phase2Count(_ count: Int, _ singular: String, plural: String? = nil) -> Str
     "\(count) \(count == 1 ? singular : plural ?? singular + "s")"
 }
 extension Phase2Time {
+    static func calendarDate(_ raw: String) -> String {
+        let parser = DateFormatter()
+        parser.locale = Locale(identifier: "en_US_POSIX")
+        parser.timeZone = TimeZone(secondsFromGMT: 0)
+        parser.dateFormat = "yyyy-MM-dd"
+        guard let date = parser.date(from: raw) else { return "Date unavailable" }
+        let formatter = DateFormatter()
+        formatter.locale = .current
+        formatter.timeZone = parser.timeZone
+        formatter.setLocalizedDateFormatFromTemplate("EEE d MMM yyyy")
+        return formatter.string(from: date)
+    }
     static func shortDate(_ raw: String?, zone value: String, format: String = "EEE d MMM") -> String {
         guard let date = date(raw) else { return "No fixed date" }
         let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_GB")
+        formatter.locale = .current
         formatter.timeZone = zone(value)
-        formatter.dateFormat = format
+        formatter.setLocalizedDateFormatFromTemplate(format)
         return formatter.string(from: date)
     }
 }

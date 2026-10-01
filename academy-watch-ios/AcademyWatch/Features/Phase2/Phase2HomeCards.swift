@@ -20,14 +20,14 @@ struct Phase2HomeCards: View {
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            if role == .club, workspace.flags.staff {
+            if role == .club, workspace.flags.staff || workspace.flags.opportunities {
                 Phase2ClubSelector()
                 if let membership = workspace.selected {
                     Text(membership.program.name).font(AcademyType.title2)
                     Text(
                         "\(membership.access.role.capitalized) · \(membership.access.wholeClub ? "Whole club" : "Your assigned squads")"
                     ).font(AcademyType.caption).foregroundStyle(AcademyColors.secondaryText)
-                    if membership.access.can("players.view") {
+                    if workspace.flags.staff && membership.access.can("players.view") {
                         NavigationLink {
                             SquadQuickView(membership: membership, client: client)
                         } label: {
@@ -45,7 +45,7 @@ struct Phase2HomeCards: View {
                                 detail: "Review your posts and adult applicants.")
                         }.buttonStyle(.plain).accessibilityIdentifier("home-recruiting")
                     }
-                    if membership.access.canManageAccess {
+                    if workspace.flags.staff && membership.access.canManageAccess {
                         NavigationLink {
                             StaffAccessView(programId: membership.id, client: client)
                         } label: {
@@ -55,7 +55,11 @@ struct Phase2HomeCards: View {
                         }.buttonStyle(.plain).accessibilityIdentifier("home-staff-access")
                     }
                 }
-                Phase2ErrorView(message: workspace.error)
+            }
+            if role == .club {
+                Phase2ErrorView(
+                    message: workspace.error,
+                    retry: { Task { await workspace.load(authenticated: auth.isAuthenticated) } })
             }
             if role == .player {
                 if workspace.flags.applications, auth.isAuthenticated {
@@ -71,7 +75,8 @@ struct Phase2HomeCards: View {
                 }
                 if workspace.flags.contact, auth.isAuthenticated, !availability.isUnavailable {
                     NavigationLink {
-                        IncomingContactRequestsView(viewModel: incoming, availability: availability, apiClient: client)
+                        IncomingContactRequestsView(
+                            viewModel: incoming, availability: availability, apiClient: client)
                     } label: {
                         Phase2Row(
                             eyebrow: "Introductions",
@@ -95,12 +100,15 @@ struct Phase2HomeCards: View {
                         TrialsView(client: client)
                     } label: {
                         Phase2Row(
-                            eyebrow: "Open doors", title: "All trials", detail: "Trials, open sessions and positions.")
+                            eyebrow: "Open doors", title: "All trials",
+                            detail: "Trials, open sessions and positions.")
                     }.buttonStyle(.plain).accessibilityIdentifier("home-trials")
                 }
             }
         }.task(id: workspace.flags.applications) {
-            if workspace.flags.applications && auth.isAuthenticated && role == .player { await applications.load() }
+            if workspace.flags.applications && auth.isAuthenticated && role == .player {
+                await applications.load()
+            }
         }
     }
 }
@@ -113,13 +121,19 @@ struct Phase2PlayerHome: View {
     @EnvironmentObject private var auth: AuthManager
     @StateObject private var applications: ApplicationsViewModel
     @StateObject private var openings: OpportunitiesViewModel
-    init(client: APIClient, incoming: IncomingContactRequestsViewModel, availability: ContactFeatureAvailability) {
+    init(
+        client: APIClient, incoming: IncomingContactRequestsViewModel,
+        availability: ContactFeatureAvailability,
+        onNavigate: @escaping (RootTab) -> Void
+    ) {
         self.client = client
+        self.onNavigate = onNavigate
         self.incoming = incoming
         self.availability = availability
         _applications = StateObject(wrappedValue: ApplicationsViewModel(client: client))
         _openings = StateObject(wrappedValue: OpportunitiesViewModel(client: client))
     }
+    let onNavigate: (RootTab) -> Void
     private var invitations: [Phase2Application] {
         workspace.flags.applications ? applications.applications.filter { $0.canRespond() } : []
     }
@@ -128,7 +142,9 @@ struct Phase2PlayerHome: View {
             ? incoming.requests.filter { $0.clubConsentStatus == .granted && $0.status == .pending } : []
     }
     private var waiting: Int { invitations.count + introductions.count }
-    private var firstName: String { auth.displayName?.split(separator: " ").first.map(String.init) ?? "there" }
+    private var firstName: String {
+        auth.displayName?.split(separator: " ").first.map(String.init) ?? "there"
+    }
     private var heroDate: Date {
         #if DEBUG && targetEnvironment(simulator)
             if Phase2Fixtures.active { return Phase2Time.date("2026-10-01T18:00:00Z")! }
@@ -145,8 +161,8 @@ struct Phase2PlayerHome: View {
     }
     private var dateEyebrow: String {
         let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_GB")
-        formatter.dateFormat = "EEEE d MMMM"
+        formatter.locale = .current
+        formatter.setLocalizedDateFormatFromTemplate("EEEE d MMMM")
         #if DEBUG && targetEnvironment(simulator)
             if Phase2Fixtures.active { formatter.timeZone = TimeZone(identifier: "Europe/London")! }
         #endif
@@ -156,7 +172,8 @@ struct Phase2PlayerHome: View {
         ScrollView {
             VStack(spacing: 0) {
                 ZStack(alignment: .bottomLeading) {
-                    Image("FootballAtmosphere").resizable().scaledToFill().frame(height: 174).clipped().opacity(0.42)
+                    Image("FootballAtmosphere").resizable().scaledToFill().frame(height: 174).clipped()
+                        .opacity(0.42)
                     LinearGradient(
                         colors: [AcademyColors.night.opacity(0.15), AcademyColors.night.opacity(0.92)],
                         startPoint: .top, endPoint: .bottom)
@@ -186,9 +203,11 @@ struct Phase2PlayerHome: View {
                                     homeNeed(
                                         icon: "calendar", eyebrow: "Trial invite · reply needed",
                                         title: application.opportunityTitle,
-                                        detail: Phase2Time.display(application.trialAt, zone: application.timezone)
+                                        detail: Phase2Time.display(
+                                            application.trialAt, zone: application.timezone)
                                             + " · " + (application.trialVenue ?? ""),
-                                        zone: Phase2Time.zoneLabel(application.timezone, at: application.trialAt))
+                                        zone: Phase2Time.zoneLabel(
+                                            application.timezone, at: application.trialAt))
                                 }.buttonStyle(.plain).accessibilityIdentifier(
                                     "home-application-invite-\(application.id)")
                             }
@@ -207,7 +226,8 @@ struct Phase2PlayerHome: View {
                     }
                     if workspace.flags.applications && auth.isAuthenticated {
                         VStack(alignment: .leading, spacing: 0) {
-                            Phase2Section(title: "Applications", trailing: "\(applications.applications.count) sent")
+                            Phase2Section(
+                                title: "Applications", trailing: "\(applications.applications.count) sent")
                             ForEach(applications.applications.prefix(3)) { application in
                                 NavigationLink {
                                     ApplicationDetailView(id: application.id, client: client)
@@ -228,7 +248,9 @@ struct Phase2PlayerHome: View {
                                 }.buttonStyle(.plain)
                             }
                             NavigationLink("See every step") { MyApplicationsView(client: client) }
-                                .font(AcademyType.subheadline.weight(.medium)).underline().frame(minHeight: 44)
+                                .font(AcademyType.subheadline.weight(.medium)).underline().frame(
+                                    minHeight: 44
+                                )
                                 .accessibilityIdentifier("home-applications")
                         }
                     }
@@ -248,13 +270,31 @@ struct Phase2PlayerHome: View {
                                     HStack {
                                         Text(post.title).font(AcademyType.serif(20))
                                         Spacer(minLength: 8)
-                                        Phase2Eyebrow(text: Phase2Time.shortDate(post.startsAt, zone: post.timezone))
+                                        Phase2Eyebrow(
+                                            text: Phase2Time.shortDate(post.startsAt, zone: post.timezone))
                                     }.padding(.vertical, 12)
                                     Divider()
                                 }.buttonStyle(.plain)
                             }
                             Text("Open opportunities · distance unavailable").font(AcademyType.footnote)
                                 .foregroundStyle(AcademyColors.secondaryText).padding(.top, 8)
+                        }
+                    }
+                    VStack(spacing: 0) {
+                        Phase2Section(title: "Your scouting", trailing: "")
+                        ForEach([RootTab.scoutDesk, .watchlist, .lists]) { tab in
+                            Button {
+                                onNavigate(tab)
+                            } label: {
+                                Phase2Row(
+                                    eyebrow: "",
+                                    title: tab == .scoutDesk
+                                        ? "Explore players" : tab == .watchlist ? "Watchlist" : "Lists",
+                                    detail: tab == .scoutDesk
+                                        ? "Discover profiles and compare players."
+                                        : tab == .watchlist
+                                            ? "The players you follow." : "Your scouting shortlists.")
+                            }.buttonStyle(.plain).accessibilityIdentifier("home-scout-\(tab.rawValue)")
                         }
                     }
                     HStack(spacing: 10) {
@@ -264,7 +304,8 @@ struct Phase2PlayerHome: View {
                             } label: {
                                 Label("Clubs near you", systemImage: "mappin.and.ellipse")
                             }
-                            .buttonStyle(FloodlightPillStyle(variant: .outline)).accessibilityIdentifier("home-clubs")
+                            .buttonStyle(FloodlightPillStyle(variant: .outline)).accessibilityIdentifier(
+                                "home-clubs")
                         }
                         if workspace.flags.opportunities {
                             NavigationLink {
@@ -272,7 +313,8 @@ struct Phase2PlayerHome: View {
                             } label: {
                                 Label("All trials", systemImage: "flag")
                             }
-                            .buttonStyle(FloodlightPillStyle(variant: .outline)).accessibilityIdentifier("home-trials")
+                            .buttonStyle(FloodlightPillStyle(variant: .outline)).accessibilityIdentifier(
+                                "home-trials")
                         }
                     }
                 }.padding(16)
@@ -283,13 +325,17 @@ struct Phase2PlayerHome: View {
                 if workspace.flags.opportunities { await openings.load() }
             }
     }
-    private func homeNeed(icon: String, eyebrow: String, title: String, detail: String, zone: String? = nil)
+    private func homeNeed(
+        icon: String, eyebrow: String, title: String, detail: String, zone: String? = nil
+    )
         -> some View
     {
         VStack(spacing: 0) {
             HStack(spacing: 14) {
-                Image(systemName: icon).font(.system(size: 20, weight: .light)).foregroundStyle(AcademyColors.accent)
-                    .frame(width: 44, height: 44).background(AcademyColors.elevatedSurface, in: Circle())
+                Image(systemName: icon).font(.system(size: 20, weight: .light)).foregroundStyle(
+                    AcademyColors.accent
+                )
+                .frame(width: 44, height: 44).background(AcademyColors.elevatedSurface, in: Circle())
                 VStack(alignment: .leading, spacing: 4) {
                     Phase2Eyebrow(text: eyebrow, gold: true)
                     Text(title).font(AcademyType.serif(21))

@@ -21,7 +21,11 @@ final class Phase2UITests: XCTestCase {
     private func tap(_ element: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
         XCTAssertTrue(element.waitForExistence(timeout: 10), file: file, line: line)
         for _ in 0..<8 {
-            if element.isHittable { break }
+            let isField = element.elementType == .textField || element.elementType == .textView
+            let scrollTarget = isField || element.identifier.hasPrefix("home-scout-")
+            let visibleBottom =
+                app.keyboards.firstMatch.exists ? app.keyboards.firstMatch.frame.minY : app.frame.maxY - 90
+            if element.isHittable && (!scrollTarget || element.frame.maxY < visibleBottom) { break }
             app.swipeUp()
         }
         XCTAssertTrue(element.isHittable, file: file, line: line)
@@ -33,13 +37,145 @@ final class Phase2UITests: XCTestCase {
         shot.lifetime = .keepAlways
         add(shot)
     }
+    func testTrialsDraftSurvivesSettingsAndFailedForegroundRefresh() {
+        for mode in ["apply", "foreground-failure"] {
+            launch(mode, tab: "trials")
+            tap(app.tabBars.buttons["Trials"])
+            tap(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'trial-'")).firstMatch)
+            let position = app.textFields["apply-position"]
+            tap(position)
+            position.typeText("Draft central midfield\n")
+            let settings = XCUIApplication(bundleIdentifier: "com.apple.Preferences")
+            settings.launch()
+            XCTAssertTrue(settings.wait(for: .runningForeground, timeout: 10))
+            app.activate()
+            XCTAssertTrue(position.waitForExistence(timeout: 10))
+            XCTAssertEqual(position.value as? String, "Draft central midfield")
+            XCTAssertTrue(app.tabBars.buttons["Trials"].isSelected)
+            capture("foreground-draft-" + mode)
+            app.terminate()
+        }
+    }
+    func testFlaggedPlayerStillReachesWatchlistAndLists() {
+        launch("player")
+        app.swipeUp()
+        app.swipeUp()
+        tap(app.buttons["home-scout-watchlist"])
+        capture("legacy-watchlist-destination")
+        XCTAssertTrue(app.navigationBars["Watchlist"].waitForExistence(timeout: 10))
+        app.terminate()
+        launch("player")
+        app.swipeUp()
+        app.swipeUp()
+        tap(app.buttons["home-scout-lists"])
+        XCTAssertTrue(app.navigationBars["Lists"].waitForExistence(timeout: 10))
+    }
+    func testFlagsOffExplorePlayersSwitchesExistingTab() {
+        launch("off")
+        tap(app.buttons["home-scout-scoutDesk"])
+        XCTAssertTrue(app.tabBars.buttons["Scout Desk"].isSelected)
+        XCTAssertTrue(app.navigationBars["Scout Desk"].waitForExistence(timeout: 10))
+    }
+    func testFirstLocationPermissionKeepsClubsAndSearchDraft() {
+        launch("player", tab: "clubs")
+        tap(app.tabBars.buttons["Clubs"])
+        let query = app.textFields["clubs-search"]
+        tap(query)
+        query.typeText("Quillmere\n")
+        tap(app.switches["clubs-location"])
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        let alert = springboard.alerts.firstMatch
+        XCTAssertTrue(alert.waitForExistence(timeout: 10))
+        let deny = alert.buttons.matching(
+            NSPredicate(format: "label CONTAINS[c] 'allow' AND label CONTAINS[c] 'don'")
+        ).firstMatch
+        XCTAssertTrue(deny.exists)
+        deny.tap()
+        XCTAssertTrue(query.waitForExistence(timeout: 10))
+        XCTAssertEqual(query.value as? String, "Quillmere")
+        XCTAssertTrue(app.tabBars.buttons["Clubs"].isSelected)
+        capture("location-permission-draft")
+    }
+    func testInviteAndPrivateNoteDraftsSurviveSettings() {
+        launch("owner", tab: "recruiting")
+        tap(app.tabBars.buttons["Recruiting"])
+        tap(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'recruiting-post-'")).firstMatch)
+        tap(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'applicant-'")).firstMatch)
+        let venue = app.textFields["invite-venue"]
+        tap(venue)
+        venue.typeText("Draft pitch\n")
+        let note = app.descendants(matching: .any)["applicant-note"]
+        tap(note)
+        note.typeText("Draft private note")
+        tap(app.buttons["Done"])
+        let settings = XCUIApplication(bundleIdentifier: "com.apple.Preferences")
+        settings.launch()
+        app.activate()
+        XCTAssertTrue(note.waitForExistence(timeout: 10))
+        XCTAssertEqual(note.value as? String, "Draft private note")
+        XCTAssertEqual(venue.value as? String, "Draft pitch")
+        XCTAssertTrue(app.tabBars.buttons["Recruiting"].isSelected)
+        capture("foreground-club-drafts")
+    }
+    func testStaffInviteDraftSurvivesSettingsAndClearsOnlyOnSuccess() {
+        launch("owner")
+        tap(app.buttons["home-staff-access"])
+        let email = app.textFields["staff-invite-email"]
+        tap(email)
+        email.typeText("newcoach@fixture.example\n")
+        let settings = XCUIApplication(bundleIdentifier: "com.apple.Preferences")
+        settings.launch()
+        app.activate()
+        XCTAssertEqual(email.value as? String, "newcoach@fixture.example")
+        tap(app.switches["staff-all-squads"])
+        tap(app.buttons["staff-invite-send"])
+        XCTAssertTrue(app.staticTexts["staff-notice"].waitForExistence(timeout: 10))
+        XCTAssertNotEqual(email.value as? String, "newcoach@fixture.example")
+        capture("staff-invite-cleared")
+    }
+    func testClaimsFailureNeverShowsMissingAdultProfileCopy() {
+        launch("claims-error", tab: "trials")
+        tap(app.tabBars.buttons["Trials"])
+        tap(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'trial-'")).firstMatch)
+        app.swipeUp()
+        XCTAssertTrue(
+            app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Could not connect")).firstMatch
+                .waitForExistence(timeout: 10))
+        XCTAssertFalse(
+            app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'approved adult self-profile'"))
+                .firstMatch.exists)
+    }
+    func testFlaggedExplorePlayersCanOpenGol() {
+        launch("player")
+        app.swipeUp()
+        app.swipeUp()
+        tap(app.buttons["home-scout-scoutDesk"])
+        XCTAssertTrue(app.navigationBars["Scout Desk"].waitForExistence(timeout: 10))
+        capture("legacy-explore-destination")
+        tap(app.navigationBars["Scout Desk"].buttons["gol-landing-entry"])
+        capture("legacy-gol-destination")
+        XCTAssertTrue(app.navigationBars["GOL"].waitForExistence(timeout: 10))
+    }
+    func testUnconfirmedClubUsersKeepLegacyTabsAndFailureOffersRetry() {
+        for mode in ["pendingclub", "membership-error", "club-signed-out"] {
+            launch(mode)
+            XCTAssertEqual(app.tabBars.buttons.count, 5)
+            XCTAssertTrue(app.tabBars.buttons["Scout Desk"].exists)
+            XCTAssertTrue(app.tabBars.buttons["Watchlist"].exists)
+            XCTAssertTrue(app.tabBars.buttons["Lists"].exists)
+            if mode == "membership-error" { XCTAssertTrue(app.buttons["Try again"].exists) }
+            capture("legacy-club-" + mode)
+            app.terminate()
+        }
+    }
     func testPlayerTabsDirectoryAndPublicClub() {
         launch("player", tab: "clubs")
         XCTAssertTrue(app.tabBars.buttons["Clubs"].waitForExistence(timeout: 15))
         XCTAssertEqual(app.tabBars.buttons.count, 5)
         tap(app.tabBars.buttons["Clubs"])
         XCTAssertTrue(
-            app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Distance unavailable")).firstMatch
+            app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Distance unavailable"))
+                .firstMatch
                 .waitForExistence(timeout: 8))
         capture("clubs-location-off")
         tap(app.buttons["club-101"])
@@ -68,7 +204,8 @@ final class Phase2UITests: XCTestCase {
     func testConfirmTrialKeepsPlace() {
         launch("player", tab: "applied")
         tap(app.tabBars.buttons["Applied"])
-        tap(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'application-'")).firstMatch)
+        tap(
+            app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'application-'")).firstMatch)
         tap(app.buttons["application-confirm"])
         tap(app.buttons["Confirm place"])
         XCTAssertTrue(app.staticTexts["application-confirmed"].waitForExistence(timeout: 8))
@@ -78,7 +215,8 @@ final class Phase2UITests: XCTestCase {
     func testDeclineIsWithdrawalAndRemovesActions() {
         launch("player", tab: "applied")
         tap(app.tabBars.buttons["Applied"])
-        tap(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'application-'")).firstMatch)
+        tap(
+            app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'application-'")).firstMatch)
         tap(app.buttons["application-decline"])
         tap(app.buttons["Decline trial"])
         XCTAssertTrue(app.staticTexts["WITHDRAWN"].waitForExistence(timeout: 8))
@@ -102,7 +240,9 @@ final class Phase2UITests: XCTestCase {
     func testOwnerRecruitingInviteAndPrivateNote() {
         launch("owner", tab: "recruiting")
         tap(app.tabBars.buttons["Recruiting"])
-        tap(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'recruiting-post-'")).firstMatch)
+        tap(
+            app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'recruiting-post-'"))
+                .firstMatch)
         tap(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'applicant-'")).firstMatch)
         let venue = app.textFields["invite-venue"]
         tap(venue)
@@ -121,7 +261,9 @@ final class Phase2UITests: XCTestCase {
     func testSignedRequiresEnrollmentCheckbox() {
         launch("signed", tab: "recruiting")
         tap(app.tabBars.buttons["Recruiting"])
-        tap(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'recruiting-post-'")).firstMatch)
+        tap(
+            app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'recruiting-post-'"))
+                .firstMatch)
         tap(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'applicant-'")).firstMatch)
         tap(app.buttons["applicant-signed"])
         let confirm = app.buttons["applicant-confirm-decision"]
@@ -158,7 +300,9 @@ final class Phase2UITests: XCTestCase {
     func testDraftCanBePublishedAndEmptyApplicationsStayCalm() {
         launch("draft")
         tap(app.tabBars.buttons["Recruiting"])
-        tap(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'recruiting-post-'")).firstMatch)
+        tap(
+            app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'recruiting-post-'"))
+                .firstMatch)
         tap(app.buttons["recruiting-publish"])
         XCTAssertFalse(app.buttons["recruiting-publish"].exists)
         capture("published-empty-pipeline")
@@ -183,7 +327,8 @@ final class Phase2UITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["2 things are waiting on you."].exists)
         XCTAssertTrue(app.staticTexts["Needs you"].exists)
         XCTAssertFalse(
-            app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'OFFLINE FIXTURE'")).firstMatch.exists)
+            app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'OFFLINE FIXTURE'")).firstMatch
+                .exists)
         XCTAssertEqual(app.tabBars.buttons.count, 5)
         XCTAssertTrue(app.tabBars.buttons["Home"].isSelected)
         capture("fidelity-home")
@@ -204,18 +349,22 @@ final class Phase2UITests: XCTestCase {
     }
     func testReviewBoardsAndScrolledContent() {
         let screens = [
-            "N01", "N02", "N02b", "N03", "N04", "N05", "N06", "N06b", "N09", "N09b", "N10", "N13", "N14", "N17",
+            "N01", "N02", "N02b", "N03", "N04", "N05", "N06", "N06b", "N09", "N09b", "N10", "N13", "N14",
+            "N17",
         ]
         let longBoards = ["N01", "N03", "N04", "N05", "N06", "N10", "N13", "N14", "N17"]
         for screen in screens {
-            app.launchArguments = ["-phase2Preview", screen, "-reviewCapture", "-AppleInterfaceStyle", "Light"]
+            app.launchArguments = [
+                "-phase2Preview", screen, "-reviewCapture", "-AppleInterfaceStyle", "Light",
+            ]
             if ["N02", "N02b"].contains(screen) { app.launchArguments.append("-reviewLocation") }
             app.launch()
             XCTAssertTrue(app.navigationBars.firstMatch.waitForExistence(timeout: 15), screen)
             // Fixture transport is synchronous; allow the role/flag tasks and native layout to settle.
             Thread.sleep(forTimeInterval: 2)
             XCTAssertFalse(
-                app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'OFFLINE FIXTURE'")).firstMatch.exists,
+                app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'OFFLINE FIXTURE'")).firstMatch
+                    .exists,
                 screen)
             XCTAssertFalse(app.otherElements["phase2-error"].exists, screen)
             capture("review-\(screen)-top")

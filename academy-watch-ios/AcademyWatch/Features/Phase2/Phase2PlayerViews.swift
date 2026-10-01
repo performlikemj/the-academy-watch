@@ -17,7 +17,8 @@ struct Phase2Page<Content: View>: View {
                 }
                 content()
             }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
-        }.background(AcademyColors.background).foregroundStyle(AcademyColors.text)
+        }.scrollDismissesKeyboard(.interactively)
+            .background(AcademyColors.background).foregroundStyle(AcademyColors.text)
             .navigationBarTitleDisplayMode(.inline)
     }
 }
@@ -27,9 +28,12 @@ struct Phase2ErrorView: View {
     var body: some View {
         if let message {
             VStack(alignment: .leading, spacing: 12) {
-                Label(message, systemImage: "exclamationmark.circle").font(AcademyType.subheadline).foregroundStyle(
-                    AcademyColors.danger)
-                if let retry { Button("Try again", action: retry).buttonStyle(FloodlightPillStyle(variant: .outline)) }
+                Label(message, systemImage: "exclamationmark.circle").font(AcademyType.subheadline)
+                    .foregroundStyle(
+                        AcademyColors.danger)
+                if let retry {
+                    Button("Try again", action: retry).buttonStyle(FloodlightPillStyle(variant: .outline))
+                }
             }.accessibilityIdentifier("phase2-error")
         }
     }
@@ -62,7 +66,8 @@ struct Phase2Row: View {
                     if !eyebrow.isEmpty { Phase2Eyebrow(text: eyebrow, gold: true) }
                     Text(title).font(AcademyType.serif(22)).fixedSize(horizontal: false, vertical: true)
                     if !detail.isEmpty {
-                        Text(detail).font(AcademyType.subheadline).foregroundStyle(AcademyColors.secondaryText)
+                        Text(detail).font(AcademyType.subheadline).foregroundStyle(
+                            AcademyColors.secondaryText)
                     }
                 }.frame(maxWidth: .infinity, alignment: .leading)
                 Image(systemName: "chevron.right").font(.system(size: 14, weight: .light)).foregroundStyle(
@@ -97,7 +102,11 @@ final class DirectoryLocation: NSObject, ObservableObject, @preconcurrency CLLoc
                 return
             }
         #endif
-        if manager.authorizationStatus == .notDetermined { manager.requestWhenInUseAuthorization() } else { locate() }
+        if manager.authorizationStatus == .notDetermined {
+            manager.requestWhenInUseAuthorization()
+        } else {
+            locate()
+        }
     }
     func clear() {
         requested = false
@@ -106,10 +115,14 @@ final class DirectoryLocation: NSObject, ObservableObject, @preconcurrency CLLoc
         message = nil
         isWaiting = false
     }
-    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) { if requested { locate() } }
+    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        if requested { locate() }
+    }
     private func locate() {
         guard requested else { return }
-        if manager.authorizationStatus == .authorizedWhenInUse || manager.authorizationStatus == .authorizedAlways {
+        if manager.authorizationStatus == .authorizedWhenInUse
+            || manager.authorizationStatus == .authorizedAlways
+        {
             manager.requestLocation()
         } else if manager.authorizationStatus != .notDetermined {
             message = "Location is off or unavailable, so there are no distances."
@@ -152,25 +165,34 @@ struct ClubsNearYouView: View {
         return DirectorySearch(
             q: q.isEmpty ? nil : q, lat: locationOn ? location.coordinate?.latitude : nil,
             lng: locationOn ? location.coordinate?.longitude : nil,
-            radiusKm: locationOn && location.coordinate != nil ? radius : nil, level: level.isEmpty ? nil : level,
+            radiusKm: locationOn && location.coordinate != nil ? radius : nil,
+            level: level.isEmpty ? nil : level,
             programme: programme.isEmpty ? nil : programme)
     }
     var body: some View {
         Phase2Page(title: "", eyebrow: "") {
             HStack(spacing: 10) {
                 Image(systemName: "magnifyingglass").foregroundStyle(AcademyColors.secondaryText)
-                TextField("Search clubs, town or postcode", text: $query).textFieldStyle(.plain).font(AcademyType.body)
-                    .submitLabel(.search)
-                    .onSubmit { search() }.accessibilityIdentifier("clubs-search")
+                TextField("Search clubs, town or postcode", text: $query,
+                          prompt: Text("Search clubs, town or postcode").foregroundStyle(AcademyColors.secondaryText)).textFieldStyle(.plain).font(
+                    AcademyType.body
+                )
+                .submitLabel(.search)
+                .onSubmit { search() }.accessibilityIdentifier("clubs-search")
                 Button(action: search) { Image(systemName: "arrow.right").frame(width: 44, height: 44) }
                     .accessibilityLabel("Search clubs").accessibilityIdentifier("clubs-search-submit")
-            }.padding(.leading, 14).background(AcademyColors.elevatedSurface, in: RoundedRectangle(cornerRadius: 12))
-                .overlay(RoundedRectangle(cornerRadius: 12).stroke(AcademyColors.hairline, lineWidth: 1))
+            }.padding(.leading, 14).background(
+                AcademyColors.elevatedSurface, in: RoundedRectangle(cornerRadius: 12)
+            )
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(AcademyColors.hairline, lineWidth: 1))
             HStack(spacing: 8) {
                 Toggle(isOn: $locationOn) {
                     Label(locationOn ? "Using my location" : "Use my location", systemImage: "location")
                 }
-                .toggleStyle(Phase2LocationToggleStyle()).onChange(of: locationOn) { _, value in
+                .accessibilityIdentifier("clubs-location").accessibilityIdentifier("clubs-location")
+                .toggleStyle(Phase2LocationToggleStyle()).onChange(
+                    of: locationOn
+                ) { _, value in
                     if value {
                         location.request()
                     } else {
@@ -181,24 +203,33 @@ struct ClubsNearYouView: View {
                 if locationOn && location.coordinate != nil {
                     Picker("Within", selection: $radius) {
                         ForEach([10.0, 25, 50, 100, 250], id: \.self) { Text("Within \(Int($0)) km").tag($0) }
-                    }.pickerStyle(.menu).font(AcademyType.ui(13)).tint(AcademyColors.text).padding(.horizontal, 12)
-                        .frame(minHeight: 44).overlay(Capsule().stroke(AcademyColors.hairline, lineWidth: 1))
+                    }.pickerStyle(.menu).font(AcademyType.ui(13)).tint(AcademyColors.text).padding(
+                        .horizontal, 12
+                    )
+                    .frame(minHeight: 44).overlay(Capsule().stroke(AcademyColors.hairline, lineWidth: 1))
                 }
             }
             if location.isWaiting { ProgressView("Finding your location…") }
             if !locationOn || location.coordinate == nil {
-                Text(location.message ?? "Location is off, so there are no distances.").font(AcademyType.footnote)
-                    .foregroundStyle(AcademyColors.secondaryText)
+                Text(location.message ?? "Location is off, so there are no distances.").font(
+                    AcademyType.footnote
+                )
+                .foregroundStyle(AcademyColors.secondaryText)
             }
             Phase2Chips(
                 choices: [
-                    ("", "All levels"), ("grassroots", "Grassroots"), ("amateur", "Amateur"), ("semi_pro", "Semi-pro"),
+                    ("", "All levels"), ("grassroots", "Grassroots"), ("amateur", "Amateur"),
+                    ("semi_pro", "Semi-pro"),
                     ("professional", "Professional"),
                 ], selection: $level)
             Phase2Chips(
-                choices: [("", "Anyone"), ("men", "Men"), ("women", "Women"), ("boys", "Boys"), ("girls", "Girls")],
+                choices: [
+                    ("", "Anyone"), ("men", "Men"), ("women", "Women"), ("boys", "Boys"), ("girls", "Girls"),
+                ],
                 selection: $programme)
-            if !model.clubs.isEmpty { Phase2Section(title: "Near you", trailing: phase2Count(model.total, "club")) }
+            if !model.clubs.isEmpty {
+                Phase2Section(title: "Near you", trailing: phase2Count(model.total, "club"))
+            }
             if model.isLoading { ProgressView("Finding clubs…") }
             Phase2ErrorView(message: model.error, retry: search)
             ForEach(model.clubs) { club in
@@ -212,13 +243,15 @@ struct ClubsNearYouView: View {
                                 HStack(spacing: 7) {
                                     Text(club.name).font(AcademyType.serif(25))
                                     if club.verified == true {
-                                        Image(systemName: "checkmark.shield").font(.system(size: 14)).foregroundStyle(
-                                            AcademyColors.good)
+                                        Image(systemName: "checkmark.shield").font(.system(size: 14))
+                                            .foregroundStyle(
+                                                AcademyColors.good)
                                     }
                                 }
                                 Text(
                                     [
-                                        club.city, club.clubLevel?.replacingOccurrences(of: "_", with: "-").capitalized,
+                                        club.city,
+                                        club.clubLevel?.replacingOccurrences(of: "_", with: "-").capitalized,
                                         club.genderPrograms?.map { $0.capitalized }.joined(separator: ", "),
                                     ].compactMap { $0 }.joined(separator: " · ")
                                 )
@@ -233,7 +266,8 @@ struct ClubsNearYouView: View {
                                 VStack(spacing: 0) {
                                     Text(
                                         distance >= 10
-                                            ? String(format: "%.0f", distance) : String(format: "%.1f", distance)
+                                            ? String(format: "%.0f", distance)
+                                            : String(format: "%.1f", distance)
                                     ).font(AcademyType.serif(32))
                                     Phase2Eyebrow(text: "km")
                                 }
@@ -272,8 +306,10 @@ struct ClubsNearYouView: View {
             Phase2Pagination(page: model.page, hasMore: model.hasMore, busy: model.isLoading) { page in
                 Task { await model.search(filter, page: page) }
             }
-            Text("Only approved clubs are listed. Distances run from your location to the ground pin the club set.")
-                .font(AcademyType.footnote).foregroundStyle(AcademyColors.secondaryText)
+            Text(
+                "Only approved clubs are listed. Distances run from your location to the ground pin the club set."
+            )
+            .font(AcademyType.footnote).foregroundStyle(AcademyColors.secondaryText)
         }.navigationTitle("Clubs").accessibilityIdentifier("phase2-clubs")
             .task {
                 if locationOn { location.request() }
@@ -312,7 +348,8 @@ struct PublicClubView: View {
                             VStack(alignment: .leading, spacing: 7) {
                                 Text(club.location.uppercased()).font(AcademyType.mono(10)).tracking(1.8)
                                     .foregroundStyle(
-                                        phase2BrandColor(club.brand?.accentColor, fallback: AcademyColors.gold))
+                                        phase2BrandColor(
+                                            club.brand?.accentColor, fallback: AcademyColors.gold))
                                 if club.isVerifiedProgram == true {
                                     Label("Verified club", systemImage: "checkmark.shield").font(
                                         AcademyType.subheadline)
@@ -324,16 +361,19 @@ struct PublicClubView: View {
                     }.padding(20).frame(maxWidth: .infinity, alignment: .leading)
                         .foregroundStyle(heroForeground(club.brand?.primaryColor)).background(
                             primaryColor(club.brand?.primaryColor))
-                    Rectangle().fill(phase2BrandColor(club.brand?.accentColor, fallback: AcademyColors.gold)).frame(
-                        height: 4)
+                    Rectangle().fill(phase2BrandColor(club.brand?.accentColor, fallback: AcademyColors.gold))
+                        .frame(
+                            height: 4)
                     VStack(alignment: .leading, spacing: 20) {
                         if let facts = club.directory {
                             HStack(alignment: .top, spacing: 20) {
                                 clubStat(
-                                    facts.clubLevel?.replacingOccurrences(of: "_", with: "-").capitalized ?? "—",
+                                    facts.clubLevel?.replacingOccurrences(of: "_", with: "-").capitalized
+                                        ?? "—",
                                     "Level")
                                 clubStat(
-                                    facts.genderPrograms?.map { $0.capitalized }.joined(separator: ", ") ?? "—",
+                                    facts.genderPrograms?.map { $0.capitalized }.joined(separator: ", ")
+                                        ?? "—",
                                     "Programmes")
                                 clubStat(facts.squadCount.map(String.init) ?? "—", "Squads")
                             }
@@ -341,7 +381,8 @@ struct PublicClubView: View {
                             HStack(spacing: 12) {
                                 Image(systemName: "mappin.and.ellipse").foregroundStyle(AcademyColors.accent)
                                 Text(
-                                    [facts.venue?.name, facts.venue?.postcode].compactMap { $0 }.joined(separator: ", ")
+                                    [facts.venue?.name, facts.venue?.postcode].compactMap { $0 }.joined(
+                                        separator: ", ")
                                 ).font(AcademyType.subheadline)
                                 Spacer()
                                 VStack(alignment: .trailing, spacing: 5) {
@@ -353,14 +394,15 @@ struct PublicClubView: View {
                             }.padding(.vertical, 5)
                             Divider()
                         }
-                        if let description = club.programProvided?.summary ?? club.description {
+                        if let description = club.programProvided?.summary {
                             Text(description).font(AcademyType.body).lineSpacing(5)
                         }
                         if workspace.flags.opportunities {
                             VStack(spacing: 0) {
                                 Phase2Section(title: "Open now", trailing: "\(posts.posts.count) open")
                                 Phase2ErrorView(
-                                    message: posts.error, retry: { Task { await posts.load(programId: club.id) } })
+                                    message: posts.error,
+                                    retry: { Task { await posts.load(programId: club.id) } })
                                 ForEach(posts.posts) { post in
                                     NavigationLink {
                                         TrialDetailView(id: post.id, client: client)
@@ -369,29 +411,38 @@ struct PublicClubView: View {
                                             eyebrow: post.typeLabel, title: post.title,
                                             detail: (post.startsAt == nil
                                                 ? "No fixed date"
-                                                : Phase2Time.display(post.startsAt, zone: post.timezone)) + " · closes "
+                                                : Phase2Time.display(post.startsAt, zone: post.timezone))
+                                                + " · closes "
                                                 + Phase2Time.shortDate(post.closesAt, zone: post.timezone))
                                     }.buttonStyle(.plain)
                                 }
                                 if posts.posts.isEmpty && !posts.isLoading && posts.error == nil {
-                                    Text("No open opportunities right now.").font(AcademyType.subheadline).padding(
-                                        .vertical, 16)
+                                    Text("No open opportunities right now.").font(AcademyType.subheadline)
+                                        .padding(
+                                            .vertical, 16)
                                 }
                             }
                             if let post = posts.posts.first {
                                 Phase2Eyebrow(
                                     text: "Times in "
-                                        + Phase2Time.zoneLabel(post.timezone, at: post.startsAt ?? post.closesAt))
+                                        + Phase2Time.zoneLabel(
+                                            post.timezone, at: post.startsAt ?? post.closesAt))
                             }
-                            Phase2Pagination(page: posts.page, hasMore: posts.hasMore, busy: posts.isLoading) { page in
+                            Phase2Pagination(page: posts.page, hasMore: posts.hasMore, busy: posts.isLoading)
+                            {
+                                page in
                                 Task { await posts.load(programId: club.id, page: page) }
                             }
                         }
                         Phase2Section(
-                            title: "Who can play here", trailing: club.squadCount.map { phase2Count($0, "squad") } ?? ""
+                            title: "Who can play here",
+                            trailing: club.squadCount.map { phase2Count($0, "squad") } ?? ""
                         )
-                        Label("Squad lists and under-18 players are never shown on public pages.", systemImage: "lock")
-                            .font(AcademyType.footnote).foregroundStyle(AcademyColors.secondaryText)
+                        Label(
+                            "Squad lists and under-18 players are never shown on public pages.",
+                            systemImage: "lock"
+                        )
+                        .font(AcademyType.footnote).foregroundStyle(AcademyColors.secondaryText)
                     }.padding(16)
                 } else if error == nil {
                     ProgressView("Loading club…").padding(20)
@@ -404,9 +455,11 @@ struct PublicClubView: View {
             }
             .accessibilityIdentifier("phase2-club-page")
             .toolbarBackground(
-                phase2BrandColor(club?.brand?.primaryColor, fallback: AcademyColors.club), for: .navigationBar
+                phase2BrandColor(club?.brand?.primaryColor, fallback: AcademyColors.club),
+                for: .navigationBar
             )
-            .toolbarBackground(.visible, for: .navigationBar).toolbarColorScheme(.dark, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar).toolbarColorScheme(
+                .dark, for: .navigationBar)
     }
     private func clubStat(_ value: String, _ label: String) -> some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -425,17 +478,21 @@ struct PublicClubView: View {
         } catch { self.error = phase2Error(error) }
     }
     private func heroForeground(_ raw: String?) -> Color {
-        guard let raw, raw.count == 7, let hex = UInt32(raw.dropFirst(), radix: 16) else { return AcademyColors.chalk }
+        guard let raw, raw.count == 7, let hex = UInt32(raw.dropFirst(), radix: 16) else {
+            return AcademyColors.chalk
+        }
         func luminance(_ value: UInt32) -> Double {
             let channel = Double(value) / 255
             return channel <= 0.04045 ? channel / 12.92 : pow((channel + 0.055) / 1.055, 2.4)
         }
         let light =
-            0.2126 * luminance((hex >> 16) & 255) + 0.7152 * luminance((hex >> 8) & 255) + 0.0722 * luminance(hex & 255)
+            0.2126 * luminance((hex >> 16) & 255) + 0.7152 * luminance((hex >> 8) & 255) + 0.0722
+            * luminance(hex & 255)
         return light > 0.35 ? AcademyColors.ink : AcademyColors.chalk
     }
     private func primaryColor(_ raw: String?) -> Color {
-        guard let raw, raw.hasPrefix("#"), raw.count == 7, let hex = UInt32(raw.dropFirst(), radix: 16) else {
+        guard let raw, raw.hasPrefix("#"), raw.count == 7, let hex = UInt32(raw.dropFirst(), radix: 16)
+        else {
             return AcademyColors.club
         }
         // Hero text always sits on the token night layer for readable contrast.
@@ -455,14 +512,16 @@ struct OpportunityRow: View {
                     ).font(AcademyType.serif(36))
                     Phase2Eyebrow(
                         text: post.startsAt == nil
-                            ? "Open" : Phase2Time.shortDate(post.startsAt, zone: post.timezone, format: "MMM"))
+                            ? "Open" : Phase2Time.shortDate(post.startsAt, zone: post.timezone, format: "MMM")
+                    )
                 }.frame(width: 44)
                 VStack(alignment: .leading, spacing: 5) {
                     Phase2Eyebrow(text: "\(post.typeLabel) · \(post.clubName)", gold: true)
                     Text(post.title).font(AcademyType.serif(23)).fixedSize(horizontal: false, vertical: true)
                     Text(
                         (post.startsAt == nil
-                            ? "No fixed date" : Phase2Time.display(post.startsAt, zone: post.timezone)) + " · "
+                            ? "No fixed date" : Phase2Time.display(post.startsAt, zone: post.timezone))
+                            + " · "
                             + post.venue
                     ).font(AcademyType.subheadline).foregroundStyle(AcademyColors.secondaryText)
                     Phase2Eyebrow(
@@ -489,7 +548,8 @@ struct TrialsView: View {
         Phase2Page(title: "", eyebrow: "") {
             Phase2Chips(
                 choices: [
-                    ("", "All"), ("trial", "Trials"), ("open_session", "Open sessions"), ("position", "Positions"),
+                    ("", "All"), ("trial", "Trials"), ("open_session", "Open sessions"),
+                    ("position", "Positions"),
                 ], selection: $type
             ).accessibilityIdentifier("trials-type")
             HStack {
@@ -499,7 +559,8 @@ struct TrialsView: View {
             }
             if let post = model.posts.first {
                 Phase2Eyebrow(
-                    text: "Times in " + Phase2Time.zoneLabel(post.timezone, at: post.startsAt ?? post.closesAt))
+                    text: "Times in "
+                        + Phase2Time.zoneLabel(post.timezone, at: post.startsAt ?? post.closesAt))
             }
             Rectangle().fill(AcademyColors.text).frame(height: 1)
             if model.isLoading { ProgressView("Finding opportunities…") }
@@ -519,8 +580,10 @@ struct TrialsView: View {
             Phase2Pagination(page: model.page, hasMore: model.hasMore, busy: model.isLoading) { page in
                 Task { await model.load(type: type, page: page) }
             }
-        }.navigationTitle("Trials").task { await model.load(type: type) }.refreshable { await model.load(type: type) }
-            .onChange(of: type) { _, _ in reload() }.accessibilityIdentifier("phase2-trials")
+        }.navigationTitle("Trials").task { await model.load(type: type) }.refreshable {
+            await model.load(type: type)
+        }
+        .onChange(of: type) { _, _ in reload() }.accessibilityIdentifier("phase2-trials")
     }
     private func reload() { Task { await model.load(type: type) } }
 }
@@ -533,12 +596,15 @@ struct ParentsComingSoon: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("PARENTS & GUARDIANS · COMING SOON").font(AcademyType.mono(10)).tracking(1.4)
                 .accessibilityLabel("Parents & guardians · coming soon")
-            Text("Applying for someone under 18 is not open yet. Leave your own email to hear when it opens.").font(
+            Text(
+                "Applying for someone under 18 is not open yet. Leave your own email to hear when it opens."
+            ).font(
                 AcademyType.subheadline
             ).foregroundStyle(AcademyColors.secondaryText)
             WebDestinationLink(
                 url: URL(
-                    string: "https://theacademywatch.com/opportunities" + (opportunityId.map { "/\($0)" } ?? "")
+                    string: "https://theacademywatch.com/opportunities"
+                        + (opportunityId.map { "/\($0)" } ?? "")
                         + "#parent-interest")!, title: "Tell me when")
         }.padding(16).frame(maxWidth: .infinity, alignment: .leading).background(
             AcademyColors.elevatedSurface, in: RoundedRectangle(cornerRadius: 14)
@@ -560,14 +626,16 @@ struct TrialDetailView: View {
             VStack(alignment: .leading, spacing: 0) {
                 if let post = model.post {
                     VStack(alignment: .leading, spacing: 10) {
-                        Text("\(post.typeLabel) · \(post.clubName)".uppercased()).font(AcademyType.mono(10)).tracking(
-                            1.5
-                        ).foregroundStyle(AcademyColors.gold)
+                        Text("\(post.typeLabel) · \(post.clubName)".uppercased()).font(AcademyType.mono(10))
+                            .tracking(
+                                1.5
+                            ).foregroundStyle(AcademyColors.gold)
                         Text(post.title).font(AcademyType.serif(28)).foregroundStyle(AcademyColors.chalk)
                     }.padding(20).frame(maxWidth: .infinity, alignment: .leading).background(
                         phase2BrandColor(club?.brand?.primaryColor, fallback: AcademyColors.club))
-                    Rectangle().fill(phase2BrandColor(club?.brand?.accentColor, fallback: AcademyColors.gold)).frame(
-                        height: 4)
+                    Rectangle().fill(phase2BrandColor(club?.brand?.accentColor, fallback: AcademyColors.gold))
+                        .frame(
+                            height: 4)
                     VStack(alignment: .leading, spacing: 12) {
                         VStack(spacing: 0) {
                             Phase2Fact(
@@ -576,7 +644,8 @@ struct TrialDetailView: View {
                                 zone: Phase2Time.zoneLabel(post.timezone, at: post.startsAt ?? post.closesAt))
                             Phase2Fact(
                                 label: "Where",
-                                value: [post.venue, post.address].filter { !$0.isEmpty }.joined(separator: ", "))
+                                value: [post.venue, post.address].filter { !$0.isEmpty }.joined(
+                                    separator: ", "))
                             Phase2Fact(
                                 label: "Who",
                                 value: "\(post.genderProgram.capitalized) · \(post.positionRequirements)"
@@ -584,7 +653,8 @@ struct TrialDetailView: View {
                                         " · born \($0)–\(post.birthYearMax.map(String.init) ?? "any")"
                                     } ?? ""))
                             Phase2Fact(
-                                label: "Closes", value: Phase2Time.display(post.closesAt, zone: post.timezone),
+                                label: "Closes",
+                                value: Phase2Time.display(post.closesAt, zone: post.timezone),
                                 zone: Phase2Time.zoneLabel(post.timezone, at: post.closesAt))
                         }
                         Text(post.description).font(AcademyType.body).lineSpacing(4)
@@ -599,21 +669,28 @@ struct TrialDetailView: View {
                             Text(
                                 "Deleted by \(Phase2Time.shortDate(sent.retentionExpiresAt, zone: sent.timezone, format: "EEE d MMM yyyy"))"
                             ).font(AcademyType.footnote)
-                            NavigationLink("See my application") { ApplicationDetailView(id: sent.id, client: client) }
-                                .buttonStyle(FloodlightPillStyle())
+                            NavigationLink("See my application") {
+                                ApplicationDetailView(id: sent.id, client: client)
+                            }
+                            .buttonStyle(FloodlightPillStyle())
                         } else if workspace.flags.applications {
                             Phase2FormCard {
                                 Text("Apply").font(AcademyType.serif(28))
                                 if !auth.isAuthenticated {
-                                    Text("Sign in from Account to apply with your approved adult profile.").font(
-                                        AcademyType.subheadline)
-                                } else if model.claims.isEmpty && !model.isLoading {
+                                    Text("Sign in from Account to apply with your approved adult profile.")
+                                        .font(
+                                            AcademyType.subheadline)
+                                } else if model.claims.isEmpty && !model.isLoading && model.error == nil {
                                     Text(
                                         "Applications require your own approved adult self-profile. Guardian and agent profiles cannot apply."
                                     ).font(AcademyType.subheadline)
-                                    NavigationLink("Find or claim your profile") { MyProfilesView(apiClient: client) }
+                                    NavigationLink("Find or claim your profile") {
+                                        MyProfilesView(apiClient: client)
+                                    }
                                 } else {
-                                    if let claim = model.claims.first(where: { $0.id == model.selectedClaimId }) {
+                                    if let claim = model.claims.first(where: {
+                                        $0.id == model.selectedClaimId
+                                    }) {
                                         HStack(spacing: 12) {
                                             Phase2Avatar(name: claim.name, size: 40)
                                             VStack(alignment: .leading, spacing: 4) {
@@ -624,12 +701,16 @@ struct TrialDetailView: View {
                                     }
                                     if model.claims.count > 1 {
                                         Picker("Your approved profile", selection: $model.selectedClaimId) {
-                                            ForEach(model.claims) { claim in Text(claim.name).tag(Optional(claim.id)) }
+                                            ForEach(model.claims) { claim in
+                                                Text(claim.name).tag(Optional(claim.id))
+                                            }
                                         }
                                     }
                                     Phase2Eyebrow(text: "Position")
-                                    TextField("Position", text: $model.position).textFieldStyle(Phase2InputStyle())
-                                        .accessibilityIdentifier("apply-position")
+                                    TextField("Position", text: $model.position).textFieldStyle(
+                                        Phase2InputStyle()
+                                    )
+                                    .accessibilityIdentifier("apply-position")
                                     HStack {
                                         Phase2Eyebrow(text: "Current club")
                                         Spacer()
@@ -647,7 +728,8 @@ struct TrialDetailView: View {
                                     Button(
                                         model.isSending
                                             ? "Sending…"
-                                            : model.contactConsent ? "Send application" : "Tick the box to send"
+                                            : model.contactConsent
+                                                ? "Send application" : "Tick the box to send"
                                     ) { Task { await model.apply() } }
                                     .buttonStyle(FloodlightPillStyle()).disabled(!model.canSend)
                                     .accessibilityIdentifier("apply-send")
@@ -669,7 +751,8 @@ struct TrialDetailView: View {
             }
         }.background(AcademyColors.background).foregroundStyle(AcademyColors.text)
             .navigationTitle("").navigationBarTitleDisplayMode(.inline).task {
-                await model.load(authenticated: auth.isAuthenticated, applications: workspace.flags.applications)
+                await model.load(
+                    authenticated: auth.isAuthenticated, applications: workspace.flags.applications)
                 if let post = model.post {
                     let response: PublicClubResponse? = try? await client.read("programs/\(post.clubSlug)")
                     club = response?.program
@@ -682,12 +765,17 @@ struct TrialDetailView: View {
                 #endif
             }.accessibilityIdentifier("phase2-trial-detail")
             .toolbarBackground(
-                phase2BrandColor(club?.brand?.primaryColor, fallback: AcademyColors.club), for: .navigationBar
+                phase2BrandColor(club?.brand?.primaryColor, fallback: AcademyColors.club),
+                for: .navigationBar
             )
-            .toolbarBackground(.visible, for: .navigationBar).toolbarColorScheme(.dark, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar).toolbarColorScheme(
+                .dark, for: .navigationBar)
     }
     private func reload() {
-        Task { await model.load(authenticated: auth.isAuthenticated, applications: workspace.flags.applications) }
+        Task {
+            await model.load(
+                authenticated: auth.isAuthenticated, applications: workspace.flags.applications)
+        }
     }
 }
 
@@ -719,7 +807,8 @@ struct MyApplicationsView: View {
                             Text(
                                 "Applied as \(current.position.lowercased()) · deleted by "
                                     + Phase2Time.shortDate(
-                                        current.retentionExpiresAt, zone: current.timezone, format: "EEE d MMM yyyy")
+                                        current.retentionExpiresAt, zone: current.timezone,
+                                        format: "EEE d MMM yyyy")
                             )
                             .font(AcademyType.footnote).foregroundStyle(AcademyColors.secondaryText)
                         }.frame(maxWidth: .infinity, alignment: .leading)
@@ -728,7 +817,8 @@ struct MyApplicationsView: View {
                 }
                 let earlier = model.applications.filter { $0.id != current?.id }
                 if !earlier.isEmpty {
-                    Phase2Section(title: current == nil ? "Applications" : "Earlier", trailing: String(earlier.count))
+                    Phase2Section(
+                        title: current == nil ? "Applications" : "Earlier", trailing: String(earlier.count))
                     ForEach(earlier) { application in
                         NavigationLink {
                             ApplicationDetailView(id: application.id, client: client)
@@ -741,7 +831,8 @@ struct MyApplicationsView: View {
                                             "Applied "
                                                 + Phase2Time.shortDate(
                                                     application.submittedAt, zone: application.timezone)
-                                        ).font(AcademyType.subheadline).foregroundStyle(AcademyColors.secondaryText)
+                                        ).font(AcademyType.subheadline).foregroundStyle(
+                                            AcademyColors.secondaryText)
                                     }
                                     Spacer()
                                     Phase2Status(application: application)
@@ -779,27 +870,35 @@ struct MyApplicationsView: View {
                     Task { await model.load(page: page) }
                 }
                 if !model.applications.isEmpty {
-                    Text(applicationRetentionCopy + " Signing does not change that.").font(AcademyType.footnote)
-                        .foregroundStyle(AcademyColors.secondaryText)
+                    Text(applicationRetentionCopy + " Signing does not change that.").font(
+                        AcademyType.footnote
+                    )
+                    .foregroundStyle(AcademyColors.secondaryText)
                     if workspace.flags.opportunities {
                         VStack(alignment: .leading, spacing: 12) {
                             Text("STILL LOOKING").font(AcademyType.mono(10)).tracking(1.5).foregroundStyle(
                                 AcademyColors.gold)
                             Text("Another door is open.").font(AcademyType.serif(28))
-                            Text("You can have more than one application running. Each club only sees its own.").font(
+                            Text(
+                                "You can have more than one application running. Each club only sees its own."
+                            )
+                            .font(
                                 AcademyType.subheadline
                             ).foregroundStyle(AcademyColors.mutedDark)
-                            NavigationLink("Browse trials") { TrialsView(client: client) }.font(AcademyType.subheadline)
-                                .underline().frame(minHeight: 44)
+                            NavigationLink("Browse trials") { TrialsView(client: client) }.font(
+                                AcademyType.subheadline
+                            )
+                            .underline().frame(minHeight: 44)
                         }.padding(18).frame(maxWidth: .infinity, alignment: .leading).foregroundStyle(
                             AcademyColors.chalk
                         ).background(AcademyColors.night, in: RoundedRectangle(cornerRadius: 14))
                     }
                 }
             }
-        }.navigationTitle("Applications").task { if auth.isAuthenticated { await model.load() } }.refreshable {
-            if auth.isAuthenticated { await model.load() }
-        }.accessibilityIdentifier("phase2-applications")
+        }.navigationTitle("Applications").task { if auth.isAuthenticated { await model.load() } }
+            .refreshable {
+                if auth.isAuthenticated { await model.load() }
+            }.accessibilityIdentifier("phase2-applications")
     }
     private func reload() { Task { await model.load() } }
 }
@@ -832,14 +931,17 @@ struct ApplicationDetailView: View {
             if model.isBusy { ProgressView("Updating application…") }
             Phase2ErrorView(message: model.error, retry: { Task { await model.load() } })
             if let application = model.application {
-                Text("\(application.clubName) · Applied as \(application.position)").font(AcademyType.subheadline)
+                Text("\(application.clubName) · Applied as \(application.position)").font(
+                    AcademyType.subheadline)
                 Text(
                     "Deleted by "
                         + Phase2Time.shortDate(
-                            application.retentionExpiresAt, zone: application.timezone, format: "EEE d MMM yyyy")
+                            application.retentionExpiresAt, zone: application.timezone,
+                            format: "EEE d MMM yyyy")
                 ).font(AcademyType.footnote).foregroundStyle(AcademyColors.secondaryText)
                 ApplicationProgressContent(application: application, model: model)
-                Text(applicationRetentionCopy).font(AcademyType.footnote).foregroundStyle(AcademyColors.secondaryText)
+                Text(applicationRetentionCopy).font(AcademyType.footnote).foregroundStyle(
+                    AcademyColors.secondaryText)
             }
         }.navigationTitle("Application").task { await model.load() }.refreshable { await model.load() }
             .accessibilityIdentifier("phase2-application-detail")
@@ -852,7 +954,8 @@ struct ApplicationProgressContent: View {
     private let stages = ["new", "shortlisted", "invited", "attended", "offer", "signed"]
     private var visibleStages: [String] {
         if application.status == "withdrawn" || application.status == "rejected" {
-            return (application.events ?? []).map(\.toState).filter { stages.contains($0) } + [application.status]
+            return stages.filter { stage in (application.events ?? []).contains { $0.toState == stage } }
+                + [application.status]
         }
         return stages
     }
@@ -861,7 +964,8 @@ struct ApplicationProgressContent: View {
             ForEach(Array(visibleStages.enumerated()), id: \.offset) { index, stage in
                 let reached =
                     application.isTerminal
-                    || (stages.firstIndex(of: stage) ?? 99) <= (stages.firstIndex(of: application.status) ?? -1)
+                    || (stages.firstIndex(of: stage) ?? 99)
+                        <= (stages.firstIndex(of: application.status) ?? -1)
                 HStack(alignment: .top, spacing: 15) {
                     VStack(spacing: 4) {
                         Circle().fill(
@@ -887,14 +991,25 @@ struct ApplicationProgressContent: View {
                                 Phase2Eyebrow(text: Phase2Time.shortDate(date, zone: application.timezone))
                             }
                         }.frame(minHeight: 28)
+                        if stage == "invited" {
+                            ForEach(
+                                (application.events ?? []).filter {
+                                    $0.toState == stage && $0.fromState == stage
+                                }
+                            ) { event in
+                                Text(event.label).font(AcademyType.footnote).foregroundStyle(
+                                    AcademyColors.secondaryText)
+                            }
+                        }
                         if stage == "invited", let trial = application.trialAt, !application.isTerminal {
                             VStack(alignment: .leading, spacing: 10) {
                                 Label(
                                     Phase2Time.display(trial, zone: application.timezone) + " · "
                                         + (application.trialVenue ?? ""), systemImage: "calendar"
                                 ).font(AcademyType.subheadline.weight(.medium))
-                                Text(application.trialInstructions ?? "").font(AcademyType.subheadline).foregroundStyle(
-                                    AcademyColors.secondaryText)
+                                Text(application.trialInstructions ?? "").font(AcademyType.subheadline)
+                                    .foregroundStyle(
+                                        AcademyColors.secondaryText)
                                 Phase2Eyebrow(text: Phase2Time.zoneLabel(application.timezone, at: trial))
                                 if application.canRespond() {
                                     HStack(spacing: 8) {
@@ -945,8 +1060,10 @@ struct ApplicationTimeline: View {
     let application: Phase2Application
     var body: some View {
         HStack(spacing: 4) {
-            ForEach(Array(["new", "shortlisted", "invited", "attended", "offer", "signed"].enumerated()), id: \.offset)
-            { index, stage in
+            ForEach(
+                Array(["new", "shortlisted", "invited", "attended", "offer", "signed"].enumerated()),
+                id: \.offset
+            ) { index, stage in
                 Capsule().fill(
                     stage == application.status
                         ? AcademyColors.accent : (index == 0 ? AcademyColors.text : AcademyColors.hairline)

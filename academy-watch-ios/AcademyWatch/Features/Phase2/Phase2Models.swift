@@ -49,10 +49,13 @@ struct Phase2Club: Decodable, Identifiable, Sendable {
     let distanceKm: Double?
     let openOpportunities: Int?
     let directory: DirectoryFacts?
-    let description: String?
     let programProvided: ProgramProvided?
-    var location: String { [city, region].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ") }
-    var distance: String { distanceKm.map { String(format: "%.1f km", $0) } ?? "Distance unavailable" }
+    var location: String {
+        [city, region].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+    }
+    var distance: String {
+        distanceKm.map { String(format: "%.1f km", $0) } ?? "Distance unavailable"
+    }
 }
 struct ClubLeague: Decodable, Sendable { let name: String }
 struct ClubDirectoryResponse: Decodable {
@@ -94,6 +97,7 @@ struct Phase2Opportunity: Decodable, Identifiable, Sendable {
     let status: String
     let version: Int
     // These fields exist only on the club DTO. Public views never render them.
+    let trialInviteDeadline: String?
     let capacity: Int?
     let placesLeft: Int?
     let applicationCount: Int?
@@ -144,19 +148,25 @@ struct Phase2Application: Decodable, Identifiable, Sendable {
     let events: [ApplicationEvent]?
     var isTerminal: Bool { ["signed", "rejected", "withdrawn"].contains(status) }
     func canRespond(now: Date = Phase2Time.now) -> Bool {
-        status == "invited" && reservationState == "pending" && (Phase2Time.date(trialAt).map { $0 > now } ?? false)
+        status == "invited" && reservationState == "pending"
+            && (Phase2Time.date(trialAt).map { $0 > now } ?? false)
     }
     func canTransition(to target: String, now: Date = Phase2Time.now) -> Bool {
-        guard transitions?.contains(target) == true else { return false }
+        guard
+            transitions?.contains(target) == true
+                || (target == "invited" && status == "invited" && transitions != nil)
+        else { return false }
         if target == "attended" {
-            return reservationState == "confirmed" && (Phase2Time.date(trialAt).map { $0 <= now } ?? false)
+            return reservationState == "confirmed"
+                && (Phase2Time.date(trialAt).map { $0 <= now } ?? false)
         }
         return true
     }
     static func label(_ status: String) -> String {
         [
             "new": "Applied", "shortlisted": "With the club", "invited": "Invited to trial",
-            "attended": "Trial attended", "offer": "Offer received", "signed": "Signed", "rejected": "Not selected",
+            "attended": "Trial attended", "offer": "Offer received", "signed": "Signed",
+            "rejected": "Not selected",
             "withdrawn": "Withdrawn",
         ][status] ?? status.capitalized
     }
@@ -171,6 +181,14 @@ struct ApplicationEvent: Decodable, Identifiable, Sendable {
     let toState: String
     let version: Int
     let createdAt: String
+    let reasonCode: String?
+    var label: String {
+        switch reasonCode {
+        case "trial_confirmed": "Trial place confirmed"
+        case "rescheduled": "Trial rescheduled"
+        default: Phase2Application.label(toState)
+        }
+    }
     var id: Int { version }
 }
 struct ApplicationResponse: Decodable { let application: Phase2Application }
@@ -203,7 +221,9 @@ struct ClubAccess: Decodable, Sendable {
     let allSquads: Bool
     let squadIds: [Int]
     let capabilities: [String]
-    var canRecruit: Bool { ["owner", "manager"].contains(role) && capabilities.contains("recruiting") }
+    var canRecruit: Bool {
+        ["owner", "manager"].contains(role) && capabilities.contains("recruiting")
+    }
     var canManageAccess: Bool { role == "owner" && capabilities.contains("access.manage") }
     func can(_ capability: String) -> Bool { capabilities.contains(capability) }
 }
@@ -227,7 +247,6 @@ struct Phase2ClubClaim: Decodable {
 struct Phase2Squad: Decodable, Identifiable, Sendable {
     let id: Int
     let name: String
-    let ageGroup: String?
 }
 struct SquadsResponse: Decodable { let squads: [Phase2Squad] }
 struct SquadMember: Decodable, Identifiable, Sendable {
@@ -280,12 +299,6 @@ struct StaffInvite: Decodable, Identifiable, Sendable {
     let status: String
     let expiresAt: String
 }
-struct StaffActivity: Decodable, Identifiable {
-    let id: Int
-    let action: String
-    let createdAt: String
-    let actor: String?
-}
 struct StaffBoardResponse: Decodable {
     let me: ClubAccess
     let people: [StaffPerson]
@@ -322,24 +335,37 @@ enum Phase2Time {
         guard let raw else { return nil }
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let value = formatter.date(from: raw) ?? ISO8601DateFormatter().date(from: raw) { return value }
+        if let value = formatter.date(from: raw) ?? ISO8601DateFormatter().date(from: raw) {
+            return value
+        }
         // Contact DTOs serialize naive UTC timestamps; never interpret these in the device zone.
-        guard raw.range(of: #"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?$"#, options: .regularExpression) != nil
+        guard
+            raw.range(
+                of: #"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?$"#, options: .regularExpression)
+                != nil
         else { return nil }
         return formatter.date(from: raw + "Z") ?? ISO8601DateFormatter().date(from: raw + "Z")
     }
-    static func zone(_ value: String) -> TimeZone { TimeZone(identifier: value) ?? TimeZone(secondsFromGMT: 0)! }
-    static func display(_ raw: String?, zone value: String) -> String {
+    static func zone(_ value: String) -> TimeZone {
+        TimeZone(identifier: value) ?? TimeZone(secondsFromGMT: 0)!
+    }
+    static func display(_ raw: String?, zone value: String, locale: Locale = .current) -> String {
         guard let date = date(raw) else { return "Date unavailable" }
         let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_GB")
+        formatter.locale = locale
         formatter.timeZone = zone(value)
-        formatter.dateFormat = "EEE d MMM, HH:mm z"
+        formatter.setLocalizedDateFormatFromTemplate("EEE d MMM jmm z")
         return formatter.string(from: date)
     }
-    static func interval(_ start: String?, _ end: String?, zone value: String) -> String {
-        guard let startDate = date(start) else { return start == nil ? "No fixed date" : "Date unavailable" }
-        guard let endDate = date(end), endDate > startDate else { return display(start, zone: value) }
+    static func interval(
+        _ start: String?, _ end: String?, zone value: String, locale: Locale = .current
+    ) -> String {
+        guard let startDate = date(start) else {
+            return start == nil ? "No fixed date" : "Date unavailable"
+        }
+        guard let endDate = date(end), endDate > startDate else {
+            return display(start, zone: value, locale: locale)
+        }
         let timeZone = zone(value)
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = timeZone
@@ -347,14 +373,15 @@ enum Phase2Time {
         guard calendar.isDate(startDate, inSameDayAs: endDate),
             timeZone.secondsFromGMT(for: startDate) == timeZone.secondsFromGMT(for: endDate)
         else {
-            return display(start, zone: value) + " — " + display(end, zone: value)
+            return display(start, zone: value, locale: locale) + " — "
+                + display(end, zone: value, locale: locale)
         }
         let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_GB")
+        formatter.locale = locale
         formatter.timeZone = timeZone
-        formatter.dateFormat = "EEE d MMM, HH:mm"
+        formatter.setLocalizedDateFormatFromTemplate("EEE d MMM jmm")
         let leading = formatter.string(from: startDate)
-        formatter.dateFormat = "HH:mm z"
+        formatter.setLocalizedDateFormatFromTemplate("jmm z")
         return leading + "–" + formatter.string(from: endDate)
     }
     static func zoneLabel(_ value: String, at raw: String?) -> String {
@@ -364,7 +391,7 @@ enum Phase2Time {
         let label = String(
             format: "UTC%@%02d:%02d", offset < 0 ? "−" : "+", abs(offset) / 3600, abs(offset) % 3600 / 60)
         let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_GB")
+        formatter.locale = .current
         formatter.timeZone = zone
         formatter.dateFormat = "z"
         return

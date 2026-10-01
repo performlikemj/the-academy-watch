@@ -204,6 +204,7 @@ struct APIClient: GolAPIClientProtocol, PlayerClubAPIClientProtocol, ScoutAPICli
 
     private let baseURL: URL
     private let session: URLSession
+    private let phase2Session: URLSession
     private let authSession: (any AuthSessionProtocol)?
     private let requiredCredential: String?
     private let fixtureMode: String?
@@ -217,6 +218,9 @@ struct APIClient: GolAPIClientProtocol, PlayerClubAPIClientProtocol, ScoutAPICli
     ) {
         self.baseURL = baseURL
         self.session = session
+        let privateConfiguration = Self.phase2SessionConfiguration()
+        privateConfiguration.protocolClasses = session.configuration.protocolClasses
+        self.phase2Session = URLSession(configuration: privateConfiguration)
         #if DEBUG && targetEnvironment(simulator)
         self.fixtureMode = fixtureMode ?? PlayerClubExperienceFixtures.mode
         #else
@@ -1035,11 +1039,21 @@ struct APIClient: GolAPIClientProtocol, PlayerClubAPIClientProtocol, ScoutAPICli
         }
     }
 
+    static func phase2SessionConfiguration() -> URLSessionConfiguration {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.urlCache = nil
+        configuration.httpCookieStorage = nil
+        configuration.urlCredentialStorage = nil
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        return configuration
+    }
+
     private func requestData(
         path: String,
         method: String,
         queryItems: [URLQueryItem],
-        body: Data?
+        body: Data?,
+        transport: URLSession? = nil
     ) async throws -> (data: Data, receivedAt: TimeInterval) {
         let url = try makeURL(path: path, queryItems: queryItems)
         var request = URLRequest(url: url)
@@ -1088,7 +1102,7 @@ struct APIClient: GolAPIClientProtocol, PlayerClubAPIClientProtocol, ScoutAPICli
         }
         #endif
 
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await (transport ?? session).data(for: request)
         let responseReceivedAt = ProcessInfo.processInfo.systemUptime
         guard let httpResponse = response as? HTTPURLResponse else {
             throw APIClientError.invalidResponse
@@ -1266,6 +1280,6 @@ private struct APIErrorPayload: Decodable {
 
 extension APIClient: Phase2API {
     func phase2Data(path: String, method: String, query: [URLQueryItem], body: Data?) async throws -> Data {
-        try await requestData(path: path, method: method, queryItems: query, body: body).data
+        try await requestData(path: path, method: method, queryItems: query, body: body, transport: phase2Session).data
     }
 }

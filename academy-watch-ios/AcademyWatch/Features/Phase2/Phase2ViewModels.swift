@@ -3,8 +3,13 @@ import Foundation
 
 @MainActor
 final class Phase2Workspace: ObservableObject {
-    @Published private(set) var flags = Phase2Flags()
-    @Published private(set) var clubs: [ClubMembership] = []
+    private struct Snapshot {
+        var flags = Phase2Flags()
+        var clubs: [ClubMembership] = []
+    }
+    @Published private var snapshot = Snapshot()
+    var flags: Phase2Flags { snapshot.flags }
+    var clubs: [ClubMembership] { snapshot.clubs }
     @Published var selectedClubId: Int?
     @Published private(set) var error: String?
     @Published private(set) var isLoading = false
@@ -17,48 +22,60 @@ final class Phase2Workspace: ObservableObject {
         let request = generation
         isLoading = true
         error = nil
-        // Clear permissions before revalidation, including foreground/account changes.
-        flags = Phase2Flags()
-        clubs = []
-        async let features: Phase2FeatureResponse? = try? client.read("features")
-        async let opportunities: OpportunityFeatures? = try? client.read("opportunities/features")
-        let (base, posts) = await (features, opportunities)
-        guard request == generation, !Task.isCancelled else { return }
-        flags = Phase2Flags(
-            directory: base?.clubDirectory == true, opportunities: posts?.opportunities == true,
-            applications: posts?.opportunities == true && posts?.applications == true,
-            staff: base?.clubStaffAccess == true, contact: base?.contactRail == true)
-        guard authenticated, flags.staff else {
-            isLoading = false
-            return
-        }
+        // Revalidate in memory; keep the last confirmed tree and drafts while fetching.
+        var next = snapshot
+        var failure: String?
         do {
-            async let grants: ClubMembershipsResponse = client.read("me/club-access")
-            async let claims: Phase2ClubClaimsResponse = client.read("funding/claims/me")
-            let (memberships, ownClaims) = try await (grants, claims)
-            var resolved = memberships.programs
-            for claim in ownClaims.claims
-            where claim.status == "approved" && !resolved.contains(where: { $0.id == claim.program.id }) {
-                if let result: ClubAccessResponse = try? await client.read("club/\(claim.program.id)/access/me") {
+            async let features: Phase2FeatureResponse = client.read("features")
+            async let opportunities: OpportunityFeatures = opportunityFlags()
+            let (base, posts) = try await (features, opportunities)
+            next.flags = Phase2Flags(
+                directory: base.clubDirectory == true, opportunities: posts.opportunities,
+                applications: posts.opportunities && posts.applications,
+                staff: base.clubStaffAccess == true, contact: base.contactRail == true)
+            if authenticated && (next.flags.staff || next.flags.opportunities) {
+                async let grants: ClubMembershipsResponse =
+                    next.flags.staff
+                    ? client.read("me/club-access") : ClubMembershipsResponse(programs: [])
+                async let claims: Phase2ClubClaimsResponse = client.read("funding/claims/me")
+                let (memberships, ownClaims) = try await (grants, claims)
+                var resolved = memberships.programs
+                for claim in ownClaims.claims
+                where claim.status == "approved" && !resolved.contains(where: { $0.id == claim.program.id }) {
+                    let result: ClubAccessResponse = try await client.read(
+                        "club/\(claim.program.id)/access/me")
                     resolved.append(ClubMembership(program: claim.program, access: result.access))
                 }
+                next.clubs = resolved
+            } else {
+                next.clubs = []
             }
-            guard request == generation, !Task.isCancelled else { return }
-            clubs = resolved
-            if !clubs.contains(where: { $0.id == selectedClubId }) { selectedClubId = clubs.first?.id }
         } catch {
-            guard request == generation, !Task.isCancelled else { return }
-            clubs = []
-            self.error = phase2Error(error)
+            // A failed fetch is not a new flag/access decision. Mutations still
+            // recheck current capabilities on the server; initial state is closed.
+            next = snapshot
+            failure = phase2Error(error)
         }
-        if request == generation { isLoading = false }
+        guard request == generation, !Task.isCancelled else { return }
+        if !authenticated { next.clubs = [] }
+        snapshot = next
+        if !clubs.contains(where: { $0.id == selectedClubId }) { selectedClubId = clubs.first?.id }
+        error = failure
+        isLoading = false
+    }
+    private func opportunityFlags() async throws -> OpportunityFeatures {
+        do { return try await client.read("opportunities/features") } catch {
+            if phase2Status(error) == 404 {
+                return OpportunityFeatures(opportunities: false, applications: false)
+            }
+            throw error
+        }
     }
     func reset() {
         generation += 1
-        clubs = []
+        snapshot = Snapshot()
         selectedClubId = nil
         error = nil
-        flags = Phase2Flags()
         isLoading = false
     }
 }
@@ -94,7 +111,8 @@ final class DirectoryViewModel: ObservableObject {
             body.radiusKm = nil
         }
         do {
-            let response: ClubDirectoryResponse = try await client.write("club-directory/search", body: body)
+            let response: ClubDirectoryResponse = try await client.write(
+                "club-directory/search", body: body)
             guard request == generation, !Task.isCancelled else { return }
             clubs = response.clubs
             total = response.total
@@ -132,7 +150,9 @@ final class OpportunitiesViewModel: ObservableObject {
         }
         var query = [URLQueryItem(name: "page", value: String(page))]
         if !type.isEmpty { query.append(URLQueryItem(name: "type", value: type)) }
-        if !club, let programId { query.append(URLQueryItem(name: "program_id", value: String(programId))) }
+        if !club, let programId {
+            query.append(URLQueryItem(name: "program_id", value: String(programId)))
+        }
         do {
             let path = club ? "club/\(programId!)/opportunities" : "opportunities"
             let response: OpportunitiesResponse = try await client.read(path, query: query)
@@ -172,7 +192,8 @@ final class TrialDetailViewModel: ObservableObject {
         self.clock = now
     }
     var canSend: Bool {
-        !isSending && sent == nil && contactConsent && !position.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !isSending && sent == nil && contactConsent
+            && !position.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && claims.contains { $0.id == selectedClaimId } && post?.status == "published"
             && (Phase2Time.date(post?.closesAt).map { $0 > clock() } ?? false)
     }
@@ -191,7 +212,9 @@ final class TrialDetailViewModel: ObservableObject {
                 let result: ApplicationClaimsResponse = try await client.read("me/application-claims")
                 guard request == generation, !Task.isCancelled else { return }
                 claims = result.claims
-                if !claims.contains(where: { $0.id == selectedClaimId }) { selectedClaimId = claims.first?.id }
+                if !claims.contains(where: { $0.id == selectedClaimId }) {
+                    selectedClaimId = claims.first?.id
+                }
             }
         } catch {
             guard request == generation, !Task.isCancelled else { return }
@@ -208,14 +231,16 @@ final class TrialDetailViewModel: ObservableObject {
             requestId = UUID().uuidString
         }
         let body = ApplicationSubmission(
-            claimId: selectedClaimId, position: position, currentClub: currentClub, contactConsent: contactConsent,
+            claimId: selectedClaimId, position: position, currentClub: currentClub,
+            contactConsent: contactConsent,
             clientRequestId: requestId)
         previousBody = body
         isSending = true
         error = nil
         defer { isSending = false }
         do {
-            let response: ApplicationResponse = try await client.write("opportunities/\(id)/applications", body: body)
+            let response: ApplicationResponse = try await client.write(
+                "opportunities/\(id)/applications", body: body)
             sent = response.application
         } catch { self.error = phase2Error(error) }
     }
@@ -239,15 +264,24 @@ final class ApplicationsViewModel: ObservableObject {
         applications = []
         hasMore = false
         let path =
-            programId.flatMap { pid in opportunityId.map { "club/\(pid)/opportunities/\($0)/applications" } }
+            programId.flatMap { pid in
+                opportunityId.map { "club/\(pid)/opportunities/\($0)/applications" }
+            }
             ?? "me/applications"
         do {
-            let result: ApplicationsResponse = try await client.read(
-                path, query: [URLQueryItem(name: "page", value: String(page))])
-            guard request == generation, !Task.isCancelled else { return }
-            applications = result.applications
-            self.page = result.page
-            hasMore = result.hasMore
+            var nextPage = programId == nil ? page : 1
+            var rows: [Phase2Application] = []
+            var result: ApplicationsResponse
+            repeat {
+                result = try await client.read(
+                    path, query: [URLQueryItem(name: "page", value: String(nextPage))])
+                guard request == generation, !Task.isCancelled else { return }
+                rows += result.applications
+                nextPage += 1
+            } while programId != nil && result.hasMore
+            applications = rows
+            self.page = programId == nil ? result.page : 1
+            hasMore = programId == nil && result.hasMore
         } catch {
             guard request == generation, !Task.isCancelled else { return }
             self.error = phase2Error(error)
@@ -271,37 +305,56 @@ final class ApplicationDetailViewModel: ObservableObject {
     let id: String
     let programId: Int?
     private var generation = 0
-    init(id: String, programId: Int? = nil, client: any Phase2API, now: @escaping () -> Date = { Phase2Time.now }) {
+    init(
+        id: String, programId: Int? = nil, client: any Phase2API,
+        now: @escaping () -> Date = { Phase2Time.now }
+    ) {
         self.id = id
         self.programId = programId
         self.client = client
         self.clock = now
         self.trialDate = now().addingTimeInterval(86400)
     }
-    private var path: String { programId.map { "club/\($0)/applications/\(id)" } ?? "me/applications/\(id)" }
+    private var initializedInvite = false
+    private var path: String {
+        programId.map { "club/\($0)/applications/\(id)" } ?? "me/applications/\(id)"
+    }
     func load() async {
         guard !isBusy else { return }
         generation += 1
         let request = generation
         isBusy = true
         error = nil
-        application = nil
         defer { if request == generation { isBusy = false } }
         do {
             let result: ApplicationResponse = try await client.read(path)
             guard request == generation, !Task.isCancelled else { return }
             application = result.application
-        } catch { if request == generation { self.error = phase2Error(error) } }
+            if !initializedInvite {
+                initializedInvite = true
+                trialDate = Phase2Time.date(result.application.trialAt) ?? trialDate
+                venue = result.application.trialVenue ?? venue
+                instructions = result.application.trialInstructions ?? instructions
+            }
+        } catch {
+            if request == generation {
+                self.error = phase2Error(error)
+                if [403, 404].contains(phase2Status(error) ?? 0) { application = nil }
+            }
+        }
     }
     func applicantAction(_ action: String) async {
         guard !isBusy, programId == nil, let application, !application.isTerminal else { return }
         if action != "withdraw", !application.canRespond(now: clock()) { return }
         await mutate(
             suffix: action == "withdraw" ? "withdraw" : "trial-response",
-            body: VersionAction(expectedVersion: application.version, response: action == "withdraw" ? nil : action))
+            body: VersionAction(
+                expectedVersion: application.version, response: action == "withdraw" ? nil : action))
     }
     func transition(_ status: String) async {
-        guard !isBusy, programId != nil, let application, application.canTransition(to: status, now: clock()) else {
+        guard !isBusy, programId != nil, let application,
+            application.canTransition(to: status, now: clock())
+        else {
             return
         }
         if status == "signed", !enrollmentConfirmed { return }
@@ -310,7 +363,8 @@ final class ApplicationDetailViewModel: ObservableObject {
             suffix: "transition",
             body: RecruitingTransition(
                 expectedVersion: application.version, status: status,
-                trialAt: status == "invited" ? Phase2Time.submission(trialDate, zone: application.timezone) : nil,
+                trialAt: status == "invited"
+                    ? Phase2Time.submission(trialDate, zone: application.timezone) : nil,
                 trialVenue: status == "invited" ? venue : nil,
                 trialInstructions: status == "invited" ? instructions : nil,
                 enrollmentConfirmed: status == "signed" ? true : nil))
@@ -326,8 +380,16 @@ final class ApplicationDetailViewModel: ObservableObject {
             self.error = phase2Error(error)
             // Private records can be withdrawn from the board after a hold or
             // scope change; never keep stale profile/notes visible after denial.
-            if programId != nil, [403, 404, 409].contains(phase2Status(error) ?? 0) { application = nil }
-            if programId == nil, phase2Status(error) == 409 { application = nil }
+            if [403, 404].contains(phase2Status(error) ?? 0) { application = nil }
+            if phase2Status(error) == 409 { await revalidateConflict() }
+        }
+    }
+    private func revalidateConflict() async {
+        do {
+            let response: ApplicationResponse = try await client.read(path)
+            application = response.application
+        } catch {
+            if [403, 404].contains(phase2Status(error) ?? 0) { application = nil }
         }
     }
     func addNote() async {
@@ -337,14 +399,16 @@ final class ApplicationDetailViewModel: ObservableObject {
         isBusy = true
         error = nil
         do {
-            let _: NoteResponse = try await client.write(path + "/notes", body: NoteSubmission(body: note))
+            let _: NoteResponse = try await client.write(
+                path + "/notes", body: NoteSubmission(body: note))
             note = ""
             isBusy = false
             await load()
         } catch {
             self.error = phase2Error(error)
             isBusy = false
-            if [403, 404, 409].contains(phase2Status(error) ?? 0) { application = nil }
+            if [403, 404].contains(phase2Status(error) ?? 0) { application = nil }
+            if phase2Status(error) == 409 { await revalidateConflict() }
         }
     }
 }
@@ -382,9 +446,12 @@ final class SquadViewModel: ObservableObject {
             let scope = access.access
             squads = groups.squads.filter { scope.wholeClub || scope.squadIds.contains($0.id) }
             members = players.members.filter { member in
-                member.available && (scope.wholeClub || member.squadId.map { scope.squadIds.contains($0) } == true)
+                member.available
+                    && (scope.wholeClub || member.squadId.map { scope.squadIds.contains($0) } == true)
             }
-            matches = games.filter { scope.wholeClub || $0.squadId.map { scope.squadIds.contains($0) } == true }
+            matches = games.filter {
+                scope.wholeClub || $0.squadId.map { scope.squadIds.contains($0) } == true
+            }
         } catch { if request == generation { self.error = phase2Error(error) } }
     }
 }
@@ -405,22 +472,33 @@ final class StaffViewModel: ObservableObject {
     func load() async {
         guard !isBusy else { return }
         isBusy = true
-        board = nil
-        squads = []
         error = nil
         defer { isBusy = false }
         do {
             let result: StaffBoardResponse = try await client.read("club/\(programId)/access")
-            guard result.me.canManageAccess else { return }
+            guard result.me.canManageAccess else {
+                board = nil
+                squads = []
+                return
+            }
             let groups: SquadsResponse = try await client.read("club/\(programId)/squads")
             guard !Task.isCancelled else { return }
             board = result
             squads = groups.squads
-        } catch { self.error = phase2Error(error) }
+        } catch {
+            self.error = phase2Error(error)
+            if [403, 404].contains(phase2Status(error) ?? 0) {
+                board = nil
+                squads = []
+            }
+        }
     }
-    func invite(email: String, role: String, allSquads: Bool, squadIds: [Int]) async {
-        guard board?.me.canManageAccess == true, !isBusy, role == "manager" || allSquads || !squadIds.isEmpty else {
-            return
+    @discardableResult
+    func invite(email: String, role: String, allSquads: Bool, squadIds: [Int]) async -> Bool {
+        guard board?.me.canManageAccess == true, !isBusy,
+            role == "manager" || allSquads || !squadIds.isEmpty
+        else {
+            return false
         }
         isBusy = true
         error = nil
@@ -437,7 +515,11 @@ final class StaffViewModel: ObservableObject {
                 : "Invite created, but email delivery failed. Revoke it and try again."
             isBusy = false
             await load()
-        } catch { fail(error) }
+            return true
+        } catch {
+            await fail(error)
+            return false
+        }
     }
     func update(_ person: StaffPerson, role: String, allSquads: Bool, squadIds: [Int]) async {
         guard board?.me.canManageAccess == true, !isBusy, person.editable, let grant = person.grantId,
@@ -450,10 +532,11 @@ final class StaffViewModel: ObservableObject {
                 "club/\(programId)/access/\(grant)", method: "PATCH",
                 body: StaffScopeSubmission(
                     role: role, allSquads: role == "manager" || allSquads,
-                    squadIds: role == "manager" || allSquads ? [] : squadIds.sorted(), expectedVersion: person.version))
+                    squadIds: role == "manager" || allSquads ? [] : squadIds.sorted(),
+                    expectedVersion: person.version))
             isBusy = false
             await load()
-        } catch { fail(error) }
+        } catch { await fail(error) }
     }
     func revoke(invite: StaffInvite? = nil, person: StaffPerson? = nil) async {
         guard board?.me.canManageAccess == true, !isBusy else { return }
@@ -474,12 +557,28 @@ final class StaffViewModel: ObservableObject {
             let _: Phase2Empty = try await client.write(path, method: method, body: [String: String]())
             isBusy = false
             await load()
-        } catch { fail(error) }
+        } catch { await fail(error) }
     }
-    private func fail(_ error: Error) {
+    private func fail(_ error: Error) async {
         self.error = phase2Error(error)
-        isBusy = false
-        if [403, 404, 409].contains(phase2Status(error) ?? 0) {
+        defer { isBusy = false }
+        if phase2Status(error) == 409 {
+            do {
+                let current: StaffBoardResponse = try await client.read("club/\(programId)/access")
+                if current.me.canManageAccess {
+                    board = current
+                } else {
+                    board = nil
+                    squads = []
+                }
+            } catch {
+                if [403, 404].contains(phase2Status(error) ?? 0) {
+                    board = nil
+                    squads = []
+                }
+            }
+        }
+        if [403, 404].contains(phase2Status(error) ?? 0) {
             board = nil
             squads = []
         }
