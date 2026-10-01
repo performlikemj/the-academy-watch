@@ -13,3 +13,10 @@ Read [the C1 API/policy contract](../p2-club-publication.md) before changing thi
 - Notifications contain IDs only and recheck eligibility at delivery. Never persist raw invitation tokens. Account deletion removes C1 publication rows before claims plus all owned club-first introductions and descendants, including withheld rows.
 - Regression gates: `test_club_player_publication.py`, `test_club_publication_rc1.py`, `test_club_publication_rc1v.py`, `test_club_publication_flag_parity.py`, real `test_club_player_publication_postgres.py`, N3 `test_scout_adults_only.py`, browser `club-player-publication.spec.mjs`. The compact leak sweep has seven private states plus a published control across signed/local aliases, query forms and three audiences.
 - PostgreSQL tests refuse hosts/databases except localhost/aw_p2_c1. Never point migrations/tests at the shared DB. Compare preapply twice + upgrade schema with direct upgrade; retained consent blocks downgrade. Schema changes need RLS and guarded DDL.
+
+
+C1F3 recovery and rollout contract:
+- Publication review only approves pending rows. Existing shadow DOBs that contradict adulthood block approval and remain stored; moderators see a conflict marker without exposing the DOB.
+- Club revocation/recovery quarantines showcase bio, photos, reel, affiliations and their approval fields in `retired_club_showcases`. The next claimant starts blank. Only the retired claimant exports their snapshot; no public/new-owner API reads it. Dark retention purges snapshots after 180 days; account erasure removes them.
+- Scouts retain only their authored messages on unavailable club-first histories. The player's account identity, counterpart messages and outcomes are withheld before club grant and after unavailability. Own authored messages from otherwise-withheld threads are exported once; ordinary exports retain their shape.
+- Both p2c1 migration/preapply set a transaction-local five-second lock timeout before DDL. On contention roll back and retry the entire script before code deploy. Copy the latest migration/preapply CONTRACT from the BUS verbatim into descendant lanes before validation.

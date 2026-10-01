@@ -7,6 +7,20 @@ import { useAuth, useAuthUI } from '@/context/AuthContext'
 import { usePublicationFlag } from '@/hooks/usePublicationFlag'
 import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from '@/components/ui/alert-dialog'
 
+const publicationErrors = {
+  invite_unavailable: 'This invitation is unavailable or has expired. Sign in with the invited email, or ask your club for a new invitation.',
+  version_conflict: 'This profile has changed. Refresh to review its latest permissions, then try again.',
+  already_claimed: 'This profile has already been claimed. Ask your club to review the existing claim.',
+  self_claim_required: 'Confirm that you are this adult player before claiming the profile.',
+  birth_evidence_conflict: 'Stored birth evidence conflicts with adulthood. Keep the profile private until its identity has been corrected.',
+  publication_not_pending: 'This profile is no longer awaiting review. Refresh to see its current status.',
+  publication_not_ready: 'This profile is not ready for publication. Refresh and check the claim, consent and club association.',
+  self_invitation_review_required: 'The inviter and claimant match. Independent identity review is required.',
+}
+function publicationError(error) {
+  return publicationErrors[error?.body?.error] || 'The request could not be completed. Refresh and try again. If it continues, contact your club.'
+}
+
 function status(row) {
   if (row.club_revoked) return 'Club association revoked · private'
   if (row.withdrawn) return 'Consent withdrawn · private'
@@ -21,7 +35,7 @@ export function PlayerPublications({ mode = 'player' }) {
   const { programId } = useParams()
   const { token: authToken } = useAuth()
   const { openLoginModal } = useAuthUI()
-  const enabled = usePublicationFlag()
+  const enabled = usePublicationFlag({ poll: true })
   const [rows, setRows] = useState([])
   const [players, setPlayers] = useState([])
   const [selected, setSelected] = useState('')
@@ -54,7 +68,7 @@ export function PlayerPublications({ mode = 'player' }) {
           setPlayers(candidates.players || [])
         }
       }
-    } catch (err) { setError(err?.body?.error || err.message || 'Profiles could not be loaded.') }
+    } catch (err) { setError(publicationError(err)) }
     finally { setLoading(false) }
   }
   useEffect(() => { if (enabled && authToken) load() }, [enabled, authToken, mode, programId]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -68,7 +82,7 @@ export function PlayerPublications({ mode = 'player' }) {
       else setRows(current => mode === 'admin' ? current.filter(r => r.id !== row.id) : current.map(r => r.id === row.id ? result.publication : r))
       setChecked(current => ({ ...current, [row.id]: false }))
       if (mode === 'club') await load()
-    } catch (err) { setError(err?.body?.error || err.message || 'Nothing changed. Try again.') }
+    } catch (err) { setError(publicationError(err)) }
     finally { setBusy(false) }
   }
   async function invite(event) {
@@ -78,7 +92,7 @@ export function PlayerPublications({ mode = 'player' }) {
       const result = await APIService.request(`/club/${programId}/players/${selected}/publication-invite`, { method: 'POST', body: JSON.stringify({ recipient_email: email, expected_version: existing?.version }) })
       setShareLink(`${window.location.origin}/player-publication-invite#token=${result.token}`)
       await load()
-    } catch (err) { setError(err?.body?.error || err.message || 'Invite could not be created.') }
+    } catch (err) { setError(publicationError(err)) }
     finally { setBusy(false) }
   }
   if (enabled === null) return <p className="floodlight-container py-12">Loading…</p>
@@ -99,12 +113,12 @@ export function PlayerPublications({ mode = 'player' }) {
     {loading ? <p className="mt-8" role="status">Loading profiles…</p> : rows.length === 0 ? <p className="mt-8 border-t border-border py-6 text-muted-foreground">No profiles waiting here.</p> : <div className="mt-8">{rows.map(row => <section key={row.id} className="space-y-4 border-t border-border py-6">
       <h2 className="min-w-0 font-serif text-3xl [overflow-wrap:anywhere]">{row.player_name || 'Profile unavailable'}</h2><p className="eyebrow text-muted-foreground">{status(row)}</p>
       {mode === 'invite' && <><label className="flex items-start gap-3"><input className="mt-1 size-5 shrink-0" type="checkbox" checked={checked[row.id] || false} onChange={e => setChecked({ ...checked, [row.id]: e.target.checked })} />I am this adult player and I claim this profile. This does not make my profile public.</label><Button disabled={busy || !checked[row.id]} onClick={() => act(row, 'accept')}>Claim my private profile</Button></>}
-      {mode === 'player' && !row.club_revoked && !row.public && !row.consented && <><label className="flex items-start gap-3"><input className="mt-1 size-5 shrink-0" type="checkbox" checked={checked[row.id] || false} onChange={e => setChecked({ ...checked, [row.id]: e.target.checked })} />{row.consent_text}</label><Button disabled={busy || !checked[row.id]} onClick={() => act(row, 'consent')}>Give public profile consent</Button></>}
+      {mode === 'player' && !row.club_revoked && !row.public && (!row.consented || row.moderation_status === 'rejected') && <>{row.moderation_status === 'rejected' && <p className="text-sm text-muted-foreground">Give fresh consent to request a new moderation review. Your profile stays private and previous introductions stay closed.</p>}<label className="flex items-start gap-3"><input className="mt-1 size-5 shrink-0" type="checkbox" checked={checked[row.id] || false} onChange={e => setChecked({ ...checked, [row.id]: e.target.checked })} />{row.consent_text}</label><Button disabled={busy || !checked[row.id]} onClick={() => act(row, 'consent')}>Give public profile consent</Button></>}
       {mode === 'player' && row.consented && !row.withdrawn && <Button variant="outline" disabled={busy} onClick={() => setConfirmation({ row, action: 'withdraw' })}>Withdraw public consent</Button>}
       {mode === 'club' && !row.club_revoked && <Button variant="outline" disabled={busy} onClick={() => setConfirmation({ row, action: 'revoke' })}>Revoke club association</Button>}
       {mode === 'admin' && <>
         <ModerationEvidence evidence={row.moderation_evidence} />
-        <label className="block">Review reason<Input maxLength={2000} value={reason[row.id] || ''} onChange={e => setReason({ ...reason, [row.id]: e.target.value })} /></label><div className="flex flex-wrap gap-3"><Button disabled={busy || !row.claimed || !row.consented || !row.moderation_evidence?.adult || row.moderation_evidence?.self_invitation || !reason[row.id]?.trim()} onClick={() => act(row, 'approve')}>Approve profile and self-claim</Button><Button variant="outline" disabled={busy || !reason[row.id]?.trim()} onClick={() => act(row, 'reject')}>Keep private</Button></div>
+        <label className="block">Review reason<Input maxLength={2000} value={reason[row.id] || ''} onChange={e => setReason({ ...reason, [row.id]: e.target.value })} /></label><div className="flex flex-wrap gap-3"><Button disabled={busy || row.moderation_status !== 'pending' || !row.claimed || !row.consented || row.moderation_evidence?.birth_evidence_conflict || !row.moderation_evidence?.adult || row.moderation_evidence?.self_invitation || !reason[row.id]?.trim()} onClick={() => act(row, 'approve')}>Approve profile and self-claim</Button><Button variant="outline" disabled={busy || !reason[row.id]?.trim()} onClick={() => act(row, 'reject')}>Keep private</Button></div>
       </>}
       {mode === 'club' && row.can_reinvite && row.claimed && <p className="text-sm text-muted-foreground">You can create a fresh invitation above. The player must claim again, give new consent and pass moderation. Previous conversations stay closed.</p>}
       {row.public && <Link className="inline-block underline" to={`/local-players/${row.local_player_id}`}>View public profile</Link>}
@@ -144,6 +158,7 @@ function ModerationEvidence({ evidence }) {
       ].map(([label, value]) => <div className="min-w-0" key={label}><dt className="text-muted-foreground">{label}</dt><dd className="[overflow-wrap:anywhere]">{value || 'Unavailable'}</dd></div>)}
     </dl>
     {evidence.review_history?.length > 0 && <div className="space-y-2 [overflow-wrap:anywhere]"><h3 className="font-medium">Previous decisions</h3>{evidence.review_history.map((review, index) => <p key={index}><span className="font-medium">{review.decision === 'rejected' ? 'Kept private' : review.decision === 'recovery' ? 'Fresh invitation' : 'Approved'}</span> · {evidenceTime(review.reviewed_at)}<span className="block">{review.reason}</span></p>)}</div>}
+    {evidence.birth_evidence_conflict && <p role="alert" className="font-medium text-danger">Stored birth evidence conflicts with adulthood. Approval is blocked; keep this profile private until independent identity correction.</p>}
     {evidence.self_invitation && <p role="alert" className="font-medium text-danger">The inviter and claimant match. Approval is blocked; keep this profile private for independent identity review.</p>}
   </div>
 }

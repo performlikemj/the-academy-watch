@@ -128,6 +128,12 @@ def _mint_local_shadow(player_api_id):
         shadow = PlayerShadow(player_api_id=player_api_id, player_name=local_player.display_name)
         db.session.add(shadow)
 
+    if local_player.provenance == "club":
+        from src.services.club_player_publication import shadow_birth_conflict
+
+        if shadow_birth_conflict(shadow):
+            raise ValueError("birth_evidence_conflict")
+
     # Re-seeding is deliberately idempotent and DB-only. LocalPlayer is the
     # trusted source; caller-supplied seed/requested_by values never participate.
     shadow.player_name = str(local_player.display_name)[:200]

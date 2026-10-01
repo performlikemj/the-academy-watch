@@ -10,7 +10,7 @@ from src.services.club_player_publication import enabled
 
 def purge_invited_emails(*, limit=100, at=None):
     """Bounded privacy maintenance, even while dark; caller commits."""
-    from src.models.club_player_publication import now
+    from src.models.club_player_publication import RetiredClubShowcase, now
 
     if not 1 <= limit <= 1000:
         raise ValueError("limit must be 1–1000")
@@ -36,6 +36,15 @@ def purge_invited_emails(*, limit=100, at=None):
         row.invite_expires_at = None
     from src.services.club_player_publication import clear_club_follow_labels
 
+    retired_ids = [
+        i
+        for (i,) in db.session.query(RetiredClubShowcase.id)
+        .filter(RetiredClubShowcase.created_at <= at - timedelta(days=180))
+        .order_by(RetiredClubShowcase.id)
+        .limit(limit)
+    ]
+    if retired_ids:
+        RetiredClubShowcase.query.filter(RetiredClubShowcase.id.in_(retired_ids)).delete(synchronize_session=False)
     labels = clear_club_follow_labels(limit=limit)
     return {"invited_emails_purged": len(rows), "follow_labels_cleared": labels}
 
@@ -55,13 +64,33 @@ def export_publications(user, schema):
         {k: v.isoformat() if hasattr(v, "isoformat") else v for k in columns if (v := getattr(r, k)) is not None}
         for r in rows
     ]
-    return {"club_player_publications": result} if result else {}
+    exported = {"club_player_publications": result} if result else {}
+    if schema.has_table("retired_club_showcases"):
+        from src.models.club_player_publication import RetiredClubShowcase
+
+        snapshots = RetiredClubShowcase.query.filter_by(user_account_id=user.id).order_by(RetiredClubShowcase.id).all()
+        if snapshots:
+            exported["retired_club_showcases"] = [
+                {
+                    "claim_id": r.claim_id,
+                    "local_player_id": r.local_player_id,
+                    "content": r.content,
+                    "created_at": r.created_at.isoformat(),
+                }
+                for r in snapshots
+            ]
+    return exported
 
 
 def erase_publications(user_id, email, schema):
     if not schema.has_table("club_player_publications"):
         return {}
     from src.services.club_player_publication import revoke
+
+    if schema.has_table("retired_club_showcases"):
+        from src.models.club_player_publication import RetiredClubShowcase
+
+        RetiredClubShowcase.query.filter_by(user_account_id=user_id).delete(synchronize_session=False)
 
     rows = Publication.query.filter(
         sa.or_(Publication.recipient_user_id == user_id, Publication.recipient_email == email)

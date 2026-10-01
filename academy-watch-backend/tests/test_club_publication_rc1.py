@@ -218,6 +218,18 @@ def test_rejected_publication_permanently_closes_threads_after_reapproval(client
     assert response.status_code == 200
     assert db.session.get(ContactRequest, id_).status == "withdrawn"
     row = response.json["publication"]
+    fresh = client.post(
+        f"/api/me/player-publications/{row['id']}/consent",
+        headers=env["ph"],
+        json={
+            "expected_version": row["version"],
+            "public_profile_consent": True,
+            "consent_version": service.CONSENT_VERSION,
+        },
+    )
+    assert fresh.status_code == 200
+    row = fresh.json["publication"]
+
     response = client.post(
         f"/api/admin/player-publications/{row['id']}/review",
         headers=_admin_headers(),

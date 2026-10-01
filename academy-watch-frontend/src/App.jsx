@@ -4131,7 +4131,7 @@ const legacyPublicElements = LEGACY_PUBLIC_PAGES ? [
 
 // App routes extracted for cleaner structure
 function PublicationRoute({ children, admin = false }) {
-  const enabled = usePublicationFlag()
+  const enabled = usePublicationFlag({ poll: true })
   if (enabled === null) return null
   return enabled ? children : <Navigate to={admin ? '/admin/dashboard' : '/'} replace />
 }
