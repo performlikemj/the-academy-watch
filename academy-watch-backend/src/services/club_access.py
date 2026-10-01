@@ -211,10 +211,10 @@ def club_can(user_id, program_id, capability) -> bool:
     return bool(access and access.can(capability))
 
 
-def require_club_permission(capability, program_id_arg: str = "program_id"):
+def require_club_permission(capability, program_id_arg: str = "program_id", *, any_of: bool = False):
     """Capability-checked replacement for ``require_club_manager``.
 
-    ``capability`` may be one name or a tuple that must ALL be held.
+    ``capability`` may be one name or a tuple that must ALL be held (ANY with explicit ``any_of=True``).
     Flag off: identical to ``require_club_manager`` (same neutral 403).
     Flag on: resolves the caller's role/scope, stores it on ``g.club_access``.
     Resource routes must still apply the scope helpers below.
@@ -234,7 +234,7 @@ def require_club_permission(capability, program_id_arg: str = "program_id"):
                 g.club_access = _legacy_manager_access(program_id, user_id)
                 return view(*args, **kwargs)
             access = resolve_club_access(user_id, program_id)
-            if access is None or not all(access.can(cap) for cap in capabilities):
+            if access is None or not (any if any_of else all)(access.can(cap) for cap in capabilities):
                 return jsonify({"error": DENIED_ERROR}), 403
             g.club_access = access
             return view(*args, **kwargs)

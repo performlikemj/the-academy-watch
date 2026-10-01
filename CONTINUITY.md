@@ -1050,6 +1050,8 @@ CONTINUITY.md
 
 ## Active Ledgers
 
+- UXM2 staging polish implemented and fully gated: `ledgers/CONTINUITY_uxm2.md` (P-13 club/P-17–22/P-25; branch `fix/staging-ux-club-misc`).
+
 | Ledger | Status | Owner | Blockers |
 |--------|--------|-------|----------|
 | CONTINUITY_coach-brief-c3.md | PR #989 open; review fix round 2 complete | /root | none |

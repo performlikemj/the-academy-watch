@@ -4068,11 +4068,11 @@ function AppWithRouter() {
         />
         <PlayerOnboardingPrompt />
         {isLegacyPublicRoute(location.pathname) && !LEGACY_PUBLIC_PAGES ? <meta name="robots" content="noindex, nofollow" /> : null}
-        <main>
+        <main className="app-main">
           <AppRoutes />
         </main>
         {!isAdminRoute ? (
-          <footer className="dark bg-night text-chalk border-t border-border py-12 mt-auto">
+          <footer className="app-footer dark bg-night text-chalk border-t border-border py-12 mt-auto">
             <div className="floodlight-container text-center">
               <p className="display text-3xl">For the whole game.</p>
               <div className="mt-6"><BuyMeCoffeeButton /></div>

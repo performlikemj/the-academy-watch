@@ -141,7 +141,7 @@ export function GolPanel() {
       <Button
         onClick={handleOpen}
         aria-label="Open GOL Assistant chat"
-        className="fixed bottom-[calc(1rem+env(safe-area-inset-bottom))] right-4 z-50 h-14 w-14 rounded-full border border-gold/50 bg-night text-chalk shadow-[0_8px_24px_rgb(11_14_13/0.28)] hover:bg-ink hover:text-gold focus-visible:ring-gold sm:bottom-6 sm:right-6"
+        className="fixed bottom-[calc(1rem+env(safe-area-inset-bottom))] right-4 z-50 h-14 w-14 rounded-full border border-gold/50 bg-night text-chalk shadow-[0_8px_24px_rgb(11_14_13/0.28)] hover:bg-ink hover:text-gold focus-visible:ring-gold"
         size="icon"
       >
         <MessageCircle className="h-6 w-6" />

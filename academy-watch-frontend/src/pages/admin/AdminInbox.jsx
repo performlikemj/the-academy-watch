@@ -1,3 +1,4 @@
+import { formatDisplayDate } from '@/lib/display-date'
 import { useCallback, useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { APIService } from '@/lib/api'
@@ -98,15 +99,8 @@ export async function fetchInboxCounts() {
 // Shared helpers
 // ---------------------------------------------------------------------------
 
-function formatDateTime(dateStr) {
-    if (!dateStr) return '-'
-    return new Date(dateStr).toLocaleDateString('en-GB', {
-        day: 'numeric',
-        month: 'short',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-    })
+function formatDateTime(value) {
+    return formatDisplayDate(value, { withTime: true, fallback: '-' })
 }
 
 const REVIEW_STATUS_COLORS = {
@@ -258,7 +252,7 @@ function ManualPlayersTab({ setMessage, refreshCounts }) {
                                     </div>
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-1 text-sm text-muted-foreground">
                                         <div><User className="h-3 w-3 inline mr-1" />By: <span className="font-medium text-foreground">{sub.user_name}</span></div>
-                                        <div><Clock className="h-3 w-3 inline mr-1" />{new Date(sub.created_at).toLocaleDateString()}</div>
+                                        <div><Clock className="h-3 w-3 inline mr-1" />{formatDisplayDate(sub.created_at)}</div>
                                         {sub.position && <div>Position: {sub.position}</div>}
                                         {sub.league_name && <div>League: {sub.league_name}</div>}
                                     </div>
@@ -1166,7 +1160,7 @@ function FlagsTab({ setMessage, refreshCounts }) {
                                         </div>
                                         <p className="text-sm text-muted-foreground mt-1 line-clamp-2">{flag.reason}</p>
                                         <div className="flex items-center gap-3 mt-1.5 text-xs text-muted-foreground">
-                                            {flag.created_at && <span>{new Date(flag.created_at).toLocaleDateString()}</span>}
+                                            {flag.created_at && <span>{formatDisplayDate(flag.created_at)}</span>}
                                             {flag.email && <span>{flag.email}</span>}
                                         </div>
                                     </div>
@@ -1208,7 +1202,7 @@ function FlagsTab({ setMessage, refreshCounts }) {
                         <DialogHeader>
                             <DialogTitle>Flag #{selectedFlag?.id}</DialogTitle>
                             <DialogDescription>
-                                Submitted {selectedFlag?.created_at ? new Date(selectedFlag.created_at).toLocaleString() : 'unknown'}
+                                Submitted {selectedFlag?.created_at ? formatDisplayDate(selectedFlag.created_at, { withTime: true }) : 'unknown'}
                                 {selectedFlag?.source === 'newsletter' ? ' via newsletter' : ' via website'}
                             </DialogDescription>
                         </DialogHeader>
@@ -1410,7 +1404,7 @@ function TrackingRequestsTab({ setMessage, refreshCounts }) {
                                             <p className="font-medium truncate">{req.team_name}</p>
                                             <p className="text-sm text-muted-foreground truncate">{req.team_league}</p>
                                             <p className="text-xs text-muted-foreground mt-1">
-                                                {new Date(req.created_at).toLocaleDateString()}
+                                                {formatDisplayDate(req.created_at)}
                                                 {req.email && <span className="hidden sm:inline"> by {req.email}</span>}
                                             </p>
                                         </div>

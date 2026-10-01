@@ -1,3 +1,4 @@
+import { formatDisplayDate } from '@/lib/display-date'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import {
@@ -75,11 +76,7 @@ function title(value) {
 }
 
 function formatDate(value) {
-    if (!value) return '—'
-    const date = new Date(value)
-    return Number.isNaN(date.getTime())
-        ? '—'
-        : date.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+    return formatDisplayDate(value, { fallback: '—' })
 }
 
 function StatusBadge({ value }) {

@@ -1,3 +1,4 @@
+import { formatDisplayDate } from '@/lib/display-date'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
@@ -55,9 +56,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 function formatTimestamp(ts) {
     if (!ts) return null
-    const parsed = Date.parse(ts)
-    if (Number.isNaN(parsed)) return String(ts)
-    return new Date(parsed).toLocaleString()
+    return formatDisplayDate(ts, { withTime: true, fallback: String(ts) })
 }
 
 // Unknown-tolerant last-run matching against /admin/runs/history events.

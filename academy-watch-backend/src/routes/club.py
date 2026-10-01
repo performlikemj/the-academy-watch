@@ -395,7 +395,7 @@ def _result_header_values(data: dict) -> dict:
     for field in ("match_date", "opponent", "home_away", "result_for", "result_against"):
         if field not in data:
             raise ValueError(f"{field} is required")
-    opponent = _clean_optional(data.get("opponent"), "opponent", 120)
+    opponent = _field_text(data.get("opponent"), "opponent", 120)
     if opponent is None:
         raise ValueError("opponent is required")
     home_away = data.get("home_away")
@@ -404,7 +404,7 @@ def _result_header_values(data: dict) -> dict:
     return {
         "match_date": _result_match_date(data.get("match_date")),
         "opponent": opponent,
-        "competition": _clean_optional(data.get("competition"), "competition", 120),
+        "competition": _field_text(data.get("competition"), "competition", 120),
         "home_away": home_away,
         "result_for": _bounded_result_int(data.get("result_for"), "result_for", 20),
         "result_against": _bounded_result_int(data.get("result_against"), "result_against", 20),
@@ -632,18 +632,21 @@ def _brief_dict(body: str | None, updated_at: datetime | None) -> dict:
 def _brief_name_tokens(program: ClubProgram) -> dict[str, str]:
     names = []
     for member in program.roster_members:
+        if not member_in_scope(member):
+            continue
         subject, _ = _member_subject(member)
         display_name = subject.get("display_name") if subject else None
         if display_name:
             names.append(display_name)
-    names.extend(
-        player_name
-        for (player_name,) in db.session.query(VideoRosterEntry.player_name)
-        .join(VideoMatch, VideoRosterEntry.video_match_id == VideoMatch.id)
-        .filter(VideoMatch.club_program_id == program.id)
-        .all()
-        if player_name
-    )
+    if scoped_squad_ids() is None:
+        names.extend(
+            player_name
+            for (player_name,) in db.session.query(VideoRosterEntry.player_name)
+            .join(VideoMatch, VideoRosterEntry.video_match_id == VideoMatch.id)
+            .filter(VideoMatch.club_program_id == program.id)
+            .all()
+            if player_name
+        )
     tokens = {}
     for name in names:
         for token in BRIEF_NAME_TOKEN_RE.findall(name):
@@ -1115,10 +1118,14 @@ def add_club_roster_member(program_id: int):
 
 
 @club_bp.route("/club/<int:program_id>/roster/<int:member_id>/brief", methods=["PUT"])
-@require_club_permission("players.manage")
+@require_club_permission(("players.manage", "feedback"), any_of=True)
 def set_club_roster_member_brief(program_id: int, member_id: int):
     member = ClubRosterMember.query.filter_by(id=member_id, program_id=program_id).first()
-    if member is None:
+    if (
+        member is None
+        or not member_in_scope(member)
+        or (scoped_squad_ids() is not None and _member_subject(member)[0] is None)
+    ):
         return jsonify({"error": "Member not found"}), 404
     program = db.session.get(ClubProgram, program_id)
     try:
@@ -1130,7 +1137,7 @@ def set_club_roster_member_brief(program_id: int, member_id: int):
     member.brief_updated_at = datetime.now(UTC) if body is not None else None
     member.brief_updated_by_user_id = g.user_id if body is not None else None
     db.session.commit()
-    return jsonify({"member": _member_dict(member)})
+    return jsonify({"member": member_view(_member_dict(member))})
 
 
 @club_bp.route("/club/<int:program_id>/system-brief", methods=["PUT"])
@@ -1537,6 +1544,9 @@ def _stable_result_payloads(rows: list[ClubResult]) -> list[dict]:
             if total is not None:
                 stats[str(entry.player_api_id)] = total
         header = row.manager_dict()
+        # Old rows may contain HTML entities from the storage sanitizer; JSON carries plain text.
+        for field in ("opponent", "competition"):
+            header[field] = _field_text(header[field], field, 120)
         video = videos.get((row.program_id, row.video_match_id))
         header["video_available"] = bool(
             video
@@ -1946,7 +1956,7 @@ def list_club_matches(program_id: int):
     scope = scoped_squad_ids()
     if scope is not None:
         query = query.filter(VideoMatch.squad_id.in_(sorted(scope)))
-    rows = query.order_by(VideoMatch.created_at.desc(), VideoMatch.id.desc()).all()
+    rows = query.order_by(VideoMatch.match_date.desc().nullslast(), VideoMatch.id.desc()).all()
     if scope is not None:
         rows = [match for match in rows if match_in_scope(match)]
     matches = []
@@ -2387,6 +2397,25 @@ def _invitation_database_error(error):
     return jsonify({"error": "invitation_operation_failed"}), 500
 
 
+def _club_player_display_name(program_id, signed_id):
+    """Reuse club roster scope/redaction; otherwise only an already-public adult name."""
+    query = ClubRosterMember.query.filter_by(program_id=program_id)
+    query = query.filter_by(player_api_id=signed_id) if signed_id > 0 else query.filter_by(local_player_id=-signed_id)
+    member = query.first()
+    if member is not None:
+        if not member_in_scope(member):
+            return None
+        return member_view(_member_dict(member)).get("display_name")
+    # Pending invitations need not have a roster row. This is the same public-adult gate
+    # used by list_invitations, never a raw LocalPlayer/name lookup.
+    if scoped_squad_ids() is not None:
+        return None
+    from src.services.public_player_subject import resolve_public_adult_subject
+
+    subject = resolve_public_adult_subject(signed_id)
+    return subject.display_name if subject else None
+
+
 def _invitation_list_response(**scope):
     try:
         if set(request.args) - {"limit", "before", "player_api_id"} or any(
@@ -2398,6 +2427,9 @@ def _invitation_list_response(**scope):
         result = list_invitations(
             db.session, **scope, player_api_id=signed_id, limit=limit, before=request.args.get("before")
         )
+        if scope.get("program_id") is not None:
+            for row in result["invitations"]:
+                row["player_name"] = _club_player_display_name(scope["program_id"], row["player_api_id"])
         return jsonify(result)
     except (ValueError, InvitationError) as error:
         return jsonify(

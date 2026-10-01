@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { useAuth, useAuthUI } from '@/context/AuthContext'
 import { APIService } from '@/lib/api'
 import { track } from '@/lib/track'
+import { formatDisplayDate as date } from '@/lib/display-date'
 
 const PURCHASE_POLL_ATTEMPTS = 6
 const PURCHASE_POLL_DELAY_MS = 2400
@@ -14,16 +15,6 @@ const PURCHASE_POLL_DELAY_MS = 2400
 function money(amount, currency) {
   if (!Number.isFinite(amount) || !currency) return 'Amount unavailable'
   return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(amount / 100)
-}
-
-function date(value) {
-  if (!value) return null
-  const trimmed = typeof value === 'string' ? value.trim() : value
-  const normalized = typeof trimmed === 'string' && !/(?:z|[+-]\d{2}:?\d{2})$/i.test(trimmed)
-    ? `${trimmed}Z`
-    : trimmed
-  const parsed = new Date(normalized)
-  return Number.isNaN(parsed.getTime()) ? null : parsed.toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' })
 }
 
 function checkoutSessionFromLocation() {
@@ -271,17 +262,17 @@ export function AccountBillingPage() {
 
         {showLegacyBilling ? (
           <>
-            <Card>
+            {(subscriptions.some(subscription => subscription.product_code === 'scout_pro') || !subscriptions.some(subscription => subscription.product_code === 'club_bundle')) && <Card>
               <CardHeader><CardTitle className="flex items-center gap-2"><ShieldCheck className="h-5 w-5" />Scout access</CardTitle><CardDescription>Entitlements are confirmed by the server.</CardDescription></CardHeader>
               <CardContent className="space-y-3"><div className="flex flex-wrap items-center gap-2"><Badge>{entitlements?.tier === 'pro' ? 'Scout Pro' : 'Free'}</Badge><span className="text-sm text-muted-foreground">Source: {String(entitlements?.source || 'none').replace('_', ' ')}</span></div><p className="text-sm">{features.gol_chat ? 'GOL chatbot unlocked' : 'GOL chatbot unavailable'}</p>{entitlements?.grandfathered_until ? <p className="text-xs text-muted-foreground">Grandfathered until {date(entitlements.grandfathered_until)}</p> : null}</CardContent>
-            </Card>
+            </Card>}
 
             <section className="space-y-3" aria-labelledby="subscriptions-heading">
               <div className="flex items-center justify-between gap-4"><h2 id="subscriptions-heading" className="display text-[2.25rem] leading-none">Subscriptions</h2>{state.billing?.has_billing_account ? <Button onClick={openPortal} disabled={portalBusy}>{portalBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CreditCard className="mr-2 h-4 w-4" />}Manage billing</Button> : null}</div>
               {portalError ? <p className="text-sm text-destructive">{portalError}</p> : null}
               {subscriptions.length ? subscriptions.map((subscription) => (
                 <Card key={subscription.id}>
-                  <CardContent className="flex flex-col justify-between gap-4 p-5 sm:flex-row sm:items-center"><div><div className="flex flex-wrap items-center gap-2"><h3 className="font-semibold">{productNames.get(subscription.product_code) || 'Paid plan'}</h3><Badge variant="outline" className="capitalize">{subscription.status}</Badge></div><p className="mt-2 text-sm text-muted-foreground">{money(subscription.unit_amount, subscription.currency)} / {subscription.interval || subscription.price_code}</p>{subscription.current_period_end ? <p className="mt-1 text-sm">{subscription.cancel_at_period_end ? 'Ends' : 'Renews'} on {date(subscription.current_period_end)}</p> : null}</div></CardContent>
+                  <CardContent className="flex flex-col justify-between gap-4 p-5 sm:flex-row sm:items-center"><div><div className="flex flex-wrap items-center gap-2"><h3 className="font-semibold">{({ club_bundle: 'Club bundle', scout_pro: 'Scout Pro' }[subscription.product_code] || productNames.get(subscription.product_code) || 'Subscription')}</h3><Badge variant="outline" className="capitalize">{subscription.status}</Badge></div><p className="mt-2 text-sm text-muted-foreground">{money(subscription.unit_amount, subscription.currency)} / {subscription.interval || subscription.price_code}</p>{subscription.current_period_end ? <p className="mt-1 text-sm">{subscription.cancel_at_period_end ? 'Ends' : 'Renews'} on {date(subscription.current_period_end)}</p> : null}</div></CardContent>
                 </Card>
               )) : <Card><CardContent className="py-10 text-center text-sm text-muted-foreground">No paid subscriptions yet.</CardContent></Card>}
             </section>
