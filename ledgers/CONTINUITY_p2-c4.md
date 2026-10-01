@@ -1,7 +1,7 @@
 # Phase 2 C4 — scout attendance / Today / distance
 
 - Owner: /root; branch p2/c4-scout-attend, stacked on #1115; no merge/deploy.
-- State: fix round 2 implementation complete; full flags-off/modern-browser final gates running; push pending. PR #1120 open/unmerged; hand-back `~/codex-runs/aw-redesign/logs/C4F1.final.md`.
+- State: C4F2 fixes and full gates complete on source8c050f32; final delivery SHA/cleanup in `~/codex-runs/aw-redesign/logs/C4F2.report.md`. PR #1120 remains unmerged. PR #1120 open/unmerged; hand-back `~/codex-runs/aw-redesign/logs/C4F1.final.md`.
 - Constraints: SCOUT_ATTEND_ENABLED default OFF; p2c3 -> p2c2; no applicants exposed to scouts; published future trial/open-session adverts may advertise youth/unknown age bands (P2R §2); public player identities retain canonical N3 strict adult rules. Coordinates stay in POST bodies and browser memory.
 - Done: fully read PHASE2/DESIGN/BUS/P2R, repo agent docs and N04/N08/N15/N16 mockups; implemented verified scout requests, club decisions, capability-scoped Today, approved-pin distance, audit/outbox, privacy and retention.
 - Done: real B1 811fabca + B2 6589f568 product fixes, B3 d49ec794 and main/N3 adea5177 integrated. B2 product code matches final 16540e03; preserved canonical N3 evidence controls and B2 trusted hold-bypass option. Ancestor C1/C2 migration copies are verbatim, no placeholders.
@@ -27,3 +27,7 @@
 
 - C4F2 milestone: all ten union items implemented incl both N1s; reverse corrected regressions on2085032f31fail/7controls pass. Exact three-transaction PG before2fail (DeadlockDetected), fixed variants pass. Affected188pass; C4 browser16pass with six new confirmation/radius/location-off desktop/mobile screenshots, Node219/lint0err195warn/build/OSV547/Ruff-format598 green. Full flags-off and modern browser gates running; no standalone typecheck configured.
 - C4F2 integration: fetched main784b1490/B2 55b1d3ac/B3 46a4274f, all three merge commands already-up-to-date. No migration/preapply changes; existing C1/C2/C4 contracts preserved. Recheck BUS/latest heads before delivery.
+
+- C4F2 final gates on source8c050f32: full flags-off4341pass96skip149warnings0fail596.53s; affected188pass inclC4 SQLite100+PG11; Node219/modern Playwright244pass4existing skips/C4 focused16; Ruff-format598/OSV547/lint0err195inherited warnings/build pass. No standalone typecheck configured. Today16SQL for1/50 pending and50expired, read-only.
+- C4F2 delivery: all ten remaining union findings FIXED; X3 preserved. Foreground only. Latest main784b1490/B2 55b1d3ac/B3 46a4274f included; fetched again before delivery, unchanged. C1 c11e36f1/C2 6a641362/C4 505b71da migrations and preapply55af2691 unchanged; no new schema CONTRACT or reapply required.
+- C4F2 cleanup: owned5203 stopped, aw_p2_c4 dropped/aw_p2_c4_pre absent; /tmp/C4F2-reverse and /tmp/c4f2_migrate.py plus generated browser/build outputs removed. Shared DB stillch02. Refreshed24 fixture PNGs including6 new confirmation/radius/off screens (36 total with12 retained historical real-HTTP shots); new mobile screens inspected. Durable per-item report `logs/C4F2.report.md` because launcher overwrites `logs/C4F2.final.md` with final response. Daily retention scheduling required before flag ON; final pushed head awaits ORCH REVIEW-DUEL/CI; no merge/deploy.
