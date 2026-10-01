@@ -1,11 +1,13 @@
 # Phase 2 C4 — scout attendance / Today / distance
 
 - Owner: /root; branch p2/c4-scout-attend, stacked on #1115; no merge/deploy.
-- State: in-progress — implementation, live local HTTP/browser and PostgreSQL race/migration checks passed; final broad gates and dependency refresh.
-- Constraints: SCOUT_ATTEND_ENABLED default OFF; p2c3 -> p2c2; scratch-only missing ancestors; no applicants exposed to scouts; published trial/open-session adverts on scout tab (P2R permits youth adverts; no applicant identities); approved club pins; visitor coordinates in POST bodies only.
-- Done: inspected PHASE2/DESIGN/BUS/P2R §2, repo agent docs and N04/N08/N15/N16 mockups.
-- Done: isolated C4 backend/web flows, capability-scoped Today, POST distance, atomic outbox/audit, privacy/retention; real C1/C2 revisions copied; B3F3 integrated.
-- Now: full CI-equivalent pytest + full Playwright; latest B1/B2 fixes; review screenshots and final code.
-- Next: scoped negative/concurrency/outbox/privacy/migration checks; web flows; full local gates; reviewed desktop/mobile shots/C4; draft PR against main, then ready; C4.final.md and cleanup.
-- Acceptance: verified scouts request one published event; club accepts/declines; rate limit/audit/transactional outbox; Today only permitted queues; distance from latest approved pin; flag-off parity.
-- Tests: focused C4 SQLite/PG 30 pass; duplicate submission and competing decision locks pass; guarded C1/C2/C4 upgrades twice, C4 preapply twice + RLS/downgrade checks pass; Node 219 pass, lint 0 errors (195 warnings), Vite build pass; browser regression 44 pass + live local desktop/mobile 6 screenshots. Full gates running.
+- State: implementation and local validation complete. Current PR/CI/cleanup record: `~/codex-runs/aw-redesign/logs/C4.final.md`.
+- Constraints: SCOUT_ATTEND_ENABLED default OFF; p2c3 -> p2c2; no applicants exposed to scouts; published future trial/open-session adverts may advertise youth/unknown age bands (P2R §2); public player identities retain canonical N3 strict adult rules. Coordinates stay in POST bodies and browser memory.
+- Done: fully read PHASE2/DESIGN/BUS/P2R, repo agent docs and N04/N08/N15/N16 mockups; implemented verified scout requests, club decisions, capability-scoped Today, approved-pin distance, audit/outbox, privacy and retention.
+- Done: real B1 811fabca + B2 6589f568 product fixes, B3 d49ec794 and main/N3 adea5177 integrated. B2 product code matches final 16540e03; preserved canonical N3 evidence controls and B2 trusted hold-bypass option. Ancestor C1/C2 migration copies are verbatim, no placeholders.
+- Done: exact flag-OFF SPA/method/body/header parity, including preserved Rule.methods set; parity tests pass at hash seeds 1/37/42 (116 each). Youth/unknown advertised session attendance plus applicant-denial/DTO tests pass.
+- Tests: full CI-like backend 4267 passed /87 skipped; C4 SQLite+real PostgreSQL 30 passed; Node219 passed; all offline Playwright .spec.mjs 237 passed /4 skipped; lint0 errors /195 existing warnings; Vite build; Ruff check+format595; OSV547 packages clean; requirements dry-run109 resolved.
+- Tests: PostgreSQL duplicate/competing-decision/trust-revocation checks pass. Own clean p2a1→p2c3 chain, six RLS tables; guarded C1/C2/C4 upgrades twice, C4 preapply twice, retained downgrade refusal and empty downgrade/reapply pass. Latest C2 match_date/source-guard copy revalidated; head/C4 tests29 passed after copy.
+- Evidence: reviewed desktop/mobile fixtures and real local PostgreSQL-backed youth-session pending/Today/accepted flows in `~/codex-runs/aw-redesign/shots/C4/`; no page errors/horizontal overflow. Product uses API data; QA records are explicitly TEST ONLY.
+- Limitation: unfiltered legacy .spec.js browser tests require ADMIN_API_KEY or obsolete /player/:id routes; attempted run failed in those inherited suites. Complete modern offline suite is green; no claim that unfiltered pnpm test:e2e passed.
+- Next (release): B1→B2→B3 merge first, then C4 review/merge. Apply guarded p2c3 preapply after p2c2, schedule daily retention before enabling flags. No production schema/flag actions authorized or performed.

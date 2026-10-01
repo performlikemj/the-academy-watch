@@ -136,6 +136,8 @@ Log one-liner in CONTINUITY.md's "Trivial Log" section.
 
 - Phase 2 scout attendance stays separate from applications; C4 Today omits unauthorized queues and uses `match_bytes_in_scope` for analysis summaries. Distance searches use POST bodies and approved B1 pins; retention/account privacy adapters operate with the rollout flag OFF.
 
+- Flag-OFF rematching maps must preserve each original `Rule.methods` set and Flask `provide_automatic_options` on copied rules; reconstructing equivalent methods can reorder exact `Allow` headers under different Python hash seeds.
+
 ---
 
 ## Quality Bar

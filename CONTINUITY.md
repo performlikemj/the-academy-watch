@@ -32,7 +32,7 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
 
 ## State
 
-- **Now (2026-10-01):** Phase 2 C4 final gates and PR delivery; main N3 adea5177 integrated with B1/B2/B3 stack. See `ledgers/CONTINUITY_p2-c4.md`.
+- **Now (2026-10-01):** Phase 2 C4 implementation validated; B1/B2/B3 and main/N3 adea5177 integrated. PR/CI/cleanup delivery record: `~/codex-runs/aw-redesign/logs/C4.final.md`; implementation snapshot: `ledgers/CONTINUITY_p2-c4.md`.
 
 ### Done
 - **2026-10-01 N3 fix round 4:** all3 RN3 findings fixed in102848e4 and pushed to PR #1116; negative-shadow DOB conflicts fail closed; GOL restores212 journey adults; source queries/replay revision4/8 SQL. Synthetic3500 browse49→11/boards186→11/five empty queries230→7; p50 all≤1.5×main. Full3353pass/47skip, scout/GOL341, Ruff/format535 clean. PR impact/performance body updated; aw_n3 dropped. No merge; ledger `ledgers/CONTINUITY_n3-adults.md`, hand-back `~/codex-runs/aw-redesign/logs/N3F4.final.md`.
