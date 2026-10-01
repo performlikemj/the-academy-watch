@@ -1,0 +1,27 @@
+# Phase 2 B1 — Clubs near you (club directory)
+
+- Goal: real `/clubs` directory (list first, simple no-provider plot) fed by anonymous `GET /api/programs`; approved location/offering fields on club profile revisions; club-side edit in Club Home; all dark behind `CLUB_DIRECTORY_ENABLED`.
+- Branch: `p2/b1-directory` (from `origin/p2/a2-staff-access` bb126fce — stacked on #1109). Draft PR against `main`.
+- Migration: `p2b1` → `p2a2`. Seven nullable columns + two CHECKs on `club_program_profile_revisions`; no new table, no RLS/account-export change. Pre-apply SQL `~/codex-runs/aw-redesign/p2b1_preapply.sql` (applied twice on scratch, then `flask db upgrade` over it; downgrade verified).
+- Flag: `CLUB_DIRECTORY_ENABLED` default OFF. Off = today: teaser at `/clubs`, `GET /api/programs` handed to the app catch-all exactly as before, no new payload keys, club saves ignore `directory`.
+- Playbook: `docs/agents/club-directory.md` (eligibility, payload allowlist, distance, moderation, API).
+- Decisions taken (flag to MJ/orchestrator):
+  - Eligibility = approved + not hidden + active manager with approved claim; the funding-league `registry_status` check applies only under a real funding league. NOT `is_verified_program` (US payments meaning).
+  - Console-local clubs ARE listed (orchestrator decision 2026-10-01, fix round 1): they are the clubs being onboarded. While the flag is on their `/programs/<slug>` page opens too, with `league: null`; flag off it stays a 404.
+  - Filters shipped: who-it's-for (girls & women / adults / youth), level, text, place, distance. "Open opportunities", "Under-16s" and "Film Room clubs" from the board are NOT shipped: no real definition yet (open-opportunity count appears automatically once B2's `open_opportunity_counts` exists).
+  - No geocoding provider: clubs enter coordinates; visitor position is browser-only, rounded to ~1 km, never stored or put in the URL.
+- Status: fix round 1 (RB1: 0 HIGH / 6 MED / 3 LOW) complete, awaiting re-review. Do not merge.
+- Fix round 1 (2026-10-01), all nine RB1 findings fixed + console-club decision + A2 head bdbae2be merged:
+  - Searches moved to the body of `POST /api/club-directory/search`; `GET /api/programs` refuses `q`/`lat`/`lng`/`radius_km`. The search box is React state, not the page URL. Analytics (client + `routes/events.py`) keeps only `for`/`level` on `/clubs`.
+  - `program.directory` on the club page uses the list's eligibility (`null` when not listed).
+  - A flag-off approval keeps the previously approved location (`settle_directory_on_approval`).
+  - Club text bounded before decoding; huge JSON ints are a 400; exact filters fold both sides in SQL.
+  - Distance is exact great-circle in SQL (`_haversine_term`), ordering ties broken by name then id.
+  - Pin CHECK is both-or-neither (`IS NOT NULL` on both sides); migration and pre-apply SQL replace a first-draft constraint.
+  - Profile PUT gating re-checked after A2's change: `branding` capability, owner/manager only; all-squads coach/analyst/viewer get 403 (tested).
+  - Gates: ruff/format clean; full pytest flag off 3613 pass / 47 skip / 0 fail; flag-on club/funding/analytics suites 784 pass + 1 expected (A2's exact `/features` test); node 201/201; lint 0 errors (183 pre-existing warnings); build OK; Playwright 29 pass (directory 11 + navigation + foundation).
+  - Scratch PostgreSQL + gunicorn with the Dockerfile's flags: pre-apply SQL three times (incl. over a simulated first-draft constraint), upgrade/downgrade twice, 18 HTTP probes pass, real-browser run leaves no position/search term in the access log or `product_events`. Evidence `~/codex-runs/aw-redesign/logs/B1F1.*`; hand-back `logs/B1F1.final.md`.
+- Gates: ruff check/format clean; backend pytest 3560 passed / 47 skipped / 0 failed (flag off, no local .env; after merging A2 head ef005e35); 71 new directory tests; club+funding suites with flag ON 439 pass, 1 expected (A2's exact `/features` payload test). Frontend lint 0 errors (183 pre-existing warnings), build OK, 6 new node tests, 6 new Playwright tests; teaser/navigation/club-console specs pass with flag off.
+- Node tests 199/199 after merging A2 head ef005e35 (A2 fixed its two source-shape assertions there).
+- Real-flow verification on scratch PostgreSQL `aw_p2_b1` through the real UI: club edits venue/pin → pending is not public → admin sees the fields and approves → public list, radius search and club page show it; hide → gone everywhere; lift → back. Screenshots `~/codex-runs/aw-redesign/shots/B1/` (23 PNGs, 1440 + 390).
+- Next: orchestrator review; after A2 (#1109) merges, rebase onto main; pre-apply p2b1, deploy with flag off, verify, ask MJ before switching on. iOS parity is lane C3.
