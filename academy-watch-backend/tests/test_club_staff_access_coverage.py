@@ -103,7 +103,19 @@ def test_legacy_match_never_gains_origin(env, client, monkeypatch):
     monkeypatch.setattr(video_storage, "mint_upload_sas", lambda path: {"url": "https://example.invalid/upload"})
     assert client.post(f"{env['base']}/matches/{mid}/sas", headers=_headers("a")).status_code == 200
     _upload(client, env, monkeypatch, mid)
-    _upload(client, env, monkeypatch, mid, etag="new-etag")  # re-attestation with a new ETag
+    _upload(client, env, monkeypatch, mid)  # same-generation retry: idempotent
+    # Re-attestation with a NEW ETag is refused for a completed recording (flag on) ...
+    monkeypatch.setattr(
+        video_storage, "verify_uploaded_blob", lambda path: {"ok": True, "etag": "new-etag", "size_bytes": 10}
+    )
+    relock = client.post(f"{env['base']}/matches/{mid}/upload-complete", json={}, headers=_headers("a"))
+    assert relock.status_code == 409 and relock.get_json() == {"error": "recording_locked"}
+    # ... and with the flag off it is accepted as before, still without creating provenance.
+    monkeypatch.setenv("CLUB_STAFF_ACCESS_ENABLED", "false")
+    assert (
+        client.post(f"{env['base']}/matches/{mid}/upload-complete", json={}, headers=_headers("a")).status_code == 200
+    )
+    monkeypatch.setenv("CLUB_STAFF_ACCESS_ENABLED", "true")
     assert _put(client, env, mid, [env["m1"]]).status_code == 200
     assert _kinds(mid) == []
     for suffix in ("", "/media-token", "/reel", "/report"):

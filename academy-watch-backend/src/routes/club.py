@@ -54,7 +54,7 @@ from src.models.showcase import LocalPlayer, local_player_is_minor
 from src.models.tracked_player import TrackedPlayer
 from src.models.video import VideoMatch, VideoPlayerReport, VideoRosterEntry, VideoTracklet
 from src.services import club_directory, season_rollup_service, video_retention, video_storage
-from src.services.capture_meta import merge_preflight
+from src.services.capture_meta import merge_preflight, strip_server_owned
 from src.services.club_access import (
     current_access,
     match_in_scope,
@@ -64,6 +64,7 @@ from src.services.club_access import (
     publish_recording,
     record_coverage,
     recording_completed,
+    replacement_granted,
     require_club_permission,
     roster_fits_squad,
     scoped_recording_intact,
@@ -436,9 +437,6 @@ def _normalized_result(header: dict, video_match_id: int | None) -> dict:
     }
 
 
-SERVER_OWNED_CAPTURE_KEYS = frozenset({"local"})
-
-
 def _capture_meta(value):
     if value is None:
         return None
@@ -471,7 +469,7 @@ def _capture_meta(value):
     if len(encoded) > MAX_CAPTURE_META_BYTES:
         raise ValueError(f"capture_meta must be at most {MAX_CAPTURE_META_BYTES} serialized bytes")
     # Server-owned keys: local artifact paths are trusted dev metadata, never client-writable.
-    return {key: item for key, item in value.items() if key not in SERVER_OWNED_CAPTURE_KEYS}
+    return strip_server_owned(value)
 
 
 def _club_match(program_id: int, match_id: int, *, require_bytes: bool = False) -> VideoMatch | None:
@@ -1935,7 +1933,7 @@ def create_club_match(program_id: int):
         # Coverage history starts here, with the match and its first upload grant (flag on or off).
         record_coverage(match, origin=True)
         db.session.commit()
-        out = _with_squad(match, match.to_dict())
+        out = _match_payload(match)
         if video_storage.is_configured():
             out["upload"] = video_storage.mint_upload_sas(match.blob_path)
         else:
@@ -2004,6 +2002,15 @@ def club_match_upload_complete(program_id: int, match_id: int):
     check = video_storage.verify_uploaded_blob(match.blob_path)
     if not check["ok"]:
         return jsonify({"error": check["error"]}), 422
+    if (
+        staff_access_enabled()
+        and recording_completed(match)
+        and check.get("etag") != match.blob_etag
+        and not replacement_granted(match)
+    ):
+        # A completed club recording only changes generation through an admin replacement grant.
+        # (A same-generation retry falls through and stays an idempotent 200.)
+        return jsonify({"error": "recording_locked"}), 409
     # TODO(C2 follow-up): validate media signatures/container with ffprobe during admin processing.
     try:
         data = _payload()
@@ -2025,7 +2032,7 @@ def club_match_upload_complete(program_id: int, match_id: int):
     record_coverage(match)
     publish_recording(match)  # this verified ETag is now the one scoped staff may read
     db.session.commit()
-    return jsonify(match.to_dict() | {"size_bytes": check["size_bytes"]})
+    return jsonify(_match_payload(match) | {"size_bytes": check["size_bytes"]})
 
 
 @club_bp.route("/club/<int:program_id>/matches/<int:match_id>", methods=["PATCH"])
@@ -2066,7 +2073,7 @@ def update_club_match(program_id: int, match_id: int):
     except ValueError as exc:
         return _bad_request(str(exc))
     db.session.commit()
-    return jsonify(_with_squad(match, match.to_dict()))
+    return jsonify(_match_payload(match))
 
 
 @club_bp.route("/club/<int:program_id>/matches/<int:match_id>", methods=["GET"])
@@ -2238,7 +2245,7 @@ def request_club_match_processing(program_id: int, match_id: int):
         match.processing_requested_at = datetime.now(UTC)
         match.processing_requested_by_user_id = g.user_id
         db.session.commit()
-    return jsonify({"processing_request_status": "requested", "match": match.to_dict()}), 202
+    return jsonify({"processing_request_status": "requested", "match": _match_payload(match)}), 202
 
 
 @club_bp.route("/club/<int:program_id>/matches/<int:match_id>/report", methods=["GET"])

@@ -178,7 +178,7 @@ def test_roster_summary_excludes_forbidden_match(env, client, club_app, monkeypa
 def test_roster_cleanup_never_reopens_recording(
     env, client, club_app, monkeypatch, role, tmp_path, storage_mode, cleanup
 ):
-    mid = _match(client, env, "sa")
+    mid = _match(client, env, "sa", uploaded=False)
     minor = _local(club_app.c2["users"]["a"], name="PRIVATE RA2V minor", birth_year=2010)
     member = _add_local_member(client, env["pid"], minor.id)
     _move(client, env, member, env["sa"])

@@ -46,6 +46,8 @@ def env(club_app, client, monkeypatch):
         return {"ok": True, "etag": match.blob_etag if match else None, "size_bytes": 1}
 
     monkeypatch.setattr(video_storage, "verify_uploaded_blob", _unchanged)
+    # Verified completion snapshots that generation; the fake id is derived from the ETag.
+    monkeypatch.setattr(video_storage, "create_verified_snapshot", lambda path, etag: f"snap-{etag}")
     sent = []
     monkeypatch.setattr(
         access_service, "send_invite_email", lambda invite, token, name: sent.append((invite.email, token)) or True
@@ -118,6 +120,7 @@ def _complete_upload(mid):
     match.uploaded_at = datetime.now(UTC).replace(tzinfo=None)
     match.blob_etag = "fixture-etag"
     match.scoped_ready_etag = "fixture-etag"
+    match.scoped_snapshot = "snap-fixture-etag"
     db.session.commit()
 
 

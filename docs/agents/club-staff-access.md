@@ -43,18 +43,28 @@ routes return 404.
   for any blob it leaves behind).
 - Writes: a squad-labelled match may only hold that squad's players; mixed-squad matches stay
   unlabelled (whole-club roles only).
-- **Completed recordings are immutable for clubs.** With the flag on, `POST /club/<id>/matches/<m>/sas`
-  on a completed upload returns 409 `recording_locked` (replace footage by creating a new match).
-  An admin re-grant on a completed club recording clears `video_matches.scoped_ready_etag`
-  ("replacing"): scoped staff lose all footage-derived access until the next **verified** completion
-  republishes the new ETag. "Completed" for scoped reads means `uploaded_at` + `blob_etag` +
-  `scoped_ready_etag == blob_etag`. On every scoped media-token mint and byte request the stored
-  blob's live ETag is re-verified against `blob_etag` (covers a still-live original write SAS);
-  a mismatch is a neutral 404. Local dev artifact mode (storage not configured) cannot verify this,
-  so scoped staff get no bytes there; whole-club behaviour is unchanged in both modes.
-- **`capture_meta.local` is server-owned** (dev artifact paths): stripped from club CREATE/PATCH input.
-- **Scoped detail/list fallback:** when the derived-data predicate fails (in-progress, replacing,
-  expired…) but the caller may still work on the match, detail and list return only a workflow DTO
+- **Completed recordings are immutable for clubs (flag on).** `POST /club/<id>/matches/<m>/sas` on a
+  completed upload → 409 `recording_locked`; club `/upload-complete` on a completed recording whose
+  stored ETag differs → 409 `recording_locked` (a same-ETag retry stays an idempotent 200). Footage
+  is replaced by creating a new match, or through an **admin replacement grant**
+  (`/admin/video/matches/<m>/sas`), which sets `scoped_ready_etag = "replacing"` and clears the
+  snapshot until the next verified completion.
+- **Scoped reads target an immutable generation.** Every verified completion (flag on or off) takes
+  an Azure blob **snapshot** conditional on the verified ETag (`video_storage.create_verified_snapshot`)
+  and stores it in `video_matches.scoped_snapshot`. Scoped readiness = `uploaded_at` + `blob_etag` +
+  `scoped_ready_etag == blob_etag` + `scoped_snapshot`. Scoped footage is signed **only** for that
+  snapshot (`sr=bs`, `?snapshot=…`), never for the mutable base blob, so bytes written through any
+  upload SAS are unreachable with a scoped capability. No snapshot → no scoped access. The live ETag
+  check on every scoped token mint/byte request stays as defence in depth (mismatch → neutral 404).
+  Whole-club callers are signed for the base blob as before. Retention's `delete_blob` removes
+  snapshots with the recording. Local dev artifact mode cannot verify any of this, so scoped staff
+  get no bytes there.
+- **`capture_meta.local` is server-owned** (dev artifact paths): stripped from club AND admin CREATE
+  input (`capture_meta.strip_server_owned`); PATCH only merges preflight keys. Register dev artifacts
+  only through trusted server code.
+- **Scoped match DTO fallback:** when the derived-data predicate fails (in-progress, replacing,
+  expired…) but the caller may still work on the match, detail, list and every write response
+  (create, PATCH, upload-complete, process) return only a workflow DTO
   (`match_summary` + in-scope roster + processing request flag) — no capture metadata, jobs, blob
   paths or analysis.
 - **Stored feedback evidence follows live scope:** scoped feedback reads and the profile
@@ -72,7 +82,7 @@ What it cannot reach:
 
 | Capability already handed out | How long it keeps working after revocation | Where |
 |---|---|---|
-| Footage read SAS (the 302 target of `/footage`) | up to **30 minutes** — capped at the media token's remaining life | `services/video_storage.py` `MEDIA_READ_SAS_MINUTES`, `routes/video.py` `stream_footage` |
+| Footage read SAS (the 302 target of `/footage`) | up to **30 minutes** — capped at the media token's remaining life; for scoped staff it addresses the verified snapshot only | `services/video_storage.py` `MEDIA_READ_SAS_MINUTES`, `routes/video.py` `stream_footage` |
 | Direct upload SAS (from `POST /matches` or `/sas`) | up to **60 minutes** — storage writes only; completing/processing the upload re-checks access, and scoped reads re-verify the stored ETag so unverified replacement bytes are never served through the app | `services/video_storage.py` `UPLOAD_SAS_MINUTES` |
 | Club media tokens minted while the flag was **off** | up to **30 minutes**, legacy behaviour (no live re-check) after the flag is switched on | `auth.py` `MEDIA_TOKEN_TTL`, `routes/video.py` `_media_match_or_error` |
 | Bytes already downloaded / an open transfer | not recoverable; an in-flight transfer may outlive the SAS expiry | — |
@@ -85,7 +95,8 @@ upload started within the previous hour.
 
 `tests/test_club_staff_access.py` (route matrix, invites, revocation) and
 `tests/test_club_staff_access_ra2.py`, `test_club_staff_access_ra2_denials.py`,
-`test_club_staff_access_ra2v.py`, `test_club_staff_access_ra2v2.py` and `test_club_staff_access_ra2v3.py` (RA2–RA2V3 security
+`test_club_staff_access_ra2v.py`, `…_ra2v2.py`, `…_ra2v3.py` and `…_ra2v4.py` (RA2–RA2V4 security
 regressions incl. roster-cleanup, legacy re-attestation and pre-completion byte cases),
-`test_club_staff_access_coverage.py` (grant-time monotonic coverage, happy path) and
+`test_club_staff_access_coverage.py` (grant-time monotonic coverage, happy path),
+`test_video_storage_snapshot.py` (snapshot SAS against a fake Azure client) and
 `test_club_staff_access_flagoff_parity.py` (164 flag-off responses == origin/main).

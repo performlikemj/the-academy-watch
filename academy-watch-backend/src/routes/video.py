@@ -40,7 +40,7 @@ from src.models.video import (
 )
 from src.routes.api import require_api_key
 from src.services import video_boxes, video_dev_artifacts, video_queue, video_reels, video_retention, video_storage
-from src.services.capture_meta import merge_preflight
+from src.services.capture_meta import merge_preflight, strip_server_owned
 from src.services.player_suppression import is_local_player_suppressed, is_player_suppressed
 from src.services.video_feedback import build_feedback_labels
 from src.services.video_identity import NUMBER_AGREEMENT_MIN, split_chain
@@ -91,7 +91,8 @@ def create_video_match():
             return _bad_request("match_date must be YYYY-MM-DD")
 
     try:
-        capture_meta = data.get("capture_meta")
+        # Local artifact paths are server-owned; register them only through trusted server code.
+        capture_meta = strip_server_owned(data.get("capture_meta"))
         capture_meta = merge_preflight(capture_meta, capture_meta or {})
         capture_meta = merge_preflight(capture_meta, data)
     except ValueError as exc:
@@ -838,6 +839,7 @@ def media_token(match_id: int):
 
 def _media_match_or_error(match_id: int):
     """Validate ?token= then load the match. Returns (match, None) or (None, resp)."""
+    g.scoped_media_snapshot = None  # set below only for squad-scoped club staff
     token = request.args.get("token", "")
     if not verify_media_token(token, match_id):
         return None, (jsonify({"error": "invalid or expired media token"}), 403)
@@ -873,8 +875,14 @@ def _club_media_access_live(club_user_id, match) -> bool:
 
     if not (access and access.can("matches.view") and match_visible_to(access, match, require_bytes=True)):
         return False
-    # Scoped staff additionally need the stored object to still be the verified upload.
-    return access.whole_club or scoped_recording_intact(match)
+    if access.whole_club:
+        return True
+    # Scoped staff additionally need the stored object to still be the verified upload, and are
+    # only ever signed for the immutable snapshot of that generation (see stream_footage).
+    if not scoped_recording_intact(match):
+        return False
+    g.scoped_media_snapshot = match.scoped_snapshot
+    return True
 
 
 def _admin_or_media_token(f):
@@ -927,7 +935,11 @@ def stream_footage(match_id: int):
         remaining = media_token_remaining_seconds(request.args.get("token", ""), match_id)
         if remaining <= 0:
             return jsonify({"error": "invalid or expired media token"}), 403
-        resp = redirect(video_storage.mint_media_read_sas(match.blob_path, seconds=remaining))
+        snapshot = getattr(g, "scoped_media_snapshot", None)
+        if snapshot:  # squad-scoped club staff: the verified immutable generation only
+            resp = redirect(video_storage.mint_media_read_sas(match.blob_path, seconds=remaining, snapshot=snapshot))
+        else:
+            resp = redirect(video_storage.mint_media_read_sas(match.blob_path, seconds=remaining))
         resp.headers["Cache-Control"] = "private, no-store"  # SAS rides the Location — don't cache/leak
         resp.headers["Referrer-Policy"] = "no-referrer"
         return resp

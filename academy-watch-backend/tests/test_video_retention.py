@@ -163,7 +163,8 @@ def test_delete_blob_treats_404_as_gone(monkeypatch):
         status_code = 404
 
     class FakeBlob:
-        def delete_blob(self):
+        def delete_blob(self, delete_snapshots=None):
+            assert delete_snapshots == "include"  # verified-generation snapshots go with the recording
             raise Gone("already deleted")
 
     class FakeClient:
@@ -177,7 +178,7 @@ def test_delete_blob_treats_404_as_gone(monkeypatch):
         status_code = 500
 
     class BoomBlob:
-        def delete_blob(self):
+        def delete_blob(self, delete_snapshots=None):
             raise Boom("network")
 
     class BoomClient:
