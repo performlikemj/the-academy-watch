@@ -137,6 +137,11 @@ def remint_upload_sas(match_id: int):
     from src.services.club_access import record_coverage
 
     record_coverage(match)  # club matches only: re-grant snapshot (no-op for legacy matches)
+    from src.services.club_access import recording_completed, unpublish_recording
+
+    if recording_completed(match):
+        # A new write grant on a completed club recording: "replacing" until the next verified completion.
+        unpublish_recording(match)
     db.session.commit()
     return jsonify(video_storage.mint_upload_sas(match.blob_path))
 
@@ -182,6 +187,9 @@ def upload_complete(match_id: int):
     from src.services.club_access import record_coverage
 
     record_coverage(match)  # club matches only; never creates provenance (legacy stays legacy)
+    from src.services.club_access import publish_recording
+
+    publish_recording(match)  # club matches only: verified ETag becomes readable by scoped staff
     db.session.commit()
     return jsonify(match.to_dict() | {"size_bytes": check["size_bytes"]})
 
@@ -861,9 +869,12 @@ def _club_media_access_live(club_user_id, match) -> bool:
         access = resolve_club_access(int(club_user_id), match.club_program_id)
     except (TypeError, ValueError):
         return False
-    from src.services.club_access import match_visible_to
+    from src.services.club_access import match_visible_to, scoped_recording_intact
 
-    return bool(access and access.can("matches.view") and match_visible_to(access, match, require_bytes=True))
+    if not (access and access.can("matches.view") and match_visible_to(access, match, require_bytes=True)):
+        return False
+    # Scoped staff additionally need the stored object to still be the verified upload.
+    return access.whole_club or scoped_recording_intact(match)
 
 
 def _admin_or_media_token(f):

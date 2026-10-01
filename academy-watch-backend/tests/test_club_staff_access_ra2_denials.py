@@ -247,8 +247,8 @@ def test_live_revocation_covers_removal_and_program_standing(env, client, club_a
     mid = _match(client, env, "sa")
     _join(client, env, "coach", "coach", squads=[env["sa"]])
     h = _h(_email("coach"))
-    token = client.get(f"{env['base']}/matches/{mid}/media-token", headers=h).get_json()["token"]
     monkeypatch.setattr(video_storage, "is_configured", lambda: True)
+    token = client.get(f"{env['base']}/matches/{mid}/media-token", headers=h).get_json()["token"]
     monkeypatch.setattr(
         video_storage, "mint_media_read_sas", lambda path, **kw: "https://example.invalid/private-footage"
     )

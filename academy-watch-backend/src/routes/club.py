@@ -59,11 +59,15 @@ from src.services.capture_meta import merge_preflight
 from src.services.club_access import (
     current_access,
     match_in_scope,
+    match_summary,
     member_in_scope,
     member_view,
+    publish_recording,
     record_coverage,
+    recording_completed,
     require_club_permission,
     roster_fits_squad,
+    scoped_recording_intact,
     scoped_squad_ids,
     staff_access_enabled,
 )
@@ -433,6 +437,9 @@ def _normalized_result(header: dict, video_match_id: int | None) -> dict:
     }
 
 
+SERVER_OWNED_CAPTURE_KEYS = frozenset({"local"})
+
+
 def _capture_meta(value):
     if value is None:
         return None
@@ -464,7 +471,8 @@ def _capture_meta(value):
         raise ValueError("capture_meta must contain valid JSON values") from exc
     if len(encoded) > MAX_CAPTURE_META_BYTES:
         raise ValueError(f"capture_meta must be at most {MAX_CAPTURE_META_BYTES} serialized bytes")
-    return value
+    # Server-owned keys: local artifact paths are trusted dev metadata, never client-writable.
+    return {key: item for key, item in value.items() if key not in SERVER_OWNED_CAPTURE_KEYS}
 
 
 def _club_match(program_id: int, match_id: int, *, require_bytes: bool = False) -> VideoMatch | None:
@@ -490,6 +498,14 @@ def _match_squad_value(program_id: int, value):
     if scope is not None and value not in scope:
         raise ValueError("squad_id must be one of this club's squads")
     return value
+
+
+def _match_payload(match: VideoMatch, *, include_job: bool = False) -> dict:
+    """Match detail/list body. Squad-scoped staff get the full record only when the derived-data
+    predicate passes; otherwise a narrow upload-workflow DTO with no capture analysis or job fields."""
+    if scoped_squad_ids() is not None and not match_in_scope(match, require_bytes=True):
+        return match_summary(match)
+    return _with_squad(match, match.to_dict(include_job=include_job))
 
 
 def _with_squad(match: VideoMatch, out: dict) -> dict:
@@ -1937,7 +1953,7 @@ def list_club_matches(program_id: int):
         rows = [match for match in rows if match_in_scope(match)]
     matches = []
     for match in rows:
-        out = _with_squad(match, match.to_dict(include_job=True))
+        out = _match_payload(match, include_job=True)
         out["processing_request_status"] = "requested" if match.processing_requested_at else None
         matches.append(out)
     return jsonify({"matches": matches, "total": len(matches)})
@@ -1951,6 +1967,9 @@ def club_match_sas(program_id: int, match_id: int):
         return jsonify({"error": "Match not found"}), 404
     if match.status not in {"created", "uploaded"}:
         return _bad_request(f"cannot re-mint SAS in status '{match.status}'")
+    if staff_access_enabled() and recording_completed(match):
+        # Completed club recordings are immutable: replacement footage needs a new match.
+        return jsonify({"error": "recording_locked"}), 409
     if not video_retention.can_issue_upload_grant(match):
         return jsonify({"error": "retention deadline too close to issue an upload grant; create a new match"}), 409
     if not video_storage.is_configured():
@@ -1997,6 +2016,7 @@ def club_match_upload_complete(program_id: int, match_id: int):
         match.processing_requested_by_user_id = None
     # Completion/re-attestation never creates provenance: appends only if grant-time origin exists.
     record_coverage(match)
+    publish_recording(match)  # this verified ETag is now the one scoped staff may read
     db.session.commit()
     return jsonify(match.to_dict() | {"size_bytes": check["size_bytes"]})
 
@@ -2048,7 +2068,7 @@ def get_club_match(program_id: int, match_id: int):
     match = _club_match(program_id, match_id)
     if match is None:
         return jsonify({"error": "Match not found"}), 404
-    out = _with_squad(match, match.to_dict(include_job=True))
+    out = _match_payload(match, include_job=True)
     out["roster"] = [
         entry.to_dict()
         for entry in match.roster_entries
@@ -2065,7 +2085,7 @@ def get_club_match(program_id: int, match_id: int):
 @require_club_permission("matches.view")
 def get_club_match_media_token(program_id: int, match_id: int):
     match = _club_match(program_id, match_id, require_bytes=True)
-    if match is None:
+    if match is None or (scoped_squad_ids() is not None and not scoped_recording_intact(match)):
         return jsonify({"error": "Match not found"}), 404
     return jsonify(
         mint_media_token(

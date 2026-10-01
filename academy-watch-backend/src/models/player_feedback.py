@@ -258,6 +258,13 @@ def feedback_dict(session, row, *, manager=False, summary=False):
     }
     if not summary:
         result.update(body=row.body, observation_refs=row.observation_refs)
+        if manager and row.observation_refs:
+            from src.services.club_access import evidence_in_scope
+
+            # Squad-scoped staff keep the coach-written text but lose footage evidence whose
+            # source match they may not (or no longer) see.
+            if not evidence_in_scope(row.video_match_id):
+                result["observation_refs"] = []
     if row.development_action is not None:
         result.update(
             development_action=row.development_action,

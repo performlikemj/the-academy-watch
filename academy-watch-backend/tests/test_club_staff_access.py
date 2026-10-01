@@ -38,6 +38,14 @@ def env(club_app, client, monkeypatch):
     monkeypatch.setenv("CLUB_MATCH_QUOTA_DEFAULT", "20")
     club_app.register_blueprint(club_access_bp, url_prefix="/api")
     club_app.register_blueprint(feedback_bp, url_prefix="/api")
+    # Default storage stand-in: the stored object is unchanged since its verified completion.
+    from src.services import video_storage
+
+    def _unchanged(path):
+        match = VideoMatch.query.filter_by(blob_path=path).first()
+        return {"ok": True, "etag": match.blob_etag if match else None, "size_bytes": 1}
+
+    monkeypatch.setattr(video_storage, "verify_uploaded_blob", _unchanged)
     sent = []
     monkeypatch.setattr(
         access_service, "send_invite_email", lambda invite, token, name: sent.append((invite.email, token)) or True
@@ -109,6 +117,7 @@ def _complete_upload(mid):
     match = db.session.get(VideoMatch, mid)
     match.uploaded_at = datetime.now(UTC).replace(tzinfo=None)
     match.blob_etag = "fixture-etag"
+    match.scoped_ready_etag = "fixture-etag"
     db.session.commit()
 
 
@@ -414,8 +423,9 @@ def test_coach_scoped_matches_and_media(env, client, club_app):
     assert mine.status_code == 200
 
 
-def test_viewer_is_read_only(env, client, club_app):
+def test_viewer_is_read_only(env, client, club_app, monkeypatch):
     match_a = _match(client, env, "sa")
+    _storage_on(monkeypatch)
     with club_app.app_context():
         member = db.session.get(ClubRosterMember, env["m1"])
         member.coach_brief_body = "Private coaching note"
@@ -484,11 +494,21 @@ def test_cross_club_is_denied(env, client, club_app):
 
 
 def _footage(client, match_id, token):
-    return client.get(f"/api/admin/video/matches/{match_id}/footage?token={token}").get_json()
+    resp = client.get(f"/api/admin/video/matches/{match_id}/footage?token={token}")
+    return resp.get_json() or {"error": None, "status": resp.status_code}
 
 
-def test_revoked_grant_loses_access_immediately(env, client):
+def _storage_on(monkeypatch):
+    """Scoped media needs verifiable storage: configured blob store + signed read URL (both faked)."""
+    from src.services import video_storage
+
+    monkeypatch.setattr(video_storage, "is_configured", lambda: True)
+    monkeypatch.setattr(video_storage, "mint_media_read_sas", lambda path, **kw: "https://example.invalid/footage")
+
+
+def test_revoked_grant_loses_access_immediately(env, client, monkeypatch):
     match_a = _match(client, env, "sa")
+    _storage_on(monkeypatch)
     joined = _join(client, env, "coach", "coach", squads=[env["sa"]])
     assert joined["program_id"] == env["pid"]
     h = _h(_email("coach"))
@@ -504,8 +524,9 @@ def test_revoked_grant_loses_access_immediately(env, client):
     assert client.get("/api/me/club-access", headers=h).get_json()["programs"] == []
 
 
-def test_narrowed_scope_revokes_old_squad_media(env, client):
+def test_narrowed_scope_revokes_old_squad_media(env, client, monkeypatch):
     match_a = _match(client, env, "sa")
+    _storage_on(monkeypatch)
     _join(client, env, "coach", "coach", squads=[env["sa"]])
     h = _h(_email("coach"))
     token = client.get(f"{env['base']}/matches/{match_a}/media-token", headers=h).get_json()["token"]

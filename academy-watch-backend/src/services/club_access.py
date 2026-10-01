@@ -309,8 +309,62 @@ def match_visible_to(access, match, *, require_bytes=False) -> bool:
 
 
 def upload_completed(match) -> bool:
-    """A finished, verified upload (never true for bytes sitting in storage before completion)."""
+    """A finished, verified upload that is currently published for scoped reads.
+
+    Never true for bytes sitting in storage before completion, nor while an admin re-grant has the
+    recording "replacing" (``scoped_ready_etag`` cleared until the next verified completion).
+    """
+    etag = getattr(match, "blob_etag", None)
+    return bool(getattr(match, "uploaded_at", None) and etag and getattr(match, "scoped_ready_etag", None) == etag)
+
+
+def recording_completed(match) -> bool:
+    """A verified upload exists (regardless of scoped readiness): the recording is immutable for clubs."""
     return bool(getattr(match, "uploaded_at", None) and getattr(match, "blob_etag", None))
+
+
+def publish_recording(match) -> None:
+    """Called only right after a verified upload-complete stamped ``blob_etag`` (flag on or off)."""
+    if match is not None and match.club_program_id is not None:
+        match.scoped_ready_etag = match.blob_etag
+
+
+def unpublish_recording(match) -> None:
+    """An upload grant was re-issued for a completed recording: scoped reads stop until re-verified."""
+    if match is not None and match.club_program_id is not None:
+        match.scoped_ready_etag = None
+
+
+def scoped_recording_intact(match) -> bool:
+    """The stored object is still the verified one (guards a still-live write SAS overwriting it).
+
+    Checked on every scoped token mint and byte request. Without verifiable storage (local
+    dev artifacts) immutability cannot be established, so scoped staff get nothing.
+    """
+    from src.services import video_storage
+
+    if not upload_completed(match) or not match.blob_path or not video_storage.is_configured():
+        return False
+    try:
+        return bool(video_storage.verify_expected_blob(match.blob_path, match.blob_etag).get("ok"))
+    except Exception:
+        return False
+
+
+def evidence_in_scope(video_match_id) -> bool:
+    """May the current caller read footage-derived evidence citing this match? (True unless scoped.)"""
+    from flask import has_request_context
+
+    if not has_request_context():
+        return True
+    access = current_access()
+    if access is None or access.whole_club:
+        return True
+    if video_match_id is None:
+        return False
+    from src.models.video import VideoMatch
+
+    return match_visible_to(access, db.session.get(VideoMatch, video_match_id), require_bytes=True)
 
 
 def record_coverage(match, *, origin=False) -> None:
@@ -406,7 +460,7 @@ def member_view(member_dict, access=None):
 
 
 def match_summary(match) -> dict:
-    """Narrow match DTO for scoped staff: no blob paths, capture metadata or AI analysis."""
+    """Narrow match DTO for scoped staff: no blob paths, capture metadata, jobs or AI analysis."""
     return {
         "id": match.id,
         "club_program_id": match.club_program_id,

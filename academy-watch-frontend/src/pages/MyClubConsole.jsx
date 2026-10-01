@@ -129,6 +129,8 @@ const CLUB_REEL_MEDIA_SOURCE = {
 }
 
 function errorText(error, fallback) {
+  // Club staff access: a completed recording can't be overwritten in place.
+  if (error?.body?.error === 'recording_locked') return 'This recording is locked once its upload is complete. Create a new match to replace the footage.'
   return error?.body?.error || error?.message || fallback
 }
 

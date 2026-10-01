@@ -386,8 +386,8 @@ def test_live_revocation_covers_removal_and_program_standing(env, client, monkey
     mid = _match(client, env, "sa")
     _join(client, env, "coach", "coach", squads=[env["sa"]])
     h = _h(_email("coach"))
-    token = client.get(f"{env['base']}/matches/{mid}/media-token", headers=h).get_json()["token"]
     _fake_storage(monkeypatch)
+    token = client.get(f"{env['base']}/matches/{mid}/media-token", headers=h).get_json()["token"]
     assert client.get(f"/api/admin/video/matches/{mid}/footage?token={token}").status_code == 302
     if change == "removed_grant":
         db.session.delete(

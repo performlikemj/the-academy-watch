@@ -207,7 +207,10 @@ def test_roster_cleanup_never_reopens_recording(
         return "https://example.invalid/" + path
 
     monkeypatch.setattr(video_storage, "mint_media_read_sas", sign)
+    # Scoped tokens can only be minted against verifiable storage; mint there, then test the branch.
+    monkeypatch.setattr(video_storage, "is_configured", lambda: True)
     token = client.get(f"{env['base']}/matches/{mid}/media-token", headers=h).get_json()["token"]
+    monkeypatch.setattr(video_storage, "is_configured", lambda: storage_mode == "azure")
     _move(client, env, member, env["sb"])
     url = f"/api/admin/video/matches/{mid}/footage?token={token}"
     assert client.get(url).status_code == 404

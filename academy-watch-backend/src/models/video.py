@@ -78,6 +78,9 @@ class VideoMatch(db.Model):
     club_program_id = db.Column(db.Integer, db.ForeignKey("club_programs.id"), nullable=True, index=True)
     # Squad the footage belongs to (club staff access scope). NULL = whole-club only.
     squad_id = db.Column(db.Integer, db.ForeignKey("club_squads.id", ondelete="SET NULL"), nullable=True, index=True)
+    # The verified upload ETag published for squad-scoped staff reads. NULL = not ready (never
+    # completed, or an admin re-grant put the recording into "replacing" until the next verified completion).
+    scoped_ready_etag = db.Column(db.String(100), nullable=True)
 
     # Match metadata (opponent stays free text — opposition players are numbers only)
     opponent_name = db.Column(db.String(200))
