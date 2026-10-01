@@ -44,6 +44,7 @@ def clear_sitemap_cache() -> None:
     global _cache_generation
     with _build_lock:
         _cache.update(xml=None, built_at=None)
+        _cache.pop("publication_enabled", None)
         _cache_generation += 1
 
 
@@ -225,7 +226,11 @@ def _run_background_build(app) -> None:
         publication_enabled = enabled()
         with app.app_context():
             xml = build_sitemap_xml()
-        _cache.update(xml=xml, built_at=time.monotonic(), publication_enabled=publication_enabled)
+        _cache.update(xml=xml, built_at=time.monotonic())
+        if publication_enabled:
+            _cache["publication_enabled"] = True
+        else:
+            _cache.pop("publication_enabled", None)
         _cache_generation += 1
     except Exception:
         logger.exception("Background sitemap build failed")
