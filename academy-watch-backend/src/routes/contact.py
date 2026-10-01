@@ -18,6 +18,7 @@ from src.services.club_player_publication import club_request_available
 from src.services.club_registry import (
     active_manager_program_ids,
     active_program_manager_user_ids,
+    get_club_programs,
     is_active_program_manager,
     program_is_operational,
 )
@@ -126,9 +127,9 @@ def _player_not_claimable():
     return jsonify({"error": "Player is not available for contact", "code": "player_not_claimable"}), 403
 
 
-def _contact_request_payload(contact_request: ContactRequest) -> dict:
+def _contact_request_payload(contact_request: ContactRequest, *, context=None) -> dict:
     """Serialize blockable participants only for authenticated contact APIs."""
-    return contact_request.to_dict(include_user_ids=True)
+    return contact_request.to_dict(include_user_ids=True, context=context)
 
 
 def _contact_message_payload(message: ContactMessage) -> dict:
@@ -855,21 +856,33 @@ def list_contact_requests():
             )
             query = ContactRequest.query.filter(ContactRequest.claim_id.in_(claim_ids))
             from src.services.club_player_publication import enabled
-            from src.services.public_adult import public_adult_ids
 
-            candidates = (
-                (
+            if not enabled():
+                query = query.filter(ContactRequest.club_first.is_(False))
+            else:
+                from src.models.club_player_publication import ClubPlayerPublication
+                from src.services.club_player_publication import publication_local_ids
+                from src.services.public_adult import public_adult_ids
+
+                candidates = (
                     query.with_entities(ContactRequest.player_api_id)
                     .filter(ContactRequest.club_first.is_(True))
                     .distinct()
                     .all()
                 )
-                if enabled()
-                else []
-            )
-            adults = public_adult_ids([pid for (pid,) in candidates])
-            allowed = and_(ContactRequest.club_consent_status == "granted", ContactRequest.player_api_id.in_(adults))
-            query = query.filter(or_(ContactRequest.club_first.is_(False), allowed))
+                adults = public_adult_ids([pid for (pid,) in candidates])
+                allowed = and_(
+                    ContactRequest.club_consent_status == "granted",
+                    ContactRequest.player_api_id.in_(adults),
+                    ContactRequest.claim_id.in_(
+                        db.session.query(ClubPlayerPublication.claim_id).filter(
+                            ClubPlayerPublication.local_player_id == -ContactRequest.player_api_id,
+                            ClubPlayerPublication.program_id == ContactRequest.club_program_id,
+                            ClubPlayerPublication.local_player_id.in_(publication_local_ids()),
+                        )
+                    ),
+                )
+                query = query.filter(or_(ContactRequest.club_first.is_(False), allowed))
             if related_user_ids:
                 query = query.filter(ContactRequest.scout_user_id.notin_(related_user_ids))
         elif box == "club":
@@ -889,12 +902,39 @@ def list_contact_requests():
             _expire_visible_rows(query)
         limit, offset = _pagination()
         total = query.count()
+        from sqlalchemy.orm import joinedload
+        from src.services.club_player_publication import available_club_requests
+
         rows = (
-            query.order_by(ContactRequest.created_at.desc(), ContactRequest.id.desc()).offset(offset).limit(limit).all()
+            query.options(
+                joinedload(ContactRequest.scout), joinedload(ContactRequest.claim).joinedload(PlayerProfileClaim.user)
+            )
+            .order_by(ContactRequest.created_at.desc(), ContactRequest.id.desc())
+            .offset(offset)
+            .limit(limit)
+            .all()
         )
+        ids = [r.id for r in rows]
+        outcomes = {}
+        for outcome in ContactOutcome.query.filter(ContactOutcome.contact_request_id.in_(ids)).order_by(
+            ContactOutcome.occurred_at.desc(), ContactOutcome.created_at.desc(), ContactOutcome.id.desc()
+        ):
+            outcomes.setdefault(outcome.contact_request_id, outcome)
+        created = {}
+        for audit in ContactAuditEvent.query.filter(
+            ContactAuditEvent.contact_request_id.in_(ids), ContactAuditEvent.event_type == "created"
+        ).order_by(ContactAuditEvent.id):
+            created.setdefault(audit.contact_request_id, audit.event_metadata)
+        programs = get_club_programs({r.club_program_id for r in rows if r.club_program_id})
+        context = {
+            "outcomes": outcomes,
+            "created": created,
+            "programs": programs,
+            "available": available_club_requests(rows),
+        }
         return jsonify(
             {
-                "requests": [_contact_request_payload(row) for row in rows],
+                "requests": [_contact_request_payload(row, context=context) for row in rows],
                 "box": box,
                 "total": total,
                 "limit": limit,

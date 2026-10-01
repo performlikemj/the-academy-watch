@@ -1642,7 +1642,7 @@ class TestContractStatusRouting:
     ):
         _club_program(113, "Frozen Export FC")
         manager, club_headers = _club_manager(113, "frozen-export-manager@example.com")
-        _, scout_headers = _verified_scout("frozen-export-scout@example.com")
+        scout, scout_headers = _verified_scout("frozen-export-scout@example.com")
         _claim(
             "frozen-export-player@example.com",
             5817,
@@ -1659,6 +1659,12 @@ class TestContractStatusRouting:
                     sender_user_id=manager.id,
                     sender_role="club",
                     body="FROZEN CLUB EXPORT MESSAGE",
+                ),
+                ContactMessage(
+                    contact_request_id=request_id,
+                    sender_user_id=scout.id,
+                    sender_role="scout",
+                    body="FROZEN COUNTERPART EXPORT MESSAGE",
                 ),
                 ContactOutcome(
                     contact_request_id=request_id,
@@ -1686,7 +1692,11 @@ class TestContractStatusRouting:
         export_payload = frozen.get_json()
         assert export_payload["contact_requests"]["club"] == []
         serialized = str(export_payload)
-        assert "FROZEN CLUB EXPORT MESSAGE" not in serialized
+        own = export_payload["contact_requests"]["authored_messages"]
+        assert len(own) == 1
+        assert own[0]["body"] == "FROZEN CLUB EXPORT MESSAGE"
+        assert set(own[0]) == {"id", "contact_request_id", "body", "created_at"}
+        assert "FROZEN COUNTERPART EXPORT MESSAGE" not in serialized
         assert "FROZEN CLUB EXPORT OUTCOME" not in serialized
         assert checks
         assert all(program_id == 113 and for_update is True for program_id, for_update in checks)

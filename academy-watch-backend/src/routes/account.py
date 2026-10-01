@@ -25,7 +25,10 @@ def _user_rate_limit_key() -> str:
 def export_account_data():
     """Return one portable JSON document containing the caller's DSR data."""
     try:
-        return jsonify(build_account_export(g.user))
+        payload = build_account_export(g.user)
+        # Commit dark-capable repairs to legacy platform-generated follow labels.
+        db.session.commit()
+        return jsonify(payload)
     except Exception as exc:
         db.session.rollback()
         logger.exception("Failed to export account data")

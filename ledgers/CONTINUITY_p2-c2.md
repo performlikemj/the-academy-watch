@@ -8,7 +8,7 @@
 - C2F2 owns foreground Vite5204 and scratch aw_c2f2/aw_c2f2_upgrade/aw_c2f2_preapply/aw_c2f2_reverse; clean own resources. Historical C2F1 resources were already cleaned.
 
 ## State
-- Complete C2F2 fixes/gates (delivery in external hand-back): review-duel union; O1 first-use autoflush first. Lead rulings: unknown senior attestation verified-manager-only, sticky admin takedown, source revocation notified/recoverable. No 14-day expiry; unanswered follows raw deadline, declined ready assets deleted immediately.
+- C2F2 final C1F2 integration/gates in progress: review-duel union; O1 first-use autoflush first. Lead rulings: unknown senior attestation verified-manager-only, sticky admin takedown, source revocation notified/recoverable. No 14-day expiry; unanswered follows raw deadline, declined ready assets deleted immediately.
 - Complete (fix round 1): all RC2 F1–F16 FIXED; final application d2c9750f verified; delivery/cleanup below.
 - Fix gates: final focused102 pass1 optional C1 skip; PG57 pass; query/failure-download4 pass (SQL10/11/12/14 at1/25/100 clips); exact real-app98 dark-method/path pairs/zeroSQL; modern browser242 pass4skip. OSV547/Node219/lint0errors192warnings/build pass; Ruff598 clean.
 - Full gate: final flags-OFF4343 pass94skip0fail149warnings (1054.65s), DB_SSLMODE=disable corrected local SSL-only fixture errors. Unfiltered browser240pass20fail5skip16serial-not-run:18 historical legacy/live-fixture failures +2 C4 fixed1s initialization races under parallel load; same C4 file4/4 pass with normal worker setting (and included in modern242-pass suite).
@@ -49,3 +49,8 @@
 - Candidate preview only standalone clip; 60s read-only single-blob redirect, expected ETag, no raw/container grant; documented expiry plus in-flight-transfer bound.
 - Every new table guarded DDL + RLS; export/erasure remains effective when flag OFF.
 - Full Ruff/format/backend/Node/lint/build and current Playwright completed before push.
+
+## Final C1F2 refresh
+- C1 aafb11d5 published during first delivery verification; first64855e1f push is interim, no BUS DONE/final hand-back. Final full gates repeated on merged current lower head.
+- API conflict adopts C1 shared15s feature cache, preserving C2 native preview URL API; cache failure/TTL behavior covered by inherited C1 Node regressions, C2 bootstrap test keeps concurrent dedup assertions. All C2 server/migration/worker code unchanged.
+- CONTINUITY retains both current C1 evidence and C2 history. C1/B3 migration contracts unchanged.

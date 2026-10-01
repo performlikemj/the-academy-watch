@@ -3,7 +3,7 @@
 import hashlib
 import os
 import secrets
-from datetime import date, timedelta
+from datetime import UTC, date, timedelta
 
 import sqlalchemy as sa
 from src.models.club_player_publication import ClubPlayerPublication as Publication
@@ -134,20 +134,79 @@ def club_subject_filter(signed_id):
     )
 
 
-def club_request_available(contact):
-    if not getattr(contact, "club_first", False):
-        return True
-    if contact.player_api_id >= 0:
-        return False
-    row = live_publication(-contact.player_api_id)
-    from src.services.public_adult import is_public_adult
+def available_club_requests(contacts):
+    """Response-owned eligibility with claim/program binding; never cache across reads."""
+    contacts = [c for c in contacts if getattr(c, "club_first", False)]
+    if not contacts or not enabled():
+        return set()
+    local_ids = {-c.player_api_id for c in contacts if c.player_api_id < 0}
+    rows = Publication.query.filter(
+        Publication.local_player_id.in_(local_ids), Publication.local_player_id.in_(publication_local_ids())
+    ).all()
+    by_local = {r.local_player_id: r for r in rows}
+    from src.services.public_adult import public_adult_ids
 
-    return bool(
-        row
-        and row.claim_id == contact.claim_id
-        and row.program_id == contact.club_program_id
-        and is_public_adult(contact.player_api_id)
+    adults = public_adult_ids([-i for i in by_local])
+    return {
+        c.id
+        for c in contacts
+        if c.player_api_id in adults
+        and (r := by_local.get(-c.player_api_id))
+        and r.claim_id == c.claim_id
+        and r.program_id == c.club_program_id
+    }
+
+
+def club_request_available(contact):
+    return not getattr(contact, "club_first", False) or contact.id in available_club_requests([contact])
+
+
+def can_reinvite(row):
+    # Consent withdrawal alone is never an authorization to replace its owner.
+    return not row.claimed_at or bool(row.club_revoked_at or (row.withdrawn_at and not row.consented_at))
+
+
+def retire_claim(row, actor):
+    from src.services.admin_audit import record_admin_event
+
+    claim = PlayerProfileClaim.query.filter_by(id=row.claim_id).with_for_update().first()
+    if claim:
+        claim.status = "revoked"
+        claim.verification_status = "unverified"
+        claim.verification_method = "club_vouch_retired"
+    record_admin_event(
+        db.session.get(UserAccount, actor),
+        "club_publication_recovery",
+        "club_player_publication",
+        row.id,
+        "Fresh invitation after permission withdrawal",
+        meta={
+            "claim_id": row.claim_id,
+            "recipient_user_id": row.recipient_user_id,
+            "version": row.version,
+            "consented": bool(row.consented_at),
+            "moderation_status": row.moderation_status,
+            "consent_version": row.consent_version,
+            **{
+                key: int(value.replace(tzinfo=UTC).timestamp()) if value else None
+                for key in (
+                    "adult_invited_at",
+                    "claimed_at",
+                    "consented_at",
+                    "association_confirmed_at",
+                    "withdrawn_at",
+                    "club_revoked_at",
+                )
+                if (value := getattr(row, key)) is not None
+            },
+        },
     )
+    close_threads(row)
+    row.recipient_user_id = row.claim_id = row.claimed_at = None
+    row.consented_at = row.consent_version = row.withdrawn_at = None
+    row.reviewed_at = row.reviewed_by = None
+    row.moderation_status = "pending"
+    db.session.flush()
 
 
 def club_local_is_eligible(local):
@@ -211,9 +270,13 @@ def invite(program_id, local_id, actor, payload):
     email = email.strip().lower()
     row = Publication.query.filter_by(program_id=program_id, local_player_id=local_id).with_for_update().first()
     if row:
-        if row.claimed_at or row.consented_at:
-            raise PublicationError("already_claimed")
         expect_version(row, payload)
+        if not can_reinvite(row):
+            raise PublicationError("already_claimed")
+        if row.claimed_at:
+            retire_claim(row, actor)
+        row.withdrawn_at = None
+        row.adult_invited_at = now()
         row.recipient_email = email
         bump(row)
     else:
@@ -260,7 +323,13 @@ def redeem(user, payload, *, preview=False):
         return row
     if payload.get("self_claim") is not True:
         raise PublicationError("self_claim_required", 400)
-    if PlayerProfileClaim.query.filter_by(local_player_id=local.id).first():
+    if PlayerProfileClaim.query.filter(
+        PlayerProfileClaim.local_player_id == local.id,
+        sa.or_(
+            PlayerProfileClaim.verification_method.is_(None),
+            PlayerProfileClaim.verification_method != "club_vouch_retired",
+        ),
+    ).first():
         raise PublicationError("identity_review_required")
     claim = PlayerProfileClaim(
         local_player_id=local.id,
@@ -309,6 +378,7 @@ def review(row, actor, payload):
         row.moderation_status = "rejected"
         row.reviewed_by, row.reviewed_at = actor, now()
         close_threads(row)
+        clear_club_follow_labels([row.local_player_id])
         bump(row)
         review_audit(row, actor, payload, False)
         return
@@ -348,9 +418,17 @@ def review(row, actor, payload):
     if action == "approve" and duplicate:
         raise PublicationError("duplicate_identity_review_required")
     if action == "approve" and not (local.status == "approved" and claim.status == "approved"):
+        from src.models.follow import PlayerShadow
         from src.routes.showcase import _legacy_negative_identity_conflict
 
-        if _legacy_negative_identity_conflict(-local.id) is not None:
+        existing_shadow = PlayerShadow.query.filter_by(player_api_id=-local.id).first()
+        retained_claim = PlayerProfileClaim.query.filter_by(
+            local_player_id=local.id, verification_method="club_vouch_retired"
+        ).first()
+        if (
+            not (local.status == "approved" and retained_claim and existing_shadow)
+            and _legacy_negative_identity_conflict(-local.id) is not None
+        ):
             raise PublicationError("identity_review_required")
     row.moderation_status = "approved" if action == "approve" else "rejected"
     row.reviewed_by, row.reviewed_at = actor, now()
@@ -391,6 +469,25 @@ def revoke(row, *, club=False):
     row.recipient_email = None
     bump(row)
     close_threads(row)
+    clear_club_follow_labels([row.local_player_id])
+
+
+def clear_club_follow_labels(local_ids=None, *, limit=None):
+    """Dark-capable repair of old generated labels; caller commits."""
+    from src.models.follow import Follow
+
+    local_query = sa.select(LocalPlayer.id).where(LocalPlayer.provenance == "club")
+    if local_ids is not None:
+        local_query = local_query.where(LocalPlayer.id.in_(local_ids))
+    query = Follow.query.filter(
+        Follow.kind == "player",
+        Follow.label.is_not(None),
+        (-Follow.selector["player_api_id"].as_integer()).in_(local_query),
+    )
+    if limit is not None:
+        ids = [id_ for (id_,) in query.with_entities(Follow.id).order_by(Follow.id).limit(limit).all()]
+        query = Follow.query.filter(Follow.id.in_(ids))
+    return query.update({Follow.label: None}, synchronize_session="fetch")
 
 
 def close_threads(row):
@@ -431,23 +528,66 @@ def self_invitation(row, recipient=None):
     )
 
 
-def moderation_evidence(row, local):
+def dto_context(rows, *, admin=False):
+    """One response owns all identity, eligibility and moderation evidence loads."""
     from src.models.funding import ClubSquad
+    from src.models.p2_foundation import AdminActionEvent
+    from src.services.public_adult import public_adult_ids
 
-    program = db.session.get(ClubProgram, row.program_id)
-    recipient = db.session.get(UserAccount, row.recipient_user_id) if row.recipient_user_id else None
-    inviter_id = row.association_confirmed_by or row.creator_user_id
-    inviter = db.session.get(UserAccount, inviter_id) if inviter_id else None
-    squads = (
-        db.session.query(ClubSquad.name)
-        .join(ClubRosterMember, ClubRosterMember.squad_id == ClubSquad.id)
-        .filter(ClubRosterMember.program_id == row.program_id, ClubRosterMember.local_player_id == row.local_player_id)
+    local_ids = {r.local_player_id for r in rows}
+    locals_ = {p.id: p for p in LocalPlayer.query.filter(LocalPlayer.id.in_(local_ids)).all()} if rows else {}
+    context = {"locals": locals_, "adults": public_adult_ids([-i for i in local_ids]) if enabled() else set()}
+    if not admin:
+        return context
+    program_ids = {r.program_id for r in rows}
+    user_ids = {
+        i for row in rows for i in (row.recipient_user_id, row.association_confirmed_by or row.creator_user_id) if i
+    }
+    context["programs"] = {p.id: p for p in ClubProgram.query.filter(ClubProgram.id.in_(program_ids)).all()}
+    context["users"] = {u.id: u for u in UserAccount.query.filter(UserAccount.id.in_(user_ids)).all()}
+    context["squads"] = {}
+    for pid, lid, name in (
+        db.session.query(ClubRosterMember.program_id, ClubRosterMember.local_player_id, ClubSquad.name)
+        .join(ClubSquad, ClubSquad.id == ClubRosterMember.squad_id)
+        .filter(ClubRosterMember.program_id.in_(program_ids), ClubRosterMember.local_player_id.in_(local_ids))
         .distinct()
-        .all()
-    )
+    ):
+        context["squads"].setdefault((pid, lid), []).append(name)
+    context["history"] = {}
+    for event in AdminActionEvent.query.filter(
+        AdminActionEvent.target_type == "club_player_publication",
+        AdminActionEvent.target_id.in_([str(r.id) for r in rows]),
+        AdminActionEvent.action.in_(["club_player_publication_review", "club_publication_recovery"]),
+    ).order_by(AdminActionEvent.id):
+        decision = (
+            "recovery"
+            if event.action == "club_publication_recovery"
+            else "approved"
+            if event.event_metadata.get("approved")
+            else "rejected"
+        )
+        context["history"].setdefault(event.target_id, []).append(
+            {"decision": decision, "reason": event.reason, "reviewed_at": event.created_at.isoformat()}
+        )
+    return context
+
+
+def dto_list(rows, *, admin=False):
+    context = dto_context(rows, admin=admin)
+    return [dto(row, admin=admin, context=context) for row in rows]
+
+
+def moderation_evidence(row, local, context):
+    program = context["programs"].get(row.program_id)
+    recipient = context["users"].get(row.recipient_user_id)
+    inviter_id = row.association_confirmed_by or row.creator_user_id
+    inviter = context["users"].get(inviter_id)
+    squads = context["squads"].get((row.program_id, row.local_player_id), [])
+    same_account = bool(recipient and inviter_id == recipient.id)
+    same_email = bool(recipient and inviter and recipient.email.strip().lower() == inviter.email.strip().lower())
     return {
         "club_name": program.name if program else None,
-        "squads": sorted(name for (name,) in squads),
+        "squads": sorted(squads),
         "adult": bool(local and not local_player_is_minor(local)),
         "adult_evidence_source": "club_birth_date"
         if local and local.birth_date
@@ -459,16 +599,17 @@ def moderation_evidence(row, local):
         "inviter_email_masked": masked_email(inviter.email if inviter else None),
         "same_account": bool(recipient and inviter_id == recipient.id),
         "same_email": bool(recipient and inviter and recipient.email.strip().lower() == inviter.email.strip().lower()),
-        "self_invitation": self_invitation(row, recipient),
+        "self_invitation": same_account or same_email,
+        "review_history": context["history"].get(str(row.id), []),
         "invited_at": row.adult_invited_at.isoformat() if row.adult_invited_at else None,
         "claimed_at": row.claimed_at.isoformat() if row.claimed_at else None,
         "consented_at": row.consented_at.isoformat() if row.consented_at else None,
     }
 
 
-def dto(row, *, names=True, admin=False):
-    local = db.session.get(LocalPlayer, row.local_player_id)
-    from src.services.public_adult import is_public_adult
+def dto(row, *, names=True, admin=False, context=None):
+    context = context if context is not None else dto_context([row], admin=admin)
+    local = context["locals"].get(row.local_player_id)
 
     result = {
         "id": row.id,
@@ -484,15 +625,16 @@ def dto(row, *, names=True, admin=False):
         "version": row.version,
         "consent_version": CONSENT_VERSION,
         "consent_text": CONSENT_TEXT,
-        "public": bool(local and local.provenance == "club" and is_public_adult(-local.id)),
+        "public": -row.local_player_id in context["adults"],
+        "can_reinvite": can_reinvite(row),
     }
     if admin:
-        result["moderation_evidence"] = moderation_evidence(row, local)
+        result["moderation_evidence"] = moderation_evidence(row, local, context)
     return result
 
 
-def hidden_club_subject_ids(signed_ids):
-    if not enabled():
+def hidden_club_subject_ids(signed_ids, *, include_dark=False):
+    if not enabled() and not include_dark:
         return set()
     ids = {i for i in signed_ids if isinstance(i, int) and not isinstance(i, bool) and i < 0}
     if not ids:
@@ -508,7 +650,7 @@ def hidden_club_subject_ids(signed_ids):
         club_ids.update(-id_ for (id_,) in rows)
     from src.services.public_adult import public_adult_ids
 
-    return club_ids - public_adult_ids(club_ids)
+    return club_ids - public_adult_ids(club_ids) if enabled() else club_ids
 
 
 def audit(row, action, actor_id):

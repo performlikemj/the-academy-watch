@@ -30,7 +30,7 @@ test('isolated PostgreSQL HTTP claim → consent → club-first introduction →
       await expect(page.getByRole('alert')).toHaveCount(0)
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
       await page.addStyleTag({ content: '[data-agentation-toolbar], [class*=styles-module__toolbar], [class*=styles-module__panel] { display: none !important; }' })
-      await page.screenshot({ path: path.join(process.env.HOME, 'codex-runs/aw-redesign/shots/C1', `http-postgres-${name}-test-fixture-${viewport}.png`), fullPage: true })
+      await page.screenshot({ path: path.join(process.env.C1_SCREENSHOT_DIR || path.join(process.env.HOME, 'codex-runs/aw-redesign/shots/C1'), `http-postgres-${name}-test-fixture-${viewport}.png`), fullPage: true })
       await context.close()
     }
   }
