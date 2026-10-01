@@ -11,8 +11,8 @@ from src.models.trust import ScoutVerification
 from src.models.video import VideoMatch, VideoRosterEntry
 from src.services import opportunities
 from src.services import scout_attendance as attendance
-from src.services.club_access import current_access, match_bytes_in_scope, match_summary
-from src.services.public_adult import public_adult_ids
+from src.services.club_access import current_access, filter_match_bytes_query, match_bytes_in_scope, match_summary
+from src.services.public_adult import filter_public_adult_query
 
 
 def summary(program_id, *, accepted_after=None):
@@ -56,19 +56,18 @@ def summary(program_id, *, accepted_after=None):
         ]
     if access.can("contact"):
         if opportunities.enabled("CONTACT_RAIL_ENABLED"):
+            query = ContactRequest.query.filter_by(club_program_id=program_id, club_consent_status="pending").filter(
+                ContactRequest.status.in_(("pending", "accepted")), ContactRequest.expires_at > now()
+            )
             rows = (
-                ContactRequest.query.filter_by(club_program_id=program_id, club_consent_status="pending")
-                .filter(ContactRequest.status.in_(("pending", "accepted")), ContactRequest.expires_at > now())
-                .order_by(ContactRequest.created_at)
+                filter_public_adult_query(query, ContactRequest.player_api_id)
+                .order_by(ContactRequest.created_at, ContactRequest.id)
                 .limit(31)
                 .all()
             )
             result["introductions_has_more"] = len(rows) > 30
             rows = rows[:30]
-            eligible = public_adult_ids(r.player_api_id for r in rows)
-            queues["introductions"] = [
-                {"id": r.id, "created_at": opportunities.iso(r.created_at)} for r in rows if r.player_api_id in eligible
-            ]
+            queues["introductions"] = [{"id": r.id, "created_at": opportunities.iso(r.created_at)} for r in rows]
         program = ClubProgram.query.filter_by(id=program_id).filter(opportunities.public_club_eligibility()).first()
         for state, queue in (("pending", "attendance"), ("accepted", "accepted_attendance")):
             rows = (
@@ -94,7 +93,7 @@ def summary(program_id, *, accepted_after=None):
                         # only undecided requests expire at session start.
                         sa.func.coalesce(ClubOpportunity.starts_at, ClubOpportunity.ends_at) > now()
                         if state == "pending"
-                        else sa.true(),
+                        else attendance.session_end_expression() > now(),
                     )
                     .filter(
                         ScoutAttendance.id > accepted_after if state == "accepted" and accepted_after else sa.true()
@@ -120,12 +119,13 @@ def summary(program_id, *, accepted_after=None):
                 result["accepted_next_cursor"] = rows[29][0].id if len(rows) > 30 else None
     if access.can("matches.view"):
         team_sheet, analysing = [], []
+        match_query = VideoMatch.query.filter(
+            VideoMatch.club_program_id == program_id,
+            VideoMatch.status.in_(("uploaded", "preflight", "queued", "processing")),
+        )
         matches = (
-            VideoMatch.query.filter(
-                VideoMatch.club_program_id == program_id,
-                VideoMatch.status.in_(("uploaded", "preflight", "queued", "processing")),
-            )
-            .order_by(VideoMatch.created_at.desc())
+            filter_match_bytes_query(match_query, access)
+            .order_by(VideoMatch.created_at.desc(), VideoMatch.id)
             .limit(31)
             .all()
         )

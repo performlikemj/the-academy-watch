@@ -1,7 +1,7 @@
 # Phase 2 C4 — scout attendance / Today / distance
 
 - Owner: /root; branch p2/c4-scout-attend, stacked on #1115; no merge/deploy.
-- State: fix round 1 complete; source3fb2d984 verified, final documentation commit/push follows. PR #1120 open/unmerged; hand-back `~/codex-runs/aw-redesign/logs/C4F1.final.md`.
+- State: fix round 2 implementation complete; full flags-off/modern-browser final gates running; push pending. PR #1120 open/unmerged; hand-back `~/codex-runs/aw-redesign/logs/C4F1.final.md`.
 - Constraints: SCOUT_ATTEND_ENABLED default OFF; p2c3 -> p2c2; no applicants exposed to scouts; published future trial/open-session adverts may advertise youth/unknown age bands (P2R §2); public player identities retain canonical N3 strict adult rules. Coordinates stay in POST bodies and browser memory.
 - Done: fully read PHASE2/DESIGN/BUS/P2R, repo agent docs and N04/N08/N15/N16 mockups; implemented verified scout requests, club decisions, capability-scoped Today, approved-pin distance, audit/outbox, privacy and retention.
 - Done: real B1 811fabca + B2 6589f568 product fixes, B3 d49ec794 and main/N3 adea5177 integrated. B2 product code matches final 16540e03; preserved canonical N3 evidence controls and B2 trusted hold-bypass option. Ancestor C1/C2 migration copies are verbatim, no placeholders.
@@ -22,3 +22,8 @@
 - Final M2 check-in fix: accepted list stays visible after session start during retained history (pending expiry remains separate). Before-fix regression2fail/2pass; final focused68pass. Earlier whole suite4300pass92skip0fail; whole suite rerunning with2 added cases on3fb2d984.
 - Final gates: full flags-off4302pass92skip149warnings0fail (1129.11s); focused68 inclPG7; Node219, modern Playwright242pass4skip, Ruff/format597, lint0err195inherited warnings, build/OSV547 pass. Raw unfiltered legacy browser1fail/280notrun because ADMIN_API_KEY absent; not presented as passing.
 - Cleanup/delivery: owned5152/5203 servers stopped, capture credentials/scripts/browser/build outputs removed; remaining scratch DB/helper cleanup and exact remote verification in external hand-back. Baseline dependencies/tracked report retained. All C4 claims release at BUS DONE; ORCH dual verification must use final pushed head (runtime differs from ef823d07 by3fb2d984 accepted-list fix).
+
+- C4F2 in-progress: all four duel reports read; ten union findings incl both N1s; X3 fixed2085032f. Regression-first; full foreground gates, latest main/B2/B3 before push; no schema change planned.
+
+- C4F2 milestone: all ten union items implemented incl both N1s; reverse corrected regressions on2085032f31fail/7controls pass. Exact three-transaction PG before2fail (DeadlockDetected), fixed variants pass. Affected188pass; C4 browser16pass with six new confirmation/radius/location-off desktop/mobile screenshots, Node219/lint0err195warn/build/OSV547/Ruff-format598 green. Full flags-off and modern browser gates running; no standalone typecheck configured.
+- C4F2 integration: fetched main784b1490/B2 55b1d3ac/B3 46a4274f, all three merge commands already-up-to-date. No migration/preapply changes; existing C1/C2/C4 contracts preserved. Recheck BUS/latest heads before delivery.

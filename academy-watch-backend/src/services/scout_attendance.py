@@ -34,7 +34,7 @@ def verification(user_id):
 
 def verified(user_id, *, lock=False):
     if lock:
-        UserAccount.query.filter_by(id=user_id).with_for_update().first()
+        db.session.query(UserAccount.id).filter_by(id=user_id).with_for_update().first()
     user = db.session.get(UserAccount, user_id)
     if not is_account_active(user_id) or not is_verified_scout(user):
         raise Error("verified_scout_required", 403)
@@ -48,6 +48,16 @@ def attendance_event(row):
 
 def session_future(row):
     return bool((row.starts_at or row.ends_at) and (row.starts_at or row.ends_at) > now())
+
+
+def session_end_expression():
+    # Dates are stored naive UTC; SQLite has no native timestamp + interval.
+    fallback = (
+        sa.func.datetime(ClubOpportunity.starts_at, "+1 day")
+        if db.session.get_bind().dialect.name == "sqlite"
+        else ClubOpportunity.starts_at + timedelta(days=1)
+    )
+    return sa.func.coalesce(ClubOpportunity.ends_at, fallback)
 
 
 def visible_event(row, *, accepting=False, deciding=False, history=False, ignore_hold=False):
@@ -88,6 +98,10 @@ def request_row(rid, *, program_id=None, user_id=None, lock=False):
     ):
         raise Error("Not found", 404)
     event(initial.opportunity_id, lock=lock, accepting=False)
+    if lock:
+        # Admission and trust revocation share this mutex before request locks.
+        with db.session.no_autoflush:
+            db.session.query(UserAccount.id).filter_by(id=initial.scout_user_id).with_for_update().first()
     query = ScoutAttendance.query.filter_by(id=rid).populate_existing()
     row = (query.with_for_update() if lock else query).first()
     if not row or row.retention_expires_at <= now():
@@ -174,7 +188,12 @@ def submit(oid, user_id, data):
     note = opportunity_service.text(data.get("note", ""), "note", 500, required=False)
     opp = event(oid, lock=True)
     verified(user_id, lock=True)
-    old = ScoutAttendance.query.filter_by(opportunity_id=oid, scout_user_id=user_id).first()
+    old = (
+        ScoutAttendance.query.filter_by(opportunity_id=oid, scout_user_id=user_id)
+        .populate_existing()
+        .with_for_update()
+        .first()
+    )
     if old and old.status == "withdrawn":
         if old.request_count >= 2:
             raise Error("request_retry_used", 409)
@@ -220,7 +239,7 @@ def decide(rid, program_id, actor_id, data):
     if not visible_event(db.session.get(ClubOpportunity, row.opportunity_id), deciding=row.status == "pending"):
         raise Error("Not found", 404)
     if target == "accepted":
-        verified(row.scout_user_id, lock=True)
+        verified(row.scout_user_id)
     instructions = opportunity_service.text(
         data.get("arrival_instructions", ""), "arrival_instructions", 500, required=target == "accepted"
     )
@@ -325,7 +344,11 @@ def render(intent, user):
         "declined": "Attendance permission has not been granted or has been withdrawn by the club.",
     }.get(row.status, "An attendance request has an update. Sign in to view it.")
     if row.status == "accepted" and db.session.get(ClubOpportunity, row.opportunity_id).status == "closed":
-        message = "Session intake has closed. Your accepted attendance permission remains valid. Sign in to view it."
+        message = (
+            "Session intake has closed. Your accepted attendance permission remains valid. Sign in to view it."
+            if user.id == row.scout_user_id
+            else "Session intake has closed. Accepted scout attendance permissions remain valid. Sign in to view them."
+        )
     return {
         "subject": "Scout attendance update",
         "html": f'<p>{message}</p><a href="{link}">View update</a>',
@@ -372,13 +395,19 @@ def revoke_user(user_id):
     # Runs independently of the rollout flag, including after rollback.
     if not sa.inspect(db.session.connection()).has_table("scout_attendance_requests"):
         return 0
-    rows = lock_requests(
-        ScoutAttendance.query.filter_by(scout_user_id=user_id).filter(
-            ScoutAttendance.status.in_(("pending", "accepted"))
-        )
-    )
+    # Never acquire program/opportunity locks here: their holders can wait for
+    # this scout mutex during admission. Requery AFTER the mutex so newly committed
+    # requests cannot escape revocation or force a later program-lock discovery.
     with db.session.no_autoflush:
-        UserAccount.query.filter_by(id=user_id).with_for_update().first()
+        db.session.query(UserAccount.id).filter_by(id=user_id).with_for_update().first()
+        rows = (
+            ScoutAttendance.query.filter_by(scout_user_id=user_id)
+            .filter(ScoutAttendance.status.in_(("pending", "accepted")))
+            .order_by(ScoutAttendance.id)
+            .populate_existing()
+            .with_for_update()
+            .all()
+        )
     for row in rows:
         if row.status in {"pending", "accepted"}:
             finish(row, "revoked")
@@ -423,13 +452,7 @@ def expire_pending(*, program_id=None, user_id=None, limit=100):
     return count
 
 
-@sa.event.listens_for(Session, "before_commit")
-def revoke_changed_trust(session):
-    """Keep ORM moderation writes atomic with revocation, including direct maintenance writes.
-
-    Normal attendance/read transactions do no extra work. SQL bulk moderation must call
-    revoke_user explicitly; the safety sweep also rechecks authoritative trust.
-    """
+def changed_trust_ids(session):
     ids = {
         r.user_account_id
         for r in session.dirty
@@ -447,19 +470,56 @@ def revoke_changed_trust(session):
             or sa.inspect(r).attrs.is_tombstone.history.has_changes()
         )
     }
+    return ids
+
+
+def remember_trust_changes(session):
+    ids = changed_trust_ids(session)
     if not ids or not sa.inspect(session.connection()).has_table("scout_attendance_requests"):
         return
-    # Acquire membership locks before flushing the moderation row, matching accept/submit.
+    # Before the trust UPDATE, serialize with admission, including explicit/autoflush.
+    # Select only the key so a dirty UserAccount's new standing is never overwritten.
     with session.no_autoflush:
-        lock_requests(
-            ScoutAttendance.query.filter(
-                ScoutAttendance.scout_user_id.in_(ids), ScoutAttendance.status.in_(("pending", "accepted"))
-            )
-        )
-        UserAccount.query.filter(UserAccount.id.in_(ids)).order_by(UserAccount.id).with_for_update().all()
-    session.flush()
-    for user_id in sorted(ids):
-        revoke_user(user_id)
+        session.query(UserAccount.id).filter(UserAccount.id.in_(ids)).order_by(UserAccount.id).with_for_update().all()
+    session.info.setdefault("c4_changed_trust", set()).update(ids)
+
+
+@sa.event.listens_for(Session, "before_flush")
+def remember_flushed_trust(session, flush_context, instances):
+    remember_trust_changes(session)
+
+
+@sa.event.listens_for(Session, "before_commit")
+def revoke_changed_trust(session):
+    """Reconcile direct ORM moderation and flushed maintenance in their transaction.
+
+    Bulk SQL moderation must call revoke_user explicitly; ordinary transactions do
+    no extra work. Revocation holds scout/request locks, never program locks.
+    """
+    if session.info.get("c4_reconciling"):
+        return
+    remember_trust_changes(session)
+    ids = session.info.pop("c4_changed_trust", set())
+    if not ids:
+        return
+    session.info["c4_reconciling"] = True
+    try:
+        session.flush()
+        for user_id in sorted(ids):
+            try:
+                verified(user_id)
+            except Error:
+                revoke_user(user_id)
+        session.info.pop("c4_changed_trust", None)
+    finally:
+        session.info.pop("c4_reconciling", None)
+
+
+@sa.event.listens_for(Session, "after_soft_rollback")
+def clear_rolled_back_trust(session, previous_transaction):
+    # A savepoint rollback must not lose changes belonging to the outer transaction.
+    if not previous_transaction.nested:
+        session.info.pop("c4_changed_trust", None)
 
 
 def revoke_ineligible(*, program_id=None, limit=100):
@@ -490,8 +550,5 @@ def revoke_ineligible(*, program_id=None, limit=100):
 def lock_user_attendance(user_id):
     if not sa.inspect(db.session.connection()).has_table("scout_attendance_requests"):
         return
-    lock_requests(
-        ScoutAttendance.query.filter_by(scout_user_id=user_id).filter(
-            ScoutAttendance.status.in_(("pending", "accepted"))
-        )
-    )
+    with db.session.no_autoflush:
+        db.session.query(UserAccount.id).filter_by(id=user_id).with_for_update().first()

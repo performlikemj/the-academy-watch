@@ -149,3 +149,6 @@ Before marking work complete:
 - [ ] Tests pass
 - [ ] Ledger state updated
 - [ ] Patterns added to AGENTS.md if discovered
+
+- C4 trust revocation locks scout account → attendance only, re-reading after the mutex; admission/decisions use program → opportunity → scout → attendance. Never acquire program locks from trust reconciliation. Before-flush retains trust-loss IDs and locks the account before UPDATE; before-commit rechecks/reconciles flushed changes; rollback clears transaction-local evidence.
+- Today scopes match SQL with `filter_match_bytes_query` and introduction subjects with `filter_public_adult_query` before LIMIT/has-more. Accepted scout queues end at session end (fallback start+one day); retention history is separate.

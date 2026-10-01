@@ -32,6 +32,8 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
 
 ## State
 
+- **Now (2026-10-01):** C4F2 in progress, ten remaining REVIEW-DUEL findings incl both N1s; see `ledgers/CONTINUITY_p2-c4.md`.
+
 - **Now (2026-10-01):** Phase 2 C4 fix round 1 complete; final full flags-off4302pass92skip0fail on source3fb2d984. Main/B2 784b1490 and latest B3 46a4274f integrated; C1/C2 contracted ancestors recopied. PR #1120 remains unmerged. Delivery record: `~/codex-runs/aw-redesign/logs/C4F1.final.md`; implementation snapshot: `ledgers/CONTINUITY_p2-c4.md`.
 - **Now (2026-10-01):** B2F5 local gates green after mechanical refresh onto main/B1 e82bb4e3: full flags-off4075pass69skip0fail, PG19/Node219/Playwright45/Ruff-format579/lint0err186warn/build. All36 untouched B2 blobs equal reviewed16540e03; p2b1 matches main; real dark-count omission2 pass. Push + ready #1113 + CI verification next; no merge. Hand-back `~/codex-runs/aw-redesign/logs/B2F5.final.md`; see `ledgers/CONTINUITY_p2-b2.md`.
 

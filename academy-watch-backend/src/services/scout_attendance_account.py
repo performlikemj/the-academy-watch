@@ -1,9 +1,11 @@
 """Flag-independent account privacy and bounded expiry maintenance."""
 
-from src.models.opportunities import now
+from src.models.league import db
+from src.models.opportunities import ClubOpportunity, now
 from src.models.p2_foundation import NotificationOutbox
 from src.models.scout_attendance import ScoutAttendance
 from src.services.account_standing import account_can_act
+from src.services.scout_attendance import visible_event
 from src.services.trust import is_verified_scout
 
 
@@ -21,6 +23,14 @@ def export_attendance(user, schema):
         return {}
     trusted = account_can_act(user) and is_verified_scout(user)
     rows = ScoutAttendance.query.filter_by(scout_user_id=user.id).all()
+    readable = {
+        r.id
+        for r in rows
+        if trusted
+        and r.status == "accepted"
+        and r.retention_expires_at > now()
+        and visible_event(db.session.get(ClubOpportunity, r.opportunity_id))
+    }
     return (
         {
             "scout_attendance": [
@@ -29,7 +39,7 @@ def export_attendance(user, schema):
                     for c in r.__table__.columns
                     if (v := getattr(r, c.name)) is not None
                     and c.name != "decision_user_id"
-                    and (c.name != "arrival_instructions" or (trusted and r.status == "accepted"))
+                    and (c.name != "arrival_instructions" or r.id in readable)
                 }
                 for r in rows
             ]

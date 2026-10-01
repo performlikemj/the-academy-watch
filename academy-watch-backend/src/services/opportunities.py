@@ -375,6 +375,17 @@ def save_opportunity(program_id, actor_id, data, oid=None):
     }
     if set(data) - allowed:
         raise OpportunityError("invalid_fields")
+    if oid and set(data) & {"type", "starts_at", "ends_at", "timezone", "venue", "address"}:
+        # Attendance commitments apply even to youth sessions with no applications,
+        # and survive feature rollback. The program/opportunity lock serializes submit.
+        from src.models.scout_attendance import ScoutAttendance
+
+        if sa.inspect(db.session.connection()).has_table("scout_attendance_requests") and (
+            ScoutAttendance.query.filter_by(opportunity_id=oid)
+            .filter(ScoutAttendance.status.in_(("pending", "accepted")), ScoutAttendance.retention_expires_at > now())
+            .first()
+        ):
+            raise OpportunityError("advertised_terms_locked", 409)
     if oid and OpportunityApplication.query.filter_by(opportunity_id=oid).first():
         locked = {
             "type",

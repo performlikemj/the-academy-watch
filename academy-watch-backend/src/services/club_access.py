@@ -33,6 +33,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from functools import wraps
 
+import sqlalchemy as sa
 from flask import g, jsonify, request
 from sqlalchemy.exc import IntegrityError
 from src.auth import require_user_auth
@@ -352,6 +353,67 @@ def match_visible_to(access, match, *, require_bytes=False, scope_evidence=None)
         ).all()
     )
     return len(rows) == len(set(member_ids)) and all(row.squad_id in access.squad_ids for row in rows)
+
+
+def filter_match_bytes_query(query, access):
+    """SQL form of match_visible_to(require_bytes=True), before LIMIT/counts.
+
+    Use correlated EXISTS for durable coverage and every current member. Missing
+    and foreign-club members fail closed, just as the single-match predicate does.
+    """
+    if access is None or access.whole_club:
+        return query
+    from src.models.club_access import VideoMatchCoverage
+    from src.models.funding import ClubRosterMember
+    from src.models.video import VideoMatch, VideoRosterEntry
+
+    covered = sa.exists(
+        sa.select(VideoMatchCoverage.id).where(
+            VideoMatchCoverage.video_match_id == VideoMatch.id, VideoMatchCoverage.kind == "origin"
+        )
+    )
+    uncertain = sa.exists(
+        sa.select(VideoMatchCoverage.id).where(
+            VideoMatchCoverage.video_match_id == VideoMatch.id, VideoMatchCoverage.kind == "uncertain"
+        )
+    )
+
+    def scoped_member(column):
+        return sa.exists(
+            sa.select(ClubRosterMember.id)
+            .where(
+                ClubRosterMember.id == column,
+                ClubRosterMember.program_id == VideoMatch.club_program_id,
+                ClubRosterMember.squad_id.in_(access.squad_ids),
+            )
+            .correlate(VideoMatch, column.table)
+        )
+
+    bad_roster = sa.exists(
+        sa.select(VideoRosterEntry.id).where(
+            VideoRosterEntry.video_match_id == VideoMatch.id, ~scoped_member(VideoRosterEntry.club_roster_member_id)
+        )
+    )
+    bad_coverage = sa.exists(
+        sa.select(VideoMatchCoverage.id).where(
+            VideoMatchCoverage.video_match_id == VideoMatch.id,
+            VideoMatchCoverage.kind == "member",
+            ~scoped_member(VideoMatchCoverage.club_roster_member_id),
+        )
+    )
+    return query.filter(
+        VideoMatch.squad_id.in_(access.squad_ids),
+        VideoMatch.uploaded_at.is_not(None),
+        VideoMatch.blob_etag.is_not(None),
+        VideoMatch.blob_etag != "",
+        VideoMatch.scoped_ready_etag == VideoMatch.blob_etag,
+        VideoMatch.scoped_snapshot.is_not(None),
+        VideoMatch.scoped_snapshot != "",
+        covered,
+        ~uncertain,
+        ~bad_roster,
+        ~bad_coverage,
+    )
 
 
 def upload_completed(match) -> bool:

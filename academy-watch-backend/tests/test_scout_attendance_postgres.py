@@ -332,3 +332,158 @@ def test_rc4_scout_index_real_pg_plan(pg):
     )
     assert "ix_scout_attendance_scout" in " ".join(plan), plan
     print("RC4 scout index plan:", " | ".join(plan))
+
+
+@pytest.mark.parametrize("flush_trust", [False, True])
+def test_duel_x5_new_admission_then_revocation_then_duplicate_retry(pg, monkeypatch, flush_trust):
+    """Select the reviewers' three-transaction schedule with real row locks.
+
+    R reaches its first scout-mutex SELECT, T1 commits a new request, R holds
+    the mutex, then T2 retries while holding the program. R must commit its
+    safety action, without ever asking T2 for its program lock.
+    """
+    from threading import Event, Thread, current_thread
+
+    app, ids = pg
+    reached_mutex, admitted, holding_mutex, retry_waiting = (Event() for _ in range(4))
+    results = {}
+    engine = db.engine
+    first_revoke_lock = {"seen": False, "acquired": False}
+
+    def before_sql(connection, cursor, statement, parameters, context, many):
+        mutex = "user_accounts.id" in statement and "FOR UPDATE" in statement
+        if not mutex:
+            return
+        name = current_thread().name
+        if name == "C4F2-R" and not first_revoke_lock["seen"]:
+            first_revoke_lock["seen"] = True
+            reached_mutex.set()
+            assert admitted.wait(15)
+        elif name == "C4F2-T2":
+            retry_waiting.set()
+
+    def after_sql(connection, cursor, statement, parameters, context, many):
+        if (
+            current_thread().name == "C4F2-R"
+            and "user_accounts.id" in statement
+            and "FOR UPDATE" in statement
+            and not first_revoke_lock["acquired"]
+        ):
+            first_revoke_lock["acquired"] = True
+            holding_mutex.set()
+            assert retry_waiting.wait(15)
+
+    def run(name):
+        with app.app_context():
+            try:
+                db.session.execute(sa.text("SET LOCAL statement_timeout = '20s'"))
+                if name == "R":
+                    verification = ScoutVerification.query.filter_by(user_account_id=ids["scout"]).one()
+                    service.revoke_user(ids["scout"])
+                    verification.status = "revoked"
+                    if flush_trust:
+                        db.session.flush()
+                    db.session.commit()
+                    results[name] = "committed"
+                else:
+                    assert (reached_mutex if name == "T1" else holding_mutex).wait(15)
+                    row, created = service.submit(
+                        ids["oid"], ids["scout"], {"note": "test only", "no_approach_confirmed": True}
+                    )
+                    db.session.commit()
+                    results[name] = created
+            except service.Error as exc:
+                db.session.rollback()
+                results[name] = exc.code
+            except Exception as exc:
+                db.session.rollback()
+                results[name] = repr(exc)
+            finally:
+                if name == "T1":
+                    admitted.set()
+                db.session.remove()
+
+    sa.event.listen(engine, "before_cursor_execute", before_sql)
+    sa.event.listen(engine, "after_cursor_execute", after_sql)
+    threads = [Thread(target=run, args=(name,), name="C4F2-" + name) for name in ("R", "T1", "T2")]
+    try:
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(35)
+        assert not any(t.is_alive() for t in threads), results
+        assert results == {"T1": True, "R": "committed", "T2": "verified_scout_required"}, results
+        db.session.expire_all()
+        assert ScoutVerification.query.filter_by(user_account_id=ids["scout"]).one().status == "revoked"
+        row = ScoutAttendance.query.filter_by(scout_user_id=ids["scout"]).one()
+        assert (row.status, row.version, row.arrival_instructions) == ("revoked", 2, "")
+        assert (
+            NotificationOutbox.query.filter_by(template="c4_attendance")
+            .filter(NotificationOutbox.payload["state"].as_string() == "revoked")
+            .count()
+            == 2
+        )
+    finally:
+        sa.event.remove(engine, "before_cursor_execute", before_sql)
+        sa.event.remove(engine, "after_cursor_execute", after_sql)
+
+
+def test_duel_n1_session_end_filter_runs_on_postgres(pg):
+    from src.models.opportunities import ClubOpportunity
+
+    app, ids = pg
+    post = db.session.get(ClubOpportunity, ids["oid"])
+    post.starts_at = now() - timedelta(minutes=1)
+    post.ends_at = None
+    db.session.commit()
+    assert (
+        ClubOpportunity.query.filter(ClubOpportunity.id == post.id, service.session_end_expression() > now()).count()
+        == 1
+    )
+    post.starts_at = now() - timedelta(days=30)
+    db.session.commit()
+    assert (
+        ClubOpportunity.query.filter(ClubOpportunity.id == post.id, service.session_end_expression() > now()).count()
+        == 0
+    )
+    post.ends_at = now() + timedelta(hours=1)
+    db.session.commit()
+    assert (
+        ClubOpportunity.query.filter(ClubOpportunity.id == post.id, service.session_end_expression() > now()).count()
+        == 1
+    )
+
+
+def test_duel_x1_postgres_scope_before_limit(pg):
+    from src.models.club_access import VideoMatchCoverage
+    from src.models.funding import ClubSquad
+    from src.models.video import VideoMatch
+    from src.services.club_access import filter_match_bytes_query
+
+    app, ids = pg
+    squad = ClubSquad(program_id=ids["pid"], name="C4 TEST ONLY scope", kind="first_team")
+    db.session.add(squad)
+    db.session.flush()
+    matches = []
+    for i in range(32):
+        match = VideoMatch(
+            club_program_id=ids["pid"],
+            squad_id=squad.id,
+            status="processing",
+            created_at=now() + timedelta(seconds=i),
+            uploaded_at=now(),
+            blob_etag="x",
+            scoped_ready_etag="x",
+            scoped_snapshot="x",
+        )
+        db.session.add(match)
+        db.session.flush()
+        db.session.add(VideoMatchCoverage(video_match_id=match.id, kind="origin"))
+        if i:
+            db.session.add(VideoMatchCoverage(video_match_id=match.id, kind="member", club_roster_member_id=999999999))
+        matches.append(match)
+    db.session.commit()
+    access = SimpleNamespace(whole_club=False, squad_ids={squad.id})
+    query = VideoMatch.query.filter(VideoMatch.id.in_([m.id for m in matches]))
+    rows = filter_match_bytes_query(query, access).order_by(VideoMatch.created_at.desc()).limit(31).all()
+    assert [m.id for m in rows] == [matches[0].id]
