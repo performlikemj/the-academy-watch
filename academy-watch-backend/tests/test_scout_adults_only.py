@@ -3,11 +3,13 @@
 import csv
 import io
 import json
+from collections import Counter
 from datetime import UTC, date, datetime, timedelta
 from types import SimpleNamespace
 
 import pandas as pd
 import pytest
+import sqlalchemy as sa
 from src.auth import issue_user_token
 from src.models.follow import Follow, FollowList, FollowPlayerSnapshot, PlayerShadow
 from src.models.journey import PlayerJourney
@@ -226,7 +228,97 @@ def test_digest_and_snapshots_skip_ineligible_and_recheck_cache(desk):
     assert _player_state(1800, cache)["kind"] == "tracked"
     TrackedPlayer.query.filter_by(player_api_id=1800).update({"birth_date": "2015-01-01"})
     db.session.commit()
-    assert _player_state(1800, cache)["kind"] == "none"
+    # Eligibility is a run snapshot; a fresh run must recheck changed DOBs.
+    assert _player_state(1800, {})["kind"] == "none"
+
+
+@pytest.mark.parametrize("source", ["watchlist", "list", "both"])
+def test_digest_eligibility_queries_once_per_player_per_run_across_pages(app, desk, monkeypatch, source):
+    from src.jobs import run_scout_digests as job
+    from src.services import public_adult
+
+    desk.user.scout_digest_opt_in = False
+    users = [
+        UserAccount(
+            email=f"watcher-{index}@example.test",
+            display_name=f"Watcher {index}",
+            display_name_lower=f"watcher {index}",
+            scout_digest_opt_in=True,
+        )
+        for index in range(8)
+    ]
+    db.session.add_all(users)
+    db.session.flush()
+    for user in users:
+        if source in {"watchlist", "both"}:
+            db.session.add_all(ScoutWatchlistEntry(user_account_id=user.id, player_api_id=pid) for pid in (1800, 1810))
+        if source in {"list", "both"}:
+            follow_list = FollowList(user_account_id=user.id, name="Run fixtures", is_active=True)
+            db.session.add(follow_list)
+            db.session.flush()
+            db.session.add_all(
+                Follow(list_id=follow_list.id, kind="player", selector={"player_api_id": pid}, label="Stored fixture")
+                for pid in (1800, 1810)
+            )
+    db.session.commit()
+    monkeypatch.setattr(job, "MAX_DIGEST_USERS", 2)
+    monkeypatch.setattr(job, "_get_api_client", lambda: SimpleNamespace(get_player_injuries=lambda pid: []))
+
+    evaluations = Counter()
+    queries = []
+    check = public_adult.public_adult_ids
+
+    def count_query(conn, cursor, statement, parameters, context, executemany):
+        queries.append(statement)
+
+    def counted_check(ids):
+        ids = list(ids)
+        evaluations.update(ids)
+        # Count real eligibility SQL separately from rendering/stat queries.
+        sa.event.listen(db.engine, "before_cursor_execute", count_query)
+        try:
+            return check(ids)
+        finally:
+            sa.event.remove(db.engine, "before_cursor_execute", count_query)
+
+    monkeypatch.setattr(public_adult, "public_adult_ids", counted_check)
+    for run in (1, 2):
+        summary = job.run(dry_run=True, min_interval_hours=0)
+        assert summary["users_considered"] == summary["would_send"] == len(users)
+        assert summary["errors"] == summary["skipped"] == 0
+        assert evaluations == Counter({1800: run, 1810: run})
+        # Six source/hold queries per check, independent of eight watchers and
+        # four pages. List resolution batches both IDs in one check.
+        assert len(queries) == run * (6 if source == "list" else 12)
+    assert ScoutWatchlistEntry.query.filter_by(player_api_id=1810).count() >= 1
+    assert FollowPlayerSnapshot.query.count() == 0  # dry runs never persist baselines
+
+
+def test_prefilled_digest_state_cannot_bypass_ineligible_result(desk):
+    from src.services.scout_digest_service import _player_state
+
+    cache = {1810: {"kind": "tracked", "stats": {"goals": 100}}}
+    assert _player_state(1810, cache)["kind"] == "none"
+    assert _player_state(1810, cache)["kind"] == "none"
+    assert _player_state(1800, cache)["kind"] == "tracked"
+
+
+def test_follow_player_eligibility_is_batched_before_resolution(desk, monkeypatch):
+    from src.services import public_adult
+    from src.services.follow_resolver import resolve_list
+
+    calls = []
+    check = public_adult.public_adult_ids
+
+    def counted_check(ids):
+        ids = list(ids)
+        calls.append(set(ids))
+        return check(ids)
+
+    monkeypatch.setattr(public_adult, "public_adult_ids", counted_check)
+    for _ in range(2):
+        assert {row["player_api_id"] for row in resolve_list(desk.follow_list)} == desk.adults
+    assert calls == [desk.ids, desk.ids]  # fresh ordinary reads recheck once per list
 
 
 def test_gol_rechecks_cached_frames_and_all_player_relations(app, desk):

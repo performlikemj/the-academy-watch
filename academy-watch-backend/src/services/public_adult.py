@@ -178,6 +178,23 @@ def is_public_adult(subject) -> bool:
     return _valid_id(pid) and pid in public_adult_ids([pid])
 
 
+def cached_public_adult_ids(signed_ids, cache: dict) -> set[int]:
+    """Batch and memoise eligible AND ineligible IDs in a caller-owned run cache.
+
+    The namespace is separate from integer-keyed player states, so even a
+    prefilled state must pass eligibility once. Never reuse this cache across
+    runs; ordinary public reads continue to recheck current eligibility.
+    """
+    ids = {pid for pid in signed_ids if _valid_id(pid)}
+    eligibility = cache.setdefault("__public_adult_eligibility__", {})
+    missing = sorted(pid for pid in ids if pid not in eligibility)
+    for offset in range(0, len(missing), 500):
+        batch = missing[offset : offset + 500]
+        adults = public_adult_ids(batch)
+        eligibility.update((pid, pid in adults) for pid in batch)
+    return {pid for pid in ids if eligibility[pid]}
+
+
 def filter_public_adults(query, signed_id_column, *, max_candidates=100, after=None):
     """Return a filtered Query for one signed-ID candidate page (default 100).
 

@@ -15,7 +15,7 @@ import logging
 from src.models.follow import Follow, PlayerShadow
 from src.models.tracked_player import TrackedPlayer
 from src.services.player_suppression import without_active_suppression
-from src.services.public_adult import is_public_adult
+from src.services.public_adult import cached_public_adult_ids
 
 logger = logging.getLogger(__name__)
 
@@ -205,9 +205,9 @@ def derive_label(kind: str, selector: dict, name: str | None = None) -> str:
 # --------------------------------------------------------------------------- #
 
 
-def _resolve_player(selector: dict) -> list[tuple[int, str]]:
+def _resolve_player(selector: dict, adult_player_ids: set[int]) -> list[tuple[int, str]]:
     pid = selector.get("player_api_id")
-    if not pid or not is_public_adult(pid):
+    if not _signed_player_int(pid) or pid not in adult_player_ids:
         return []
     if pid < 0:
         subject = _resolve_subject(pid)
@@ -303,22 +303,28 @@ def _resolve_query(selector: dict, limit: int | None) -> list[tuple[int, str]]:
     return [(row.player_api_id, "shadow" if row.is_local else "tracked") for row in rows]
 
 
-def resolve_list(follow_list, limit: int | None = None) -> list[dict]:
+def resolve_list(follow_list, limit: int | None = None, *, eligibility_cache: dict | None = None) -> list[dict]:
     """Ordered, deduped [{player_api_id, source}] for a FollowList.
 
     Follows are resolved in creation order; the first follow to yield a player
     wins (later duplicates are dropped). ``limit`` caps the returned set (the
     digest passes ``list.player_cap``; the resolve endpoint paginates the full
-    set by passing None).
+    set by passing None). Player follows are checked in batches before the
+    loop. A digest may share its run-owned eligibility cache across lists and
+    cursor pages; ordinary calls use a fresh cache.
     """
     follows = follow_list.follows.order_by(Follow.created_at.asc(), Follow.id.asc()).all()
+    adult_player_ids = cached_public_adult_ids(
+        ((follow.selector or {}).get("player_api_id") for follow in follows if follow.kind == "player"),
+        eligibility_cache if eligibility_cache is not None else {},
+    )
     seen: set[int] = set()
     result: list[dict] = []
     for follow in follows:
         selector = follow.selector or {}
         try:
             if follow.kind == "player":
-                pairs = _resolve_player(selector)
+                pairs = _resolve_player(selector, adult_player_ids)
             elif follow.kind == "academy_club":
                 pairs = _resolve_academy_club(selector, limit)
             elif follow.kind == "geo":
