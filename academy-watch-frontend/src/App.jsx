@@ -86,7 +86,7 @@ import { AdminLocalClubs } from '@/pages/admin/AdminLocalClubs'
 import { AdminClubIdentities } from '@/pages/admin/AdminClubIdentities'
 import { AdminFunding } from '@/pages/admin/AdminFunding'
 import { HomePage } from '@/pages/HomePage'
-import { ClubsNearYouTeaser } from '@/pages/teasers/ClubsNearYouTeaser'
+import { ClubsPage } from '@/pages/clubs/ClubsPage' // p2-b1: real directory when the flag is on, the teaser otherwise
 import { OpportunitiesTeaser } from '@/pages/teasers/OpportunitiesTeaser'
 import { AdminInterest } from '@/pages/admin/AdminInterest'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
@@ -4071,7 +4071,7 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path="/" element={<HomePage />} />
-      <Route path="/clubs" element={<ClubsNearYouTeaser />} />
+      <Route path="/clubs" element={<ClubsPage />} />
       <Route path="/opportunities" element={<OpportunitiesTeaser />} />
       <Route path="/teams" element={<TeamsPage />} />
       <Route path="/teams/:teamSlug" element={<TeamDetailPage />} />

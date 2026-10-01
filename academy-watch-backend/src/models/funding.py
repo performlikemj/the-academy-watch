@@ -383,6 +383,17 @@ class ClubProgramProfileRevision(db.Model):
             name="ck_club_program_revisions_status",
         ),
         db.Index("ix_club_program_revisions_program", "program_id", "created_at"),
+        # --- p2-b1 begin ---
+        db.CheckConstraint(
+            "club_level IS NULL OR club_level IN ('grassroots','amateur','semi_pro','professional')",
+            name="ck_club_program_revisions_club_level",
+        ),
+        db.CheckConstraint(
+            "(latitude IS NULL AND longitude IS NULL) OR "
+            "(latitude BETWEEN -90 AND 90 AND longitude BETWEEN -180 AND 180)",
+            name="ck_club_program_revisions_coordinates",
+        ),
+        # --- p2-b1 end ---
     )
 
     id = db.Column(db.Integer, primary_key=True)
@@ -398,6 +409,16 @@ class ClubProgramProfileRevision(db.Model):
     media_urls = db.Column(db.JSON, nullable=False, default=list)
     external_support_provider = db.Column(db.String(30))
     external_support_url = db.Column(db.String(500))
+    # --- p2-b1 begin --- club directory: public only once this revision is approved
+    # (see services/club_directory.py; never serialized by revision_dict).
+    venue_name = db.Column(db.String(120))
+    postcode = db.Column(db.String(12))
+    latitude = db.Column(db.Float)
+    longitude = db.Column(db.Float)
+    geocode_source = db.Column(db.String(20))
+    club_level = db.Column(db.String(20))
+    gender_programs = db.Column(db.JSON)
+    # --- p2-b1 end ---
     reviewed_by = db.Column(db.String(200))
     review_reason = db.Column(db.Text)
     reviewed_at = db.Column(db.DateTime)

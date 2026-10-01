@@ -27,6 +27,7 @@ from src.models.funding import (
     update_dict,
 )
 from src.models.league import League, TeamProfile, UserAccount, db
+from src.services import club_directory
 from src.services.club_console_bridge import (
     get_bridge_console_grant,
     is_bridge_owned_program,
@@ -1114,7 +1115,7 @@ def admin_profile_revisions():
     for revision in revisions.all():
         payload.append(
             {
-                **revision_dict(revision),
+                **club_directory.revision_payload(revision),  # p2-b1: == revision_dict while the flag is off
                 "submitted_by_user_id": revision.submitted_by_user_id,
                 "program": {
                     "id": revision.program.id,
@@ -1158,7 +1159,7 @@ def review_profile_revision(program_id: int, revision_id: int):
             {"program_id": program_id},
         )
         db.session.commit()
-        return jsonify({"revision": revision_dict(revision)})
+        return jsonify({"revision": club_directory.revision_payload(revision)})  # p2-b1
     except ValueError as exc:
         db.session.rollback()
         return jsonify({"error": str(exc)}), 400
@@ -1298,6 +1299,10 @@ def public_program(slug):
         if program.team_profile
         else None
     )
+    # --- p2-b1 begin --- approved location/offering + aggregate squad count (key absent while off)
+    if club_directory.directory_enabled():
+        payload["directory"] = club_directory.public_directory_block(program, revision)
+    # --- p2-b1 end ---
     return jsonify({"program": payload})
 
 
