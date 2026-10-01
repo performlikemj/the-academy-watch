@@ -61,7 +61,7 @@ function PlayerSearchResult({ player }) {
 
 export function PlayerOnboarding() {
   const flags = useOpportunities()
-  const { claims: profiles, loading: profilesLoading, error: profilesError, retry: retryProfiles } = useApprovedPlayerState(flags)
+  const { claims: profiles, loading: profilesLoading, error: profilesError, retry: retryProfiles, refreshing: profilesRefreshing } = useApprovedPlayerState(flags, true)
   const applicationsError = flags.error || profilesError
   const checkingProfiles = profilesLoading && !applicationsError
   const { api_football_frozen: frozen } = useDataMode()
@@ -227,7 +227,7 @@ export function PlayerOnboarding() {
       {/* --- p2-b2 begin --- */}
       {applicationsError ? <section className="floodlight-container pb-8" aria-label="Applications unavailable">
         <p role="alert">{applicationsError}</p>
-        <Button className="mt-4" disabled={flags.retrying || profilesLoading} onClick={flags.error ? flags.retry : retryProfiles}>Retry applications</Button>
+        <Button className="mt-4" disabled={flags.retrying || profilesLoading || profilesRefreshing} onClick={flags.error ? flags.retry : retryProfiles}>Retry applications</Button>
       </section> : !checkingProfiles && <PlayerApplications />}
       {!checkingProfiles && (applicationsError || profiles.length > 0) && <div className="floodlight-container pb-16">{discovery}</div>}
       {/* --- p2-b2 end --- */}

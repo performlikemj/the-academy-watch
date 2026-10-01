@@ -1,4 +1,4 @@
-/* global document, innerWidth, getComputedStyle */
+/* global document, innerWidth, getComputedStyle, history, dispatchEvent, PopStateEvent */
 import { expect, test } from '@playwright/test'
 import fs from 'node:fs/promises'
 import path from 'node:path'
@@ -16,7 +16,7 @@ async function fixture(page, { role = 'owner', on = true, eligible = true, claim
     localStorage.setItem('academy_watch_display_name_confirmed', 'true')
     localStorage.setItem('academyWatch.playerOnboardingPromptDismissed.v1', 'true')
   })
-  const calls = [], errors = [], submissions = []
+  const calls = [], errors = [], submissions = [], claimsReads = []
   let recovered = false
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()) })
   page.on('pageerror', error => errors.push(error.message))
@@ -38,6 +38,7 @@ async function fixture(page, { role = 'owner', on = true, eligible = true, claim
     if (p === '/api/local-players/9/showcase') return reply({ claim_status: 'claimed', profile: { bio: 'Synthetic profile' }, affiliations: [], reel: [], photos: [] })
     if (p === '/api/me/claims') return reply({ claims: role === 'owner' ? [{ id: 3, local_player_id: 9, player_api_id: -9, relationship_type: 'player', status: 'approved' }] : [] })
     if (p === '/api/me/application-claims') {
+      claimsReads.push(req.url())
       if (waitClaims) await waitClaims
       if (recovered && waitRetry) await waitRetry
       const status = retrySuccess && recovered ? 200 : claimsStatus
@@ -58,7 +59,7 @@ async function fixture(page, { role = 'owner', on = true, eligible = true, claim
     }
     return reply({})
   })
-  return { calls, errors, submissions, recover: () => { recovered = true } }
+  return { calls, errors, submissions, claimsReads, recover: () => { recovered = true } }
 }
 async function shot(page, name, size) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
@@ -345,6 +346,174 @@ for (const [width, height, size] of [[1440, 900, 'desktop'], [390, 844, 'mobile'
       await expect(page.getByRole('alert')).toBeVisible()
       await expect(page.getByText('Open now', { exact: true })).toHaveCount(0)
       await shot(page, 'failed-club-opportunities', size)
+    })
+    // Client-side route changes retain the shared provider and its cached state.
+    const navigate = async (page, url) => {
+      await page.evaluate(value => { history.pushState({}, '', value); dispatchEvent(new PopStateEvent('popstate')) }, url)
+      await expect(page).toHaveURL(new RegExp(url + '$'))
+    }
+    const menu = async page => {
+      await page.getByRole('button', { name: size === 'mobile' ? 'Toggle navigation menu' : 'Synthetic Viewer' }).click()
+      return page.getByRole(size === 'mobile' ? 'dialog' : 'menu')
+    }
+    const destinations = ['/opportunities', `/opportunities/${oid}`, '/programs/synthetic-uxbf1', '/local-players/9']
+    const normalContent = async (page, url, on) => {
+      if (!on) {
+        const title = url.includes('programs') ? 'Straight from the club, soon.' : url.includes('local-players') ? 'Your next chapter.' : 'Room for your next step.'
+        await expect(page.getByRole('heading', { name: title })).toBeVisible()
+      } else if (url === '/opportunities') await expect(page.getByRole('link', { name: /Adult trial/ }).first()).toBeVisible()
+      else if (url.includes('programs')) await expect(page.getByRole('link', { name: /Adult trial/ })).toBeVisible()
+      else if (url.includes('local-players')) await expect(page.getByRole('heading', { name: 'Your applications', exact: true })).toBeVisible()
+      else await expect(page.getByRole('heading', { name: 'Adult trial', exact: true })).toBeVisible()
+      await expect(page.getByRole('alert')).toHaveCount(0)
+    }
+    for (const on of [true, false]) for (const url of destinations) test(`UXBF4 startup failure recovers on navigation to ${url} flags ${on ? 'ON' : 'OFF'}`, async ({ page }) => {
+      const evidence = await fixture(page, { on, featuresStatus: 500, retrySuccess: true })
+      await page.goto('/')
+      await expect.poll(() => evidence.calls.filter(p => p === '/api/features').length).toBe(1)
+      await page.waitForLoadState('networkidle')
+      evidence.recover()
+      await navigate(page, url)
+      await normalContent(page, url, on)
+      await page.waitForLoadState('networkidle')
+      expect(evidence.calls.filter(p => p === '/api/features')).toHaveLength(2)
+      if (!on) expect(businessCalls(evidence.calls)).toEqual([])
+      await shot(page, `navigation-recovered-${on ? 'on' : 'off'}-${destinations.indexOf(url)}`, size)
+    })
+    for (const on of [true, false]) test(`UXBF4 failed detail heals on another detail without remount flags ${on ? 'ON' : 'OFF'}`, async ({ page }) => {
+      const evidence = await fixture(page, { on, featuresStatus: 500, retrySuccess: true })
+      const otherId = '00000000-0000-4000-8000-000000000003'
+      await page.route(`**/api/opportunities/${otherId}`, route => route.fulfill({ json: { opportunity: { ...opportunity, id: otherId } } }))
+      await page.goto(`/opportunities/${oid}`)
+      await expect(page.getByRole('alert')).toHaveCount(1)
+      evidence.recover()
+      await navigate(page, `/opportunities/${otherId}`)
+      await normalContent(page, `/opportunities/${otherId}`, on)
+      expect(evidence.calls.filter(p => p === '/api/features')).toHaveLength(2)
+      if (!on) expect(businessCalls(evidence.calls)).toEqual([])
+    })
+    for (const on of [true, false]) test(`UXBF4 signed-out failure heals through site links flags ${on ? 'ON' : 'OFF'}`, async ({ page }) => {
+      const evidence = await fixture(page, { role: 'visitor', on, featuresStatus: 500, retrySuccess: true })
+      await page.goto('/opportunities')
+      await expect(page.getByRole('alert')).toHaveCount(1)
+      evidence.recover()
+      await page.getByRole('link', { name: 'The Academy Watch logo The Academy Watch' }).click()
+      await expect(page).toHaveURL(/\/$/)
+      if (size === 'mobile') {
+        await page.getByRole('button', { name: 'Toggle navigation menu' }).click()
+        await page.getByRole('dialog').getByRole('link', { name: 'Opportunities', exact: true }).click()
+      } else await page.getByRole('link', { name: 'Opportunities', exact: true }).click()
+      await normalContent(page, '/opportunities', on)
+      expect(evidence.calls.filter(p => p === '/api/features')).toHaveLength(2)
+      expect(evidence.calls.filter(p => p.startsWith('/api/me/application'))).toEqual([])
+      if (!on) expect(businessCalls(evidence.calls)).toEqual([])
+    })
+    for (const on of [true, false]) test(`UXBF4 recovered feature cache heals provider on navigation flags ${on ? 'ON' : 'OFF'}`, async ({ page }) => {
+      const evidence = await fixture(page, { on, featuresStatus: 500, retrySuccess: true })
+      await page.goto('/')
+      await page.waitForLoadState('networkidle')
+      evidence.recover()
+      // Clubs independently uses the shared feature cache.
+      await navigate(page, '/clubs')
+      await expect.poll(() => evidence.calls.filter(p => p === '/api/features').length).toBe(2)
+      await page.waitForLoadState('networkidle')
+      await navigate(page, '/opportunities')
+      await normalContent(page, '/opportunities', on)
+      expect(evidence.calls.filter(p => p === '/api/features')).toHaveLength(2)
+      if (!on) expect(businessCalls(evidence.calls)).toEqual([])
+    })
+    for (const url of [...destinations, '/onboarding/player']) test(`UXBF4 failed claims recover on navigation to ${url}`, async ({ page }) => {
+      const evidence = await fixture(page, { claimsStatus: 500, retrySuccess: true })
+      await page.goto('/')
+      await page.waitForLoadState('networkidle')
+      expect(evidence.calls.filter(p => p === '/api/me/application-claims')).toHaveLength(1)
+      evidence.recover()
+      await navigate(page, url)
+      if (url.includes('onboarding')) await expect(page.getByRole('heading', { name: 'Your next step.' })).toBeVisible()
+      else await normalContent(page, url, true)
+      const opened = await menu(page)
+      await expect(opened.getByText('My profile', { exact: true })).toBeVisible()
+      await expect(opened.getByText('My applications', { exact: true })).toBeVisible()
+      await page.waitForLoadState('networkidle')
+      expect(evidence.claimsReads.filter(value => !new URL(value).search)).toHaveLength(2)
+      expect(evidence.calls.filter(p => p === '/api/features')).toHaveLength(1)
+    })
+    for (const failure of ['bootstrap', 'claims']) test(`UXBF4 persistent ${failure} failure retries once per arrival without looping`, async ({ page }) => {
+      const evidence = await fixture(page, { featuresStatus: failure === 'bootstrap' ? 500 : 200, claimsStatus: failure === 'claims' ? 500 : 200 })
+      const endpoint = failure === 'bootstrap' ? '/api/features' : '/api/me/application-claims'
+      await page.goto('/')
+      await page.waitForLoadState('networkidle')
+      await navigate(page, '/onboarding/player')
+      await expect(page.getByRole('alert')).toHaveCount(1)
+      await page.waitForLoadState('networkidle')
+      expect(evidence.calls.filter(p => p === endpoint)).toHaveLength(2)
+      await page.getByLabel('Player name').fill('synthetic')
+      await page.waitForLoadState('networkidle')
+      expect(evidence.calls.filter(p => p === endpoint)).toHaveLength(2)
+    })
+    for (const url of ['/onboarding/player', '/local-players/9']) test(`UXBF4 approval and removal revalidate on navigation to ${url} with reload control`, async ({ page }) => {
+      const evidence = await fixture(page, { claims: [] })
+      let claims = [], release, waiting
+      await page.route('**/api/me/application-claims', async route => {
+        evidence.calls.push('/api/me/application-claims')
+        const snapshot = claims
+        if (waiting) await waiting
+        await route.fulfill({ json: { claims: snapshot } })
+      })
+      await page.goto('/')
+      await page.waitForLoadState('networkidle')
+      claims = [claim]
+      await navigate(page, url)
+      if (url.includes('onboarding')) await expect(page.getByRole('heading', { name: 'Your next step.' })).toBeVisible()
+      else await normalContent(page, url, true)
+      expect(evidence.calls.filter(p => p === '/api/me/application-claims')).toHaveLength(2)
+      let opened = await menu(page)
+      await expect(opened.getByText('My profile', { exact: true })).toBeVisible()
+      await page.keyboard.press('Escape')
+      await navigate(page, '/opportunities')
+      await normalContent(page, '/opportunities', true)
+      claims = []
+      waiting = new Promise(resolve => { release = resolve })
+      await navigate(page, url)
+      await expect.poll(() => evidence.calls.filter(p => p === '/api/me/application-claims').length).toBe(3)
+      // Keep the last successful value while its same-account revalidation waits.
+      if (url.includes('onboarding')) await expect(page.getByRole('heading', { name: 'Your next step.' })).toBeVisible()
+      else await normalContent(page, url, true)
+      opened = await menu(page)
+      await expect(opened.getByText('My profile', { exact: true })).toBeVisible()
+      await page.keyboard.press('Escape')
+      release(); waiting = null
+      if (url.includes('onboarding')) await expect(page.getByRole('heading', { name: 'Are you a player?' })).toBeVisible()
+      else await expect(page.getByRole('heading', { name: 'Your next chapter.' })).toBeVisible()
+      opened = await menu(page)
+      await expect(opened.getByText('My profile', { exact: true })).toHaveCount(0)
+      await expect(opened.getByText('My applications', { exact: true })).toHaveCount(0)
+      await page.keyboard.press('Escape')
+      await shot(page, `navigation-removed-${url.includes('onboarding') ? 'home' : 'summary'}`, size)
+      await page.reload()
+      if (url.includes('onboarding')) await expect(page.getByRole('heading', { name: 'Are you a player?' })).toBeVisible()
+      else await expect(page.getByRole('heading', { name: 'Your next chapter.' })).toBeVisible()
+      expect(evidence.calls.filter(p => p === '/api/me/application-claims')).toHaveLength(url.includes('onboarding') ? 4 : 5)
+    })
+    test('UXBF4 overlapping home and owner summary arrivals share a pending claims read', async ({ page }) => {
+      const evidence = await fixture(page, { claims: [] })
+      await page.goto('/')
+      await page.waitForLoadState('networkidle')
+      let release
+      const waiting = new Promise(resolve => { release = resolve })
+      await page.route('**/api/me/application-claims', async route => {
+        evidence.calls.push('/api/me/application-claims')
+        await waiting
+        await route.fulfill({ json: { claims: [claim] } })
+      })
+      await navigate(page, '/onboarding/player')
+      await expect.poll(() => evidence.calls.filter(p => p === '/api/me/application-claims').length).toBe(2)
+      await navigate(page, '/local-players/9')
+      await expect(page.getByRole('heading', { name: 'Synthetic Adult', exact: true })).toBeVisible()
+      release()
+      await normalContent(page, '/local-players/9', true)
+      await page.waitForLoadState('networkidle')
+      expect(evidence.calls.filter(p => p === '/api/me/application-claims')).toHaveLength(2)
     })
     for (const failure of ['bootstrap', 'claims']) test(`UXBF3 ${failure} retry restores both navigation shortcuts without reload`, async ({ page }) => {
       const evidence = await fixture(page, { featuresStatus: failure === 'bootstrap' ? 500 : 200, claimsStatus: failure === 'claims' ? 500 : 200, retrySuccess: true })

@@ -1,4 +1,5 @@
-import { useCallback, useContext, useEffect, useState } from 'react'
+import { useCallback, useContext, useEffect, useRef, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import { APIService } from '@/lib/api'
 import { OpportunityStateContext } from '@/context/OpportunityStateContext'
 import { peekFeatures } from '@/lib/features'
@@ -9,29 +10,36 @@ function effectiveFlags(data) {
 }
 
 export function useOpportunityFlags(enabled) {
-  const [attempt, setAttempt] = useState(0)
+  const inflight = useRef(null)
+  const mounted = useRef(true)
   const [flags, setFlags] = useState(() => {
     const data = peekFeatures()
     return data ? effectiveFlags(data) : { opportunities: false, applications: false, loaded: false }
   })
-  useEffect(() => {
-    if (!enabled) return
-    let active = true
-    APIService.getFeatures().then(data => {
-      if (active) setFlags(effectiveFlags(data))
-    }).catch(() => { if (active) setFlags({ loaded: true, error: 'Could not load opportunities. Please try again later.' }) })
-    return () => { active = false }
-  }, [enabled, attempt])
-  const retry = useCallback(() => {
-    setFlags(current => ({ ...current, retrying: true }))
-    setAttempt(current => current + 1)
+  const retry = useCallback((arrival = false) => {
+    if (inflight.current) return inflight.current
+    setFlags(current => arrival === true ? { ...current, error: '', loaded: false, retrying: true } : { ...current, retrying: true })
+    const request = APIService.getFeatures().then(data => {
+      if (mounted.current) setFlags(effectiveFlags(data))
+    }).catch(() => {
+      if (mounted.current) setFlags({ loaded: true, error: 'Could not load opportunities. Please try again later.' })
+    }).finally(() => { if (inflight.current === request) inflight.current = null })
+    inflight.current = request
+    return request
   }, [])
+  useEffect(() => {
+    mounted.current = true
+    if (enabled) retry()
+    return () => { mounted.current = false }
+  }, [enabled, retry])
   return { ...flags, retry }
 }
 
 export function useOpportunities(enabled = true) {
   const { flags, enable } = useContext(OpportunityStateContext)
-  useEffect(() => { if (enabled) enable() }, [enabled, enable])
+  const { key, pathname } = useLocation()
+  const arrival = `${key}:${pathname}`
+  useEffect(() => { if (enabled) enable(false, arrival) }, [enabled, enable, arrival])
   return enabled ? flags : unavailable
 }
 

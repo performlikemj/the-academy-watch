@@ -10,7 +10,7 @@ import '@/styles/floodlight-player.css'
 function PlayerApplicationsSummary() {
   const flags = useOpportunities()
   const { token } = useAuth()
-  const { claims, loading, error: claimError } = useApprovedPlayerState(flags)
+  const { claims, loading, error: claimError } = useApprovedPlayerState(flags, true)
   const eligible = claims.length > 0
   const [rows, setRows] = useState(null)
   const [error, setError] = useState('')

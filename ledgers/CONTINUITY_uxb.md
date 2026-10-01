@@ -53,3 +53,16 @@
 - Targeted verification:36 browser cases PASS (recovery, auth switches/logout/stale response, both widths, UUID case/name contrast, flags-OFF and discovery); changed-file ESLint PASS. Bootstrap activation remains consumer-driven so routes without consumers stay lazy.
 - Main integration: fresh origin/main784b1490 already ancestor; merge up-to-date, no lower stack. No migration/dependency/lockfile changes; preapply/CONTRACT not applicable.
 - Final verification/delivery is recorded in external `~/codex-runs/aw-redesign/logs/UXBF3.final.md` for the exact pushed head (four cached gates, PostgreSQL22, combined lane browser once, refreshed shots, resource cleanup); no docs-only commit after those gates.
+
+## UXBF4 fix round (2026-10-02)
+
+- Status: in-progress; reviewed a54427cc; draft #1124, no lower stack.
+- Scope: O1 Medium recover failed shared feature/claim reads on consumer arrivals; X1=O2 Small refresh claims on player-home/owner-summary visits, retain value while loading, update menu.
+- Now: reverse navigation probes; Next: targeted fixes, merge current main, final four cached gates + PG + lane browser once, screenshots, push and cleanup.
+- Constraints: foreground/governor; bounded deduplicated reads, token clearing/stale-response rejection; flags-OFF zero business requests.
+- Milestone: reviewed-head regressions fail on club/owner startup recovery and approval (both widths); raw12 red, four initial list/detail assertions corrected to real teaser title. Stable post-main targeted56 PASS; earlier context/reload count assumptions corrected; token test affected by mid-run HMR rechecked green.
+- Main integration: origin/main advanced to33bf30bd/B3; three conflicts resolved with union ledgers and feature keys; inherited p2b3 migration verbatim, no lane schema edits.
+- Added router-arrival key tracking for reused detail components and bounded same-arrival failure recovery; targeted verification next.
+- Implementation complete: failed feature/claim recovery bounded per router-key+pathname arrival; successful feature cache reused, claims refreshed by player-home/owner-summary consumers with retained content and in-flight dedup. Token lifetimes reject late replies including returning accounts. Flags-OFF zero business requests preserved.
+- Verification: post-main56 targeted checks PASS; route follow-up exposed default-key synthetic navigation, arrival identity now includes pathname;29 remaining cases including reused-detail/privacy/persistent bounds PASS. Final16 startup checks PASS after normal governor wait at high machine load; changed-file ESLint zero errors/warnings.
+- Exact FINAL-head four cached gates, PG22, combined lane browser once, screenshots, pushed SHA and cleanup are recorded in `~/codex-runs/aw-redesign/logs/UXBF4.final.md` + `UXBF4.report.md`; no docs-only commit after those gates.
