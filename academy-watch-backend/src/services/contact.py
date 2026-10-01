@@ -266,6 +266,10 @@ def load_club_consent_token(token: str) -> dict | None:
     action = payload.get("action")
     if not isinstance(request_id, str) or action not in {"grant", "decline"}:
         return None
+    from src.services.account_standing import consent_recipient_can_act
+
+    if not consent_recipient_can_act(request_id):  # p2-b3 standing
+        return None
     return {"contact_request_id": request_id, "action": action}
 
 

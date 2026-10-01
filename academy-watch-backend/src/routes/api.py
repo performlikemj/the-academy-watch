@@ -13223,6 +13223,11 @@ def features():
     # Dark club staff access: the key is absent (payload unchanged) until the flag is on.
     if os.getenv("CLUB_STAFF_ACCESS_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}:
         flags["club_staff_access"] = True
+    # --- p2-b3 begin ---
+    for name in ("programs", "people", "safety", "business"):
+        if os.getenv(f"ADMIN_{name.upper()}_ENABLED", "").strip().lower() in {"1", "true", "yes", "on"}:
+            flags[f"admin_{name}"] = True
+    # --- p2-b3 end ---
     return jsonify(flags)
 
 

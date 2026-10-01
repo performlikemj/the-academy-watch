@@ -150,6 +150,10 @@ def resolve_club_access(user_id, program_id) -> ClubAccess | None:
     """Current access for one account on one club, or None.  Evaluated per request."""
     if user_id is None or program_id is None:
         return None
+    from src.services.account_standing import is_account_active
+
+    if not is_account_active(user_id):  # p2-b3 standing
+        return None
     verified = is_manager_of_approved_program(user_id, program_id)
     if not staff_access_enabled():
         return _legacy_manager_access(program_id, user_id) if verified else None
@@ -546,7 +550,10 @@ def scoped_signed_player_ids(program_id, squad_ids) -> set[int]:
 def club_actor_allowed(session, program_id, user_id, capability, *, subject_signed_id=None) -> bool:
     """Inner re-check used by services that previously called ``strict_manager`` for the actor."""
     from src.models.club_invitation import strict_manager
+    from src.services.account_standing import is_account_active
 
+    if not is_account_active(user_id):  # p2-b3 standing
+        return False
     if strict_manager(session, program_id, user_id) is not None:
         return True
     if not staff_access_enabled():

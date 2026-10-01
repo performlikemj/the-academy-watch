@@ -499,6 +499,11 @@ def build_account_export(user: UserAccount) -> dict:
     from src.services.foundation_account import export_foundation_rows
 
     foundation_export = export_foundation_rows(user, schema)
+    # --- p2-b3 begin ---
+    from src.services.admin_control_account import export_admin_control
+
+    foundation_export.update(export_admin_control(user, schema))
+    # --- p2-b3 end ---
     normalized_email = (user.email or "").strip().lower()
     subscriptions = []
     if normalized_email:
@@ -1235,6 +1240,13 @@ def delete_account(user: UserAccount) -> AccountDeletionEvent:
         counts["foundation"] = foundation_counts
     funding_deleted = _delete_optional_funding_rows(schema, user_id)
     counts["deleted"].update(funding_deleted)
+    # --- p2-b3 begin ---
+    from src.services.admin_control_account import erase_admin_control
+
+    b3_counts = erase_admin_control(user_id, email, schema)
+    if b3_counts:
+        counts["admin_control"] = b3_counts
+    # --- p2-b3 end ---
     counts["deleted"].update(_erase_club_access_rows(schema, user_id, email))
     if email:
         string_identities, funding_events = _redact_string_identity_columns(schema, email)

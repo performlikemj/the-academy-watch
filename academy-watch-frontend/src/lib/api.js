@@ -16,6 +16,10 @@ export function nextWindowIndex(currentTime, windows, currentIdx) {
 }
 
 export class APIService {
+    // --- p2-b3 begin ---
+    static adminControlRead(path) { return this.request(path, {}, { admin: true }) }
+    static adminControlAction(path, payload) { return this.request(path, { method: 'POST', body: JSON.stringify(payload) }, { admin: true }) }
+    // --- p2-b3 end ---
     static submitInterest(data) {
         return this.request('/interest', { method: 'POST', body: JSON.stringify(data) })
     }

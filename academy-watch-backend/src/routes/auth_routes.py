@@ -159,6 +159,11 @@ def request_login_code():
         if not email:
             logger.warning("Login code request missing email from %s", get_client_ip())
             return jsonify({"error": "email is required"}), 400
+        from src.services.account_standing import account_can_act
+
+        existing = UserAccount.query.filter_by(email=email).populate_existing().first()
+        if existing is not None and not account_can_act(existing):
+            return jsonify({"message": "Login code sent"})
         client_ip = get_client_ip()
         logger.info("Login code requested for %s from %s", email, client_ip)
         code = _generate_otp_code(11)
@@ -200,6 +205,11 @@ def verify_login_code():
                 get_client_ip(),
             )
             return jsonify({"error": "email and code are required"}), 400
+        from src.services.account_standing import account_can_act
+
+        existing = UserAccount.query.filter_by(email=email).populate_existing().first()
+        if existing is not None and not account_can_act(existing):
+            return jsonify({"error": "account unavailable"}), 403
         client_ip = get_client_ip()
         logger.info("Verifying login code for %s from %s", email, client_ip)
         # Static review credentials require a byte-exact submitted code. Keep

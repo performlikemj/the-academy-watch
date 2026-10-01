@@ -1081,6 +1081,11 @@ def handle_webhook(raw_body: bytes, signature_header: str | None) -> tuple[dict,
             int(event_created) if event_created is not None else None,
             event_id,
         )
+        # --- p2-b3 begin ---
+        from src.services.admin_control_business import project_cash
+
+        project_cash(event_type, obj, event_id, int(event_created or 0))
+        # --- p2-b3 end ---
         existing.event_type = event_type
         existing.payload_hash = payload_hash
         existing.status = "processed" if applied else "ignored"
