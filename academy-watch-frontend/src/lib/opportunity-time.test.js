@@ -46,3 +46,18 @@ test('entry and editing use the opportunity zone, independently of browser timez
   assert.throws(() => fromLocalInput('2026-11-01T01:30', 'America/Los_Angeles'), /occurs twice/)
   assert.throws(() => fromLocalInput('2026-03-08T02:30', 'America/Los_Angeles'), /does not exist/)
 })
+
+test('modern IANA names and every committed alias format in Node Intl', () => {
+  const data = new URL('../../../academy-watch-backend/src/data/', import.meta.url)
+  const snapshot = JSON.parse(fs.readFileSync(new URL('opportunity_timezone_browser_snapshot.json', data), 'utf8'))
+  const aliases = JSON.parse(fs.readFileSync(new URL('opportunity_timezone_aliases.json', data), 'utf8'))
+  const zones = JSON.parse(fs.readFileSync(new URL('./opportunity-timezones.json', import.meta.url), 'utf8'))
+  for (const zone of ['Asia/Kolkata', 'Europe/Kyiv', 'America/Indiana/Indianapolis', 'America/Kentucky/Louisville', 'America/Argentina/Buenos_Aires', 'Asia/Ho_Chi_Minh', 'Asia/Kathmandu', 'Asia/Yangon', 'America/Nuuk', 'Atlantic/Faroe', 'Africa/Asmara', 'America/Atikokan', 'Pacific/Chuuk', 'Pacific/Kanton', 'Pacific/Pohnpei']) {
+    assert.ok(zones.includes(zone), zone)
+    assert.ok(when('2026-10-10T17:00:00Z', zone).endsWith(`(${zone})`))
+  }
+  for (const [alias, canonical] of Object.entries(aliases)) {
+    assert.ok(snapshot.includes(canonical) || canonical === 'UTC')
+    assert.doesNotThrow(() => new Intl.DateTimeFormat('en-GB', { timeZone: alias }).format(new Date()))
+  }
+})

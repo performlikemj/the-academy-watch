@@ -58,13 +58,13 @@ function Candidate({ row, programId, onChanged }) {
   async function act(status, extra = {}) {
     setBusy(true); setError('')
     try { await write(`/club/${programId}/applications/${row.id}/transition`, { expected_version: row.version, status, ...extra }); setInvite(false); await onChanged() }
-    catch (err) { setError(errorMessage(err)); if (err.status === 409) await onChanged() }
+    catch (err) { setError(errorMessage(err)); if ([403, 404, 409].includes(err.status)) await onChanged() }
     finally { setBusy(false) }
   }
   async function addNote(event) {
     event.preventDefault(); setBusy(true); setError('')
     try { await write(`/club/${programId}/applications/${row.id}/notes`, { body: note }); setNote(''); const data = await APIService.request(`/club/${programId}/applications/${row.id}`); setDetail(data.application); await onChanged() }
-    catch (err) { setError(errorMessage(err)) }
+    catch (err) { setError(errorMessage(err)); if ([403, 404, 409].includes(err.status)) await onChanged() }
     finally { setBusy(false) }
   }
   return <article className="opp-candidate">

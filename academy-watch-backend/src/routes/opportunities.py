@@ -39,7 +39,10 @@ def flagged(*, applications=False):
                 result = view(*args, **kwargs)
                 return result
             except service.OpportunityError as exc:
-                db.session.rollback()
+                if exc.reconciled:
+                    db.session.commit()
+                else:
+                    db.session.rollback()
                 return jsonify(error=exc.code), exc.status
             except IntegrityError:
                 db.session.rollback()
@@ -80,8 +83,8 @@ def features():
 @limiter.limit("60/minute")
 def listing():
     program_id = request.args.get("program_id", type=int)
-    if "program_id" in request.args and (program_id is None or program_id <= 0):
-        raise service.OpportunityError("invalid_program_id")
+    if "program_id" in request.args and (program_id is None or not 1 <= program_id <= 2147483647):
+        raise service.OpportunityError("invalid_program_id", 400)
     query = service.public_query(program_id)
     kind = request.args.get("type")
     if kind:

@@ -7,7 +7,7 @@ import unicodedata
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import UUID
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, available_timezones
 
 import sqlalchemy as sa
 from src.models.funding import ClubProgram, ClubProgramClaim, ClubProgramManager, ClubSquad, FundingLeague
@@ -25,7 +25,7 @@ from src.models.showcase import LocalPlayer, PlayerProfileClaim
 from src.models.tracked_player import TrackedPlayer
 from src.services.admin_audit import record_admin_event
 from src.services.club_access import club_can
-from src.services.club_publication_hold import club_publication_held
+from src.services.club_publication_hold import club_publication_held, held_subject_ids
 from src.services.notification_outbox import enqueue, register_template
 from src.services.public_adult import is_public_adult, public_adult_ids
 
@@ -47,7 +47,10 @@ LABELS = {
     "withdrawn": "Withdrawn",
 }
 RESERVED = ("pending", "confirmed")
-TIMEZONES = frozenset(json.loads((Path(__file__).parents[1] / "data/opportunity_timezones.json").read_text()))
+TIMEZONES = (
+    frozenset(json.loads((Path(__file__).parents[1] / "data/opportunity_timezones.json").read_text()))
+    & available_timezones()
+)
 EVENT_HORIZON_DAYS = 90
 
 
@@ -100,8 +103,8 @@ def public_club_eligibility():
 
 
 class OpportunityError(ValueError):
-    def __init__(self, code, status=422):
-        self.code, self.status = code, status
+    def __init__(self, code, status=422, *, reconciled=False):
+        self.code, self.status, self.reconciled = code, status, reconciled
         super().__init__(code)
 
 
@@ -181,8 +184,8 @@ def reservations(oid):
         .with_for_update()
         .all()
     )
-    eligible = reconcile_applications(apps)
-    return len(eligible)
+    reconcile_applications(apps)
+    return sum(a.reservation_state in RESERVED for a in apps)
 
 
 def opportunity_dict(row, *, private=False, program=None, squad=None, reserved=None, application_count=None):
@@ -245,7 +248,7 @@ def opportunity_page(rows, program):
         if ids
         else []
     )
-    eligible = reconcile_applications(reserved)
+    reconcile_applications(reserved)
     counts = (
         dict(
             db.session.query(OpportunityApplication.opportunity_id, sa.func.count(OpportunityApplication.id))
@@ -263,7 +266,7 @@ def opportunity_page(rows, program):
             private=True,
             program=program,
             squad=squads.get(r.squad_id),
-            reserved=sum(a.opportunity_id == r.id and a.id in eligible for a in reserved),
+            reserved=sum(a.opportunity_id == r.id and a.reservation_state in RESERVED for a in reserved),
             application_count=counts.get(r.id, 0),
         )
         for r in rows
@@ -664,12 +667,12 @@ def transition(program_id, actor_id, aid, data):
     initial = application(aid, program_id=program_id)
     row = opportunity(initial.opportunity_id, program_id, lock=True)
     app = application(aid, program_id=program_id, lock=True)
+    require_eligible_application(app)
     if integer(data.get("expected_version"), "expected_version") != app.version:
         raise OpportunityError("version_conflict", 409)
     target = data.get("status")
     if not isinstance(target, str):
         raise OpportunityError("invalid_status")
-    adult_claim(app.claim_id, app.applicant_user_id)
     if target == "invited" and app.status == "invited":
         reason = "rescheduled"
     elif target not in TRANSITIONS.get(app.status, set()):
@@ -686,7 +689,12 @@ def transition(program_id, actor_id, aid, data):
         app.trial_at = timestamp(data.get("trial_at"), "trial_at")
         if (
             app.trial_at <= now()
-            or app.trial_at > row.created_at + timedelta(days=EVENT_HORIZON_DAYS)
+            or app.trial_at
+            > (
+                row.closes_at + timedelta(days=14)
+                if row.type == "position"
+                else row.created_at + timedelta(days=EVENT_HORIZON_DAYS)
+            )
             or app.trial_at + timedelta(days=90) > app.submitted_at + timedelta(days=180)
         ):
             raise OpportunityError("invalid_trial_at")
@@ -747,8 +755,10 @@ def applicant_action(aid, user_id, data, action):
 
 def add_note(program_id, actor_id, aid, data):
     recruit(program_id, actor_id)
+    initial = application(aid, program_id=program_id)
+    opportunity(initial.opportunity_id, program_id, lock=True)
     app = application(aid, program_id=program_id, lock=True)
-    adult_claim(app.claim_id, app.applicant_user_id)
+    require_eligible_application(app)
     body = text(data.get("body"), "body", 3000)
     note = ApplicationNote(application_id=app.id, author_user_id=actor_id, body=body)
     db.session.add(note)
@@ -756,7 +766,7 @@ def add_note(program_id, actor_id, aid, data):
     return note
 
 
-def eligible_application_claims(apps):
+def eligible_application_claims(apps, *, ignore_publication_holds=False):
     """One claim batch and canonical adult batch, regardless of page size."""
     claims = (
         {
@@ -785,7 +795,7 @@ def eligible_application_claims(apps):
         else {}
     )
     subjects = {c.id: claim_subject_id(c, locals_.get(c.local_player_id)) for c in claims.values()}
-    public_ids = public_adult_ids(subjects.values())
+    public_ids = public_adult_ids(subjects.values(), ignore_publication_holds=ignore_publication_holds)
     return {
         a.id: claims[a.claim_id]
         for a in apps
@@ -819,12 +829,19 @@ def reconcile_applications(apps, *, at=None, locked=False):
         OpportunityApplication.query.filter(OpportunityApplication.id.in_({a.id for a in apps})).order_by(
             OpportunityApplication.id
         ).populate_existing().with_for_update().all()
-    eligible = eligible_application_claims(apps)
+    eligible = eligible_application_claims(apps, ignore_publication_holds=True)
+    held = held_subject_ids(a.signed_player_id for a in apps if a.id in eligible)
     for app in apps:
         app.eligibility_checked_at = at or now()
         if app.id not in eligible:
             system_close_ineligible(app, at=at)
-    return eligible
+    return {a.id: eligible[a.id] for a in apps if a.id in eligible and a.signed_player_id not in held}
+
+
+def require_eligible_application(app):
+    # Caller has acquired program -> opportunity -> application locks. Persist only reconciliation on 404.
+    if app.id not in reconcile_applications([app], locked=True):
+        raise OpportunityError("Not found", 404, reconciled=True)
 
 
 def application_dict(app, *, private=False, row=None, program=None, source=None, history=True):

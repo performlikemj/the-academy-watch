@@ -249,13 +249,13 @@ def test_claim_revocation_suppression_and_identity_age_rechecked(client, env):
     claim = db.session.get(PlayerProfileClaim, app["claim_id"])
     claim.status = "revoked"
     db.session.commit()
-    assert move(client, env, app, "shortlisted").status_code == 403
+    assert move(client, env, app, "shortlisted").status_code == 404
     claim.status = "approved"
     db.session.commit()
     local = db.session.get(LocalPlayer, env["people"]["adult"]["local"])
     local.birth_date = date(now().year - 16, 1, 1)
     db.session.commit()
-    assert move(client, env, app, "shortlisted").status_code == 403
+    assert move(client, env, app, "shortlisted").status_code == 404
     assert client.get(f"/api/club/{env['pid']}/applications/{app['id']}", headers=_headers("a")).status_code == 404
 
 
@@ -539,4 +539,4 @@ def test_staff_rejection_is_blocked_after_adult_claim_revoked(client, env):
     app = apply(client, env, row).get_json()["application"]
     db.session.get(PlayerProfileClaim, app["claim_id"]).status = "revoked"
     db.session.commit()
-    assert move(client, env, app, "rejected").status_code == 403
+    assert move(client, env, app, "rejected").status_code == 404

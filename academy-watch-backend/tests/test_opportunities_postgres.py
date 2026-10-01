@@ -485,3 +485,90 @@ def test_admin_merge_into_graduated_bridge_uses_resolved_subject_across_claims(p
                 dict(claim_id=claim_id, position="Midfielder", contact_consent=True, client_request_id=str(uuid4())),
             )
     assert OpportunityApplication.query.filter_by(opportunity_id=ids["oid"], signed_player_id=api_id).count() == 1
+
+
+def test_b2f2_hold_keeps_real_reservation_and_reappears(pg):
+    _, ids = pg
+    aid = submit(ids)
+    app = service.application(aid)
+    app = service.transition(ids["pid"], ids["actor"], aid, {"expected_version": app.version, "status": "shortlisted"})
+    app = service.transition(
+        ids["pid"],
+        ids["actor"],
+        aid,
+        {
+            "expected_version": app.version,
+            "status": "invited",
+            "trial_at": service.iso(now() + timedelta(days=7)),
+            "trial_venue": "Ground",
+        },
+    )
+    db.session.commit()
+    before = (app.status, app.version, app.reservation_state, app.trial_at, app.retention_expires_at)
+    db.session.get(ClubProgram, ids["pid"]).emergency_hidden = True
+    claim = db.session.get(PlayerProfileClaim, app.claim_id)
+    db.session.get(LocalPlayer, claim.local_player_id).origin_program_id = ids["pid"]
+    db.session.commit()
+    assert service.reconcile_applications([app]) == {}
+    db.session.commit()
+    assert (app.status, app.version, app.reservation_state, app.trial_at, app.retention_expires_at) == before
+    assert service.reservations(ids["oid"]) == 1
+    db.session.get(ClubProgram, ids["pid"]).emergency_hidden = False
+    db.session.commit()
+    assert aid in service.reconcile_applications([app])
+    db.session.commit()
+
+
+def test_b2f2_neutral_action_commits_reconciliation_in_postgres(pg):
+    flask_app, ids = pg
+    from src.auth import issue_user_token
+    from src.routes.opportunities import opportunities_bp
+
+    flask_app.register_blueprint(opportunities_bp, url_prefix="/api")
+    aid = submit(ids)
+    db.session.get(PlayerProfileClaim, ids["claims"][0]).status = "revoked"
+    db.session.commit()
+    token = issue_user_token(db.session.get(UserAccount, ids["actor"]).email)["token"]
+    response = flask_app.test_client().post(
+        f"/api/club/{ids['pid']}/applications/{aid}/transition",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"expected_version": 1, "status": "shortlisted"},
+    )
+    assert response.status_code == 404 and response.get_json() == {"error": "Not found"}
+    db.session.expire_all()
+    assert service.application(aid).status == "rejected"
+    assert ApplicationEvent.query.filter_by(application_id=aid, reason_code="profile_unavailable").count() == 1
+
+
+def test_b2f2_oversized_program_id_no_postgres_overflow(pg):
+    app, _ = pg
+    from src.routes.opportunities import opportunities_bp
+
+    app.register_blueprint(opportunities_bp, url_prefix="/api")
+    response = app.test_client().get("/api/opportunities?program_id=99999999999999999999")
+    assert response.status_code == 400 and response.get_json() == {"error": "invalid_program_id"}
+
+
+def test_b2f2_position_followup_past_creation_horizon(pg):
+    _, ids = pg
+    row = db.session.get(ClubOpportunity, ids["oid"])
+    row.type, row.starts_at, row.ends_at = "position", None, None
+    row.created_at = now() - timedelta(days=80)
+    row.closes_at = now() + timedelta(days=9)
+    db.session.commit()
+    aid = submit(ids)
+    app = service.transition(ids["pid"], ids["actor"], aid, {"expected_version": 1, "status": "shortlisted"})
+    app = service.transition(
+        ids["pid"],
+        ids["actor"],
+        aid,
+        {
+            "expected_version": app.version,
+            "status": "invited",
+            "trial_at": service.iso(now() + timedelta(days=15)),
+            "trial_venue": "Ground",
+        },
+    )
+    db.session.commit()
+    assert app.status == "invited" and app.trial_at > row.created_at + timedelta(days=90)
+    assert app.retention_expires_at <= app.submitted_at + timedelta(days=180)

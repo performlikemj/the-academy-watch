@@ -9,7 +9,7 @@ const aid = '00000000-0000-4000-8000-000000000002'
 const opportunity = { id: oid, program_id: 7, club_name: 'Synthetic B2 Club', club_slug: 'synthetic-b2', type: 'trial', title: 'Adult development trial', description: 'A synthetic opportunity used only to check the application workflow.', instructions: 'Bring boots, shin pads and water.', venue: 'Test training ground', address: 'Test pitch', timezone: 'Europe/London', starts_at: '2026-10-20T10:00:00Z', ends_at: '2026-10-20T12:00:00Z', closes_at: '2026-10-18T12:00:00Z', birth_year_min: 1998, birth_year_max: 2008, gender_program: 'all', position_requirements: 'All positions', status: 'published', version: 1, coach: 'Club coaching team', application_count: 1 }
 const application = { id: aid, opportunity_id: oid, program_id: 7, opportunity_title: opportunity.title, club_name: opportunity.club_name, timezone: 'Europe/London', claim_id: 3, signed_player_id: 7001, applicant_name: 'Synthetic Adult Applicant', position: 'Midfielder', current_club: '', profile_available: true, status: 'new', status_label: 'Applied', submitted_at: '2026-10-01T10:00:00Z', retention_expires_at: '2027-01-18T10:00:00Z', version: 1, reservation_state: 'none', transitions: ['rejected', 'shortlisted'], notes: [], events: [{ version: 1, created_at: '2026-10-01T10:00:00Z', reason_code: 'submitted' }] }
 
-async function fixture(page, { on = true, apps = true, empty = false, invited = false, deniedClaims = false, conflict = false } = {}) {
+async function fixture(page, { on = true, apps = true, empty = false, invited = false, deniedClaims = false, conflict = false, unavailableAction = null, unavailableStatus = 404 } = {}) {
   await page.addInitScript(() => {
     localStorage.setItem('academy_watch_user_token', 'b2-synthetic-browser-token')
     localStorage.setItem('academyWatch.playerOnboardingPromptDismissed.v1', 'true')
@@ -18,6 +18,7 @@ async function fixture(page, { on = true, apps = true, empty = false, invited = 
   })
   let current = structuredClone(application)
   if (invited) current = { ...current, status: 'invited', status_label: 'Invited to trial', reservation_state: 'pending', trial_at: '2026-10-20T10:00:00Z', trial_venue: 'Test training ground', trial_instructions: 'Bring your boots.', transitions: ['attended', 'rejected'], version: 3 }
+  let unavailable = false
   const requests = []
   const program = { id: 7, name: opportunity.club_name, slug: opportunity.club_slug, platform_status: 'approved', brand: { primary_color: '#0F3D2E', accent_color: '#CFAE62' } }
   await page.route('**/api/**', async route => {
@@ -34,15 +35,16 @@ async function fixture(page, { on = true, apps = true, empty = false, invited = 
     if (p === `/api/me/applications/${aid}/trial-response`) { requests.push(req.postDataJSON()); current = { ...current, reservation_state: 'confirmed', version: current.version + 1 }; return reply({ application: current }) }
     if (p === '/api/club/7/opportunities' && req.method() === 'POST') { requests.push(req.postDataJSON()); return route.fulfill({ status: 201, json: { opportunity } }) }
     if (p === '/api/club/7/opportunities') return reply({ opportunities: empty ? [] : [opportunity] })
-    if (p === `/api/club/7/opportunities/${oid}/applications`) return reply({ applications: empty ? [] : [current] })
+    if (p === `/api/club/7/opportunities/${oid}/applications`) return reply({ applications: empty || unavailable ? [] : [current] })
     if (p === `/api/club/7/applications/${aid}/transition`) {
+      if (unavailableAction === 'transition') { unavailable = true; return route.fulfill({ status: unavailableStatus, json: { error: 'Not found' } }) }
       const body = req.postDataJSON(); requests.push(body)
       current = { ...current, status: body.status, status_label: 'With the club', version: current.version + 1, transitions: ['invited', 'rejected'] }
       if (body.status === 'invited') current = { ...current, ...body, reservation_state: 'pending', transitions: ['attended', 'rejected'] }
       if (conflict) return route.fulfill({ status: 409, json: { error: 'version_conflict' } })
       return reply({ application: current })
     }
-    if (p === `/api/club/7/applications/${aid}/notes`) { const body = req.postDataJSON(); requests.push(body); current.notes.push({ id: 'note', body: body.body, created_at: '2026-10-01T10:00:00Z' }); return route.fulfill({ status: 201, json: { note: current.notes[0] } }) }
+    if (p === `/api/club/7/applications/${aid}/notes`) { if (unavailableAction === 'notes') { unavailable = true; return route.fulfill({ status: unavailableStatus, json: { error: 'Not found' } }) } const body = req.postDataJSON(); requests.push(body); current.notes.push({ id: 'note', body: body.body, created_at: '2026-10-01T10:00:00Z' }); return route.fulfill({ status: 201, json: { note: current.notes[0] } }) }
     if (p === `/api/club/7/opportunities/${oid}/close`) { requests.push(req.postDataJSON()); return reply({ opportunity: { ...opportunity, status: 'closed', version: 2 } }) }
     if (p === '/api/funding/claims/me') return reply({ claims: [{ id: 31, status: 'approved', relationship_type: 'club_official', program }] })
     if (p === '/api/me/club-claims') return reply({ claims: [] })
@@ -229,3 +231,21 @@ test('every accepted canonical IANA zone is supported by real Chromium Intl', as
     try { new Intl.DateTimeFormat('en-GB', { timeZone }).format(new Date()); return false } catch { return true }
   }), zones)).toEqual([])
 })
+
+for (const status of [403, 404]) {
+  for (const action of ['transition', 'notes']) {
+    test(`unavailable candidate disappears after ${action} ${status} without reload`, async ({ page }) => {
+      await fixture(page, { unavailableAction: action, unavailableStatus: status })
+      await page.goto('/my-club?view=recruiting')
+      await expect(page.getByRole('button', { name: 'Synthetic Adult Applicant' })).toBeVisible()
+      if (action === 'transition') await page.getByRole('button', { name: /Shortlist →/ }).click()
+      else {
+        await page.getByRole('button', { name: 'Synthetic Adult Applicant' }).click()
+        await page.getByLabel('Private note', { exact: true }).fill('Synthetic private review')
+        await page.getByRole('button', { name: 'Add note', exact: true }).click()
+      }
+      await expect(page.getByRole('button', { name: 'Synthetic Adult Applicant' })).toHaveCount(0)
+      await expect(page.getByRole('heading', { name: 'Adult development trial', exact: true })).toBeVisible()
+    })
+  }
+}

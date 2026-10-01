@@ -44,7 +44,7 @@ def invalidate(env, app, cause):
     db.session.commit()
 
 
-@pytest.mark.parametrize("cause", ["minor", "unknown", "revoked", "suppressed", "held"])
+@pytest.mark.parametrize("cause", ["minor", "unknown", "revoked", "suppressed"])
 @pytest.mark.parametrize("read", ["board", "detail", "postings"])
 def test_ineligible_subject_is_absent_and_system_closes_releases_and_purges(client, env, cause, read):
     row = create(client, env)
@@ -67,9 +67,9 @@ def test_ineligible_subject_is_absent_and_system_closes_releases_and_purges(clie
         client.post(
             f"/api/club/{env['pid']}/applications/{app['id']}/notes", headers=_headers("a"), json={"body": "more"}
         ).status_code
-        == 403
+        == 404
     )
-    assert move(client, env, app, "rejected").status_code == 403
+    assert move(client, env, app, "rejected").status_code == 404
     if read == "board":
         response = client.get(f"/api/club/{env['pid']}/opportunities/{row['id']}/applications", headers=_headers("a"))
         assert response.status_code == 200 and response.get_json()["applications"] == []
