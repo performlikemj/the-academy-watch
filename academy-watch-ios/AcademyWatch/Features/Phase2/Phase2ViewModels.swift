@@ -33,6 +33,8 @@ final class Phase2Workspace: ObservableObject {
                 directory: base.clubDirectory == true, opportunities: posts.opportunities,
                 applications: posts.opportunities && posts.applications,
                 staff: base.clubStaffAccess == true, contact: base.contactRail == true)
+            guard request == generation, !Task.isCancelled else { return }
+            snapshot = next
         } catch {
             failure = phase2Error(error)
         }
@@ -81,9 +83,9 @@ final class Phase2Workspace: ObservableObject {
             throw error
         }
     }
-    func reset() {
+    func reset(preservePublicFlags: Bool = false) {
         generation += 1
-        snapshot = Snapshot()
+        snapshot = Snapshot(flags: preservePublicFlags ? snapshot.flags : Phase2Flags())
         selectedClubId = nil
         error = nil
         isLoading = false

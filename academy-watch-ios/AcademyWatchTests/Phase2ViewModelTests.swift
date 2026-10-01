@@ -1,4 +1,5 @@
 import XCTest
+import UIKit
 
 @testable import AcademyWatch
 
@@ -65,6 +66,15 @@ final class Phase2ViewModelTests: XCTestCase {
             XCTAssertTrue(RootTab.available(for: .player, flags: workspace.flags).contains(.trials))
         }
     }
+    func testAccountResetClearsPrivateAccessWithoutRemovingPublicTabs() async {
+        let workspace = Phase2Workspace(client: ClubResolutionAPI())
+        await workspace.load(authenticated: true)
+        let publicTabs = RootTab.available(for: .player, flags: workspace.flags)
+        workspace.reset(preservePublicFlags: true)
+        XCTAssertTrue(workspace.clubs.isEmpty)
+        XCTAssertNil(workspace.selectedClubId)
+        XCTAssertEqual(RootTab.available(for: .player, flags: workspace.flags), publicTabs)
+    }
     func testClaimsTransientFailureKeepsFlagsAndLastConfirmedClub() async {
         let api = ClubResolutionAPI(claimsStatus: 500)
         let workspace = Phase2Workspace(client: api)
@@ -82,6 +92,29 @@ final class Phase2ViewModelTests: XCTestCase {
         await workspace.load(authenticated: true)
         XCTAssertTrue(workspace.clubs.isEmpty)
         XCTAssertTrue(workspace.flags.directory)
+    }
+    func testConversationDatesUseReaderZoneAcrossMidnight() {
+        let date = "2026-10-07T00:30:00Z"
+        XCTAssertEqual(Phase2Time.conversationDate(date, zone: TimeZone(identifier: "America/New_York")!, format: "d"), "6")
+        XCTAssertEqual(Phase2Time.conversationDate(date, zone: TimeZone(secondsFromGMT: 0)!, format: "d"), "7")
+        XCTAssertEqual(Phase2Time.conversationDate(date), Phase2Time.conversationDate(date, zone: .current))
+    }
+    func testSelectedSmallTabTitleMeetsAAOnActualLightPill() throws {
+        let bar = EditorialTabBar()
+        bar.overrideUserInterfaceStyle = .light
+        bar.configure(tabs: [.home, .account], role: .player, selected: .home) { _ in }
+        let button = try XCTUnwrap(bar.subviews.compactMap { $0 as? UIButton }.first)
+        let foreground = try XCTUnwrap(button.configuration?.attributedTitle?.uiKit.foregroundColor)
+        let traits = UITraitCollection(userInterfaceStyle: .light)
+        func luminance(_ color: UIColor) -> Double {
+            var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+            color.resolvedColor(with: traits).getRed(&r, green: &g, blue: &b, alpha: &a)
+            func linear(_ c: CGFloat) -> Double { c <= 0.04045 ? Double(c / 12.92) : pow(Double((c + 0.055) / 1.055), 2.4) }
+            return 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b)
+        }
+        let text = luminance(foreground)
+        let pill = luminance(UIColor(AcademyColors.elevatedSurface))
+        XCTAssertGreaterThanOrEqual((max(text, pill) + 0.05) / (min(text, pill) + 0.05), 4.5)
     }
     func testHomeAndAppliedReadOlderInvitationAndTrueTotalBeyondFirstPage() async {
         let client = PagedPlayerAPI()

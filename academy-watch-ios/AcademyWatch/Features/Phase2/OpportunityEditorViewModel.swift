@@ -158,13 +158,21 @@ final class OpportunityEditorViewModel: ObservableObject {
       let components = old.dateComponents(parts, from: date)
       guard let result = target.date(from: components),
         target.dateComponents(parts, from: result) == components else { return nil }
+      let offsets = Set([-86400.0, 0, 86400.0].map {
+        target.timeZone.secondsFromGMT(for: result.addingTimeInterval($0))
+      })
+      let offset = target.timeZone.secondsFromGMT(for: result)
+      for other in offsets where other != offset {
+        let alternative = result.addingTimeInterval(TimeInterval(offset - other))
+        if target.dateComponents(parts, from: alternative) == components { return nil }
+      }
       return result
     }
     var changed = draft
     for (key, date) in [("closes_at", Optional(draft.closesAt)), ("starts_at", draft.startsAt), ("ends_at", draft.endsAt)] {
       guard let date else { continue }
       guard let value = remap(date) else {
-        fieldErrors[key] = "This wall time does not exist in \(zone) because the clocks change. Choose another time first."
+        fieldErrors[key] = "This wall time is skipped or repeated in \(zone) because the clocks change. Choose another time first."
         error = "Time zone was not changed. Check the highlighted date."
         return
       }

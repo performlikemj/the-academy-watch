@@ -196,7 +196,7 @@ struct Phase2PlayerHome: View {
                         LinearGradient(
                             colors: [AcademyColors.night.opacity(0.15), AcademyColors.night.opacity(0.92)],
                             startPoint: .top, endPoint: .bottom)
-                    }.background(AcademyColors.night).accessibilityIdentifier("home-hero")
+                    }.background(AcademyColors.night)
                 VStack(alignment: .leading, spacing: 20) {
                     if waiting > 0 {
                         VStack(spacing: 0) {

@@ -140,7 +140,7 @@ Log one-liner in CONTINUITY.md's "Trivial Log" section.
 - iOS Phase 2 review: `-reviewCapture` hides the DEBUG fixture badge only for simulator review evidence. `sim/compare-phase2.py` pairs current IMF1 previews with actual viewports, labels separate scrolled captures and records source hashes; it never invents a full-page native capture.
 
 
-- iOS Phase 2 refresh replaces one confirmed workspace snapshot without clearing it during fetch; account changes call reset. Tab identity is account + experience role, never feature flags or memberships. Private Phase 2 requests use an ephemeral URLSession with no disk cache; real staging DTO contracts live in AcademyWatchTests/Fixtures/Phase2 and refresh through sim/refresh-phase2-contracts.py.
+- iOS Phase 2 refresh replaces one confirmed workspace snapshot without clearing it during fetch; account changes call reset. The public TabView identity is experience role only; reset private Phase 2 roots on account changes, retain confirmed public flags, and never replay a default launch tab after bootstrap. Private Phase 2 requests use an ephemeral URLSession with no disk cache; real staging DTO contracts live in AcademyWatchTests/Fixtures/Phase2 and refresh through sim/refresh-phase2-contracts.py.
 
 - iOS recruiting editor requires current owner/manager + `recruiting` and opportunities flag. Locked writes encode lifecycle fields only; nullable editable terms encode explicit nulls. Date windows use private `created_at` / `trial_invite_deadline`; retained draft clocks never reset on save.
 - iOS indeterminate loading states use `CleatLoader` (N5 paths/palette); launch uses its static adaptive vector companion. App logo assets are separate. Reduce Motion always wins over preview overrides.

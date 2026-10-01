@@ -177,7 +177,7 @@ struct ContactThreadView: View {
                         ? (viewModel.contactRequest.participants.club?.displayName ?? "Club") + " said yes"
                         : viewModel.contactRequest.clubConsentStatus == .declined ? "Club declined" : "Waiting on club",
                     detail: [
-                        viewModel.contactRequest.clubConsentAt.map { Phase2Time.shortDate($0, zone: TimeZone.current.identifier) },
+                        viewModel.contactRequest.clubConsentAt.map { Phase2Time.conversationDate($0) },
                         viewModel.contactRequest.clubConsentNote,
                     ].compactMap { $0 }.joined(separator: " · "))
             }
@@ -186,7 +186,7 @@ struct ContactThreadView: View {
                 title: viewModel.contactRequest.status == .accepted
                     ? (viewModel.contactRequest.participants.player.displayName?.split(separator: " ").first.map(
                         String.init) ?? "Player") + " accepted" : viewModel.contactRequest.status.displayName,
-                detail: viewModel.contactRequest.respondedAt.map { Phase2Time.shortDate($0, zone: TimeZone.current.identifier) }
+                detail: viewModel.contactRequest.respondedAt.map { Phase2Time.conversationDate($0) }
                     ?? "The player decides who they talk to.")
             HStack(alignment: .top, spacing: 12) {
                 Image(systemName: "bubble.left").font(.system(size: 15, weight: .light)).foregroundStyle(
@@ -380,7 +380,7 @@ private struct ContactMessageBubble: View {
                                 ?? rendering.displayLabel) + " · "
                                 + (rendering.kind == .club ? clubDisplayName ?? "Club" : message.senderRole.rawValue))
                             .uppercased() + " · "
-                            + Phase2Time.shortDate(message.createdAt, zone: TimeZone.current.identifier, format: "d MMM").uppercased()
+                            + Phase2Time.conversationDate(message.createdAt, format: "d MMM").uppercased()
                     )
                     .font(AcademyType.mono(9)).tracking(1.2).foregroundStyle(
                         rendering.kind == .club ? AcademyColors.accent : AcademyColors.secondaryText)

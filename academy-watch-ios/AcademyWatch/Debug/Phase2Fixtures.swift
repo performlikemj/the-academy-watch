@@ -25,7 +25,7 @@
                     ? "owner" : screen == "N14" ? "coach" : "player")
         }
         static var isClubExperience: Bool {
-            ["owner", "terminal", "editor", "coach", "recruiting", "signed", "draft", "full", "conflict", "nostaff", "membership-error", "pendingclub", "club-signed-out"].contains(resolvedMode)
+            ["owner", "terminal", "editor", "coach", "analyst", "viewer", "recruiting", "signed", "draft", "full", "conflict", "nostaff", "membership-error", "pendingclub", "club-signed-out"].contains(resolvedMode)
         }
         static func contactFixture(_ data: Data, messages: Bool) throws -> Data {
             guard screen == "N17" || screen == "N01" else { return data }
@@ -159,7 +159,7 @@
                 flagReads += 1
                 if mode == "foreground-failure" && flagReads > 1 { throw URLError(.timedOut) }
                 return try json(
-                    mode == "off"
+                    ["off", "late-off"].contains(mode)
                         ? ["contact_rail": false]
                         : [
                             "club_directory": true, "club_staff_access": mode != "nostaff",
@@ -167,13 +167,13 @@
                         ])
             }
             if path == "opportunities/features" {
-                if mode == "off" { throw APIClientError.httpStatus(404) }
+                if ["off", "late-off"].contains(mode) { throw APIClientError.httpStatus(404) }
                 return try json(["opportunities": true, "applications": true])
             }
             if method == "GET", path == "me/club-access" {
                 if mode == "membership-error" { throw URLError(.timedOut) }
                 return try json([
-                    "programs": ["coach"].contains(mode)
+                    "programs": ["coach", "analyst", "viewer"].contains(mode)
                         ? [
                             [
                                 "program": [
@@ -468,10 +468,10 @@
         }
         private var access: [String: Any] {
             [
-                "program_id": 101, "role": mode == "coach" ? "coach" : "owner", "verified": true,
-                "whole_club": mode != "coach", "all_squads": Phase2Fixtures.screen != "N14",
-                "squad_ids": mode == "coach" ? [3] : [],
-                "capabilities": mode == "coach"
+                "program_id": 101, "role": ["coach", "analyst", "viewer"].contains(mode) ? mode : "owner", "verified": true,
+                "whole_club": !["coach", "analyst", "viewer"].contains(mode), "all_squads": Phase2Fixtures.screen != "N14",
+                "squad_ids": ["coach", "analyst", "viewer"].contains(mode) ? [3] : [],
+                "capabilities": ["coach", "analyst", "viewer"].contains(mode)
                     ? ["players.view", "matches.view", "feedback"]
                     : ["players.view", "matches.view", "recruiting", "access.view", "access.manage"],
             ]

@@ -15,7 +15,7 @@ final class Phase2UITests: XCTestCase {
         app.launch()
         XCTAssertTrue(
             app.tabBars.buttons[
-                ["owner", "terminal", "editor", "coach", "signed", "draft", "full", "conflict"].contains(mode) ? "Today" : "Home"
+                ["owner", "terminal", "editor", "coach", "analyst", "viewer", "signed", "draft", "full", "conflict"].contains(mode) ? "Today" : "Home"
             ].waitForExistence(timeout: 15))
     }
     private func tap(_ element: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
@@ -66,6 +66,17 @@ final class Phase2UITests: XCTestCase {
         XCTAssertTrue(app.tabBars.buttons["Account"].isSelected)
         capture("flags-off-sign-out-account")
     }
+    func testLateFlagsOffBootstrapDoesNotPullScoutDeskBackHome() {
+        app.launchArguments = ["-phase2Fixture", "late-off"]
+        app.launch()
+        tap(app.tabBars.buttons["Scout Desk"])
+        XCTAssertTrue(app.navigationBars["Scout Desk"].waitForExistence(timeout: 10))
+        // The fixture delays only feature responses, without blocking the UI.
+        Thread.sleep(forTimeInterval: 5)
+        XCTAssertTrue(app.tabBars.buttons["Scout Desk"].isSelected)
+        XCTAssertTrue(app.navigationBars["Scout Desk"].exists)
+        capture("late-bootstrap-scout-desk")
+    }
     func testDirtyEditorRequiresDiscardAndSwipeKeepsDraft() {
         launch("editor", tab: "recruiting")
         tap(app.buttons["recruiting-create"])
@@ -109,7 +120,7 @@ final class Phase2UITests: XCTestCase {
         tap(app.switches["clubs-location"])
         XCTAssertTrue(app.staticTexts["0.8"].waitForExistence(timeout: 5))
         tap(app.buttons["club-101"])
-        XCTAssertTrue(app.staticTexts["The Saltings 3G"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "The Saltings 3G")).firstMatch.waitForExistence(timeout: 5))
         app.navigationBars.buttons.firstMatch.tap()
         XCTAssertTrue(query.waitForExistence(timeout: 5))
         XCTAssertEqual(query.value as? String, "Quillmere")
@@ -415,6 +426,16 @@ final class Phase2UITests: XCTestCase {
         capture("coach-private-squad")
         tap(app.tabBars.buttons["Account"])
         XCTAssertFalse(app.buttons["account-staff-access"].exists)
+    }
+    func testAllSquadsAnalystAndViewerCopyAndCapabilities() {
+        for role in ["analyst", "viewer"] {
+            launch(role, tab: "squads")
+            XCTAssertFalse(app.tabBars.buttons["Recruiting"].exists)
+            XCTAssertTrue(app.staticTexts["Your access covers all squads. Recruiting and staff administration remain outside your staff access."].waitForExistence(timeout: 8))
+            XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "coach's access")).firstMatch.exists)
+            capture("all-squads-" + role)
+            app.terminate()
+        }
     }
     func testOwnerStaffEditKeepsBothSquads() {
         launch("owner")

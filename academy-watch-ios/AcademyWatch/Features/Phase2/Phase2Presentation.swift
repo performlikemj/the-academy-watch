@@ -322,6 +322,9 @@ extension Phase2Time {
         formatter.setLocalizedDateFormatFromTemplate("EEE d MMM yyyy")
         return formatter.string(from: date)
     }
+    static func conversationDate(_ raw: String?, zone: TimeZone = .current, format: String = "EEE d MMM") -> String {
+        shortDate(raw, zone: zone.identifier, format: format)
+    }
     static func shortDate(_ raw: String?, zone value: String, format: String = "EEE d MMM") -> String {
         guard let date = date(raw) else { return "No fixed date" }
         let formatter = DateFormatter()

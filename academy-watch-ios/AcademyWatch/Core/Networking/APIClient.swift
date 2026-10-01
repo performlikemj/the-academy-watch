@@ -1089,6 +1089,9 @@ struct APIClient: GolAPIClientProtocol, PlayerClubAPIClientProtocol, ScoutAPICli
 
         #if DEBUG && targetEnvironment(simulator)
         if Phase2Fixtures.active {
+            if Phase2Fixtures.mode == "late-off", ["features", "opportunities/features"].contains(path) {
+                try await Task.sleep(for: .seconds(4))
+            }
             let data = try Phase2Fixtures.data(for: request)
             return (data, ProcessInfo.processInfo.systemUptime)
         }

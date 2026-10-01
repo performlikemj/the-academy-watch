@@ -68,6 +68,18 @@ final class OpportunityEditorTests: XCTestCase {
     XCTAssertNotNil(m.fieldErrors["starts_at"])
     XCTAssertNotNil(m.error)
   }
+  func testZoneChangeRejectsRepeatedDSTTimeWithoutGuessingOffset() async {
+    let m = model(EditorAPI())
+    await m.load()
+    fill(m)
+    m.draft.timezone = "UTC"
+    m.draft.startsAt = Phase2Time.date("2026-11-01T01:30:00Z")!
+    m.draft.endsAt = nil
+    let previous = m.draft
+    m.changeZone("America/New_York")
+    XCTAssertEqual(m.draft, previous)
+    XCTAssertNotNil(m.fieldErrors["starts_at"])
+  }
   func testInFlightWriteRejectsSecondSaveAndZoneChange() async {
     let api = EditorAPI()
     let m = model(api)

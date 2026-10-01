@@ -267,7 +267,7 @@ struct RootTabView: View {
             if !tabs.contains(selectedTab) { selectedTab = role == .scout ? .scoutDesk : .home }
         }
         .task(id: authManager.email) {
-            workspace.reset()
+            workspace.reset(preservePublicFlags: true)
             await workspace.load(authenticated: authManager.isAuthenticated)
             guard !Task.isCancelled else { return }
             hasLoadedWorkspace = true

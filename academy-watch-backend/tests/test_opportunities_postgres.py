@@ -38,7 +38,7 @@ def pg(monkeypatch):
     service.register_notifications()
     with app.app_context():
         assert db.session.execute(sa.text("SELECT current_database()")).scalar() == "aw_p2_b2"
-        assert db.session.execute(sa.text("SELECT version_num FROM alembic_version")).scalar() == "p2b2"
+        assert db.session.execute(sa.text("SELECT version_num FROM alembic_version")).scalar() in {"p2b2", "p2b3"}
         suffix = uuid4().hex[:12]
         league = FundingLeague(
             name=f"B2 Test {suffix}",

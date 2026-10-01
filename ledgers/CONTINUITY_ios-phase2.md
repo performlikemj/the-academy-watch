@@ -11,8 +11,8 @@
 
 ## State
 - Done: merged B3 + final B1/B2 dependencies; conflicts preserved owned feature blocks. Native role tabs, browse/apply/application actions, recruiting/invites/notes/signing, owner staff grants and scoped squads implemented.
-- Now: I1 round 2 complete; native editor + N5F1 low-cut loader pass final gates. Draft #1118 stays unmerged.
-- Next: orchestrator independent review-duel on the pushed round2 head; no merge.
+- Now: I1F3 review-duel implementation complete; final gate and pushed-SHA receipts are maintained in `~/codex-runs/aw-redesign/logs/I1F3.final.md`. Draft #1118 stays unmerged.
+- Next: independent review of the I1F3 pushed head; backend8305283b through renewal; app rollout depends on UXB #1124; no fleet merge.
 
 ## Validation
 - Debug simulator compile passes. First XCTest launch hit simulator infrastructure error before tests; rerun on booted dedicated simulator, parallel testing disabled.
@@ -106,3 +106,14 @@
 - Now: implement union O1-O7/O9-O13/X1-X4 + N1; O8 excluded with cross-exam evidence.
 - Next: targeted regression tests; separate backend commit; merge current main; final governed native/Release/backend gates and screenshot evidence; push/no merge.
 - Release dependency: UXB #1124 parent-interest anchor. MJ question: approved N17 live-thread other-states legend.
+
+- I1F3 targeted regression milestones: first-edit/terminal, flags-off sign-out, retry-only apply, directory detail return, dirty-discard, zone picker and390pt largest Home pass. Unit model regressions cover denied/transient membership,31-row older invitation, wall-time/DST and in-flight writes.
+- Backend-only8305283b based on main784b1490: cached full4078pass69skip/Ruff570 clean. Native integrates current A2/B1/B2/B351f30f5b heads; integrated PostgreSQL19 +3contract checks pass after applying actual B3 schema (fixture guard accepts p2b3). No migration source change.
+- Next: final new role/late-bootstrap checks; final source commit; four cached gates, full native unit/offline suite and Release;light/dark captures; external hand-back/PR body;push and owned resource cleanup.
+
+## I1F3 final verification / delivery record
+- All accepted runtime findings implemented; O8 excluded by weak-reference evidence (9 live while owned,0 after scope). Backend-only8305283b is a parent commit for independent cherry-pick/release; original native history is retained without a force push.
+- Targeted UI:7 distinct regression cases pass across initial/corrected runs; additional analyst/viewer and late-bootstrap2 pass. Model tests cover all public/private flag outcomes,31applications/older invitation/current priority, time-zone wall values/gap/repeated DST, dirty/in-flight state, reader dates and actual tab text AA contrast.
+- Source frozen before final cached backend/full/lint/frontend gates, full unit/offline and Release. Exact receipts/counts, light/dark screenshot index, resource cleanup and pushed SHA are authoritative in external `I1F3.final.md`; no migration changes/preapply contract needed.
+- Release dependency: `/opportunities/<id>#parent-interest` app link is retained; UXB #1124 must ship its web anchor/focus implementation before the app build.
+- Question for MJ (design, not defect): keep the approved N17 “Other states you will see” legend in the live thread?

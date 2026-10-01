@@ -153,7 +153,7 @@ struct OpportunityEditorView: View {
     .onChange(of: workspace.flags) { _, flags in model.updateFlags(flags) }
     .interactiveDismissDisabled(model.isDirty || model.isBusy)
     .sheet(isPresented: $choosingZone) { zonePicker }
-    .confirmationDialog("Discard unsaved changes?", isPresented: $confirmingDiscard, titleVisibility: .visible) {
+    .alert("Discard unsaved changes?", isPresented: $confirmingDiscard) {
       Button("Discard changes", role: .destructive) { dismiss() }
       Button("Keep editing", role: .cancel) {}
     }
