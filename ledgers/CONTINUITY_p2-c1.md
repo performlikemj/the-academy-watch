@@ -18,7 +18,9 @@
 - Done: 20 reviewed desktop/mobile PNGs, six from the actual isolated HTTP/PG workflow. Evidence index ~/codex-runs/aw-redesign/shots/C1/INDEX.md.
 - Done: final full modern offline browser240 pass5skip0fail; raw legacy browser limitation documented separately.
 - Done: owned servers5150/5201 stopped, aw_p2_c1 dropped (pg_database count0), private env/auth/temp/browser outputs removed; pre-existing tracked browser report restored.
-- Now: validated delivery on p2/c1-club-publication; exact PR/SHA/CI and owned-resource cleanup recorded in external logs/C1.final.md.
+- Done: PR #1121 created draft against main with stacked-on #1115 body, then marked ready after full local gates.
+- Done: main B1 release e82bb4e3 refresh resolves only duplicated stack registrations/features/routes and head pins; retained validated C1 code. Application diff vs 29c4dc54 is empty; B1 ledger refreshed. Full gates repeated before refresh push; exact results in external hand-back.
+- Now: PR #1121 ready for orchestrator review; exact final SHA/CI and final owned-resource cleanup recorded in external logs/C1.final.md.
 - Next: orchestrator adversarial review and prerequisite merges before C1; flag activation separate. PR created draft against main then marked ready after all local checks.
 - Validation limitation: raw full browser234pass16fail6skip16notrun; seven older suites lack live ADMIN_API_KEY setup, nine older Journey tests target retired singular route/stale API. Same debt recorded in baseline INT.report.md. Optional old live radar contracts fail on base when DB configured; final CI-equivalent full suite leaves their documented opt-in unset, alongside separate real C1 PostgreSQL tests.
 - Integration: B2 counts-None contract replaces earlier empty-map workaround; ON empty counts remains valid. Four migration-head assertions pin p2c1. Exact Rule.methods set preserved in C1/B3 dark maps per agreed C4/C2 integration fix.

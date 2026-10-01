@@ -32,7 +32,7 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
 
 ## State
 
-- **Now (2026-10-01):** Phase 2 C1 delivered on p2/c1-club-publication, stacked #1115; adult consent publication and club-first introductions default OFF. Exact PR/SHA/CI and cleanup in `~/codex-runs/aw-redesign/logs/C1.final.md`; see `ledgers/CONTINUITY_p2-c1.md`.
+- **Now (2026-10-01):** Phase 2 C1 PR #1121 ready on p2/c1-club-publication, stacked #1115; adult consent publication and club-first introductions default OFF. Exact PR/SHA/CI and cleanup in `~/codex-runs/aw-redesign/logs/C1.final.md`; see `ledgers/CONTINUITY_p2-c1.md`.
 
 ### Done
 - **2026-10-01 P2 C1:** explicit known-adult recipient claim + versioned public consent + moderation, canonical live eligibility and club-first two-key introductions/revocation; p2c1→p2b3, four head pins. Full backend4342pass89skip, modern browser240pass5skip, real PG4/HTTP-browser1/Node219/Ruff-format590/OSV547/lint-build green; raw old browser234pass16fail6skip16notrun (documented prerequisite/retired-route debt). Twenty reviewed PNGs in external shots/C1; production flag OFF.
