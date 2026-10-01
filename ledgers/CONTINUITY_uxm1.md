@@ -1,6 +1,6 @@
 # UXM1 — scout/player staging polish
 
-- Status: complete including RUXM1 fix round 1; owner Codex; branch fix/staging-ux-scout-player; draft PR #1119 against main; no merge.
+- Status: complete including RUXM1 rounds 1 and 2; owner Codex; branch fix/staging-ux-scout-player; draft PR #1119 against main; no merge.
 - Goal: P-08/P-09/P-10/P-11/P-12/P-27/P-28 plus small additive public-adult community search.
 - Constraints: behavior preserved outside fixes; frozen unchanged; no dependencies/migrations; staging read-only; minors/club-private unfindable.
 - Done: fixes implemented; read-only staging evidence captured; 16 fixed-view full-page PNGs + detail screenshots visually reviewed.
@@ -30,7 +30,7 @@
 - Cleanup complete: owned servers/SQLite/temp/build/browser output removed; tracked baseline browser report retained; no PostgreSQL DB created. Implementation627520a0; origin/main e82bb4e3 remains ancestor. Delivery: implementation627520a0 pushed with validation ledger d3f8baa7 to draft #1119; remote verified OPEN/DRAFT, PR body updated, no merge. Hand-back logs/UXM1F1.final.md.
 
 ## RUXM1V fix round 2
-- Status: validated; N1/N2/N3 fixed; delivery pending push of draft #1119, no merge.
+- Status: complete; all three RUXM1V findings fixed, validated and pushed to draft #1119; no merge.
 - Now: inspect request/label separation and extend mocked/real Flask browser regressions.
 - Next: main refresh, foreground full gates, push draft #1119 without merge, hand-back logs/UXM1F2.final.md.
 - Milestone: signed-out pill Get verified + login row CTA; request/default label separated; explicit selections preserved. Mocked desktop/mobile and real Flask older shadow15/limited30 regressions added. Main still e82bb4e3; no merge needed.
@@ -41,3 +41,4 @@
 - Combined main gates: Ruff/format571 clean; Node263 pass; lint0errors185inherited warnings; build pass. Foreground full pytest + lane40 (real freezeOFF) running at merge f6e73e3b; main parity remains exact for player routes/fallback models, logs/UXM1F2.real-main-baselines.json.
 - Combined browser final40pass (36 mocked +4 real freezeOFF); real freezeON repeat4pass. Owned5160/5210 servers stopped; temporary SQLite and generated build/browser outputs removed; tracked frontend report retained. Node263/lint0errors185warnings/build/Ruff-format571 green. Only full combined pytest remains.
 - Final combined full pytest4089passed/69skipped/0failed (953.63s); final Ruff0.16.0 check clean and format580 files clean. Removed unused fixture-only E402 suppression caught by pinned Ruff (no runtime change); earlier local0.15.22 checks also passed. Node263/lint0errors185inherited warnings/build/lane40+real frozen4 pass. Main refreshed again, still784b1490. Ready to push; no dependency restore/lockfile changes.
+- Delivery: implementation32a9046e + main refresh f6e73e3b + pinned-Ruff/comment/validation d0c7573a pushed to draft #1119; remote verified OPEN/DRAFT/MERGEABLE. Final documentation commit records delivery; hand-back logs/UXM1F2.final.md. No outstanding work; next is review/merge by owner.
