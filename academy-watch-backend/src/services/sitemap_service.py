@@ -19,6 +19,7 @@ from src.models.tracked_player import TrackedPlayer
 from src.services.club_publication_hold import held_subject_ids
 from src.services.player_suppression import public_player_visible_filter
 from src.services.public_player_subject import resolve_public_adult_subject
+from src.utils import legacy_pages
 
 logger = logging.getLogger(__name__)
 
@@ -193,9 +194,9 @@ def _render_sitemap_xml() -> bytes:
             locations.append(f"{base_url}/players/{player_api_id}")
         players_emitted += 1
 
-    if len(locations) < SITEMAP_MAX_URLS:
+    if legacy_pages.LEGACY_PUBLIC_PAGES and len(locations) < SITEMAP_MAX_URLS:
         _append_slug_urls(locations, base_url, "teams", _team_slugs())
-    if len(locations) < SITEMAP_MAX_URLS:
+    if legacy_pages.LEGACY_PUBLIC_PAGES and len(locations) < SITEMAP_MAX_URLS:
         _append_slug_urls(locations, base_url, "newsletters", _newsletter_slugs())
     if len(locations) < SITEMAP_MAX_URLS:
         _append_slug_urls(locations, base_url, "programs", _program_slugs())
@@ -264,19 +265,24 @@ def _sitemap_response(body: bytes | str, status: int, mimetype: str):
 
 
 def _without_held_urls(xml: bytes) -> bytes:
-    """Revalidate emergency holds even while serving a fresh/stale cached sitemap.
+    """Remove frozen legacy URLs and revalidate holds in fresh/stale cached XML.
 
     Filter a response copy so lifting a hold restores the cached links immediately.
     Other sitemap eligibility rules retain their existing rebuild cadence.
     """
     root = ET.fromstring(xml)
+    removed = False
     player_urls = {}
     program_urls = {}
-    for node in root:
+    for node in list(root):
         location = node.find(f"{{{SITEMAP_NAMESPACE}}}loc")
         if location is None or not location.text:
             continue
         parts = urlsplit(location.text).path.strip("/").split("/")
+        if parts[0] in legacy_pages.LEGACY_PUBLIC_ROOTS and not legacy_pages.legacy_public_url(location.text):
+            root.remove(node)
+            removed = True
+            continue
         if len(parts) != 2:
             continue
         kind, identity = parts
@@ -305,7 +311,6 @@ def _without_held_urls(xml: bytes) -> bytes:
         if program_urls
         else set()
     )
-    removed = False
     for node, identity in player_urls.items():
         if identity in held:
             root.remove(node)

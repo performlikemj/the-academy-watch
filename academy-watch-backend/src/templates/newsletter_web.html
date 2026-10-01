@@ -12,7 +12,8 @@
   <meta property="og:type" content="article">
   <meta property="og:title" content="{{ social_meta.title }}">
   <meta property="og:description" content="{{ social_meta.description }}">
-  <meta property="og:url" content="{{ social_meta.og_url }}">
+  {% if social_meta.og_url %}
+  <meta property="og:url" content="{{ social_meta.og_url }}">{% endif %}
   <meta property="og:site_name" content="{{ social_meta.site_name }}">
   {% if social_meta.og_image %}
   <meta property="og:image" content="{{ social_meta.og_image }}">

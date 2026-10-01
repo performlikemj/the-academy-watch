@@ -112,6 +112,9 @@ Log one-liner in CONTINUITY.md's "Trivial Log" section.
 
 > Agents: Add patterns here when you discover reusable conventions.
 
+- Frozen legacy public pages use `src/lib/legacyRoutes.js` in the frontend; keep imports gated by `LEGACY_PUBLIC_PAGES`. Backend legacy URLs use `src/utils/legacy_pages.py` (`LEGACY_PUBLIC_PAGES` + `legacy_public_url`); sitemap enumeration/cache filtering, email contexts and public emitters share it. Keep frontend/backend gates aligned. Admin/writer/curator routes remain separate.
+- Azure SWA legacy 301 rules live in `academy-watch-frontend/public/staticwebapp.config.json`; `tests/legacy-routes.test.mjs` checks agreement with the client route list and protects active paths. Restoring public routes requires removing the corresponding server redirects as well as enabling the gates. Legacy noindex depends only on the current legacy pathname; never carry it to the redirect destination.
+
 - iOS: `academy-watch-ios/project.yml` is the XcodeGen source of truth. Put generated Info.plist overrides (including `CFBundleShortVersionString = $(MARKETING_VERSION)`) in `info.properties` so regeneration preserves them.
 - iOS owner showcase writes use `APIClient.ownerShowcasePath`: community identities call `local-players/<positive-local-id>`, while discovery and club-feedback APIs use signed player IDs.
 - iOS player/coach UI checks use the offline `AcademyWatchExperience` scheme. `AcademyWatchUISmoke` is a separate live suite that sends login emails.
