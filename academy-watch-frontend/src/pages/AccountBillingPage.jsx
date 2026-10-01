@@ -262,7 +262,7 @@ export function AccountBillingPage() {
 
         {showLegacyBilling ? (
           <>
-            {(subscriptions.some(subscription => subscription.product_code === 'scout_pro') || !subscriptions.some(subscription => subscription.product_code === 'club_bundle')) && <Card>
+            {(entitlements?.tier === 'pro' || entitlements?.grandfathered_until || subscriptions.some(subscription => subscription.product_code === 'scout_pro') || !subscriptions.some(subscription => subscription.product_code === 'club_bundle')) && <Card>
               <CardHeader><CardTitle className="flex items-center gap-2"><ShieldCheck className="h-5 w-5" />Scout access</CardTitle><CardDescription>Entitlements are confirmed by the server.</CardDescription></CardHeader>
               <CardContent className="space-y-3"><div className="flex flex-wrap items-center gap-2"><Badge>{entitlements?.tier === 'pro' ? 'Scout Pro' : 'Free'}</Badge><span className="text-sm text-muted-foreground">Source: {String(entitlements?.source || 'none').replace('_', ' ')}</span></div><p className="text-sm">{features.gol_chat ? 'GOL chatbot unlocked' : 'GOL chatbot unavailable'}</p>{entitlements?.grandfathered_until ? <p className="text-xs text-muted-foreground">Grandfathered until {date(entitlements.grandfathered_until)}</p> : null}</CardContent>
             </Card>}

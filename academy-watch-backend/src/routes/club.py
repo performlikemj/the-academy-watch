@@ -79,7 +79,7 @@ from src.services.player_subject import PlayerSubject, resolve_player_subject
 from src.services.player_suppression import is_local_player_suppressed, is_player_suppressed
 from src.services.public_player_subject import resolve_public_adult_subject
 from src.utils.academy_window import age_from_birth_date, current_stats_season
-from src.utils.sanitize import is_safe_https_url, sanitize_plain_text
+from src.utils.sanitize import display_plain_text, is_safe_https_url, sanitize_plain_text
 
 club_bp = Blueprint("club", __name__)
 logger = logging.getLogger(__name__)
@@ -394,7 +394,7 @@ def _result_header_values(data: dict) -> dict:
     for field in ("match_date", "opponent", "home_away", "result_for", "result_against"):
         if field not in data:
             raise ValueError(f"{field} is required")
-    opponent = _field_text(data.get("opponent"), "opponent", 120)
+    opponent = _clean_optional(data.get("opponent"), "opponent", 120)
     if opponent is None:
         raise ValueError("opponent is required")
     home_away = data.get("home_away")
@@ -403,7 +403,7 @@ def _result_header_values(data: dict) -> dict:
     return {
         "match_date": _result_match_date(data.get("match_date")),
         "opponent": opponent,
-        "competition": _field_text(data.get("competition"), "competition", 120),
+        "competition": _clean_optional(data.get("competition"), "competition", 120),
         "home_away": home_away,
         "result_for": _bounded_result_int(data.get("result_for"), "result_for", 20),
         "result_against": _bounded_result_int(data.get("result_against"), "result_against", 20),
@@ -631,21 +631,18 @@ def _brief_dict(body: str | None, updated_at: datetime | None) -> dict:
 def _brief_name_tokens(program: ClubProgram) -> dict[str, str]:
     names = []
     for member in program.roster_members:
-        if not member_in_scope(member):
-            continue
         subject, _ = _member_subject(member)
         display_name = subject.get("display_name") if subject else None
         if display_name:
             names.append(display_name)
-    if scoped_squad_ids() is None:
-        names.extend(
-            player_name
-            for (player_name,) in db.session.query(VideoRosterEntry.player_name)
-            .join(VideoMatch, VideoRosterEntry.video_match_id == VideoMatch.id)
-            .filter(VideoMatch.club_program_id == program.id)
-            .all()
-            if player_name
-        )
+    names.extend(
+        player_name
+        for (player_name,) in db.session.query(VideoRosterEntry.player_name)
+        .join(VideoMatch, VideoRosterEntry.video_match_id == VideoMatch.id)
+        .filter(VideoMatch.club_program_id == program.id)
+        .all()
+        if player_name
+    )
     tokens = {}
     for name in names:
         for token in BRIEF_NAME_TOKEN_RE.findall(name):
@@ -701,6 +698,8 @@ def _clean_brief(body, program: ClubProgram) -> str | None:
             raise ValueError(f"Brief lines must be at most {MAX_BRIEF_LINE_CHARS} characters")
         for token in name_tokens.values():
             if _brief_name_token_matches(token, line):
+                if scoped_squad_ids() is not None:
+                    raise ValueError("Briefs describe behaviours, not people — remove player names.")
                 raise ValueError(
                     f'Briefs describe behaviours, not people — remove the name "{token}" from line {line_number}.'
                 )
@@ -1553,7 +1552,7 @@ def _stable_result_payloads(rows: list[ClubResult]) -> list[dict]:
         header = row.manager_dict()
         # Old rows may contain HTML entities from the storage sanitizer; JSON carries plain text.
         for field in ("opponent", "competition"):
-            header[field] = _field_text(header[field], field, 120)
+            header[field] = display_plain_text(header[field])
         video = videos.get((row.program_id, row.video_match_id))
         header["video_available"] = bool(
             video
@@ -2404,25 +2403,6 @@ def _invitation_database_error(error):
     return jsonify({"error": "invitation_operation_failed"}), 500
 
 
-def _club_player_display_name(program_id, signed_id):
-    """Reuse club roster scope/redaction; otherwise only an already-public adult name."""
-    query = ClubRosterMember.query.filter_by(program_id=program_id)
-    query = query.filter_by(player_api_id=signed_id) if signed_id > 0 else query.filter_by(local_player_id=-signed_id)
-    member = query.first()
-    if member is not None:
-        if not member_in_scope(member):
-            return None
-        return member_view(_member_dict(member)).get("display_name")
-    # Pending invitations need not have a roster row. This is the same public-adult gate
-    # used by list_invitations, never a raw LocalPlayer/name lookup.
-    if scoped_squad_ids() is not None:
-        return None
-    from src.services.public_player_subject import resolve_public_adult_subject
-
-    subject = resolve_public_adult_subject(signed_id)
-    return subject.display_name if subject else None
-
-
 def _invitation_list_response(**scope):
     try:
         if set(request.args) - {"limit", "before", "player_api_id"} or any(
@@ -2432,11 +2412,13 @@ def _invitation_list_response(**scope):
         limit = int(request.args.get("limit", "20"))
         signed_id = int(request.args["player_api_id"]) if "player_api_id" in request.args else None
         result = list_invitations(
-            db.session, **scope, player_api_id=signed_id, limit=limit, before=request.args.get("before")
+            db.session,
+            **scope,
+            player_api_id=signed_id,
+            limit=limit,
+            before=request.args.get("before"),
+            include_player_names=scope.get("program_id") is not None,
         )
-        if scope.get("program_id") is not None:
-            for row in result["invitations"]:
-                row["player_name"] = _club_player_display_name(scope["program_id"], row["player_api_id"])
         return jsonify(result)
     except (ValueError, InvitationError) as error:
         return jsonify(

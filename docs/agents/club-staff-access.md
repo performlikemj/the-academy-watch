@@ -136,7 +136,7 @@ verified state; multi-squad grants survive a role-only change) with
 ## Coach’s brief versus player feedback (UXM2 · P-18)
 
 - Product decision: BUS `2026-10-01 14:29 | orchestrator | ANSWER` explicitly confirms Coach’s brief is coaching content. Write requires **`players.manage` OR `feedback`**, so a scoped coach may edit an available player in their assigned squads.
-- `PUT /club/<id>/roster/<member>/brief` applies `member_in_scope` and returns neutral 404 outside scope. Its response goes through `member_view`; private notes are never sent to a coach. Name-validation hints use only names in the caller’s scope.
+- `PUT /club/<id>/roster/<member>/brief` applies `member_in_scope` and returns neutral 404 outside scope. Its response goes through `member_view`; private notes are never sent to a coach. Name validation checks all club roster and match-sheet names; scoped callers receive a generic remove-player-names error that never echoes a matched name.
 - Read follows `players.view` within squad scope through `member_view` / `profile_view`. Viewers receive neither brief field. Analysts may read but cannot write; viewers cannot write.
 - Owner/manager behavior and flag-off behavior stay unchanged. Squad assignment, photo, note and system-brief writes still require `players.manage`. The club player page shows Edit brief independently of those manager-only controls.
 - Pathway reads include recorded `ClubRosterSquadHistory` plus the current squad when imported/older assignments lack an open history row. Unknown assignment dates stay unknown; GET never creates history.

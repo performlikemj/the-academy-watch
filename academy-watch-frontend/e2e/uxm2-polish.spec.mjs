@@ -7,9 +7,10 @@ const all = ['players.view', 'players.manage', 'matches.view', 'matches.upload',
 const member = { id: 8, available: true, display_name: 'Synthetic Player', subject_type: 'local', local_player_id: 8, squad_id: 11, shirt_number: 8, brief: { body: 'Check both shoulders', lines: ['Check both shoulders'] } }
 const expiredInvite = { id: 'expired-1', email: 'synthetic.coach@example.test', role: 'coach', all_squads: false, squad_ids: [11], status: 'expired', created_at: '2026-09-12T10:00:00Z', expires_at: '2026-09-19T10:00:00Z' }
 
-async function mock(page, { role = 'owner', subscription = 'club_bundle', emailSent = true, onInvite, onBrief } = {}) {
+async function mock(page, { role = 'owner', subscription = 'club_bundle', emailSent = true, onInvite, onBrief, entitlements } = {}) {
   const admin = role === 'admin'
   const access = { program_id: 7, role, verified: true, whole_club: ['owner', 'manager'].includes(role), squad_ids: [11], capabilities: role === 'owner' ? all : role === 'manager' ? all.filter(c => !['access.manage', 'billing'].includes(c)) : ['players.view', 'matches.view', ...(role === 'coach' ? ['feedback', 'matches.upload'] : [])] }
+  let matches = [{ id: 42, status: 'created', opponent_name: 'Synthetic Newest', competition: 'Wendle & District Senior League — Premier Division', match_date: '2026-09-27', roster: [] }, { id: 41, status: 'created', opponent_name: 'Synthetic Older', match_date: '2026-09-20', roster: [] }]
   let brief = member.brief
   let invites = [expiredInvite, { ...expiredInvite, id: 'pending-1', email: 'pending@example.test', status: 'pending', expires_at: '2030-10-07T10:00:00Z' }]
   await page.addInitScript(({ admin }) => {
@@ -39,7 +40,21 @@ async function mock(page, { role = 'owner', subscription = 'club_bundle', emailS
       brief = { body: route.request().postDataJSON().body, lines: [route.request().postDataJSON().body] }
       return reply({ member: { ...member, brief } })
     }
-    if (path === '/api/club/7/matches') return reply({ matches: [{ id: 42, status: 'created', opponent_name: 'Synthetic Newest', competition: 'Wendle & District Senior League — Premier Division', match_date: '2026-09-27' }, { id: 41, status: 'created', opponent_name: 'Synthetic Older', match_date: '2026-09-20' }], total: 2 })
+    if (path === '/api/club/7/squads') return reply({ squads })
+    if (path === '/api/club/7/matches') {
+      if (route.request().method() === 'POST') {
+        const created = { id: 43, status: 'created', roster: [], ...route.request().postDataJSON() }
+        matches.push(created)
+        return route.fulfill({ status: 201, json: created })
+      }
+      return reply({ matches, total: matches.length })
+    }
+    if (/^\/api\/club\/7\/matches\/\d+$/.test(path)) {
+      const id = Number(path.split('/').at(-1))
+      const match = matches.find(row => row.id === id)
+      if (route.request().method() === 'PATCH') Object.assign(match, route.request().postDataJSON())
+      return reply(match)
+    }
     if (path === '/api/club/7/results') return reply({ results: [{ result: { id: 'r1', version: 1, match_date: '2026-09-27', opponent: 'Wendle & District < "Rovers" >', result_for: 2, result_against: 1 }, matches: [] }] })
     if (path === '/api/club/7/access') return reply({ people: [{ user_account_id: 1, display_name: 'Synthetic Owner', role: 'owner', permissions: [true] }], invites, activity: [], matrix: { rows: ['See players'] } })
     if (path === '/api/club/7/staff-invites') {
@@ -50,7 +65,7 @@ async function mock(page, { role = 'owner', subscription = 'club_bundle', emailS
     }
     if (path === '/api/billing/config') return reply({ enabled: true, products: [], packs: [] })
     if (path === '/api/billing/me') return reply({ has_billing_account: true, subscriptions: [{ id: 1, product_code: subscription, status: 'active', unit_amount: 2900, currency: 'gbp', interval: 'month', current_period_end: '2026-10-27T00:00:00Z' }] })
-    if (path === '/api/scout/entitlements') return reply({ entitlements: { tier: subscription === 'scout_pro' ? 'pro' : 'free', features: { gol_chat: true } } })
+    if (path === '/api/scout/entitlements') return reply({ entitlements: entitlements || { tier: subscription === 'scout_pro' ? 'pro' : 'free', features: { gol_chat: true } } })
     if (path === '/api/scout/verification') return reply({ verification: { status: 'approved', full_name: 'Synthetic Scout', role_title: 'Scout', organization: 'Synthetic Club', submitted_at: '2026-09-27T12:00:00Z' } })
     if (path === '/api/admin/scout-verifications') return reply({ verifications: [{ id: 'v1', full_name: 'Synthetic Scout', status: 'pending', submitted_at: '2026-09-27T12:00:00Z' }] })
     if (path === '/api/meta/data-mode') return reply({ api_football_frozen: false })
@@ -161,9 +176,10 @@ test('verification and admin review use UK dates', async ({ page }) => {
   await expect(page.getByText('Submitted 27 Sept 2026', { exact: true })).toBeVisible()
 })
 
-for (const route of ['/my-club?program=7&view=staff', '/account/billing', '/admin/trust']) {
-  test(`390px last content/footers clear one GOL launcher on ${route}`, async ({ page }) => {
-    await page.setViewportSize({ width: 390, height: 844 })
+for (const width of [390, 1440]) for (const route of ['/my-club?program=7&view=staff', '/account/billing', '/admin/trust']) {
+  test(`${width}px last content/footers clear one GOL launcher on ${route}`, async ({ page }) => {
+    const height = width === 390 ? 844 : 900
+    await page.setViewportSize({ width, height })
     await mock(page, { role: route.startsWith('/admin') ? 'admin' : 'owner' })
     await page.goto(route)
     await expect(page.getByRole('heading').first()).toBeVisible()
@@ -171,12 +187,13 @@ for (const route of ['/my-club?program=7&view=staff', '/account/billing', '/admi
     await expect(launcher).toHaveCount(1)
     await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
     const button = await launcher.boundingBox()
-    expect(390 - button.x - button.width).toBeCloseTo(16, 0)
-    expect(844 - button.y - button.height).toBeCloseTo(16, 0)
-    const content = page.locator('.app-footer').or(page.locator('.app-main')).last()
+    expect(width - button.x - button.width).toBeCloseTo(16, 0)
+    expect(height - button.y - button.height).toBeCloseTo(16, 0)
+    await expect(page.locator('.app-main')).toHaveCSS('padding-bottom', '0px')
+    const content = page.locator(route.startsWith('/admin') ? '.fl-admin-main' : '.app-footer')
     const space = await content.evaluate(el => parseFloat(getComputedStyle(el).paddingBottom))
     expect(space).toBeGreaterThanOrEqual(88)
-    if (route.startsWith('/my-club')) {
+    if (width === 390 && route.startsWith('/my-club')) {
       const tabs = await page.locator('.ch-rail > button:visible').all()
       for (const tab of tabs) { const box = await tab.boundingBox(); expect(box.x + box.width).toBeLessThan(button.x) }
     }
@@ -186,5 +203,68 @@ for (const route of ['/my-club?program=7&view=staff', '/account/billing', '/admi
       expect(bounds.y + bounds.height).toBeLessThanOrEqual(button.y)
     }
     expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false)
+  })
+}
+
+
+for (const width of [390, 1440]) {
+  for (const entitlements of [
+    { tier: 'pro', source: 'grandfather', grandfathered_until: '2026-12-31', features: { gol_chat: true } },
+    { tier: 'pro', source: 'subscription', features: { gol_chat: true } },
+  ]) {
+    test(`club owner keeps separate Scout Pro access (${entitlements.source}) at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: width === 390 ? 844 : 900 })
+      await mock(page, { entitlements })
+      await page.goto('/account/billing')
+      await expect(page.getByRole('heading', { name: 'Club bundle', exact: true })).toBeVisible()
+      await expect(page.getByText('Scout access', { exact: true })).toBeVisible()
+      await expect(page.getByText('Scout Pro', { exact: true })).toBeVisible()
+      if (entitlements.source === 'grandfather') await expect(page.getByText('Grandfathered until 31 Dec 2026')).toBeVisible()
+    })
+  }
+
+  test(`match creation and date edits immediately re-sort at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 900 })
+    await mock(page)
+    await page.goto('/my-club?program=7&view=matches')
+    const rows = page.locator('button > div > p').filter({ hasText: /^vs Synthetic/ })
+    await expect(rows).toHaveText(['vs Synthetic Newest', 'vs Synthetic Older'])
+    await page.getByRole('button', { name: 'Create match', exact: true }).click()
+    const dialog = page.getByRole('dialog')
+    await dialog.getByLabel('Opponent', { exact: true }).fill('Synthetic Middle')
+    await dialog.getByLabel('Match date', { exact: true }).fill('2026-09-23')
+    await dialog.getByRole('button', { name: 'Create match', exact: true }).click()
+    await expect(rows).toHaveText(['vs Synthetic Newest', 'vs Synthetic Middle', 'vs Synthetic Older'])
+    await page.locator('#date-43').fill('2026-09-28')
+    await page.getByRole('button', { name: 'Save details', exact: true }).click()
+    await expect(rows).toHaveText(['vs Synthetic Middle', 'vs Synthetic Newest', 'vs Synthetic Older'])
+    await page.locator('#date-43').fill('')
+    await page.getByRole('button', { name: 'Save details', exact: true }).click()
+    await expect(rows).toHaveText(['vs Synthetic Newest', 'vs Synthetic Older', 'vs Synthetic Middle'])
+  })
+
+  test(`launcher reservation disappears with the launcher at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 900 })
+    await mock(page)
+    await page.goto('/account/billing')
+    await expect(page.locator('.app-footer')).toHaveCSS('padding-bottom', '88px')
+    await expect(page.locator('.app-main')).toHaveCSS('padding-bottom', '0px')
+    await page.locator('[data-gol-launcher]').evaluate(el => el.remove())
+    await expect(page.locator('.app-footer')).toHaveCSS('padding-bottom', '48px')
+    await expect(page.locator('.app-main')).toHaveCSS('padding-bottom', '0px')
+  })
+
+  test(`fitting admin layout has no outer 88px scroll band at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 900 })
+    await mock(page, { role: 'admin' })
+    await page.goto('/admin/trust')
+    await expect(page.locator('.fl-admin-main')).toBeVisible()
+    await expect(page.locator('.app-main')).toHaveCSS('padding-bottom', '0px')
+    const outer = await page.locator('.app-main').boundingBox()
+    const inner = await page.locator('.app-main > div').boundingBox()
+    expect(outer.height).toBeCloseTo(inner.height, 0)
+    // Fit short content inside the real admin shell, retaining sidebar/header.
+    await page.locator('.fl-admin-main').evaluate(el => { el.replaceChildren() })
+    expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBe(width === 390 ? 844 : 900)
   })
 }

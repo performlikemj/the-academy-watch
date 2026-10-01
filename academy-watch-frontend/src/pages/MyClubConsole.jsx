@@ -1,3 +1,4 @@
+import { sortClubMatches } from '@/lib/club-matches'
 import { formatDisplayDate } from '@/lib/display-date'
 import { Link } from 'react-router-dom'
 import { ClubHome } from './club-console/ClubHome'
@@ -2177,7 +2178,7 @@ export function MatchesPanel({ programId, rosterMembers, matches, loading, error
   const upsertMatch = useCallback((updated) => {
     onMatchesChange((current) => {
       const exists = current.some((match) => match.id === updated.id)
-      return exists ? current.map((match) => match.id === updated.id ? updated : match) : [updated, ...current]
+      return sortClubMatches(exists ? current.map((match) => match.id === updated.id ? updated : match) : [...current, updated])
     })
   }, [onMatchesChange])
 

@@ -94,8 +94,9 @@ nav a:hover {
   display: none !important;
 }
 
-/* Leave a clear landing area for the single 56px GOL launcher, including iOS inset. */
-.app-main,
-.app-footer {
+/* Reserve the launcher's landing area once, on the last public surface.
+ * Admin's inner .fl-admin-main already reserves pb-28 within its full-height
+ * layout. Padding the outer main would add a blank band below that layout. */
+body:has([data-gol-launcher]) .app-footer {
   padding-bottom: calc(5.5rem + env(safe-area-inset-bottom, 0px));
 }
