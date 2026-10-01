@@ -2,13 +2,14 @@
 import { expect, test } from '@playwright/test'
 import fs from 'node:fs/promises'
 import path from 'node:path'
+import { execFileSync } from 'node:child_process'
 
 const oid = '00000000-0000-4000-8000-000000000041'
 const rid = '00000000-0000-4000-8000-000000000042'
 const post = { id: oid, program_id: 7, title: 'C4 TEST ONLY adult trial', club_name: 'C4 TEST ONLY Club', club_slug: 'c4-test-only', type: 'trial', starts_at: '2026-10-17T10:00:00Z', timezone: 'Europe/London', venue: 'Test ground', birth_year_max: 2005, status: 'published', distance_km: null }
 const request = { id: rid, opportunity_id: oid, program_id: 7, title: post.title, note: 'Test only observation request.', status: 'pending', version: 1, scout: { name: 'C4 TEST ONLY Scout', organization: 'Test only organization', role_title: 'Scout', verified: true } }
 
-async function fixture(page, { enabled = true, verified = true, attendance = null, empty = false, conflict = false, coach = false } = {}) {
+async function fixture(page, { enabled = true, verified = true, attendance = null, empty = false, conflict = false, coach = false, second = null, introductionsMore = false } = {}) {
   await page.addInitScript(() => {
     localStorage.clear()
     localStorage.setItem('academy_watch_user_token', 'c4-test-only-token')
@@ -33,7 +34,7 @@ async function fixture(page, { enabled = true, verified = true, attendance = nul
     if (p === `/api/opportunities/${oid}/attendance`) { writes.push({ path: p, body: req.postDataJSON() }); if (current?.status === 'withdrawn') requestCount++
       current = { ...request, version: current ? current.version + 1 : 1, note: req.postDataJSON().note, can_request_again: false };  return route.fulfill({ status: 201, json: { attendance: current } }) }
     if (p === `/api/me/scout-attendance/${rid}/withdraw`) { writes.push({ path: p, body: req.postDataJSON() }); current = { ...current, status: 'withdrawn', version: current.version + 1, arrival_instructions: undefined, can_request_again: requestCount < 2 }; return reply({ attendance: current }) }
-    if (p === '/api/club/7/today') return reply({ program_id: 7, queues: { ...(coach ? {} : { applications: [{ opportunity_id: oid, title: post.title, new: 2, total: 4 }], introductions: [{ id: 'test-introduction' }], attendance: current?.status === 'pending' ? [current] : [], accepted_attendance: current?.status === 'accepted' ? [{ id: current.id, opportunity_id: oid, title: current.title, status: current.status, version: current.version, scout: { name: current.scout.name, organization: current.scout.organization, verified: true } }] : [] }), team_sheet: [{ id: 40, opponent_name: 'C4 TEST ONLY opponent' }], analysing: [{ id: 41, opponent_name: 'C4 TEST ONLY analysing match', status: 'processing' }] } })
+    if (p === '/api/club/7/today') return reply({ program_id: 7, introductions_has_more: introductionsMore, queues: { ...(coach ? {} : { applications: [{ opportunity_id: oid, title: post.title, new: 2, total: 4 }], introductions: Array.from({ length: introductionsMore ? 30 : 1 }, (_, i) => ({ id: `test-introduction-${i}` })), attendance: [...(current?.status === 'pending' ? [current] : []), ...(second ? [second] : [])], accepted_attendance: current?.status === 'accepted' ? [{ id: current.id, opportunity_id: oid, title: current.title, status: current.status, version: current.version, scout: { name: current.scout.name, organization: current.scout.organization, verified: true } }] : [] }), team_sheet: [{ id: 40, opponent_name: 'C4 TEST ONLY opponent' }], analysing: [{ id: 41, opponent_name: 'C4 TEST ONLY analysing match', status: 'processing' }] } })
     if (p === `/api/club/7/attendance/${rid}/decision`) { writes.push({ path: p, body: req.postDataJSON() }); if (conflict) return route.fulfill({ status: 409, json: { error: 'version_conflict' } }); current = { ...current, status: req.postDataJSON().decision, arrival_instructions: req.postDataJSON().decision === 'accepted' ? req.postDataJSON().arrival_instructions : undefined, version: current.version + 1 }; return reply({ attendance: current }) }
     if (p === '/api/meta/data-mode') return reply({ api_football_frozen: false })
     if (p === '/api/scout/players') return reply({ players: [], total: 0, page: 1, pages: 1 })
@@ -47,6 +48,8 @@ async function fixture(page, { enabled = true, verified = true, attendance = nul
     if (p === '/api/club/7/access/me') return reply({ role: 'coach', whole_club: false, all_squads: true, squad_ids: [], capabilities: scopes })
     if (p === '/api/club/7/roster') return reply({ program, members: [], count: 0 })
     if (p === '/api/club/7/map') return reply({ program, squads: [], staff: [], unassigned_count: 0 })
+    if (p === '/api/club/7/opportunities') return reply({ opportunities: [{ ...post, description: 'TEST ONLY description', instructions: '', position_requirements: 'All positions', gender_program: 'all', address: '', ends_at: '2026-10-17T12:00:00Z', closes_at: '2026-10-10T10:00:00Z', version: 1, application_count: 0, live_attendance: Boolean(current) }], has_more: false })
+    if (p === `/api/club/7/opportunities/${oid}/applications`) return reply({ applications: [], has_more: false })
     if (p === '/api/club/7/matches') return reply({ matches: [], total: 0 })
     return reply({})
   })
@@ -227,3 +230,124 @@ for (const width of [1440, 390]) {
     await shot(page, `trial-location-off-testonly-${width}`)
   })
 }
+
+for (const width of [1440, 390]) {
+  test(`C4F3 unrelated advert edit keeps live session terms fixed ${width}`, async ({ page }) => {
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 900 })
+    await fixture(page, { attendance: request })
+    let saved = null
+    await page.route(`**/api/club/7/opportunities/${oid}`, route => {
+      saved = route.request().postDataJSON()
+      if (process.env.C4_E2E_BACKEND_PYTHON) {
+        execFileSync(process.env.C4_E2E_BACKEND_PYTHON, ['-m', 'pytest', '-q', 'tests/test_scout_attendance_editor.py', '-k', 'browser_editor_payload'], {
+          cwd: path.resolve('..', 'academy-watch-backend'), timeout: 120000,
+          env: { ...process.env, C4_BROWSER_EDITOR_PAYLOAD: JSON.stringify(saved), SKIP_API_HANDSHAKE: '1', API_USE_STUB_DATA: 'true', TEST_ONLY_MANU: 'false', OPENAI_API_KEY: 'test-not-a-real-key' },
+        })
+      }
+      return route.fulfill({ json: { opportunity: { ...post, ...saved } } })
+    })
+    await page.goto('/my-club?program=7&view=recruiting')
+    await page.getByRole('button', { name: 'Edit opportunity' }).click()
+    const dialog = page.getByRole('dialog')
+    for (const label of ['Opportunity type', 'Venue', 'Address', 'Time zone', 'Starts', 'Ends']) {
+      await expect(dialog.getByLabel(label, { exact: false }).first()).toBeDisabled()
+    }
+    await expect(dialog.getByText(/Scout attendance is pending or accepted/)).toBeVisible()
+    await dialog.getByLabel('About this opportunity').fill('Corrected TEST ONLY description')
+    await shot(page, `live-attendance-editor-testonly-${width}`)
+    await dialog.getByText(/Scout attendance is pending or accepted/).scrollIntoViewIfNeeded()
+    await shot(page, `live-attendance-editor-lock-testonly-${width}`)
+    await dialog.getByRole('button', { name: 'Save opportunity' }).click()
+    await expect(dialog).toHaveCount(0)
+    expect(saved.description).toBe('Corrected TEST ONLY description')
+    expect(saved).toMatchObject({ type: 'trial', venue: 'Test ground', address: '', timezone: 'Europe/London', starts_at: '2026-10-17T10:00:00Z', ends_at: '2026-10-17T12:00:00Z' })
+  })
+  test(`C4F3 live term conflict has a distinct explanation ${width}`, async ({ page }) => {
+    await fixture(page)
+    await page.route(`**/api/club/7/opportunities/${oid}`, route => route.fulfill({ status: 409, json: { error: 'advertised_terms_locked' } }))
+    await page.goto('/my-club?program=7&view=recruiting')
+    await page.getByRole('button', { name: 'Edit opportunity' }).click()
+    await page.getByRole('dialog').getByLabel('Venue', { exact: true }).fill('Changed ground')
+    await page.getByRole('button', { name: 'Save opportunity' }).click()
+    await expect(page.getByRole('alert')).toHaveText(/Advertised details are fixed/)
+    await expect(page.getByRole('alert')).not.toHaveText(/changed while you were working/)
+  })
+  for (const accepted of [false, true]) {
+    test(`C4F3 ${accepted ? 'rescind' : 'accept'} preserves another scout draft and useful focus ${width}`, async ({ page }) => {
+      await page.setViewportSize({ width, height: width === 390 ? 844 : 900 })
+      await fixture(page, { attendance: { ...request, status: accepted ? 'accepted' : 'pending' }, second: { ...request, id: 'second-request', scout: { ...request.scout, name: 'Second TEST ONLY Scout' } } })
+      await page.goto('/my-club?program=7&view=today')
+      const second = page.locator('article').filter({ hasText: 'Second TEST ONLY Scout' })
+      await second.getByRole('textbox').fill('TEST ONLY unsaved second instructions')
+      if (accepted) {
+        await page.getByRole('button', { name: 'Rescind attendance', exact: true }).click()
+        await page.getByRole('button', { name: 'Confirm rescind' }).click()
+      } else {
+        await page.getByLabel('Where to stand and who to report to').first().fill('TEST ONLY first instructions')
+        await page.getByRole('button', { name: 'Accept attendance' }).first().click()
+      }
+      await expect(second.getByRole('textbox')).toHaveValue('TEST ONLY unsaved second instructions')
+      await expect(second.getByRole('textbox')).toBeFocused()
+      await shot(page, `today-preserved-draft-${accepted ? 'rescind' : 'accept'}-testonly-${width}`)
+    })
+  }
+  test(`C4F3 failed rescind announces its error once ${width}`, async ({ page }) => {
+    await fixture(page, { attendance: { ...request, status: 'accepted' }, conflict: true })
+    await page.goto('/my-club?program=7&view=today')
+    await page.getByRole('button', { name: 'Rescind attendance', exact: true }).click()
+    await page.getByRole('button', { name: 'Confirm rescind' }).click()
+    await expect(page.getByRole('alert', { includeHidden: true })).toHaveCount(1)
+    await expect(page.getByRole('dialog').getByRole('alert')).toHaveText(/This request changed/)
+    await page.getByRole('button', { name: 'Keep attendance' }).click()
+    await expect(page.getByRole('alert', { includeHidden: true })).toHaveCount(1)
+  })
+  test(`C4F3 scout tab distance off on off keeps club metadata ${width}`, async ({ page, context }) => {
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 900 })
+    await context.grantPermissions(['geolocation']); await context.setGeolocation({ latitude: 35, longitude: 139 })
+    await fixture(page)
+    await page.goto('/scout?desk=clubs')
+    await expect(page.getByRole('heading', { name: 'Trials & sessions' })).toBeVisible()
+    await expect(page.getByText('Distance unavailable', { exact: false })).toHaveCount(0)
+    await expect(page.getByText('1 open opportunities', { exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'Use my location' }).click()
+    await expect(page.getByText('3.2 km from you')).toBeVisible()
+    await expect(page.getByText('Distance unavailable', { exact: false })).toHaveCount(1)
+    await shot(page, `scout-shared-location-testonly-${width}`)
+    await page.getByRole('button', { name: 'Turn location off' }).click()
+    await expect(page.getByText('Distance unavailable', { exact: false })).toHaveCount(0)
+    await expect(page.getByText('3.2 km from you')).toHaveCount(0)
+    await expect(page.getByText('1 open opportunities', { exact: true })).toBeVisible()
+    await shot(page, `scout-location-off-testonly-${width}`)
+  })
+  test(`C4F3 capped introductions count and exact count ${width}`, async ({ page }) => {
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 900 })
+    await fixture(page, { introductionsMore: true })
+    await page.goto('/my-club?program=7&view=today')
+    const button = page.getByRole('button', { name: /Introductions awaiting your consent/ })
+    await expect(button.locator('.ch-task-number')).toHaveText('30+')
+    await shot(page, `today-introductions-capped-testonly-${width}`)
+    await button.click()
+    await expect(page).toHaveURL(/view=introductions/)
+    await page.route('**/api/club/7/today', route => route.fulfill({ json: { queues: { introductions: [{ id: 'one' }] }, introductions_has_more: false } }))
+    await page.goto('/my-club?program=7&view=today')
+    await expect(page.getByRole('button', { name: /Introductions awaiting your consent/ }).locator('.ch-task-number')).toHaveText('1')
+  })
+}
+
+test('C4F3 last decision focuses inbox heading', async ({ page }) => {
+  await fixture(page, { attendance: request })
+  await page.goto('/my-club?program=7&view=today')
+  await page.getByRole('button', { name: 'Decline attendance' }).click()
+  await expect(page.getByRole('heading', { name: 'Club inbox', exact: true })).toBeFocused()
+})
+
+test('C4F3 failed read clears private rows and drafts', async ({ page }) => {
+  await fixture(page, { attendance: request })
+  await page.goto('/my-club?program=7&view=today')
+  await page.getByLabel('Where to stand and who to report to').fill('TEST ONLY private draft')
+  await page.route('**/api/club/7/today', route => route.fulfill({ status: 403, json: { error: 'forbidden' } }))
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click()
+  await expect(page.getByText('C4 TEST ONLY Scout · Test only organization')).toHaveCount(0)
+  await expect(page.getByLabel('Where to stand and who to report to')).toHaveCount(0)
+  await expect(page.getByRole('alert')).toBeVisible()
+})

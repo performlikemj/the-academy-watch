@@ -32,6 +32,8 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
 
 ## State
 
+- **Now (2026-10-01):** C4F3 fixes implemented; RC4V2 union O1 Medium/O2–O4 Small. Focused108+PG11/Node219/Ruff-format602/lint-build/OSV green, final attendance browser32pass incl real Flask payload checks. Main784b1490/B3F5 51f30f5b included; B3/C1F2/C2F2 migrations verbatim and whole-schema preapply-twice equality confirmed. Full final gates ongoing; no push/merge. See `ledgers/CONTINUITY_p2-c4.md`.
+
 - **Now (2026-10-01):** C4F2 fixes/full gates complete on8c050f32: ten remaining REVIEW-DUEL union items FIXED incl both N1s, X3 preserved; full flags-off4341pass96skip0fail, PG11, modern browser244pass4skip. Final delivery SHA/cleanup in `logs/C4F2.report.md`; PR #1120 unmerged. See `ledgers/CONTINUITY_p2-c4.md`.
 
 - **Now (2026-10-01):** Phase 2 C4 fix round 1 complete; final full flags-off4302pass92skip0fail on source3fb2d984. Main/B2 784b1490 and latest B3 46a4274f integrated; C1/C2 contracted ancestors recopied. PR #1120 remains unmerged. Delivery record: `~/codex-runs/aw-redesign/logs/C4F1.final.md`; implementation snapshot: `ledgers/CONTINUITY_p2-c4.md`.

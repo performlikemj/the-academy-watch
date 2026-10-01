@@ -79,3 +79,10 @@ product screens render API data and explicit loading/empty/error states.
 - Intake-closed messages use scout permission wording only for scouts; club recipients get club attendance wording.
 - Public opportunity rows show distance only after location is shared. Empty radius searches identify the selected radius and published-location requirement, with Browse without location to recover the ordinary list.
 - Both distinct cross-examination N1 findings are covered: canonical introduction eligibility before cap/hints, and removal of accepted scouts from Today after session end. X3's ongoing-session visibility remains covered.
+
+## REVIEW-DUEL C4F3 fixes
+
+- Session locks reject actual normalized changes, allowing full editor payloads with unchanged terms and unrelated corrections. Private club adverts include batched `live_attendance` after rollback. The editor disables the six session terms with an explanation and preserves their exact stored dates; term-lock conflicts have distinct copy.
+- Same-program Today refetch preserves other rows and drafts; a successful decision focuses the next request, another accepted action, or the inbox heading. Program changes and failed reads clear private rows/drafts. Rescind errors render once.
+- Scout-tab row distances appear only after location is shared; independent club opportunity counts remain visible. Introduction counts append `+` when the eligible queue is capped.
+- C4F3 carries verbatim B3F5/C1F2/C2F2 ancestor migrations (p2b3f073ecc8, p2c1 7ff6c7d2, p2c2 58af1d88). Their updated preapply scripts precede unchanged C4 preapply; full-schema preapply-twice/upgrade parity is recorded in the hand-back. B3 preapply requires dedicated `psql -X -v ON_ERROR_STOP=1`; on55P03 rollback/disconnect and retry the entire script after the blocker ends.

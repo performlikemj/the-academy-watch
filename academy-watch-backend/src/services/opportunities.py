@@ -213,8 +213,54 @@ def reservations(oid):
     return reservation_snapshot(oid)[0]
 
 
+def live_attendance_ids(opportunity_ids):
+    """Private advert commitments survive rollout rollback; batch list evidence."""
+    from src.models.scout_attendance import ScoutAttendance
+
+    if not opportunity_ids or not sa.inspect(db.session.connection()).has_table("scout_attendance_requests"):
+        return set()
+    return {
+        oid
+        for (oid,) in db.session.query(ScoutAttendance.opportunity_id)
+        .filter(
+            ScoutAttendance.opportunity_id.in_(opportunity_ids),
+            ScoutAttendance.status.in_(("pending", "accepted")),
+            ScoutAttendance.retention_expires_at > now(),
+        )
+        .distinct()
+    }
+
+
+def session_terms_changed(row, data):
+    """Compare persisted UTC instants and canonical zones, rather than key presence."""
+    for key in ("type", "starts_at", "ends_at", "timezone", "venue", "address"):
+        if key not in data:
+            continue
+        value, current = data[key], getattr(row, key)
+        if key in {"starts_at", "ends_at"}:
+            value = timestamp(value, key, nullable=True)
+        elif key == "timezone":
+            value = text(value, key, 80, required=True)
+            if value not in TIMEZONES:
+                raise OpportunityError("invalid_timezone", 400)
+            value, current = canonical_timezone(value), canonical_timezone(current)
+        elif key in {"venue", "address"}:
+            value = text(value, key, 200 if key == "venue" else 300, required=key == "venue")
+        if value != current:
+            return True
+    return False
+
+
 def opportunity_dict(
-    row, *, private=False, program=None, squad=None, reserved=None, application_count=None, unavailable_reserved=0
+    row,
+    *,
+    private=False,
+    program=None,
+    squad=None,
+    reserved=None,
+    application_count=None,
+    unavailable_reserved=0,
+    live_attendance=None,
 ):
     program = program or db.session.get(ClubProgram, row.program_id)
     squad = squad or (db.session.get(ClubSquad, row.squad_id) if row.squad_id else None)
@@ -256,6 +302,9 @@ def opportunity_dict(
             temporarily_unavailable_reservations=unavailable_reserved,
         )
     if private:
+        data["live_attendance"] = (
+            row.id in live_attendance_ids([row.id]) if live_attendance is None else live_attendance
+        )
         data["application_count"] = (
             OpportunityApplication.query.filter_by(opportunity_id=row.id).count()
             if application_count is None
@@ -266,6 +315,7 @@ def opportunity_dict(
 
 def opportunity_page(rows, program):
     ids = [r.id for r in rows]
+    attendance_ids = live_attendance_ids(ids)
     reserved = (
         (
             OpportunityApplication.query.filter(
@@ -298,6 +348,7 @@ def opportunity_page(rows, program):
             squad=squads.get(r.squad_id),
             reserved=sum(a.opportunity_id == r.id and a.reservation_state in RESERVED for a in reserved),
             application_count=counts.get(r.id, 0),
+            live_attendance=r.id in attendance_ids,
             unavailable_reserved=sum(
                 a.opportunity_id == r.id and a.reservation_state in RESERVED and a.id not in available for a in reserved
             ),
@@ -375,17 +426,10 @@ def save_opportunity(program_id, actor_id, data, oid=None):
     }
     if set(data) - allowed:
         raise OpportunityError("invalid_fields")
-    if oid and set(data) & {"type", "starts_at", "ends_at", "timezone", "venue", "address"}:
-        # Attendance commitments apply even to youth sessions with no applications,
-        # and survive feature rollback. The program/opportunity lock serializes submit.
-        from src.models.scout_attendance import ScoutAttendance
-
-        if sa.inspect(db.session.connection()).has_table("scout_attendance_requests") and (
-            ScoutAttendance.query.filter_by(opportunity_id=oid)
-            .filter(ScoutAttendance.status.in_(("pending", "accepted")), ScoutAttendance.retention_expires_at > now())
-            .first()
-        ):
-            raise OpportunityError("advertised_terms_locked", 409)
+    # The program/opportunity mutex serializes submission, including youth adverts
+    # without applications. Equivalent full editor payloads still permit corrections.
+    if oid and session_terms_changed(row, data) and oid in live_attendance_ids([oid]):
+        raise OpportunityError("advertised_terms_locked", 409)
     if oid and OpportunityApplication.query.filter_by(opportunity_id=oid).first():
         locked = {
             "type",

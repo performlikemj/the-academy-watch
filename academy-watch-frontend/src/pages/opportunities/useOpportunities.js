@@ -18,6 +18,7 @@ export { when } from '@/lib/opportunity-time'
 export function errorMessage(error) {
   const code = error?.body?.error || error?.message || ''
   if (code === 'temporarily_unavailable') return 'Temporarily unavailable. Please try again later.'
+  if (code === 'advertised_terms_locked') return 'Advertised details are fixed while applications or live scout attendance requests exist. Update other available fields or reload to see which details are locked.'
   if (error?.status === 409) return 'This changed while you were working. Reload to see the latest state.'
   if (error?.status === 401) return 'Sign in to continue.'
   if (error?.status === 403) return 'An approved adult player claim and current access are required.'
