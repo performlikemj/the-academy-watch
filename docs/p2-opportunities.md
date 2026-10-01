@@ -1,7 +1,7 @@
 # Phase 2 B2: opportunities and adult recruiting
 
 - Ships dark: `OPPORTUNITIES_ENABLED=false`, `APPLICATIONS_ENABLED=false` by default. Applications require both flags. Rollout also requires A1's `P2_FOUNDATION_ENABLED` for notification enqueue/dispatch; A2's staff flag controls its existing permission resolver. No deployment or flag enablement is part of this PR.
-- Stacked on #1109. Migration `p2b2` extends B1's `p2b1`. The four new tables have guarded DDL and RLS. Do not commit a placeholder B1 migration or deploy B2 without the real B1 migration.
+- Stacked on #1109. Migration `p2b2` extends B1's `p2b1`. The four new tables have guarded DDL and RLS. The real B1 migration is included verbatim from B1 `14b26fbc` so a clean checkout has the complete graph; no placeholder is committed. The B1 directory feature still belongs to #1114 and must precede B2 deployment.
 - `/api/opportunities/features` returns neutral 404 before auth for every HTTP method while both flags are OFF; the frontend treats 404 as OFF. Otherwise it returns the effective B2 booleans (60/min/IP). The existing `/api/features` payload is unchanged. OFF preserves the opportunity, recruiting and application teasers; new business APIs return neutral 404 before authentication.
 
 ## Public opportunities

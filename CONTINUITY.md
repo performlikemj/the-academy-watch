@@ -32,7 +32,7 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
 
 ## State
 
-- **Now (2026-10-01):** Phase 2 B2 fix round 2 in progress for #1113: refresh main/latest A2; N1–N5 regressions and foreground gates. See `ledgers/CONTINUITY_p2-b2.md`.
+- **Now (2026-10-01):** Phase 2 B2 fix round 2 implemented for #1113: N1–N5 fixed; main/N2 + latest A2F8/F9 included; foreground gates pass apart from four reserved head pins; push/CI verification and hand-back next. See `ledgers/CONTINUITY_p2-b2.md`.
 
 ### Done
 - **2026-10-01 P2 B2 RB2 fix round 1:** all 5 MED/9 LOW fixed; A2 bdbae2be included, B1 console-club standing aligned. Full pytest3607 pass/60 skip/4 expected head assertions; focused123 incl13 real PG, Node198, Playwright50, Ruff/format/lint/build pass. Live eligibility removal, canonical merge/unique constraints, 90-day advertised horizon, zone-safe UI/email and bounded queries covered. 15 reviewed refreshed PNGs; own servers/aw_p2_b2/temp cleaned. Contracts `docs/p2-opportunities.md`; hand-back `~/codex-runs/aw-redesign/logs/B2F1.final.md`; draft #1113, no merge.
