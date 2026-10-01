@@ -2446,7 +2446,7 @@ function NewslettersPage() {
 
           {loading ? (
             <div className="text-center py-12">
-              <CleatLoader />
+              <CleatLoader caption={false} />
               <p className="mt-4 text-muted-foreground">Loading newsletters...</p>
             </div>
           ) : newsletters.length === 0 ? (
@@ -3246,7 +3246,7 @@ function SettingsPage() {
 
         {loading ? (
           <div className="text-center py-12">
-            <CleatLoader />
+            <CleatLoader caption={false} />
             <p className="mt-4 text-muted-foreground">Loading your preferences…</p>
           </div>
         ) : (
@@ -3730,7 +3730,7 @@ function ManagePage() {
 
         {status === 'loading' && (
           <div className="text-center py-12">
-            <CleatLoader />
+            <CleatLoader caption={false} />
             <p className="mt-4 text-muted-foreground">Loading…</p>
           </div>
         )}
@@ -3887,7 +3887,7 @@ function StatsPage() {
 
         {loading ? (
           <div className="text-center py-12">
-            <CleatLoader />
+            <CleatLoader caption={false} />
             <p className="mt-4 text-muted-foreground">Loading statistics...</p>
           </div>
         ) : stats ? (

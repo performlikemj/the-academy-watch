@@ -617,7 +617,7 @@ export function PlayerPage() {
         return (
             <div className="min-h-screen flex items-center justify-center bg-chalk">
                 <div className="text-center">
-                    <CleatLoader />
+                    <CleatLoader caption={false} />
                     <p className="text-muted-foreground">Loading player data...</p>
                 </div>
             </div>

@@ -1,4 +1,4 @@
-/* global document, innerWidth, getComputedStyle */
+/* global document, innerWidth, getComputedStyle, window */
 import { expect, test } from '@playwright/test'
 import fs from 'node:fs/promises'
 import path from 'node:path'
@@ -9,7 +9,7 @@ async function screenshot(page, name) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   if (!process.env.N5_SCREENSHOTS) return
   await fs.mkdir(process.env.N5_SCREENSHOTS, { recursive: true })
-  await page.screenshot({ path: path.join(process.env.N5_SCREENSHOTS, `${name}.png`), fullPage: true })
+  await page.screenshot({ path: path.join(process.env.N5_SCREENSHOTS, `${name}.png`), fullPage: !name.startsWith('picker') })
 }
 
 async function mountLoader(page, surface) {
@@ -192,4 +192,168 @@ test('real club route uses the shared loader while waiting for clubs', async ({ 
   })
   await page.goto('/my-club')
   await expect(page.locator('.cleat-loader svg')).toBeVisible()
+})
+
+for (const failure of ['zone', 'shortOffset']) {
+  for (const mode of ['New', 'Edit']) {
+    test(`unsupported Intl ${failure}: ${mode} editor opens and saves`, async ({ page }) => {
+      await page.addInitScript(failure => {
+        const original = Intl.DateTimeFormat
+        Intl.DateTimeFormat = function (locale, options) {
+          if (failure === 'zone' && options?.timeZone === 'America/Coyhaique') throw new RangeError('unsupported zone')
+          if (failure === 'shortOffset' && options?.timeZoneName === 'shortOffset') throw new RangeError('unsupported offset')
+          return new original(locale, options)
+        }
+      }, failure)
+      const writes = await recruitingFixture(page, { saved: 'Europe/London' })
+      await page.getByRole('button', { name: `${mode} opportunity` }).click()
+      await expect(page.getByRole('dialog')).toBeVisible()
+      const picker = page.getByRole('combobox', { name: 'Time zone', exact: true })
+      await expect(picker).toContainText('Europe/London')
+      await picker.click()
+      const search = page.getByRole('combobox', { name: 'Search time zones' })
+      if (failure === 'zone') {
+        await search.fill('Coyhaique')
+        await expect(page.getByText('No time zones found.')).toBeVisible()
+      } else {
+        await search.fill('London')
+        await expect(page.getByRole('listbox', { name: 'Time zones' }).getByRole('option')).toHaveCount(1)
+        await expect(page.getByRole('listbox', { name: 'Time zones' }).getByRole('option')).not.toContainText('(now)')
+      }
+      await search.fill('Tokyo')
+      await page.getByRole('listbox', { name: 'Time zones' }).getByRole('option').click()
+      await page.getByLabel('Title', { exact: true }).fill('Synthetic compatibility post')
+      await page.getByLabel('About this opportunity').fill('Synthetic compatibility regression.')
+      await page.getByLabel('Opportunity type').selectOption('position')
+      await page.getByLabel('Venue', { exact: true }).fill('Test pitch')
+      await page.getByLabel('Applications close (Asia/Tokyo)', { exact: true }).fill('2026-10-18T12:00')
+      await page.getByRole('button', { name: 'Save opportunity' }).click()
+      await expect(page.getByRole('dialog')).toHaveCount(0)
+      expect(writes.at(-1).timezone).toBe('Asia/Tokyo')
+    })
+  }
+}
+
+test('unsupported saved selection keeps its canonical trigger label', async ({ page }) => {
+  await page.addInitScript(() => {
+    const original = Intl.DateTimeFormat
+    Intl.DateTimeFormat = function (locale, options) {
+      if (options?.timeZone === 'America/Coyhaique') throw new RangeError('unsupported zone')
+      return new original(locale, options)
+    }
+  })
+  await recruitingFixture(page, { itemZone: 'America/Coyhaique' })
+  await page.getByRole('button', { name: 'Edit opportunity' }).click()
+  await expect(page.getByRole('dialog')).toBeVisible()
+  await expect(page.getByRole('combobox', { name: 'Time zone', exact: true })).toContainText('America/Coyhaique')
+})
+
+for (const viewport of [{ width: 390, height: 844 }, { width: 844, height: 390 }, { width: 320, height: 568 }]) {
+  test(`current selection is visible; Enter preserves it; UTC and offsets search, ${viewport.width}`, async ({ page }) => {
+    await page.setViewportSize(viewport)
+    await recruitingFixture(page, { saved: 'Europe/London' })
+    await page.getByRole('button', { name: 'New opportunity' }).click()
+    const picker = page.getByRole('combobox', { name: 'Time zone', exact: true })
+    await picker.click()
+    const search = page.getByRole('combobox', { name: 'Search time zones' })
+    const active = page.locator('[cmdk-item][data-selected=true]')
+    await expect(active).toContainText('Europe/London')
+    await expect(active).toBeInViewport({ ratio: 1 })
+    expect(await active.evaluate(element => getComputedStyle(element).boxShadow)).not.toBe('none')
+    const list = page.getByRole('listbox', { name: 'Time zones' })
+    expect((await list.boundingBox()).height).toBeGreaterThanOrEqual(156)
+    const popover = await page.locator('.opp-timezone-popover').boundingBox()
+    expect(popover.y).toBeGreaterThanOrEqual(0)
+    expect(popover.y + popover.height).toBeLessThanOrEqual(viewport.height)
+    await screenshot(page, `picker-selected-${viewport.width}`)
+    await search.press('Enter')
+    await expect(picker).toContainText('Europe/London')
+    await picker.click()
+    await search.fill('UTC')
+    await expect(list.getByRole('option')).toHaveCount(1)
+    await expect(list.getByRole('option')).toContainText('UTC — UTC+00:00 (now)')
+    await search.fill('+05:30')
+    await expect(list.getByRole('option', { name: /Kolkata/ })).toBeVisible()
+    await search.fill('UTC+05:30')
+    await expect(list.getByRole('option', { name: /Kolkata/ })).toBeVisible()
+  })
+}
+
+test('reopening the picker reuses current-offset formatters', async ({ page }) => {
+  await page.clock.install({ time: new Date('2026-10-01T00:00:10Z') })
+  await page.addInitScript(() => {
+    const original = Intl.DateTimeFormat
+    window.n5OffsetCalls = 0
+    Intl.DateTimeFormat = function (locale, options) {
+      if (options?.timeZoneName === 'shortOffset') window.n5OffsetCalls += 1
+      return new original(locale, options)
+    }
+  })
+  await recruitingFixture(page, { saved: 'Europe/London' })
+  await page.getByRole('button', { name: 'New opportunity' }).click()
+  const picker = page.getByRole('combobox', { name: 'Time zone', exact: true })
+  const initial = await page.evaluate(() => window.n5OffsetCalls)
+  expect(initial).toBeGreaterThan(300)
+  const cdp = await page.context().newCDPSession(page)
+  await cdp.send('Emulation.setCPUThrottlingRate', { rate: 6 })
+  const openMs = []
+  for (let index = 0; index < 3; index += 1) {
+    const start = Date.now()
+    await picker.click()
+    await expect(page.getByRole('combobox', { name: 'Search time zones' })).toBeVisible()
+    openMs.push(Date.now() - start)
+    await page.getByRole('combobox', { name: 'Search time zones' }).press('Escape')
+  }
+  expect(await page.evaluate(() => window.n5OffsetCalls)).toBe(initial)
+  console.log('N5F2 warm opens at 6× CPU:', JSON.stringify({ openMs, offsetCalls: initial }))
+})
+
+test('inline splash fills viewport when external styles and scripts fail', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  // Exercise the committed boot with a render-blocking external stylesheet that fails.
+  const html = await fs.readFile(new URL('../index.html', import.meta.url), 'utf8')
+  const blockedStyles = []
+  await page.route('**/*', route => {
+    const type = route.request().resourceType()
+    if (type === 'document') return route.fulfill({ contentType: 'text/html', body: html.replace('</head>', '<link rel="stylesheet" href="/assets/n5-unavailable.css"></head>') })
+    if (type === 'stylesheet') { blockedStyles.push(route.request().url()); return route.abort() }
+    return type === 'script' ? route.abort() : route.continue()
+  })
+  await page.goto('/')
+  await expect(page.getByRole('status', { name: 'Loading' })).toBeVisible()
+  expect(await page.locator('#root>.cleat-loader').boundingBox()).toEqual({ x: 0, y: 0, width: 390, height: 844 })
+  expect(await page.evaluate(() => ({ margin: getComputedStyle(document.body).margin, background: getComputedStyle(document.body).backgroundColor, height: document.documentElement.scrollHeight }))).toEqual({ margin: '0px', background: 'rgb(243, 240, 232)', height: 844 })
+  expect(blockedStyles.some(url => url.endsWith('/assets/n5-unavailable.css'))).toBe(true)
+  await screenshot(page, 'splash-without-css')
+})
+
+test('exact UTC search excludes universal offset labels', async ({ page }) => {
+  await recruitingFixture(page, { saved: 'Europe/London' })
+  await page.getByRole('button', { name: 'New opportunity' }).click()
+  await page.getByRole('combobox', { name: 'Time zone', exact: true }).click()
+  await page.getByRole('combobox', { name: 'Search time zones' }).fill('UTC')
+  await expect(page.getByRole('listbox', { name: 'Time zones' }).getByRole('option')).toHaveCount(1)
+  await expect(page.getByRole('listbox', { name: 'Time zones' }).getByRole('option')).toContainText('UTC — UTC+00:00 (now)')
+})
+
+test('keyboard row has an ink indicator and landscape list has three rows', async ({ page }) => {
+  await page.setViewportSize({ width: 844, height: 390 })
+  await recruitingFixture(page, { saved: 'Europe/London' })
+  await page.getByRole('button', { name: 'New opportunity' }).click()
+  await page.getByRole('combobox', { name: 'Time zone', exact: true }).click()
+  expect(await page.locator('[cmdk-item][data-selected=true]').evaluate(element => getComputedStyle(element).boxShadow)).not.toBe('none')
+  expect((await page.getByRole('listbox', { name: 'Time zones' }).boundingBox()).height).toBeGreaterThanOrEqual(156)
+})
+
+test('player loading retains contextual copy without a second visible caption', async ({ page }) => {
+  await page.route('**/api/**', route => {
+    const pathname = new URL(route.request().url()).pathname
+    if (pathname.startsWith('/api/players/123/')) return new Promise(() => {})
+    return route.fulfill({ json: {} })
+  })
+  await page.goto('/players/123')
+  await expect(page.getByText('Loading player data...', { exact: true })).toBeVisible()
+  await expect(page.getByRole('status', { name: 'Loading' })).toBeVisible()
+  await expect(page.locator('.cleat-caption')).toHaveCount(0)
+  await screenshot(page, 'player-loading-context')
 })

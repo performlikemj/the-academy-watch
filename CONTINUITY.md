@@ -32,6 +32,8 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
 
 ## State
 
+- **Now (N5F2):** review-duel union fixes implemented on #1125; O1 + six Small items, accepted boot unchanged. Final governed gates/push/cleanup receipts: `~/codex-runs/aw-redesign/logs/N5F2.final.md`; implementation ledger: `ledgers/CONTINUITY_n5-web.md`.
+
 - **Now (2026-10-01 N5 redraw):** renewal19:00 low-cut/solid-colour round complete on#1125; lint/build,225Node/64Playwright pass;30 surface/phase/picker PNGs reviewed; exact paths for I1 in `~/codex-runs/aw-redesign/logs/N5F1.loader.json`; delivery SHA/CI in `logs/N5F1.final.md`. See `ledgers/CONTINUITY_n5-web.md`.
 
 

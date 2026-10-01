@@ -29,3 +29,12 @@ test('reduced motion cancels both animations and forces a still green boot', () 
   assert.match(reduced, /\.cleat-loader \.cleat-body,\.cleat-loader \.cleat-accent\{animation:none;fill:#0F3D2E\}/)
   assert.match(reduced, /\.cleat-details\{animation:none;stroke:#F3F0E8\}/)
 })
+
+test('contextual page loading messages suppress the shared visual caption', () => {
+  for (const file of ['../App.jsx', '../pages/PlayerPage.jsx']) {
+    const source = fs.readFileSync(new URL(file, import.meta.url), 'utf8')
+    const contextual = [...source.matchAll(/<CleatLoader([^>]*)\/>\s*<p[^>]*>Loading[^<]*<\/p>/g)]
+    assert.equal(contextual.length, file.includes('App') ? 4 : 1)
+    for (const match of contextual) assert.match(match[1], /caption=\{false\}/)
+  }
+})
