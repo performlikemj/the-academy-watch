@@ -32,7 +32,7 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
 
 ## State
 
-- **Now (2026-10-01):** C1F2 REVIEW-DUEL union implemented; local regressions48/PG7/lane browser30/liveHTTP1/Node221/Ruff-format595/OSV/lint-build green. Latest pushed B3F5 51f30f5b integrated; final full flags-off/modern browser gates restarting on the combined tree before push. See `ledgers/CONTINUITY_p2-c1.md`.
+- **Now (2026-10-01):** C1F2 union + B3F5 integrated; modern browser262pass/5skip, lane30/live1/Node221/Ruff598 green. Full flags-off gate found dark contact registry-schema compatibility; corrected with narrow batching + true dark short-circuit, rerunning backend gates before push. See `ledgers/CONTINUITY_p2-c1.md`.
 
 - **Now (2026-10-01):** C1 fix round 1 complete locally on #1121: RC1 F1–F11 FIXED, main/B2 784b1490 + B3 46a4274f included; full flags-off4385pass90skip0fail, PG5/N3/Node219/modern browser250pass5skip/Ruff-format594/OSV/lint-build green. Final head/gates/cleanup in external logs/C1F1.final.md; independent REVIEW-DUEL next, no PR merge; see `ledgers/CONTINUITY_p2-c1.md`.
 

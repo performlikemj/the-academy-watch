@@ -5309,13 +5309,17 @@ def admin_review_showcase_media(media_id: int):
 
 def _c1_claim_filter():
     import sqlalchemy as sa
+    from src.services.account import _SchemaView
+
+    retired = PlayerProfileClaim.verification_method == "club_vouch_retired"
+    # Ordinary legacy club claims still belong to the legacy moderation queue.
+    if not _SchemaView().has_table("club_player_publications"):
+        return sa.func.coalesce(retired, False)
+    from src.models.club_player_publication import ClubPlayerPublication
 
     return sa.or_(
-        sa.and_(
-            PlayerProfileClaim.verification_method.is_not(None),
-            PlayerProfileClaim.verification_method == "club_vouch_retired",
-        ),
-        sa.exists().where(LocalPlayer.id == PlayerProfileClaim.local_player_id, LocalPlayer.provenance == "club"),
+        sa.func.coalesce(retired, False),
+        sa.exists().where(ClubPlayerPublication.claim_id == PlayerProfileClaim.id),
     )
 
 

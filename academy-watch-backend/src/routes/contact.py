@@ -18,6 +18,7 @@ from src.services.club_player_publication import club_request_available
 from src.services.club_registry import (
     active_manager_program_ids,
     active_program_manager_user_ids,
+    get_club_programs,
     is_active_program_manager,
     program_is_operational,
 )
@@ -855,34 +856,33 @@ def list_contact_requests():
             )
             query = ContactRequest.query.filter(ContactRequest.claim_id.in_(claim_ids))
             from src.services.club_player_publication import enabled
-            from src.services.public_adult import public_adult_ids
 
-            candidates = (
-                (
+            if not enabled():
+                query = query.filter(ContactRequest.club_first.is_(False))
+            else:
+                from src.models.club_player_publication import ClubPlayerPublication
+                from src.services.club_player_publication import publication_local_ids
+                from src.services.public_adult import public_adult_ids
+
+                candidates = (
                     query.with_entities(ContactRequest.player_api_id)
                     .filter(ContactRequest.club_first.is_(True))
                     .distinct()
                     .all()
                 )
-                if enabled()
-                else []
-            )
-            adults = public_adult_ids([pid for (pid,) in candidates])
-            from src.models.club_player_publication import ClubPlayerPublication
-            from src.services.club_player_publication import publication_local_ids
-
-            allowed = and_(
-                ContactRequest.club_consent_status == "granted",
-                ContactRequest.player_api_id.in_(adults),
-                ContactRequest.claim_id.in_(
-                    db.session.query(ClubPlayerPublication.claim_id).filter(
-                        ClubPlayerPublication.local_player_id == -ContactRequest.player_api_id,
-                        ClubPlayerPublication.program_id == ContactRequest.club_program_id,
-                        ClubPlayerPublication.local_player_id.in_(publication_local_ids()),
-                    )
-                ),
-            )
-            query = query.filter(or_(ContactRequest.club_first.is_(False), allowed))
+                adults = public_adult_ids([pid for (pid,) in candidates])
+                allowed = and_(
+                    ContactRequest.club_consent_status == "granted",
+                    ContactRequest.player_api_id.in_(adults),
+                    ContactRequest.claim_id.in_(
+                        db.session.query(ClubPlayerPublication.claim_id).filter(
+                            ClubPlayerPublication.local_player_id == -ContactRequest.player_api_id,
+                            ClubPlayerPublication.program_id == ContactRequest.club_program_id,
+                            ClubPlayerPublication.local_player_id.in_(publication_local_ids()),
+                        )
+                    ),
+                )
+                query = query.filter(or_(ContactRequest.club_first.is_(False), allowed))
             if related_user_ids:
                 query = query.filter(ContactRequest.scout_user_id.notin_(related_user_ids))
         elif box == "club":
@@ -903,7 +903,6 @@ def list_contact_requests():
         limit, offset = _pagination()
         total = query.count()
         from sqlalchemy.orm import joinedload
-        from src.models.funding import ClubProgram
         from src.services.club_player_publication import available_club_requests
 
         rows = (
@@ -926,12 +925,7 @@ def list_contact_requests():
             ContactAuditEvent.contact_request_id.in_(ids), ContactAuditEvent.event_type == "created"
         ).order_by(ContactAuditEvent.id):
             created.setdefault(audit.contact_request_id, audit.event_metadata)
-        programs = {
-            p.id: {"name": p.name}
-            for p in ClubProgram.query.filter(
-                ClubProgram.id.in_({r.club_program_id for r in rows if r.club_program_id})
-            ).all()
-        }
+        programs = get_club_programs({r.club_program_id for r in rows if r.club_program_id})
         context = {
             "outcomes": outcomes,
             "created": created,

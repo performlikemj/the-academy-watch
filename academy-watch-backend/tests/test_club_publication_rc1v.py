@@ -548,3 +548,18 @@ def test_candidates_only_offer_guarded_invitable_identities(client, env, state):
     assert [p["id"] for p in response.json["players"]] == (
         [env["local"]] if state in ("private", "revoked", "withdrawn_before_consent") else []
     )
+
+
+def test_ordinary_legacy_club_claim_remains_in_legacy_queue(client, env):
+    claim = PlayerProfileClaim(
+        local_player_id=env["local"],
+        user_account_id=env["player"],
+        relationship_type="player",
+        status="pending",
+        club_program_id=env["pid"],
+    )
+    db.session.add(claim)
+    db.session.commit()
+    response = client.get("/api/admin/showcase/claims", headers=_admin_headers())
+    assert response.status_code == 200
+    assert claim.id in [row["id"] for row in response.json["claims"]]
