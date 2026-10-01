@@ -495,9 +495,10 @@ def eligible(row):
         from datetime import timedelta
 
         match = lookup(VideoMatch, row.video_match_id)
-        raw_deadline = (
-            match.expires_at or ((match.uploaded_at or match.created_at) + timedelta(days=90)) if match else None
-        )
+        uploaded = (match.uploaded_at or match.created_at) if match else None
+        raw_deadline = (match.expires_at or (uploaded + timedelta(days=90) if uploaded else None)) if match else None
+        if raw_deadline is None:
+            return False
         if row.created_at < now() - timedelta(days=14) or (raw_deadline is not None and raw_deadline <= now()):
             return False
     allowed = bool(

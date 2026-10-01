@@ -32,7 +32,7 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
 
 ## State
 
-- **Now (2026-10-01):** C2 fix round 1 on PR #1122: RC2 F1–F16, latest main/B2/B3 integration, C1 migration refresh pending. See ledgers/CONTINUITY_p2-c2.md.
+- **Now (2026-10-01):** C2 fix round 1 on PR #1122: RC2 F1–F16, latest main/B2/B3 integration, C1 migration refreshed verbatim; final foreground gates running. See ledgers/CONTINUITY_p2-c2.md.
 
 ### Done
 - **2026-10-01 P2 C2:** bounded server-window club picks + adult self-claim approval/private/revoke, separate fenced ffmpeg worker/private cut proxy, outbox/export/erasure and dark web inbox/picker/public mounts. Whole recording must be adult-only at its known recording date; source/date changes reset consent, raw retention alone preserves approved standalone cuts. p2c2 -> real p2c1; RLS4/source guards6/reapply/rollback verified. Final4285 backend pass91skip, focused46/PG5 + C1 canonical overlay1, current browser238 pass4skip, Node219/Ruff594/OSV547/lint0errors/build pass; 15 reviewed PNGs. Broad legacy/live-fixture browser limitation recorded; no merge/deploy/provider sends. External C2.final.md records review and cleanup.

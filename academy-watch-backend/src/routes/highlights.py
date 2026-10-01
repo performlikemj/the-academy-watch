@@ -1,4 +1,4 @@
-"""Highlight APIs. Public bytes are proxied; no raw match/storage capabilities leave this blueprint."""
+"""Highlight APIs. Standalone clip grants expire after 60s; raw match capabilities never leave this blueprint."""
 
 import json
 import re
