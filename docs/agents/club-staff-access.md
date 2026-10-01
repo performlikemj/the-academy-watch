@@ -10,6 +10,13 @@ routes return 404.
   hold one-use emailed invites (only the SHA-256 of the token is stored).
 - Claim-verified managers (`ClubProgramManager` + approved claim) keep full whole-club access. The
   owner is set only by `POST /api/admin/programs/<id>/owner`, and only for a verified manager.
+- **One active owner per club, enforced twice.** `assign_owner` / `remove_owner` take the
+  `club_programs` row lock (`_lock_program`, `FOR NO KEY UPDATE`) *before* reading the current
+  owner, so concurrent admin assigns queue and the later one is a clean transfer. The partial unique
+  index `uq_club_access_grants_one_active_owner` (`program_id WHERE role='owner' AND
+  status='active'`; model + migration `p2a2` + pre-apply SQL) is the database backstop; a collision
+  returns 409 `owner_conflict`. Lock order is always program row first, then grant rows. No club
+  route can promote to owner (`INVITE_ROLES` excludes it) — keep it that way, or take the same lock.
 - Every club route uses `require_club_permission(capability)` (`src/services/club_access.py`).
   Squad-scoped roles (coach/analyst/viewer) are additionally filtered by the scope helpers.
 - **Whole-club = owner/manager only** (`ClubAccess.whole_club`; includes the legacy claim-verified
