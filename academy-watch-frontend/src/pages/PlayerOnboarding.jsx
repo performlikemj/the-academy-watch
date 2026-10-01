@@ -211,7 +211,7 @@ export function PlayerOnboarding() {
         {checkingProfiles ? <p role="status">Checking your profiles…</p> : !applicationsError && profiles.length > 0 ? <header className="max-w-3xl">
           <p className="eyebrow">Player home</p><h1 className="display mt-4 text-[56px] sm:text-[80px]">Your next step.</h1>
           <p className="mt-6 text-muted">Your profile, applications and replies, together.</p>
-          <div className="mt-8 flex flex-wrap gap-3">{profiles.map(profile => <Link key={profile.claim_id} className="inline-flex min-w-0 max-w-full rounded-full bg-ink px-6 py-3 text-chalk" to={profile.profile_path || `/players/${profile.signed_player_id}`}><span className="min-w-0 [overflow-wrap:anywhere]">{profile.name} · My profile →</span></Link>)}<a className="inline-flex rounded-full border border-ink px-6 py-3" href="#my-applications">My applications ↓</a></div>
+          <div className="mt-8 flex flex-wrap gap-3">{profiles.map(profile => <Link key={profile.claim_id} className="inline-flex min-w-0 max-w-full rounded-xl bg-ink px-6 py-3 text-chalk" to={profile.profile_path || `/players/${profile.signed_player_id}`}><span className="min-w-0 [overflow-wrap:anywhere]">{profile.name} · My profile →</span></Link>)}<a className="inline-flex rounded-full border border-ink px-6 py-3" href="#my-applications">My applications ↓</a></div>
         </header> : <header className="max-w-3xl">
           <span className="inline-flex h-12 w-12 items-center justify-center rounded-full border border-hairline text-muted-foreground">
             <ShieldCheck className="h-6 w-6" />

@@ -142,3 +142,5 @@ Before marking work complete:
 - [ ] Tests pass
 - [ ] Ledger state updated
 - [ ] Patterns added to AGENTS.md if discovered
+
+- Opportunity feature/retry and approved-player navigation state live in `OpportunityStateProvider`; hooks enable the lazy shared bootstrap. Private claims clear on every auth-token transition and ignore stale responses. Keep page and menu consumers on this shared state; flags-OFF must issue zero opportunity/application requests.

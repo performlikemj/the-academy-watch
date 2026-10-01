@@ -1,9 +1,9 @@
-/* global document, innerWidth */
+/* global document, innerWidth, getComputedStyle */
 import { expect, test } from '@playwright/test'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 
-const oid = '00000000-0000-4000-8000-000000000001'
+const oid = 'f9c683d7-2c0f-57ba-ae18-3a2544fa7c96'
 const opportunity = { id: oid, program_id: 7, club_name: 'Synthetic UXBF1 Club', club_slug: 'synthetic-uxbf1', type: 'trial', title: 'Adult trial', description: 'Synthetic review regression opportunity.', instructions: 'Bring boots.', venue: 'Test pitch', timezone: 'UTC', starts_at: '2026-10-20T10:00:00Z', ends_at: '2026-10-20T12:00:00Z', closes_at: '2026-10-18T12:00:00Z', gender_program: 'all', position_requirements: 'All positions', status: 'published' }
 const application = { id: '00000000-0000-4000-8000-000000000002', opportunity_id: oid, opportunity_title: opportunity.title, club_name: opportunity.club_name, status: 'new', status_label: 'New', timezone: 'UTC', version: 1, submitted_at: '2026-10-01T10:00:00Z' }
 const claim = { claim_id: 3, signed_player_id: -9, name: 'Synthetic Adult', profile_path: '/local-players/9', application: null }
@@ -51,7 +51,7 @@ async function fixture(page, { role = 'owner', on = true, eligible = true, claim
       if (waitItems) await waitItems
       return route.fulfill({ status: listStatus, json: listStatus === 200 ? { opportunities: items ?? [item], has_more: false } : { error: 'unavailable' } })
     }
-    if (p === `/api/opportunities/${oid}`) return reply({ opportunity: item })
+    if (p.toLowerCase() === `/api/opportunities/${oid}`) return reply({ opportunity: item })
     if (p === `/api/opportunities/${oid}/applications`) {
       submissions.push(req.postDataJSON())
       return route.fulfill({ status: conflict ? 409 : 201, json: conflict ? { error: 'already_applied' } : { application } })
@@ -301,13 +301,30 @@ for (const [width, height, size] of [[1440, 900, 'desktop'], [390, 844, 'mobile'
       await expect(page.getByText(invited.trial_instructions, { exact: true })).toBeVisible()
       await shot(page, `maximum-invitation-${surface}`, size)
     })
-    test('UXBF2 maximum claim name stays within player home', async ({ page }) => {
+    test('UXBF3 maximum claim name remains readable inside player home pill', async ({ page }) => {
       const name = 'X'.repeat(200)
       await fixture(page, { claims: [{ ...claim, name }] })
       await page.goto('/onboarding/player')
       const profile = page.getByRole('link', { name: `${name} · My profile →` })
       await expect(profile).toBeVisible()
       await expect(profile).toHaveAttribute('href', '/local-players/9')
+      // Check glyph contrast at the curved edges, beyond the existing overflow check.
+      expect(await profile.evaluate(link => {
+        const pill = link.getBoundingClientRect()
+        const radius = Math.min(parseFloat(getComputedStyle(link).borderTopLeftRadius), pill.width / 2, pill.height / 2)
+        const text = link.querySelector('span').firstChild
+        for (let i = 0; i < text.length; i++) {
+          const range = document.createRange()
+          range.setStart(text, i); range.setEnd(text, i + 1)
+          const rect = range.getBoundingClientRect()
+          const x = (rect.left + rect.right) / 2 - pill.left
+          const y = (rect.top + rect.bottom) / 2 - pill.top
+          const dx = Math.max(radius - x, x - (pill.width - radius), 0)
+          const dy = Math.max(radius - y, y - (pill.height - radius), 0)
+          if (dx * dx + dy * dy > radius * radius) return false
+        }
+        return true
+      })).toBe(true)
       await shot(page, 'maximum-profile-name', size)
     })
     test('UXBF2 empty opportunity list never advertises Open now', async ({ page }) => {
@@ -328,6 +345,108 @@ for (const [width, height, size] of [[1440, 900, 'desktop'], [390, 844, 'mobile'
       await expect(page.getByRole('alert')).toBeVisible()
       await expect(page.getByText('Open now', { exact: true })).toHaveCount(0)
       await shot(page, 'failed-club-opportunities', size)
+    })
+    for (const failure of ['bootstrap', 'claims']) test(`UXBF3 ${failure} retry restores both navigation shortcuts without reload`, async ({ page }) => {
+      const evidence = await fixture(page, { featuresStatus: failure === 'bootstrap' ? 500 : 200, claimsStatus: failure === 'claims' ? 500 : 200, retrySuccess: true })
+      await page.goto('/onboarding/player')
+      await expect(page.getByRole('alert')).toHaveCount(1)
+      const expectedErrors = [...evidence.errors]
+      evidence.recover()
+      await page.getByRole('button', { name: 'Retry applications' }).click()
+      await expect(page.getByRole('heading', { name: 'Your next step.' })).toBeVisible()
+      if (size === 'mobile') await page.getByRole('button', { name: 'Toggle navigation menu' }).click()
+      else await page.getByRole('button', { name: 'Synthetic Viewer' }).click()
+      const menu = page.getByRole(size === 'mobile' ? 'dialog' : 'menu')
+      const profile = menu.getByRole(size === 'mobile' ? 'link' : 'menuitem', { name: 'My profile', exact: true })
+      const applications = menu.getByRole(size === 'mobile' ? 'link' : 'menuitem', { name: 'My applications', exact: true })
+      await expect(profile).toBeVisible()
+      await expect(profile).toHaveAttribute('href', '/local-players/9')
+      await expect(applications).toBeVisible()
+      await expect(applications).toHaveAttribute('href', '/onboarding/player#my-applications')
+      expect(evidence.calls.filter(p => p === '/api/features')).toHaveLength(failure === 'bootstrap' ? 2 : 1)
+      expect(evidence.calls.filter(p => p === '/api/me/application-claims')).toHaveLength(failure === 'claims' ? 2 : 1)
+      expect(evidence.errors).toEqual(expectedErrors)
+      await shot(page, `${failure}-recovered-menu`, size)
+    })
+    test('UXBF3 account changes clear shared claims before a delayed response and on logout', async ({ page }) => {
+      await fixture(page)
+      await page.goto('/onboarding/player')
+      await expect(page.getByRole('heading', { name: 'Your next step.' })).toBeVisible()
+      let resolve
+      const waitOtherClaims = new Promise(r => { resolve = r })
+      await page.route('**/api/me/application-claims', async route => {
+        if (route.request().headers().authorization?.endsWith('uxbf3-other-token')) {
+          await waitOtherClaims
+          return route.fulfill({ json: { claims: [] } })
+        }
+        return route.fallback()
+      })
+      const switchToken = token => page.evaluate(async value => {
+        const { APIService } = await import('/src/lib/api.js')
+        APIService.setUserToken(value)
+      }, token)
+      await switchToken('uxbf3-other-token')
+      await expect(page.getByText('Checking your profiles…', { exact: true })).toBeVisible()
+      await expect(page.getByRole('link', { name: 'Synthetic Adult · My profile →' })).toHaveCount(0)
+      if (size === 'mobile') await page.getByRole('button', { name: 'Toggle navigation menu' }).click()
+      else await page.getByRole('button', { name: 'Synthetic Viewer' }).click()
+      const menu = page.getByRole(size === 'mobile' ? 'dialog' : 'menu')
+      await expect(menu.getByText('My profile', { exact: true })).toHaveCount(0)
+      await expect(menu.getByText('My applications', { exact: true })).toHaveCount(0)
+      await page.keyboard.press('Escape')
+      resolve()
+      await expect(page.getByRole('heading', { name: 'Are you a player?' })).toBeVisible()
+      await switchToken('uxbf1-synthetic-token')
+      await expect(page.getByRole('heading', { name: 'Your next step.' })).toBeVisible()
+      await switchToken('')
+      await expect(page.getByRole('link', { name: 'Synthetic Adult · My profile →' })).toHaveCount(0)
+      await expect(page.getByRole('heading', { name: 'Are you a player?' })).toBeVisible()
+    })
+    test('UXBF3 a previous account response cannot restore old shared claims', async ({ page }) => {
+      let resolve
+      const waitClaims = new Promise(r => { resolve = r })
+      await fixture(page, { waitClaims })
+      await page.goto('/onboarding/player')
+      await expect(page.getByText('Checking your profiles…', { exact: true })).toBeVisible()
+      await page.route('**/api/me/application-claims', route => route.fulfill({ json: { claims: [] } }))
+      await page.evaluate(async () => {
+        const { APIService } = await import('/src/lib/api.js')
+        APIService.setUserToken('uxbf3-other-token')
+      })
+      await expect(page.getByRole('heading', { name: 'Are you a player?' })).toBeVisible()
+      resolve()
+      await page.waitForLoadState('networkidle')
+      await expect(page.getByRole('heading', { name: 'Your next step.' })).toHaveCount(0)
+      await expect(page.getByRole('link', { name: 'Synthetic Adult · My profile →' })).toHaveCount(0)
+      if (size === 'mobile') await page.getByRole('button', { name: 'Toggle navigation menu' }).click()
+      else await page.getByRole('button', { name: 'Synthetic Viewer' }).click()
+      const menu = page.getByRole(size === 'mobile' ? 'dialog' : 'menu')
+      await expect(menu.getByText('My profile', { exact: true })).toHaveCount(0)
+      await expect(menu.getByText('My applications', { exact: true })).toHaveCount(0)
+    })
+    for (const urlId of [oid.toUpperCase(), 'F9c683D7-2c0F-57bA-aE18-3a2544Fa7c96']) test(`UXBF3 parent anchor accepts UUID case ${urlId}`, async ({ page }) => {
+      let resolve
+      const waitClaims = new Promise(r => { resolve = r })
+      await fixture(page, { waitClaims })
+      await page.goto(`/opportunities/${urlId}#parent-interest`)
+      await expect(page.getByText('Checking your profiles…', { exact: true })).toBeVisible()
+      resolve()
+      const block = page.locator('#parent-interest')
+      await expect(block).toBeFocused()
+      await expect(block.getByLabel('Email address')).toBeInViewport({ ratio: 1 })
+      await shot(page, `parent-interest-${urlId === oid.toUpperCase() ? 'uppercase' : 'mixed'}`, size)
+    })
+    for (const on of [true, false]) test(`UXBF3 no-id parent hash safely opens ${on ? 'list' : 'teaser'}`, async ({ page }) => {
+      const evidence = await fixture(page, { role: 'visitor', on })
+      await page.goto('/opportunities#parent-interest')
+      await expect(page.getByRole('heading', { name: 'Room for your next step.' })).toBeVisible()
+      if (on) await expect(page.getByRole('heading', { name: 'Open opportunities', exact: true })).toBeVisible()
+      else await expect(page.getByRole('heading', { name: 'Hear first', exact: true })).toBeVisible()
+      await page.waitForLoadState('networkidle')
+      await expect(page.locator('#parent-interest')).toHaveCount(0)
+      expect(evidence.calls.filter(p => p.startsWith('/api/me/'))).toEqual([])
+      if (!on) expect(businessCalls(evidence.calls)).toEqual([])
+      expect(evidence.errors).toEqual([])
     })
     test('parent-interest deep link scrolls and focuses signup after asynchronous detail load', async ({ page }) => {
       const evidence = await fixture(page, { role: 'visitor' })

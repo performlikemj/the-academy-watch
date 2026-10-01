@@ -32,6 +32,8 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
 
 ## State
 
+- **Now (2026-10-02 UXBF3):** Review-duel three Small fixes implemented on draft #1124: shared token-keyed navigation retry, UUID case anchor, readable wrapping name pill; no-id list hash safely ignored. Original probes9 failures; targeted36 pass. Exact final-head gates/PG/browser/screenshots/push/cleanup status in `~/codex-runs/aw-redesign/logs/UXBF3.final.md`; see `ledgers/CONTINUITY_uxb.md`.
+
 - **Now (2026-10-01 UXBF2):** Review-duel union fixed on draft#1124: contextual retry/discovery fallback, settled adult anchor, maximum text wrapping, rows-only open meta, N4 draft skip. Full flags-off4090/PG22/Node230/browser125+CI60 green;96 refreshed screenshots, owned resources cleaned. Final pushed SHA/CI in logs/UXBF2.final.md; see `ledgers/CONTINUITY_uxb.md`; unmerged.
 
 - **Now (2026-10-01 UXBF1):** All review-duel fixes + parent-interest anchor complete, sourcec8cf1a63 pushed to draft #1124; main784b1490 current. Full flags-off4090/PG22/Node225/Playwright105, Ruff-format/lint/build/OSV green;72 refreshed captures. Owned resources cleaned; unmerged. See `ledgers/CONTINUITY_uxb.md` and logs/UXBF1.final.md for final docs-only head/CI.

@@ -88,6 +88,7 @@ import { HomePage } from '@/pages/HomePage'
 import { ClubsPage } from '@/pages/clubs/ClubsPage' // p2-b1: real directory when the flag is on, the teaser otherwise
 // --- p2-b2 begin ---
 // --- uxb begin ---
+import { OpportunityStateProvider } from '@/context/OpportunityStateProvider'
 import { useApprovedPlayer } from '@/hooks/useApprovedPlayer'
 import { useOpportunities } from '@/pages/opportunities/useOpportunities'
 // --- uxb end ---
@@ -4327,10 +4328,12 @@ function App() {
         logout: handleLogout,
         isLoginModalOpen: loginModalOpen,
       }}>
-        <Router>
-          <AppWithRouter />
-          <GolPanel />
-        </Router>
+        <OpportunityStateProvider>
+          <Router>
+            <AppWithRouter />
+            <GolPanel />
+          </Router>
+        </OpportunityStateProvider>
       </AuthUIContext.Provider>
     </AuthContext.Provider>
   )

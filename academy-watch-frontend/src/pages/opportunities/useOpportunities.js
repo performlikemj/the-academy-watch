@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useContext, useEffect, useState } from 'react'
 import { APIService } from '@/lib/api'
+import { OpportunityStateContext } from '@/context/OpportunityStateContext'
 import { peekFeatures } from '@/lib/features'
 
 const unavailable = { opportunities: false, applications: false, loaded: true }
@@ -7,7 +8,7 @@ function effectiveFlags(data) {
   return { opportunities: data.opportunities === true, applications: data.opportunities === true && data.applications === true, loaded: true }
 }
 
-export function useOpportunities(enabled = true) {
+export function useOpportunityFlags(enabled) {
   const [attempt, setAttempt] = useState(0)
   const [flags, setFlags] = useState(() => {
     const data = peekFeatures()
@@ -25,7 +26,13 @@ export function useOpportunities(enabled = true) {
     setFlags(current => ({ ...current, retrying: true }))
     setAttempt(current => current + 1)
   }, [])
-  return enabled ? { ...flags, retry } : unavailable
+  return { ...flags, retry }
+}
+
+export function useOpportunities(enabled = true) {
+  const { flags, enable } = useContext(OpportunityStateContext)
+  useEffect(() => { if (enabled) enable() }, [enabled, enable])
+  return enabled ? flags : unavailable
 }
 
 export { when } from '@/lib/opportunity-time'

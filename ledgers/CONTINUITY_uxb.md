@@ -41,3 +41,15 @@
 - Hand-back: logs/UXBF2.final.md maps O1/O2/X2/X3/X1/O4 to FIXED and reverse-probe evidence; optional O3 skipped per brief.96 refreshed shots/UXBF2 with INDEX/SHA256SUMS. Main784b1490 current/included; no migration/dependency changes.
 - Cleanup: own managed5162/5212/5173 stopped; aw_uxbf2_pg/aw_uxbf2_http absent; dumps/persona tokens/server/temp configs/isolated reviewed copy/build/browser outputs removed. Original dependencies retained; shared staging unchanged. Final delivery SHA/CI in external hand-back.
 - Delivery verification: source62ad447a pushed; draft CI36850169022 SUCCESS with all four non-security jobs SKIPPED, security SUCCESS. Pinned Ruff0.16.0/check-format579 passes; final documentation-only correction follows, final pushed SHA in external hand-back.
+
+## UXBF3 fix round (2026-10-02)
+
+- Status: in-progress; reviewed ac877e05; draft #1124, no lower stack.
+- Scope: X1=O1 shared user-keyed retry/navigation; O2 canonical UUID anchor; O3 readable maximum-name pill; safe no-id list hash.
+- Now: reverse reviewers’ probes into regressions; Next: tiny fixes, merge origin/main, final four cached gates + PG + lane Playwright, refresh screenshots, push; no merge.
+- Constraints: foreground only/machine governor, flags-OFF request parity and auth-change clearing; no migration/dependency changes planned.
+- Regression milestone: original reviewed source fails9/14 targeted browser cases (4 navigation recovery,4 UUID anchor,1 mobile pill contrast);5 controls/no-id hash pass. OSV547 clean; dependencies already current. Provider now shares recovery; auth-switch/stale-response coverage added.
+- Implementation complete: X1=O1 shared provider/retry with token-transition clearing; O2 case-folded UUID with stale-item/adult-layout guards retained; O3 rounded-xl wrapping pill preserves full name. No-id list/teaser has no parents interest block, so unmatched hash is safely ignored (4 flag/width regressions).
+- Targeted verification:36 browser cases PASS (recovery, auth switches/logout/stale response, both widths, UUID case/name contrast, flags-OFF and discovery); changed-file ESLint PASS. Bootstrap activation remains consumer-driven so routes without consumers stay lazy.
+- Main integration: fresh origin/main784b1490 already ancestor; merge up-to-date, no lower stack. No migration/dependency/lockfile changes; preapply/CONTRACT not applicable.
+- Final verification/delivery is recorded in external `~/codex-runs/aw-redesign/logs/UXBF3.final.md` for the exact pushed head (four cached gates, PostgreSQL22, combined lane browser once, refreshed shots, resource cleanup); no docs-only commit after those gates.

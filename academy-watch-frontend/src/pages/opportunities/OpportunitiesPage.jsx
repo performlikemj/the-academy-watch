@@ -124,7 +124,7 @@ function OpportunityDetailContent() {
     return () => { active = false }
   }, [flags.opportunities, opportunityId])
   useEffect(() => {
-    if (hash === '#parent-interest' && item?.id === opportunityId && applicationSettled && parentInterest.current) {
+    if (hash === '#parent-interest' && item?.id?.toLowerCase() === opportunityId.toLowerCase() && applicationSettled && parentInterest.current) {
       parentInterest.current.scrollIntoView({ block: 'center' })
       parentInterest.current.focus({ preventScroll: true })
     }
