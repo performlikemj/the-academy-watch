@@ -1,7 +1,7 @@
 # N2 — hide legacy public pages
 
 - Goal: Redirect and unlink 14 legacy public routes; retain components/data and player lookup, admin/writer/curator tools.
-- State: implementation and verification complete; remote PR delivery next.
+- State: complete; non-draft PR #1112 to main: https://github.com/performlikemj/the-academy-watch/pull/1112.
 - Constraints: feat/hide-legacy-pages; aw_n2; backend 5131 / Vite 5194; no background commands; non-draft PR to main; no merge.
 - Gates: lint/build/Node/relevant Playwright; Ruff/pytest sitemap; reviewed home/player desktop/mobile shots in external shots/N2.
 - Next: central route gate, unlink public surfaces, de-index, tests, cleanup, commit/push/PR, BUS DONE.
@@ -13,3 +13,4 @@
 - Screenshots: six visually reviewed PNGs in `~/codex-runs/aw-redesign/shots/N2/`: home + fixture player + live copied-DB player, each 1440×900 and 390×844. Live `/players/148099` displays K. Dewsbury-Hall; no hidden anchors.
 - Link inventory removed: player writer-author profiles and recent writeups (entire Writer Coverage); global search Teams/Newsletters/Journalists shortcuts, team/newsletter/writer/writeup results and their saved recents; settings followed-writer profile links/arrows; club Squad & academy team-roster promotion; admin newsletter markdown full-web-newsletter CTA; GOL hidden-route markdown anchors now plain text. Home/header/footer and player team labels already had no hidden anchors; GOL suggestion chips submit prompts and have no route links.
 - Cleanup: both owned foreground servers stopped; aw_n2 dropped; copied backend .env and all /tmp/n2-* artifacts removed. Worktree retained; no simulator started.
+- Delivery: implementation commit e42f47dc pushed to feat/hide-legacy-pages; PR #1112 open against main; no merge. BUS DONE appended; all N2 claims released.
