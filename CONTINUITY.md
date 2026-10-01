@@ -32,7 +32,7 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
 
 ## State
 
-- **Now (2026-10-01):** C1 fix round 1 in progress on #1121: RC1 F1–F11, current main/B2/B3, full foreground gates + push, no PR merge; see `ledgers/CONTINUITY_p2-c1.md`.
+- **Now (2026-10-01):** C1 fix round 1 complete locally on #1121: RC1 F1–F11 FIXED, main/B2 784b1490 + B3 46a4274f included; full flags-off4385pass90skip0fail, PG5/N3/Node219/modern browser250pass5skip/Ruff-format594/OSV/lint-build green. Final head/gates/cleanup in external logs/C1F1.final.md; independent REVIEW-DUEL next, no PR merge; see `ledgers/CONTINUITY_p2-c1.md`.
 
 - **Now (2026-10-01):** Phase 2 C1 PR #1121 ready on p2/c1-club-publication, stacked #1115; adult consent publication and club-first introductions default OFF. Exact PR/SHA/CI and cleanup in `~/codex-runs/aw-redesign/logs/C1.final.md`; see `ledgers/CONTINUITY_p2-c1.md`.
 
