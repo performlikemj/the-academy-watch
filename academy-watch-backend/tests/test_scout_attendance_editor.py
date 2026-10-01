@@ -3,6 +3,7 @@
 
 import json
 import os
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from src.models.league import db
@@ -52,10 +53,10 @@ def test_full_editor_payload_saves_unrelated_change(client, c4, monkeypatch, sta
     listing = client.get(f"/api/club/{c4['pid']}/opportunities", headers=_headers("a")).get_json()
     item = next(p for p in listing["opportunities"] if p["id"] == post["id"])
     assert "live_attendance" not in client.get(f"/api/opportunities/{post['id']}").get_json()["opportunity"]
-    # An equivalent ISO UTC suffix and legacy zone must compare equal.
+    # Equivalent UTC suffix, explicit offset and legacy zone must compare equal.
     data = editor_payload(item, description="Corrected TEST ONLY description", timezone="Europe/Belfast")
     data["starts_at"] = item["starts_at"].replace("+00:00", "Z")
-    data["ends_at"] = item["ends_at"].replace("+00:00", "Z")
+    data["ends_at"] = datetime.fromisoformat(item["ends_at"]).astimezone(timezone(timedelta(hours=9))).isoformat()
     response = client.patch(f"/api/club/{c4['pid']}/opportunities/{post['id']}", headers=_headers("a"), json=data)
     assert response.status_code == 200, response.get_json()
     updated = response.get_json()["opportunity"]
@@ -80,7 +81,10 @@ def test_browser_editor_payload_against_real_flask(client, c4, state):
     if not raw:
         pytest.skip("browser captured payload opt-in")
     data = json.loads(raw)
-    post = create(client, c4, **{key: value for key, value in data.items() if key != "expected_version"})
+    initial = {key: value for key, value in data.items() if key != "expected_version"}
+    initial["description"] = "Original TEST ONLY description"
+    assert initial["description"] != data["description"]
+    post = create(client, c4, **initial)
     row = ask(client, c4, post).get_json()["attendance"]
     if state == "accepted":
         assert answer(client, c4, row).status_code == 200

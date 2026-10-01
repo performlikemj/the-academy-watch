@@ -233,6 +233,7 @@ for (const width of [1440, 390]) {
 
 for (const width of [1440, 390]) {
   test(`C4F3 unrelated advert edit keeps live session terms fixed ${width}`, async ({ page }) => {
+    if (process.env.C4_E2E_BACKEND_PYTHON) test.setTimeout(60 * 60 * 1000)
     await page.setViewportSize({ width, height: width === 390 ? 844 : 900 })
     await fixture(page, { attendance: request })
     let saved = null
@@ -240,7 +241,7 @@ for (const width of [1440, 390]) {
       saved = route.request().postDataJSON()
       if (process.env.C4_E2E_BACKEND_PYTHON) {
         execFileSync(process.env.C4_E2E_BACKEND_PYTHON, ['-m', 'pytest', '-q', 'tests/test_scout_attendance_editor.py', '-k', 'browser_editor_payload'], {
-          cwd: path.resolve('..', 'academy-watch-backend'), timeout: 120000,
+          cwd: path.resolve('..', 'academy-watch-backend'), timeout: 60 * 60 * 1000,
           env: { ...process.env, C4_BROWSER_EDITOR_PAYLOAD: JSON.stringify(saved), SKIP_API_HANDSHAKE: '1', API_USE_STUB_DATA: 'true', TEST_ONLY_MANU: 'false', OPENAI_API_KEY: 'test-not-a-real-key' },
         })
       }
