@@ -11,7 +11,7 @@
 
 ## State
 - Done: merged B3 + final B1/B2 dependencies; conflicts preserved owned feature blocks. Native role tabs, browse/apply/application actions, recruiting/invites/notes/signing, owner staff grants and scoped squads implemented.
-- Now: implementation and validation complete; draft PR publication.
+- Now: complete; draft PR [#1118](https://github.com/performlikemj/the-academy-watch/pull/1118) to main, unmerged.
 - Next: owner review of draft PR; no merge.
 
 ## Validation
@@ -34,3 +34,8 @@
 - No frontend dependency restore or lockfile changes; dependency scan not applicable.
 - Evidence: ~/codex-runs/aw-redesign/shots/I1/INDEX.md, 28 board PNGs and 14 final Phase 2 journey attachments. Logs/result bundles: ~/codex-runs/aw-redesign/logs/I1/.
 - Owned simulators 10B0899B-CACC-49F7-9195-111597FB39C5 and 8C5022C7-D676-44BC-BBD4-73F32B7E89F7 shut down/deleted. /tmp/aw-I1-derived and /tmp/aw-I1-shots removed. No live email suite, production writes, servers or DB copies created.
+
+## Delivery
+- Draft PR #1118 to main: https://github.com/performlikemj/the-academy-watch/pull/1118; exact requested title; DO NOT MERGE.
+- Hand-back: ~/codex-runs/aw-redesign/logs/I1.final.md.
+- Native implementation commit d0bb7fb5; main reconciliation 5706739d. Dependency commits remain visible until their separate PRs land.
