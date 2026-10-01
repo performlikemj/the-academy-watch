@@ -33,7 +33,10 @@ MAX_ADMIN_PAGE_SIZE = 200
 INTAKE_RATE_LIMIT_PER_MINUTE = "5 per minute"
 INTAKE_RATE_LIMIT_PER_HOUR = "20 per hour"
 EMAIL_PATTERN = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
-ACKNOWLEDGMENT = {"message": "Your takedown request has been received and will be reviewed."}
+ACKNOWLEDGMENT = {
+    "message": "Takedown requests are reviewed per player. If a request is already pending or active, "
+    "this submission does not replace or add to its contact or evidence."
+}
 
 
 def _json_object() -> dict:
@@ -80,6 +83,10 @@ def _submit_takedown_request(*, player_api_id: int | None = None, local_player_i
         contact = _contact_email(payload.get("contact_email"))
         statement = _clean_required(payload.get("statement"), "statement", max_len=MAX_STATEMENT_LENGTH)
         now = datetime.now(UTC)
+
+        from src.services.admin_control_safety import lock_target
+
+        lock_target("player_profile", str(player_api_id or -local_player_id))
 
         suppression = (
             PlayerSuppression.query.filter(
@@ -198,6 +205,12 @@ def _decide_suppression(suppression_id: int, action: str):
     }
     try:
         notes = _decision_notes()
+        from src.services.admin_control_safety import lock_target
+
+        snapshot = db.session.get(PlayerSuppression, suppression_id)
+        if snapshot is None:
+            return jsonify({"error": "suppression not found"}), 404
+        lock_target("player_profile", str(snapshot.player_api_id or -snapshot.local_player_id))
         suppression = PlayerSuppression.query.filter_by(id=suppression_id).populate_existing().with_for_update().first()
         if suppression is None:
             return jsonify({"error": "suppression not found"}), 404

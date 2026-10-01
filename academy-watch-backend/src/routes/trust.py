@@ -448,7 +448,12 @@ def admin_list_content_reports():
 def admin_resolve_content_report(report_id: int):
     """Resolve or dismiss a content report with a bounded admin note."""
     try:
+        from src.services.admin_control_safety import lock_target
+
         report = db.session.get(ContentReport, report_id)
+        if report is not None:
+            lock_target(report.subject_type, report.subject_id)
+            report = ContentReport.query.filter_by(id=report_id).populate_existing().with_for_update().first()
         if report is None:
             return jsonify({"error": "content report not found"}), 404
         if report.status in REPORT_RESOLUTION_STATUSES:

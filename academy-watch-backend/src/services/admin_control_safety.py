@@ -3,8 +3,11 @@
 import logging
 import time
 from datetime import timedelta
+from hashlib import sha256
+from types import SimpleNamespace
 
 import sqlalchemy as sa
+from sqlalchemy.exc import IntegrityError
 from src.models.admin_control import SafeguardingCase, SafeguardingCaseEvent, now
 from src.models.funding import ClubProgram
 from src.models.league import UserAccount, db
@@ -174,6 +177,77 @@ def _resolved_player_id(case):
     return subject
 
 
+def _target_lock_id(target_type, target_id):
+    """One transaction lock before any case/source row, including absent sources.
+
+    Player profile/local/showcase paths use the same signed identity. PostgreSQL
+    advisory locks also cover unknown neutral-intake IDs without inventing rows.
+    Existing moderation tools share this order: target, source/case, siblings.
+    """
+    try:
+        subject = _player_id(SimpleNamespace(target_type=target_type, target_id=str(target_id)))
+    except ValueError:
+        subject = None
+    if target_type == "club_program":
+        try:
+            target_id = str(bounded_id(target_id))
+        except ValueError:
+            pass  # Unsupported/unresolved targets still fail at the action boundary.
+    key = f"player:{subject}" if subject else f"{target_type}:{target_id}"
+    return int.from_bytes(sha256(key.encode()).digest()[:8], "big", signed=True)
+
+
+def lock_target(target_type, target_id):
+    """Serialize before case/source rows, including an absent suppression."""
+    if db.engine.dialect.name == "postgresql":
+        db.session.execute(
+            sa.text("SELECT pg_advisory_xact_lock(:key)"), {"key": _target_lock_id(target_type, target_id)}
+        )
+
+
+def _other_hide_cases(case):
+    """Close retains intent; only restore or an explicit source lift clears it."""
+    subject = _player_id(case)
+    candidates = SafeguardingCase.query.filter(SafeguardingCase.id != case.id)
+    if subject is None:
+        candidates = candidates.filter_by(target_type=case.target_type)
+    else:
+        # Showcase and local aliases can share the same actual player target.
+        candidates = candidates.filter(SafeguardingCase.target_type.in_(("player_profile", "showcase_content")))
+    latest = (
+        sa.select(sa.func.max(SafeguardingCaseEvent.id))
+        .where(
+            SafeguardingCaseEvent.case_id == SafeguardingCase.id,
+            SafeguardingCaseEvent.action.in_(("hide", "restore", "source_lifted", "source_rejected")),
+        )
+        .correlate(SafeguardingCase)
+        .scalar_subquery()
+    )
+    candidates = candidates.filter(
+        sa.exists().where(SafeguardingCaseEvent.id == latest, SafeguardingCaseEvent.action == "hide")
+    )
+    matches = []
+    for other in candidates.order_by(SafeguardingCase.id):
+        try:
+            if _target_lock_id(other.target_type, other.target_id) == _target_lock_id(case.target_type, case.target_id):
+                matches.append(other)
+        except ValueError:
+            continue
+    return matches
+
+
+def case_hide_intent(case):
+    event = (
+        SafeguardingCaseEvent.query.filter(
+            SafeguardingCaseEvent.case_id == case.id,
+            SafeguardingCaseEvent.action.in_(("hide", "restore", "source_lifted", "source_rejected")),
+        )
+        .order_by(SafeguardingCaseEvent.id.desc())
+        .first()
+    )
+    return event is not None and event.action == "hide"
+
+
 def case_hidden(case):
     if case.target_type == "club_program":
         try:
@@ -241,15 +315,33 @@ def _hide(case, actor, reason):
             local_player_id=-subject if subject < 0 else None,
             reason_code="admin_other",
             requester_role="other",
-            requester_contact=actor,
-            request_statement=reason,
+            requester_contact="case-action",
+            request_statement="Administrative case hold; see case history",
             status="requested",
         )
         suppression._skip_safety_intake = True
-        db.session.add(suppression)
-        db.session.flush()
-        if case.suppression_id is None:
-            case.suppression_id = suppression.id  # source identity never changes
+        try:
+            with db.session.begin_nested():
+                db.session.add(suppression)
+                db.session.flush()
+        except IntegrityError as exc:
+            # Older deployed writers may not participate in the subject lock.
+            # Roll back just the insert, reload the unique-index winner, and
+            # preserve that requester's provenance/ownership.
+            constraint = getattr(getattr(exc.orig, "diag", None), "constraint_name", None)
+            if constraint not in {"uq_player_suppressions_open_player", "uq_player_suppressions_open_local_player"}:
+                raise
+            suppression = (
+                PlayerSuppression.query.filter(
+                    column == abs(subject), PlayerSuppression.status.in_(("requested", "active"))
+                )
+                .populate_existing()
+                .with_for_update()
+                .one()
+            )
+        else:
+            if case.suppression_id is None:
+                case.suppression_id = suppression.id  # source identity never changes
     # A different requester owns their pending/active request, even when this hide activates it.
     if suppression.status != "active":
         if case.suppression_id == suppression.id:
@@ -263,6 +355,23 @@ def _hide(case, actor, reason):
 
 
 def _restore(case, actor, reason):
+    if not (case.held_program_id or case.owned_suppression_id) and case_hide_intent(case):
+        # Withdraw only this non-owner case intent; the physical hold stays.
+        subject = _player_id(case)
+        for owner in SafeguardingCase.query.filter(
+            sa.or_(SafeguardingCase.held_program_id.is_not(None), SafeguardingCase.owned_suppression_id.is_not(None))
+        ):
+            try:
+                same = _target_lock_id(owner.target_type, owner.target_id) == _target_lock_id(
+                    case.target_type, case.target_id
+                )
+            except ValueError:
+                same = False
+            if same:
+                return
+        raise ValueError("This case does not own a hold; use the original moderation tool")
+    if _other_hide_cases(case):
+        raise ValueError("Another case still requires this target hidden, including closed cases with retained holds")
     if case.held_program_id:
         from src.models.p2_foundation import AdminActionEvent
 
@@ -333,6 +442,7 @@ def reconcile_safety_boot(app):
     from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
     with app.app_context():
+        _repair_imported_sources()
         table = SafeguardingCase.__table__
         insert = pg_insert if db.engine.dialect.name == "postgresql" else sqlite_insert
         for model, source_key in ((ContentReport, "report_id"), (PlayerSuppression, "suppression_id")):
@@ -384,6 +494,66 @@ def reconcile_safety_boot(app):
         db.session.commit()
 
 
+def _repair_imported_sources():
+    """Repair a bounded batch of dark-window discrepancies, never case decisions.
+
+    Preapply imports have no action history (runtime intake may have 'received').
+    Any case action/source-sync or hold ownership disqualifies a row. Conditions
+    are rechecked after the common target lock so concurrent decisions win.
+    """
+    repairs = []
+    for model, key in ((ContentReport, "report_id"), (PlayerSuppression, "suppression_id")):
+        source_status = sa.case(
+            (model.status.in_(("resolved", "dismissed", "lifted", "rejected")), "closed"),
+            (model.status.in_(("reviewing", "active")), "investigating"),
+            else_="open",
+        )
+        eligible = sa.and_(
+            SafeguardingCase.held_program_id.is_(None),
+            SafeguardingCase.owned_suppression_id.is_(None),
+            ~sa.exists().where(
+                SafeguardingCaseEvent.case_id == SafeguardingCase.id,
+                SafeguardingCaseEvent.action != "received",
+            ),
+        )
+        candidates = (
+            db.session.query(SafeguardingCase.id, SafeguardingCase.target_type, SafeguardingCase.target_id)
+            .join(model, getattr(SafeguardingCase, key) == model.id)
+            .filter(eligible, SafeguardingCase.status != source_status)
+            .order_by(SafeguardingCase.id)
+            .limit(500)
+            .all()
+        )
+        repairs.extend(
+            (model, key, eligible, cid, target_type, target_id) for cid, target_type, target_id in candidates
+        )
+    locks = sorted({_target_lock_id(kind, tid) for _, _, _, _, kind, tid in repairs})
+    if db.engine.dialect.name == "postgresql":
+        for lock_id in locks:
+            db.session.execute(sa.text("SELECT pg_advisory_xact_lock(:key)"), {"key": lock_id})
+    for model, key, eligible, cid, _, _ in repairs:
+        case = (
+            SafeguardingCase.query.filter(SafeguardingCase.id == cid, eligible)
+            .populate_existing()
+            .with_for_update()
+            .first()
+        )
+        if case is None:
+            continue
+        source = db.session.get(model, getattr(case, key), populate_existing=True)
+        if source is None:
+            continue
+        closed = source.status in {"resolved", "dismissed", "lifted", "rejected"}
+        status = "closed" if closed else "investigating" if source.status in {"reviewing", "active"} else "open"
+        if case.status == status:
+            continue
+        acted = source.resolved_at if model is ContentReport else source.decided_at
+        case.status = status
+        case.first_action_at = acted
+        case.closed_at = acted if closed else None
+        case.version += 1
+
+
 def sync_source_case(source, actor, reason, *, exclude_case_id=None):
     """Both existing moderation paths update linked cases in their own transaction."""
     if not sa.inspect(db.session.connection()).has_table("safeguarding_cases"):
@@ -393,10 +563,20 @@ def sync_source_case(source, actor, reason, *, exclude_case_id=None):
     predicate = key == source.id
     if not report:
         predicate = sa.or_(predicate, SafeguardingCase.owned_suppression_id == source.id)
+    if not report and source.status in {"lifted", "rejected"}:
+        # An explicit decision in the original tool retires every outstanding
+        # case intent on this physical hold, including non-owning siblings.
+        target = SimpleNamespace(
+            id=exclude_case_id or -1,
+            target_type="player_profile",
+            target_id=str(source.player_api_id or -source.local_player_id),
+        )
+        siblings = [case.id for case in _other_hide_cases(target)]
+        predicate = sa.or_(predicate, SafeguardingCase.id.in_(siblings))
     query = SafeguardingCase.query.filter(predicate)
     if exclude_case_id is not None:
         query = query.filter(SafeguardingCase.id != exclude_case_id)
-    for case in query.with_for_update():
+    for case in query.order_by(SafeguardingCase.id).populate_existing().with_for_update():
         closed = source.status in {"resolved", "dismissed", "lifted", "rejected"}
         acted = source.resolved_at if report else source.decided_at
         case.first_action_at = case.first_action_at or acted or now()
@@ -413,6 +593,17 @@ def sync_source_case(source, actor, reason, *, exclude_case_id=None):
         )
         if closed:
             notify(case, "closed")
+
+
+def release_club_case_intents(program_id, actor, reason):
+    """An explicit original-tool lift supersedes case requests on this club."""
+    if not sa.inspect(db.session.connection()).has_table("safeguarding_cases"):
+        return
+    target = SimpleNamespace(id=-1, target_type="club_program", target_id=str(program_id))
+    for case in _other_hide_cases(target):
+        case.held_program_id = None
+        case.version += 1
+        db.session.add(SafeguardingCaseEvent(case_id=case.id, action="source_lifted", actor_email=actor, reason=reason))
 
 
 def register_control_reconciliation(app):

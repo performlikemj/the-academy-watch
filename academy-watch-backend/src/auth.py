@@ -561,6 +561,8 @@ def resolve_bearer_user() -> UserAccount | None:
 
     if user is None or getattr(user, "is_tombstone", False):
         raise LookupError("account not found")
+    # Reuse this validated role in /auth/me without a second token decode.
+    g.user_token_role = data.get("role") or "user"
     return user
 
 
