@@ -1,5 +1,7 @@
 import '@/styles/floodlight-player.css'
-import { ComingSoon } from '@/components/interest/ComingSoon'
+// --- p2-b2 begin ---
+import { PlayerApplications } from '@/components/applications/PlayerApplications'
+// --- p2-b2 end ---
 import { useDataMode } from '@/hooks/useDataMode'
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -209,7 +211,9 @@ export function PlayerOnboarding() {
           </div>
         </section>
       </div>
-      <ComingSoon feature="player_applications" role="player" image="/media/player-sundown.webp" title="Your next chapter." lede="Applications will have a place here. Join the list to hear when you can take the next step towards a new club." bullets={['Discover a place to develop your game.', 'Keep your applications and replies together.', 'Choose the opportunity that fits your next step.']} />
+      {/* --- p2-b2 begin --- */}
+      <PlayerApplications />
+      {/* --- p2-b2 end --- */}
     </div>
   )
 }

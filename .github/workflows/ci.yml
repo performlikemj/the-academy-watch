@@ -3,6 +3,7 @@ name: CI
 on:
   pull_request:
     branches: ['**']
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [main]
 
@@ -14,6 +15,7 @@ permissions:
 jobs:
   dependency-security:
     name: Frontend Dependency Security
+    # Keep this cheap scan on drafts too (recent runs take under one minute).
     uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@9a498708959aeaef5ef730655706c5a1df1edbc2 # v2.3.8
     with:
       scan-args: |-
@@ -22,6 +24,7 @@ jobs:
 
   frontend-build:
     name: Frontend Build & Lint
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     needs: dependency-security
     runs-on: ubuntu-latest
     steps:
@@ -53,6 +56,7 @@ jobs:
 
   backend-lint:
     name: Backend Lint
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -79,6 +83,7 @@ jobs:
 
   backend-tests:
     name: Backend Tests
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -106,6 +111,7 @@ jobs:
 
   frontend-tests:
     name: Frontend Tests
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     needs: dependency-security
     runs-on: ubuntu-latest
     steps:

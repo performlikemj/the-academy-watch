@@ -160,6 +160,18 @@ def register(club_bp):
     def home_squad(program_id, row_id):
         squad = resource(ClubSquad, program_id, row_id)
         if request.method == "DELETE":
+            # p2-b2: retained applications freeze their advertised squad, even while dark.
+            import sqlalchemy as sa
+            from src.models.opportunities import ClubOpportunity, OpportunityApplication
+
+            if (
+                sa.inspect(db.session.connection()).has_table("opportunity_applications")
+                and db.session.query(OpportunityApplication.id)
+                .join(ClubOpportunity, ClubOpportunity.id == OpportunityApplication.opportunity_id)
+                .filter(ClubOpportunity.squad_id == row_id)
+                .first()
+            ):
+                raise HomeError("Squad is retained by an opportunity application", 409)
             for member in ClubRosterMember.query.filter_by(program_id=program_id, squad_id=row_id).all():
                 assign_roster(member, {"squad_id": None})
             # Mirror SET NULL for SQLite fixtures without foreign-key enforcement.
