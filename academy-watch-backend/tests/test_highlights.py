@@ -581,3 +581,16 @@ def test_cleanup_runs_with_flag_off_and_retries_failure(world, monkeypatch):
     db.session.refresh(job)
     assert job.status == "queued" and job.created_at > now()
     assert worker.claim_next() is None
+
+
+def test_repick_is_new_request_never_inherits_player_approval(world):
+    row = ready(world)
+    assert approve(world, row).status_code == 200
+    highlights.revoke(row, world["player"].id, "player_revoke")
+    db.session.commit()
+    response = pick(world)
+    assert response.status_code == 201 and response.json["id"] != row.id
+    new = db.session.get(PlayerHighlight, response.json["id"])
+    assert new.player_decision == "pending" and new.approved_source_version is None
+    assert not highlights.public(new)
+    assert pick(world).json["id"] == new.id

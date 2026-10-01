@@ -325,9 +325,11 @@ def pick(match, data, actor):
     fingerprint = source_fingerprint(match, entry, track)
     key = digest([match.id, entry.id, track.id, window, fingerprint, title.strip(), claim.id])
     existing = PlayerHighlight.query.filter_by(pick_key=key).first()
+    while existing and existing.revoked_at:
+        # A new club pick after removal is a fresh request with no inherited consent.
+        key = digest([key, existing.id, existing.version])
+        existing = PlayerHighlight.query.filter_by(pick_key=key).first()
     if existing:
-        if existing.revoked_at:
-            raise ValueError("pick_removed_choose_new_window")
         return existing, False
     if PlayerHighlight.query.filter_by(video_match_id=match.id).count() >= MAX_CLIPS_PER_MATCH:
         raise ValueError("highlight_limit_reached")
@@ -481,11 +483,7 @@ def register_notifications():
     register_template(
         "highlight_request",
         eligible=notification_eligible,
-        render=lambda row, user: {
-            "subject": "A highlight is waiting for your decision",
-            "html": "<p>Sign in to Academy Watch to review a highlight request.</p>",
-            "text": "Sign in to Academy Watch to review a highlight request.",
-        },
+        render=notification_render,
     )
 
 
@@ -509,3 +507,14 @@ def candidates(match):
                     {"roster_entry_id": entry.id, "player_name": player["player_name"], "player_id": pid, **window}
                 )
     return out
+
+
+def notification_render(intent, user):
+    from html import escape
+
+    link = os.getenv("PUBLIC_BASE_URL", "https://theacademywatch.com").rstrip("/") + "/highlight-approvals"
+    return {
+        "subject": "A highlight is waiting for your decision",
+        "html": f'<p>Sign in to Academy Watch to review a highlight request.</p><p><a href="{escape(link, quote=True)}">Review highlights</a></p>',
+        "text": f"Sign in to Academy Watch to review a highlight request. {link}",
+    }
