@@ -17,12 +17,13 @@
 
 ## Fix round 1
 
-- State: fixes verified; commit/push and GitHub replies next.
-- Now: restore writer unsubscribe in Settings, remove crawl disallows, audit email links.
-- Next: gates + synthetic Settings screenshots; commit/push/reply to both inline comments + @codex review; cleanup and BUS DONE.
+- State: complete; fixes pushed and both inline findings replied to; @codex review requested.
+- Now: PR #1112 awaits fresh review; no merge.
+- Next: lead review of PR #1112; no merge in this lane.
 - Done: Settings uses existing unsubscribeFromJournalist(follow.journalist_id), per-card pending/disabled state + accessible Unfollow name + inline alert/retry; removes only the succeeded follow and hides the empty section.
 - Done: removed all seven legacy Disallow lines; sitemap exclusion, noindex and redirects retained; updated robots regression.
 - Email audit: no unsubscribe/manage link targets /journalists/... or /newsletters/... in checked templates/routes/services/weekly-agent. Route/weekly manage uses PUBLIC_MANAGE_PATH (default /manage); token unsubscribe uses /subscriptions/unsubscribe/<token> and one-click /api/subscriptions/one-click-unsubscribe/<token>. Found separate dead digest manage /subscriptions (no SPA route) and changed it to /settings; templates unchanged. Deployment overrides UNCONFIRMED, no production configuration accessed.
 - Gates: lint 0 errors / 181 warnings; build passes (existing size warning); Node 197 pass; Playwright 27 pass (four Settings success/pending/error/retry checks at 1440/390, plus all legacy route/link cases); Ruff check/format all 532 backend files pass; digest/subscriptions pytest 26 pass. No separate frontend typecheck script exists; no dependency restore or lockfile changes.
 - Evidence: visually reviewed synthetic Settings follow screenshots settings-following-desktop.png (1440px) and settings-following-mobile.png (390px) in external shots/N2; no horizontal overflow.
 - Cleanup: owned foreground Vite stopped; no backend server/DB/env/temp files created this round; generated Playwright report/test-results removed. Worktree retained.
+- Delivery: fix commit ff486d1ca8a2670196204f798231bb9402818e8e pushed. Inline replies discussion_r4151045454 (P1) and discussion_r4151045580 (P2); @codex review issuecomment-5923115483. PR description refreshed; no merge. Hand-back ~/codex-runs/aw-redesign/logs/N2F1.final.md.
