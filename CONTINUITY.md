@@ -1087,7 +1087,7 @@ CONTINUITY.md
 - iOS cold-start diagnostic complete; scoped fix delivered with PR #634 (merged to main `be02736`).
 
 ## UXM1F3
-- 2026-10-01: draft PR1119 review-duel union five Mediums/three Smalls fixed; full pytest4095pass86skip0fail, PG34/Node277/browser101+freezeOFF12 and Ruff/lint/build/OSV pass. Delivery in-progress; ledger `ledgers/CONTINUITY_uxm1.md`; O-M3 default-season policy unchanged pending decision.
+- 2026-10-01: draft PR1119 review-duel union five Mediums/three Smalls fixed; full pytest4095pass86skip0fail, PG34/Node277/browser101+freezeOFF12 and Ruff/lint/build/OSV pass. Code0b9e99fb pushed to draft1119 (unmerged); ledger `ledgers/CONTINUITY_uxm1.md`; O-M3 default-season policy unchanged pending decision.
 
 ## Trivial Log
 
