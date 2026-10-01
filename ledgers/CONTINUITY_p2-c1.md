@@ -11,6 +11,8 @@
 - Own local aw_p2_c1 and foreground ports5150/5201; no provider sends/prod writes.
 
 ## State
+- Now: fix round 1 RC1 F1–F11 in progress; merge main/B2/B3, regression evidence per finding, full foreground gates, push only.
+- Decision: admin evidence exposes masked emails + adult yes/no/source; same inviter/claimant approval blocked by default. Flag OFF preserves provider read/query parity with main.
 - Done: read master continuity, Phase2/design/BUS/evidence/repo guidance and mockup feature map.
 - Done: real B1 811fabca, B2 16540e03, B3 d49ec794 and main/N3 adea5177 integrated; p2c1 upgraded actual scratch PostgreSQL. Shared adult policy retains N3 trusted DOB/journeys and B2 hold reconciliation.
 - Done: independent recipient claim/consent/moderation, live canonical visibility including saved/cached aliases, club-first inbox/notifications/messages/revocation, export/erasure and real API web handoff.
