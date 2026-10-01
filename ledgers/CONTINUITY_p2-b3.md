@@ -76,7 +76,3 @@
 - Final refresh: main9f329ea5 (A2 squash) merged8e099b92; latest A2d1eb66ad mergedcf12ab26. Both merge trees equal first parent49206302, no implementation change after gates; B3 standing guards and p2b3 pins retained.
 - Final local prerequisites: B1 14b26fbc/B2 5cd45b0b migrations byte-identical (same SHA256 as prior round); neither re-copied. No schema/lockfile changes.
 - Delivery: fix3242113a; PR1115 body includes exact merge order B1 → B2 → B3 and final gates. Hand-back ~/codex-runs/aw-redesign/logs/B3F3.final.md; no merge/deploy/flag changes/provider sends. Cleaned owned foreground services/aw_p2_b3/temp/browser outputs.
-
-## B3 fix round 4 — in progress
-- Main784b1490 fetched/merged; conflicts: main.py, routes/api.py, services/account.py and four migration-head tests. Preserve main B1/B2/N3/A2 plus B3 blocks/standing hooks; pins p2b3.
-- Next: prove refresh boundaries, foreground full gates, push/ready1115/CI; no merge.
