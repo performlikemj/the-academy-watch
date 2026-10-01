@@ -235,7 +235,7 @@ test('legacy unsupported zones cannot crash list, detail, applicant home or club
   await page.route(`**/api/club/7/opportunities/${oid}/applications?*`, route => route.fulfill({ json: { applications: [badApplication], has_more: false } }))
   await page.goto('/opportunities')
   await expect(page.getByRole('heading', { name: 'Open opportunities' })).toBeVisible()
-  await expect(page.getByText(/20 Oct 2026, 10:00 UTC \(UTC\)/)).toBeVisible()
+  await expect(page.getByText(/20 Oct 2026, 10:00–12:00 UTC \(UTC\)/)).toBeVisible()
   await page.goto(`/opportunities/${oid}`)
   await expect(page.getByRole('heading', { name: 'Take the next step.' })).toBeVisible()
   await expect(page.getByText(/Applications close.*UTC \(UTC\)/)).toBeVisible()

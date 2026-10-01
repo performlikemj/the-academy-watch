@@ -2,12 +2,14 @@ import { OpportunityBoundary } from '@/pages/opportunities/OpportunityBoundary'
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ComingSoon } from '@/components/interest/ComingSoon'
+import { useAuth } from '@/context/AuthContext'
 import { APIService } from '@/lib/api'
 import { errorMessage, useOpportunities, when, write } from '@/pages/opportunities/useOpportunities'
 import '@/pages/opportunities/opportunities.css'
 
 function PlayerApplicationsContent() {
   const flags = useOpportunities()
+  const { token } = useAuth()
   const [rows, setRows] = useState([])
   const [error, setError] = useState('')
   const [page, setPage] = useState(1)
@@ -15,12 +17,13 @@ function PlayerApplicationsContent() {
   const [loading, setLoading] = useState(false)
   const [busy, setBusy] = useState(null)
   const load = useCallback(async () => {
+    if (!token) return
     setLoading(true)
     try { const data = await APIService.request(`/me/applications?page=${page}`); setRows(data.applications); setMore(data.has_more); setError('') }
     catch (err) { setError(errorMessage(err)) }
     finally { setLoading(false) }
-  }, [page])
-  useEffect(() => { if (flags.applications) load() }, [flags.applications, load])
+  }, [page, token])
+  useEffect(() => { if (token && flags.applications) load() }, [flags.applications, token, load])
   async function act(row, action, response) {
     setBusy(row.id); setError('')
     try { await write(`/me/applications/${row.id}/${action}`, { expected_version: row.version, ...(response ? { response } : {}) }); await load() }
@@ -28,6 +31,7 @@ function PlayerApplicationsContent() {
     finally { setBusy(null) }
   }
   if (!flags.loaded || !flags.applications) return <ComingSoon feature="player_applications" role="player" image="/media/player-sundown.webp" title="Your next chapter." lede="Applications will have a place here. Join the list to hear when you can take the next step towards a new club." bullets={['Discover a place to develop your game.', 'Keep your applications and replies together.', 'Choose the opportunity that fits your next step.']} />
+  if (!token) return <section className="p2-opportunities floodlight-container pb-16"><h2 className="opp-section">My applications</h2><p className="mt-4 text-muted">Sign in to see your applications and next steps.</p></section>
   return <section className="p2-opportunities floodlight-container pb-16" aria-labelledby="my-applications">
     <div className="flex flex-wrap items-end justify-between gap-5 border-b border-hairline pb-5"><div><p className="opp-label">Your next chapter</p><h2 id="my-applications" className="opp-section mt-3">My applications</h2></div><Link className="opp-button" to="/opportunities">Find an opportunity →</Link></div>
     {error && <p role="alert" className="opp-error">{error}</p>}
@@ -42,4 +46,4 @@ function PlayerApplicationsContent() {
   </section>
 }
 
-export function PlayerApplications(props) { return <OpportunityBoundary><PlayerApplicationsContent {...props} /></OpportunityBoundary> }
+export function PlayerApplications(props) { const { token } = useAuth(); return <OpportunityBoundary><PlayerApplicationsContent key={token || 'signed-out'} {...props} /></OpportunityBoundary> }

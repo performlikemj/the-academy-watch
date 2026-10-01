@@ -2,6 +2,8 @@ import '@/styles/floodlight-player.css'
 // --- p2-b2 begin ---
 import { PlayerApplications } from '@/components/applications/PlayerApplications'
 // --- p2-b2 end ---
+import { useApprovedPlayer } from '@/hooks/useApprovedPlayer'
+import { useOpportunities } from '@/pages/opportunities/useOpportunities'
 import { useDataMode } from '@/hooks/useDataMode'
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -58,6 +60,8 @@ function PlayerSearchResult({ player }) {
 }
 
 export function PlayerOnboarding() {
+  const flags = useOpportunities()
+  const profiles = useApprovedPlayer(flags)
   const { api_football_frozen: frozen } = useDataMode()
   const [query, setQuery] = useState('')
   const [searchState, setSearchState] = useState({
@@ -111,6 +115,11 @@ export function PlayerOnboarding() {
   return (
     <div className="fl-player-onboarding min-h-screen bg-chalk">
       <div className="floodlight-container py-12 sm:py-20">
+        {profiles.length > 0 ? <header className="max-w-3xl">
+          <p className="eyebrow">Player home</p><h1 className="display mt-4 text-[56px] sm:text-[80px]">Your next step.</h1>
+          <p className="mt-6 text-muted">Your profile, applications and replies, together.</p>
+          <div className="mt-8 flex flex-wrap gap-3">{profiles.map(profile => <Link key={profile.claim_id} className="inline-flex rounded-full bg-ink px-6 py-3 text-chalk" to={profile.profile_path || `/players/${profile.signed_player_id}`}>{profile.name} · My profile →</Link>)}<a className="inline-flex rounded-full border border-ink px-6 py-3" href="#my-applications">My applications ↓</a></div>
+        </header> : <>
         <header className="max-w-3xl">
           <span className="inline-flex h-12 w-12 items-center justify-center rounded-full border border-hairline text-muted-foreground">
             <ShieldCheck className="h-6 w-6" />
@@ -210,6 +219,7 @@ export function PlayerOnboarding() {
             </Card>
           </div>
         </section>
+        </>}
       </div>
       {/* --- p2-b2 begin --- */}
       <PlayerApplications />

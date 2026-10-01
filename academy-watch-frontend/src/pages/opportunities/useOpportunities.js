@@ -1,16 +1,17 @@
 import { useEffect, useState } from 'react'
 import { APIService } from '@/lib/api'
 
-export function useOpportunities() {
+export function useOpportunities(enabled = true) {
   const [flags, setFlags] = useState({ opportunities: false, applications: false, loaded: false })
   useEffect(() => {
+    if (!enabled) return
     let active = true
-    APIService.request('/opportunities/features').then(data => {
-      if (active) setFlags({ ...data, loaded: true })
+    APIService.request('/opportunities/features', {}, { nullOn404: true }).then(data => {
+      if (active) setFlags({ opportunities: false, applications: false, ...data, loaded: true })
     }).catch(() => { if (active) setFlags({ opportunities: false, applications: false, loaded: true }) })
     return () => { active = false }
-  }, [])
-  return flags
+  }, [enabled])
+  return enabled ? flags : { opportunities: false, applications: false, loaded: true }
 }
 
 export { when } from '@/lib/opportunity-time'
