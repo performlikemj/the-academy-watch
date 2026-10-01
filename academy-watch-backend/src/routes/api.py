@@ -1737,16 +1737,19 @@ def _sync_player_club_fixtures(
 @api_bp.route("/players/search", methods=["GET"])
 def public_player_search():
     """Public search for tracked players by name."""
+    from src.services.public_adult import filter_public_adult_query
+
     q = (request.args.get("q") or "").strip()
     if len(q) < 2:
         return jsonify([])
     try:
+        query = TrackedPlayer.query.filter(
+            TrackedPlayer.player_name.ilike(f"%{q}%"),
+            TrackedPlayer.is_active,
+            public_player_visible_filter(TrackedPlayer.player_api_id),
+        )
         rows = (
-            TrackedPlayer.query.filter(
-                TrackedPlayer.player_name.ilike(f"%{q}%"),
-                TrackedPlayer.is_active,
-                public_player_visible_filter(TrackedPlayer.player_api_id),
-            )
+            filter_public_adult_query(query, TrackedPlayer.player_api_id)
             .order_by(TrackedPlayer.player_name)
             .limit(20)
             .all()
@@ -13229,6 +13232,10 @@ def features():
     # Dark club staff access: the key is absent (payload unchanged) until the flag is on.
     if os.getenv("CLUB_STAFF_ACCESS_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}:
         flags["club_staff_access"] = True
+    # --- p2-b1 begin --- dark club directory: key absent until the flag is on
+    if os.getenv("CLUB_DIRECTORY_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}:
+        flags["club_directory"] = True
+    # --- p2-b1 end ---
     # --- p2-b3 begin ---
     for name in ("programs", "people", "safety", "business"):
         if os.getenv(f"ADMIN_{name.upper()}_ENABLED", "").strip().lower() in {"1", "true", "yes", "on"}:

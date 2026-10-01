@@ -11,6 +11,7 @@ import math
 import time
 from datetime import UTC, datetime, timedelta
 from functools import wraps
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from flask import Blueprint, g, jsonify, make_response, request
 from sqlalchemy import func, text
@@ -65,6 +66,32 @@ _MAX_REFERRER = 512
 DEFAULT_SUMMARY_DAYS = 7
 MAX_SUMMARY_DAYS = 90
 TOP_PATHS_LIMIT = 10
+
+
+# --- p2-b1 begin --- club directory: what a visitor searched for (often a home postcode) or where
+# they are is never stored. Only the harmless filter names survive on a /clubs path or referrer.
+_DIRECTORY_PATH = "/clubs"
+_DIRECTORY_KEPT_PARAMS = frozenset({"for", "level"})
+
+
+def _without_directory_search(value):
+    if not isinstance(value, str) or "?" not in value:
+        return value
+    try:
+        parts = urlsplit(value.strip())
+        if parts.path.rstrip("/").lower() != _DIRECTORY_PATH:
+            return value
+        kept = [
+            (name, item)
+            for name, item in parse_qsl(parts.query, keep_blank_values=True)
+            if name in _DIRECTORY_KEPT_PARAMS
+        ]
+        return urlunsplit(parts._replace(query=urlencode(kept), fragment=""))
+    except ValueError:
+        return value.split("?", 1)[0]
+
+
+# --- p2-b1 end ---
 
 
 def _clip(value, length):
@@ -167,8 +194,8 @@ def ingest_events():
                 event_name=name,
                 user_email=user_email,
                 session_id=_clip(ev.get("session_id"), _MAX_SESSION_ID),
-                path=_clip(ev.get("path"), _MAX_PATH),
-                referrer=_clip(ev.get("referrer"), _MAX_REFERRER),
+                path=_clip(_without_directory_search(ev.get("path")), _MAX_PATH),  # p2-b1
+                referrer=_clip(_without_directory_search(ev.get("referrer")), _MAX_REFERRER),  # p2-b1
                 props=props,
             )
         )

@@ -91,8 +91,10 @@ import { AdminBusiness } from '@/pages/admin/AdminBusiness'
 import { AdminClubIdentities } from '@/pages/admin/AdminClubIdentities'
 import { AdminFunding } from '@/pages/admin/AdminFunding'
 import { HomePage } from '@/pages/HomePage'
-import { ClubsNearYouTeaser } from '@/pages/teasers/ClubsNearYouTeaser'
-import { OpportunitiesTeaser } from '@/pages/teasers/OpportunitiesTeaser'
+import { ClubsPage } from '@/pages/clubs/ClubsPage' // p2-b1: real directory when the flag is on, the teaser otherwise
+// --- p2-b2 begin ---
+import { OpportunitiesPage, OpportunityDetail } from '@/pages/opportunities/OpportunitiesPage'
+// --- p2-b2 end ---
 import { AdminInterest } from '@/pages/admin/AdminInterest'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { ScoutPage } from '@/pages/ScoutPage'
@@ -4129,8 +4131,11 @@ function AppRoutes() {
         <Route key={path} path={LEGACY_PUBLIC_PAGES ? path.replace(':id', path.startsWith('/academy/') ? ':cohortId' : path.startsWith('/newsletters/') ? ':newsletterId' : ':id') : path} element={LEGACY_PUBLIC_PAGES ? <Suspense fallback={null}>{legacyPublicElements[index]}</Suspense> : <LegacyPublicRedirect />} />
       ))}
       <Route path="/" element={<HomePage />} />
-      <Route path="/clubs" element={<ClubsNearYouTeaser />} />
-      <Route path="/opportunities" element={<OpportunitiesTeaser />} />
+      <Route path="/clubs" element={<ClubsPage />} />
+      {/* --- p2-b2 begin --- */}
+      <Route path="/opportunities" element={<OpportunitiesPage />} />
+      <Route path="/opportunities/:opportunityId" element={<OpportunityDetail />} />
+      {/* --- p2-b2 end --- */}
       <Route
         path="/programs/claim"
         element={(

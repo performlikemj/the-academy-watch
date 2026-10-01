@@ -231,6 +231,8 @@ def search_players(q, api_client=None):
     club_name?, tracked, shadow}]. Stub-safe: returns [] on empty query, no
     key, or any client error.
     """
+    from src.services.public_adult import filter_public_adult_query, public_adult_profile_ids
+
     query = str(q or "").strip()
     if len(query) < 3:
         return []
@@ -240,13 +242,17 @@ def search_players(q, api_client=None):
     if api_football_frozen():
         rows = []
         for model in (TrackedPlayer, PlayerShadow):
-            for stored in model.query.filter(model.player_name.ilike(f"%{query}%")).limit(MAX_SEARCH_RESULTS).all():
+            candidates = filter_public_adult_query(
+                model.query.filter(model.player_name.ilike(f"%{query}%")), model.player_api_id
+            )
+            for stored in candidates.limit(MAX_SEARCH_RESULTS).all():
                 rows.append(
                     {
                         "player": {
                             "id": stored.player_api_id,
                             "name": stored.player_name,
                             "age": getattr(stored, "age", None),
+                            "birth": {"date": stored.birth_date},
                             "nationality": stored.nationality,
                             "photo": getattr(stored, "photo_url", None),
                         },
@@ -270,12 +276,13 @@ def search_players(q, api_client=None):
             logger.warning("Fallback player search failed for %r", query)
             rows = []
 
+    adult_ids = public_adult_profile_ids(rows)
     results = []
     seen = set()
     for row in rows:
         player = (row or {}).get("player") or {}
         pid = player.get("id")
-        if not isinstance(pid, int) or not is_external_player_id(pid) or pid in seen:
+        if not isinstance(pid, int) or not is_external_player_id(pid) or pid in seen or pid not in adult_ids:
             continue
         seen.add(pid)
         stats = row.get("statistics") if isinstance(row, dict) else None

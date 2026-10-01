@@ -2,7 +2,9 @@ import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { PlayerPage } from './PlayerPage';
 import { Network, Users, Film, Send, Settings, ShieldCheck, Plus, LockKeyhole, Search, CalendarDays, ArrowRight } from 'lucide-react';
-import { ComingSoon } from '@/components/interest/ComingSoon';
+// --- p2-b2 begin ---
+import { Recruiting } from '@/pages/club-recruiting/Recruiting';
+// --- p2-b2 end ---
 import { APIService } from '@/lib/api';
 import { AddRosterMemberDialog } from '../MyClubConsole';
 import { HomeSettings } from './HomeSettings';
@@ -215,7 +217,9 @@ export function ClubHome({
             <aside><p className="eyebrow">Your club</p><div className="ch-today-stats"><span>{members.length}<small>{members.length === 1 ? 'Player' : 'Players'}</small></span><span>{squads.length}<small>{squads.length === 1 ? 'Squad' : 'Squads'}</small></span></div><p className="ch-privacy"><LockKeyhole size={17} />Player identities and footage stay within their existing privacy rules.</p><button className="ch-btn dark" onClick={() => navigate('map')}>Open club map <ArrowRight size={16} /></button></aside>
           </div>
         </>}
-        {view === 'recruiting' && <ComingSoon feature="recruiting" role="club" image="/media/club-match.webp" title="The next player. The right place." lede="Trials and applications will have a home here. Join the list to hear when recruiting opens." bullets={['Share the opportunities your club is ready to offer.', 'Keep applications and next steps together.', 'Build a clearer path into your squads.']} />}
+        {/* --- p2-b2 begin --- */}
+        {view === 'recruiting' && <Recruiting key={program.id} program={program} squads={squads} />}
+        {/* --- p2-b2 end --- */}
         {view === 'map' && <>
           <div className="ch-heading">
             <div>

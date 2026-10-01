@@ -137,6 +137,7 @@ def _seed_returned_loanee(current_club_api_id, *, loan_minutes=90, loan_apps=3, 
     _team(OPP_API, "Opponent FC")
 
     tp = TrackedPlayer(
+        birth_date="2000-01-01",
         player_api_id=PLAYER_API,
         player_name="Gore Regression",
         position="Midfielder",
@@ -273,6 +274,7 @@ def _seed_limited_loanee(current_club_api_id, *, depth="events_only", cache_rows
     )
 
     tp = TrackedPlayer(
+        birth_date="2000-01-01",
         player_api_id=LIMITED_PLAYER_API,
         player_name="Limited Loanee",
         position="Goalkeeper",
@@ -404,6 +406,7 @@ class TestOrphanGuard:
         from src.models.tracked_player import TrackedPlayer
 
         tp = TrackedPlayer(
+            birth_date="2000-01-01",
             player_api_id=player_api_id,
             player_name=f"Orphan {player_api_id}",
             team_id=team.id,
