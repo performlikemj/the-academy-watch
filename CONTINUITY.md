@@ -1143,3 +1143,6 @@ cd academy-watch-frontend && pnpm test:e2e
 # Ralph autonomous mode
 ./scripts/ralph/ralph.sh 25
 ```
+
+### B3 refresh integration record
+- **2026-10-01 P2 B3 fix round 4:** mechanical refresh onto main784b1490 validated on merge136f4b86; seven conflicts resolved; main B1/B2/N3/A2 plus reviewed B3 hooks, real clubs/opportunities routes and p2b3 pins retained. Full flags-OFF4241 pass/85 skip/0 fail; PG16, real-app88, Node219, admin/media Playwright13, Ruff/format584, OSV/lint0err190warn/build pass. All24 B3-only blobs equal d49ec794 (lane ledger retained verbatim; round4 state recorded here); B1/B2 migration bytes equal main; B3 migration/preapply SQL unchanged. Optional wildcard LOW deferred for pure refresh. Final PR1115 push/ready/CI and hand-back: ~/codex-runs/aw-redesign/logs/B3F4.final.md; no merge. Owned services/scratch DB/browser artifacts cleaned.
