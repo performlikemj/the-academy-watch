@@ -836,19 +836,19 @@ def test_template_renders_full_newsletter(app, newsletter, stub_api_client):
     assert "7.4" in html
 
     # Footer links
-    assert "View on web" in html
+    assert "View on web" not in html
     assert "https://example.com/unsubscribe/tok" in html
     assert "https://example.com/manage" in html
     assert "buymeacoffee.com/TheAcademyWatch" in html
     assert "Report a data correction" in html
-    assert "Got a take?" in html
+    assert "Got a take?" not in html
 
 
 def test_template_never_inlines_base64_charts(app, newsletter, stub_api_client):
     html = _render_email(newsletter)
     assert "data:image" not in html
-    # Chart-bearing players link out to the web version instead
-    assert "Full charts on the web version" in html
+    # Hidden web pages cannot expose a chart CTA.
+    assert "Full charts on the web version" not in html
 
 
 def test_template_email_size_under_gmail_clip_limit(app, newsletter, stub_api_client):
@@ -959,3 +959,33 @@ def test_template_fallback_skips_stats_less_items(app):
     )
     assert "LOAN ARMY" not in html
     assert "SQUAD WATCH" not in html
+
+
+@pytest.mark.parametrize("legacy_visible", [False, True])
+def test_render_context_gates_legacy_links_but_keeps_players_and_settings(
+    app, newsletter, stub_api_client, monkeypatch, legacy_visible
+):
+    from src.utils import legacy_pages
+
+    monkeypatch.setattr(legacy_pages, "LEGACY_PUBLIC_PAGES", legacy_visible)
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://example.com")
+    ctx = api_module._newsletter_render_context(newsletter)
+    url = f"https://example.com/newsletters/{newsletter.public_slug}"
+    assert ctx["web_url"] == (url if legacy_visible else None)
+    assert ctx["submit_take_url"] == ("https://example.com/submit-take" if legacy_visible else None)
+    assert ctx["social_meta"]["canonical_url"] == (url if legacy_visible else None)
+    assert ctx["social_meta"]["og_url"] == (url if legacy_visible else None)
+    html = render_template("newsletter_email.html", **ctx, manage_url="https://example.com/settings")
+    text = api_module._plain_text_from_news(api_module._load_newsletter_json(newsletter), newsletter)
+    for part in (html, text):
+        assert 'href=""' not in part
+        assert 'href="None"' not in part
+    assert 'href="https://example.com/players/9001"' in html
+    assert 'href="https://example.com/settings"' in html
+    assert (url in html) is legacy_visible
+    assert ("https://example.com/submit-take" in html) is legacy_visible
+    for label in ("View on web", "Full charts on the web version", "Got a take?"):
+        assert (label in html) is legacy_visible
+    assert ("Your take could be featured" in html) is legacy_visible
+    assert url not in text  # The prior plain-text variant has no web CTA.
+    assert "https://example.com/submit-take" not in text

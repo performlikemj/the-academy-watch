@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 import requests
 from flask import render_template
 from src.models.league import Newsletter, NewsletterCommentary, NewsletterDigestQueue, UserAccount, UserSubscription, db
+from src.utils.legacy_pages import legacy_public_url
 
 logger = logging.getLogger(__name__)
 
@@ -167,7 +168,7 @@ def _send_single_digest(user_id: int, week_key: str) -> dict:
             from src.routes.api import _absolute_url, _newsletter_issue_slug
 
             slug = _newsletter_issue_slug(n)
-            web_url = _absolute_url(f"/newsletters/{slug}")
+            web_url = legacy_public_url(_absolute_url(f"/newsletters/{slug}"))
 
             newsletter_data.append(
                 {

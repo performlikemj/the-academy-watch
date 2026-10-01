@@ -1,8 +1,10 @@
 import json
 from datetime import UTC, date, datetime
 
+import pytest
 from src.models.league import Newsletter, NewsletterDigestQueue, Team, UserAccount, db
 from src.services.newsletter_deadline_service import _send_single_digest
+from src.utils import legacy_pages
 
 
 class _DummyResponse:
@@ -11,7 +13,9 @@ class _DummyResponse:
     text = "ok"
 
 
-def test_send_single_digest_loads_content_without_enriched_content(app, monkeypatch):
+@pytest.mark.parametrize("legacy_visible", [False, True])
+def test_send_single_digest_loads_content_without_enriched_content(app, monkeypatch, legacy_visible):
+    monkeypatch.setattr(legacy_pages, "LEGACY_PUBLIC_PAGES", legacy_visible)
     monkeypatch.setenv("N8N_EMAIL_WEBHOOK_URL", "https://example.com/webhook")
     monkeypatch.setenv("PUBLIC_BASE_URL", "https://example.com")
 
@@ -69,6 +73,14 @@ def test_send_single_digest_loads_content_without_enriched_content(app, monkeypa
     assert captured[0]["meta"]["unsubscribe_url"] == "https://example.com/settings"
     assert 'href="https://example.com/settings"' in captured[0]["html"]
     assert "https://example.com/settings" in captured[0]["text"]
+
+    for part in (captured[0]["html"], captured[0]["text"]):
+        assert ("https://example.com/newsletters/digest-title-slug" in part) is legacy_visible
+        assert "Digest Title" in part
+        assert 'href=""' not in part
+        assert 'href="None"' not in part
+    assert ("Read Full Newsletter" in captured[0]["html"]) is legacy_visible
+    assert ("Read more:" in captured[0]["text"]) is legacy_visible
 
     refreshed = NewsletterDigestQueue.query.get(queue_entry.id)
     assert refreshed.sent is True

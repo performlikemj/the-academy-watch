@@ -17,6 +17,7 @@ from src.models.showcase import LocalPlayer
 from src.models.tracked_player import TrackedPlayer
 from src.routes.share import share_bp
 from src.services import sitemap_service
+from src.utils import legacy_pages
 
 _SYNTHETIC_ID = object()
 _TEAM_API_IDS = count(700_000)
@@ -266,7 +267,9 @@ def test_sitemap_candidate_default_cap_is_500(app, monkeypatch):
     assert candidates[-1] == 31_499
 
 
-def test_sitemap_excludes_legacy_teams_newsletters_but_keeps_programs(app, monkeypatch):
+@pytest.mark.parametrize("legacy_visible", [False, True])
+def test_sitemap_gates_legacy_teams_newsletters_but_keeps_programs(app, monkeypatch, legacy_visible):
+    monkeypatch.setattr(legacy_pages, "LEGACY_PUBLIC_PAGES", legacy_visible)
     monkeypatch.setenv("PUBLIC_BASE_URL", "https://public.example.test")
     current_team = _team(api_id=40_001)
     db.session.add(TeamProfile(team_id=current_team.team_id, name="Current Team", slug="current-team"))
@@ -311,10 +314,16 @@ def test_sitemap_excludes_legacy_teams_newsletters_but_keeps_programs(app, monke
     locations = _locations(xml)
 
     assert xml.startswith(b"<?xml")
-    assert set(locations) == {
-        "https://public.example.test/",
-        "https://public.example.test/programs/public-program",
-    }
+    expected = {"https://public.example.test/", "https://public.example.test/programs/public-program"}
+    if legacy_visible:
+        expected.update(
+            {
+                "https://public.example.test/teams/current-team",
+                "https://public.example.test/teams/historic-team",
+                "https://public.example.test/newsletters/published-issue",
+            }
+        )
+    assert set(locations) == expected
 
 
 def _funding_league(name: str, *, registry_status: str) -> FundingLeague:
@@ -616,7 +625,9 @@ def test_main_registers_share_routes_ahead_of_spa_catch_all():
     assert adapter.match("/p/")[0] == "share.empty_player_share_path"
 
 
-def test_sitemap_filters_legacy_urls_from_fresh_cache(share_client, monkeypatch):
+@pytest.mark.parametrize("legacy_visible", [False, True])
+def test_sitemap_filters_legacy_urls_from_fresh_cache(share_client, monkeypatch, legacy_visible):
+    monkeypatch.setattr(legacy_pages, "LEGACY_PUBLIC_PAGES", legacy_visible)
     monkeypatch.setattr(sitemap_service.time, "monotonic", lambda: 100.0)
     legacy_paths = (
         "dream-team",
@@ -641,5 +652,5 @@ def test_sitemap_filters_legacy_urls_from_fresh_cache(share_client, monkeypatch)
     response = share_client.get("/sitemap.xml")
 
     assert response.status_code == 200
-    assert _locations(response.data) == [home]
+    assert _locations(response.data) == (_locations(xml) if legacy_visible else [home])
     assert sitemap_service._cache["xml"] == xml

@@ -27,3 +27,16 @@
 - Evidence: visually reviewed synthetic Settings follow screenshots settings-following-desktop.png (1440px) and settings-following-mobile.png (390px) in external shots/N2; no horizontal overflow.
 - Cleanup: owned foreground Vite stopped; no backend server/DB/env/temp files created this round; generated Playwright report/test-results removed. Worktree retained.
 - Delivery: fix commit ff486d1ca8a2670196204f798231bb9402818e8e pushed. Inline replies discussion_r4151045454 (P1) and discussion_r4151045580 (P2); @codex review issuecomment-5923115483. PR description refreshed; no merge. Hand-back ~/codex-runs/aw-redesign/logs/N2F1.final.md.
+
+## Fix round 2
+
+- State: verified; commit/push and PR replies next.
+- Now: all implementation/validation complete; delivery next.
+- Next: Ruff/format, full pytest, Node, push and inline reply/review request; no merge.
+- Constraints: newsletter sending/freeze/content unchanged; player/settings links retained; True restores prior URLs; no background commands.
+- Done: moved backend LEGACY_PUBLIC_PAGES to utils/legacy_pages.py; sitemap enumeration and cached XML filtering share it. API newsletter web/submit links and canonical/OG URL, digest HTML/text read-more, weekly commentary snippets, both Reddit routes + markdown renderer, public-program team-page link and generated GOL PDF team anchors use legacy_public_url.
+- Template audit: newsletter_email.html and newsletter_digest_email.html already guard all CTA blocks on a truthy URL; no template edits needed for those links. newsletter_web.html now omits absent og:url. Player/settings/unsubscribe/API links and editorial content unchanged.
+- Audit: src/ all files searched for seven hidden route roots, plus URL/share/RSS/push callsites. Player share surfaces emit /p + /players + /local-players; scout/profile activity/trust/outbox emails emit player/watchlist/club/auth paths. No RSS/push emitter found. Other matches: API endpoint decorators, provider team-image paths, comments/docs, old src/static/assets client bundle; no compiled artifact edits.
+- Tests: false/true render and actual mocked delivery assertions for individual/digest/snippet HTML/text, newsletter metadata, cached/fresh sitemap, Reddit auto/manual posts, public-program URL and GOL export template; no real provider sends. Initial local tests needed the same placeholder OPENAI_API_KEY as CI; fixtures corrected to valid funding model values and Reddit adapter mocked (local PRAW absent).
+- Gates: full pytest 3273 passed / 47 skipped (offline CI placeholder key); final focused render/emitter suite 117 passed, including the two GOL PDF template cases added after full-suite collection. Final extra-emitter suite 24 passed. Node 197 passed. Whole-backend Ruff check/format (534 files) and git diff --check pass. Backend-only change; no frontend dependency restore, lint/build not required this round.
+- Cleanup: no servers, DBs, copied env or provider sends; temporary emitter audit moved to external logs and removed. Worktree retained.
