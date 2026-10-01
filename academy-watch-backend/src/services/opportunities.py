@@ -47,10 +47,20 @@ LABELS = {
     "withdrawn": "Withdrawn",
 }
 RESERVED = ("pending", "confirmed")
-TIMEZONES = (
-    frozenset(json.loads((Path(__file__).parents[1] / "data/opportunity_timezones.json").read_text()))
-    & available_timezones()
+_ZONE_DATA = Path(__file__).parents[1] / "data"
+TIMEZONE_ALIASES = json.loads((_ZONE_DATA / "opportunity_timezone_aliases.json").read_text())
+_RUNTIME_TIMEZONES = available_timezones()
+TIMEZONES = frozenset(
+    zone
+    for zone in json.loads((_ZONE_DATA / "opportunity_timezones.json").read_text())
+    if TIMEZONE_ALIASES.get(zone, zone) in _RUNTIME_TIMEZONES
 )
+
+
+def canonical_timezone(zone):
+    return TIMEZONE_ALIASES.get(zone, zone) if isinstance(zone, str) and zone in TIMEZONES else "UTC"
+
+
 EVENT_HORIZON_DAYS = 90
 
 
@@ -58,12 +68,12 @@ def format_time(value, timezone):
     """Notification counterpart of lib/opportunity-time.js; always label the zone."""
     if value is None:
         return "Date to be arranged"
-    zone = timezone if timezone in TIMEZONES else "UTC"
+    zone = canonical_timezone(timezone)
     local = value.replace(tzinfo=UTC).astimezone(ZoneInfo(zone))
     return f"{local:%d %b %Y, %H:%M} {local:%Z} ({zone})"
 
 
-def public_club_eligibility():
+def public_club_eligibility(*, ignore_publication_holds=False):
     """B1 directory_eligibility semantics amended on BUS 10:49; no B1 schema dependency."""
     from src.services.club_console_bridge import CONSOLE_LEAGUE_COUNTRY, CONSOLE_LEAGUE_NAME, CONSOLE_LEAGUE_REGION
 
@@ -99,7 +109,12 @@ def public_club_eligibility():
         )
         .correlate(ClubProgram)
     )
-    return sa.and_(ClubProgram.platform_status == "approved", ClubProgram.emergency_hidden.is_(False), manager, league)
+    return sa.and_(
+        ClubProgram.platform_status == "approved",
+        sa.true() if ignore_publication_holds else ClubProgram.emergency_hidden.is_(False),
+        manager,
+        league,
+    )
 
 
 class OpportunityError(ValueError):
@@ -175,20 +190,32 @@ def opportunity(oid, program_id=None, *, lock=False, public=False):
     return row
 
 
-def reservations(oid):
+def reservation_snapshot(oid):
+    # Serializers may start a fresh transaction: always program -> opportunity -> application.
+    initial = db.session.get(ClubOpportunity, oid)
+    ClubProgram.query.filter_by(id=initial.program_id).with_for_update().first()
+    ClubOpportunity.query.filter_by(id=oid).with_for_update().first()
     apps = (
         OpportunityApplication.query.filter(
             OpportunityApplication.opportunity_id == oid, OpportunityApplication.reservation_state.in_(RESERVED)
         )
         .order_by(OpportunityApplication.id)
+        .populate_existing()
         .with_for_update()
         .all()
     )
-    reconcile_applications(apps)
-    return sum(a.reservation_state in RESERVED for a in apps)
+    available = reconcile_applications(apps, locked=True)
+    reserved = [a for a in apps if a.reservation_state in RESERVED]
+    return len(reserved), sum(a.id not in available for a in reserved)
 
 
-def opportunity_dict(row, *, private=False, program=None, squad=None, reserved=None, application_count=None):
+def reservations(oid):
+    return reservation_snapshot(oid)[0]
+
+
+def opportunity_dict(
+    row, *, private=False, program=None, squad=None, reserved=None, application_count=None, unavailable_reserved=0
+):
     program = program or db.session.get(ClubProgram, row.program_id)
     squad = squad or (db.session.get(ClubSquad, row.squad_id) if row.squad_id else None)
     data = {
@@ -220,10 +247,13 @@ def opportunity_dict(row, *, private=False, program=None, squad=None, reserved=N
     )
     for key in ("starts_at", "ends_at", "closes_at", "published_at"):
         data[key] = iso(getattr(row, key))
-    reserved = (reservations(row.id) if reserved is None else reserved) if private else 0
+    if private and reserved is None:
+        reserved, unavailable_reserved = reservation_snapshot(row.id)
     if private:
         data.update(
-            capacity=row.capacity, places_left=max(0, row.capacity - reserved) if row.capacity is not None else None
+            capacity=row.capacity,
+            places_left=max(0, row.capacity - reserved) if row.capacity is not None else None,
+            temporarily_unavailable_reservations=unavailable_reserved,
         )
     if private:
         data["application_count"] = (
@@ -248,7 +278,7 @@ def opportunity_page(rows, program):
         if ids
         else []
     )
-    reconcile_applications(reserved)
+    available = reconcile_applications(reserved, locked=True)
     counts = (
         dict(
             db.session.query(OpportunityApplication.opportunity_id, sa.func.count(OpportunityApplication.id))
@@ -268,6 +298,9 @@ def opportunity_page(rows, program):
             squad=squads.get(r.squad_id),
             reserved=sum(a.opportunity_id == r.id and a.reservation_state in RESERVED for a in reserved),
             application_count=counts.get(r.id, 0),
+            unavailable_reserved=sum(
+                a.opportunity_id == r.id and a.reservation_state in RESERVED and a.id not in available for a in reserved
+            ),
         )
         for r in rows
     ]
@@ -285,7 +318,7 @@ def public_query(program_id=None):
 def open_opportunity_counts(program_ids):
     """Directory contract; no dependency on B1's schema, no counts while dark."""
     if not enabled("OPPORTUNITIES_ENABLED"):
-        return {}
+        return None
     return dict(
         public_query()
         .filter(ClubOpportunity.program_id.in_(program_ids))
@@ -398,6 +431,7 @@ def save_opportunity(program_id, actor_id, data, oid=None):
             setattr(row, key, data[key])
     if row.timezone not in TIMEZONES:
         raise OpportunityError("invalid_timezone", 400)
+    row.timezone = canonical_timezone(row.timezone)
     if not row.title or not row.description or not row.venue or row.closes_at is None or row.closes_at <= now():
         raise OpportunityError("required_opportunity_details")
     if row.closes_at > row.created_at + timedelta(days=EVENT_HORIZON_DAYS):
@@ -731,6 +765,10 @@ def applicant_action(aid, user_id, data, action):
             raise OpportunityError("invalid_transition", 409)
         mutate(app, user_id, "withdrawn", "applicant_withdrew")
     else:
+        if app.id in eligible_application_claims([app], ignore_publication_holds=True) and (
+            club_publication_held(app.program_id) or held_subject_ids([app.signed_player_id])
+        ):
+            raise OpportunityError("temporarily_unavailable", 403)
         operational(app.program_id)
         adult_claim(app.claim_id, user_id)
         if (
@@ -984,6 +1022,65 @@ def notification_eligible(intent, user):
     return app.applicant_user_id == user.id or club_can(user.id, app.program_id, "recruiting")
 
 
+def notification_recipient_retained(app, user):
+    """Deferral only: current recruiting membership ignoring the program's hold.
+
+    Delivery still calls club_can; this check cannot authorize a send or route.
+    """
+    if app.applicant_user_id == user.id or club_can(user.id, app.program_id, "recruiting"):
+        return True
+    if not club_publication_held(app.program_id):
+        return False
+    verified = (
+        ClubProgramManager.query.join(
+            ClubProgramClaim,
+            sa.and_(
+                ClubProgramClaim.id == ClubProgramManager.source_claim_id,
+                ClubProgramClaim.program_id == ClubProgramManager.program_id,
+                ClubProgramClaim.user_account_id == ClubProgramManager.user_account_id,
+            ),
+        )
+        .filter(
+            ClubProgramManager.program_id == app.program_id,
+            ClubProgramManager.user_account_id == user.id,
+            ClubProgramManager.status == "active",
+            ClubProgramClaim.status == "approved",
+        )
+        .first()
+    )
+    if verified:
+        return True
+    if enabled("CLUB_STAFF_ACCESS_ENABLED"):
+        from src.models.club_access import ClubAccessGrant
+        from src.services.club_access import ROLE_CAPABILITIES
+
+        grant = ClubAccessGrant.query.filter_by(
+            program_id=app.program_id, user_account_id=user.id, status="active"
+        ).first()
+        return bool(grant and grant.role != "owner" and "recruiting" in ROLE_CAPABILITIES.get(grant.role, ()))
+    return False
+
+
+def notification_deferred(intent, user):
+    """Pause only a still-current, authorized intent; permanent ineligibility cancels."""
+    if not applications_enabled():
+        return False
+    app = db.session.get(OpportunityApplication, intent.payload.get("application_id"), populate_existing=True)
+    if (
+        not app
+        or app.version != intent.payload.get("version")
+        or app.status != intent.payload.get("state")
+        or app.retention_expires_at <= now()
+        or not notification_recipient_retained(app, user)
+        or app.id not in eligible_application_claims([app], ignore_publication_holds=True)
+        or not ClubProgram.query.filter_by(id=app.program_id)
+        .filter(public_club_eligibility(ignore_publication_holds=True))
+        .first()
+    ):
+        return False
+    return bool(club_publication_held(app.program_id) or held_subject_ids([app.signed_player_id]))
+
+
 def notification_render(intent, user):
     # Neutral authenticated destination, no names/notes, credentials or copied profile data.
     base = os.getenv("PUBLIC_BASE_URL", "https://theacademywatch.com").rstrip("/")
@@ -1004,6 +1101,7 @@ def register_notifications():
     register_template(
         "b2_application",
         eligible=notification_eligible,
+        defer=notification_deferred,
         render=notification_render,
         payload_enums={"state": set(STATES)},
     )

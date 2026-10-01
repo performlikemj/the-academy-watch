@@ -171,7 +171,7 @@ def test_flag_off_neutral_before_auth(client, env, monkeypatch, path, method):
     assert getattr(client, method)(url).status_code == 404
     if method == "get":
         assert client.head(url).status_code == 404
-    assert service.open_opportunity_counts([env["pid"]]) == {}
+    assert service.open_opportunity_counts([env["pid"]]) is None
 
 
 def test_application_flag_independent_and_no_side_effects(client, env, monkeypatch):
