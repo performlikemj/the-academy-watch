@@ -23,7 +23,7 @@ def _valid_id(pid):
     return isinstance(pid, int) and not isinstance(pid, bool) and 0 < abs(pid) <= MAX_SIGNED_PLAYER_ID
 
 
-def public_adult_ids(signed_ids):
+def public_adult_ids(signed_ids, *, ignore_publication_holds=False):
     """At most five IN-source queries plus one hold query, regardless of page size."""
     ids = set(pid for pid in signed_ids if _valid_id(pid))
     if not ids:
@@ -76,7 +76,8 @@ def public_adult_ids(signed_ids):
             suppressed.update(local_to_subjects[row.local_player_id])
             if -row.local_player_id in ids:
                 suppressed.add(-row.local_player_id)
-    excluded = suppressed | held_subject_ids(ids)
+    # Only reversible B2 application reconciliation bypasses holds; public reads use the default.
+    excluded = suppressed | (set() if ignore_publication_holds else held_subject_ids(ids))
     today = datetime.now(UTC).date()
     eligible = set()
     for pid in ids - excluded:
