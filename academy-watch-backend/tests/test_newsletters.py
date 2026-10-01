@@ -5,6 +5,7 @@ import uuid
 from copy import deepcopy
 from datetime import date, timedelta
 
+import pytest
 from flask import render_template
 from src.agents import weekly_agent
 from src.agents import weekly_newsletter_agent as weekly_nl_agent
@@ -16,6 +17,7 @@ from src.agents.weekly_newsletter_agent import (
 )
 from src.models.league import Newsletter, NewsletterComment, Player, Team, UserSubscription, db
 from src.routes.api import _deliver_newsletter_via_webhook, issue_user_token, render_newsletter
+from src.utils import legacy_pages
 
 
 class _DummyResponse:
@@ -90,7 +92,9 @@ def test_auto_send_uses_prior_season_subscriptions(app, monkeypatch):
     assert sent_payloads and sent_payloads[0]["to"] == "fan@example.com"
 
 
-def test_deliver_newsletter_uses_link_base_for_unsubscribe(app, monkeypatch):
+@pytest.mark.parametrize("legacy_visible", [False, True])
+def test_deliver_newsletter_uses_link_base_for_unsubscribe(app, monkeypatch, legacy_visible):
+    monkeypatch.setattr(legacy_pages, "LEGACY_PUBLIC_PAGES", legacy_visible)
     monkeypatch.setenv("NEWSLETTER_LINK_BASE_URL", "https://app.theacademywatch.com")
 
     team = Team(team_id=999, name="Link FC", country="England", season=2024)
@@ -140,7 +144,14 @@ def test_deliver_newsletter_uses_link_base_for_unsubscribe(app, monkeypatch):
     expected_public_slug = newsletter.public_slug
     assert expected_public_slug
     html_payload = captured[0]["html"]
-    assert f"/newsletters/{expected_public_slug}" in html_payload
+    assert (f"https://example.com/newsletters/{expected_public_slug}" in html_payload) is legacy_visible
+    assert ("https://example.com/submit-take" in html_payload) is legacy_visible
+    assert ("View on web" in html_payload) is legacy_visible
+    assert ("Got a take?" in html_payload) is legacy_visible
+    assert "https://example.com/newsletters/" not in captured[0]["text"]
+    assert "https://example.com/submit-take" not in captured[0]["text"]
+    assert 'href=""' not in html_payload
+    assert 'href="None"' not in html_payload
 
 
 def test_newsletter_template_includes_buy_me_coffee_button(app):
@@ -1039,7 +1050,9 @@ def _write_png(path: str) -> None:
         fh.write(tiny_png)
 
 
-def test_newsletter_web_render_includes_social_meta(app, client, monkeypatch):
+@pytest.mark.parametrize("legacy_visible", [False, True])
+def test_newsletter_web_render_includes_social_meta(app, client, monkeypatch, legacy_visible):
+    monkeypatch.setattr(legacy_pages, "LEGACY_PUBLIC_PAGES", legacy_visible)
     monkeypatch.setenv("PUBLIC_BASE_URL", "https://theacademywatch.test")
     monkeypatch.setenv("TWITTER_HANDLE", "@theacademywatch")
     monkeypatch.setenv("ADMIN_API_KEY", "test-admin-key")
@@ -1110,7 +1123,10 @@ def test_newsletter_web_render_includes_social_meta(app, client, monkeypatch):
     assert '<meta name="twitter:site" content="@theacademywatch">' in html
 
     og_url = f'content="https://theacademywatch.test/newsletters/{expected_slug}"'
-    assert f'<meta property="og:url" {og_url}>' in html
+    assert (f'<meta property="og:url" {og_url}>' in html) is legacy_visible
+    if not legacy_visible:
+        assert '<meta property="og:url"' not in html
+        assert "https://theacademywatch.test/newsletters/" not in html
 
     og_image = f'content="https://theacademywatch.test/static/newsletters/{expected_slug}/cover.jpg"'
     assert f'<meta property="og:image" {og_image}>' in html

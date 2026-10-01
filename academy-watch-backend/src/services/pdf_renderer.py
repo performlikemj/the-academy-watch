@@ -32,6 +32,8 @@ from collections.abc import Iterable
 from datetime import date, datetime
 from typing import Any
 
+from src.utils.legacy_pages import legacy_public_url
+
 logger = logging.getLogger(__name__)
 
 # Public origin used to absolutize links inside the exported chat PDF so that
@@ -421,8 +423,11 @@ def _build_linkified_table(
                 id_value = row[id_idx] if id_idx < len(row) else None
                 if id_value is not None and cell is not None:
                     href = f"{base_url}{prefix}{html_lib.escape(str(id_value))}"
-                    out_row.append(f'<a href="{href}">{_fmt(cell)}</a>')
-                    continue
+                    if prefix == "/teams/":
+                        href = legacy_public_url(href)
+                    if href:
+                        out_row.append(f'<a href="{href}">{_fmt(cell)}</a>')
+                        continue
             out_row.append(_fmt(cell))
         rendered_rows.append(out_row)
 
