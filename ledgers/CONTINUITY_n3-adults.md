@@ -36,7 +36,7 @@
 
 ## Fix round 2 — PR #1116
 
-- State: implemented and validated; started from confirmed local/remote head a6a3efd55c8d0a3d9a4fb435d162d028f2d0c80b.
+- State: complete; implemented, validated and pushed; confirmed GitHub Codex P2 fixed and inline finding answered. Started from confirmed head a6a3efd5.
 - Finding: hidden retained rows exhaust raw 50/list and 200/watchlist caps.
 - Scope: count visible rows with batched eligibility; preserve payload fields and all retained/reappearing rows, even above caps; block further additions at/above visible caps.
 - Gates: requested capacity/count/reactivation/query-bound regressions; Ruff/format and full pytest; push, inline SHA reply and @codex review; no merge.
@@ -46,3 +46,6 @@
 - Next: full pytest and Ruff/format gates, then push/review delivery.
 - Gates: FINAL full pytest3288 passed/47 skipped/116 warnings in261.13s; Ruff check + format533 clean; diff whitespace clean. Full log ~/codex-runs/aw-redesign/logs/N3F2.pytest.log. No frontend/iOS/dependency changes.
 - Next: commit/push, inline finding4151336631 SHA reply, final-head @codex review and hand-back; no merge.
+- Delivery: implementation aa459860e79f60e4c6a83804dfd575e7bd1cf759 pushed to fix/scout-adults-only; inline SHA reply https://github.com/performlikemj/the-academy-watch/pull/1116#discussion_r4151453446 . Final-head re-review command: `gh pr comment 1116 --body "@codex review"`.
+- Hand-back: ~/codex-runs/aw-redesign/logs/N3F2.final.md. Foreground commands only; no servers, persistent DB, provider sends or temporary env used. No frontend/native/dependency restore required.
+- Next: Codex/lead PR review; no merge/deploy.
