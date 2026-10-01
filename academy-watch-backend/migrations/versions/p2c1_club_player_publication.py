@@ -41,7 +41,21 @@ RECOVERY_INDEX = """CREATE UNIQUE INDEX uq_profile_claim_local_player_user ON pu
 LABEL_CLEANUP = """UPDATE public.follows f SET label = NULL FROM public.local_players p WHERE f.kind = 'player' AND f.label IS NOT NULL AND f.selector->>'player_api_id' = (-p.id)::text AND p.provenance = 'club'"""
 
 
+QUARANTINE_DDL = """CREATE TABLE IF NOT EXISTS public.retired_club_showcases (
+ id SERIAL PRIMARY KEY,
+ local_player_id INTEGER NOT NULL REFERENCES public.local_players(id),
+ claim_id INTEGER REFERENCES public.player_profile_claims(id) ON DELETE SET NULL,
+ user_account_id INTEGER REFERENCES public.user_accounts(id) ON DELETE SET NULL,
+ content JSON NOT NULL,
+ created_at TIMESTAMP NOT NULL DEFAULT now()
+)"""
+
+
 def upgrade():
+    op.execute("SET LOCAL lock_timeout = '5s'")
+    op.execute(QUARANTINE_DDL)
+    op.execute("CREATE INDEX IF NOT EXISTS ix_retired_showcase_user ON public.retired_club_showcases(user_account_id)")
+    op.execute("ALTER TABLE public.retired_club_showcases ENABLE ROW LEVEL SECURITY")
     add_column_safe(
         "contact_requests", sa.Column("club_first", sa.Boolean(), nullable=False, server_default=sa.false())
     )
@@ -66,4 +80,8 @@ def downgrade():
         connection = op.get_bind()
         if connection.exec_driver_sql("SELECT 1 FROM public.club_player_publications LIMIT 1").first():
             raise RuntimeError("Cannot discard retained publication consent; withdraw and retain evidence")
+        if table_exists("retired_club_showcases"):
+            if connection.exec_driver_sql("SELECT 1 FROM public.retired_club_showcases LIMIT 1").first():
+                raise RuntimeError("Cannot discard retained showcase evidence")
+            op.drop_table("retired_club_showcases")
         op.drop_table("club_player_publications")

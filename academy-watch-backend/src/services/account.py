@@ -141,20 +141,31 @@ def _submitted_link_dict(link: PlayerLink) -> dict:
     return payload
 
 
-def _contact_request_dict(contact_request: ContactRequest) -> dict:
-    payload = contact_request.to_dict()
+def _contact_request_dict(contact_request: ContactRequest, viewer_user_id=None, available=None) -> dict:
+    from src.services.club_player_publication import scout_counterpart_available
+
+    withheld = viewer_user_id == contact_request.scout_user_id and not scout_counterpart_available(
+        contact_request, available
+    )
+    payload = contact_request.to_dict(viewer_user_id=viewer_user_id, counterpart_withheld=withheld)
+
     payload["messages"] = [
         message.to_dict()
         for message in contact_request.messages.order_by(None)
         .order_by(ContactMessage.created_at.asc(), ContactMessage.id.asc())
         .all()
+        if not withheld or message.sender_user_id == viewer_user_id
     ]
-    payload["outcomes"] = [
-        outcome.to_dict()
-        for outcome in contact_request.outcomes.order_by(None)
-        .order_by(ContactOutcome.occurred_at.asc(), ContactOutcome.created_at.asc(), ContactOutcome.id.asc())
-        .all()
-    ]
+    payload["outcomes"] = (
+        []
+        if withheld
+        else [
+            outcome.to_dict()
+            for outcome in contact_request.outcomes.order_by(None)
+            .order_by(ContactOutcome.occurred_at.asc(), ContactOutcome.created_at.asc(), ContactOutcome.id.asc())
+            .all()
+        ]
+    )
     return payload
 
 
@@ -495,6 +506,19 @@ def build_account_export(user: UserAccount) -> dict:
             ContactRequest.id.asc(),
         ).all()
 
+    from src.services.club_player_publication import available_club_requests
+
+    sent_available = available_club_requests(sent_requests)
+    exported_ids = sent_request_ids | received_request_ids | {r.id for r in club_requests}
+    own_withheld_messages = (
+        ContactMessage.query.join(ContactRequest, ContactMessage.contact_request_id == ContactRequest.id)
+        .filter(
+            ContactMessage.sender_user_id == user.id,
+            ContactRequest.id.notin_(exported_ids),
+        )
+        .order_by(ContactMessage.created_at, ContactMessage.id)
+        .all()
+    )
     account = user.to_dict()
     # The manager id identifies another account and is not needed for portability.
     account.pop("managed_by_user_id", None)
@@ -611,20 +635,24 @@ def build_account_export(user: UserAccount) -> dict:
             .all()
         ],
         "contact_requests": {
-            "sent": [_contact_request_dict(row) for row in sent_requests],
+            "sent": [_contact_request_dict(row, user.id, sent_available) for row in sent_requests],
             "received": [_contact_request_dict(row) for row in received_requests],
             "club": [_contact_request_dict(row) for row in club_requests],
-            "authored_messages": [
+            **(
                 {
-                    "id": m.id,
-                    "contact_request_id": m.contact_request_id,
-                    "body": m.body,
-                    "created_at": _iso(m.created_at),
+                    "authored_messages": [
+                        {
+                            "id": m.id,
+                            "contact_request_id": m.contact_request_id,
+                            "body": m.body,
+                            "created_at": _iso(m.created_at),
+                        }
+                        for m in own_withheld_messages
+                    ]
                 }
-                for m in ContactMessage.query.filter_by(sender_user_id=user.id)
-                .order_by(ContactMessage.created_at, ContactMessage.id)
-                .all()
-            ],
+                if own_withheld_messages
+                else {}
+            ),
         },
         "content_reports": [
             row.to_dict()

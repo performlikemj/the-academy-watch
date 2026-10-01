@@ -351,3 +351,71 @@ def test_postgres_recovery_version_race(pg):
         return "invited"
 
     assert sorted(race(app, work)) == ["invited", "version_conflict"]
+
+
+@pytest.mark.parametrize("entry", ["preapply", "migration"])
+def test_postgres_ddl_timeout_rolls_back_then_retries(pg, entry):
+    import time
+
+    import psycopg
+
+    app, _ids = pg
+    uri = sa.engine.make_url(os.environ["C1_POSTGRES_URL"])
+    arguments = dict(dbname=uri.database, host=uri.host, user=uri.username, port=uri.port or 5432)
+    script = (Path(__file__).parents[1] / "migrations/maintenance/p2c1_preapply.sql").read_text()
+    connections = [psycopg.connect(**arguments) for _ in range(3)]
+    blocker, ddl, reader = connections
+    db.session.commit()
+    with blocker.cursor() as cursor:
+        cursor.execute("SELECT 1 FROM club_player_publications LIMIT 1")
+
+    def run_ddl():
+        began = time.monotonic()
+        try:
+            if entry == "preapply":
+                with ddl.cursor() as cursor:
+                    cursor.execute(script)
+            else:
+                path = Path(__file__).parents[1] / "migrations/versions/p2c1_club_player_publication.py"
+                spec = importlib.util.spec_from_file_location("c1_timeout_migration", path)
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+                engine = sa.create_engine(os.environ["C1_POSTGRES_URL"])
+                try:
+                    with engine.begin() as connection:
+                        with Operations.context(MigrationContext.configure(connection)):
+                            module.upgrade()
+                finally:
+                    engine.dispose()
+            return None, time.monotonic() - began
+        except Exception as error:
+            return getattr(getattr(error, "orig", error), "sqlstate", None), time.monotonic() - began
+        finally:
+            ddl.rollback()
+
+    def later_read():
+        with reader.cursor() as cursor:
+            cursor.execute("SET LOCAL statement_timeout='10s'")
+            cursor.execute("SELECT 1 FROM club_player_publications LIMIT 1")
+            return cursor.fetchall()
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            future = pool.submit(run_ddl)
+            time.sleep(1)
+            read = pool.submit(later_read)
+            time.sleep(0.2)
+            assert not future.done() and not read.done()
+            state, elapsed = future.result(timeout=10)
+            assert state == "55P03", (state, elapsed)
+            assert 4.5 <= elapsed < 8, elapsed
+            assert read.result(timeout=5)
+        # The original reader remains open: the later reader resumes solely
+        # because the failed DDL transaction rolled back.
+        blocker.rollback()
+        reader.rollback()
+        state, _elapsed = run_ddl()
+        assert state is None
+    finally:
+        for connection in connections:
+            connection.close()

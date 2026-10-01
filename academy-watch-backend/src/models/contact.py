@@ -134,7 +134,7 @@ class ContactRequest(db.Model):
             metadata = created_metadata
         return bool(metadata.get("status_contradiction")) if isinstance(metadata, dict) else False
 
-    def to_dict(self, *, include_user_ids: bool = False, context=None):
+    def to_dict(self, *, include_user_ids: bool = False, context=None, viewer_user_id=None, counterpart_withheld=None):
         latest = context["outcomes"].get(self.id) if context is not None else self.latest_outcome()
         club_participant = None
         if self.routing_mode == "club_included" and self.club_program_id is not None:
@@ -158,8 +158,18 @@ class ContactRequest(db.Model):
         if include_user_ids:
             scout_participant["user_id"] = self.scout_user_id
             player_participant["user_id"] = self.claim.user_account_id if self.claim is not None else None
-        from src.services.club_player_publication import club_request_available
+        from src.services.club_player_publication import club_request_available, scout_counterpart_available
 
+        withheld = (
+            counterpart_withheld
+            if counterpart_withheld is not None
+            else (
+                viewer_user_id == self.scout_user_id
+                and not scout_counterpart_available(self, context["available"] if context is not None else None)
+            )
+        )
+        if withheld:
+            player_participant = {"display_name": "Unavailable"}
         extra = {"club_first": True} if self.club_first else {}
         return {
             **extra,
@@ -194,7 +204,7 @@ class ContactRequest(db.Model):
                 "player": player_participant,
                 "club": club_participant,
             },
-            "latest_outcome": latest.to_dict() if latest else None,
+            "latest_outcome": latest.to_dict() if latest and not withheld else None,
         }
 
 

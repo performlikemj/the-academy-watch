@@ -1,5 +1,7 @@
+-- On lock timeout: rollback and retry the entire script before deploying.
 -- Phase2 C1: preapply after p2b3, before deploying p2c1 code. No flag activation.
 BEGIN;
+SET LOCAL lock_timeout = '5s';
 ALTER TABLE public.contact_requests ADD COLUMN IF NOT EXISTS club_first BOOLEAN NOT NULL DEFAULT false;
 DO $$ BEGIN
 IF to_regclass('public.club_player_publications') IS NULL THEN
@@ -38,4 +40,14 @@ IF to_regclass('public.follows') IS NOT NULL THEN
 UPDATE public.follows f SET label = NULL FROM public.local_players p WHERE f.kind = 'player' AND f.label IS NOT NULL AND f.selector->>'player_api_id' = (-p.id)::text AND p.provenance = 'club';
 END IF;
 END $$;
+CREATE TABLE IF NOT EXISTS public.retired_club_showcases (
+ id SERIAL PRIMARY KEY,
+ local_player_id INTEGER NOT NULL REFERENCES public.local_players(id),
+ claim_id INTEGER REFERENCES public.player_profile_claims(id) ON DELETE SET NULL,
+ user_account_id INTEGER REFERENCES public.user_accounts(id) ON DELETE SET NULL,
+ content JSON NOT NULL,
+ created_at TIMESTAMP NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ix_retired_showcase_user ON public.retired_club_showcases(user_account_id);
+ALTER TABLE public.retired_club_showcases ENABLE ROW LEVEL SECURITY;
 COMMIT;

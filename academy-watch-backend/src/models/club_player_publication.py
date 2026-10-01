@@ -42,3 +42,16 @@ class ClubPlayerPublication(db.Model):
     version = db.Column(db.Integer, nullable=False, default=1, server_default="1")
     created_at = db.Column(db.DateTime, nullable=False, default=now)
     updated_at = db.Column(db.DateTime, nullable=False, default=now)
+
+
+class RetiredClubShowcase(db.Model):
+    """Private evidence belongs to the retired claimant, never the next owner."""
+
+    __tablename__ = "retired_club_showcases"
+    __table_args__ = (db.Index("ix_retired_showcase_user", "user_account_id"),)
+    id = db.Column(db.Integer, primary_key=True)
+    local_player_id = db.Column(db.Integer, db.ForeignKey("local_players.id"), nullable=False)
+    claim_id = db.Column(db.Integer, db.ForeignKey("player_profile_claims.id", ondelete="SET NULL"))
+    user_account_id = db.Column(db.Integer, db.ForeignKey("user_accounts.id", ondelete="SET NULL"))
+    content = db.Column(db.JSON, nullable=False)
+    created_at = db.Column(db.DateTime, nullable=False, default=now, server_default=db.func.now())

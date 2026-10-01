@@ -127,9 +127,9 @@ def _player_not_claimable():
     return jsonify({"error": "Player is not available for contact", "code": "player_not_claimable"}), 403
 
 
-def _contact_request_payload(contact_request: ContactRequest, *, context=None) -> dict:
+def _contact_request_payload(contact_request: ContactRequest, *, context=None, viewer_user_id=None) -> dict:
     """Serialize blockable participants only for authenticated contact APIs."""
-    return contact_request.to_dict(include_user_ids=True, context=context)
+    return contact_request.to_dict(include_user_ids=True, context=context, viewer_user_id=viewer_user_id)
 
 
 def _contact_message_payload(message: ContactMessage) -> dict:
@@ -934,7 +934,7 @@ def list_contact_requests():
         }
         return jsonify(
             {
-                "requests": [_contact_request_payload(row, context=context) for row in rows],
+                "requests": [_contact_request_payload(row, context=context, viewer_user_id=user.id) for row in rows],
                 "box": box,
                 "total": total,
                 "limit": limit,

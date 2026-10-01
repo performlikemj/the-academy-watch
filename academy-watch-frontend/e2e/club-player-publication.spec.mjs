@@ -29,7 +29,7 @@ async function fixture(page, { on = true, admin = false, anonymous = false, publ
     if (p === '/api/club/7/players/23/publication-invite') { writes.push(request.postDataJSON()); return route.fulfill({ status: 201, json: { publication: current, token: 'synthetic-test-token-private-only' } }) }
     if (/player-publications\/1\/(consent|withdraw|review|revoke)$/.test(p)) {
       writes.push(request.postDataJSON())
-      if (p.endsWith('/consent')) current = { ...current, consented: true, version: 3 }
+      if (p.endsWith('/consent')) current = { ...current, consented: true, moderation_status: 'pending', version: 3 }
       if (p.endsWith('/withdraw')) current = { ...current, withdrawn: true, consented: false, public: false, version: 5 }
       return reply({ publication: current })
     }
@@ -216,3 +216,67 @@ for (const on of [true, false]) {
     expect(featureRequests).toHaveLength(1)
   })
 }
+
+test('unavailable invite explains recovery', async ({ page }) => {
+  await fixture(page, { invite: true })
+  await page.route('**/api/me/player-publication-invites/preview', route => route.fulfill({status:404,json:{error:'invite_unavailable'}}))
+  await page.goto('/player-publication-invite#token=synthetic-test-token-private-only')
+  await expect(page.getByRole('alert')).toContainText('ask your club for a new invitation')
+  console.log('O6_ALERT', await page.getByRole('alert').innerText())
+})
+
+test('transient feature failure preserves draft; explicit OFF redirects', async ({ page }) => {
+  await page.clock.install()
+  await fixture(page)
+  let failed=false, attempts=0
+  await page.route('**/api/features', route => {
+    attempts++
+    return failed ? route.fulfill({status:503,json:{error:'temporary_failure'}}) : route.fulfill({json:{club_player_publication:true}})
+  })
+  await page.goto('/club-publications/7')
+  await page.getByRole('combobox').selectOption('23')
+  await page.getByLabel('Player’s email').fill('rc1v2-x-unsaved@example.test')
+  await expect(page.getByLabel('Player’s email')).toHaveValue('rc1v2-x-unsaved@example.test')
+  failed=true
+  await page.clock.fastForward(16000)
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+  await expect.poll(() => attempts).toBeGreaterThan(1)
+  await expect(page).toHaveURL(/club-publications\/7$/)
+  await expect(page.getByLabel('Player’s email')).toHaveValue('rc1v2-x-unsaved@example.test')
+  await shot(page, 'transient-failure-draft', 'desktop')
+  await page.route('**/api/features', route => route.fulfill({json:{club_player_publication:false}}))
+  await page.clock.fastForward(16000)
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+  await expect(page).toHaveURL(/\/$/)
+  console.log('O7_REDIRECT',page.url(),'feature attempts',attempts,'draft removed')
+})
+
+test('rejected consented player can request a fresh private review', async ({ page }) => {
+  await page.setViewportSize({width:390,height:844})
+  const writes=await fixture(page, { consented:true })
+  await page.route('**/api/me/player-publications', route => route.fulfill({json:{publications:[{...row,consented:true,moderation_status:'rejected',review_history:[{decision:'rejected',reason:'Earlier rejection'}]}]}}))
+  await page.goto('/player-publications')
+  await expect(page.getByText('Not approved · private')).toBeVisible()
+  await expect(page.getByRole('button',{name:'Withdraw public consent'})).toBeVisible()
+  await expect(page.getByRole('button',{name:'Give public profile consent'})).toBeDisabled()
+  await expect(page.getByRole('checkbox',{name:/^I am this adult player/})).toBeVisible()
+  await shot(page,'rejected-fresh-consent','mobile')
+  await page.getByRole('checkbox',{name:/^I am this adult player/}).check()
+  await page.getByRole('button',{name:'Give public profile consent'}).click()
+  await expect(page.getByText('Waiting for moderation · private')).toBeVisible()
+  expect(writes[0]).toMatchObject({public_profile_consent:true})
+  await expect(page.getByRole('link',{name:'View public profile'})).toHaveCount(0)
+  console.log('O8_REJECTED_PAGE',await page.locator('main').innerText())
+})
+
+
+test('stored birth conflict is visible and blocks moderator approval',async ({page})=>{
+  await page.setViewportSize({width:390,height:844})
+  await fixture(page,{admin:true,consented:true})
+  await page.route('**/api/admin/player-publications',route=>route.fulfill({json:{publications:[{...row,consented:true,moderation_evidence:{adult:false,birth_evidence_conflict:true,adult_evidence_source:'club_birth_date'}}]}}))
+  await page.goto('/admin/player-publications')
+  await page.getByLabel('Review reason').fill('Conflicting evidence must remain private')
+  await expect(page.getByRole('alert')).toContainText('Stored birth evidence conflicts with adulthood')
+  await expect(page.getByRole('button',{name:'Approve profile and self-claim'})).toBeDisabled()
+  await shot(page,'birth-conflict-review','mobile')
+})

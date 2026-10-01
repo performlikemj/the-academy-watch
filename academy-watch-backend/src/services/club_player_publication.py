@@ -161,15 +161,74 @@ def club_request_available(contact):
     return not getattr(contact, "club_first", False) or contact.id in available_club_requests([contact])
 
 
+def scout_counterpart_available(contact, available=None):
+    if not contact.club_first:
+        return True
+    return bool(
+        contact.club_consent_status == "granted"
+        and contact.status in {"pending", "accepted"}
+        and (contact.id in available if available is not None else club_request_available(contact))
+    )
+
+
 def can_reinvite(row):
     # Consent withdrawal alone is never an authorization to replace its owner.
     return not row.claimed_at or bool(row.club_revoked_at or (row.withdrawn_at and not row.consented_at))
+
+
+def shadow_birth_conflict(shadow):
+    """Existing DOB evidence is never corrected by publication moderation."""
+    from src.utils.academy_window import age_from_birth_date
+
+    if shadow is None or shadow.birth_date is None:
+        return False
+    age = age_from_birth_date(shadow.birth_date, today=now().date())
+    return age is None or age < 18
+
+
+def quarantine_showcase(row):
+    """Move subject content and approvals into private, old-claim evidence."""
+    from src.models.club_player_publication import RetiredClubShowcase
+    from src.models.league import PlayerLink
+    from src.models.showcase import PlayerClubAffiliation, PlayerShowcaseMedia, PlayerShowcaseProfile
+
+    content = {}
+    for model in (PlayerShowcaseProfile, PlayerShowcaseMedia, PlayerLink, PlayerClubAffiliation):
+        signed_column = model.player_id if model is PlayerLink else model.player_api_id
+        records = (
+            model.query.filter(
+                sa.or_(model.local_player_id == row.local_player_id, signed_column == -row.local_player_id)
+            )
+            .with_for_update()
+            .all()
+        )
+        content[model.__tablename__] = [
+            {
+                c.name: value.isoformat() if hasattr(value, "isoformat") else value
+                for c in model.__table__.columns
+                if (value := getattr(record, c.name)) is not None
+            }
+            for record in records
+        ]
+        for record in records:
+            db.session.delete(record)
+    if any(content.values()):
+        db.session.add(
+            RetiredClubShowcase(
+                local_player_id=row.local_player_id,
+                claim_id=row.claim_id,
+                user_account_id=row.recipient_user_id,
+                content=content,
+            )
+        )
+    db.session.flush()
 
 
 def retire_claim(row, actor):
     from src.services.admin_audit import record_admin_event
 
     claim = PlayerProfileClaim.query.filter_by(id=row.claim_id).with_for_update().first()
+    quarantine_showcase(row)
     if claim:
         claim.status = "revoked"
         claim.verification_status = "unverified"
@@ -382,7 +441,14 @@ def review(row, actor, payload):
         bump(row)
         review_audit(row, actor, payload, False)
         return
+    if row.moderation_status != "pending":
+        raise PublicationError("publication_not_pending")
     local = private_local(row.program_id, row.local_player_id)
+    from src.models.follow import PlayerShadow
+
+    shadow = PlayerShadow.query.filter_by(player_api_id=-local.id).with_for_update().first()
+    if shadow_birth_conflict(shadow):
+        raise PublicationError("birth_evidence_conflict")
     claim = PlayerProfileClaim.query.filter_by(id=row.claim_id).with_for_update().first()
     recipient = db.session.get(UserAccount, row.recipient_user_id)
     if self_invitation(row, recipient):
@@ -460,6 +526,7 @@ def review_audit(row, actor, payload, approved):
 
 def revoke(row, *, club=False):
     if club:
+        quarantine_showcase(row)
         row.club_revoked_at = now()
         row.association_confirmed_at = None
     else:
@@ -543,6 +610,13 @@ def dto_context(rows, *, admin=False):
     user_ids = {
         i for row in rows for i in (row.recipient_user_id, row.association_confirmed_by or row.creator_user_id) if i
     }
+    from src.models.follow import PlayerShadow
+
+    context["birth_conflicts"] = {
+        -s.player_api_id
+        for s in PlayerShadow.query.filter(PlayerShadow.player_api_id.in_([-i for i in local_ids])).all()
+        if shadow_birth_conflict(s)
+    }
     context["programs"] = {p.id: p for p in ClubProgram.query.filter(ClubProgram.id.in_(program_ids)).all()}
     context["users"] = {u.id: u for u in UserAccount.query.filter(UserAccount.id.in_(user_ids)).all()}
     context["squads"] = {}
@@ -588,7 +662,8 @@ def moderation_evidence(row, local, context):
     return {
         "club_name": program.name if program else None,
         "squads": sorted(squads),
-        "adult": bool(local and not local_player_is_minor(local)),
+        "adult": bool(local and not local_player_is_minor(local) and local.id not in context["birth_conflicts"]),
+        "birth_evidence_conflict": bool(local and local.id in context["birth_conflicts"]),
         "adult_evidence_source": "club_birth_date"
         if local and local.birth_date
         else "club_birth_year"

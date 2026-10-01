@@ -447,6 +447,17 @@ def _approved_subject_claim_or_403(subject: ShowcaseSubject):
         player = db.session.get(LocalPlayer, subject.local_player_id)
         if player is None or player.status in ("merged", "rejected") or _local_player_is_suppressed(player):
             return None, (jsonify({"error": "local player not found"}), 404)
+        if player.provenance == "club":
+            from src.services.club_player_publication import enabled
+
+            if enabled():
+                from src.models.club_player_publication import ClubPlayerPublication
+
+                # Retirement takes this same lock before quarantining content.
+                # An old owner cannot finish an authorized write after recovery.
+                publication = ClubPlayerPublication.query.filter_by(local_player_id=player.id).with_for_update().first()
+                if publication and (publication.recipient_user_id != user.id or publication.club_revoked_at):
+                    return None, (jsonify({"error": "You do not have an approved claim for this player"}), 403)
     if not _has_approved_subject_claim(subject, user.id):
         return None, (jsonify({"error": "You do not have an approved claim for this player"}), 403)
     return user, None
