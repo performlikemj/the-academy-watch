@@ -267,7 +267,8 @@ export function PlayerPage() {
     const { currentSeason, ready: seasonReady } = useSeasonDirectory()
     const selectedSeason = seasonParam === null ? (storedSeason ?? currentSeason) : urlSeason
     const seasonOverride = selectedSeason != null && (
-        currentSeason != null ? selectedSeason !== currentSeason : seasonParam === null
+        (currentSeason != null ? selectedSeason !== currentSeason : seasonParam === null)
+        || (seasonParam !== null && storedSeason != null && selectedSeason !== storedSeason)
     ) ? selectedSeason : undefined
     const [profile, setProfile] = useState(null)
     const [stats, setStats] = useState([])
@@ -796,7 +797,6 @@ export function PlayerPage() {
                             <SeasonSelect
                                 value={selectedSeason}
                                 onValueChange={handleSeasonChange}
-
                             />
                         </div>
                         {apiFootballFrozen && <PublicMatchPanels stats={seasonStats} hideProviderFreshness={isLocalPlayer} />}

@@ -540,7 +540,8 @@ export function ScoutPage() {
   const urlSeason = /^\d{4}$/.test(seasonParam || '') ? Number(seasonParam) : undefined
   const selectedSeason = seasonParam === null ? (storedSeason ?? currentSeason) : urlSeason
   const seasonOverride = selectedSeason != null && (
-    currentSeason != null ? selectedSeason !== currentSeason : seasonParam === null
+    (currentSeason != null ? selectedSeason !== currentSeason : seasonParam === null)
+    || (seasonParam !== null && storedSeason != null && selectedSeason !== storedSeason)
   ) ? selectedSeason : undefined
 
   const phaseConfig = PHASES[phase]
@@ -815,7 +816,6 @@ export function ScoutPage() {
                 <SeasonSelect
                   value={selectedSeason}
                   onValueChange={changeSeason}
-
                 />
               </div>
               <Button variant="outline" size="sm" asChild className={deskPillClass}>

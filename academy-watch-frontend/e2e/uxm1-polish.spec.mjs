@@ -58,6 +58,14 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       await expect(page.getByText(/viewing 2025\/26/)).toBeVisible()
       expect(await page.locator('body').evaluate(el => el.scrollWidth <= window.innerWidth)).toBe(true)
     })
+    test('explicit current season follows a player link despite stored history', async ({ page }) => {
+      await mocks(page)
+      await page.addInitScript(() => window.sessionStorage.setItem('aw.season', '2025'))
+      await page.goto('/scout?season=2026')
+      await page.getByRole('link', { name: /Test Community Adult/ }).click()
+      await expect(page).toHaveURL(/\/players\/-71\?season=2026$/)
+      await expect(page.getByRole('heading', { name: '2026/27 Totals' })).toBeVisible()
+    })
     test('global community search result opens its signed player profile', async ({ page }) => {
       await mocks(page)
       await page.goto('/')
