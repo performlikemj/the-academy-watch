@@ -27,15 +27,23 @@ and career journeys across European football using data analysis.
 **Today's date: {today}. Current football season: {season_label} (season value: {season_int} in the data).**
 Always default to the current season unless the user specifies otherwise.
 
+## Adult-only scout desk
+
+Player discovery, comparisons and rankings include only players whose age is
+established as at least 18 by trusted DOB evidence. Unknown ages are excluded.
+Use current tool results for every player answer;
+never restore players from conversation history, general knowledge or web news.
+If a player is absent from the eligible data, say no eligible adult result was
+found. Do not list or rank under-18 or unknown-age players, even when asked.
+
 ## Tools
 
-You have three tools:
+You have two tools:
 1. **run_analysis** — Execute pandas code against GOL DataFrames. Your code MUST \
 assign the final result to a variable called `result`. Choose the best `display` \
 format for the data. `pd` (pandas) and `np` (numpy) are pre-loaded. NEVER use \
 `import` statements — they are blocked by the sandbox and will fail.
-2. **search_web** — Search the web for recent football news.
-3. **lookup_player** — Search API-Football and add missing players on demand.
+2. **lookup_player** — Search API-Football and add eligible adult players on demand.
 
 ## Available DataFrames
 
@@ -208,7 +216,7 @@ The function automatically falls back to season aggregate stats if per-match dat
 - Always assign your final answer to `result`.
 - For tabular answers, return a DataFrame. For single values, return a scalar (int/float/str).
 - Keep code concise. Use `.head(20)` for large result sets.
-- If a query requires external info not in the data, use search_web.
+- If a player is missing, use lookup_player; if adult eligibility cannot be established, explain that no eligible result is available.
 - Present results conversationally with analysis after receiving data.
 - Keep responses concise — 2-3 paragraphs max unless the user asks for detail.
 - When comparing groups, prefer bar_chart. When showing trends, prefer line_chart.
@@ -397,7 +405,7 @@ def active_tool_schemas():
     return (
         [tool for tool in TOOL_SCHEMAS if tool["function"]["name"] == "run_analysis"]
         if api_football_frozen()
-        else TOOL_SCHEMAS
+        else [tool for tool in TOOL_SCHEMAS if tool["function"]["name"] != "search_web"]
     )
 
 
@@ -407,10 +415,8 @@ def active_system_prompt():
     if not api_football_frozen():
         return SYSTEM_PROMPT
     prompt = SYSTEM_PROMPT.split("## Player Lookup")[0]
-    prompt = prompt.replace("You have three tools:", "You have one tool:")
-    prompt = "\n".join(
-        line for line in prompt.splitlines() if "search_web" not in line and "**lookup_player**" not in line
-    )
+    prompt = prompt.replace("You have two tools:", "You have one tool:")
+    prompt = "\n".join(line for line in prompt.splitlines() if "search_web" not in line and "lookup_player" not in line)
     prompt = prompt.replace(
         "Use `lookup_player` first to sync their career data, then retry.", "Only stored career data is available."
     )
@@ -492,8 +498,12 @@ class GolService:
 
             # Add history (cap at 20 messages) with validation
             if history:
-                trimmed = [self._sanitize_history_entry(entry) for entry in history[-20:]]
-                messages.extend(self._complete_tool_history(trimmed))
+                # Old assistant/tool results may contain players who have since
+                # become ineligible. Retain questions for follow-ups, but rerun
+                # answers against current adult evidence instead of replaying data.
+                messages.extend(
+                    self._sanitize_history_entry(entry) for entry in history[-20:] if entry.get("role") == "user"
+                )
 
             # Set per-chat session context for lookup_rate limiting
             self._session_id = session_id
@@ -708,6 +718,11 @@ class GolService:
                 "result_type": "error",
                 "error": "Public data is frozen. Only stored database analysis is available.",
             }
+        if name == "search_web":
+            return {
+                "result_type": "error",
+                "error": "Scout answers require verified adult player data. Web discovery is unavailable.",
+            }
         try:
             if name == "run_analysis":
                 from flask import current_app
@@ -779,8 +794,15 @@ class GolService:
         """Generate conversation starter suggestions based on recent data."""
         suggestions = []
 
+        from src.services.public_adult import filter_public_adult_query
+
         recent_players = (
-            TrackedPlayer.query.filter_by(status="on_loan", is_active=True).order_by(func.random()).limit(2).all()
+            filter_public_adult_query(
+                TrackedPlayer.query.filter_by(status="on_loan", is_active=True), TrackedPlayer.player_api_id
+            )
+            .order_by(func.random())
+            .limit(2)
+            .all()
         )
 
         for p in recent_players:
