@@ -82,6 +82,12 @@ import { AdminFormation } from '@/pages/admin/AdminFormation'
 import { AdminShowcase } from '@/pages/admin/AdminShowcase'
 import { AdminTrust } from '@/pages/admin/AdminTrust'
 import { AdminLocalClubs } from '@/pages/admin/AdminLocalClubs'
+// --- p2-b3 begin ---
+import { AdminPrograms } from '@/pages/admin/AdminPrograms'
+import { AdminPeople } from '@/pages/admin/AdminPeople'
+import { AdminSafety } from '@/pages/admin/AdminSafety'
+import { AdminBusiness } from '@/pages/admin/AdminBusiness'
+// --- p2-b3 end ---
 import { AdminClubIdentities } from '@/pages/admin/AdminClubIdentities'
 import { AdminFunding } from '@/pages/admin/AdminFunding'
 import { HomePage } from '@/pages/HomePage'
@@ -4175,6 +4181,12 @@ function AppRoutes() {
         <Route index element={<Navigate to="/admin/dashboard" replace />} />
         <Route path="dashboard" element={<AdminDashboard />} />
         <Route path="interest" element={<AdminInterest />} />
+        {/* --- p2-b3 begin --- */}
+        <Route path="programs" element={<AdminPrograms />} />
+        <Route path="people" element={<AdminPeople />} />
+        <Route path="safety" element={<AdminSafety />} />
+        <Route path="business" element={<AdminBusiness />} />
+        {/* --- p2-b3 end --- */}
         <Route path="inbox" element={<AdminInbox />} />
         <Route path="operations" element={<AdminOperations />} />
         <Route path="seeding" element={<AdminSeeding />} />

@@ -506,6 +506,13 @@ class UserAccount(db.Model):
     # Per-deletion anonymous integrity rows are never authenticatable accounts.
     is_tombstone = db.Column(db.Boolean, nullable=False, default=False, server_default="false")
 
+    # Admin safety standing is independent of persona/grants.
+    account_status = db.Column(db.String(20), nullable=False, default="active", server_default="active")
+    auth_epoch = db.Column(db.Integer, nullable=False, default=0, server_default="0")
+    suspended_at = db.Column(db.DateTime)
+    suspended_by = db.Column(db.String(254))
+    suspension_reason = db.Column(db.String(2000))
+
     # Journalist fields
     is_journalist = db.Column(db.Boolean, default=False, nullable=False)
     bio = db.Column(db.Text)

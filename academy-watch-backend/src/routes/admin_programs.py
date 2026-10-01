@@ -17,6 +17,9 @@ def _emergency_action(program_id, hidden):
     if not isinstance(payload, dict):
         return jsonify({"error": "JSON body must be an object"}), 400
     try:
+        from src.services.admin_control_safety import lock_target
+
+        lock_target("club_program", str(program_id))
         program = ClubProgram.query.filter_by(id=program_id).populate_existing().with_for_update().first()
         if program is None:
             return jsonify({"error": "Not found"}), 404
@@ -30,6 +33,10 @@ def _emergency_action(program_id, hidden):
             {"before_hidden": before, "after_hidden": hidden},
         )
         program.emergency_hidden = hidden
+        if not hidden:
+            from src.services.admin_control_safety import release_club_case_intents
+
+            release_club_case_intents(program.id, g.user_email, payload.get("reason"))
         db.session.commit()
         return jsonify({"program_id": program.id, "emergency_hidden": hidden})
     except ValueError as exc:
