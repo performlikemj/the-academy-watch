@@ -53,7 +53,7 @@ def test_replacement_bytes_unreadable_until_verified_completion(
         assert locked.status_code == 409 and locked.json == {"error": "recording_locked"}
     elif grant_route == "admin":
         assert client.post(url, headers=_admin_headers()).status_code == 200
-        assert db.session.get(VideoMatch, mid).scoped_ready_etag is None
+        assert db.session.get(VideoMatch, mid).scoped_ready_etag == "replacing"
     current = {"etag": "new-unverified-etag", "bytes": b"SYNTHETIC replacement footage, not completed"}
     checks = []
 
