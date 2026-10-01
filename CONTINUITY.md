@@ -32,9 +32,10 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
 
 ## State
 
-- **Now (2026-10-01):** Phase 2 C1 adult consent publication and club-first introductions implemented on p2/c1-club-publication; final combined checks and real HTTP verification in progress. See `ledgers/CONTINUITY_p2-c1.md`.
+- **Now (2026-10-01):** Phase 2 C1 delivered on p2/c1-club-publication, stacked #1115; adult consent publication and club-first introductions default OFF. Exact PR/SHA/CI and cleanup in `~/codex-runs/aw-redesign/logs/C1.final.md`; see `ledgers/CONTINUITY_p2-c1.md`.
 
 ### Done
+- **2026-10-01 P2 C1:** explicit known-adult recipient claim + versioned public consent + moderation, canonical live eligibility and club-first two-key introductions/revocation; p2c1→p2b3, four head pins. Full backend4342pass89skip, modern browser240pass5skip, real PG4/HTTP-browser1/Node219/Ruff-format590/OSV547/lint-build green; raw old browser234pass16fail6skip16notrun (documented prerequisite/retired-route debt). Twenty reviewed PNGs in external shots/C1; production flag OFF.
 - **2026-10-01 P2 B1 fix round 2:** RB1V 9/9 verified + 2 new MED fixed on draft PR #1114 (hard 2 kB stream cap on `POST /api/club-directory/search` incl. chunked bodies; "Show more" tied to its own search); `origin/main` (A2 #1109, N2, N4) merged, lane delta is vs main; pytest flag off 3674 pass/50 skip/0 fail, node 213, Playwright 31; no merge. See `ledgers/CONTINUITY_p2-b1.md`.
 - **2026-10-01 P2 B1 clubs near you (dark):** draft PR stacked on #1109; anonymous `GET /api/programs` directory + moderated venue/postcode/pin/level/programme fields on profile revisions (p2b1 → p2a2, no new table), real `/clubs` page replacing the teaser only when `CLUB_DIRECTORY_ENABLED` is on, club-side edit + admin review display. 71 backend + 6 node + 6 browser tests; full pytest 3560 pass/47 skip; flag-off parity verified; PR #1114. Playbook `docs/agents/club-directory.md`; ledger `ledgers/CONTINUITY_p2-b1.md`; hand-back `~/codex-runs/aw-redesign/logs/B1.final.md`. **Fix round 1 (same day):** all 9 adversarial-review findings fixed — searches go in a POST body (`/api/club-directory/search`) so a visitor's position/postcode never reaches access logs or analytics, exact great-circle distance, club page uses the list's eligibility, flag-off approvals never publish unseen location edits, both-or-neither pin CHECK; console-local clubs are now listed (orchestrator decision). Full pytest 3613 pass/47 skip; hand-back `logs/B1F1.final.md`.
 - **2026-10-01 N2 fix round 3:** complete; home noindex carryover removed + 11 Azure SWA legacy 301s; OSV/lint/build, 200 Node + 29 Playwright pass; fix d9ccb5a2 pushed to PR #1112, inline reply/PR body updated; no merge; see `ledgers/CONTINUITY_n2-hide.md`.
@@ -1026,7 +1027,7 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
   - **See `ledgers/research/talent-platform/` (design panel) + `docs/follow-graph.md`**
 
 ### Next
-- **2026-10-01 P2 C1:** in progress on p2/c1-club-publication, stacked B3; adult publication consent + strict club-first introductions. See `ledgers/CONTINUITY_p2-c1.md`.
+- **2026-10-01 P2 C1:** orchestrator review after local delivery; merge prerequisites then C1, preapply p2c1 and verify dark before separate flag approval. See `ledgers/CONTINUITY_p2-c1.md`.
 - Run migration: `flask db upgrade`
 - Restore frontend deps only when required, from the frozen lockfile, and run
   the dependency-security gate described in

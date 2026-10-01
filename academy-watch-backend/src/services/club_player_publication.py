@@ -303,6 +303,12 @@ def review(row, actor, payload):
     action = payload.get("action")
     if action not in {"approve", "reject"}:
         raise PublicationError("invalid_action", 400)
+    if action == "reject":
+        row.moderation_status = "rejected"
+        row.reviewed_by, row.reviewed_at = actor, now()
+        bump(row)
+        review_audit(row, actor, payload, False)
+        return
     local = private_local(row.program_id, row.local_player_id)
     claim = PlayerProfileClaim.query.filter_by(id=row.claim_id).with_for_update().first()
     recipient = db.session.get(UserAccount, row.recipient_user_id)
@@ -313,6 +319,8 @@ def review(row, actor, payload):
         or row.club_revoked_at
         or not row.claimed_at
         or not row.association_confirmed_at
+        or local_player_is_minor(local, today=row.adult_invited_at.date())
+        or local_player_is_minor(local, today=row.consented_at.date())
         or recipient is None
         or recipient.is_tombstone
         or recipient.account_status != "active"
@@ -351,6 +359,10 @@ def review(row, actor, payload):
 
         mint_shadow(-local.id)
     bump(row)
+    review_audit(row, actor, payload, action == "approve")
+
+
+def review_audit(row, actor, payload, approved):
     from src.services.admin_audit import record_admin_event
 
     record_admin_event(
@@ -359,7 +371,7 @@ def review(row, actor, payload):
         "club_player_publication",
         row.id,
         payload.get("reason"),
-        meta={"local_player_id": local.id, "approved": action == "approve"},
+        meta={"local_player_id": row.local_player_id, "approved": approved},
     )
 
 

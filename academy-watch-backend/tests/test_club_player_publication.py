@@ -604,3 +604,35 @@ def test_cached_sitemap_rechecks_consent_and_all_identity_aliases(client, env, m
     db.session.commit()
     assert url.encode() not in client.get("/sitemap.xml").data
     assert sitemap_service._cache["xml"] == xml
+
+
+def test_moderation_queue_excludes_invites_and_can_reject_child_correction(client, env):
+    row = claimed(client, env)
+    assert client.get("/api/admin/player-publications", headers=_admin_headers()).json["publications"] == []
+    consent = client.post(
+        f"/api/me/player-publications/{row['id']}/consent",
+        headers=env["ph"],
+        json={
+            "expected_version": row["version"],
+            "public_profile_consent": True,
+            "consent_version": service.CONSENT_VERSION,
+        },
+    )
+    assert consent.status_code == 200
+    row = consent.json["publication"]
+    assert len(client.get("/api/admin/player-publications", headers=_admin_headers()).json["publications"]) == 1
+    db.session.get(LocalPlayer, env["local"]).birth_date = date(2015, 1, 1)
+    db.session.commit()
+    rejected = client.post(
+        f"/api/admin/player-publications/{row['id']}/review",
+        headers=_admin_headers(),
+        json={
+            "expected_version": row["version"],
+            "action": "reject",
+            "reason": "Corrected child identity: keep private",
+        },
+    )
+    assert rejected.status_code == 200
+    assert rejected.json["publication"]["moderation_status"] == "rejected"
+    assert not rejected.json["publication"]["public"]
+    assert not public_adult_ids([-env["local"]])

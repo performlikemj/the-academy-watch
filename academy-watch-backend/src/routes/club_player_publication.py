@@ -73,6 +73,8 @@ def dark_routes():
             if owned(candidate.endpoint):
                 continue
             copied = candidate.empty()
+            if candidate.methods is not None:
+                copied.methods = candidate.methods.copy()
             copied.provide_automatic_options = getattr(candidate, "provide_automatic_options", False)
             visible_rules.append(copied)
         original = current_app.url_map
@@ -234,7 +236,18 @@ def player_action(publication_id, action):
 @flagged
 @require_api_key
 def admin_list():
-    rows = Publication.query.filter_by(moderation_status="pending").order_by(Publication.id).limit(100).all()
+    rows = (
+        Publication.query.filter(
+            Publication.moderation_status == "pending",
+            Publication.claimed_at.is_not(None),
+            Publication.consented_at.is_not(None),
+            Publication.withdrawn_at.is_(None),
+            Publication.club_revoked_at.is_(None),
+        )
+        .order_by(Publication.id)
+        .limit(100)
+        .all()
+    )
     return jsonify(publications=[service.dto(r) for r in rows])
 
 
