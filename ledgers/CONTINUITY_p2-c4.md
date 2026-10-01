@@ -1,7 +1,7 @@
 # Phase 2 C4 — scout attendance / Today / distance
 
 - Owner: /root; branch p2/c4-scout-attend, stacked on #1115; no merge/deploy.
-- State: implementation and local validation complete. Current PR/CI/cleanup record: `~/codex-runs/aw-redesign/logs/C4.final.md`.
+- State: fix round 1 in progress; RC4 ten findings read, stack refresh then attendance lifecycle/trust/queue fixes and full foreground gates. Current PR/CI/cleanup record: `~/codex-runs/aw-redesign/logs/C4.final.md`.
 - Constraints: SCOUT_ATTEND_ENABLED default OFF; p2c3 -> p2c2; no applicants exposed to scouts; published future trial/open-session adverts may advertise youth/unknown age bands (P2R §2); public player identities retain canonical N3 strict adult rules. Coordinates stay in POST bodies and browser memory.
 - Done: fully read PHASE2/DESIGN/BUS/P2R, repo agent docs and N04/N08/N15/N16 mockups; implemented verified scout requests, club decisions, capability-scoped Today, approved-pin distance, audit/outbox, privacy and retention.
 - Done: real B1 811fabca + B2 6589f568 product fixes, B3 d49ec794 and main/N3 adea5177 integrated. B2 product code matches final 16540e03; preserved canonical N3 evidence controls and B2 trusted hold-bypass option. Ancestor C1/C2 migration copies are verbatim, no placeholders.
