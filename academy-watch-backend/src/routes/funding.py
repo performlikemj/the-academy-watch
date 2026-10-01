@@ -38,6 +38,7 @@ from src.services.stripe_connect import (
     retrieve_test_express_account,
     test_connect_configured,
 )
+from src.utils.legacy_pages import legacy_public_url
 from src.utils.sanitize import is_safe_https_url, sanitize_plain_text
 
 logger = logging.getLogger(__name__)
@@ -1292,7 +1293,9 @@ def public_program(slug):
     ]
     payload["roster_links"] = (
         {
-            "team_page": f"/teams/{program.team_profile.slug}" if program.team_profile.slug else None,
+            "team_page": legacy_public_url(f"/teams/{program.team_profile.slug}")
+            if program.team_profile.slug
+            else None,
             "academy_roster_api": f"/teams/{program.team_api_id}/players?academy_only=true",
         }
         if program.team_profile
