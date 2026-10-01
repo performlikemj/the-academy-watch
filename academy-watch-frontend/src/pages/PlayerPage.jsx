@@ -264,12 +264,10 @@ export function PlayerPage() {
     const seasonParam = searchParams.get('season')
     const urlSeason = /^\d{4}$/.test(seasonParam || '') ? Number(seasonParam) : undefined
     const [storedSeason, setStoredSeason] = useState(() => seasonStore.get())
-    const { currentSeason, displaySeason: defaultSeason, ready: seasonReady } = useSeasonDirectory()
-    const selectedSeason = seasonParam === null ? (storedSeason ?? defaultSeason) : urlSeason
-    const seasonOverride = selectedSeason != null && (
-        (currentSeason != null ? selectedSeason !== currentSeason : seasonParam === null)
-        || (seasonParam !== null && storedSeason != null && selectedSeason !== storedSeason)
-    ) ? selectedSeason : undefined
+    const { displaySeason: defaultSeason, ready: seasonReady } = useSeasonDirectory()
+    // An explicit pick scopes reads; the default label must not disable server fallbacks.
+    const selectedSeason = seasonParam === null ? storedSeason : urlSeason
+    const seasonOverride = selectedSeason
     const [profile, setProfile] = useState(null)
     const [stats, setStats] = useState([])
     const [statsMeta, setStatsMeta] = useState(null)
@@ -577,7 +575,7 @@ export function PlayerPage() {
     const currentConfig = METRIC_CONFIG[position] || METRIC_CONFIG[DEFAULT_POSITION]
     const playerName = profile?.name || `Player #${playerId}`
     const resolvedSeason = selectedSeason ?? seasonStats?.season ?? statsMeta?.summary?.season
-    const seasonLabel = formatSeasonLabel(resolvedSeason)
+    const seasonLabel = formatSeasonLabel(selectedSeason ?? defaultSeason ?? resolvedSeason)
     const provenance = seasonStats?.provenance ?? statsMeta?.provenance
     const provenanceSource = provenance?.primary_source ?? provenance?.source
     const provenanceText = provenanceSource === 'journey' && ['cup-gap', 'fixtures-invisible'].includes(provenance?.reconcile_flag)
@@ -765,7 +763,7 @@ export function PlayerPage() {
                             playerApiId={String(playerId)}
                             playerName={playerName}
                             playerPosition={profile?.position || position}
-                            season={resolvedSeason}
+                            season={selectedSeason}
                             onSeasonStatsChange={(nextStats) => {
                                 const nextSeason = Number.parseInt(String(nextStats?.season ?? ''), 10)
                                 if (selectedSeason == null || nextSeason === Number(selectedSeason)) {

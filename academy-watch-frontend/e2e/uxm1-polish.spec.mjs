@@ -52,7 +52,7 @@ async function mocks(page, { verified = false, signedIn = true, incoming = true,
 for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
   test.describe(`${viewport.width}px staging regressions`, () => {
     test.use({ viewport })
-    test('desk uses position codes and one current season for boards and requests', async ({ page }) => {
+    test('desk labels the default season without explicitly scoping requests', async ({ page }) => {
       const seen = await mocks(page)
       await page.goto('/scout')
       await expect(page.getByRole('cell', { name: 'RW', exact: true })).toBeVisible()
@@ -60,7 +60,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       await expect(page.getByRole('combobox', { name: 'Select season' })).toContainText('2026/27')
       for (const path of ['/api/scout/players', '/api/scout/leaderboards']) {
         await expect.poll(() => seen.filter(r => r.path === path).length).toBeGreaterThan(0)
-        expect(seen.filter(r => r.path === path).every(r => r.search.includes('season=2026'))).toBe(true)
+        expect(seen.filter(r => r.path === path).every(r => !new URLSearchParams(r.search).has('season'))).toBe(true)
       }
       await page.getByRole('combobox', { name: 'Select season' }).click()
       await page.getByRole('option', { name: '2025/26' }).click()
@@ -75,6 +75,31 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       await expect(page).toHaveURL(/\/players\/-71\?season=2026$/)
       await expect(page.getByRole('heading', { name: '2026/27 Totals' })).toBeVisible()
     })
+    for (const pick of [2025, 2026]) {
+      test(`explicit ${pick} season survives a player link during calendar lag`, async ({ page }) => {
+        const seen = await mocks(page, { displaySeason: 2025 })
+        await page.goto('/scout')
+        await expect(page.getByRole('cell', { name: 'RW', exact: true })).toBeVisible()
+        // Move away first so picking the displayed default is an explicit change too.
+        if (pick === 2025) {
+          await page.getByRole('combobox', { name: 'Select season' }).click()
+          await page.getByRole('option', { name: /2026\/27/ }).click()
+        }
+        await page.getByRole('combobox', { name: 'Select season' }).click()
+        await page.getByRole('option', { name: pick === 2026 ? /2026\/27/ : '2025/26' }).click()
+        await expect(page).toHaveURL(new RegExp(`season=${pick}$`))
+        for (const path of ['/api/scout/players', '/api/scout/leaderboards']) {
+          await expect.poll(() => seen.some(r => r.path === path && new URLSearchParams(r.search).get('season') === String(pick))).toBe(true)
+        }
+        await page.getByRole('link', { name: /Test Community Adult/ }).click()
+        await expect(page).toHaveURL(new RegExp(`/players/-71\\?season=${pick}$`))
+        await expect(page.getByRole('heading', { name: `${pick}/${String(pick + 1).slice(-2)} Totals` })).toBeVisible()
+        for (const path of ['/api/players/-71/stats', '/api/players/-71/season-stats']) {
+          expect(seen.filter(r => r.path === path).length).toBeGreaterThan(0)
+          expect(seen.filter(r => r.path === path).every(r => new URLSearchParams(r.search).get('season') === String(pick))).toBe(true)
+        }
+      })
+    }
     test('global community search result opens its signed player profile', async ({ page }) => {
       await mocks(page)
       await page.goto('/')
@@ -88,6 +113,17 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       await mocks(page)
       await page.goto('/scout/watchlist')
       await expect(page.getByRole('cell', { name: 'RW', exact: true })).toBeVisible()
+    })
+    test('signed-out scout sees Get verified and can open sign-in from a row', async ({ page }) => {
+      const seen = await mocks(page, { signedIn: false })
+      await page.goto('/scout')
+      await expect(page.getByRole('cell', { name: 'RW', exact: true })).toBeVisible()
+      await expect(page.getByRole('link', { name: 'Get verified', exact: true })).toBeVisible()
+      await expect(page.getByText('Checking verification…', { exact: true })).toHaveCount(0)
+      expect(seen.some(r => r.path === '/api/scout/verification')).toBe(false)
+      await page.getByRole('button', { name: 'Introduce yourself to Test Community Adult' }).click()
+      await expect(page.getByRole('dialog')).toBeVisible()
+      await expect(page.getByRole('textbox', { name: 'Message to Test Community Adult' })).toHaveCount(0)
     })
     test('pending scout follows verification link and has no composer', async ({ page }) => {
       const seen = await mocks(page)
@@ -165,13 +201,20 @@ for (const verificationMode of ['slow', 'failed']) {
     await page.getByRole('button', { name: 'Introduce yourself to Test Community Adult' }).click()
     await expect(page.getByRole('textbox', { name: 'Message to Test Community Adult' })).toBeVisible()
     finishVerification?.()
+    if (verificationMode === 'slow') {
+      await page.keyboard.press('Escape')
+      await expect(page.getByRole('link', { name: 'Verified scout', exact: true })).toBeVisible()
+    }
   })
 }
 
-test('fixtures lagging the calendar default desk and tracked totals to display season', async ({ page }) => {
+test('fixtures lagging the calendar label defaults without sending a season', async ({ page }) => {
   const seen = await mocks(page, { displaySeason: 2025 })
   await page.route('**/api/players/42/profile', route => route.fulfill({ json: { name: 'Tracked Adult', position: 'Midfielder', age: 23 } }))
-  await page.route('**/api/players/42/stats*', route => route.fulfill({ json: { matches: [], summary: { season: 2025 } } }))
+  await page.route('**/api/players/42/stats*', route => {
+    seen.push({ path: '/api/players/42/stats', search: new URL(route.request().url()).search })
+    return route.fulfill({ json: { matches: [], summary: { season: 2025 } } })
+  })
   await page.route('**/api/players/42/season-stats*', route => {
     seen.push({ path: '/api/players/42/season-stats', search: new URL(route.request().url()).search })
     return route.fulfill({ json: { season: '2025/2026', appearances: 1, minutes: 90, goals: 1 } })
@@ -181,11 +224,14 @@ test('fixtures lagging the calendar default desk and tracked totals to display s
   await expect(page.getByRole('cell', { name: 'RW', exact: true })).toBeVisible()
   for (const path of ['/api/scout/players', '/api/scout/leaderboards']) {
     await expect.poll(() => seen.some(r => r.path === path)).toBe(true)
-    expect(seen.filter(r => r.path === path).every(r => r.search.includes('season=2025'))).toBe(true)
+    expect(seen.filter(r => r.path === path).every(r => !new URLSearchParams(r.search).has('season'))).toBe(true)
   }
   await page.goto('/players/42')
   await expect(page.getByRole('heading', { name: '2025/26 Totals' })).toBeVisible()
-  expect(seen.filter(r => r.path === '/api/players/42/season-stats').every(r => r.search.includes('season=2025'))).toBe(true)
+  for (const path of ['/api/players/42/stats', '/api/players/42/season-stats']) {
+    expect(seen.filter(r => r.path === path).length).toBeGreaterThan(0)
+    expect(seen.filter(r => r.path === path).every(r => !new URLSearchParams(r.search).has('season'))).toBe(true)
+  }
 })
 
 test('community games stay unfiltered while totals ignore stored history', async ({ page }) => {

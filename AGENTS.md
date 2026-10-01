@@ -130,7 +130,7 @@ Log one-liner in CONTINUITY.md's "Trivial Log" section.
 
 ---
 
-- Web current-season reads share `lib/seasonDirectory.js` / `useSeasonDirectory`; default desk/player reads to the server directory `display_season` (fixture-backed fallback), with `current_season` only as a last resort. Retain historical URL/store overrides and frozen-mode logic; community pages have no picker, ignore stored season and keep games unfiltered. Short positions use `lib/positions.js::positionAbbreviation`; keep free text on player profiles.
+- Web current-season reads share `lib/seasonDirectory.js` / `useSeasonDirectory`; use the server directory `display_season` for default desk/player labels (fixture-backed fallback), with `current_season` only as a last resort. Omit `season` from unpicked desk/player requests so the server retains latest-data fallbacks; carry every explicit URL/store pick into reads and player links. Retain historical URL/store overrides and frozen-mode logic; community pages have no picker, ignore stored season and keep games unfiltered. Short positions use `lib/positions.js::positionAbbreviation`; keep free text on player profiles.
 
 ## Quality Bar
 

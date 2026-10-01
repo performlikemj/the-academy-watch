@@ -26,7 +26,8 @@ from sqlalchemy.ext.compiler import compiles
 compiles(JSONB, "sqlite")(lambda element, compiler, **kw: "JSON")
 
 from src.extensions import limiter
-from src.models.league import Team, UserAccount, db
+from src.models.follow import PlayerShadow, PlayerShadowStats
+from src.models.league import PlayerStatsCache, Team, UserAccount, db
 from src.models.player_match_entry import PlayerMatchEntry
 from src.models.showcase import LocalPlayer
 from src.models.tracked_player import TrackedPlayer
@@ -39,7 +40,7 @@ from src.routes.seasons import seasons_bp
 from src.routes.showcase import showcase_bp
 from src.utils.academy_window import current_stats_season
 
-with tempfile.TemporaryDirectory(prefix="aw_uxm1f1_") as scratch:
+with tempfile.TemporaryDirectory(prefix="aw_uxm1f2_") as scratch:
     app = Flask(__name__)
     app.config.update(
         SECRET_KEY="local-uxm1-fixture",
@@ -123,6 +124,53 @@ with tempfile.TemporaryDirectory(prefix="aw_uxm1f1_") as scratch:
                 assists=0,
                 rating=7.0,
             )
+        )
+        # Both sources have totals older than the directory display season.
+        # Omitted season must retain the real routes' latest-data fallbacks.
+        db.session.add_all(
+            [
+                PlayerShadow(
+                    player_api_id=43,
+                    player_name="Real Shadow Adult",
+                    birth_date=date(2000, 1, 1),
+                    position="Forward",
+                    current_club_name=team.name,
+                    is_active=True,
+                ),
+                PlayerShadowStats(
+                    player_api_id=43,
+                    team_api_id=33,
+                    season=season - 1,
+                    appearances=15,
+                    goals=6,
+                    assists=2,
+                    minutes=1200,
+                ),
+                TrackedPlayer(
+                    player_api_id=44,
+                    player_name="Real Limited Adult",
+                    birth_date="2000-01-01",
+                    age=26,
+                    position="Forward",
+                    team_id=team.id,
+                    status="on_loan",
+                    is_active=True,
+                    current_club_api_id=33,
+                    current_club_db_id=team.id,
+                    current_club_name=team.name,
+                    data_depth="events_only",
+                ),
+                PlayerStatsCache(
+                    player_api_id=44,
+                    team_api_id=33,
+                    season=season - 1,
+                    stats_coverage="limited",
+                    appearances=30,
+                    goals=2,
+                    assists=1,
+                    minutes_played=2500,
+                ),
+            ]
         )
         for year, opponent in [
             (season - 1, "Previous Season United"),

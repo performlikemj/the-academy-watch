@@ -34,8 +34,55 @@ test('real server display season retains tracked stats when fixtures lag the cal
   expect(totals.ok()).toBe(true)
   expect((await totals.json()).minutes).toBe(90)
   expect(reads.length).toBeGreaterThanOrEqual(4)
-  expect(reads.every(r => r.status === 200 && r.url.searchParams.get('season') === String(directory.display_season))).toBe(true)
+  expect(reads.every(r => r.status === 200 && !r.url.searchParams.has('season'))).toBe(true)
 })
+
+for (const [id, name, source, appearances, minutes] of [
+  [43, 'Real Shadow Adult', 'shadow', 15, 1200],
+  [44, 'Real Limited Adult', 'limited-coverage', 30, 2500],
+]) {
+  test(`real ${source} defaults retain latest totals outside the display season`, async ({ page, request }) => {
+    const directory = await (await request.get('/api/seasons')).json()
+    // These are the unchanged main route's default and explicitly scoped reads.
+    const defaults = await request.get(`/api/players/${id}/season-stats`)
+    expect(defaults.ok()).toBe(true)
+    const baseline = await defaults.json()
+    expect(baseline.public_match_data?.primary_source ?? baseline.source).toBe(source)
+    expect(baseline.appearances).toBe(appearances)
+    expect(baseline.minutes).toBe(minutes)
+    const scoped = await request.get(`/api/players/${id}/season-stats?season=${directory.display_season}`)
+    expect(scoped.ok()).toBe(true)
+    expect((await scoped.json()).appearances).toBe(0)
+    const reads = []
+    page.on('response', response => {
+      const url = new URL(response.url())
+      if ([`/api/players/${id}/stats`, `/api/players/${id}/season-stats`, `/api/players/${id}/matches`].includes(url.pathname)) {
+        reads.push({ url, response })
+      }
+    })
+    await page.goto(`/players/${id}`)
+    await expect(page.getByRole('heading', { name, exact: true })).toBeVisible()
+    const label = `${directory.display_season}/${String(directory.display_season + 1).slice(-2)}`
+    await expect(page.getByRole('heading', { name: `${label} Totals` })).toBeVisible()
+    await expect(page.getByRole('combobox', { name: 'Select season' })).toContainText(label)
+    await expect(page.getByText('Appearances', { exact: true }).locator('..').locator('.display')).toHaveText(String(appearances))
+    for (const suffix of ['stats', 'season-stats']) {
+      expect(reads.some(r => r.url.pathname.endsWith(`/${suffix}`))).toBe(true)
+    }
+    expect(reads.every(r => r.response.status() === 200 && !r.url.searchParams.has('season'))).toBe(true)
+    const browserTotals = await reads.find(r => r.url.pathname.endsWith('/season-stats')).response.json()
+    expect(browserTotals.appearances).toBe(baseline.appearances)
+    expect(browserTotals.minutes).toBe(baseline.minutes)
+    // Picking display season really scopes the same page and changes its totals.
+    await page.getByRole('combobox', { name: 'Select season' }).click()
+    await page.getByRole('option', { name: `${directory.current_season}/${String(directory.current_season + 1).slice(-2)}` }).click()
+    await page.getByRole('combobox', { name: 'Select season' }).click()
+    await page.getByRole('option', { name: label, exact: true }).click()
+    await expect(page).toHaveURL(new RegExp(`season=${directory.display_season}$`))
+    await expect(page.getByText('Appearances', { exact: true }).locator('..').locator('.display')).toHaveText('0')
+    await expect.poll(() => reads.some(r => r.url.pathname.endsWith('/season-stats') && r.url.searchParams.get('season') === String(directory.display_season))).toBe(true)
+  })
+}
 
 test('real community games list contains multiple seasons despite stored history and totals season', async ({ page, request }) => {
   const directory = await (await request.get('/api/seasons')).json()

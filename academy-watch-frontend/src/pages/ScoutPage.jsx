@@ -529,7 +529,8 @@ export function ScoutPage() {
   const contactRail = useContactRail()
   const { openLoginModal } = useAuthUI()
   const [verificationState, setVerificationState] = useState(null)
-  const scoutVerification = verificationState?.token === auth?.token ? verificationState.status : 'loading'
+  const scoutVerification = !auth?.token ? 'signed-out'
+    : verificationState?.token === auth.token ? verificationState.status : 'loading'
   const verifiedScout = scoutVerification === 'approved'
   const canIntroduce = scoutVerification !== 'unverified'
   const [introducePlayer, setIntroducePlayer] = useState(null)
@@ -540,11 +541,9 @@ export function ScoutPage() {
   const source = SOURCE_VALUES.has(requestedSource) ? requestedSource : 'all'
   const seasonParam = searchParams.get('season')
   const urlSeason = /^\d{4}$/.test(seasonParam || '') ? Number(seasonParam) : undefined
-  const selectedSeason = seasonParam === null ? (storedSeason ?? defaultSeason) : urlSeason
-  const seasonOverride = selectedSeason != null && (
-    (currentSeason != null ? selectedSeason !== currentSeason : seasonParam === null)
-    || (seasonParam !== null && storedSeason != null && selectedSeason !== storedSeason)
-  ) ? selectedSeason : undefined
+  // Leave implicit reads to the server; display_season labels the default only.
+  const selectedSeason = seasonParam === null ? storedSeason : urlSeason
+  const seasonOverride = selectedSeason
 
   const phaseConfig = PHASES[phase]
   // The phase IS a position filter when active; the standalone position
@@ -798,7 +797,7 @@ export function ScoutPage() {
 
   const statColumns = phaseConfig.columns.map((key) => STAT_COLUMNS[key])
   const tableColumnCount = 8 + statColumns.length
-  const displaySeason = selectedSeason ?? resolvedSeason ?? currentSeason
+  const displaySeason = selectedSeason ?? defaultSeason ?? resolvedSeason ?? currentSeason
 
   const thClass = 'px-3 py-3 font-mono text-[10.5px] font-medium uppercase tracking-[0.14em] text-[#8C9791]'
   const selectTriggerClass = 'h-11 w-full rounded-full px-4 text-[13.5px]'
@@ -842,7 +841,7 @@ export function ScoutPage() {
               <Button variant="outline" size="sm" asChild className={deskPillClass}>
                 <Link to="/scout/verification" className="no-underline hover:no-underline">
                   <ShieldCheck className="mr-1.5 h-4 w-4" />
-                  {verifiedScout ? 'Verified scout' : scoutVerification === 'loading' && contactRail === true ? 'Checking verification…' : scoutVerification === 'unavailable' ? 'Scout verification' : contactRail === true ? 'Get verified to introduce yourself' : 'Get verified'}
+                  {verifiedScout ? 'Verified scout' : scoutVerification === 'loading' && contactRail === true ? 'Checking verification…' : scoutVerification === 'unavailable' ? 'Scout verification' : scoutVerification === 'signed-out' ? 'Get verified' : contactRail === true ? 'Get verified to introduce yourself' : 'Get verified'}
                 </Link>
               </Button>
               <Button variant="outline" size="sm" onClick={handleExportCsv} disabled={exporting} className={deskPillClass}>
