@@ -9,7 +9,7 @@ const aid = '00000000-0000-4000-8000-000000000002'
 const opportunity = { id: oid, program_id: 7, club_name: 'Synthetic B2 Club', club_slug: 'synthetic-b2', type: 'trial', title: 'Adult development trial', description: 'A synthetic opportunity used only to check the application workflow.', instructions: 'Bring boots, shin pads and water.', venue: 'Test training ground', address: 'Test pitch', timezone: 'Europe/London', starts_at: '2026-10-20T10:00:00Z', ends_at: '2026-10-20T12:00:00Z', closes_at: '2026-10-18T12:00:00Z', birth_year_min: 1998, birth_year_max: 2008, gender_program: 'all', position_requirements: 'All positions', status: 'published', version: 1, coach: 'Club coaching team', application_count: 1 }
 const application = { id: aid, opportunity_id: oid, program_id: 7, opportunity_title: opportunity.title, club_name: opportunity.club_name, timezone: 'Europe/London', claim_id: 3, signed_player_id: 7001, applicant_name: 'Synthetic Adult Applicant', position: 'Midfielder', current_club: '', profile_available: true, status: 'new', status_label: 'Applied', submitted_at: '2026-10-01T10:00:00Z', retention_expires_at: '2027-01-18T10:00:00Z', version: 1, reservation_state: 'none', transitions: ['rejected', 'shortlisted'], notes: [], events: [{ version: 1, created_at: '2026-10-01T10:00:00Z', reason_code: 'submitted' }] }
 
-async function fixture(page, { on = true, apps = true, empty = false, invited = false, deniedClaims = false, conflict = false, unavailableAction = null, unavailableStatus = 404 } = {}) {
+async function fixture(page, { on = true, apps = true, empty = false, invited = false, deniedClaims = false, conflict = false, unavailableAction = null, unavailableStatus = 404, held = false } = {}) {
   await page.addInitScript(() => {
     localStorage.setItem('academy_watch_user_token', 'b2-synthetic-browser-token')
     localStorage.setItem('academyWatch.playerOnboardingPromptDismissed.v1', 'true')
@@ -32,10 +32,10 @@ async function fixture(page, { on = true, apps = true, empty = false, invited = 
     if (p === '/api/me/applications') return reply({ applications: empty ? [] : [current] })
     if (p === `/api/club/7/applications/${aid}`) return reply({ application: current })
     if (p === `/api/me/applications/${aid}/withdraw`) { requests.push(req.postDataJSON()); current = { ...current, status: 'withdrawn', status_label: 'Withdrawn', version: current.version + 1, reservation_state: 'released' }; return reply({ application: current }) }
-    if (p === `/api/me/applications/${aid}/trial-response`) { requests.push(req.postDataJSON()); current = { ...current, reservation_state: 'confirmed', version: current.version + 1 }; return reply({ application: current }) }
+    if (p === `/api/me/applications/${aid}/trial-response`) { if (held) return route.fulfill({ status: 403, json: { error: 'temporarily_unavailable' } }); requests.push(req.postDataJSON()); current = { ...current, reservation_state: 'confirmed', version: current.version + 1 }; return reply({ application: current }) }
     if (p === '/api/club/7/opportunities' && req.method() === 'POST') { requests.push(req.postDataJSON()); return route.fulfill({ status: 201, json: { opportunity } }) }
-    if (p === '/api/club/7/opportunities') return reply({ opportunities: empty ? [] : [opportunity] })
-    if (p === `/api/club/7/opportunities/${oid}/applications`) return reply({ applications: empty || unavailable ? [] : [current] })
+    if (p === '/api/club/7/opportunities') return reply({ opportunities: empty ? [] : [{ ...opportunity, ...(held ? { capacity: 1, places_left: 0, temporarily_unavailable_reservations: 1 } : {}) }] })
+    if (p === `/api/club/7/opportunities/${oid}/applications`) return reply({ applications: empty || unavailable || held ? [] : [current] })
     if (p === `/api/club/7/applications/${aid}/transition`) {
       if (unavailableAction === 'transition') { unavailable = true; return route.fulfill({ status: unavailableStatus, json: { error: 'Not found' } }) }
       const body = req.postDataJSON(); requests.push(body)
@@ -298,4 +298,58 @@ for (const status of [403, 404]) {
       await expect(page.getByRole('heading', { name: 'Adult development trial', exact: true })).toBeVisible()
     })
   }
+}
+
+for (const width of [1440, 390]) {
+  test(`held applicant receives a neutral temporary message at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 })
+    await fixture(page, { invited: true, held: true })
+    await page.goto('/onboarding/player')
+    await page.getByRole('button', { name: 'Confirm trial' }).click()
+    await expect(page.getByRole('alert')).toHaveText('Temporarily unavailable. Please try again later.')
+    await expect(page.getByText('An approved adult player claim and current access are required.')).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Withdraw application' })).toBeEnabled()
+  })
+
+  test(`held reservation is explained to staff without identity at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 })
+    await fixture(page, { invited: true, held: true })
+    await page.goto('/my-club?view=recruiting')
+    await expect(page.getByText('1 place reserved — applicant temporarily unavailable', { exact: true })).toBeVisible()
+    await expect(page.getByText('0 of 1 trial places available')).toBeVisible()
+    await expect(page.getByText('Synthetic Adult Applicant')).toHaveCount(0)
+  })
+}
+
+test('all Chromium device-default zone spellings resolve, format and round-trip via committed aliases', async ({ page }) => {
+  const zones = JSON.parse(await fs.readFile(new URL('../src/lib/opportunity-timezones.json', import.meta.url), 'utf8'))
+  await fixture(page)
+  await page.goto('/opportunities')
+  const failures = await page.evaluate(async zones => {
+    const { canonicalTimezone, when, localInput, fromLocalInput } = await import('/src/lib/opportunity-time.js')
+    const failures = []
+    const instant = '2026-10-10T17:00:00.000Z'
+    for (const zone of zones) {
+      const deviceDefault = new Intl.DateTimeFormat('en-GB', { timeZone: zone }).resolvedOptions().timeZone
+      if (!zones.includes(deviceDefault)) { failures.push(deviceDefault); continue }
+      const canonical = canonicalTimezone(deviceDefault)
+      if (!when(instant, deviceDefault).endsWith(`(${canonical})`)) failures.push(`${deviceDefault}: format`)
+      if (fromLocalInput(localInput(instant, deviceDefault), deviceDefault) !== instant) failures.push(`${deviceDefault}: round-trip`)
+    }
+    return failures
+  }, zones)
+  expect(failures).toEqual([])
+})
+
+for (const [legacy, canonical] of [['Asia/Calcutta', 'Asia/Kolkata'], ['Europe/Kiev', 'Europe/Kyiv'], ['America/Indianapolis', 'America/Indiana/Indianapolis']]) {
+  test(`editor canonicalizes Chromium device default ${legacy}`, async ({ browser }) => {
+    const context = await browser.newContext({ timezoneId: legacy })
+    try {
+      const page = await context.newPage()
+      await fixture(page)
+      await page.goto('/my-club?view=recruiting')
+      await page.getByRole('button', { name: 'New opportunity' }).click()
+      await expect(page.getByLabel('Time zone (for example Europe/London)')).toHaveValue(canonical)
+    } finally { await context.close() }
+  })
 }
