@@ -3,10 +3,11 @@
 import logging
 
 from flask import Blueprint, g, jsonify, request
-from src.auth import _safe_error_payload, require_user_auth
+from src.auth import _safe_error_payload
 from src.extensions import limiter
 from src.models.league import db
 from src.services.account import AccountDeletionUnavailable, build_account_export, delete_account
+from src.services.account_standing import require_account_access
 from src.services.stripe_billing import BillingError
 
 logger = logging.getLogger(__name__)
@@ -19,7 +20,7 @@ def _user_rate_limit_key() -> str:
 
 
 @account_bp.route("/account/export", methods=["GET"])
-@require_user_auth
+@require_account_access
 @limiter.limit("3 per hour", key_func=_user_rate_limit_key)
 def export_account_data():
     """Return one portable JSON document containing the caller's DSR data."""
@@ -32,7 +33,7 @@ def export_account_data():
 
 
 @account_bp.route("/account/delete", methods=["POST"])
-@require_user_auth
+@require_account_access
 @limiter.limit("5 per hour", key_func=_user_rate_limit_key)
 def delete_current_account():
     """Immediately and irreversibly delete the authenticated account."""

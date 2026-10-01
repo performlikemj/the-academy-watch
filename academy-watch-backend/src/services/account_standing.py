@@ -60,3 +60,49 @@ def consent_recipient_can_act(contact_request_id):
     account = UserAccount.query.filter_by(email=recipient.strip().lower()).populate_existing().first()
     # No account was bound to this old capability: keep legacy registry recipients.
     return account is None or account_can_act(account)
+
+
+def issue_account_access_token(user):
+    """Separate salt: this credential can never authenticate a normal bearer path."""
+    from flask import current_app
+    from itsdangerous import URLSafeTimedSerializer
+
+    return URLSafeTimedSerializer(current_app.config["SECRET_KEY"], salt="account-access").dumps(
+        {"user_id": user.id, "epoch": user.auth_epoch, "created_at": user.created_at.isoformat()}
+    )
+
+
+def require_account_access(view):
+    """Normal auth or a fresh OTP-bound credential for three account rights only."""
+    from functools import wraps
+
+    from flask import current_app, g, jsonify, request
+    from itsdangerous import URLSafeTimedSerializer
+    from src.auth import resolve_bearer_user
+
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        try:
+            user = resolve_bearer_user()
+        except (BadSignature, LookupError, ValueError):
+            user = None
+        if user is None:
+            try:
+                token = request.headers.get("Authorization", "").removeprefix("Bearer ")
+                data = URLSafeTimedSerializer(current_app.config["SECRET_KEY"], salt="account-access").loads(
+                    token, max_age=900
+                )
+                user = db.session.get(UserAccount, data["user_id"], populate_existing=True)
+                if (
+                    user is None
+                    or user.is_tombstone
+                    or user.auth_epoch != data["epoch"]
+                    or user.created_at.isoformat() != data["created_at"]
+                ):
+                    raise BadSignature("invalid account access")
+            except (BadSignature, KeyError, TypeError):
+                return jsonify(error="invalid auth token"), 401
+        g.user, g.user_id, g.user_email = user, user.id, user.email
+        return view(*args, **kwargs)
+
+    return wrapped

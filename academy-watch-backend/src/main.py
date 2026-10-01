@@ -73,7 +73,7 @@ from src.routes.video import video_bp
 # isort: split
 # --- p2-b3 begin ---
 from src.routes.admin_control import admin_control_bp
-from src.services.admin_control_safety import reconcile_safety_boot, register_safety
+from src.services.admin_control_safety import register_safety
 
 register_safety()
 # --- p2-b3 end ---
@@ -289,10 +289,9 @@ app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
 }
 db.init_app(app)
 # --- p2-b3 begin ---
-from src.services.admin_control_business import record_business_boot
+from src.services.admin_control_safety import register_control_reconciliation
 
-record_business_boot(app)
-reconcile_safety_boot(app)
+register_control_reconciliation(app)
 # --- p2-b3 end ---
 
 

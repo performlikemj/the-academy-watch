@@ -406,6 +406,11 @@ def admin_issue_curator_token():
 
     try:
         user = _ensure_user_account(email)
+        # p2-b3 standing: check before changing permissions or consuming credentials.
+        from src.services.account_standing import account_can_act
+
+        if not account_can_act(user):
+            return jsonify(error="account unavailable"), 403
         user.is_curator = True
         db.session.commit()
 

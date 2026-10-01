@@ -16,12 +16,13 @@ from src.auth import (
 )
 from src.extensions import limiter
 from src.models.admin_control import BillingCashEvent, SafeguardingCase, SafeguardingCaseEvent, now
+from src.models.follow import PlayerShadow
 from src.models.funding import ClubProgram, ClubProgramClaim, ClubProgramManager, FundingLeague
 from src.models.gol_credits import GolCreditLedger
 from src.models.league import EmailToken, UserAccount, db
 from src.models.p2_foundation import AdminActionEvent, NotificationOutbox
 from src.models.player_suppression import PlayerSuppression
-from src.models.showcase import PlayerProfileClaim
+from src.models.showcase import LocalPlayer, PlayerProfileClaim
 from src.models.trust import ContentReport, ScoutVerification
 from src.routes.admin_control import admin_control_bp
 from src.routes.admin_programs import admin_programs_bp
@@ -79,7 +80,14 @@ def control_app(monkeypatch):
         db.create_all()
         admin = UserAccount(email="admin@example.test", display_name="Test Admin", display_name_lower="admin")
         user = UserAccount(email="person@example.test", display_name="Test Person", display_name_lower="person")
-        db.session.add_all([admin, user])
+        db.session.add_all(
+            [
+                admin,
+                user,
+                PlayerShadow(player_api_id=321, player_name="Test Prospect"),
+                LocalPlayer(id=9, display_name="Local Prospect", normalized_name="local prospect"),
+            ]
+        )
         db.session.commit()
         yield app
         db.session.remove()
@@ -162,12 +170,12 @@ def test_suspend_blocks_issued_tokens_otp_optional_and_media_then_restore_needs_
     assert client.get("/optional", headers=h).json == {"authenticated": False}
     with control_app.test_request_context():
         assert media_token_claims(media, 12) is None
-    assert client.post("/api/auth/verify-code", json={"email": person.email, "code": "test-code"}).status_code == 403
+    assert client.post("/api/auth/verify-code", json={"email": person.email, "code": "test-code"}).status_code == 400
     send = Mock()
     monkeypatch.setattr("src.routes.auth_routes._send_login_code", send)
     assert client.post("/api/auth/request-code", json={"email": person.email}).status_code == 200
-    send.assert_not_called()
-    assert EmailToken.query.filter_by(email=person.email).count() == 0
+    send.assert_called_once()
+    assert EmailToken.query.filter_by(email=person.email).count() == 1
     with pytest.raises(ValueError):
         issue_user_token(person.email)
     assert (

@@ -352,6 +352,9 @@ export class APIService {
             } else if (this.userToken) {
                 headers['Authorization'] = `Bearer ${this.userToken}`
             }
+            // --- p2-b3 begin ---
+            if (extra?.accountAccess) headers.Authorization = `Bearer ${extra.accountAccess}`
+            // --- p2-b3 end ---
             const response = await fetch(`${API_BASE_URL}${endpoint}`, { ...options, headers })
 
             if (extra?.nullOn404 && response.status === 404) return null

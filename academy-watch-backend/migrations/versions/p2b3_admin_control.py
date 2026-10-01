@@ -91,15 +91,16 @@ def upgrade():
     ):
         op.execute(sql)
     # Reapplication-safe import; never fabricate a first-action timestamp for old reports.
-    op.execute("""INSERT INTO safeguarding_cases(report_id,target_type,target_id,status,received_at,first_action_due_at,closed_at)
-        SELECT id,subject_type,subject_id,CASE WHEN status IN ('resolved','dismissed') THEN 'closed' ELSE 'open' END,
-        created_at,created_at + interval '24 hours',resolved_at FROM content_reports
+    op.execute("""INSERT INTO safeguarding_cases(report_id,target_type,target_id,status,received_at,first_action_due_at,first_action_at,closed_at)
+        SELECT id,subject_type,subject_id,CASE WHEN status IN ('resolved','dismissed') THEN 'closed' WHEN status='reviewing' THEN 'investigating' ELSE 'open' END,
+        created_at,created_at + interval '24 hours',resolved_at,resolved_at FROM content_reports
         ON CONFLICT(report_id) DO NOTHING""")
     op.execute("""INSERT INTO safeguarding_cases(suppression_id,target_type,target_id,status,received_at,first_action_due_at,first_action_at,closed_at)
         SELECT id,'player_profile',COALESCE(player_api_id,-local_player_id)::text,
         CASE WHEN status IN ('lifted','rejected') THEN 'closed' WHEN status='active' THEN 'investigating' ELSE 'open' END,
         created_at,created_at + interval '24 hours',decided_at,
-        CASE WHEN status IN ('lifted','rejected') THEN decided_at END FROM player_suppressions
+        CASE WHEN status IN ('lifted','rejected') THEN decided_at END FROM player_suppressions s
+        WHERE NOT EXISTS(SELECT 1 FROM safeguarding_cases c WHERE c.owned_suppression_id=s.id)
         ON CONFLICT(suppression_id) DO NOTHING""")
     op.execute(EVENT_GUARD)
 

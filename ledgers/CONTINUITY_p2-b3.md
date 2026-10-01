@@ -13,7 +13,7 @@
 - Done: four pages/backend flows, standing/audit, case intake/actions/outbox, authoritative cash/deployment views, tests, 14 reviewed screenshots and schema-only SQL.
 - Done: latest A2 ef005e35 stack (includes c576762e snapshots); only B3 marked additive shared blocks, permitted narrow standing hooks.
 - Done: draft PR #1115 to main, stacked on #1109: https://github.com/performlikemj/the-academy-watch/pull/1115
-- Now: delivered; hand-back `~/codex-runs/aw-redesign/logs/B3.final.md`.
+- Now: RB3 fix round 1 complete; all 6 MED/10 LOW fixed and safe policy defaults implemented. Hand-back `~/codex-runs/aw-redesign/logs/B3F1.final.md`; push/PR #1115, no merge.
 - Next: orchestrator adversarial review and integration; four head pins updated there, B1/B2 precede p2b3. No flag switch-on authorized.
 
 ## Validation
@@ -31,3 +31,15 @@
 - Own Flask/Vite stopped; aw_p2_b3 dropped and absence verified; copied env/auth/scripts/baseline worktree/browser reports/scratch migration copy and borrowed B1/B2 removed.
 - Retained screenshots, logs/B3.*, p2b3_preapply.sql; worktree retained for review.
 - Limits: anonymous courtesy links follow current standing on restore; authenticated bearer/media epochs still require fresh login. Direct SAS lifetimes retain A2 bounds. Earlier subscription/refund dates and complete legacy public-minor audit unavailable, clearly shown.
+
+## RB3 fix round 1 — complete
+- Merged A2 bdbae2be; both marked standing guards precede access resolution and stay intact. All-squads roles remain squad-scoped; 12 A2 regressions pass.
+- Cash projection runs after authoritative commit, provider fetches before projection transaction, catches/logs failures; signed replay + bounded recent-event job repair missing projections.
+- Startup registers hooks without DB work; authenticated lazy Safety/Business reconciliation is bounded/throttled and catches missing-schema/DB errors.
+- Case holds restore independently of Foundation, preserve source identity after restore, never lift independent/renewed holds. Existing tools sync linked cases; anonymous duplicates preserve evidence and never select recipients; owner moderation events shared.
+- Wrong-code verification identical status/body/query count; correct code grants separately salted, epoch-bound 15-min subscription/account rights. Suspended users can cancel/export/delete; normal actions/checkout remain blocked.
+- UI reason+target confirmation, last-owner warning, escaped/capped/batched/debounced search; dark OPTIONS and oversized IDs guarded. Retained-schema rollback documented.
+- Final full pytest:3545 pass/47 skip/4 expected unchanged head pins; focused123 incl2 real PostgreSQL +12 A2; Node193, Playwright11, Ruff/format, lint0 errors/187 warnings/build pass. No separate JS typecheck command.
+- PostgreSQL real chain upgrade with Safety/Business ON before B3 tables, DB-down CLI boot, invalid-SQL/provider projection isolation + replay, case idempotency, source timestamp/backfill twice, retained downgrade guard and preapply SQL twice pass.
+- shots/B3 refreshed:22 visually reviewed PNGs (20 live +2 labelled account-access browser fixtures). All live page journeys200, no errors/overflow; confirmations cancelled.
+- Cleanup: owned5142/5198 stopped, aw_p2_b3 dropped/absence verified, own credentials/scripts/reports/montages and borrowed B1/B2 migrations removed; tracked legacy report restored. No production/provider writes or flag changes.

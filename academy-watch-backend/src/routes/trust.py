@@ -464,6 +464,11 @@ def admin_resolve_content_report(report_id: int):
         report.status = status
         report.resolution_notes = resolution_notes
         report.resolved_at = datetime.now(UTC)
+        # --- p2-b3 begin ---
+        from src.services.admin_control_safety import sync_source_case
+
+        sync_source_case(report, g.user_email, resolution_notes)
+        # --- p2-b3 end ---
         db.session.commit()
         return jsonify({"report": report.admin_dict()})
     except ValueError as exc:

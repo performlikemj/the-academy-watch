@@ -74,10 +74,12 @@ test('program hide and owner assignment call A1 and A2 contracts with reasons', 
     await page.getByRole('button', { name: /Test Program/ }).click()
     await page.getByLabel('Reason for emergency hide').fill('Reported publication')
     await page.getByRole('button', { name: 'Emergency hide', exact: true }).click()
+    await page.getByRole('button', { name: 'Confirm emergency hide', exact: true }).click()
     await expect(page.getByText('Emergency hidden', { exact: true })).toBeVisible()
     await page.getByLabel('Assign owner', { exact: true }).selectOption('2')
     await page.getByLabel('Reason for assign owner').fill('Explicit assignment')
     await page.getByRole('button', { name: 'Assign owner', exact: true }).click()
+    await page.getByRole('button', { name: 'Confirm assign owner', exact: true }).click()
     await expect(page.getByText('Owner · active')).toBeVisible()
     expect(mutations).toEqual([['/api/admin/programs/1/emergency-hide', { reason: 'Reported publication' }], ['/api/admin/programs/1/owner', { user_account_id: 2, reason: 'Explicit assignment' }]])
 })
@@ -92,6 +94,7 @@ test('people metadata omits injected private content and suspension errors stay 
     await page.getByLabel('Reason for suspend account').fill('Review required')
     await page.route('**/api/admin/users/2/suspend', route => route.fulfill({ status: 403, json: { error: 'Suspension denied' } }))
     await page.getByRole('button', { name: 'Suspend account', exact: true }).click()
+    await page.getByRole('button', { name: 'Confirm suspend account', exact: true }).click()
     await expect(page.getByRole('alert')).toContainText('Suspension denied')
 })
 
@@ -112,9 +115,11 @@ test('case actions include version, record hidden state and retain hold on closu
     await page.getByRole('button', { name: /Case 1/ }).click()
     await page.getByLabel('Reason for this case action').fill('Hide pending review')
     await page.getByRole('button', { name: 'Hide now', exact: true }).click()
+    await page.getByRole('button', { name: 'Confirm hide now', exact: true }).click()
     await expect(page.getByRole('heading', { name: 'Hidden while we review' })).toBeVisible()
     await page.getByLabel('Reason for this case action').fill('Review completed')
     await page.getByRole('button', { name: 'Close case', exact: true }).click()
+    await page.getByRole('button', { name: 'Confirm close case', exact: true }).click()
     await expect(page.getByRole('button', { name: 'Hide now', exact: true })).toHaveCount(0)
     await expect(page.getByRole('heading', { name: 'Hidden while we review' })).toBeVisible()
 })
@@ -136,3 +141,66 @@ test('business filters dates, keeps currencies separate and has read-only switch
     await page.getByLabel('To', { exact: true }).fill('2026-09-30')
     await expect.poll(() => dates.at(-1)).toEqual(['2026-09-01', '2026-09-30'])
 })
+
+
+test('destructive confirmations name target, warn last owner and cancel without writing', async ({ page }) => {
+    const writes = []
+    const person = { id: 2, display_name: 'Only Owner', email: 'owner@example.test', account_status: 'active', roles: ['club_owner'], programs: [], approved_claims: 0 }
+    await mockControl(page, (url, request) => {
+        if (request.method() === 'POST') writes.push(url.pathname)
+        return url.pathname === '/api/admin/people/2' ? { person, last_owner_programs: ['Fixture FC'] } : { ...empty, total: 1, rows: [person] }
+    })
+    await page.goto('/admin/people')
+    await page.getByRole('button', { name: /Only Owner/ }).click()
+    await page.getByLabel('Reason for suspend account').fill('Pending review')
+    await page.getByRole('button', { name: 'Suspend account', exact: true }).click()
+    const dialog = page.getByRole('dialog')
+    await expect(dialog).toContainText('Only Owner (owner@example.test)')
+    await expect(dialog).toContainText('last active owner of Fixture FC')
+    await expect(dialog).toContainText('Pending review')
+    expect(writes).toEqual([])
+    await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+    expect(writes).toEqual([])
+})
+
+test('search is bounded and debounced across fast typing', async ({ page }) => {
+    const searches = []
+    await mockControl(page, url => { if (url.pathname === '/api/admin/people') searches.push(url.searchParams.get('q')); return empty })
+    await page.goto('/admin/people')
+    const input = page.getByRole('textbox', { name: 'Search people' })
+    await expect(input).toHaveAttribute('maxlength', '120')
+    await input.fill('a'); await input.fill('ad'); await input.fill('admin')
+    await expect.poll(() => searches.at(-1)).toBe('admin')
+    expect(searches).not.toContain('a'); expect(searches).not.toContain('ad')
+})
+
+for (const width of [1440, 390]) {
+    test(`correct-code account access offers cancellation export and deletion at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: width === 390 ? 844 : 900 })
+        await page.route('**/api/**', async route => {
+            const path = new URL(route.request().url()).pathname
+            if (path === '/api/auth/request-code') return route.fulfill({ json: { message: 'Login code sent' } })
+            if (path === '/api/auth/verify-code') return route.fulfill({ status: 403, json: { error: 'Sign-in unavailable. You can still manage your subscription and account.', account_access_token: 'fixture-limited-access' } })
+            if (path === '/api/account/export') {
+                expect(route.request().headers().authorization).toBe('Bearer fixture-limited-access')
+                return route.fulfill({ json: { account: { display_name: 'Fixture Account' } } })
+            }
+            return route.fulfill({ json: {} })
+        })
+        await page.goto('/settings')
+        if (width === 390) await page.getByRole('button', { name: 'Toggle navigation menu' }).click()
+        await page.getByRole('button', { name: /^sign in$/i }).click()
+        await page.getByLabel('Email', { exact: true }).fill('fixture@example.test')
+        await page.getByRole('button', { name: 'Send login code' }).click()
+        await page.getByLabel('Verification code').fill('valid-fixture')
+        await page.getByRole('button', { name: 'Verify & sign in' }).click()
+        await expect(page.getByRole('button', { name: 'Manage or cancel subscription' })).toBeVisible()
+        await expect(page.getByRole('button', { name: 'Delete my account' })).toBeVisible()
+        await expect(page.getByRole('button', { name: 'Delete my account' })).toBeDisabled()
+        const download = page.waitForEvent('download')
+        await page.getByRole('button', { name: 'Export my data' }).click()
+        expect((await download).suggestedFilename()).toBe('academy-watch-account.json')
+        await expect(page.getByText('Your account export has been downloaded.')).toBeVisible()
+        if (process.env.B3_SHOTS_DIR) await page.screenshot({ path: `${process.env.B3_SHOTS_DIR}/account-access-${width === 390 ? 'mobile' : 'desktop'}.png`, fullPage: true })
+    })
+}

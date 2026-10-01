@@ -37,8 +37,8 @@ Draft, stacked on A2 #1109. No production switch-on is part of this lane.
   are idempotent.
 - `account_status`/`auth_epoch` are separate from personas and grants. Suspension
   checks are **persistent even after the page flag is switched OFF**. Active users
-  keep their existing access. OTP requests remain neutral, suspended verification
-  refuses, central bearer serializer covers optional-auth/curator/admin consumers,
+  keep their existing access. OTP requests remain neutral; correct-code suspended verification grants only
+  restricted subscription/account rights, central bearer serializer covers optional-auth/curator/admin consumers,
   and `resolve_bearer_user` continues its existing identity-generation checks.
 - User/admin media tokens and legacy email-bound media capabilities recheck live
   standing. Newly minted media tokens carry the account epoch. Restore requires
@@ -71,15 +71,15 @@ Draft, stacked on A2 #1109. No production switch-on is part of this lane.
   resolve to their owning player. Existing active suppressions are never owned/lifted
   by another case. No public serialization is added, and no adult rule is weakened.
 - `investigate`, `club_contact`, `close` record actions. Version conflicts return 409.
-  Closing a case **does not lift any hold**. Restore requires a separate reviewed lift
-  in the original hold/suppression tool; unsupported content targets link to existing
+  Closing a case **does not lift any hold**. The case restore action lifts only its own hold, even with Foundation OFF.
+  A later independent moderation decision prevents case restore; unsupported content targets link to existing
   moderation and refuse automatic hide, rather than pretending they are hidden.
 - Detail exposes only its reported statement/reason and its action history; unrelated
   feedback/notes/messages are never queried. Evidence reads are audited.
 - A1 outbox `safeguarding_update` sends generic, PII-free hidden/closed updates and
   rechecks authoritative recipient/source/hold state. Payload carries only case ID,
-  version and registered enum. Reporters use their account ID; anonymous legacy
-  takedowns can notify only if their supplied contact matches an existing account.
+  version and registered enum. Reporters use their account ID; anonymous
+  takedowns never select a notification recipient, and duplicates preserve original evidence.
   No account is created for anonymous intake. Missing recipient/foundation-disabled
   states are shown honestly; email providers are not called from requests.
 - Hidden inventory has separate paginated player suppressions and program holds.
@@ -91,13 +91,12 @@ Draft, stacked on A2 #1109. No production switch-on is part of this lane.
 - GET `/api/admin/business/summary?from=YYYY-MM-DD&to=YYYY-MM-DD&limit=&offset=`.
   Inclusive UTC days, maximum 366; currency totals cover the full filter independently
   of pagination. Film Room credit returns and MRR are never counted as cash.
-- `billing_cash_events` is a durable projection called inside verified webhook
-  processing. Receipts use individual invoice-payment amounts (modern Stripe) or
+- `billing_cash_events` is a durable projection runs after the verified webhook commits, in its own transaction. Receipts use individual invoice-payment amounts (modern Stripe) or
   payment-backed zero-balance legacy invoice totals; paid GOL checkout receipts
   survive account deletion. Refunds use successful individual refund IDs and dates,
   never repeated cumulative `amount_refunded`. Unique source keys handle duplicate
   and out-of-order webhook delivery. Modern payments/truncated refunds are paged
-  via Stripe read APIs; failures roll back the webhook and follow existing retry behavior.
+  via Stripe read APIs; provider reads happen before the projection transaction; failures are logged and never roll back billing. Signed webhook replay repairs missing rows. Run `python -m src.jobs.reconcile_business_cash` periodically to repair the latest 50 provider events (bounded, idempotent); older gaps require signed event replay.
 - Historical GOL grants supplement receipts only when no matching cash projection
   exists. Earlier subscription receipts/refund timestamps cannot be reconstructed
   from price/MRR or mutable cumulative settlements. Coverage is explicit in the UI.
@@ -107,7 +106,7 @@ Draft, stacked on A2 #1109. No production switch-on is part of this lane.
   initiation API or in-app freeze toggle. Effective and configured newsletter freeze
   are distinguished; football freeze still implies newsletter freeze, stored reads remain.
 - `business_deployment_states` observes immutable `CONTAINER_APP_REVISION` (or
-  `AW_DEPLOYMENT_ID`) at enabled app startup, deduplicated across workers. Optional
+  `AW_DEPLOYMENT_ID`) on the first authenticated Business read (at most once every five minutes per worker), deduplicated across workers. Startup only registers hooks and never queries the DB. Optional
   command: `python -m src.jobs.record_business_deployment`. It records env truth only.
   No deployment identity means no invented deployment log row.
 
@@ -123,3 +122,30 @@ Draft, stacked on A2 #1109. No production switch-on is part of this lane.
 - Schema-only SQL for orchestrator review: `~/codex-runs/aw-redesign/p2b3_preapply.sql`.
   Generated from the migration operations/constants and reapplied twice on the scratch DB.
   It changes no flags and does not stamp Alembic.
+
+
+## RB3 safe defaults and rollback
+
+- Wrong-code verification has identical 400 status/body and query count for unknown,
+  active and suspended accounts. Correct code is consumed before a neutral unavailable
+  response gives a separately salted, epoch-bound, 15-minute account-access token.
+  It authenticates only account export/delete and the billing portal. Login UI exposes
+  those actions; normal bearer/admin/media/checkout access remains blocked. Suspended
+  users can still cancel subscriptions, export their data and delete their account.
+- Suspend, emergency hide, case hide and case close require a reason and a confirmation
+  naming the target. Suspending the last active owner warns that nobody remains to
+  manage staff or billing. A clip report continues to hide the whole player page.
+- People/program pages escape LIKE wildcards, cap search at 120 characters and debounce
+  typing by 300ms. Page sizes cap at 100; counts and people metadata use grouped/batched
+  queries rather than one query per row/grant. The clubs filter requires an approved
+  source claim, matching the club-manager badge.
+- Safety reconciliation is lazy on authenticated admin reads, at most once per five
+  minutes per worker and 500 missing rows per source per pass; absent schema/DB errors
+  are caught/logged. Existing moderation decisions update linked cases transactionally.
+  Reconciliation excludes case-owned suppressions and intake deduplicates by source ID.
+- **Rollback is application/flag rollback while retaining the additive schema.** Migration
+  backfill creates retained cases on real data; destructive Alembic downgrade refuses
+  them, cash/history/deployment rows and changed account standing. This is deliberate.
+  Do not delete evidence or reset auth epochs to force a downgrade. Empty scratch
+  installations may downgrade. Keep safety recovery available and restore accounts
+  through audited administration if policy calls for it; flags OFF preserve standing.

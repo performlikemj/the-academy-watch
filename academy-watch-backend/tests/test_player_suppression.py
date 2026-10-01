@@ -484,8 +484,8 @@ def test_public_intake_is_neutral_sanitized_encrypted_and_not_contact_gated(clie
     assert attached.status_code == 202
     assert PlayerSuppression.query.filter_by(player_api_id=SUPPRESSED_ID).count() == 1
     db.session.refresh(known_row)
-    assert known_row.requester_contact == "new@example.com"
-    assert known_row.request_statement == "Updated request"
+    assert known_row.requester_contact == "guardian@example.com"
+    assert "Please remove" in known_row.request_statement
 
     known_row.status = "active"
     db.session.commit()
@@ -496,8 +496,8 @@ def test_public_intake_is_neutral_sanitized_encrypted_and_not_contact_gated(clie
     )
     assert duplicate_active.status_code == 202
     db.session.refresh(known_row)
-    assert known_row.requester_contact == "new@example.com"
-    assert known_row.request_statement == "Updated request"
+    assert known_row.requester_contact == "guardian@example.com"
+    assert "Please remove" in known_row.request_statement
 
 
 def test_public_intake_rate_limit_keys_on_remote_addr_not_spoofed_xff(client):

@@ -1,6 +1,8 @@
 """Cash projection from verified Stripe events, plus separately labelled GOL history."""
 
+import logging
 import os
+from copy import deepcopy
 from datetime import UTC, datetime
 
 import sqlalchemy as sa
@@ -38,10 +40,45 @@ def _remote_rows(resource, **params):
     raise ValueError("cash projection pagination exceeded; retry/reconcile required")
 
 
-def project_cash(event_type, obj, event_id, created):
-    """Caller has verified webhook signature; inserts share its idempotent transaction."""
+def prepare_cash(event_type, obj):
+    """Fetch missing provider rows before opening any projection transaction."""
+    obj = deepcopy(dict(obj))
+    if event_type == "invoice.paid":
+        payments = obj.get("payments") or {}
+        if payments.get("has_more") or (
+            not obj.get("payment_intent") and not obj.get("charge") and not payments.get("data")
+        ):
+            obj["payments"] = {"data": _remote_rows("InvoicePayment", invoice=obj["id"])}
+    elif event_type == "charge.refunded":
+        if (obj.get("refunds") or {}).get("has_more") or "refunds" not in obj:
+            obj["refunds"] = {"data": _remote_rows("Refund", charge=obj["id"])}
+    return obj
+
+
+def project_cash_isolated(event_type, obj, event_id, created):
+    """Best effort after authoritative commit, including on signed replay."""
     if not enabled():
         return
+    try:
+        db.session.remove()
+        prepared = prepare_cash(event_type, obj)
+        project_cash(event_type, prepared, event_id, created, prepared=True)
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        logging.getLogger(__name__).exception(
+            "Cash projection failed for %s; signed replay or reconcile repairs it", event_id
+        )
+    finally:
+        db.session.remove()
+
+
+def project_cash(event_type, obj, event_id, created, *, prepared=False):
+    """Idempotent projection; webhook callers MUST use project_cash_isolated."""
+    if not enabled():
+        return
+    if not prepared:
+        obj = prepare_cash(event_type, obj)
     currency = str(obj.get("currency") or "").lower()
     if len(currency) != 3 or not currency.isalpha():
         return
@@ -79,8 +116,6 @@ def project_cash(event_type, obj, event_id, created):
         payment_intent = _id(obj.get("payment_intent"))
         charge = _id(obj.get("charge"))
         payments = (obj.get("payments") or {}).get("data", [])
-        if (obj.get("payments") or {}).get("has_more") or (not payment_intent and not charge and not payments):
-            payments = _remote_rows("InvoicePayment", invoice=obj["id"])
         if not payment_intent and not charge and not payments:
             return
         if not payments and (obj.get("paid_out_of_band") or obj.get("starting_balance", 0) != 0):
@@ -163,8 +198,6 @@ def project_cash(event_type, obj, event_id, created):
         # Individual refund IDs/timestamps give accurate date filters and dedupe.
         # Never count a cumulative amount again for each charge.refunded event.
         refunds = (obj.get("refunds") or {}).get("data", [])
-        if (obj.get("refunds") or {}).get("has_more") or "refunds" not in obj:
-            refunds = _remote_rows("Refund", charge=obj["id"])
         for refund in refunds:
             if refund.get("status") != "succeeded":
                 continue
@@ -263,6 +296,21 @@ def record_business_boot(app):
                 observe_deployment()
                 db.session.flush()
             db.session.commit()
-        except IntegrityError:
-            # Concurrent workers observing the same immutable revision.
+        except Exception:
+            logging.getLogger(__name__).exception("Business deployment observation deferred")
+            # Concurrent workers or temporarily unavailable schema/database.
             db.session.rollback()
+
+
+def reconcile_cash(*, limit=50):
+    """Explicit bounded job: re-fetch recent verified provider events, no DB locks over I/O."""
+    if not enabled():
+        return
+    import stripe
+    from src.config.stripe_config import configure_stripe
+
+    configure_stripe()
+    db.session.remove()
+    events = stripe.Event.list(limit=max(1, min(100, limit)))
+    for event in events.get("data", []):
+        project_cash_isolated(event["type"], event["data"]["object"], event["id"], event["created"])

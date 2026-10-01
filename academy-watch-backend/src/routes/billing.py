@@ -15,6 +15,7 @@ from src.config.stripe_config import (
 from src.extensions import limiter
 from src.models.billing import BillingCustomer
 from src.models.league import db
+from src.services.account_standing import require_account_access
 from src.services.gol_credits import balances, free_allowance, purchases_for_user
 from src.services.stripe_billing import (
     BillingError,
@@ -151,7 +152,7 @@ def billing_checkout():
 
 @billing_bp.route("/billing/portal", methods=["POST"])
 @require_billing_rail
-@require_user_auth
+@require_account_access
 @limiter.limit("10 per minute", key_func=_user_rate_limit_key)
 def billing_portal():
     try:

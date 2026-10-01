@@ -6,7 +6,7 @@ from functools import wraps
 from urllib.parse import quote
 
 import sqlalchemy as sa
-from flask import Blueprint, g, jsonify, request
+from flask import Blueprint, abort, current_app, g, jsonify, request
 from src.auth import _admin_email_list, require_api_key
 from src.models.admin_control import (
     BusinessDeploymentState,
@@ -46,11 +46,42 @@ def page(which):
         def wrapped(*args, **kwargs):
             if not flag_enabled(FLAGS[which]):
                 return jsonify({"error": "Not found"}), 404
-            return require_api_key(view)(*args, **kwargs)
+
+            @wraps(view)
+            def authorized(*args, **kwargs):
+                from src.services.admin_control_safety import lazy_reconcile
+
+                if any(isinstance(v, int) and not 0 < v <= 2147483647 for v in kwargs.values()):
+                    return jsonify(error="ID is out of range"), 400
+                if request.method == "GET" and which in {"safety", "business"}:
+                    lazy_reconcile(current_app, which)
+                return view(*args, **kwargs)
+
+            return require_api_key(authorized)(*args, **kwargs)
 
         return wrapped
 
     return decorate
+
+
+@admin_control_bp.before_app_request
+def hide_dark_control_routes():
+    path = request.path.rstrip("/")
+    for name, prefix in (
+        ("programs", "/api/admin/programs"),
+        ("people", "/api/admin/people"),
+        ("people", "/api/admin/users"),
+        ("safety", "/api/admin/safety"),
+        ("business", "/api/admin/business"),
+    ):
+        # Existing tools (users, owner/emergency) retain their separate gates.
+        endpoint = request.endpoint or ""
+        if (
+            endpoint.startswith("admin_control.")
+            and (path == prefix or path.startswith(prefix + "/"))
+            and not flag_enabled(FLAGS[name])
+        ):
+            abort(404)
 
 
 @admin_control_bp.after_request
@@ -69,7 +100,28 @@ def iso(value):
     return value.isoformat() + "Z" if value else None
 
 
-def program_dict(program):
+def search_pattern():
+    search = request.args.get("q", "").strip()
+    if len(search) > 120:
+        abort(400, description="Search must be at most 120 characters")
+    return "%" + search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%" if search else None
+
+
+def program_counts(ids):
+    result = {pid: {} for pid in ids}
+    for label, model, column, predicate in (
+        ("players", ClubRosterMember, ClubRosterMember.program_id, sa.true()),
+        ("managers", ClubProgramManager, ClubProgramManager.program_id, ClubProgramManager.status == "active"),
+        ("matches", VideoMatch, VideoMatch.club_program_id, sa.true()),
+        ("claims_pending", ClubProgramClaim, ClubProgramClaim.program_id, ClubProgramClaim.status == "pending"),
+    ):
+        for pid, count in db.session.query(column, sa.func.count()).filter(column.in_(ids), predicate).group_by(column):
+            result[pid][label] = count
+    return result
+
+
+def program_dict(program, counts=None):
+    counts = counts if counts is not None else program_counts([program.id])[program.id]
     return {
         "id": program.id,
         "name": program.name,
@@ -82,10 +134,10 @@ def program_dict(program):
         "platform_status": program.platform_status,
         "emergency_hidden": bool(program.emergency_hidden),
         "verified_at": iso(program.verified_at),
-        "players": ClubRosterMember.query.filter_by(program_id=program.id).count(),
-        "managers": ClubProgramManager.query.filter_by(program_id=program.id, status="active").count(),
-        "matches": VideoMatch.query.filter_by(club_program_id=program.id).count(),
-        "claims_pending": ClubProgramClaim.query.filter_by(program_id=program.id, status="pending").count(),
+        "players": counts.get("players", 0),
+        "managers": counts.get("managers", 0),
+        "matches": counts.get("matches", 0),
+        "claims_pending": counts.get("claims_pending", 0),
     }
 
 
@@ -94,22 +146,19 @@ def program_dict(program):
 def programs():
     limit, offset = pagination()
     query = ClubProgram.query
-    search = request.args.get("q", "").strip()[:120]
+    search = search_pattern()
     if search:
         query = query.filter(
             sa.or_(
-                ClubProgram.name.ilike(f"%{search}%"),
-                ClubProgram.city.ilike(f"%{search}%"),
-                ClubProgram.region.ilike(f"%{search}%"),
+                ClubProgram.name.ilike(search, escape="\\"),
+                ClubProgram.city.ilike(search, escape="\\"),
+                ClubProgram.region.ilike(search, escape="\\"),
             )
         )
+    rows = query.order_by(ClubProgram.name, ClubProgram.id).offset(offset).limit(limit).all()
+    counts = program_counts([row.id for row in rows])
     return jsonify(
-        total=query.count(),
-        rows=[
-            program_dict(row) for row in query.order_by(ClubProgram.name, ClubProgram.id).offset(offset).limit(limit)
-        ],
-        limit=limit,
-        offset=offset,
+        total=query.count(), rows=[program_dict(row, counts[row.id]) for row in rows], limit=limit, offset=offset
     )
 
 
@@ -149,46 +198,58 @@ def program_detail(program_id):
     )
 
 
-def person_dict(user):
+def people_context(ids):
+    context = {uid: {"claims": [], "managers": [], "grants": [], "verification": None} for uid in ids}
+    for row in PlayerProfileClaim.query.filter(
+        PlayerProfileClaim.user_account_id.in_(ids), PlayerProfileClaim.status == "approved"
+    ):
+        context[row.user_account_id]["claims"].append(row)
+    managers = (
+        db.session.query(ClubProgramManager, ClubProgram)
+        .join(ClubProgram)
+        .join(
+            ClubProgramClaim,
+            sa.and_(ClubProgramClaim.id == ClubProgramManager.source_claim_id, ClubProgramClaim.status == "approved"),
+        )
+        .filter(ClubProgramManager.user_account_id.in_(ids), ClubProgramManager.status == "active")
+    )
+    for manager, program in managers:
+        context[manager.user_account_id]["managers"].append((manager, program))
+    if flag_enabled("CLUB_STAFF_ACCESS_ENABLED"):
+        for grant in ClubAccessGrant.query.join(ClubProgram, ClubProgram.id == ClubAccessGrant.program_id).filter(
+            ClubAccessGrant.user_account_id.in_(ids),
+            ClubAccessGrant.status == "active",
+            ClubProgram.platform_status == "approved",
+            ClubProgram.emergency_hidden.is_(False),
+        ):
+            context[grant.user_account_id]["grants"].append(grant)
+    for row in ScoutVerification.query.filter(ScoutVerification.user_account_id.in_(ids)).order_by(
+        ScoutVerification.submitted_at.desc(), ScoutVerification.id.desc()
+    ):
+        if context[row.user_account_id]["verification"] is None:
+            context[row.user_account_id]["verification"] = row
+    return context
+
+
+def person_dict(user, context=None):
     roles = []
     if (user.email or "").lower() in {email.lower() for email in _admin_email_list()}:
         roles.append("admin")
     for name, attribute in (("writer", "is_journalist"), ("editor", "is_editor"), ("curator", "is_curator")):
         if getattr(user, attribute):
             roles.append(name)
-    claims = PlayerProfileClaim.query.filter_by(user_account_id=user.id, status="approved").all()
+    context = context if context is not None else people_context([user.id])[user.id]
+    claims, managers, grants = context["claims"], context["managers"], context["grants"]
     roles.extend(sorted({claim.relationship_type for claim in claims}))
-    managers = (
-        db.session.query(ClubProgramManager, ClubProgram)
-        .join(ClubProgram)
-        .join(
-            ClubProgramClaim,
-            sa.and_(
-                ClubProgramClaim.program_id == ClubProgramManager.program_id,
-                ClubProgramClaim.user_account_id == user.id,
-                ClubProgramClaim.status == "approved",
-            ),
-        )
-        .filter(ClubProgramManager.user_account_id == user.id, ClubProgramManager.status == "active")
-        .all()
-    )
-    grants = (
-        ClubAccessGrant.query.filter_by(user_account_id=user.id, status="active").all()
-        if flag_enabled("CLUB_STAFF_ACCESS_ENABLED")
-        else []
-    )
     if managers:
         roles.append("club_manager")
-    # Derived staff roles require live access; suspended roles remain provenance, not authorization.
-    from src.services.club_access import resolve_club_access
-
     if user.account_status == "active":
-        roles.extend(f"club_{grant.role}" for grant in grants if resolve_club_access(user.id, grant.program_id))
-    verification = (
-        ScoutVerification.query.filter_by(user_account_id=user.id)
-        .order_by(ScoutVerification.submitted_at.desc(), ScoutVerification.id.desc())
-        .first()
-    )
+        roles.extend(
+            f"club_{grant.role}"
+            for grant in grants
+            if grant.role != "owner" or any(program.id == grant.program_id for _, program in managers)
+        )
+    verification = context["verification"]
     if verification:
         roles.append("verified_scout" if verification.status == "approved" else f"scout_{verification.status}")
     return {
@@ -212,10 +273,10 @@ def person_dict(user):
 def people():
     limit, offset = pagination()
     query = UserAccount.query.filter(UserAccount.is_tombstone.is_(False))
-    search = request.args.get("q", "").strip()[:120]
+    search = search_pattern()
     if search:
         query = query.filter(
-            sa.or_(UserAccount.email.ilike(f"%{search}%"), UserAccount.display_name.ilike(f"%{search}%"))
+            sa.or_(UserAccount.email.ilike(search, escape="\\"), UserAccount.display_name.ilike(search, escape="\\"))
         )
     role = request.args.get("role", "all")
     if role == "players":
@@ -229,7 +290,9 @@ def people():
     elif role == "clubs":
         query = query.filter(
             UserAccount.id.in_(
-                sa.select(ClubProgramManager.user_account_id).where(ClubProgramManager.status == "active")
+                sa.select(ClubProgramManager.user_account_id)
+                .join(ClubProgramClaim, ClubProgramClaim.id == ClubProgramManager.source_claim_id)
+                .where(ClubProgramManager.status == "active", ClubProgramClaim.status == "approved")
             )
         )
     elif role == "scouts":
@@ -244,9 +307,11 @@ def people():
         query = query.filter(sa.func.lower(UserAccount.email).in_([email.lower() for email in _admin_email_list()]))
     elif role != "all":
         return jsonify(error="Unknown people filter"), 400
+    rows = query.order_by(UserAccount.id).offset(offset).limit(limit).all()
+    context = people_context([row.id for row in rows])
     return jsonify(
         total=query.count(),
-        rows=[person_dict(user) for user in query.order_by(UserAccount.id).offset(offset).limit(limit)],
+        rows=[person_dict(user, context[user.id]) for user in rows],
         limit=limit,
         offset=offset,
     )
@@ -258,7 +323,47 @@ def person_detail(user_id):
     user = db.session.get(UserAccount, user_id)
     if user is None or user.is_tombstone:
         return jsonify(error="Not found"), 404
-    return jsonify(person=person_dict(user))
+    return jsonify(person=person_dict(user), last_owner_programs=last_owner_programs(user.id))
+
+
+def last_owner_programs(uid):
+    other = sa.orm.aliased(ClubAccessGrant)
+    qualified_other = (
+        db.session.query(other.id)
+        .join(UserAccount, UserAccount.id == other.user_account_id)
+        .join(
+            ClubProgramManager,
+            sa.and_(
+                ClubProgramManager.program_id == other.program_id,
+                ClubProgramManager.user_account_id == UserAccount.id,
+                ClubProgramManager.status == "active",
+            ),
+        )
+        .join(
+            ClubProgramClaim,
+            sa.and_(ClubProgramClaim.id == ClubProgramManager.source_claim_id, ClubProgramClaim.status == "approved"),
+        )
+        .filter(
+            other.program_id == ClubProgram.id,
+            other.role == "owner",
+            other.status == "active",
+            UserAccount.account_status == "active",
+            UserAccount.is_tombstone.is_(False),
+            UserAccount.id != uid,
+        )
+    )
+    return [
+        name
+        for (name,) in db.session.query(ClubProgram.name)
+        .join(ClubAccessGrant, ClubAccessGrant.program_id == ClubProgram.id)
+        .filter(
+            ClubAccessGrant.user_account_id == uid,
+            ClubAccessGrant.status == "active",
+            ClubAccessGrant.role == "owner",
+            ~qualified_other.exists(),
+        )
+        .order_by(ClubProgram.id)
+    ]
 
 
 @admin_control_bp.post("/admin/users/<int:user_id>/<action>")

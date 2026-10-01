@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { APIService } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
 
 export function useControlFlags() {
     const [flags, setFlags] = useState(null)
@@ -62,27 +63,39 @@ export const splitClass = 'grid min-w-0 gap-8 xl:grid-cols-[minmax(0,1fr)_360px]
 export const metaClass = 'font-mono text-[11px] uppercase tracking-[.14em] text-muted-dark'
 export const stamp = value => value ? new Date(value).toLocaleString() : 'Never'
 
-export function ReasonAction({ label, action, onDone, disabled = false }) {
+export function ReasonAction({ label, action, onDone, disabled = false, target, warning }) {
     const [reason, setReason] = useState('')
     const [error, setError] = useState('')
     const [busy, setBusy] = useState(false)
-    async function submit(event) {
-        event.preventDefault()
+    const [confirming, setConfirming] = useState(false)
+    async function submit() {
         if (!reason.trim()) return
         setBusy(true)
         setError('')
         try { await action(reason.trim()); setReason(''); onDone?.() }
         catch (err) { setError(err.message || 'Action failed. Try again.') }
-        finally { setBusy(false) }
+        finally { setBusy(false); setConfirming(false) }
     }
-    return <form onSubmit={submit} className="mt-5 space-y-3">
+    return <form onSubmit={event => { event.preventDefault(); setConfirming(true) }} className="mt-5 space-y-3">
         <label className="block text-sm">Reason for {label.toLowerCase()}<Input value={reason} onChange={event => setReason(event.target.value)} required maxLength={2000} disabled={disabled || busy} className="mt-2" /></label>
         <Button type="submit" variant="outline" disabled={disabled || busy || !reason.trim()} className="w-full">{busy ? 'Saving…' : label}</Button>
         {error && <p role="alert" className="text-sm text-chalk">{error}</p>}
+        <ConfirmAction open={confirming} onCancel={() => setConfirming(false)} onConfirm={submit} label={label} target={target} reason={reason} warning={warning} busy={busy} />
     </form>
 }
 
 export function Pagination({ data, offset, setOffset }) {
     if (!data || data.total <= data.limit) return null
     return <div className="mt-5 flex flex-wrap items-center gap-3"><Button variant="outline" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - data.limit))}>Previous</Button><span className="text-sm text-muted-dark">{offset + 1}–{Math.min(offset + data.limit, data.total)} of {data.total}</span><Button variant="outline" disabled={offset + data.limit >= data.total} onClick={() => setOffset(offset + data.limit)}>Next</Button></div>
+}
+
+
+export function ConfirmAction({ open, onCancel, onConfirm, label, target, reason, warning, busy }) {
+    return <Dialog open={open} onOpenChange={value => { if (!value && !busy) onCancel() }}><DialogContent><DialogHeader><DialogTitle>Confirm {label?.toLowerCase()}</DialogTitle><DialogDescription>{label} for {target}. Reason: {reason}</DialogDescription></DialogHeader>{warning && <p role="alert" className="text-sm">{warning}</p>}<DialogFooter><Button variant="outline" disabled={busy} onClick={onCancel}>Cancel</Button><Button disabled={busy} onClick={onConfirm}>Confirm {label?.toLowerCase()}</Button></DialogFooter></DialogContent></Dialog>
+}
+
+export function useDebouncedSearch(value) {
+    const [search, setSearch] = useState(value)
+    useEffect(() => { const timer = setTimeout(() => setSearch(value), 300); return () => clearTimeout(timer) }, [value])
+    return search
 }
