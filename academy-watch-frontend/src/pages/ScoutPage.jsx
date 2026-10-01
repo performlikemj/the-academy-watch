@@ -1,3 +1,4 @@
+import { CleatLoader } from '@/components/CleatLoader'
 import { useDataMode } from '@/hooks/useDataMode'
 import { useState, useEffect, useMemo, useCallback, useRef, Fragment } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
@@ -400,7 +401,7 @@ function CompareDialog({ open, onOpenChange, playerIds, season, seasonOverride, 
 
         {loading ? (
           <div className="flex items-center justify-center py-12">
-            <Loader2 className="h-6 w-6 animate-spin text-gold" />
+            <CleatLoader surface="night" />
           </div>
         ) : error ? (
           <p className="py-8 text-center text-sm text-destructive">{error}</p>

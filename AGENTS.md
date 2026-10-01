@@ -110,6 +110,8 @@ Log one-liner in CONTINUITY.md's "Trivial Log" section.
 
 ## Codebase Patterns
 
+- Web loader primitives live in `academy-watch-frontend/src/lib/cleat-loader.js`; after edits run `node academy-watch-frontend/scripts/sync-cleat-splash.mjs` to refresh the request-free inline boot snapshot. The Node parity test protects both copies.
+
 > Agents: Add patterns here when you discover reusable conventions.
 
 - Frozen legacy public pages use `src/lib/legacyRoutes.js` in the frontend; keep imports gated by `LEGACY_PUBLIC_PAGES`. Backend legacy URLs use `src/utils/legacy_pages.py` (`LEGACY_PUBLIC_PAGES` + `legacy_public_url`); sitemap enumeration/cache filtering, email contexts and public emitters share it. Keep frontend/backend gates aligned. Admin/writer/curator routes remain separate.
