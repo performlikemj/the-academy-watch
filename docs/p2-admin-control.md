@@ -143,7 +143,9 @@ Draft, stacked on A2 #1109. No production switch-on is part of this lane.
   minutes per worker and 500 missing rows per source per pass; absent schema/DB errors
   are caught/logged. Existing moderation decisions update linked cases transactionally.
   Reconciliation excludes case-owned suppressions and intake deduplicates by source ID.
-- **Rollback is application/flag rollback while retaining the additive schema.** Migration
+- **Rollback page flags/frontend while retaining the additive schema and standing guards.**
+  Backend image rollback must use a compatible build that still enforces account standing
+  and auth epochs; a pre-B3 backend would lose those protections. Migration
   backfill creates retained cases on real data; destructive Alembic downgrade refuses
   them, cash/history/deployment rows and changed account standing. This is deliberate.
   Do not delete evidence or reset auth epochs to force a downgrade. Empty scratch
