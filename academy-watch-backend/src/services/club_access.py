@@ -34,6 +34,7 @@ from datetime import UTC, datetime, timedelta
 from functools import wraps
 
 from flask import g, jsonify, request
+from sqlalchemy.exc import IntegrityError
 from src.auth import require_user_auth
 from src.models.club_access import INVITE_ROLES, ClubAccessGrant, ClubAccessGrantSquad, ClubStaffInvite
 from src.models.league import db
@@ -185,6 +186,16 @@ def resolve_club_access(user_id, program_id) -> ClubAccess | None:
         grant_id=grant.id,
         capabilities=ROLE_CAPABILITIES[grant.role] - VERIFIED_ONLY,
     )
+
+
+def board_permissions(access) -> list[bool]:
+    """The Staff & access board's rows for one RESOLVED access (``None`` = no access right now).
+
+    The board never derives rights from a role table of its own: it shows exactly the capabilities
+    ``resolve_club_access`` returned for that account, so verified-only rights and inert grants match.
+    """
+    capabilities = access.capabilities if access is not None else frozenset()
+    return [cap in capabilities for _, cap in BOARD_MATRIX]
 
 
 def _current_squad_ids(program_id) -> frozenset:
@@ -883,23 +894,56 @@ def revoke_grant(program_id, grant_id, actor_id, *, reason="club staff access") 
     return grant
 
 
+def _lock_program(program_id):
+    """Serialize owner changes per club: take the ``club_programs`` row lock before reading owners.
+
+    ``FOR NO KEY UPDATE`` still excludes every other program-row locker (they all take the program
+    first, then child rows) but not the ``FOR KEY SHARE`` an unrelated FK insert needs.
+    """
+    from src.models.funding import ClubProgram
+
+    return ClubProgram.query.filter_by(id=program_id).populate_existing().with_for_update(key_share=True).first()
+
+
+def _active_owners_locked(program_id) -> list[ClubAccessGrant]:
+    return (
+        ClubAccessGrant.query.filter_by(program_id=program_id, role="owner", status="active")
+        .populate_existing()
+        .with_for_update()
+        .all()
+    )
+
+
+def _flush_owner_change():
+    """One active owner per club is also a database rule (``uq_club_access_grants_one_active_owner``)."""
+    try:
+        db.session.flush()
+    except IntegrityError as exc:
+        raise AccessError("owner_conflict", 409) from exc
+
+
 def assign_owner(program_id, user_id, reason) -> ClubAccessGrant:
     """Admin-only: make an existing claim-verified manager the club owner (transfer if one exists)."""
+    _lock_program(program_id)
     if not is_manager_of_approved_program(user_id, program_id):
         raise AccessError("owner_must_be_verified_manager", 409)
     now = _now()
     previous = []
-    for row in (
-        ClubAccessGrant.query.filter_by(program_id=program_id, role="owner", status="active").with_for_update().all()
-    ):
+    for row in _active_owners_locked(program_id):
         if row.user_account_id == user_id:
             return row
         row.status = "revoked"
         row.revoked_at = now
         row.version = (row.version or 1) + 1
         previous.append(row.id)
-    db.session.flush()
-    grant = ClubAccessGrant.query.filter_by(program_id=program_id, user_account_id=user_id).with_for_update().first()
+    # The outgoing owner must be revoked in the database before the new one becomes active.
+    _flush_owner_change()
+    grant = (
+        ClubAccessGrant.query.filter_by(program_id=program_id, user_account_id=user_id)
+        .populate_existing()
+        .with_for_update()
+        .first()
+    )
     if grant is None:
         grant = ClubAccessGrant(program_id=program_id, user_account_id=user_id, created_at=now)
         db.session.add(grant)
@@ -913,7 +957,7 @@ def assign_owner(program_id, user_id, reason) -> ClubAccessGrant:
     grant.source_invite_id = None
     grant.updated_at = now
     _apply_scope(grant, True, [])
-    db.session.flush()
+    _flush_owner_change()
     audit(
         "owner_assigned",
         program_id,
@@ -924,11 +968,11 @@ def assign_owner(program_id, user_id, reason) -> ClubAccessGrant:
 
 
 def remove_owner(program_id, reason) -> ClubAccessGrant:
-    grant = (
-        ClubAccessGrant.query.filter_by(program_id=program_id, role="owner", status="active").with_for_update().first()
-    )
-    if grant is None:
+    _lock_program(program_id)
+    owners = _active_owners_locked(program_id)
+    if not owners:
         raise AccessError("owner_not_found", 404)
+    grant = owners[0]
     grant.status = "revoked"
     grant.revoked_at = _now()
     grant.version = (grant.version or 1) + 1

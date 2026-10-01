@@ -78,6 +78,14 @@ def upgrade():
             sa.UniqueConstraint("program_id", "user_account_id", name="uq_club_access_grants_program_user"),
         )
     create_index_safe("ix_club_access_grants_user_status", "club_access_grants", ["user_account_id", "status"])
+    # One active owner per club, enforced by the database (concurrent admin assigns cannot leave two).
+    create_index_safe(
+        "uq_club_access_grants_one_active_owner",
+        "club_access_grants",
+        ["program_id"],
+        unique=True,
+        postgresql_where=sa.text("role = 'owner' AND status = 'active'"),
+    )
     op.execute("ALTER TABLE public.club_access_grants ENABLE ROW LEVEL SECURITY")
 
     if not table_exists("club_access_grant_squads"):
