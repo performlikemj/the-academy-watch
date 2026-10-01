@@ -121,3 +121,5 @@
 - Final visual inspection found the long-name DEBUG fixture was overwritten by auth/me refresh; fixture now preserves it and the390pt test asserts the actual name. Runtime source unchanged; final gates run on the revised committed head.
 
 - Final-head full offline run caught the inherited first-location test assuming fresh simulator authorization after a previous run denied it. Test now resets authorization via XCTest before launch; verify twice on the reused simulator. Runtime sources unchanged. Final gates and full offline scheme run on the new test head; all prior receipts remain labelled interim.
+
+- Delivery refresh: B3 landed on main33bf30bd after the b1002027 final offline suite passed8:07. GitHub reported conflicts; merge current main and retain both AGENTS/CONTINUITY records. Only Markdown changes; all native/backend/frontend/migration blobs match b1002027. Final gates run on the new merge head; existing156 native captures remain valid for identical source.
