@@ -68,7 +68,7 @@
 
 ## Fix round 4 — PR #1116
 
-- State: in-progress; read RN3 findings in full; start1ca06807.
+- State: complete; all three RN3 findings fixed, validated and pushed; read findings in full; start1ca06807.
 - Scope: negative active-shadow conflicts; GOL journey-only identity adapter and replay invalidation; selective candidate eligibility, board/request and dynamic-follow/run reuse.
 - Gates: requested regressions/query counts, scratch aw_n3 synthetic3500 benchmark vs origin/main and prior head; Ruff/format, scout/GOL set, full pytest; push + PR impact/performance body; no merge.
 - Next: implement and validate; hand-back ~/codex-runs/aw-redesign/logs/N3F4.final.md; drop scratch DB and clean own files.
@@ -84,3 +84,6 @@
 - Gates: FINAL full pytest3353 passed/47 skipped/121 warnings in446.25s; final scout/GOL341 pass (78 adult cases), Ruff check+format535 clean, diff whitespace clean. All23 new cases pass; no dependency/lockfile changes.
 - Cleanup: aw_n3 dropped and absence verified; PostgreSQL probes rolled back; reproduction scripts/results retained in external logs; no owned servers or background shell commands.
 - Next: commit/push, update PR1116 impact/performance body, complete hand-back/BUS/ledgers.
+- Delivery: implementation 102848e4b67fa4bebd83c12f7fa28995f5ad7e0d pushed and remote verified; PR #1116 body updated with impact + main/RN3/fixed performance table. No merge/deploy.
+- Hand-back: ~/codex-runs/aw-redesign/logs/N3F4.final.md; final performance JSON and reproduction scripts in external logs.
+- Next: lead/local final-head review; PR remains open and unmerged.
