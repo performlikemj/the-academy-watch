@@ -414,7 +414,7 @@ def test_admin_merge_application_collision_is_clear_409_and_full_rollback(pg, mo
     assert ApplicationEvent.query.count() == event_count
 
 
-def test_postgres_nul_and_timestamp_overflow_are_400_without_database_error(pg):
+def test_postgres_nul_is_400_without_database_error(pg):
     from src.auth import issue_user_token
     from src.extensions import limiter
     from src.routes.opportunities import opportunities_bp

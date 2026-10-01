@@ -5,7 +5,8 @@ const TIMEZONES = new Set(zones)
 export function when(value, timezone = 'UTC') {
   if (!value) return 'Date to be arranged'
   timezone = TIMEZONES.has(timezone) ? timezone : 'UTC'
-  const date = new Date(value)
+  let date
+  try { date = new Date(value) } catch { return 'Date to be arranged' }
   if (!Number.isFinite(date.getTime())) return 'Date to be arranged'
   const options = { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZoneName: 'short' }
   try {

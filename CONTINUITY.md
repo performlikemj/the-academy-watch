@@ -32,9 +32,10 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
 
 ## State
 
-- **Now (2026-10-01):** Phase 2 B2 RB2 fix round 1 in progress for draft #1113; all 14 review findings, foreground gates and delivery. See `ledgers/CONTINUITY_p2-b2.md`.
+- **Now (2026-10-01):** Phase 2 B2 RB2 fix round 1 complete for draft #1113; all 14 findings fixed, foreground gates complete; PR delivery and integration handoff. See `ledgers/CONTINUITY_p2-b2.md`.
 
 ### Done
+- **2026-10-01 P2 B2 RB2 fix round 1:** all 5 MED/9 LOW fixed; A2 bdbae2be included, B1 console-club standing aligned. Full pytest3607 pass/60 skip/4 expected head assertions; focused123 incl13 real PG, Node198, Playwright50, Ruff/format/lint/build pass. Live eligibility removal, canonical merge/unique constraints, 90-day advertised horizon, zone-safe UI/email and bounded queries covered. 15 reviewed refreshed PNGs; own servers/aw_p2_b2/temp cleaned. Contracts `docs/p2-opportunities.md`; hand-back `~/codex-runs/aw-redesign/logs/B2F1.final.md`; draft #1113, no merge.
 - **2026-10-01 P2 B2:** draft PR #1113 to main, stacked #1109 (A2 ef005e35); public opportunities, adult approved-self-claim applications, private recruiting, append-only events/outbox, retention/export/erasure. 57 focused backend +13 real HTTP +47 browser +193 Node pass; full pytest3535 pass/54 skip/4 expected migration-head failures per orchestrator; Ruff/lint/build pass. p2b2->p2b1 placeholder scratch-only; migration/SQL reapply and empty rollback verified; 14 reviewed PNGs. Own servers/aw_p2_b2/env/scratch cleaned. Hand-back `~/codex-runs/aw-redesign/logs/B2.final.md`.
 - **2026-10-01 N1 header simplification:** non-draft PR #1111 to main on feat/nav-simplify; lint/build + 193 Node + 52 Playwright pass (1 expected skip); eight reviewed desktop/mobile screenshots in `~/codex-runs/aw-redesign/shots/N1/`; own servers/aw_n1/env/temp cleaned. see `ledgers/CONTINUITY_n1-nav.md`.
 - **2026-10-01 P2 A1 fix round 3:** public matches hold added with owner CRUD preserved; all public player-ID GETs audited/tested, including cached sitemap URL holds. 33 added regressions; full pytest 3241 pass/47 skip, Ruff/format clean. Older owner-mutation review comment confirmed fixed/replied; PR #1110 delivery and review request; report `~/codex-runs/aw-redesign/logs/A1F3.final.md`.

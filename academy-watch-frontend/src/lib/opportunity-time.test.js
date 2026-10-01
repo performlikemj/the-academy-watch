@@ -21,6 +21,8 @@ test('unsupported and malformed zones fall back to a labelled UTC without throwi
   }
   assert.equal(when(null), 'Date to be arranged')
   assert.equal(when('not-a-date'), 'Date to be arranged')
+  assert.equal(when({ toString: 1 }), 'Date to be arranged')
+  assert.equal(when(Symbol('invalid date')), 'Date to be arranged')
 })
 
 test('every backend canonical region-zone allowlist entry is accepted by browser Intl', () => {

@@ -117,6 +117,7 @@ Log one-liner in CONTINUITY.md's "Trivial Log" section.
 - iOS player/coach UI checks use the offline `AcademyWatchExperience` scheme. `AcademyWatchUISmoke` is a separate live suite that sends login emails.
 - Phase 2 public read decorators opt in with `hide_suppressed_player(..., public_read=True)`; discovery uses `public_player_visible_filter`. Public sitemap responses recheck current holds even when serving cached XML. `without_active_suppression` remains suppression-only for owner writes and maintenance/refresh sweeps.
 - Phase 2 new public player paths use `services/public_adult.py` and derived `services/club_publication_hold.py` checks; existing public reads enforce holds while retaining their age rules.
+- Phase 2 application subjects resolve local/provider bridges through `LocalPlayer.api_player_id`; identity merges re-point application claim/subject keys inside the merge transaction and reject colliding retained histories with 409. Opportunity dates use the shared formatter and creation +90-day horizon to preserve trial follow-up within the submission +180-day privacy cap.
 - Phase 2 email intents use transactional `notification_outbox.enqueue` plus a trusted template eligibility/renderer registered at app startup; never commit inside enqueue or persist credentials/child PII. Worker commits a sending lease, sends without DB locks, then finalizes after rechecking tombstones; delivery is at-least-once.
 
 ---
