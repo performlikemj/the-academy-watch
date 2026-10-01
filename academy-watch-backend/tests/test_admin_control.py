@@ -566,6 +566,12 @@ def test_consent_capability_rechecks_account_recipient(control_app, monkeypatch)
     user().account_status = "suspended"
     db.session.commit()
     assert load_club_consent_token(token) is None
+    user().account_status = "active"
+    user().auth_epoch = 2
+    db.session.commit()
+    # This legacy anonymous capability is separate from an authenticated login.
+    # Restore permits current courtesy consent; bearer/media epochs still revoke old logins.
+    assert load_club_consent_token(issue_club_consent_token(contact.id, "grant")) is not None
     monkeypatch.setattr(
         "src.services.contact.resolve_club_courtesy_target", lambda **kw: {"contact_email": "legacy@example.test"}
     )

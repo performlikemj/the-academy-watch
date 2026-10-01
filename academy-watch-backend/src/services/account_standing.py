@@ -42,7 +42,7 @@ actor_id_can_act = is_account_active
 
 
 def consent_recipient_can_act(contact_request_id):
-    """Legacy anonymous email capability cannot outlive a recipient's suspension."""
+    """Legacy anonymous email capability respects the recipient's current standing."""
     from src.models.contact import ContactRequest
     from src.services.contact import resolve_club_courtesy_target
 
@@ -59,4 +59,4 @@ def consent_recipient_can_act(contact_request_id):
         return True
     account = UserAccount.query.filter_by(email=recipient.strip().lower()).populate_existing().first()
     # No account was bound to this old capability: keep legacy registry recipients.
-    return account is None or (account_can_act(account) and (account.auth_epoch or 0) == 0)
+    return account is None or account_can_act(account)

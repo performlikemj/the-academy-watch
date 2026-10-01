@@ -4,25 +4,29 @@
 - Programs, People, Safeguarding, Business night pages; draft PR to main stacked on #1109.
 
 ## Constraints
-- Flags default OFF, flag off preserves existing pages/behaviour.
+- Four page flags default OFF; preserve existing destinations when OFF.
 - Reuse A1 audit/holds/outbox and A2 owner/access endpoints.
-- Migration p2b3 → p2b2; guarded DDL + RLS; privacy export/erasure.
-- Scratch aw_p2_b3 only, ports 5142/5198; no background commands, no production writes/emails.
+- Migration p2b3 → p2b2; guarded DDL/RLS, privacy export/erasure.
+- Scratch aw_p2_b3 only, ports 5142/5198, foreground commands; no production/provider sends.
 
 ## State
-- Done: read phase/design/contracts/repo guidance/boards/P2R §7A–D; verified requested branch starts A2 bb126fce; rebased onto A2 c576762e.
-- Now: implementation complete; final validation, latest A2 stacking, screenshot review and delivery.
-- Next: finish full backend rerun after auth message compatibility fix, clean scratch resources, push draft PR + final hand-back.
+- Done: four pages/backend flows, standing/audit, case intake/actions/outbox, authoritative cash/deployment views, tests, 14 reviewed screenshots and schema-only SQL.
+- Done: latest A2 ef005e35 stack (includes c576762e snapshots); only B3 marked additive shared blocks, permitted narrow standing hooks.
+- Now: push branch and create draft PR to main; final hand-back.
+- Next: orchestrator adversarial review and integration; four head pins updated there, B1/B2 precede p2b3. No flag switch-on authorized.
 
 ## Validation
-- OSV: no findings; frozen restore complete, no lockfile changes.
-- Ruff and frontend lint (0 errors/186 warnings)/build pass; 8 Playwright pass (7 B3 + existing media pagination).
-- Focused B3: 24 passed (suspension/OTP/optional-auth/admin/grants/media/consent, privacy, transactional intake, money/date/currency/dedupe).
-- Full backend with actual borrowed B1/B2 migrations: 3481 passed/47 skipped, ONLY four p2a2 head pins fail. Orchestrator explicitly reserves those for integration (BUS 10:14).
-- Node: 193 pass/2 fail; both static ClubHome source assertions fail unchanged on bb126fce (baseline log).
-- PostgreSQL localhost/aw_p2_b3: ch02→fl01→p2a1→p2a2→p2b1→p2b2→p2b3; reapply twice/RLS4/append-only UPDATE DELETE TRUNCATE rejection pass.
-- 14 live API screenshots captured (local template contains pre-existing test fixtures), desktop1440/mobile390, no overflow/pageerrors. Final retake reviewed; overlay hidden; local fixtures labelled in shots/B3/INDEX.md.
+- OSV: no findings; frozen restore, no lockfile changes.
+- Ruff/check/format pass; frontend lint0 errors/186 warnings, build pass. JavaScript repository has no separate typecheck command.
+- Node193/193 pass after A2 ef005e35 corrected its two inherited stale source assertions. Earlier baseline reproduction retained in logs.
+- Playwright8/8 (7 B3 + existing media pagination); desktop1440/mobile390 empty/flags/actions/privacy/safety/business.
+- Full backend3509 pass/47 skip/4 expected p2a2 head pins. Orchestrator reserved the four assertions (BUS10:14); no other failures after restoring original auth error semantics.
+- Latest focused201 pass, includes B3 24 + auth + match entries + contact (including consent after restore); no old bearer/media revival.
+- Real HTTP16 auth negatives + suspend/restore checks pass; suspended OTP creates no code, old bearer denied after restore/fresh token succeeds; no provider sends.
+- PostgreSQL localhost/aw_p2_b3 real chain ch02→fl01→p2a1→p2a2→p2b1→p2b2→p2b3 pass. Latest A2 reapply + B3 twice + preapply SQL twice; RLS4 true; case event UPDATE/DELETE/TRUNCATE rejected, retained-data downgrade refuses.
+- Screenshots shots/B3:14 reviewed PNGs, live local-template DB API, fixtures labelled in INDEX.md. No overflow/errors/alerts.
 
-- Latest A2 combined full run initially 3507 pass/47 skip/6 fail: 4 reserved head pins + 2 account-not-found message regressions from central binding guard. Fixed typed guard preserving original required-auth semantics; focused B3/auth/match-entry 80 pass, final full rerun running.
-- Real HTTP16 negative auth + suspend/restore checks pass; neutral OTP creates no code, restored old bearer denied/fresh token succeeds. No provider sends.
-- Latest p2a2 reapply + B3 reapply twice + schema-only preapply SQL twice pass; retained-data downgrade refuses, RLS4 true.
+## Cleanup / evidence
+- Own Flask/Vite stopped; aw_p2_b3 dropped and absence verified; copied env/auth/scripts/baseline worktree/browser reports/scratch migration copy and borrowed B1/B2 removed.
+- Retained screenshots, logs/B3.*, p2b3_preapply.sql; worktree retained for review.
+- Limits: anonymous courtesy links follow current standing on restore; authenticated bearer/media epochs still require fresh login. Direct SAS lifetimes retain A2 bounds. Earlier subscription/refund dates and complete legacy public-minor audit unavailable, clearly shown.

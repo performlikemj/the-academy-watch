@@ -46,6 +46,8 @@ Draft, stacked on A2 #1109. No production switch-on is part of this lane.
 - Approved one-line B3 checks in A2 `resolve_club_access` and `club_actor_allowed`
   protect service grants. Signed courtesy-consent links reject a registry recipient
   mapped to a suspended account; legacy non-account recipients keep their behavior.
+  These anonymous courtesy links follow current standing on restore; authenticated
+  bearer/media tokens retain epoch revocation and need fresh login.
 - Existing direct Azure upload/read SAS already handed out retain A2's documented
   lifetime; downloaded bytes cannot be recalled. B3 adds no new SAS mechanism.
 - People responses are allowlists: no claim notes, scout statements/evidence,
