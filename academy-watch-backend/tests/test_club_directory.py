@@ -1114,6 +1114,156 @@ def test_search_body_is_bounded(client, on):
     assert _allow(client.options(SEARCH_URL)) == ["OPTIONS", "POST"]
 
 
+class _CountingInput:
+    """Counts what the app actually pulls off the request stream."""
+
+    def __init__(self, stream):
+        self.stream = stream
+        self.taken = 0
+
+    def read(self, size=-1):
+        data = self.stream.read(size) if size is not None and size >= 0 else self.stream.read()
+        self.taken += len(data)
+        return data
+
+    def readline(self, size=-1):
+        data = self.stream.readline(size) if size is not None and size >= 0 else self.stream.readline()
+        self.taken += len(data)
+        return data
+
+
+def _over_the_wire(app, body=b"", *, chunks=None, length=True, path=SEARCH_URL, method="POST"):
+    """RB1V-N1: raw HTTP bytes through gunicorn's own request parser into the WSGI app, as in production."""
+    pytest.importorskip("gunicorn")
+    from gunicorn.config import Config as GunicornConfig
+    from gunicorn.http.message import Request
+    from gunicorn.http.unreader import IterUnreader
+    from gunicorn.http.wsgi import create
+
+    head = f"{method} {path} HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\n".encode()
+    if chunks is not None:
+        framed = b"".join(format(len(chunk), "x").encode() + b"\r\n" + chunk + b"\r\n" for chunk in chunks)
+        wire = head + b"Transfer-Encoding: chunked\r\n\r\n" + framed + b"0\r\n\r\n"
+    elif length:
+        wire = head + f"Content-Length: {len(body)}\r\n\r\n".encode() + body
+    else:
+        wire = head + b"\r\n" + body
+    config = GunicornConfig()
+    peer = ("127.0.0.1", 12345)
+    _response, environ = create(
+        Request(config, IterUnreader([wire]), peer), SimpleNamespace(), peer, ("127.0.0.1", 5001), config
+    )
+    counted = environ["wsgi.input"] = _CountingInput(environ["wsgi.input"])
+    seen = {}
+
+    def start_response(status, headers, exc_info=None):
+        seen.update(status=int(status.split()[0]), headers=headers)
+
+    payload = b"".join(app.wsgi_app(environ, start_response))
+    return SimpleNamespace(
+        status=seen["status"],
+        # Allow is a set: its order is not part of the answer.
+        headers=sorted(
+            (name, ", ".join(sorted(part.strip() for part in value.split(","))) if name == "Allow" else value)
+            for name, value in seen["headers"]
+        ),
+        data=payload,
+        taken=counted.taken,
+        environ=environ,
+    )
+
+
+def _search_bytes(size):
+    """A valid search body of exactly ``size`` bytes (JSON allows trailing whitespace)."""
+    return json.dumps({"q": "harbour"}).encode().ljust(size)
+
+
+def test_search_body_limit_is_exact_for_an_ordinary_request(app, on):
+    _seed_region()
+    ordinary = _over_the_wire(app, json.dumps({"q": "harbour", "lat": 50.79, "lng": -1.06}).encode())
+    assert ordinary.status == 200 and json.loads(ordinary.data)["total"] == 1
+    at_limit = _over_the_wire(app, _search_bytes(2048))
+    assert at_limit.status == 200 and json.loads(at_limit.data)["total"] == 1
+    over = _over_the_wire(app, _search_bytes(2049))
+    assert over.status == 413 and json.loads(over.data) == {"error": "the search is too large"}
+
+
+def test_an_oversized_search_is_refused_without_being_read(app, on):
+    """RB1V-N1: the reviewer's 1 MB body. It is a 413 and the worker never buffers it."""
+    body = json.dumps({"q": "Ground", "padding": "x" * 1048576}).encode()
+    declared = _over_the_wire(app, body)
+    assert declared.status == 413 and declared.taken == 0
+    chunked = _over_the_wire(app, chunks=[body])
+    assert chunked.environ.get("CONTENT_LENGTH") is None and chunked.environ["wsgi.input_terminated"] is True
+    assert chunked.status == 413 and json.loads(chunked.data) == {"error": "the search is too large"}
+    assert chunked.taken <= 2049
+    # Many small chunks add up just the same.
+    dripped = _over_the_wire(app, chunks=[b" " * 512] * 8 + [b"{}"])
+    assert dripped.status == 413 and dripped.taken <= 2049
+
+
+def test_a_chunked_search_within_the_limit_still_works(app, on):
+    _seed_region()
+    found = _over_the_wire(app, chunks=[b'{"q": "har', b'bour", "lat": 50.79, "lng": -1.06}'])
+    assert found.status == 200 and json.loads(found.data)["total"] == 1
+    at_limit = _over_the_wire(app, chunks=[_search_bytes(2048)])
+    assert at_limit.status == 200 and json.loads(at_limit.data)["total"] == 1
+    assert _over_the_wire(app, chunks=[_search_bytes(2049)]).status == 413
+
+
+def test_a_search_with_no_content_length_reads_no_body(app, on):
+    """Neither a length nor chunked framing: the server hands over an empty body, so it is a plain 400."""
+    body = json.dumps({"q": "Ground", "padding": "x" * 1048576}).encode()
+    unframed = _over_the_wire(app, body, length=False)
+    assert unframed.environ.get("CONTENT_LENGTH") is None
+    assert unframed.status == 400 and unframed.taken == 0
+    assert json.loads(unframed.data) == {"error": "the search must be a JSON object"}
+
+
+def test_search_body_limit_holds_without_gunicorn(client, on):
+    """The same limit through werkzeug alone: a terminated stream with no declared length."""
+    import io
+
+    def post(body):
+        return client.post(
+            SEARCH_URL,
+            content_type="application/json",
+            environ_overrides={
+                "CONTENT_LENGTH": "",
+                "wsgi.input": io.BytesIO(body),
+                "wsgi.input_terminated": True,
+                "HTTP_TRANSFER_ENCODING": "chunked",
+            },
+        )
+
+    assert post(json.dumps({"q": "Ground", "padding": "x" * 1048576}).encode()).status_code == 413
+    assert post(_search_bytes(2049)).status_code == 413
+    assert post(_search_bytes(2048)).status_code == 200
+    assert post(b"{").status_code == 400
+    assert client.post(SEARCH_URL, data=b"\xff\xfe{", content_type="application/json").status_code == 400
+    assert client.post(SEARCH_URL, data="[" * 2000, content_type="application/json").status_code == 400
+    assert client.post(SEARCH_URL, data='{"q": "harbour"}', content_type="text/plain").status_code == 400
+
+
+@pytest.mark.parametrize("with_catch_all", [False, True])
+def test_flag_off_an_oversized_search_is_still_answered_as_an_unrouted_path(app, with_catch_all):
+    """Flag off the body is never looked at: any size, any framing, same answer as a path with no route."""
+    if with_catch_all:
+
+        @app.route("/", defaults={"path": ""})
+        @app.route("/<path:path>")
+        def serve(path):
+            return "spa shell", 200
+
+    body = json.dumps({"q": "Ground", "padding": "x" * 1048576}).encode()
+    for framing in ({"body": body}, {"chunks": [body]}, {"body": body, "length": False}):
+        routed = _over_the_wire(app, **framing)
+        unrouted = _over_the_wire(app, path="/api/club-directory/never-existed", **framing)
+        assert (routed.status, routed.headers, routed.data) == (unrouted.status, unrouted.headers, unrouted.data)
+        assert routed.status == (405 if with_catch_all else 404)
+        assert routed.taken == 0
+
+
 def test_a_visitor_search_never_reaches_the_access_log(app, client, on):
     """RB1-1: replay the real request through gunicorn's own access-log formatter (deployment default format)."""
     glogging = pytest.importorskip("gunicorn.glogging")

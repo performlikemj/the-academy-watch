@@ -209,6 +209,20 @@ function NoPinsPanel() {
   )
 }
 
+// The list after one page of answers lands. A first page replaces it; a later page joins only its own search, in turn.
+function withPage(current, search, page, data) {
+  const fresh = data.clubs || []
+  if (page > 1 && (current.search !== search || current.page !== page - 1)) return current
+  return {
+    status: 'ready',
+    search,
+    clubs: page === 1 ? fresh : [...current.clubs, ...fresh],
+    total: data.total || 0,
+    hasMore: Boolean(data.has_more),
+    page,
+  }
+}
+
 export function ClubDirectory() {
   const [searchParams, setSearchParams] = useSearchParams()
   const offering = OFFERING_FILTERS.some((item) => item.id === searchParams.get('for')) ? searchParams.get('for') : ''
@@ -221,10 +235,13 @@ export function ClubDirectory() {
   const [position, setPosition] = useState(null)
   const [locating, setLocating] = useState('idle')
   const [radiusKm, setRadiusKm] = useState(0)
-  const [state, setState] = useState({ status: 'loading', clubs: [], total: 0, hasMore: false, page: 1 })
+  // `search` is the search the listed clubs answer; a page is only ever added to its own search.
+  const [state, setState] = useState({ status: 'loading', search: null, clubs: [], total: 0, hasMore: false, page: 1 })
   const [selectedId, setSelectedId] = useState(null)
   const requestRef = useRef(0)
   const unit = useMemo(() => distanceUnit(typeof navigator === 'undefined' ? '' : navigator.language), [])
+  // One object per distinct search: a new one whenever anything the visitor asked for changes.
+  const search = useMemo(() => ({ q, offering, level, position, radiusKm }), [q, offering, level, position, radiusKm])
 
   const load = useCallback(async (page) => {
     const request = ++requestRef.current
@@ -232,20 +249,14 @@ export function ClubDirectory() {
       ? { ...current, status: 'loading' }
       : { ...current, status: 'loading-more' }))
     try {
-      const data = await APIService.request(...directorySearchRequest({ q, offering, level, position, radiusKm, page, perPage: PER_PAGE }))
+      const data = await APIService.request(...directorySearchRequest({ ...search, page, perPage: PER_PAGE }))
       if (request !== requestRef.current) return
-      setState((current) => ({
-        status: 'ready',
-        clubs: page === 1 ? data.clubs || [] : [...current.clubs, ...(data.clubs || [])],
-        total: data.total || 0,
-        hasMore: Boolean(data.has_more),
-        page,
-      }))
+      setState((current) => withPage(current, search, page, data))
     } catch {
       if (request !== requestRef.current) return
       setState((current) => ({ ...current, status: page === 1 ? 'failed' : 'more-failed' }))
     }
-  }, [q, offering, level, position, radiusKm])
+  }, [search])
 
   useEffect(() => {
     const timer = setTimeout(() => load(1), 0)
@@ -305,7 +316,12 @@ export function ClubDirectory() {
     setSearchParams(new URLSearchParams(), { replace: true })
   }
 
-  const loading = state.status === 'loading'
+  // From the moment the search changes until its first page lands, the list on screen is the previous search's.
+  const loading = state.status === 'loading' || (state.search !== search && state.status !== 'failed')
+  const showMore = () => {
+    if (loading || state.status === 'loading-more') return
+    load(state.page + 1)
+  }
   const countLabel = loading && !clubs.length
     ? 'Looking for clubs'
     : `${state.total} verified ${state.total === 1 ? 'club' : 'clubs'}`
@@ -413,7 +429,7 @@ export function ClubDirectory() {
                 </ul>
                 {state.hasMore || state.status === 'more-failed' ? (
                   <div className="mt-6 flex flex-wrap items-center gap-4">
-                    <button type="button" onClick={() => load(state.page + 1)} disabled={state.status === 'loading-more'} className="inline-flex h-11 items-center gap-2 rounded-full border border-chalk/40 px-5 text-sm transition-colors hover:bg-chalk/10 disabled:opacity-60">
+                    <button type="button" onClick={showMore} disabled={loading || state.status === 'loading-more'} className="inline-flex h-11 items-center gap-2 rounded-full border border-chalk/40 px-5 text-sm transition-colors hover:bg-chalk/10 disabled:opacity-60">
                       {state.status === 'loading-more' ? <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : null}
                       Show more clubs
                     </button>
