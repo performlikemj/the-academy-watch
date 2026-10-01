@@ -17,3 +17,19 @@
 - Cleanup: owned servers5132/5193 stopped; aw_n3 dropped/absence verified; simulatorD1399891 already Shutdown; own node_modules/dist/test-results/derived data removed; no env copy or /tmp artifact. Tracked Xcode project restored unchanged after accidental artifact cleanup.
 - Delivery: report `~/codex-runs/aw-redesign/logs/N3.final.md`; screenshots `~/codex-runs/aw-redesign/shots/N3/`; BUS DONE and all CLAIMs released. PR MERGEABLE; initial CI OSV/backend lint green, remaining jobs running. No merge/deploy; lead reviews/merges.
 - Next: lead PR review/merge; native chip in next iOS build.
+
+## Fix round 1 — PR #1116
+
+- State: implemented, validated and pushed; confirmed GitHub Codex P2 fixed and inline finding answered.
+- Scope: memoise eligible/ineligible separately from state; audit follow resolver, watchlist/list, GOL and leaderboards for per-row eligibility.
+- Gates: query-count regression + existing 37 adults-only cases, full pytest, Ruff/format; push, inline SHA reply and @codex review. No merge.
+- Next: implement, validate and deliver `~/codex-runs/aw-redesign/logs/N3F1.final.md`.
+- Done: shared namespaced `cached_public_adult_ids` stores positive/negative eligibility; digest state and batched player-follow resolution reuse run cache across lists/pages. Ordinary reads use fresh caches.
+- Audit: watchlist and IDs reads batch; list collection/single-list payloads batch; GOL frames batch 500 unique IDs/read, lookup/suggestions batch; scout browse/compare/CSV and all leaderboard phases filter adult universe before pagination/ranking. Remaining scalar checks are single-player writes or one selected GOL lookup.
+- Validation: focused adults-only/jobs/follow-graph/pulse digest suite 133 passed (15.19s), including all 37 original adult cases +5 new cases. SQL regression: eight watchers, two players, four pages; eligibility once per player on each of two runs (12 watchlist/mixed SQL queries, 6 list-only).
+- Next: full pytest and Ruff/format gates, then commit/push/review delivery.
+- Gates: Ruff check + format pass (533 files); diff whitespace clean. Initial full pytest stopped at collection without OPENAI_API_KEY; rerun uses CI-style dummy key with existing offline stubs.
+- Validation: FINAL full pytest 3283 passed/47 skipped/116 warnings in 301.93s; all 37 original adults-only cases plus five new query-count/cache cases pass. No code failures. Ruff check/format533 clean.
+- Delivery: implementation `0d5c879556b0fccec225498dd29aca2b257ab96a` pushed to fix/scout-adults-only; inline SHA reply https://github.com/performlikemj/the-academy-watch/pull/1116#discussion_r4151312336 . Final-head re-review command: `gh pr comment 1116 --body "@codex review"`.
+- Hand-back: `~/codex-runs/aw-redesign/logs/N3F1.final.md`; full gate log `N3F1.pytest.log`. No frontend/iOS/dependency changes; no servers, local/shared/prod DB, temporary env or provider sends used. Foreground commands only.
+- Next: Codex/lead PR review; no merge/deploy.
