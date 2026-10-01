@@ -93,7 +93,7 @@ def sweep_highlights(*, limit=100):
             uploaded = (match.uploaded_at or match.created_at) if match else None
             deadline = (match.expires_at or (uploaded + timedelta(days=90) if uploaded else None)) if match else None
             if not match or match.status == "expired" or not deadline or deadline <= now():
-                highlights.revoke(row, None, "request_expired")
+                highlights.revoke(row, None, "request_expired", immediate_ready=True)
                 expired += 1
         db.session.commit()
     terminal = (

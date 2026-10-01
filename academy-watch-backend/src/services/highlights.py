@@ -706,16 +706,18 @@ def report_subject(match, entry):
     )
 
 
-def revoke(row, actor_id, reason):
+def revoke(row, actor_id, reason, *, immediate_ready=False):
     if row.revoked_at:
         return
     from src.workers.highlight_worker import queue_cleanup
 
-    paths = {job.blob_path for job in HighlightRenderJob.query.filter_by(highlight_id=row.id) if job.blob_path}
+    jobs = HighlightRenderJob.query.filter_by(highlight_id=row.id).all()
+    paths = {job.blob_path for job in jobs if job.blob_path}
+    live_paths = {job.blob_path for job in jobs if job.kind == "highlight_cut" and job.status == "running"}
     if row.output_blob_path:
         paths.add(row.output_blob_path)
     for path in paths:
-        queue_cleanup(path)
+        queue_cleanup(path, delayed=not immediate_ready or path in live_paths)
     row.revoked_at = now()
     row.revoke_reason = reason
     row.player_decision = "private"

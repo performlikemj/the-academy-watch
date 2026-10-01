@@ -73,7 +73,15 @@ def test_x1_o2_unanswered_lives_until_raw_deadline(world, monkeypatch):
     world["match"].expires_at = now() - timedelta(seconds=1)
     db.session.commit()
     assert client.get(grant_path(world, row, "player"), headers=headers(world["player"])).status_code == 404
+    path = row.output_blob_path
     assert sweep_highlights()["expired"] == 1
+    deletion = HighlightRenderJob.query.filter_by(kind="highlight_delete", blob_path=path).one()
+    assert deletion.created_at <= now()
+    deleted = Mock(return_value=True)
+    monkeypatch.setattr("src.services.video_storage.delete_blob", deleted)
+    claimed = worker.claim_next()
+    assert claimed and claimed[0] == deletion.id and worker.run_one(*claimed)
+    deleted.assert_called_once_with(path)
 
 
 def test_x1_declined_ready_output_deleted_now(world, monkeypatch):
