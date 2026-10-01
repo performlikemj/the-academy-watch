@@ -62,7 +62,15 @@ test('real Flask results preserve main fixture identity, grouped totals and lite
   after = await (await request.get('/api/__uxm2-fixture')).json()
   expect(after.results).toBe(2)
   expect(after.entries).toBe(3)
-  expect(after.competitions).toEqual(['Wendle & District'])
+  for (const endpoint of ['season-stats', 'stats']) {
+    const response = await request.get(`/api/players/7001/${endpoint}?season=2025`)
+    expect(response.status()).toBe(200)
+    const payload = await response.json()
+    expect(payload.source_breakdown.club).toHaveLength(1)
+    expect(payload.source_breakdown.club[0].competition_tier).toBe('Wendle & District')
+    expect(payload.source_breakdown.club[0].detail.competition).toBe('Wendle & District')
+    if (endpoint === 'season-stats') expect(payload.clubs[0].competition_tiers).toEqual(['Wendle & District'])
+  }
   expect(after.stored_competitions).toEqual(['Wendle &amp; District'])
   expect(after.total).toMatchObject({ appearances: 3, minutes: 270, goals: 3 })
 })

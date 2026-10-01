@@ -18,6 +18,7 @@ from sqlalchemy.ext.compiler import compiles
 from src.models.league import db
 from src.models.player_match_entry import ClubResult, PlayerMatchEntry
 from src.models.season_rollup import PlayerSeasonCell, PlayerSeasonTotal
+from src.routes.players import players_bp
 from test_club_console import _add_api_member, _headers, _result_payload, club_app
 
 
@@ -26,6 +27,8 @@ def serve():
     monkeypatch = pytest.MonkeyPatch()
     fixture = club_app.__wrapped__(monkeypatch)
     app = next(fixture)
+    app.register_blueprint(players_bp, url_prefix="/api")
+    monkeypatch.setenv("SEASON_ROLLUP_READS", "season_stats,player_stats")
 
     @app.get("/api/__uxm2-fixture")
     def metadata():

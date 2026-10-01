@@ -1,6 +1,7 @@
 """Staging club polish regressions, using existing synthetic authorization fixtures."""
 
 # ruff: noqa: F811
+from copy import deepcopy
 from datetime import date, timedelta
 
 import pytest
@@ -10,11 +11,12 @@ from src.models.league import db
 from src.models.player_match_entry import ClubResult, PlayerMatchEntry
 from src.models.season_rollup import PlayerSeasonCell, PlayerSeasonTotal
 from src.utils.sanitize import sanitize_plain_text
-from test_club_console import _add_api_member, _headers, _match, _result_payload
+from test_club_console import _active_suppression, _add_api_member, _headers, _local, _match, _result_payload
 from test_club_console import client as client
 from test_club_console import club_app as club_app
 from test_club_invitations import decide, invitation
 from test_club_invitations import pilot as pilot
+from test_club_results import rate_limited_club_app as rate_limited_club_app
 from test_club_staff_access import _accept, _email, _h, _invite, _join
 from test_club_staff_access import env as env
 
@@ -239,9 +241,9 @@ def test_scoped_brief_rejects_all_club_names_with_generic_error(client, env):
     _join(client, env, "coach", "coach", squads=[env["sa"]])
     url = f"{env['base']}/roster/{env['m1']}/brief"
     for body in ["Outside checks shoulders", "Privateperson scans", "Sheetonly scans", "Secretperson scans"]:
-        assert client.put(url, json={"body": body}, headers=_headers("a")).status_code == 400
+        assert client.put(url, json={"body": body}, headers=_headers("a")).status_code == 422
         response = client.put(url, json={"body": body}, headers=_h(_email("coach")))
-        assert response.status_code == 400
+        assert response.status_code == 422
         assert response.json == {"error": "Briefs describe behaviours, not people — remove player names."}
         assert body.split()[0] not in response.get_data(as_text=True)
     assert db.session.get(ClubRosterMember, env["m1"]).coach_brief_body is None
@@ -330,3 +332,188 @@ def test_existing_main_format_fixture_rejects_duplicate(client, club_app, legacy
     )
     assert duplicate.status_code == 409, duplicate.json
     assert PlayerMatchEntry.query.count() == 1
+
+
+BRIEF_REFUSAL = {"error": "Briefs describe behaviours, not people — remove player names."}
+
+
+@pytest.mark.parametrize("unavailable", ["suppressed", "removed", "merged"])
+@pytest.mark.parametrize("identity", ["tracked", "shadow", "local"])
+def test_brief_checks_stored_unavailable_names_without_display_serializer(
+    client, env, club_app, monkeypatch, unavailable, identity
+):
+    from src.models.follow import PlayerShadow
+    from src.models.tracked_player import TrackedPlayer
+    from src.routes import club as club_routes
+    from src.workers.vision_worker import _brief_context
+
+    outside = db.session.get(ClubRosterMember, env["m2"])
+    if identity == "local":
+        local = _local(club_app.c2["users"]["a"], name="Outsidesquad Privateperson", birth_year=2010, status="approved")
+        outside.local_player_id = local.id
+        outside.player_api_id = None
+        local.status = "removed" if unavailable == "removed" else "merged" if unavailable == "merged" else "approved"
+        if unavailable == "merged":
+            local.merged_into_local_player_id = _local(club_app.c2["users"]["a"], name="Replacement Identity").id
+        if unavailable == "suppressed":
+            _active_suppression(local_player_id=local.id)
+    else:
+        rows = TrackedPlayer.query.filter_by(player_api_id=outside.player_api_id).all()
+        if identity == "shadow":
+            for row in rows:
+                db.session.delete(row)
+            db.session.add(
+                PlayerShadow(
+                    player_api_id=outside.player_api_id,
+                    player_name="Outsidesquad Privateperson",
+                    birth_date=date(2010, 1, 1),
+                )
+            )
+        else:
+            for row in rows:
+                row.player_name = "Outsidesquad Privateperson"
+                row.birth_date = date(2010, 1, 1)
+        # A local bridge may make tracked/shadow subjects unavailable too.
+        if unavailable in {"removed", "merged"}:
+            bridge = _local(club_app.c2["users"]["a"], name="Bridgealias Storedperson", status=unavailable)
+            bridge.api_player_id = outside.player_api_id
+        else:
+            _active_suppression(player_api_id=outside.player_api_id)
+    db.session.commit()
+    _join(client, env, "coach", "coach", squads=[env["sa"]])
+    url = f"{env['base']}/roster/{env['m1']}/brief"
+    assert client.put(url, json={"body": "Check both shoulders"}, headers=_headers("a")).status_code == 200
+    target = db.session.get(ClubRosterMember, env["m1"])
+    before = (target.coach_brief_body, target.brief_updated_at, target.brief_updated_by_user_id)
+    # Target checks may use the serializer; validation itself must never use it.
+    original = club_routes._member_subject
+
+    def target_only(member):
+        assert member.id == env["m1"], "validation must use stored names, not display eligibility"
+        return original(member)
+
+    monkeypatch.setattr(club_routes, "_member_subject", target_only)
+    for headers in [_headers("a"), _h(_email("coach"))]:
+        for token in ["Outsidesquad", "Privateperson"]:
+            response = client.put(url, json={"body": f"{token} checks shoulders"}, headers=headers)
+            assert response.status_code == 422, response.json
+            assert response.json == BRIEF_REFUSAL
+            db.session.refresh(target)
+            assert (target.coach_brief_body, target.brief_updated_at, target.brief_updated_by_user_id) == before
+    context = _brief_context(
+        {"id": 101, "club_program_id": env["pid"], "our_kit_color": "blue"},
+        [{"id": 102, "club_roster_member_id": target.id, "jersey_number": 9}],
+        [target],
+    )
+    assert context["roster"]["102"]["lines"] == ["Check both shoulders"]
+    assert "Outsidesquad" not in str(context) and "Privateperson" not in str(context)
+
+
+def test_brief_rejects_in_squad_names_for_every_role_and_preserves_shape_errors(client, env):
+    from src.models.tracked_player import TrackedPlayer
+
+    member = db.session.get(ClubRosterMember, env["m1"])
+    TrackedPlayer.query.filter_by(player_api_id=member.player_api_id).update({"player_name": "Insidesquad Knownperson"})
+    db.session.commit()
+    _join(client, env, "coach", "coach", squads=[env["sa"]])
+    url = f"{env['base']}/roster/{member.id}/brief"
+    for headers in [_headers("a"), _h(_email("coach"))]:
+        response = client.put(url, json={"body": "Insidesquad checks shoulders"}, headers=headers)
+        assert response.status_code == 422 and response.json == BRIEF_REFUSAL
+        assert client.put(url, json={"body": 12}, headers=headers).status_code == 400
+        assert client.put(url, json={"body": "Check both shoulders"}, headers=headers).status_code == 200
+
+
+def test_brief_rate_budget_is_account_keyed_and_counts_refused_and_successful_writes(
+    rate_limited_club_app, monkeypatch
+):
+    from src.extensions import limiter
+    from src.models.tracked_player import TrackedPlayer
+
+    club_app = rate_limited_club_app
+    client = club_app.test_client()
+    case = env.__wrapped__(club_app, client, monkeypatch)
+    member = db.session.get(ClubRosterMember, case["m2"])
+    TrackedPlayer.query.filter_by(player_api_id=member.player_api_id).update(
+        {"player_name": "Outsidesquad Privateperson"}
+    )
+    db.session.commit()
+    _active_suppression(player_api_id=member.player_api_id)
+    _join(client, case, "coach", "coach", squads=[case["sa"]])
+    _join(client, case, "allcoach", "coach", squads=[case["sa"]])
+    monkeypatch.setattr(limiter, "enabled", True)
+    monkeypatch.setitem(club_app.config, "RATELIMIT_ENABLED", True)
+    limiter.reset()
+    url = f"{case['base']}/roster/{case['m1']}/brief"
+    try:
+        for index in range(20):
+            body = "Outsidesquad checks shoulders" if index % 2 else "Watch Zzyzzx and copy"
+            response = client.put(
+                url,
+                json={"body": body},
+                headers=_h(_email("coach")),
+                environ_base={"REMOTE_ADDR": f"127.0.0.{index + 1}"},
+            )
+            assert response.status_code == (422 if index % 2 else 200)
+            if index % 2:
+                assert response.json == BRIEF_REFUSAL
+        for member_id in [case["m1"], case["m2"]]:
+            limited = client.put(
+                f"{case['base']}/roster/{member_id}/brief",
+                json={"body": "Watch Zzyzzx and copy"},
+                headers=_h(_email("coach")),
+            )
+            assert limited.status_code == 429 and limited.json == {"error": "Too many brief updates. Try again later."}
+            assert limited.headers["Cache-Control"] == "private, no-store"
+            assert int(limited.headers["Retry-After"]) > 0
+        assert client.put(url, json={"body": "Check shoulders"}, headers=_h(_email("allcoach"))).status_code == 200
+        assert client.put(url, json={"body": "Check shoulders"}, headers=_headers("a")).status_code == 200
+    finally:
+        limiter.reset()
+
+
+@pytest.mark.parametrize(
+    "competition,expected",
+    [
+        ("Wendle & District", "Wendle & District"),
+        ("R&D &copy; FC", "R&D &copy; FC"),
+        ("&notin Town", "&notin Town"),
+        ("Literal &amp;amp; League", "Literal &amp; League"),
+    ],
+)
+def test_public_rollup_endpoints_decode_once_preserving_stored_grouping(
+    client, club_app, monkeypatch, competition, expected
+):
+    from unittest.mock import patch
+
+    from src.routes.players import players_bp
+    from src.services import season_rollup_service
+
+    club_app.register_blueprint(players_bp, url_prefix="/api")
+    monkeypatch.setenv("SEASON_ROLLUP_READS", "season_stats,player_stats")
+    pid = club_app.c2["program_a"]
+    mid = _add_api_member(client, pid)
+    response = client.post(
+        f"/api/club/{pid}/results", headers=_headers("a"), json=_result_payload([mid], competition=competition)
+    )
+    assert response.status_code == 201, response.json
+    season_rollup_service.refresh_player(7001, 2025, session=db.session)
+    cell = PlayerSeasonCell.query.filter_by(player_api_id=7001, season=2025, source="club").one()
+    total = PlayerSeasonTotal.query.filter_by(player_api_id=7001, season=2025).one()
+    stored = sanitize_plain_text(competition)
+    original_clubs = deepcopy(total.clubs)
+    with patch.object(PlayerSeasonCell, "to_dict", side_effect=AssertionError("not the served adapter")):
+        for endpoint in ["season-stats", "stats"]:
+            response = client.get(f"/api/players/7001/{endpoint}?season=2025")
+            assert response.status_code == 200, response.json
+            payload = response.json
+            row = payload["source_breakdown"]["club"][0]
+            assert row["competition_tier"] == expected
+            assert row["detail"]["competition"] == expected
+            if endpoint == "season-stats":
+                assert payload["clubs"][0]["competition_tiers"] == [expected]
+    db.session.refresh(cell)
+    db.session.refresh(total)
+    assert cell.detail == {"competition": stored}
+    assert PlayerMatchEntry.query.one().competition == stored
+    assert total.clubs == original_clubs

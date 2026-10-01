@@ -7,7 +7,7 @@ const all = ['players.view', 'players.manage', 'matches.view', 'matches.upload',
 const member = { id: 8, available: true, display_name: 'Synthetic Player', subject_type: 'local', local_player_id: 8, squad_id: 11, shirt_number: 8, brief: { body: 'Check both shoulders', lines: ['Check both shoulders'] } }
 const expiredInvite = { id: 'expired-1', email: 'synthetic.coach@example.test', role: 'coach', all_squads: false, squad_ids: [11], status: 'expired', created_at: '2026-09-12T10:00:00Z', expires_at: '2026-09-19T10:00:00Z' }
 
-async function mock(page, { role = 'owner', subscription = 'club_bundle', emailSent = true, onInvite, onBrief, entitlements } = {}) {
+async function mock(page, { role = 'owner', subscription = 'club_bundle', emailSent = true, onInvite, onBrief, briefFailure, entitlements } = {}) {
   const admin = role === 'admin'
   const access = { program_id: 7, role, verified: true, whole_club: ['owner', 'manager'].includes(role), squad_ids: [11], capabilities: role === 'owner' ? all : role === 'manager' ? all.filter(c => !['access.manage', 'billing'].includes(c)) : ['players.view', 'matches.view', ...(role === 'coach' ? ['feedback', 'matches.upload'] : [])] }
   let matches = [{ id: 42, status: 'created', opponent_name: 'Synthetic Newest', competition: 'Wendle & District Senior League — Premier Division', match_date: '2026-09-27', roster: [] }, { id: 41, status: 'created', opponent_name: 'Synthetic Older', match_date: '2026-09-20', roster: [] }]
@@ -37,6 +37,7 @@ async function mock(page, { role = 'owner', subscription = 'club_bundle', emailS
     if (path === '/api/club/7/roster/8/profile') return reply({ identity: { ...member, brief, squad: squads[0] }, ...(role === 'viewer' ? {} : { coach_brief: brief }), pathway: [{ id: 'history-1', squad_name: 'Synthetic Reserves', started_at: '2026-01-01', ended_at: '2026-09-01' }, { id: 'current-8', squad_id: 11, squad_name: squads[0].name, started_at: null, ended_at: null }] })
     if (path === '/api/club/7/roster/8/brief') {
       onBrief?.(route.request().postDataJSON())
+      if (briefFailure) return route.fulfill(briefFailure)
       brief = { body: route.request().postDataJSON().body, lines: [route.request().postDataJSON().body] }
       return reply({ member: { ...member, brief } })
     }
@@ -114,7 +115,24 @@ for (const width of [1440, 390]) {
     expect(body).toEqual({ body: 'Scan before receiving' })
     await expect(page.locator('.ch-brief-lines')).toHaveText('Scan before receiving')
     expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false)
+    if (process.env.E2E_UXM2_SHOTS) await page.screenshot({ path: `${process.env.E2E_UXM2_SHOTS}/coach-brief-saved-${width}.png`, fullPage: true })
   })
+
+  for (const [status, message] of [[422, 'Briefs describe behaviours, not people — remove player names.'], [429, 'Too many brief updates. Try again later.']]) {
+    test(`brief ${status} refusal preserves the editor and saved brief at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: width === 390 ? 844 : 900 })
+      await mock(page, { role: 'coach', briefFailure: { status, json: { error: message } } })
+      await page.goto('/my-club?program=7&player=8')
+      await page.getByRole('button', { name: 'Edit brief', exact: true }).click()
+      await page.getByRole('textbox', { name: 'Coach brief', exact: true }).fill('Privateperson checks shoulders')
+      await page.getByRole('button', { name: 'Save brief', exact: true }).click()
+      await expect(page.getByText(message, { exact: true })).toBeVisible()
+      await expect(page.getByRole('textbox', { name: 'Coach brief', exact: true })).toHaveValue('Privateperson checks shoulders')
+      await expect(page.locator('.ch-brief-lines')).toHaveText('Check both shoulders')
+      expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false)
+      if (process.env.E2E_UXM2_SHOTS) await page.screenshot({ path: `${process.env.E2E_UXM2_SHOTS}/coach-brief-${status}-${width}.png`, fullPage: true })
+    })
+  }
 
   test(`result text escapes once and matches retain server date order at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: width === 390 ? 844 : 900 })

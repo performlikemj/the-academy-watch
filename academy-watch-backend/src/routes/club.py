@@ -628,25 +628,54 @@ def _brief_dict(body: str | None, updated_at: datetime | None) -> dict:
     }
 
 
+# Main's behaviour-only policy; change only after an explicit squad-name ruling.
+ALLOW_SCOPED_BRIEF_NAMES = False
+BRIEF_NAME_REFUSAL = "Briefs describe behaviours, not people — remove player names."
+
+
+class BriefNameError(ValueError):
+    pass
+
+
 def _brief_name_tokens(program: ClubProgram) -> dict[str, str]:
+    """Private validation inventory, independent of display/availability filters."""
     names = []
-    for member in program.roster_members:
-        subject, _ = _member_subject(member)
-        display_name = subject.get("display_name") if subject else None
-        if display_name:
-            names.append(display_name)
+    for model, column in [(TrackedPlayer, TrackedPlayer.player_name), (PlayerShadow, PlayerShadow.player_name)]:
+        names.extend(
+            db.session.query(column, ClubRosterMember.squad_id)
+            .join(ClubRosterMember, ClubRosterMember.player_api_id == model.player_api_id)
+            .filter(ClubRosterMember.program_id == program.id)
+            .all()
+        )
     names.extend(
-        player_name
-        for (player_name,) in db.session.query(VideoRosterEntry.player_name)
+        db.session.query(LocalPlayer.display_name, ClubRosterMember.squad_id)
+        .join(
+            ClubRosterMember,
+            or_(
+                ClubRosterMember.local_player_id == LocalPlayer.id,
+                ClubRosterMember.player_api_id == LocalPlayer.api_player_id,
+            ),
+        )
+        .filter(ClubRosterMember.program_id == program.id)
+        .all()
+    )
+    names.extend(
+        db.session.query(VideoRosterEntry.player_name, VideoMatch.squad_id)
         .join(VideoMatch, VideoRosterEntry.video_match_id == VideoMatch.id)
         .filter(VideoMatch.club_program_id == program.id)
         .all()
-        if player_name
     )
     tokens = {}
-    for name in names:
+    scope = scoped_squad_ids() if ALLOW_SCOPED_BRIEF_NAMES else None
+    for name, squad_id in names:
+        if not name:
+            continue
         for token in BRIEF_NAME_TOKEN_RE.findall(name):
-            tokens.setdefault(token.casefold(), token)
+            key = _fold_brief_name(token)
+            if scope is not None and squad_id in scope:
+                continue
+            tokens.setdefault(key, token)
+    # Shared name tokens remain forbidden if any identity is outside the scope.
     return tokens
 
 
@@ -693,16 +722,12 @@ def _clean_brief(body, program: ClubProgram) -> str | None:
         raise ValueError(f"Brief must contain at most {MAX_BRIEF_LINES} non-empty lines")
 
     name_tokens = _brief_name_tokens(program)
-    for line_number, line in lines:
+    for _line_number, line in lines:
         if len(line) > MAX_BRIEF_LINE_CHARS:
             raise ValueError(f"Brief lines must be at most {MAX_BRIEF_LINE_CHARS} characters")
         for token in name_tokens.values():
             if _brief_name_token_matches(token, line):
-                if scoped_squad_ids() is not None:
-                    raise ValueError("Briefs describe behaviours, not people — remove player names.")
-                raise ValueError(
-                    f'Briefs describe behaviours, not people — remove the name "{token}" from line {line_number}.'
-                )
+                raise BriefNameError(BRIEF_NAME_REFUSAL)
     return "\n".join(line for _line_number, line in lines)
 
 
@@ -1123,8 +1148,26 @@ def add_club_roster_member(program_id: int):
         return jsonify({"error": "Player is already on this club roster"}), 409
 
 
+def _brief_rate_limit_key():
+    return f"brief-account:{g.user_id}"
+
+
+def _brief_rate_rejected(limit):
+    response = jsonify(error="Too many brief updates. Try again later.")
+    response.status_code = 429
+    response.headers["Cache-Control"] = "private, no-store"
+    response.headers["Retry-After"] = str(max(1, math.ceil(limit.reset_at - datetime.now(UTC).timestamp())))
+    return response
+
+
+_brief_write_limit = limiter.shared_limit(
+    "20 per hour", scope="club-roster-brief", key_func=_brief_rate_limit_key, on_breach=_brief_rate_rejected
+)
+
+
 @club_bp.route("/club/<int:program_id>/roster/<int:member_id>/brief", methods=["PUT"])
 @require_club_permission(("players.manage", "feedback"), any_of=True)
+@_brief_write_limit
 def set_club_roster_member_brief(program_id: int, member_id: int):
     member = ClubRosterMember.query.filter_by(id=member_id, program_id=program_id).first()
     if (
@@ -1136,6 +1179,8 @@ def set_club_roster_member_brief(program_id: int, member_id: int):
     program = db.session.get(ClubProgram, program_id)
     try:
         body = _clean_brief(_payload().get("body"), program)
+    except BriefNameError as exc:
+        return jsonify(error=str(exc)), 422
     except ValueError as exc:
         return _bad_request(str(exc))
 
@@ -1152,6 +1197,8 @@ def set_club_system_brief(program_id: int):
     program = db.session.get(ClubProgram, program_id)
     try:
         body = _clean_brief(_payload().get("body"), program)
+    except BriefNameError as exc:
+        return jsonify(error=str(exc)), 422
     except ValueError as exc:
         return _bad_request(str(exc))
 

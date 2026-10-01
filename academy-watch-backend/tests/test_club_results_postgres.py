@@ -491,3 +491,32 @@ def test_forced_mid_refresh_failure_rolls_back_both_seasons(postgres_app, pg_cas
         ] == before_entries
         assert PlayerSeasonCell.query.filter_by(player_api_id=7041).count() == before_cells
         assert PlayerSeasonTotal.query.filter_by(player_api_id=7041).count() == before_totals
+
+
+def test_suppressed_roster_name_cannot_change_a_manager_brief(postgres_app, pg_case):
+    from src.models.player_suppression import PlayerSuppression
+
+    with postgres_app.app_context():
+        outside = db.session.get(ClubRosterMember, pg_case["members_a"][1])
+        tracked = TrackedPlayer.query.filter_by(player_api_id=outside.player_api_id).one()
+        tracked.player_name = "Outsidesquad Privateperson"
+        tracked.birth_date = "2010-01-01"
+        db.session.add(
+            PlayerSuppression(
+                player_api_id=outside.player_api_id,
+                reason_code="guardian_request",
+                requester_role="guardian",
+                requester_contact="guardian@example.test",
+                request_statement="Please hide this identity.",
+                status="active",
+            )
+        )
+        db.session.commit()
+    url = f"/api/club/{pg_case['program_a']}/roster/{pg_case['members_a'][0]}/brief"
+    with postgres_app.test_client() as client:
+        assert client.put(url, json={"body": "Check both shoulders"}, headers=_headers(pg_case)).status_code == 200
+        response = client.put(url, json={"body": "Outsidesquad checks shoulders"}, headers=_headers(pg_case))
+        assert response.status_code == 422
+        assert response.json == {"error": "Briefs describe behaviours, not people — remove player names."}
+    with postgres_app.app_context():
+        assert db.session.get(ClubRosterMember, pg_case["members_a"][0]).coach_brief_body == "Check both shoulders"
