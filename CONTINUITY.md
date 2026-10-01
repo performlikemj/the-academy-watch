@@ -1009,6 +1009,7 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
   - **See `ledgers/research/talent-platform/` (design panel) + `docs/follow-graph.md`**
 
 ### Next
+- **2026-10-01 P2 C1:** in progress on p2/c1-club-publication, stacked B3; adult publication consent + strict club-first introductions. See `ledgers/CONTINUITY_p2-c1.md`.
 - Run migration: `flask db upgrade`
 - Restore frontend deps only when required, from the frozen lockfile, and run
   the dependency-security gate described in
