@@ -2,7 +2,7 @@
 
 import json
 import logging
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -207,7 +207,7 @@ def test_interval_guard_uses_watchlist_and_follow_send_markers(app):
     db.session.flush()
     db.session.add_all(
         (
-            PlayerShadow(player_api_id=101, player_name="Due Prospect"),
+            PlayerShadow(player_api_id=101, player_name="Due Prospect", birth_date=date(2000, 1, 1)),
             ScoutWatchlistEntry(
                 user_account_id=due.id,
                 player_api_id=101,
@@ -305,6 +305,7 @@ def test_run_caps_provider_calls_across_three_pages_and_sends_after_exhaustion(a
             (
                 user,
                 TrackedPlayer(
+                    birth_date="2000-01-01",
                     player_api_id=player_api_id,
                     player_name=f"Prospect {index}",
                     team_id=team.id,
@@ -382,6 +383,7 @@ def test_run_caps_provider_calls_across_three_pages_and_sends_after_exhaustion(a
 def test_service_reuses_enrichment_cache_for_a_player_shared_across_pages(app):
     team = Team(team_id=9902, name="Cache Academy", country="England", season=2026)
     player = TrackedPlayer(
+        birth_date="2000-01-01",
         player_api_id=9001,
         player_name="Shared Prospect",
         team=team,

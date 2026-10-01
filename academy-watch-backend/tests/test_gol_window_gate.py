@@ -364,6 +364,7 @@ def test_lookup_message_uses_persisted_tracked_club(app, lookup, monkeypatch):
     tracked = TrackedPlayer(
         player_api_id=507,
         player_name="Message Player",
+        birth_date="2000-01-01",
         team_id=team.id,
         status="sold",
         current_club_api_id=200,
@@ -397,6 +398,7 @@ def test_lookup_message_uses_journey_club_for_parent_status(app, lookup, monkeyp
     tracked = TrackedPlayer(
         player_api_id=508,
         player_name="Academy Player",
+        birth_date="2000-01-01",
         team_id=team.id,
         status="academy",
         current_club_api_id=None,

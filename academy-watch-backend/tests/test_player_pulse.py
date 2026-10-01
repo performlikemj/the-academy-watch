@@ -56,6 +56,7 @@ def seeded(app):
 
     # 1001: in-form loan striker (stat deltas + form spike, no milestones)
     striker = TrackedPlayer(
+        birth_date="2000-01-01",
         player_api_id=1001,
         player_name="Alfie Striker",
         position="Attacker",
@@ -69,6 +70,7 @@ def seeded(app):
     )
     # 1003: keeper, first_team, no fixtures (used for status-change + injury tests)
     keeper = TrackedPlayer(
+        birth_date="2000-01-01",
         player_api_id=1003,
         player_name="Charlie Gloves",
         position="Goalkeeper",
@@ -189,6 +191,7 @@ class TestStatDeltas:
 class TestMilestones:
     def _add_newbie(self, seeded, player_api_id=1002):
         newbie = TrackedPlayer(
+            birth_date="2000-01-01",
             player_api_id=player_api_id,
             player_name="Debut Kid",
             position="Midfielder",
@@ -317,6 +320,7 @@ class TestStatusAndLevel:
 
     def test_level_jump_fires(self, seeded):
         prospect = TrackedPlayer(
+            birth_date="2000-01-01",
             player_api_id=1004,
             player_name="Riser",
             position="Defender",
@@ -359,6 +363,7 @@ class TestPer90Spike:
     def test_no_spike_without_baseline_minutes(self, seeded):
         # Fresh player with only window minutes → baseline below the gate
         p = TrackedPlayer(
+            birth_date="2000-01-01",
             player_api_id=1006,
             player_name="No Base",
             position="Attacker",

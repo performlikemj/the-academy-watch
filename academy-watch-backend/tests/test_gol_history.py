@@ -53,7 +53,7 @@ ANSWER = {"role": "assistant", "content": "Answer"}
         pytest.param([USER, ANSWER] * 12, [USER, ANSWER] * 10, id="normal-history-capped-unchanged"),
     ],
 )
-def test_chat_sends_complete_trimmed_history(history, expected):
+def test_chat_keeps_questions_and_recomputes_answers_from_current_adult_data(history, expected):
     original = deepcopy(history)
     # Exercise chat's actual provider boundary without a model client or database.
     service = GolService.__new__(GolService)
@@ -63,6 +63,7 @@ def test_chat_sends_complete_trimmed_history(history, expected):
 
     sent = service._run_completion.call_args.args[0]
     assert sent[0]["role"] == "system"
-    assert sent[1:-1] == expected
+    assert GolService._complete_tool_history(history[-20:]) == expected
+    assert sent[1:-1] == [entry for entry in history[-20:] if entry["role"] == "user"]
     assert sent[-1] == {"role": "user", "content": "Next"}
     assert history == original

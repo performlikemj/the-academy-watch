@@ -179,6 +179,8 @@ enum ScoutAgePreset: String, CaseIterable, Equatable, Identifiable, Sendable {
     case under21 = "u21"
     case under23 = "u23"
 
+    static let allCases: [ScoutAgePreset] = [.all, .under21, .under23]
+
     var id: String { rawValue }
 
     var label: String {
@@ -194,8 +196,8 @@ enum ScoutAgePreset: String, CaseIterable, Equatable, Identifiable, Sendable {
         switch self {
         case .all: nil
         case .under18: 18
-        case .under21: 21
-        case .under23: 23
+        case .under21: 20
+        case .under23: 22
         }
     }
 }
