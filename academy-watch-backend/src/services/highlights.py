@@ -5,10 +5,12 @@ import json
 import math
 import os
 import re
+from collections import defaultdict
 from functools import wraps
 
 import sqlalchemy as sa
-from flask import abort
+from flask import abort, g, has_request_context, request
+from src.models.follow import PlayerShadow
 from src.models.funding import ClubProgram, ClubRosterMember, ClubSquad
 from src.models.highlights import (
     HighlightConsentEvent,
@@ -17,15 +19,18 @@ from src.models.highlights import (
     PlayerHighlight,
     now,
 )
+from src.models.journey import PlayerJourney
 from src.models.league import db
 from src.models.showcase import LocalPlayer, PlayerProfileClaim
+from src.models.tracked_player import TrackedPlayer
 from src.models.video import VideoMatch, VideoPlayerReport, VideoRosterEntry, VideoTracklet
 from src.services.account_standing import is_account_active
 from src.services.admin_audit import record_admin_event
 from src.services.club_directory import is_listed
 from src.services.club_publication_hold import club_publication_held, subject_publication_held
-from src.services.public_adult import is_public_adult
+from src.services.public_adult import is_public_adult, public_adult_ids
 from src.services.public_player_subject import resolve_public_adult_subject
+from src.utils.academy_window import age_from_birth_date
 
 MAX_CLIPS_PER_MATCH = 100
 MAX_CLIP_SECONDS = 60
@@ -88,6 +93,51 @@ def claim_for_subject(signed_id):
 
 
 def adult_recording(match, *, frozen_etag=None):
+    # Request-local only: repeated clips from one recording reuse the same read snapshot.
+    # Workers/writes never cache eligibility across their storage/commit boundary.
+    if has_request_context() and request.method == "GET":
+        cache = g.setdefault("highlight_recording_checks", {})
+        key = (match.id if match else None, frozen_etag)
+        if key not in cache:
+            cache[key] = _adult_recording(match, frozen_etag=frozen_etag)
+        return cache[key]
+    return _adult_recording(match, frozen_etag=frozen_etag)
+
+
+def recording_adults(ids, recorded_on):
+    """Current canonical adults must also have been adults when this footage was recorded."""
+    if recorded_on is None or recorded_on > now().date():
+        return set()
+    adults = public_adult_ids(ids)
+    evidence = defaultdict(list)
+    years = defaultdict(list)
+    local_rows = LocalPlayer.query.filter(
+        sa.or_(LocalPlayer.api_player_id.in_(ids), LocalPlayer.id.in_([-pid for pid in ids if pid < 0]))
+    ).all()
+    for local in local_rows:
+        pid = local.api_player_id
+        if local.birth_date:
+            evidence[pid].append(local.birth_date)
+        if local.birth_year:
+            years[pid].append(local.birth_year)
+    for model, active in ((TrackedPlayer, False), (PlayerJourney, False), (PlayerShadow, True)):
+        query = db.session.query(model.player_api_id, model.birth_date).filter(model.player_api_id.in_(ids))
+        if active:
+            query = query.filter(model.is_active.is_(True))
+        for pid, born in query:
+            if born:
+                evidence[pid].append(born)
+
+    def adult_then(pid):
+        dates = evidence[pid]
+        if dates:
+            return all((age_from_birth_date(born, today=recorded_on) or 0) >= 18 for born in dates)
+        return bool(years[pid]) and all(year < recorded_on.year - 18 for year in years[pid])
+
+    return {pid for pid in adults if adult_then(pid)}
+
+
+def _adult_recording(match, *, frozen_etag=None):
     """Fail closed without a source-bound human review of EVERY visible person."""
     etag = frozen_etag or (match.blob_etag if match else None)
     if not match or not etag or not match.scoped_snapshot or match.scoped_ready_etag != etag:
@@ -111,12 +161,14 @@ def adult_recording(match, *, frozen_etag=None):
     entries = VideoRosterEntry.query.filter_by(video_match_id=match.id).all()
     if not entries:
         return False
+    ids = set()
     for entry in entries:
         member = db.session.get(ClubRosterMember, entry.club_roster_member_id) if entry.club_roster_member_id else None
         pid = member_subject(member)
-        if not member or member.program_id != match.club_program_id or pid is None or not is_public_adult(pid):
+        if not member or member.program_id != match.club_program_id or pid is None:
             return False
-    return True
+        ids.add(pid)
+    return ids == recording_adults(ids, match.match_date)
 
 
 def source_fingerprint(match, entry, tracklet, *, frozen_etag=None):
@@ -133,6 +185,7 @@ def source_fingerprint(match, entry, tracklet, *, frozen_etag=None):
                 match.id,
                 match.club_program_id,
                 match.squad_id,
+                match.match_date,
                 frozen_etag or match.blob_etag,
                 match.scoped_snapshot,
                 match.scoped_ready_etag,

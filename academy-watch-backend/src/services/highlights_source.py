@@ -16,6 +16,7 @@ from src.models.highlights import (
 from src.models.video import VideoMatch, VideoPlayerReport, VideoRosterEntry, VideoTracklet
 
 MATCH_FIELDS = {
+    "match_date",
     "blob_path",
     "blob_etag",
     "scoped_snapshot",

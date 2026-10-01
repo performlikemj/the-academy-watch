@@ -7,7 +7,7 @@ from threading import Barrier
 
 import pytest
 import sqlalchemy as sa
-from src.models.highlights import HighlightConsentEvent, HighlightRenderJob, PlayerHighlight
+from src.models.highlights import HighlightConsentEvent, HighlightRenderJob, PlayerHighlight, now
 from src.models.league import db
 from src.workers.highlight_worker import claim_next
 from test_highlights import approve, headers, pick, ready, world  # noqa: F401, F811
@@ -26,6 +26,9 @@ def test_sql_source_update_durably_resets_consent(world):
     db.session.refresh(row)
     assert row.player_decision == "pending" and row.approved_source_version is None and row.source_version == 2
     assert HighlightConsentEvent.query.filter_by(highlight_id=row.id, action="source_changed").count() == 1
+    assert abs((row.revoked_at - now()).total_seconds()) < 10
+    cleanup = HighlightRenderJob.query.filter_by(kind="highlight_delete").one()
+    assert 1190 < (cleanup.created_at - now()).total_seconds() < 1210
 
 
 def test_two_pick_requests_share_one_intent_job_and_notification(world):
@@ -82,3 +85,16 @@ def test_decision_race_has_one_winner(world):
     with ThreadPoolExecutor(max_workers=2) as pool:
         results = list(pool.map(request, ["approve", "private"]))
     assert sorted(results) == [200, 409]
+
+
+def test_sql_source_removal_revokes_and_queues_cleanup(world):
+    row = ready(world)
+    assert approve(world, row).status_code == 200
+    # Existing video child FKs restrict raw match deletion; maintenance removes children first.
+    for table in ("video_player_reports", "video_tracklets", "video_roster_entries", "video_matches"):
+        key = "id" if table == "video_matches" else "video_match_id"
+        db.session.execute(sa.text(f"DELETE FROM c2_checks.{table} WHERE {key}=:id"), {"id": world["match"].id})
+    db.session.commit()
+    db.session.refresh(row)
+    assert row.video_match_id is None and row.revoked_at and row.approved_source_version is None
+    assert HighlightRenderJob.query.filter_by(kind="highlight_delete").count() == 1

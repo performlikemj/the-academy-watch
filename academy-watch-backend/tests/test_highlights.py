@@ -124,6 +124,7 @@ def world(monkeypatch):
             club_program_id=program.id,
             squad_id=squad.id,
             status="finalized",
+            match_date=now().date(),
             blob_path="matches/1/private.mp4",
             blob_etag="source-v1",
             scoped_ready_etag="source-v1",
@@ -686,3 +687,21 @@ def test_c1_club_origin_requires_current_canonical_publication(world, monkeypatc
     db.session.commit()
     assert not highlights.public(row)
     assert world["app"].test_client().get(f"/api/highlights/{row.id}/clip").status_code == 404
+
+
+@pytest.mark.parametrize("recorded_on", [None, date(2010, 1, 1), date(2099, 1, 1)])
+def test_unknown_future_or_childhood_recording_stays_private(world, recorded_on):
+    world["match"].match_date = recorded_on
+    db.session.commit()
+    assert pick(world).status_code == 422
+    assert PlayerHighlight.query.count() == 0
+
+
+def test_recording_date_change_resets_previous_consent(world):
+    row = ready(world)
+    assert approve(world, row).status_code == 200
+    world["match"].match_date = date(2010, 1, 1)
+    db.session.commit()
+    db.session.refresh(row)
+    assert row.revoked_at and row.approved_source_version is None
+    assert not highlights.public(row)

@@ -4,13 +4,13 @@ DECLARE changed RECORD;
 BEGIN
  FOR changed IN
   UPDATE public.player_highlights SET player_decision='pending',approved_source_version=NULL,
-   revoked_at=now(),revoke_reason='source_changed',render_status='stale',version=version+1,source_version=source_version+1
+   revoked_at=timezone('UTC',now()),revoke_reason='source_changed',render_status='stale',version=version+1,source_version=source_version+1
    WHERE video_match_id=mid AND revoked_at IS NULL RETURNING id,version,source_version
  LOOP
   INSERT INTO public.highlight_consent_events(highlight_id,action,version,source_version,created_at)
-   VALUES(changed.id,'source_changed',changed.version,changed.source_version,now());
+   VALUES(changed.id,'source_changed',changed.version,changed.source_version,timezone('UTC',now()));
   INSERT INTO public.highlight_render_jobs(id,kind,highlight_id,source_version,status,attempt,blob_path,created_at)
-   SELECT md5(random()::text || clock_timestamp()::text), 'highlight_delete',NULL,1,'queued',0,path,now()+interval '20 minutes'
+   SELECT md5(random()::text || clock_timestamp()::text), 'highlight_delete',NULL,1,'queued',0,path,timezone('UTC',now())+interval '20 minutes'
    FROM (SELECT output_blob_path AS path FROM public.player_highlights WHERE id=changed.id
          UNION SELECT blob_path FROM public.highlight_render_jobs WHERE highlight_id=changed.id) assets
    WHERE path IS NOT NULL;
@@ -28,10 +28,10 @@ BEGIN
    AND (to_jsonb(NEW)-ARRAY['status','blob_path','blob_etag','updated_at']) = (to_jsonb(OLD)-ARRAY['status','blob_path','blob_etag','updated_at'])
    THEN RETURN NEW; END IF;
   IF TG_OP='UPDATE' AND
-   (to_jsonb(NEW)->'blob_path',to_jsonb(NEW)->'blob_etag',to_jsonb(NEW)->'scoped_snapshot',to_jsonb(NEW)->'scoped_ready_etag',
+   (to_jsonb(NEW)->'match_date',to_jsonb(NEW)->'blob_path',to_jsonb(NEW)->'blob_etag',to_jsonb(NEW)->'scoped_snapshot',to_jsonb(NEW)->'scoped_ready_etag',
     to_jsonb(NEW)->'duration_s',to_jsonb(NEW)->'finalized_at',to_jsonb(NEW)->'club_program_id',to_jsonb(NEW)->'squad_id',
     to_jsonb(NEW)->'our_team_cluster',to_jsonb(NEW)->'kickoff_s',to_jsonb(NEW)->'halftime_s',to_jsonb(NEW)->'second_half_kickoff_s') IS NOT DISTINCT FROM
-   (to_jsonb(OLD)->'blob_path',to_jsonb(OLD)->'blob_etag',to_jsonb(OLD)->'scoped_snapshot',to_jsonb(OLD)->'scoped_ready_etag',
+   (to_jsonb(OLD)->'match_date',to_jsonb(OLD)->'blob_path',to_jsonb(OLD)->'blob_etag',to_jsonb(OLD)->'scoped_snapshot',to_jsonb(OLD)->'scoped_ready_etag',
     to_jsonb(OLD)->'duration_s',to_jsonb(OLD)->'finalized_at',to_jsonb(OLD)->'club_program_id',to_jsonb(OLD)->'squad_id',
     to_jsonb(OLD)->'our_team_cluster',to_jsonb(OLD)->'kickoff_s',to_jsonb(OLD)->'halftime_s',to_jsonb(OLD)->'second_half_kickoff_s')
    THEN RETURN NEW; END IF;
@@ -52,7 +52,8 @@ BEGIN
  IF TG_OP='UPDATE' AND TG_TABLE_NAME NOT IN ('video_matches','club_roster_members') THEN
   IF OLD.video_match_id <> NEW.video_match_id THEN PERFORM public.p2c2_invalidate_match(OLD.video_match_id); END IF;
  END IF;
- RETURN NULL;
+ IF TG_OP='DELETE' THEN RETURN OLD; END IF;
+ RETURN NEW;
 END $$;
 DO $$ DECLARE source_table text;
 BEGIN
@@ -60,6 +61,6 @@ BEGIN
  LOOP
   EXECUTE format('DROP TRIGGER IF EXISTS p2c2_source_guard ON public.%I',source_table);
   EXECUTE format('CREATE TRIGGER p2c2_source_guard %s INSERT OR UPDATE OR DELETE ON public.%I FOR EACH ROW EXECUTE FUNCTION public.p2c2_source_guard()',
-                 CASE WHEN source_table='club_roster_members' THEN 'BEFORE' ELSE 'AFTER' END, source_table);
+                 CASE WHEN source_table IN ('club_roster_members','video_matches') THEN 'BEFORE' ELSE 'AFTER' END, source_table);
  END LOOP;
 END $$;
