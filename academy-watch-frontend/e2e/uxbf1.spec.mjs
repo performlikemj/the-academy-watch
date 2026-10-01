@@ -9,7 +9,7 @@ const application = { id: '00000000-0000-4000-8000-000000000002', opportunity_id
 const claim = { claim_id: 3, signed_player_id: -9, name: 'Synthetic Adult', profile_path: '/local-players/9', application: null }
 const program = { id: 7, name: opportunity.club_name, slug: opportunity.club_slug, brand: {}, platform_status: 'approved', provenance: { label: 'Self-reported' }, updates: [] }
 
-async function fixture(page, { role = 'owner', on = true, eligible = true, claims = [claim], rows = [application], item = opportunity, conflict = false, featuresStatus = 200, waitFeatures, waitClaims } = {}) {
+async function fixture(page, { role = 'owner', on = true, eligible = true, claims = [claim], rows = [application], item = opportunity, conflict = false, featuresStatus = 200, claimsStatus = 200, retrySuccess = false, items, listStatus = 200, waitRetry, waitItems, waitFeatures, waitClaims } = {}) {
   if (role !== 'visitor') await page.addInitScript(() => {
     localStorage.setItem('academy_watch_user_token', 'uxbf1-synthetic-token')
     localStorage.setItem('academy_watch_display_name', 'Synthetic Viewer')
@@ -17,6 +17,7 @@ async function fixture(page, { role = 'owner', on = true, eligible = true, claim
     localStorage.setItem('academyWatch.playerOnboardingPromptDismissed.v1', 'true')
   })
   const calls = [], errors = [], submissions = []
+  let recovered = false
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()) })
   page.on('pageerror', error => errors.push(error.message))
   await page.context().route('**/api/**', async route => {
@@ -24,19 +25,32 @@ async function fixture(page, { role = 'owner', on = true, eligible = true, claim
     calls.push(p)
     const reply = json => route.fulfill({ json })
     if (p === '/api/opportunities/features') return route.fulfill({ status: on ? 200 : 404, json: on ? { opportunities: true, applications: true } : { error: 'Not found' } })
-    if (p === '/api/features') { if (waitFeatures) await waitFeatures; return route.fulfill({ status: featuresStatus, json: featuresStatus === 200 ? (on ? { opportunities: true, applications: true } : {}) : { error: 'rate_limited' } }) }
+    if (p === '/api/features') {
+      if (waitFeatures) await waitFeatures
+      if (recovered && waitRetry) await waitRetry
+      const status = retrySuccess && recovered ? 200 : featuresStatus
+      return route.fulfill({ status, json: status === 200 ? (on ? { opportunities: true, applications: true } : {}) : { error: 'rate_limited' } })
+    }
     if (p === '/api/auth/me') return reply({ email: 'uxbf1@example.test', display_name: 'Synthetic Viewer', display_name_confirmed: true, role: role === 'scout' ? 'scout' : 'user' })
     if (p === '/api/meta/data-mode') return reply({ api_football_frozen: true })
     if (p === '/api/programs/synthetic-uxbf1') return reply({ program })
     if (p === '/api/local-players/9') return reply({ player: { id: 9, api_player_id: -9, display_name: 'Synthetic Adult', birth_year: 2000, status: 'approved' } })
     if (p === '/api/local-players/9/showcase') return reply({ claim_status: 'claimed', profile: { bio: 'Synthetic profile' }, affiliations: [], reel: [], photos: [] })
     if (p === '/api/me/claims') return reply({ claims: role === 'owner' ? [{ id: 3, local_player_id: 9, player_api_id: -9, relationship_type: 'player', status: 'approved' }] : [] })
-    if (p === '/api/me/application-claims') { if (waitClaims) await waitClaims; return reply({ claims: eligible ? claims : [] }) }
+    if (p === '/api/me/application-claims') {
+      if (waitClaims) await waitClaims
+      if (recovered && waitRetry) await waitRetry
+      const status = retrySuccess && recovered ? 200 : claimsStatus
+      return route.fulfill({ status, json: status === 200 ? { claims: eligible ? claims : [] } : { error: 'unavailable' } })
+    }
     if (p === '/api/funding/claims/me') return reply({ claims: role === 'club-owner' ? [{ id: 31, status: 'approved', relationship_type: 'club_official', program }] : [] })
     if (p === '/api/me/club') return reply({ clubs: [] })
     if (p === '/api/me/club-claims') return reply({ claims: [] })
     if (p === '/api/me/applications') return reply({ applications: rows })
-    if (p === '/api/opportunities') return reply({ opportunities: [item], has_more: false })
+    if (p === '/api/opportunities') {
+      if (waitItems) await waitItems
+      return route.fulfill({ status: listStatus, json: listStatus === 200 ? { opportunities: items ?? [item], has_more: false } : { error: 'unavailable' } })
+    }
     if (p === `/api/opportunities/${oid}`) return reply({ opportunity: item })
     if (p === `/api/opportunities/${oid}/applications`) {
       submissions.push(req.postDataJSON())
@@ -44,7 +58,7 @@ async function fixture(page, { role = 'owner', on = true, eligible = true, claim
     }
     return reply({})
   })
-  return { calls, errors, submissions }
+  return { calls, errors, submissions, recover: () => { recovered = true } }
 }
 async function shot(page, name, size) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
@@ -196,6 +210,124 @@ for (const [width, height, size] of [[1440, 900, 'desktop'], [390, 844, 'mobile'
       await page.getByRole('button', { name: 'Send application' }).click()
       await expect(page.getByText('You already applied. View your applications and next steps on player home.')).toBeVisible()
       await expect(page.getByRole('button', { name: 'Send application' })).toHaveCount(0)
+    })
+    for (const role of ['visitor', 'owner']) for (const status of [500, 429]) {
+      test(`UXBF2 failed bootstrap ${status} keeps discovery for ${role} and retries`, async ({ page }) => {
+        const evidence = await fixture(page, { role, on: false, featuresStatus: status, retrySuccess: true })
+        await page.goto('/onboarding/player')
+        await expect(page.getByRole('heading', { name: 'Are you a player?' })).toBeVisible()
+        await expect(page.getByRole('alert')).toHaveCount(1)
+        await expect(page.getByRole('alert')).toContainText('Could not load opportunities')
+        await expect(page.getByRole('heading', { name: 'Your next chapter.' })).toHaveCount(0)
+        await expect(page.getByRole('link', { name: 'Create your profile', exact: true })).toBeVisible()
+        await page.getByLabel('Player name').fill('Synthetic')
+        await expect(page.getByText('No tracked player matches', { exact: false })).toBeVisible()
+        expect(evidence.calls.some(p => p.startsWith('/api/scout/players'))).toBe(true)
+        expect(businessCalls(evidence.calls)).toEqual([])
+        await shot(page, `bootstrap-${status}-${role}-discovery`, size)
+        evidence.recover()
+        await page.getByRole('button', { name: 'Retry applications' }).click()
+        await expect(page.getByRole('alert')).toHaveCount(0)
+        await expect(page.getByRole('heading', { name: 'Your next chapter.' })).toBeVisible()
+        expect(evidence.calls.filter(p => p === '/api/features')).toHaveLength(2)
+        expect(businessCalls(evidence.calls)).toEqual([])
+      })
+    }
+    test('UXBF2 failed enabled bootstrap keeps discovery throughout retry', async ({ page }) => {
+      let resolve
+      const waitRetry = new Promise(r => { resolve = r })
+      const evidence = await fixture(page, { featuresStatus: 500, retrySuccess: true, waitRetry })
+      await page.goto('/onboarding/player')
+      await expect(page.getByRole('heading', { name: 'Are you a player?' })).toBeVisible()
+      await expect(page.getByRole('alert')).toHaveCount(1)
+      await page.getByLabel('Player name').fill('Synthetic')
+      evidence.recover()
+      await page.getByRole('button', { name: 'Retry applications' }).click()
+      await expect(page.getByRole('button', { name: 'Retry applications' })).toBeDisabled()
+      await expect(page.getByRole('heading', { name: 'Are you a player?' })).toBeVisible()
+      await expect(page.getByLabel('Player name')).toHaveValue('Synthetic')
+      await expect(page.getByRole('link', { name: 'Create your profile', exact: true })).toBeVisible()
+      resolve()
+      await expect(page.getByRole('heading', { name: 'Your next step.' })).toBeVisible()
+      await expect(page.getByRole('alert')).toHaveCount(0)
+      await expect(page.locator('#my-applications')).toBeVisible()
+      expect(evidence.calls.filter(p => p === '/api/features')).toHaveLength(2)
+    })
+    test('UXBF2 failed claims keeps discovery with one contextual error and retry', async ({ page }) => {
+      let resolve
+      const waitRetry = new Promise(r => { resolve = r })
+      const evidence = await fixture(page, { claimsStatus: 500, retrySuccess: true, waitRetry })
+      await page.goto('/onboarding/player')
+      await expect(page.getByRole('heading', { name: 'Are you a player?' })).toBeVisible()
+      await expect(page.getByRole('alert')).toHaveCount(1)
+      await expect(page.getByRole('alert')).toContainText('Could not check your profiles')
+      await expect(page.getByRole('link', { name: 'Create your profile', exact: true })).toBeVisible()
+      await page.getByLabel('Player name').fill('Synthetic')
+      await expect(page.getByText('No tracked player matches', { exact: false })).toBeVisible()
+      expect(evidence.calls).not.toContain('/api/me/applications')
+      await shot(page, 'claims-error-discovery', size)
+      const initialClaims = evidence.calls.filter(p => p === '/api/me/application-claims').length
+      evidence.recover()
+      await page.getByRole('button', { name: 'Retry applications' }).click()
+      await expect(page.getByRole('button', { name: 'Retry applications' })).toBeDisabled()
+      await expect(page.getByRole('heading', { name: 'Are you a player?' })).toBeVisible()
+      await expect(page.getByLabel('Player name')).toHaveValue('Synthetic')
+      resolve()
+      await expect(page.getByRole('heading', { name: 'Your next step.' })).toBeVisible()
+      await expect(page.getByRole('alert')).toHaveCount(0)
+      await expect(page.locator('#my-applications')).toBeVisible()
+      expect(evidence.calls.filter(p => p === '/api/me/application-claims')).toHaveLength(initialClaims + 1)
+    })
+    test('UXBF2 parent anchor keeps email in view after delayed adult claims settle', async ({ page }) => {
+      let resolve
+      const waitClaims = new Promise(r => { resolve = r })
+      await fixture(page, { waitClaims })
+      await page.goto(`/opportunities/${oid}#parent-interest`)
+      await expect(page.getByText('Checking your profiles…', { exact: true })).toBeVisible()
+      resolve()
+      await expect(page.getByLabel('Position', { exact: true })).toBeVisible()
+      const block = page.locator('#parent-interest')
+      await expect(block).toBeFocused()
+      await expect(block.getByLabel('Email address')).toBeInViewport({ ratio: 1 })
+      await shot(page, 'adult-parent-interest-settled', size)
+      if (process.env.UXBF1_SCREENSHOTS) await page.screenshot({ path: path.join(process.env.UXBF1_SCREENSHOTS, `adult-parent-interest-settled-${size}-viewport.png`), style: '[data-agentation-root] { visibility: hidden !important; }' })
+      await page.getByLabel('Position', { exact: true }).fill('Midfielder')
+      await expect(page.getByLabel('Position', { exact: true })).toBeFocused()
+    })
+    for (const surface of ['detail', 'home']) test(`UXBF2 maximum invitation text wraps on ${surface}`, async ({ page }) => {
+      const invited = { ...application, status: 'invited', status_label: 'Invited', trial_at: '2026-10-20T10:00:00Z', trial_venue: 'V'.repeat(200), trial_instructions: 'I'.repeat(3000), reservation_state: 'pending' }
+      await fixture(page, { claims: [{ ...claim, application: invited }], rows: [invited] })
+      await page.goto(surface === 'detail' ? `/opportunities/${oid}` : '/onboarding/player')
+      await expect(page.getByText(invited.trial_instructions, { exact: true })).toBeVisible()
+      await shot(page, `maximum-invitation-${surface}`, size)
+    })
+    test('UXBF2 maximum claim name stays within player home', async ({ page }) => {
+      const name = 'X'.repeat(200)
+      await fixture(page, { claims: [{ ...claim, name }] })
+      await page.goto('/onboarding/player')
+      const profile = page.getByRole('link', { name: `${name} · My profile →` })
+      await expect(profile).toBeVisible()
+      await expect(profile).toHaveAttribute('href', '/local-players/9')
+      await shot(page, 'maximum-profile-name', size)
+    })
+    test('UXBF2 empty opportunity list never advertises Open now', async ({ page }) => {
+      let resolve
+      const waitItems = new Promise(r => { resolve = r })
+      await fixture(page, { items: [], waitItems })
+      await page.goto('/programs/synthetic-uxbf1')
+      await expect(page.getByText('Loading opportunities…')).toBeVisible()
+      await expect(page.getByText('Open now', { exact: true })).toHaveCount(0)
+      resolve()
+      await expect(page.getByText('No open opportunities at this club right now.')).toBeVisible()
+      await expect(page.getByText('Open now', { exact: true })).toHaveCount(0)
+      await shot(page, 'empty-club-opportunities', size)
+    })
+    test('UXBF2 failed opportunity list omits Open now', async ({ page }) => {
+      await fixture(page, { listStatus: 500 })
+      await page.goto('/programs/synthetic-uxbf1')
+      await expect(page.getByRole('alert')).toBeVisible()
+      await expect(page.getByText('Open now', { exact: true })).toHaveCount(0)
+      await shot(page, 'failed-club-opportunities', size)
     })
     test('parent-interest deep link scrolls and focuses signup after asynchronous detail load', async ({ page }) => {
       const evidence = await fixture(page, { role: 'visitor' })

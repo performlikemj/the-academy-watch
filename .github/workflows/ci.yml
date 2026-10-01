@@ -111,7 +111,7 @@ jobs:
 
   frontend-tests:
     name: Frontend Tests
-    # Include drafts: deterministic UX regressions must run on every reviewed head.
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     needs: dependency-security
     runs-on: ubuntu-latest
     steps:

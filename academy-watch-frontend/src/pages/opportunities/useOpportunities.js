@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { APIService } from '@/lib/api'
 import { peekFeatures } from '@/lib/features'
 
@@ -8,6 +8,7 @@ function effectiveFlags(data) {
 }
 
 export function useOpportunities(enabled = true) {
+  const [attempt, setAttempt] = useState(0)
   const [flags, setFlags] = useState(() => {
     const data = peekFeatures()
     return data ? effectiveFlags(data) : { opportunities: false, applications: false, loaded: false }
@@ -19,8 +20,12 @@ export function useOpportunities(enabled = true) {
       if (active) setFlags(effectiveFlags(data))
     }).catch(() => { if (active) setFlags({ loaded: true, error: 'Could not load opportunities. Please try again later.' }) })
     return () => { active = false }
-  }, [enabled])
-  return enabled ? flags : unavailable
+  }, [enabled, attempt])
+  const retry = useCallback(() => {
+    setFlags(current => ({ ...current, retrying: true }))
+    setAttempt(current => current + 1)
+  }, [])
+  return enabled ? { ...flags, retry } : unavailable
 }
 
 export { when } from '@/lib/opportunity-time'

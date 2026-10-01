@@ -1,5 +1,5 @@
 import { OpportunityBoundary } from '@/pages/opportunities/OpportunityBoundary'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useParams } from 'react-router-dom'
 import { APIService } from '@/lib/api'
 import { useAuth } from '@/context/AuthContext'
@@ -51,7 +51,7 @@ function OpportunitiesPageContent() {
   </div>
 }
 
-function AdultApplicationContent({ opportunity }) {
+function AdultApplicationContent({ opportunity, onSettled }) {
   const { token } = useAuth()
   const [claims, setClaims] = useState(() => APIService.userToken ? null : [])
   const [claimId, setClaimId] = useState('')
@@ -71,6 +71,9 @@ function AdultApplicationContent({ opportunity }) {
     }).catch(err => { if (active) { setClaims([]); setError(errorMessage(err)) } })
     return () => { active = false }
   }, [token, opportunity.id])
+  useEffect(() => {
+    if (claims !== null) onSettled()
+  }, [claims, onSettled])
   const selectedClaim = claims?.find(claim => String(claim.claim_id) === claimId)
   const existing = done || selectedClaim?.application
   async function apply(event) {
@@ -103,11 +106,16 @@ function AdultApplication(props) { const { token } = useAuth(); return <AdultApp
 
 function OpportunityDetailContent() {
   const flags = useOpportunities()
+  const { token } = useAuth()
   const { opportunityId } = useParams()
   const { hash } = useLocation()
   const parentInterest = useRef(null)
   const [item, setItem] = useState(null)
   const [error, setError] = useState('')
+  const [settledApplication, setSettledApplication] = useState(null)
+  const applicationKey = `${opportunityId}:${token || 'signed-out'}`
+  const onApplicationSettled = useCallback(() => setSettledApplication(applicationKey), [applicationKey])
+  const applicationSettled = !flags.applications || settledApplication === applicationKey
   useEffect(() => {
     if (!flags.opportunities) return
     let active = true
@@ -116,11 +124,11 @@ function OpportunityDetailContent() {
     return () => { active = false }
   }, [flags.opportunities, opportunityId])
   useEffect(() => {
-    if (hash === '#parent-interest' && item?.id === opportunityId && parentInterest.current) {
+    if (hash === '#parent-interest' && item?.id === opportunityId && applicationSettled && parentInterest.current) {
       parentInterest.current.scrollIntoView({ block: 'center' })
       parentInterest.current.focus({ preventScroll: true })
     }
-  }, [hash, item, opportunityId])
+  }, [hash, item, opportunityId, applicationSettled])
   if (flags.error) return <p role="alert" className="floodlight-container py-12">{flags.error}</p>
   if (!flags.loaded) return <p role="status" className="floodlight-container py-12">Loading opportunities…</p>
   if (!flags.opportunities) return <OpportunitiesTeaser />
@@ -134,8 +142,8 @@ function OpportunityDetailContent() {
         <p className="whitespace-pre-wrap font-serif text-3xl leading-snug">{item.description}</p><p className="mt-6 whitespace-pre-wrap text-base leading-relaxed text-muted">{item.instructions}</p>
         <div className="opp-row text-sm text-muted"><p>{item.coach}</p><p className="mt-2">Applications close {when(item.closes_at, item.timezone)}</p></div>
       </article>
-      <aside className="grid gap-8">
-        {flags.applications ? <AdultApplication key={item.id} opportunity={item} /> : <section className="rounded-[10px] border border-hairline p-6"><h2 className="opp-section">Applications are coming.</h2><InterestSignup feature="player_applications" role="player" className="mt-5" /></section>}
+      <aside className="grid min-w-0 gap-8">
+        {flags.applications ? <AdultApplication key={item.id} opportunity={item} onSettled={onApplicationSettled} /> : <section className="rounded-[10px] border border-hairline p-6"><h2 className="opp-section">Applications are coming.</h2><InterestSignup feature="player_applications" role="player" className="mt-5" /></section>}
         <section id="parent-interest" ref={parentInterest} tabIndex={-1} aria-labelledby="parent-interest-heading" className="border-t border-hairline pt-6 scroll-mt-24"><p id="parent-interest-heading" className="opp-label">Parents &amp; guardians</p><h2 className="opp-section mt-3">A path for younger players.</h2><p className="my-5 text-sm text-muted">Under-18 applications are coming soon. Leave your own email to hear when they open.</p><InterestSignup feature="player_applications" role="parent" /></section>
       </aside>
     </div>}

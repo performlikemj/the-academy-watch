@@ -61,7 +61,9 @@ function PlayerSearchResult({ player }) {
 
 export function PlayerOnboarding() {
   const flags = useOpportunities()
-  const { claims: profiles, loading: profilesLoading, error: profilesError } = useApprovedPlayerState(flags)
+  const { claims: profiles, loading: profilesLoading, error: profilesError, retry: retryProfiles } = useApprovedPlayerState(flags)
+  const applicationsError = flags.error || profilesError
+  const checkingProfiles = profilesLoading && !applicationsError
   const { api_football_frozen: frozen } = useDataMode()
   const [query, setQuery] = useState('')
   const [searchState, setSearchState] = useState({
@@ -206,10 +208,10 @@ export function PlayerOnboarding() {
   return (
     <div className="fl-player-onboarding min-h-screen bg-chalk">
       <div className="floodlight-container py-12 sm:py-20">
-        {flags.error || profilesError ? <p role="alert">{flags.error || profilesError}</p> : profilesLoading ? <p role="status">Checking your profiles…</p> : profiles.length > 0 ? <header className="max-w-3xl">
+        {checkingProfiles ? <p role="status">Checking your profiles…</p> : !applicationsError && profiles.length > 0 ? <header className="max-w-3xl">
           <p className="eyebrow">Player home</p><h1 className="display mt-4 text-[56px] sm:text-[80px]">Your next step.</h1>
           <p className="mt-6 text-muted">Your profile, applications and replies, together.</p>
-          <div className="mt-8 flex flex-wrap gap-3">{profiles.map(profile => <Link key={profile.claim_id} className="inline-flex rounded-full bg-ink px-6 py-3 text-chalk" to={profile.profile_path || `/players/${profile.signed_player_id}`}>{profile.name} · My profile →</Link>)}<a className="inline-flex rounded-full border border-ink px-6 py-3" href="#my-applications">My applications ↓</a></div>
+          <div className="mt-8 flex flex-wrap gap-3">{profiles.map(profile => <Link key={profile.claim_id} className="inline-flex min-w-0 max-w-full rounded-full bg-ink px-6 py-3 text-chalk" to={profile.profile_path || `/players/${profile.signed_player_id}`}><span className="min-w-0 [overflow-wrap:anywhere]">{profile.name} · My profile →</span></Link>)}<a className="inline-flex rounded-full border border-ink px-6 py-3" href="#my-applications">My applications ↓</a></div>
         </header> : <header className="max-w-3xl">
           <span className="inline-flex h-12 w-12 items-center justify-center rounded-full border border-hairline text-muted-foreground">
             <ShieldCheck className="h-6 w-6" />
@@ -220,11 +222,14 @@ export function PlayerOnboarding() {
             Find your tracked profile, then open it and choose “This is me” to start your claim. Direct player claims are for adults aged 18 or older.
           </p>
         </header>}
-        {!profilesLoading && !profilesError && !flags.error && profiles.length === 0 && discovery}
+        {!checkingProfiles && !applicationsError && profiles.length === 0 && discovery}
       </div>
       {/* --- p2-b2 begin --- */}
-      {!profilesLoading && <PlayerApplications />}
-      {!profilesLoading && profiles.length > 0 && <div className="floodlight-container pb-16">{discovery}</div>}
+      {applicationsError ? <section className="floodlight-container pb-8" aria-label="Applications unavailable">
+        <p role="alert">{applicationsError}</p>
+        <Button className="mt-4" disabled={flags.retrying || profilesLoading} onClick={flags.error ? flags.retry : retryProfiles}>Retry applications</Button>
+      </section> : !checkingProfiles && <PlayerApplications />}
+      {!checkingProfiles && (applicationsError || profiles.length > 0) && <div className="floodlight-container pb-16">{discovery}</div>}
       {/* --- p2-b2 end --- */}
     </div>
   )
