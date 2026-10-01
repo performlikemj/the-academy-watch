@@ -4007,6 +4007,16 @@ def _merge_subject_claims(source_subject: ShowcaseSubject, target_subject: Showc
     target_claims = (
         PlayerProfileClaim.query.filter(*_subject_filters(PlayerProfileClaim, target_subject)).with_for_update().all()
     )
+    # p2-b2: claim FKs and resolved subject uniqueness move inside this merge transaction.
+    from src.services.opportunities_merge import repoint_applications
+
+    target_player = (
+        db.session.get(LocalPlayer, target_subject.local_player_id) if target_subject.local_player_id else None
+    )
+    target_signed_id = target_subject.player_api_id or (target_player.api_player_id or -target_player.id)
+    conflict = repoint_applications(source_claims, target_claims, target_signed_id)
+    if conflict:
+        raise _GraduationConflict(conflict)
     target_by_user = {claim.user_account_id: claim for claim in target_claims}
     for source_claim in source_claims:
         target_claim = target_by_user.get(source_claim.user_account_id)
@@ -4222,6 +4232,9 @@ def admin_merge_local_player(lp_id: int):
                 },
             }
         )
+    except _GraduationConflict as exc:
+        db.session.rollback()
+        return jsonify(error=str(exc)), 409
     except Exception as e:
         db.session.rollback()
         logger.error("Error in admin_merge_local_player: %s", e)
