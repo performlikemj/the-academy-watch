@@ -11,8 +11,8 @@
 
 ## State
 - Done: merged B3 + final B1/B2 dependencies; conflicts preserved owned feature blocks. Native role tabs, browse/apply/application actions, recruiting/invites/notes/signing, owner staff grants and scoped squads implemented.
-- Now: I1 round 2 implemented; final offline/evidence gates in progress. Draft #1118 stays unmerged.
-- Next: orchestrator independent RI1 re-review; web lane supplies L2 parent-interest anchor; no merge.
+- Now: I1 round 2 complete; native editor + N5F1 low-cut loader pass final gates. Draft #1118 stays unmerged.
+- Next: orchestrator independent review-duel on the pushed round2 head; no merge.
 
 ## Validation
 - Debug simulator compile passes. First XCTest launch hit simulator infrastructure error before tests; rerun on booted dedicated simulator, parallel testing disabled.
@@ -92,3 +92,12 @@
 - Native editor + shared loader implemented. First289 native unit tests and80 focused backend tests pass; staging editor success/refusal contracts refreshed. UI fixture funding bridge corrected to include editor owner; screenshot and final gates ongoing.
 
 - Full offline Experience gate:42 pass/2 inherited opt-in skips/0 fail across all four classes. Renewal19:00 low-cut/solid-upper redraw applied with exact N5F1 paths;292 native unit tests and Release arm64/x86_64 pass. Final affected UI/capture checks and push/cleanup ongoing.
+
+## I1 round 2 final delivery
+- Source aea2fa96: full native opportunity editor behind current owner/manager recruiting capability and opportunities flag. Exact nullable clearing/term lock, server-created clock +90-day horizon, position close+14-day invitations, explicit409 reconciliation, field400/422 and429. Private created_at is additive; older staging DTOs keep authoritative server validation.
+- Renewal19:00 redraw applied: all four N5F1/818c70bc paths verbatim, solid club upper, contrast laces, soleplate/five blades;1s hold/200ms CSS ease over six1.2s phases. Every explicit indeterminate spinner uses CleatLoader; adaptive static launch vector shares CGPaths; logo untouched.
+- Final292 unit/API/view-model/staging-contract tests pass; all four offline classes42 pass/2 inherited opt-in skips/0 fail. Post-redraw affected flows4/4 pass, including create→publish→application lock, zone/validation, live initial loading and light/dark form/phase captures. Release arm64/x86_64 green; backend80 + Ruff/Python/diff checks green.
+- Real contracts56; raw write/refusal capture and provenance committed. Current synthetic scratch trial closed/app withdrawn, position cancelled, invite revoked. No credentials saved.
+- Evidence:60 round2 PNGs with18 initial viewports,34 final UI state/scrolled captures,6 journey captures and2 Reduce Motion snapshots. INDEX + source/reference/shot hashes in ~/codex-runs/aw-redesign/shots/I1; logs/results ~/codex-runs/aw-redesign/logs/I1F2. Final hand-back ~/codex-runs/aw-redesign/logs/I1F2.final.md.
+- Owned simulators36372A24-5FA3-4FA8-97FF-B1050AD0E45D andC9A15843-FDCA-45CC-A74F-1390C556E128 deleted; three /tmp/aw-I1F2-* DerivedData directories and generator/scratch script removed. Optional owned post-success diagnostic collectors stopped after all cases passed; xcodebuild returned TEST SUCCEEDED. Other lanes untouched.
+- Foreground commands only; no frontend dependencies/lock changes, servers, production writes, live login emails, deployment, flag enablement or merge. Push draft1118; external hand-back/BUS record final SHA.

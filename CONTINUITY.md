@@ -32,9 +32,10 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
 
 ## State
 
-- **Now (2026-10-01):** I1 round 2 native recruiting editor + N5 cleat loader implemented on feat/ios-phase2, draft #1118. Unit291/backend80 + Release pass; full offline UI/evidence finishing. See `ledgers/CONTINUITY_ios-phase2.md`.
+- **Now (2026-10-01):** I1 round 2 complete: native Post-a-trial editor + exact N5F1 low-cut cleat loader on feat/ios-phase2, draft #1118. Unit292/offline42pass2skip/finalUI4/backend80 and Release green;60 round2 PNGs indexed. See `ledgers/CONTINUITY_ios-phase2.md`; hand-back `~/codex-runs/aw-redesign/logs/I1F2.final.md`.
 
 ### Done
+- **2026-10-01 I1 round 2:** native owner/manager opportunity editor, exact N5F1 solid low-cut loader/static launch;56 staging contracts,292 unit tests,42 offline pass/2 opt-in skips,4 final affected UI pass,80 backend and Release green.60 indexed round2 PNGs; owned simulators/DerivedData removed. Draft #1118 unmerged. See `ledgers/CONTINUITY_ios-phase2.md`.
 - **2026-10-01 I1 fix round 1 complete:** RI1 fixes on fidelity67fa3244; 279 unit/API + 39 offline UI pass (2 opt-in skips), Release green; 47 real staging contracts and 28 fresh light/dark shots/comparisons. Draft #1118 unmerged; L2 web anchor handed off; remaining board gaps recorded. See `ledgers/CONTINUITY_ios-phase2.md`.
 - **2026-10-01 iOS Floodlight L4:** draft PR [#1105](https://github.com/performlikemj/the-academy-watch/pull/1105) against main, DO NOT MERGE — awaiting MJ review; native restyle and bundled OFL fonts, generic DEBUG offline previews, 152 PNGs (88 after / 44 before / 20 largest-text). 235 main tests, offline UI + seven journeys and Release simulator build green; own sims shut down and temporary build files removed. See `ledgers/CONTINUITY_ios-floodlight.md`.
 - **2026-10-01 P2 B2 fix round 3:** STG1 signed-out claims gate carried; four desktop/mobile list→detail/direct-detail interception regressions assert zero authenticated requests/401s; four migration-head assertions now p2b2 per orchestrator12:50. Main/N4 812be68d included; A2 30ae5f4a current. Full pytest3689pass67skip0fail, PG17, Node211, Playwright24, Ruff0.16.0/format/OSV/lint/build pass. Own Vite5197/aw_p2_b2/test-results cleaned; draft #1113 unmerged. See `ledgers/CONTINUITY_p2-b2.md`.
