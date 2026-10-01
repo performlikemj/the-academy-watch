@@ -153,3 +153,5 @@ Before marking work complete:
 - [ ] Tests pass
 - [ ] Ledger state updated
 - [ ] Patterns added to AGENTS.md if discovered
+
+- B2 opportunities canonicalize committed IANA legacy aliases before runtime availability checks/save/format/date entry; backend/frontend alias data stays byte-identical. Recruiting serializers use program → opportunity → application locks and build mutation responses before commit. Trusted outbox templates can defer publication-held intents without consuming delivery attempts; permanent/stale eligibility still cancels.

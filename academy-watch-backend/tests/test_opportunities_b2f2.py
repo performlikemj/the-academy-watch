@@ -118,12 +118,15 @@ def test_current_iana_names_are_accepted(client, env, zone):
     assert create(client, env, timezone=zone)["timezone"] == zone
 
 
-def test_allowlist_is_runtime_intersection_with_browser_snapshot_and_aliases():
+def test_allowlist_resolves_browser_snapshot_and_iana_aliases():
     data = Path(service.__file__).parents[1] / "data"
     snapshot = json.loads((data / "opportunity_timezone_browser_snapshot.json").read_text())
     aliases = json.loads((data / "opportunity_timezone_aliases.json").read_text())
-    assert available_timezones() & (set(snapshot) | set(aliases) | {"UTC"}) == service.TIMEZONES
-    assert set(aliases.values()) <= set(snapshot) | {"UTC"}
+    zones = set(json.loads((data / "opportunity_timezones.json").read_text()))
+    assert {z for z in zones if aliases.get(z, z) in available_timezones()} == service.TIMEZONES
+    assert set(snapshot) <= zones
+    assert set(aliases.values()) <= zones
+    assert not set(aliases) & set(aliases.values())
 
 
 @pytest.mark.parametrize("offset,accepted", [(14, True), (15, False)])

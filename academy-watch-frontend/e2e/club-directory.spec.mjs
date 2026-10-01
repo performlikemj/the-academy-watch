@@ -235,6 +235,84 @@ test('flag on: a failed load offers a retry that recovers', async ({ page }) => 
   await expect(page.getByTestId('club-row')).toHaveCount(3)
 })
 
+// RB1V-N2: three searches' worth of full pages; `hold` keeps one named response back until the test lets it go.
+async function pagedSearches(page, hold) {
+  const searches = []
+  const rows = (first, name, extra) => Array.from({ length: 20 }, (_, index) => club(first + index, `${name} ${index}`, extra))
+  let release
+  const held = new Promise((resolve) => { release = resolve })
+  await mock(page, { flag: true })
+  await page.route('**/api/club-directory/search', async (route) => {
+    const search = route.request().postDataJSON() || {}
+    const youth = Boolean(search.programme)
+    const pageNumber = search.page || 1
+    searches.push(`${youth ? 'youth' : 'all'}:${pageNumber}`)
+    if (searches.at(-1) === hold) await held
+    const clubs = youth
+      ? rows(pageNumber === 1 ? 201 : 301, pageNumber === 1 ? 'Synthetic Youth First' : 'Synthetic Youth Second', { gender_programs: ['boys'] })
+      : rows(pageNumber === 1 ? 101 : 151, pageNumber === 1 ? 'Synthetic Adult Old' : 'Synthetic Adult More')
+    return route.fulfill({ json: { clubs, page: pageNumber, per_page: 20, total: 40, has_more: pageNumber === 1, filters: { levels: [], programmes: [] } } })
+  })
+  return { searches, release }
+}
+
+const rowNames = async (page) => (await page.getByTestId('club-row').allTextContents()).map((text) => text.match(/Synthetic \w+ \w+/)[0])
+
+test('flag on: changing a filter while the list is loading never mixes two searches', async ({ page }) => {
+  const { searches, release } = await pagedSearches(page, 'youth:1')
+  const more = page.getByRole('button', { name: 'Show more clubs', exact: true })
+  await page.goto('/clubs')
+  await expect(page.getByTestId('club-row')).toHaveCount(20)
+  await expect(more).toBeEnabled()
+
+  // The reviewer's sequence: pick Youth, and while its first page is still on its way, ask for more.
+  await page.getByRole('button', { name: 'Youth', exact: true }).click()
+  await expect.poll(() => searches.includes('youth:1')).toBe(true)
+  await expect(more).toBeDisabled()
+  await more.click({ force: true })
+  await more.dispatchEvent('click')
+  await page.waitForTimeout(300)
+  expect(searches).toEqual(['all:1', 'youth:1'])
+  expect(new Set(await rowNames(page))).toEqual(new Set(['Synthetic Adult Old']))
+
+  release()
+  await expect(page.getByTestId('club-row').first()).toContainText('Synthetic Youth First 0')
+  await expect(page.getByTestId('club-row')).toHaveCount(20)
+  expect(new Set(await rowNames(page))).toEqual(new Set(['Synthetic Youth First']))
+
+  // Paging starts again from the new search's first page.
+  await expect(more).toBeEnabled()
+  await more.click()
+  await expect(page.getByTestId('club-row')).toHaveCount(40)
+  expect(searches).toEqual(['all:1', 'youth:1', 'youth:2'])
+  const names = await rowNames(page)
+  expect(names.slice(0, 20).every((name) => name === 'Synthetic Youth First')).toBe(true)
+  expect(names.slice(20).every((name) => name === 'Synthetic Youth Second')).toBe(true)
+  await expect(more).toHaveCount(0)
+})
+
+test('flag on: a "show more" answer that arrives after the filter changed is dropped', async ({ page }) => {
+  const { searches, release } = await pagedSearches(page, 'all:2')
+  const more = page.getByRole('button', { name: 'Show more clubs', exact: true })
+  await page.goto('/clubs')
+  await expect(page.getByTestId('club-row')).toHaveCount(20)
+  await more.click()
+  await expect.poll(() => searches.includes('all:2')).toBe(true)
+  await expect(more).toBeDisabled()
+
+  await page.getByRole('button', { name: 'Youth', exact: true }).click()
+  await expect(page.getByTestId('club-row').first()).toContainText('Synthetic Youth First 0')
+  release()
+  await page.waitForTimeout(300)
+  await expect(page.getByTestId('club-row')).toHaveCount(20)
+  expect(new Set(await rowNames(page))).toEqual(new Set(['Synthetic Youth First']))
+  expect(searches).toEqual(['all:1', 'all:2', 'youth:1'])
+
+  await more.click()
+  await expect(page.getByTestId('club-row')).toHaveCount(40)
+  expect(new Set((await rowNames(page)).slice(20))).toEqual(new Set(['Synthetic Youth Second']))
+})
+
 for (const flag of [false, true]) {
   test(`club profile form ${flag ? 'sends' : 'never sends'} the directory fields when the flag is ${flag ? 'on' : 'off'}`, async ({ page }) => {
     let saved = null
