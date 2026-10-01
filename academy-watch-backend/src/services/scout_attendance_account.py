@@ -3,6 +3,8 @@
 from src.models.opportunities import now
 from src.models.p2_foundation import NotificationOutbox
 from src.models.scout_attendance import ScoutAttendance
+from src.services.account_standing import account_can_act
+from src.services.trust import is_verified_scout
 
 
 def _delete(ids):
@@ -17,6 +19,7 @@ def _delete(ids):
 def export_attendance(user, schema):
     if not schema.has_table("scout_attendance_requests"):
         return {}
+    trusted = account_can_act(user) and is_verified_scout(user)
     rows = ScoutAttendance.query.filter_by(scout_user_id=user.id).all()
     return (
         {
@@ -24,7 +27,9 @@ def export_attendance(user, schema):
                 {
                     c.name: (v.isoformat() if hasattr(v, "isoformat") else v)
                     for c in r.__table__.columns
-                    if (v := getattr(r, c.name)) is not None and c.name != "decision_user_id"
+                    if (v := getattr(r, c.name)) is not None
+                    and c.name != "decision_user_id"
+                    and (c.name != "arrival_instructions" or (trusted and r.status == "accepted"))
                 }
                 for r in rows
             ]

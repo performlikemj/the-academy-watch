@@ -2,10 +2,17 @@
 
 from src.main import app
 from src.models.league import db
+from src.services.scout_attendance import expire_pending, revoke_ineligible
 from src.services.scout_attendance_account import purge_expired
 
 if __name__ == "__main__":
     with app.app_context():
+        for sweep in (expire_pending, revoke_ineligible):
+            while True:
+                changed = sweep()
+                db.session.commit()
+                if changed < 100:
+                    break
         removed = 0
         # Keep each transaction bounded while draining the daily backlog.
         while True:

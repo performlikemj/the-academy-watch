@@ -15,6 +15,7 @@ export function attendanceError(err) {
   const messages = {
     verified_scout_required: 'Your scout verification must be approved before you can ask to attend.',
     version_conflict: 'This request changed. Refresh to see the current decision.',
+    request_retry_used: 'You have used your one renewed request for this session.',
     request_exists: 'You have already asked to attend this session.',
     already_decided: 'This request already has a decision. Refresh to see it.',
     no_approach_confirmation_required: 'Confirm that any approach to a player goes through an introduction.',

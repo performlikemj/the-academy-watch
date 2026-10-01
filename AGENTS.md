@@ -134,6 +134,7 @@ Log one-liner in CONTINUITY.md's "Trivial Log" section.
 - B3 case notifications omit the mutable case version from both key and payload and isolate enqueue in a savepoint; Safety OFF gates enqueue and delivery. Case hide/restore sync sibling cases, retain/reuse original suppression evidence, and never own another requester's pending hold. Stripe 15 cash boundaries use recursive `to_dict()`, including provider list pages.
 - Phase 2 account suspension uses `services/account_standing.py` plus persisted `account_status`/`auth_epoch`; central bearer, user-bound media and service grants recheck standing even after the admin page flag is OFF. Restore requires fresh login.
 
+- C4 attendance decides until session start independently of player intake; accepted rescinds and trust/session revocations clear instructions atomically with audit/outbox. Today batches authoritative trust/advert/scope evidence, caps all queues and labels sampled application counts; moderation and maintenance survive rollback.
 - Phase 2 scout attendance stays separate from applications; C4 Today omits unauthorized queues and uses `match_bytes_in_scope` for analysis summaries. Distance searches use POST bodies and approved B1 pins; retention/account privacy adapters operate with the rollout flag OFF.
 
 - Flag-OFF rematching maps must preserve each original `Rule.methods` set and Flask `provide_automatic_options` on copied rules; reconstructing equivalent methods can reorder exact `Allow` headers under different Python hash seeds.

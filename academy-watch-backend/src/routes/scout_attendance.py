@@ -99,7 +99,7 @@ def payload():
         raise service.Error("payload_too_large", 413)
     try:
         data = json.loads(raw) if request.is_json else None
-    except (ValueError, UnicodeDecodeError):
+    except (ValueError, UnicodeDecodeError, RecursionError):
         data = None
     if not isinstance(data, dict):
         raise service.Error("invalid_payload", 400)
@@ -143,6 +143,8 @@ def submit(opportunity_id):
 @limiter.limit("60/minute", key_func=key, exempt_when=lambda: not service.enabled())
 def mine():
     service.verified(g.user_id)
+    service.expire_pending(user_id=g.user_id)
+    db.session.commit()
     # Cursor paging scans one bounded page; unavailable events are omitted, not replaced by stale data.
     after = request.args.get("after")
     if after and (len(after) != 36 or not re.fullmatch(r"[a-f0-9-]+", after)):
@@ -156,7 +158,7 @@ def mine():
     visible = [
         r
         for r in rows[:30]
-        if service.visible_event(db.session.get(service.ClubOpportunity, r.opportunity_id), accepting=False)
+        if service.visible_event(db.session.get(service.ClubOpportunity, r.opportunity_id), history=True)
     ]
     return jsonify(
         attendance=[service.serialize(r) for r in visible], next_cursor=rows[29].id if len(rows) > 30 else None
@@ -179,7 +181,11 @@ def withdraw(request_id):
 @require_club_permission("contact")
 @limiter.limit("60/hour", key_func=key, exempt_when=lambda: not service.enabled())
 def decision(program_id, request_id):
-    row = service.decide(str(request_id), program_id, g.user_id, payload())
+    data = payload()
+    service.expire_pending(program_id=program_id)
+    service.revoke_ineligible(program_id=program_id)
+    db.session.commit()
+    row = service.decide(str(request_id), program_id, g.user_id, data)
     result = service.serialize(row, club=True)
     db.session.commit()
     return jsonify(attendance=result)
@@ -190,4 +196,9 @@ def decision(program_id, request_id):
 @require_club_permission("players.view")
 @limiter.limit("60/minute", key_func=key, exempt_when=lambda: not service.enabled())
 def today(program_id):
-    return jsonify(summary(program_id))
+    after = request.args.get("accepted_after")
+    if after and (len(after) != 36 or not re.fullmatch(r"[a-f0-9-]+", after)):
+        raise service.Error("invalid_cursor", 400)
+    result = summary(program_id, accepted_after=after)
+    db.session.commit()
+    return jsonify(result)

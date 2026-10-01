@@ -414,13 +414,16 @@ def test_real_spa_dark_methods_headers_and_body_parity(client, c4, club_app, mon
             assert response.headers.get("Allow") == baseline.headers.get("Allow")
 
 
-def test_closed_event_cannot_be_accepted_but_history_remains(client, c4):
+def test_closed_intake_future_session_can_be_decided(client, c4):
     post = trial(client, c4)
     row = ask(client, c4, post).get_json()["attendance"]
     db.session.get(ClubOpportunity, post["id"]).status = "closed"
     db.session.commit()
-    assert answer(client, c4, row).status_code == 404
-    assert client.get(f"/api/club/{c4['pid']}/today", headers=_headers("a")).get_json()["queues"]["attendance"] == []
+    assert (
+        client.get(f"/api/club/{c4['pid']}/today", headers=_headers("a")).get_json()["queues"]["attendance"][0]["id"]
+        == row["id"]
+    )
+    assert answer(client, c4, row).status_code == 200
     history = client.get("/api/me/scout-attendance", headers=c4["scout_headers"]).get_json()["attendance"]
     assert history[0]["id"] == row["id"]
 
@@ -442,6 +445,7 @@ def test_youth_and_unknown_session_attendance_never_exposes_applicants(client, c
         "created_at",
         "updated_at",
         "retention_expires_at",
+        "can_request_again",
     }
     assert (
         client.get(

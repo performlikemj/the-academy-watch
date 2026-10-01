@@ -17,6 +17,7 @@ async function fixture(page, { enabled = true, verified = true, attendance = nul
     localStorage.setItem('academyWatch.playerOnboardingPromptDismissed.v1', 'true')
   })
   let current = attendance ? structuredClone(attendance) : null
+  let requestCount = 1
   const writes = []
   const program = { id: 7, name: post.club_name, slug: post.club_slug, platform_status: 'approved', brand: { primary_color: '#0F3D2E', accent_color: '#CFAE62' } }
   const scopes = coach ? ['players.view', 'players.manage', 'matches.view', 'matches.upload', 'feedback'] : ['players.view', 'recruiting', 'contact', 'matches.view', 'matches.upload', 'players.manage', 'branding', 'staff.directory', 'access.view']
@@ -29,10 +30,11 @@ async function fixture(page, { enabled = true, verified = true, attendance = nul
     if (p === '/api/me/scout-attendance') return reply({ attendance: current ? [current] : [], next_cursor: null })
     if (p === '/api/opportunities/search') { const body = req.postDataJSON(); writes.push({ path: p, body, url: req.url() }); return reply({ opportunities: empty ? [] : [{ ...post, distance_km: body.lat ? 3.2 : null }], has_more: false }) }
     if (p === '/api/club-directory/search') { writes.push({ path: p, body: req.postDataJSON(), url: req.url() }); return reply({ clubs: empty ? [] : [{ id: 7, slug: post.club_slug, name: post.club_name, city: 'Test city', distance_km: null, open_opportunities: 1 }], has_more: false }) }
-    if (p === `/api/opportunities/${oid}/attendance`) { writes.push({ path: p, body: req.postDataJSON() }); current = { ...request, note: req.postDataJSON().note }; return route.fulfill({ status: 201, json: { attendance: current } }) }
-    if (p === `/api/me/scout-attendance/${rid}/withdraw`) { writes.push({ path: p, body: req.postDataJSON() }); current = { ...current, status: 'withdrawn', version: current.version + 1 }; return reply({ attendance: current }) }
-    if (p === '/api/club/7/today') return reply({ program_id: 7, queues: { ...(coach ? {} : { applications: [{ opportunity_id: oid, title: post.title, new: 2, total: 4 }], introductions: [{ id: 'test-introduction' }], attendance: current?.status === 'pending' ? [current] : [] }), team_sheet: [{ id: 40, opponent_name: 'C4 TEST ONLY opponent' }], analysing: [{ id: 41, opponent_name: 'C4 TEST ONLY analysing match', status: 'processing' }] } })
-    if (p === `/api/club/7/attendance/${rid}/decision`) { writes.push({ path: p, body: req.postDataJSON() }); if (conflict) return route.fulfill({ status: 409, json: { error: 'version_conflict' } }); current = { ...current, status: req.postDataJSON().decision, arrival_instructions: req.postDataJSON().arrival_instructions, version: current.version + 1 }; return reply({ attendance: current }) }
+    if (p === `/api/opportunities/${oid}/attendance`) { writes.push({ path: p, body: req.postDataJSON() }); if (current?.status === 'withdrawn') requestCount++
+      current = { ...request, version: current ? current.version + 1 : 1, note: req.postDataJSON().note, can_request_again: false };  return route.fulfill({ status: 201, json: { attendance: current } }) }
+    if (p === `/api/me/scout-attendance/${rid}/withdraw`) { writes.push({ path: p, body: req.postDataJSON() }); current = { ...current, status: 'withdrawn', version: current.version + 1, arrival_instructions: undefined, can_request_again: requestCount < 2 }; return reply({ attendance: current }) }
+    if (p === '/api/club/7/today') return reply({ program_id: 7, queues: { ...(coach ? {} : { applications: [{ opportunity_id: oid, title: post.title, new: 2, total: 4 }], introductions: [{ id: 'test-introduction' }], attendance: current?.status === 'pending' ? [current] : [], accepted_attendance: current?.status === 'accepted' ? [{ id: current.id, opportunity_id: oid, title: current.title, status: current.status, version: current.version, scout: { name: current.scout.name, organization: current.scout.organization, verified: true } }] : [] }), team_sheet: [{ id: 40, opponent_name: 'C4 TEST ONLY opponent' }], analysing: [{ id: 41, opponent_name: 'C4 TEST ONLY analysing match', status: 'processing' }] } })
+    if (p === `/api/club/7/attendance/${rid}/decision`) { writes.push({ path: p, body: req.postDataJSON() }); if (conflict) return route.fulfill({ status: 409, json: { error: 'version_conflict' } }); current = { ...current, status: req.postDataJSON().decision, arrival_instructions: req.postDataJSON().decision === 'accepted' ? req.postDataJSON().arrival_instructions : undefined, version: current.version + 1 }; return reply({ attendance: current }) }
     if (p === '/api/meta/data-mode') return reply({ api_football_frozen: false })
     if (p === '/api/scout/players') return reply({ players: [], total: 0, page: 1, pages: 1 })
     if (p === '/api/scout/leaderboards') return reply({})
@@ -89,7 +91,7 @@ for (const width of [1440, 390]) {
     const writes = await fixture(page, { attendance: request })
     await page.goto('/my-club?program=7&view=today')
     await expect(page.getByRole('heading', { name: 'Attendance requests' })).toBeVisible()
-    await expect(page.getByText('C4 TEST ONLY Scout · Scout · Test only organization')).toBeVisible()
+    await expect(page.getByText('C4 TEST ONLY Scout · Test only organization')).toBeVisible()
     await page.getByLabel('Where to stand and who to report to').fill('Test only: report to reception.')
     await shot(page, `club-today-testonly-${size}`)
     await page.getByRole('button', { name: 'Accept attendance' }).click()
@@ -144,4 +146,49 @@ test('stale club decision keeps the draft and shows a refresh instruction', asyn
   await page.getByRole('button', { name: 'Accept attendance' }).click()
   await expect(page.getByRole('alert').filter({ hasText: 'This request changed.' })).toBeVisible()
   await expect(page.getByLabel('Where to stand and who to report to')).toHaveValue('Preserve this draft.')
+})
+
+
+for (const width of [1440, 390]) {
+  const size = width === 390 ? 'mobile' : 'desktop'
+  test(`RC4 club sees accepted scouts and rescinds permission ${size}`, async ({ page }) => {
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 900 })
+    const writes = await fixture(page, { attendance: { ...request, status: 'accepted', version: 2, arrival_instructions: 'TEST ONLY arrival instructions' } })
+    await page.goto('/my-club?program=7&view=today')
+    await expect(page.getByRole('heading', { name: 'Accepted scouts per session' })).toBeVisible()
+    await expect(page.getByText('C4 TEST ONLY Scout · Test only organization')).toBeVisible()
+    await expect(page.getByText('Accepted attendance · verified scout')).toBeVisible()
+    await expect(page.getByLabel('Where to stand and who to report to')).toHaveCount(0)
+    await shot(page, `club-accepted-scouts-testonly-${size}`)
+    await page.getByRole('button', { name: 'Rescind attendance' }).click()
+    await expect(page.getByText('No accepted scouts for upcoming sessions.')).toBeVisible()
+    expect(writes.find(r => r.path.endsWith('/decision')).body).toEqual({ decision: 'declined', expected_version: 2, arrival_instructions: '' })
+    await page.goto('/scout?desk=clubs')
+    await expect(page.getByText('Attendance declined')).toBeVisible()
+    await expect(page.getByText('TEST ONLY arrival instructions')).toHaveCount(0)
+    await shot(page, `attendance-rescinded-testonly-${size}`)
+  })
+  test(`RC4 withdrawn scout can ask again once ${size}`, async ({ page }) => {
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 900 })
+    await fixture(page, { attendance: { ...request, status: 'withdrawn', version: 2, can_request_again: true } })
+    await page.goto('/scout?desk=clubs')
+    await expect(page.getByText(/After withdrawing, you may ask again once/)).toBeVisible()
+    await page.getByRole('button', { name: 'Ask again' }).click()
+    await page.getByLabel('A note to the club').fill('TEST ONLY renewed request')
+    await page.getByRole('checkbox').check()
+    await page.getByRole('button', { name: 'Send attendance request' }).click()
+    await expect(page.getByText('Request sent · waiting on the club')).toBeVisible()
+    await page.getByRole('button', { name: 'Withdraw request' }).click()
+    await expect(page.getByText('Attendance withdrawn')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Ask again' })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Ask to attend', exact: true })).toHaveCount(0)
+    await shot(page, `attendance-retry-used-testonly-${size}`)
+  })
+}
+
+test('RC4 de-verified scout never renders previously accepted instructions', async ({ page }) => {
+  await fixture(page, { verified: false, attendance: { ...request, status: 'accepted', arrival_instructions: 'TEST ONLY secret instructions' } })
+  await page.goto('/scout?desk=clubs')
+  await expect(page.getByText(/Attendance requests are for verified scouts/)).toBeVisible()
+  await expect(page.getByText('TEST ONLY secret instructions')).toHaveCount(0)
 })

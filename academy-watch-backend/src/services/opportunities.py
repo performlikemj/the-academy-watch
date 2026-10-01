@@ -495,6 +495,9 @@ def close_opportunity(program_id, actor_id, oid, data):
         app.retention_expires_at = min(app.retention_expires_at, follow_up + timedelta(days=90))
         if target == "cancelled" and app.status not in TERMINAL:
             mutate(app, actor_id, "rejected", "opportunity_cancelled")
+    from src.services.scout_attendance import session_closed
+
+    session_closed(row, actor_id)
     record_admin_event(
         db.session.get(UserAccount, actor_id),
         "opportunity_" + target,

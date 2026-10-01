@@ -10,8 +10,11 @@ class ScoutAttendance(db.Model):
     __table_args__ = (
         sa.UniqueConstraint("opportunity_id", "scout_user_id", name="uq_scout_attendance_subject"),
         sa.CheckConstraint(
-            "status IN ('pending','accepted','declined','withdrawn')", name="ck_scout_attendance_status"
+            "status IN ('pending','accepted','declined','withdrawn','expired','revoked','cancelled')",
+            name="ck_scout_attendance_status",
         ),
+        sa.CheckConstraint("request_count IN (1,2)", name="ck_scout_attendance_request_count"),
+        sa.Index("ix_scout_attendance_scout", "scout_user_id", "id"),
         sa.CheckConstraint("version > 0", name="ck_scout_attendance_version"),
         sa.Index("ix_scout_attendance_inbox", "program_id", "status", "created_at"),
         sa.Index("ix_scout_attendance_retention", "retention_expires_at"),
@@ -25,6 +28,7 @@ class ScoutAttendance(db.Model):
     note = db.Column(db.String(500), nullable=False, default="")
     status = db.Column(db.String(20), nullable=False, default="pending")
     version = db.Column(db.Integer, nullable=False, default=1)
+    request_count = db.Column(db.Integer, nullable=False, default=1, server_default="1")
     decision_user_id = db.Column(db.Integer, db.ForeignKey("user_accounts.id", ondelete="SET NULL"))
     arrival_instructions = db.Column(db.String(500), nullable=False, default="")
     created_at = db.Column(db.DateTime, nullable=False, default=now)

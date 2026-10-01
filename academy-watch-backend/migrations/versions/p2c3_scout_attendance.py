@@ -33,8 +33,12 @@ TABLE_SQL = """CREATE TABLE public.scout_attendance_requests (
 def upgrade():
     if not table_exists("scout_attendance_requests"):
         op.execute(TABLE_SQL)
+    op.execute(
+        "ALTER TABLE public.scout_attendance_requests ADD COLUMN IF NOT EXISTS request_count INTEGER NOT NULL DEFAULT 1;\nALTER TABLE public.scout_attendance_requests DROP CONSTRAINT IF EXISTS ck_scout_attendance_status;\nALTER TABLE public.scout_attendance_requests ADD CONSTRAINT ck_scout_attendance_status CHECK(status IN ('pending','accepted','declined','withdrawn','expired','revoked','cancelled'));\nDO $retry$ BEGIN\nIF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='public.scout_attendance_requests'::regclass AND conname='ck_scout_attendance_request_count') THEN\nALTER TABLE public.scout_attendance_requests ADD CONSTRAINT ck_scout_attendance_request_count CHECK(request_count IN (1,2));\nEND IF;\nEND $retry$;\n"
+    )
     op.execute("ALTER TABLE public.scout_attendance_requests ENABLE ROW LEVEL SECURITY")
     create_index_safe("ix_scout_attendance_inbox", "scout_attendance_requests", ["program_id", "status", "created_at"])
+    create_index_safe("ix_scout_attendance_scout", "scout_attendance_requests", ["scout_user_id", "id"])
     create_index_safe("ix_scout_attendance_retention", "scout_attendance_requests", ["retention_expires_at"])
 
 

@@ -11,3 +11,5 @@
 - Evidence: reviewed desktop/mobile fixtures and real local PostgreSQL-backed youth-session pending/Today/accepted flows in `~/codex-runs/aw-redesign/shots/C4/`; no page errors/horizontal overflow. Product uses API data; QA records are explicitly TEST ONLY.
 - Limitation: unfiltered legacy .spec.js browser tests require ADMIN_API_KEY or obsolete /player/:id routes; attempted run failed in those inherited suites. Complete modern offline suite is green; no claim that unfiltered pnpm test:e2e passed.
 - Next (release): B1→B2→B3 merge first, then C4 review/merge. Apply guarded p2c3 preapply after p2c2, schedule daily retention before enabling flags. No production schema/flag actions authorized or performed.
+
+- Fix round 1 milestone: main e82bb4e3 + B2 16540e03 and B3 d49ec794 refreshed; lifecycle/trust/hold deferral/one retry/bounded queues/export safeguards implemented. SQLite57 pass; Today18 SQL for1/50 pending. Real PG + full flag-OFF + frontend gates in progress. Updated p2c3/preapply CONTRACT posted on BUS; daily maintenance rollout prerequisite retained.

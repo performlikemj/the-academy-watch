@@ -19,7 +19,16 @@ CREATE TABLE public.scout_attendance_requests (
 );
 END IF;
 END $c4$;
+ALTER TABLE public.scout_attendance_requests ADD COLUMN IF NOT EXISTS request_count INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE public.scout_attendance_requests DROP CONSTRAINT IF EXISTS ck_scout_attendance_status;
+ALTER TABLE public.scout_attendance_requests ADD CONSTRAINT ck_scout_attendance_status CHECK(status IN ('pending','accepted','declined','withdrawn','expired','revoked','cancelled'));
+DO $retry$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='public.scout_attendance_requests'::regclass AND conname='ck_scout_attendance_request_count') THEN
+ALTER TABLE public.scout_attendance_requests ADD CONSTRAINT ck_scout_attendance_request_count CHECK(request_count IN (1,2));
+END IF;
+END $retry$;
 ALTER TABLE public.scout_attendance_requests ENABLE ROW LEVEL SECURITY;
 CREATE INDEX IF NOT EXISTS ix_scout_attendance_inbox ON scout_attendance_requests(program_id,status,created_at);
 CREATE INDEX IF NOT EXISTS ix_scout_attendance_retention ON scout_attendance_requests(retention_expires_at);
+CREATE INDEX IF NOT EXISTS ix_scout_attendance_scout ON scout_attendance_requests(scout_user_id,id);
 COMMIT;
