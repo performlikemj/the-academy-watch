@@ -30,15 +30,16 @@ class NotificationTemplate:
     eligible: Callable
     render: Callable  # (row, current_user) -> {subject, html, text}; no child PII
     payload_enums: dict
+    defer: Callable | None = None
 
 
 _templates: dict[str, NotificationTemplate] = {}
 
 
-def register_template(name, *, eligible, render, payload_enums=None):
+def register_template(name, *, eligible, render, payload_enums=None, defer=None):
     """Register trusted application code, never request-supplied callbacks."""
     _code(name)
-    if not callable(eligible) or not callable(render):
+    if not callable(eligible) or not callable(render) or (defer is not None and not callable(defer)):
         raise ValueError("eligibility and render callbacks are required")
     enums = payload_enums or {}
     if not isinstance(enums, dict) or any(key not in {"state", "decision", "version"} for key in enums):
@@ -52,7 +53,7 @@ def register_template(name, *, eligible, render, payload_enums=None):
                 raise ValueError("payload enums must contain machine code strings")
             bounded_meta({key: value})
         normalized[key] = frozenset(values)
-    _templates[name] = NotificationTemplate(eligible, render, normalized)
+    _templates[name] = NotificationTemplate(eligible, render, normalized, defer)
 
 
 def _code(value, max_length=80):
@@ -175,6 +176,8 @@ def _prepare(row_id, token):
                 return None, "retry", "template_unavailable"
             _validate_payload(row.template, row.payload)
             if not handler.eligible(row, user):
+                if handler.defer is not None and handler.defer(row, user):
+                    return None, "deferred", "temporarily_unavailable"
                 return None, "cancelled", "ineligible"
             message = handler.render(row, user)
             if set(message) != {"subject", "html", "text"} or not all(isinstance(v, str) for v in message.values()):
@@ -204,7 +207,13 @@ def _finalize(row_id, token, status, error, now, result=None):
     user = db.session.get(UserAccount, row.recipient_user_id, populate_existing=True)
     if user is None or user.is_tombstone or _referenced_account_unavailable(row):
         status, error = "cancelled", "recipient_or_subject_unavailable"
-    if status == "retry":
+    deferred = status == "deferred"
+    if deferred:
+        # A publication pause consumes no delivery attempt, even across many worker runs.
+        row.attempts = max(0, row.attempts - 1)
+        status = "retry"
+        row.next_attempt_at = now + timedelta(seconds=LEASE_SECONDS)
+    elif status == "retry":
         status = "failed" if row.attempts >= MAX_ATTEMPTS else "retry"
         row.next_attempt_at = now + timedelta(seconds=min(60 * 2 ** (row.attempts - 1), 3600))
     row.status, row.last_error = status, error
@@ -214,7 +223,7 @@ def _finalize(row_id, token, status, error, now, result=None):
         row.provider = (result.provider or "")[:40]
         row.provider_message_id = (result.message_id or "")[:254]
     db.session.commit()
-    return status
+    return "deferred" if deferred and status == "retry" else status
 
 
 def dispatch_due(*, limit=100, now=None, send=None):
@@ -224,11 +233,12 @@ def dispatch_due(*, limit=100, now=None, send=None):
     so late workers cannot overwrite it. At-least-once: a crash/lease expiry
     after provider success before finalize can duplicate delivery. Erasure may
     race an already-started provider call; finalization never resurrects data.
-    Unknown templates retry, false eligibility cancels, per-row errors continue.
+    Unknown templates retry, false eligibility cancels unless trusted defer code
+    confirms a temporary pause; deferral preserves attempts. Per-row errors continue.
     Database infrastructure failure in claiming/finalizing leaves a recoverable
     lease; a template's SQL error cannot abort the batch or reset its attempt.
     """
-    summary = dict(sent=0, retry=0, cancelled=0, failed=0, errors=0, disabled=not foundation_enabled())
+    summary = dict(sent=0, retry=0, deferred=0, cancelled=0, failed=0, errors=0, disabled=not foundation_enabled())
     if summary["disabled"]:
         return summary
     if isinstance(limit, bool) or not isinstance(limit, int) or not 0 <= limit <= 1000:

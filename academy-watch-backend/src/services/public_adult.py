@@ -30,6 +30,7 @@ def public_adult_ids(signed_ids, *, trusted_birth_dates=None, allow_journeys=Fal
 
     GOL alone may admit a stored journey as identity evidence. Scout discovery
     and Phase 2 keep their existing tracked/shadow/local identity universe.
+    Only reversible B2 reconciliation may ignore publication holds.
     """
     # Only server-fetched API profiles may supply additional DOB evidence.
     # Request payloads, age snapshots and caller-supplied seeds are never evidence.

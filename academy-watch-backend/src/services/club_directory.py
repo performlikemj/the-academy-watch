@@ -283,7 +283,7 @@ def open_opportunity_counts(program_ids) -> dict[int, int] | None:
         result = _opportunity_counts(list(program_ids))
     except Exception:
         return None
-    if not isinstance(result, dict) or not result:
+    if not isinstance(result, dict):
         return None
     return {
         int(program_id): int(count)

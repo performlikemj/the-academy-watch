@@ -572,3 +572,126 @@ def test_b2f2_position_followup_past_creation_horizon(pg):
     db.session.commit()
     assert app.status == "invited" and app.trial_at > row.created_at + timedelta(days=90)
     assert app.retention_expires_at <= app.submitted_at + timedelta(days=180)
+
+
+@pytest.mark.parametrize("action", ["patch", "close"])
+def test_b2f4_posting_response_racing_staff_transition_uses_program_first(pg, monkeypatch, action):
+    """Real HTTP requests, with SQL lock order checked in each fresh transaction.
+
+    Pause serialization until the colleague reaches the program lock. Before
+    the fix the save committed first and serialization locked applications in
+    its new transaction; the regression detects that reverse order directly.
+    """
+    from threading import Event, current_thread
+
+    from src.auth import issue_user_token
+    from src.routes.opportunities import opportunities_bp
+
+    flask_app, ids = pg
+    flask_app.register_blueprint(opportunities_bp, url_prefix="/api")
+    flask_app.config["TESTING"] = True
+    aid = submit(ids)
+    service.transition(ids["pid"], ids["actor"], aid, {"expected_version": 1, "status": "shortlisted"})
+    service.transition(
+        ids["pid"],
+        ids["actor"],
+        aid,
+        dict(
+            expected_version=2, status="invited", trial_at=service.iso(now() + timedelta(days=7)), trial_venue="Ground"
+        ),
+    )
+    db.session.commit()
+    token = issue_user_token(db.session.get(UserAccount, ids["actor"]).email)["token"]
+    headers = {"Authorization": f"Bearer {token}"}
+    suffix = uuid4().hex
+    colleague = UserAccount(
+        email=f"b2f4-colleague-{suffix}@example.test",
+        display_name=f"Colleague {suffix}",
+        display_name_lower=f"colleague {suffix}",
+    )
+    db.session.add(colleague)
+    db.session.flush()
+    claim = ClubProgramClaim(
+        program_id=ids["pid"], user_account_id=colleague.id, relationship_type="club_official", status="approved"
+    )
+    db.session.add(claim)
+    db.session.flush()
+    db.session.add(
+        ClubProgramManager(
+            program_id=ids["pid"],
+            user_account_id=colleague.id,
+            source_claim_id=claim.id,
+            status="active",
+            granted_by="b2f4-test",
+        )
+    )
+    db.session.commit()
+    colleague_headers = {"Authorization": f"Bearer {issue_user_token(colleague.email)['token']}"}
+    db.session.rollback()
+    engine = db.engine
+    serializing, colleague_at_program = Event(), Event()
+    seen = []
+    serializer = service.opportunity_dict
+
+    def begin(conn):
+        conn.info["b2f4_locks"] = set()
+
+    def lock_order(conn, cursor, statement, params, context, many):
+        if "FOR UPDATE" not in statement:
+            return
+        locks = conn.info.setdefault("b2f4_locks", set())
+        if "FROM club_programs" in statement:
+            if current_thread().name.endswith("_1"):
+                colleague_at_program.set()
+            locks.add("program")
+        elif "FROM club_opportunities" in statement:
+            assert "program" in locks, "Opportunity lock preceded program lock"
+            locks.add("opportunity")
+        elif "FROM opportunity_applications" in statement:
+            assert {"program", "opportunity"} <= locks, "Application lock preceded program/opportunity"
+            seen.append(current_thread().name)
+
+    def coordinated_response(row, **kwargs):
+        if kwargs.get("private") and current_thread().name.endswith("_0"):
+            serializing.set()
+            assert colleague_at_program.wait(10)
+        return serializer(row, **kwargs)
+
+    monkeypatch.setattr(service, "opportunity_dict", coordinated_response)
+    sa.event.listen(engine, "begin", begin)
+    sa.event.listen(engine, "before_cursor_execute", lock_order)
+
+    def edit_posting():
+        with flask_app.test_client() as client:
+            path = f"/api/club/{ids['pid']}/opportunities/{ids['oid']}"
+            if action == "patch":
+                response = client.patch(path, headers=headers, json={"expected_version": 1, "status": "published"})
+            else:
+                response = client.post(
+                    path + "/close", headers=headers, json={"expected_version": 1, "status": "closed"}
+                )
+            assert response.status_code == 200, response.get_json()
+            assert response.get_json()["opportunity"]["places_left"] == 0
+
+    def colleague_transition():
+        assert serializing.wait(10)
+        with flask_app.test_client() as client:
+            response = client.post(
+                f"/api/club/{ids['pid']}/applications/{aid}/transition",
+                headers=colleague_headers,
+                json={"expected_version": 3, "status": "rejected"},
+            )
+            assert response.status_code == 200, response.get_json()
+
+    try:
+        with ThreadPoolExecutor(max_workers=2, thread_name_prefix="b2f4") as pool:
+            futures = [pool.submit(edit_posting), pool.submit(colleague_transition)]
+            for future in futures:
+                future.result(timeout=30)
+        assert len(seen) >= 2
+        db.session.expire_all()
+        assert service.application(aid).status == "rejected"
+        assert service.reservations(ids["oid"]) == 0
+    finally:
+        sa.event.remove(engine, "begin", begin)
+        sa.event.remove(engine, "before_cursor_execute", lock_order)
