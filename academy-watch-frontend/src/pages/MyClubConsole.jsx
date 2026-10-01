@@ -32,6 +32,11 @@ import { track } from '@/lib/track'
 import { useContactRail } from '@/hooks/useContactRail.js'
 import { useClubStaffAccess } from '@/hooks/useClubStaffAccess'
 import { can, introductionsPanelState } from '@/lib/staff-access'
+// --- p2-b1 begin ---
+import { useClubDirectory } from '@/hooks/useClubDirectory'
+import { EMPTY_DIRECTORY_FORM, directoryForm, directoryPayload, directorySummary } from '@/lib/club-directory'
+import { DirectoryFields } from './club-console/DirectoryFields'
+// --- p2-b1 end ---
 import { formatDateOnly } from '@/lib/dateOnly'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import {
@@ -2392,6 +2397,9 @@ function ClubProfile({ program, claim, onAccessDenied }) {
   const [fieldErrors, setFieldErrors] = useState({})
   const [updateErrors, setUpdateErrors] = useState({})
   const [message, setMessage] = useState(null)
+  // p2-b1: Clubs near you fields ride the same moderated revision (only while the flag is on).
+  const directoryEnabled = useClubDirectory() === true
+  const [directory, setDirectory] = useState(EMPTY_DIRECTORY_FORM)
 
   useEffect(() => {
     deniedRef.current = onAccessDenied
@@ -2416,6 +2424,7 @@ function ClubProfile({ program, claim, onAccessDenied }) {
       setProfile(profileData)
       setUpdates(updateData?.updates || [])
       setForm(profileForm(profileData?.pending || profileData?.approved))
+      setDirectory(directoryForm((profileData?.pending || profileData?.approved)?.directory)) // p2-b1
       setLoadState('ready')
     } catch (error) {
       setLoadState('failed')
@@ -2446,10 +2455,22 @@ function ClubProfile({ program, claim, onAccessDenied }) {
       media_urls: splitValues(form.media_urls, /\n/),
       external_support: externalSupport,
     }
+    // --- p2-b1 begin ---
+    if (directoryEnabled) {
+      const checked = directoryPayload(directory)
+      if (Object.keys(checked.errors).length) {
+        setFieldErrors(checked.errors)
+        setSaving(false)
+        return
+      }
+      payload.directory = checked.directory
+    }
+    // --- p2-b1 end ---
     try {
       const result = await APIService.putClubProfile(program.id, payload)
       setProfile((current) => ({ ...current, pending: result.pending }))
       setForm(profileForm(result.pending))
+      if (directoryEnabled) setDirectory(directoryForm(result.pending?.directory)) // p2-b1
       setMessage({ type: 'success', text: 'Profile submitted for review.' })
     } catch (error) {
       if (error?.status === 403) deniedRef.current()
@@ -2508,7 +2529,7 @@ function ClubProfile({ program, claim, onAccessDenied }) {
     <div className="space-y-6">
       {message ? <Alert className={message.type === 'error' ? 'border-danger/30 bg-danger/5' : 'border-good/30 bg-good/5'}><AlertCircle className="h-4 w-4" /><AlertDescription>{message.text}</AlertDescription></Alert> : null}
       <div className="grid gap-4 md:grid-cols-2">
-        <Card><CardHeader><CardTitle>Approved</CardTitle><CardDescription>The profile currently visible to the public.</CardDescription></CardHeader><CardContent>{profile?.approved ? <><Badge>{profile.approved.status}</Badge><p className="mt-3 whitespace-pre-wrap text-sm text-muted-foreground">{profile.approved.summary || 'No summary supplied.'}</p></> : <p className="text-sm text-muted-foreground">No approved profile revision yet.</p>}</CardContent></Card>
+        <Card><CardHeader><CardTitle>Approved</CardTitle><CardDescription>The profile currently visible to the public.</CardDescription></CardHeader><CardContent>{profile?.approved ? <><Badge>{profile.approved.status}</Badge><p className="mt-3 whitespace-pre-wrap text-sm text-muted-foreground">{profile.approved.summary || 'No summary supplied.'}</p>{/* p2-b1 */}{directoryEnabled && directorySummary(profile.approved.directory).length ? <p className="mt-3 text-sm text-muted-foreground" data-testid="approved-directory">{directorySummary(profile.approved.directory).join(' · ')}</p> : null}</> : <p className="text-sm text-muted-foreground">No approved profile revision yet.</p>}</CardContent></Card>
         <Card className="border-warn/30"><CardHeader><CardTitle>Pending review</CardTitle><CardDescription>Saving replaces this draft; it never changes the approved profile directly.</CardDescription></CardHeader><CardContent>{profile?.pending ? <><Badge className="border-hairline bg-chalk-2 text-muted-foreground">{profile.pending.status}</Badge><p className="mt-3 text-sm text-muted-foreground">Submitted {formatTimestampDate(profile.pending.created_at) || 'for review'}.</p></> : <p className="text-sm text-muted-foreground">No revision is waiting for review.</p>}</CardContent></Card>
       </div>
 
@@ -2521,6 +2542,7 @@ function ClubProfile({ program, claim, onAccessDenied }) {
           <div className="grid gap-4 sm:grid-cols-2">{profileField('official_url', 'Official URL', <Input id="official_url" type="url" value={form.official_url} onChange={(event) => edit('official_url', event.target.value)} placeholder="https://…" />)}{profileField('safeguarding_url', 'Safeguarding URL', <Input id="safeguarding_url" type="url" value={form.safeguarding_url} onChange={(event) => edit('safeguarding_url', event.target.value)} placeholder="https://…" />)}</div>
           {profileField('media_urls', 'Media URLs (one per line)', <Textarea id="media_urls" value={form.media_urls} onChange={(event) => edit('media_urls', event.target.value)} rows={3} placeholder="https://…" />)}
           <div className="grid gap-4 sm:grid-cols-2"><div className="space-y-1.5"><Label htmlFor="external_support_provider">External support provider</Label><Select value={form.external_support_provider} onValueChange={selectSupportProvider}><SelectTrigger id="external_support_provider"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="none">None</SelectItem><SelectItem value="patreon">Patreon</SelectItem><SelectItem value="buy_me_a_coffee">Buy Me a Coffee</SelectItem></SelectContent></Select>{fieldErrors.external_support ? <p className="text-xs text-destructive">{fieldErrors.external_support}</p> : null}</div>{profileField('external_support_url', 'External support URL', <Input id="external_support_url" type="url" value={form.external_support_url} onChange={(event) => edit('external_support_url', event.target.value)} placeholder="https://patreon.com/your-program" />)}</div>
+          {directoryEnabled ? <DirectoryFields value={directory} onChange={setDirectory} errors={fieldErrors} /> : null /* p2-b1 */}
           <Button type="submit" disabled={saving}>{saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ShieldCheck className="mr-2 h-4 w-4" />}Save for review</Button>
         </form></CardContent>
       </Card>
