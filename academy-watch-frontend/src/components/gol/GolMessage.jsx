@@ -3,6 +3,7 @@ import { GolDataCard } from './GolDataCard'
 import { AlertTriangle, Loader2 } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { isLegacyPublicRoute } from '@/lib/legacyRoutes.js'
 import {
   Table,
   TableBody,
@@ -28,7 +29,7 @@ const mdComponents = {
   ol: ({ children }) => <ol className="list-decimal ml-4 mb-1.5 space-y-0.5">{children}</ol>,
   li: ({ children }) => <li className="text-sm">{children}</li>,
   hr: () => <hr className="my-2 border-border/50" />,
-  a: ({ href, children }) => (
+  a: ({ href, children }) => isLegacyPublicRoute(href) ? <span>{children}</span> : (
     <a href={href} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 text-primary hover:text-primary/80">
       {children}
     </a>

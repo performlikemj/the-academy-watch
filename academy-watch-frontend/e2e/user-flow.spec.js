@@ -29,6 +29,7 @@ test.describe.serial('User experience flow', () => {
   })
 
   test('subscribe to team updates and verify email token', async ({ page }) => {
+    test.skip(true, 'legacy page hidden 2026-10-01')
     await page.goto('/teams')
 
     await page.getByRole('button', { name: /Subscribe to Team Updates/i }).click()
@@ -49,6 +50,7 @@ test.describe.serial('User experience flow', () => {
   })
 
   test('sign in and post a newsletter comment', async ({ page }) => {
+    test.skip(true, 'legacy page hidden 2026-10-01')
     await loginWithCode(page, env.userEmail, dbClient, { displayName: 'E2E Supporter' })
 
     await page.goto(`/newsletters/${newsletterId}`)

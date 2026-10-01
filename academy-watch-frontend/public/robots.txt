@@ -1,3 +1,10 @@
 User-agent: *
 Allow: /
+Disallow: /dream-team
+Disallow: /academy
+Disallow: /teams
+Disallow: /newsletters
+Disallow: /journalists
+Disallow: /writeups
+Disallow: /submit-take
 Sitemap: https://theacademywatch.com/sitemap.xml
