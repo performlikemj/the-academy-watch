@@ -580,14 +580,18 @@ def eligible_claims(user_id, row=None):
             {r.player_api_id: r for r in TrackedPlayer.query.filter(TrackedPlayer.player_api_id.in_(api_ids)).all()}
         )
     existing = {}
+    unavailable = set()
     if row:
         apps = OpportunityApplication.query.filter(
             OpportunityApplication.opportunity_id == row.id,
             OpportunityApplication.applicant_user_id == user_id,
-            OpportunityApplication.retention_expires_at > now(),
         ).all()
-        reconcile_applications(apps)
-        existing = {app.signed_player_id: app for app in apps}
+        at = now()
+        retained = [app for app in apps if app.retention_expires_at > at]
+        reconcile_applications(retained)
+        existing = {app.signed_player_id: app for app in retained}
+        # Uniqueness still blocks expired rows until purge. Reveal no expired details.
+        unavailable = {app.signed_player_id for app in apps if app.retention_expires_at <= at}
     result = []
     for claim, pid in zip(claims, ids):
         if pid not in eligible:
@@ -603,6 +607,7 @@ def eligible_claims(user_id, row=None):
                 **(
                     {
                         "outside_age_band": outside_age_band(row, source),
+                        "application_unavailable": pid in unavailable,
                         "application": application_dict(existing[pid], row=row) if pid in existing else None,
                     }
                     if row

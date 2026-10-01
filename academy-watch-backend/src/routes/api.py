@@ -13231,6 +13231,11 @@ def features():
     if os.getenv("CLUB_DIRECTORY_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}:
         flags["club_directory"] = True
     # --- p2-b1 end ---
+    # UXB: reuse the existing public bootstrap; dark keys remain absent.
+    if os.getenv("OPPORTUNITIES_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}:
+        flags["opportunities"] = True
+        if os.getenv("APPLICATIONS_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}:
+            flags["applications"] = True
     return jsonify(flags)
 
 

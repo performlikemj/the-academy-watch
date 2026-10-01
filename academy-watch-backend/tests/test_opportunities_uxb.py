@@ -104,3 +104,78 @@ def test_new_applicant_email_has_club_subject_and_no_pii(client, env):
         )
         assert "Test Player" not in str(rendered) and "b2-adult" not in str(rendered)
         assert set(intent.payload) <= {"application_id", "version", "state"}
+
+
+@pytest.mark.parametrize("oid", ["not-a-uuid", "\x00", "", "00000000-0000-4000-8000-000000000099"])
+def test_context_invalid_uuid_is_neutral_before_query(client, env, monkeypatch, oid):
+    from uuid import UUID
+
+    lookup = service.opportunity
+
+    def checked(value, **kwargs):
+        assert value == str(UUID(value)), "Only canonical UUIDs may reach the adapter"
+        return lookup(value, **kwargs)
+
+    monkeypatch.setattr(service, "opportunity", checked)
+    response = client.get(
+        "/api/me/application-claims", query_string={"opportunity_id": oid}, headers=env["people"]["adult"]["headers"]
+    )
+    assert response.status_code == 404 and response.get_json() == {"error": "Not found"}
+
+
+def test_restored_claim_with_expired_safety_retention_hides_details_and_blocks_form(client, env, monkeypatch):
+    from src.models.showcase import PlayerProfileClaim
+
+    at = now()
+    row = create(
+        client,
+        env,
+        closes_at=service.iso(at + timedelta(days=50)),
+        starts_at=service.iso(at + timedelta(days=60)),
+        ends_at=service.iso(at + timedelta(days=60, hours=2)),
+    )
+    app = apply(client, env, row).get_json()["application"]
+    claim = db.session.get(PlayerProfileClaim, env["people"]["adult"]["claim"])
+    claim.status = "revoked"
+    service.reconcile_applications([service.application(app["id"])])
+    db.session.commit()
+    claim.status = "approved"
+    db.session.commit()
+    monkeypatch.setattr(service, "now", lambda: at + timedelta(days=8))
+    data = context(client, env, row).get_json()["claims"][0]
+    assert data["application"] is None
+    assert data["application_unavailable"] is True
+    assert app["id"] not in str(data)
+    response = apply(client, env, row)
+    assert response.status_code == 409 and response.get_json()["error"] == "already_applied"
+    assert context(client, env, row, "adult2").get_json()["claims"][0]["application_unavailable"] is False
+
+
+def test_bootstrap_effective_opportunity_flags_dark_keys_absent(club_app, monkeypatch):
+    from src.routes.api import features
+
+    for opportunities, applications in [(False, False), (False, True), (True, False), (True, True)]:
+        monkeypatch.setenv("OPPORTUNITIES_ENABLED", str(opportunities))
+        monkeypatch.setenv("APPLICATIONS_ENABLED", str(applications))
+        with club_app.test_request_context("/api/features"):
+            result = features().get_json()
+        assert result.get("opportunities", False) is opportunities
+        assert result.get("applications", False) is (opportunities and applications)
+        if not opportunities:
+            assert "opportunities" not in result and "applications" not in result
+
+
+def test_post_new_email_has_neutral_club_update_subject(client, env):
+    row = create(client, env)
+    app = apply(client, env, row).get_json()["application"]
+    move(client, env, app, "shortlisted")
+    for intent in NotificationOutbox.query.filter(
+        NotificationOutbox.payload["state"].as_string() == "shortlisted"
+    ).all():
+        user = db.session.get(UserAccount, intent.recipient_user_id)
+        rendered = service.notification_render(intent, user)
+        assert rendered["subject"] == (
+            "Your application update" if user.id == env["people"]["adult"]["user"] else "Club application update"
+        )
+        assert "Test Player" not in str(rendered)
+        assert set(intent.payload) <= {"application_id", "version", "state"}

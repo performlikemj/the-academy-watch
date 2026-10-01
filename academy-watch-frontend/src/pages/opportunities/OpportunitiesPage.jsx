@@ -1,6 +1,6 @@
 import { OpportunityBoundary } from '@/pages/opportunities/OpportunityBoundary'
-import { useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { useEffect, useRef, useState } from 'react'
+import { Link, useLocation, useParams } from 'react-router-dom'
 import { APIService } from '@/lib/api'
 import { useAuth } from '@/context/AuthContext'
 import { ApplicationNextStep } from '@/components/applications/ApplicationNextStep'
@@ -28,7 +28,9 @@ function OpportunitiesPageContent() {
     }).catch(err => { if (active) setError(errorMessage(err)) }).finally(() => { if (active) setLoading(false) })
     return () => { active = false }
   }, [flags.opportunities, kind, page])
-  if (!flags.loaded || !flags.opportunities) return <OpportunitiesTeaser />
+  if (flags.error) return <p role="alert" className="floodlight-container py-12">{flags.error}</p>
+  if (!flags.loaded) return <p role="status" className="floodlight-container py-12">Loading opportunities…</p>
+  if (!flags.opportunities) return <OpportunitiesTeaser />
   return <div className="p2-opportunities">
     <header className="bg-night text-chalk"><div className="floodlight-container py-16 sm:py-24">
       <p className="eyebrow text-gold">Trials · open sessions · places to fill</p>
@@ -59,7 +61,8 @@ function AdultApplicationContent({ opportunity }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [done, setDone] = useState(null)
-  const [requestKey] = useState(() => crypto.randomUUID())
+  const [requestKey, setRequestKey] = useState(() => crypto.randomUUID())
+  const [alreadyApplied, setAlreadyApplied] = useState(false)
   useEffect(() => {
     if (!token) { setClaims([]); return }
     let active = true
@@ -73,15 +76,17 @@ function AdultApplicationContent({ opportunity }) {
   async function apply(event) {
     event.preventDefault()
     setBusy(true); setError('')
-    try { const result = await write(`/opportunities/${opportunity.id}/applications`, { claim_id: Number(claimId), position, current_club: currentClub, contact_consent: consent, client_request_id: requestKey }); setDone(result.application) }
-    catch (err) { setError(errorMessage(err)) }
+    try { const result = await write(`/opportunities/${opportunity.id}/applications`, { claim_id: Number(claimId), position, current_club: currentClub, contact_consent: consent, client_request_id: requestKey }); setDone(result.application); setClaims(current => current.map(claim => String(claim.claim_id) === claimId ? { ...claim, application: result.application } : claim)) }
+    catch (err) { if (err.status === 409 && err.body?.error === 'already_applied') setAlreadyApplied(true); else setError(errorMessage(err)) }
     finally { setBusy(false) }
   }
   return <section className="rounded-[10px] border border-hairline p-6 sm:p-8">
     <p className="opp-label">Adult players · 18 and over</p><h2 className="opp-section mt-4">Take the next step.</h2>
     <p className="my-5 text-sm leading-relaxed text-muted">Apply with your approved adult player profile. Your application stays private with this club.</p>
-    {existing ? <>{done && <p className="mb-4">Application sent.</p>}<ApplicationNextStep application={existing} /></> : claims === null ? <p>Checking your profiles…</p> : claims.length === 0 ? <><p className="text-sm">Sign in and claim your adult player profile to apply.</p><Link className="opp-button mt-4" to="/onboarding/player">Find my profile</Link></> : <form onSubmit={apply} className="grid gap-5">
-      <label className="opp-field">Your player profile<select aria-label="Your player profile" value={claimId} onChange={event => setClaimId(event.target.value)}>{claims.map(claim => <option key={claim.claim_id} value={claim.claim_id}>{claim.name}</option>)}</select></label>
+    {claims?.length > 0 && <label className="opp-field mb-5">Your player profile<select aria-label="Your player profile" disabled={busy} value={claimId} onChange={event => {
+      setClaimId(event.target.value); setDone(null); setAlreadyApplied(false); setError(''); setPosition(''); setCurrentClub(''); setConsent(false); setRequestKey(crypto.randomUUID())
+    }}>{claims.map(claim => <option key={claim.claim_id} value={claim.claim_id}>{claim.name}</option>)}</select></label>}
+    {alreadyApplied || selectedClaim?.application_unavailable ? <div role="status"><p>{alreadyApplied ? 'You already applied. View your applications and next steps on player home.' : 'You already applied. This application is no longer available.'}</p><Link className="opp-button mt-4" to="/onboarding/player#my-applications">My applications →</Link></div> : existing ? <>{done && <p className="mb-4">Application sent.</p>}<ApplicationNextStep application={existing} /></> : claims === null ? <p>Checking your profiles…</p> : claims.length === 0 ? <><p className="text-sm">Sign in and claim your adult player profile to apply.</p><Link className="opp-button mt-4" to="/onboarding/player">Find my profile</Link></> : <form onSubmit={apply} className="grid gap-5">
       {selectedClaim?.outside_age_band ? <div role="status"><p className="text-sm text-muted">Your profile is outside the age range for this opportunity.</p><Link className="opp-button mt-4" to="/opportunities">Find another opportunity →</Link></div> : <>
       <label className="opp-field">Position<input required maxLength={80} value={position} onChange={event => setPosition(event.target.value)} /></label>
       <label className="opp-field">Current club (optional)<input maxLength={180} value={currentClub} onChange={event => setCurrentClub(event.target.value)} /></label>
@@ -99,6 +104,8 @@ function AdultApplication(props) { const { token } = useAuth(); return <AdultApp
 function OpportunityDetailContent() {
   const flags = useOpportunities()
   const { opportunityId } = useParams()
+  const { hash } = useLocation()
+  const parentInterest = useRef(null)
   const [item, setItem] = useState(null)
   const [error, setError] = useState('')
   useEffect(() => {
@@ -108,7 +115,15 @@ function OpportunityDetailContent() {
     APIService.request(`/opportunities/${opportunityId}`).then(data => { if (active) setItem(data.opportunity) }).catch(err => { if (active) setError(errorMessage(err)) })
     return () => { active = false }
   }, [flags.opportunities, opportunityId])
-  if (!flags.loaded || !flags.opportunities) return <OpportunitiesTeaser />
+  useEffect(() => {
+    if (hash === '#parent-interest' && item?.id === opportunityId && parentInterest.current) {
+      parentInterest.current.scrollIntoView({ block: 'center' })
+      parentInterest.current.focus({ preventScroll: true })
+    }
+  }, [hash, item, opportunityId])
+  if (flags.error) return <p role="alert" className="floodlight-container py-12">{flags.error}</p>
+  if (!flags.loaded) return <p role="status" className="floodlight-container py-12">Loading opportunities…</p>
+  if (!flags.opportunities) return <OpportunitiesTeaser />
   return <main className="p2-opportunities floodlight-container py-12 sm:py-16">
     <Link to="/opportunities" className="opp-label">← All opportunities</Link>
     {error ? <p role="alert" className="opp-error mt-8">{error}</p> : !item ? <p className="py-12">Loading opportunity…</p> : <div className="mt-10 grid items-start gap-12 lg:grid-cols-[minmax(0,1fr)_440px] lg:gap-16">
@@ -121,7 +136,7 @@ function OpportunityDetailContent() {
       </article>
       <aside className="grid gap-8">
         {flags.applications ? <AdultApplication key={item.id} opportunity={item} /> : <section className="rounded-[10px] border border-hairline p-6"><h2 className="opp-section">Applications are coming.</h2><InterestSignup feature="player_applications" role="player" className="mt-5" /></section>}
-        <section className="border-t border-hairline pt-6"><p className="opp-label">Parents &amp; guardians</p><h2 className="opp-section mt-3">A path for younger players.</h2><p className="my-5 text-sm text-muted">Under-18 applications are coming soon. Leave your own email to hear when they open.</p><InterestSignup feature="player_applications" role="parent" /></section>
+        <section id="parent-interest" ref={parentInterest} tabIndex={-1} aria-labelledby="parent-interest-heading" className="border-t border-hairline pt-6 scroll-mt-24"><p id="parent-interest-heading" className="opp-label">Parents &amp; guardians</p><h2 className="opp-section mt-3">A path for younger players.</h2><p className="my-5 text-sm text-muted">Under-18 applications are coming soon. Leave your own email to hear when they open.</p><InterestSignup feature="player_applications" role="parent" /></section>
       </aside>
     </div>}
   </main>

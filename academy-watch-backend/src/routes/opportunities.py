@@ -1,6 +1,7 @@
 """Dark launch APIs. Club resources are always addressed through their program."""
 
 from functools import wraps
+from uuid import UUID
 
 from flask import Blueprint, g, jsonify, request
 from sqlalchemy import case, func
@@ -176,7 +177,12 @@ def close(program_id, opportunity_id):
 @limiter.limit("60/minute", key_func=key)
 def claims():
     oid = request.args.get("opportunity_id")
-    row = service.opportunity(oid, public=True) if oid else None
+    if oid is not None:
+        try:
+            oid = str(UUID(oid))
+        except (ValueError, TypeError, AttributeError):
+            raise service.OpportunityError("Not found", 404) from None
+    row = service.opportunity(oid, public=True) if oid is not None else None
     result = service.eligible_claims(g.user_id, row=row)
     db.session.commit()
     return jsonify(claims=result)

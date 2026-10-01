@@ -34,7 +34,7 @@ for (const [width, height, size] of [[1440,900,'desktop'],[390,844,'mobile']]) {
       await page.route('**/api/**', route => {
         const p = new URL(route.request().url()).pathname
         if (p.startsWith('/api/me/') || route.request().headers().authorization) { privateRequests.push(p); return route.fulfill({status:401,json:{error:'Sign in required'}}) }
-        if (p === '/api/opportunities/features') return route.fulfill({json:{opportunities:true,applications:true}})
+        if (p === '/api/features') return route.fulfill({json:{opportunities:true,applications:true}})
         if (p === '/api/meta/data-mode') return route.fulfill({json:{api_football_frozen:true}})
         return route.fulfill({json:{}})
       })
@@ -50,8 +50,8 @@ for (const [width, height, size] of [[1440,900,'desktop'],[390,844,'mobile']]) {
       await page.addInitScript(() => { localStorage.setItem('academy_watch_user_token','uxb-off-parity'); localStorage.setItem('academyWatch.playerOnboardingPromptDismissed.v1','true') })
       await page.route('**/api/**', route => {
         const p = new URL(route.request().url()).pathname
-        if (p === '/api/opportunities/features') return route.fulfill({status:404,json:{error:'Not found'}})
-        if (p.startsWith('/api/me/application') || p === '/api/opportunities') calls.push(p)
+        if (p === '/api/features') return route.fulfill({json:{}})
+        if (p.startsWith('/api/me/application') || p.startsWith('/api/opportunities')) calls.push(p)
         if (p === '/api/programs/synthetic-uxb') return route.fulfill({json:{program}})
         if (p === '/api/meta/data-mode') return route.fulfill({json:{api_football_frozen:true}})
         return route.fulfill({json:{}})
@@ -68,7 +68,7 @@ for (const [width, height, size] of [[1440,900,'desktop'],[390,844,'mobile']]) {
     test('club has a calm empty state with opportunities enabled', async ({ page }) => {
       await page.route('**/api/**', route => {
         const p=new URL(route.request().url()).pathname
-        if(p==='/api/opportunities/features') return route.fulfill({json:{opportunities:true,applications:false}})
+        if(p==='/api/features') return route.fulfill({json:{opportunities:true,applications:false}})
         if(p==='/api/programs/synthetic-uxb') return route.fulfill({json:{program}})
         if(p==='/api/opportunities') return route.fulfill({json:{opportunities:[],has_more:false}})
         return route.fulfill({json:{}})
@@ -151,7 +151,7 @@ for (const [width, height, size] of [[1440,900,'desktop'],[390,844,'mobile']]) {
       await expect(page.getByRole('heading',{name:'Your applications',exact:true})).toHaveCount(0)
       expect(privateCalls).toEqual([])
       await signIn(page,'player')
-      await page.route('**/api/opportunities/features',route=>route.fulfill({status:404,json:{error:'Not found'}}))
+      await page.route('**/api/features',route=>route.fulfill({json:{}}))
       await page.goto(`/local-players/${localId}`)
       await expect(page.getByRole('heading',{name:'Your next chapter.',exact:true})).toBeVisible()
       await expect(page.getByRole('heading',{name:'Your applications',exact:true})).toHaveCount(0)

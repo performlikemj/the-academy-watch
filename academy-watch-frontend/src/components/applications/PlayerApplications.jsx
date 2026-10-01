@@ -30,7 +30,9 @@ function PlayerApplicationsContent() {
     catch (err) { setError(errorMessage(err)); if (err.status === 409) await load() }
     finally { setBusy(null) }
   }
-  if (!flags.loaded || !flags.applications) return <ComingSoon feature="player_applications" role="player" image="/media/player-sundown.webp" title="Your next chapter." lede="Applications will have a place here. Join the list to hear when you can take the next step towards a new club." bullets={['Discover a place to develop your game.', 'Keep your applications and replies together.', 'Choose the opportunity that fits your next step.']} />
+  if (flags.error) return <p role="alert" className="floodlight-container py-8">{flags.error}</p>
+  if (!flags.loaded) return <p role="status" className="floodlight-container py-8">Loading applications…</p>
+  if (!flags.applications) return <ComingSoon feature="player_applications" role="player" image="/media/player-sundown.webp" title="Your next chapter." lede="Applications will have a place here. Join the list to hear when you can take the next step towards a new club." bullets={['Discover a place to develop your game.', 'Keep your applications and replies together.', 'Choose the opportunity that fits your next step.']} />
   if (!token) return <section className="p2-opportunities floodlight-container pb-16"><h2 className="opp-section">My applications</h2><p className="mt-4 text-muted">Sign in to see your applications and next steps.</p></section>
   return <section className="p2-opportunities floodlight-container pb-16" aria-labelledby="my-applications">
     <div className="flex flex-wrap items-end justify-between gap-5 border-b border-hairline pb-5"><div><p className="opp-label">Your next chapter</p><h2 id="my-applications" className="opp-section mt-3">My applications</h2></div><Link className="opp-button" to="/opportunities">Find an opportunity →</Link></div>

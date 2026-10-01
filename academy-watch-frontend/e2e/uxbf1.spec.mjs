@@ -1,0 +1,212 @@
+/* global document, innerWidth */
+import { expect, test } from '@playwright/test'
+import fs from 'node:fs/promises'
+import path from 'node:path'
+
+const oid = '00000000-0000-4000-8000-000000000001'
+const opportunity = { id: oid, program_id: 7, club_name: 'Synthetic UXBF1 Club', club_slug: 'synthetic-uxbf1', type: 'trial', title: 'Adult trial', description: 'Synthetic review regression opportunity.', instructions: 'Bring boots.', venue: 'Test pitch', timezone: 'UTC', starts_at: '2026-10-20T10:00:00Z', ends_at: '2026-10-20T12:00:00Z', closes_at: '2026-10-18T12:00:00Z', gender_program: 'all', position_requirements: 'All positions', status: 'published' }
+const application = { id: '00000000-0000-4000-8000-000000000002', opportunity_id: oid, opportunity_title: opportunity.title, club_name: opportunity.club_name, status: 'new', status_label: 'New', timezone: 'UTC', version: 1, submitted_at: '2026-10-01T10:00:00Z' }
+const claim = { claim_id: 3, signed_player_id: -9, name: 'Synthetic Adult', profile_path: '/local-players/9', application: null }
+const program = { id: 7, name: opportunity.club_name, slug: opportunity.club_slug, brand: {}, platform_status: 'approved', provenance: { label: 'Self-reported' }, updates: [] }
+
+async function fixture(page, { role = 'owner', on = true, eligible = true, claims = [claim], rows = [application], item = opportunity, conflict = false, featuresStatus = 200, waitFeatures, waitClaims } = {}) {
+  if (role !== 'visitor') await page.addInitScript(() => {
+    localStorage.setItem('academy_watch_user_token', 'uxbf1-synthetic-token')
+    localStorage.setItem('academy_watch_display_name', 'Synthetic Viewer')
+    localStorage.setItem('academy_watch_display_name_confirmed', 'true')
+    localStorage.setItem('academyWatch.playerOnboardingPromptDismissed.v1', 'true')
+  })
+  const calls = [], errors = [], submissions = []
+  page.on('console', message => { if (message.type() === 'error') errors.push(message.text()) })
+  page.on('pageerror', error => errors.push(error.message))
+  await page.context().route('**/api/**', async route => {
+    const req = route.request(), url = new URL(req.url()), p = url.pathname
+    calls.push(p)
+    const reply = json => route.fulfill({ json })
+    if (p === '/api/opportunities/features') return route.fulfill({ status: on ? 200 : 404, json: on ? { opportunities: true, applications: true } : { error: 'Not found' } })
+    if (p === '/api/features') { if (waitFeatures) await waitFeatures; return route.fulfill({ status: featuresStatus, json: featuresStatus === 200 ? (on ? { opportunities: true, applications: true } : {}) : { error: 'rate_limited' } }) }
+    if (p === '/api/auth/me') return reply({ email: 'uxbf1@example.test', display_name: 'Synthetic Viewer', display_name_confirmed: true, role: role === 'scout' ? 'scout' : 'user' })
+    if (p === '/api/meta/data-mode') return reply({ api_football_frozen: true })
+    if (p === '/api/programs/synthetic-uxbf1') return reply({ program })
+    if (p === '/api/local-players/9') return reply({ player: { id: 9, api_player_id: -9, display_name: 'Synthetic Adult', birth_year: 2000, status: 'approved' } })
+    if (p === '/api/local-players/9/showcase') return reply({ claim_status: 'claimed', profile: { bio: 'Synthetic profile' }, affiliations: [], reel: [], photos: [] })
+    if (p === '/api/me/claims') return reply({ claims: role === 'owner' ? [{ id: 3, local_player_id: 9, player_api_id: -9, relationship_type: 'player', status: 'approved' }] : [] })
+    if (p === '/api/me/application-claims') { if (waitClaims) await waitClaims; return reply({ claims: eligible ? claims : [] }) }
+    if (p === '/api/funding/claims/me') return reply({ claims: role === 'club-owner' ? [{ id: 31, status: 'approved', relationship_type: 'club_official', program }] : [] })
+    if (p === '/api/me/club') return reply({ clubs: [] })
+    if (p === '/api/me/club-claims') return reply({ claims: [] })
+    if (p === '/api/me/applications') return reply({ applications: rows })
+    if (p === '/api/opportunities') return reply({ opportunities: [item], has_more: false })
+    if (p === `/api/opportunities/${oid}`) return reply({ opportunity: item })
+    if (p === `/api/opportunities/${oid}/applications`) {
+      submissions.push(req.postDataJSON())
+      return route.fulfill({ status: conflict ? 409 : 201, json: conflict ? { error: 'already_applied' } : { application } })
+    }
+    return reply({})
+  })
+  return { calls, errors, submissions }
+}
+async function shot(page, name, size) {
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  if (!process.env.UXBF1_SCREENSHOTS) return
+  await fs.mkdir(process.env.UXBF1_SCREENSHOTS, { recursive: true })
+  await page.evaluate(() => document.fonts.ready)
+  await page.screenshot({ path: path.join(process.env.UXBF1_SCREENSHOTS, `${name}-${size}.png`), fullPage: true, style: '[data-agentation-root] { visibility: hidden !important; }' })
+}
+const businessCalls = calls => calls.filter(p => p.startsWith('/api/opportunities') || p.startsWith('/api/me/application'))
+for (const [width, height, size] of [[1440, 900, 'desktop'], [390, 844, 'mobile']]) {
+  test.describe(`UXBF1 ${size}`, () => {
+    test.use({ viewport: { width, height } })
+    test('dark bootstrap preserves club, home, onboarding and owner page with zero business calls/errors', async ({ page }) => {
+      const evidence = await fixture(page, { on: false })
+      for (const url of ['/programs/synthetic-uxbf1', '/', '/onboarding/player', '/local-players/9']) {
+        await page.goto(url)
+        await page.waitForLoadState('networkidle')
+        if (url.includes('programs')) await expect(page.getByRole('heading', { name: 'Straight from the club, soon.' })).toBeVisible()
+        if (url.includes('onboarding')) await expect(page.getByRole('heading', { name: 'Are you a player?' })).toBeVisible()
+        if (url.includes('local-players')) await expect(page.getByRole('heading', { name: 'Your next chapter.' })).toBeVisible()
+      }
+      expect(businessCalls(evidence.calls)).toEqual([])
+      expect(evidence.errors).toEqual([])
+    })
+    test('signed-out dark club adds zero business requests or console errors', async ({ page }) => {
+      const evidence = await fixture(page, { role: 'visitor', on: false })
+      await page.goto('/programs/synthetic-uxbf1')
+      await expect(page.getByRole('heading', { name: 'Straight from the club, soon.' })).toBeVisible()
+      await page.waitForLoadState('networkidle')
+      expect(businessCalls(evidence.calls)).toEqual([])
+      expect(evidence.errors).toEqual([])
+    })
+    test('all mounted consumers share one bootstrap request, including client navigation', async ({ page }) => {
+      const evidence = await fixture(page)
+      await page.goto('/onboarding/player')
+      await expect(page.getByRole('heading', { name: 'Your next step.' })).toBeVisible()
+      await page.getByRole('link', { name: 'Synthetic Adult · My profile →' }).click()
+      await expect(page.getByRole('heading', { name: 'Your applications', exact: true })).toBeVisible()
+      expect(evidence.calls.filter(p => p === '/api/features')).toHaveLength(1)
+      expect(evidence.calls).not.toContain('/api/opportunities/features')
+    })
+    test('applied profile selector stays available both ways and resets successful submission', async ({ page }) => {
+      const evidence = await fixture(page, { claims: [{ ...claim, application }, { ...claim, claim_id: 4, signed_player_id: -10, profile_path: '/local-players/10', name: 'Second Adult' }] })
+      await page.goto(`/opportunities/${oid}`)
+      const select = page.getByLabel('Your player profile')
+      await expect(page.getByText('You applied — New')).toBeVisible()
+      await select.selectOption('4')
+      await expect(page.getByRole('button', { name: 'Send application' })).toBeVisible()
+      await select.selectOption('3')
+      await expect(page.getByText('You applied — New')).toBeVisible()
+      await select.selectOption('4')
+      await page.getByLabel('Position', { exact: true }).fill('Midfielder')
+      await page.getByRole('checkbox', { name: 'I agree that this club may contact me about my application.' }).check()
+      await page.getByRole('button', { name: 'Send application' }).click()
+      await expect(page.getByText('Application sent.')).toBeVisible()
+      expect(evidence.submissions[0].claim_id).toBe(4)
+      await select.selectOption('3')
+      await expect(page.getByText('Application sent.')).toHaveCount(0)
+      await expect(page.getByText('You applied — New')).toBeVisible()
+      await select.selectOption('4')
+      await expect(page.getByText('You applied — New')).toBeVisible()
+      await expect(page.getByRole('button', { name: 'Send application' })).toHaveCount(0)
+      await shot(page, 'multi-profile-applied', size)
+    })
+    test('age-band state offers another opportunity and no form', async ({ page }) => {
+      await fixture(page, { claims: [{ ...claim, outside_age_band: true }] })
+      await page.goto(`/opportunities/${oid}`)
+      await expect(page.getByText('Your profile is outside the age range for this opportunity.')).toBeVisible()
+      await expect(page.getByRole('button', { name: 'Send application' })).toHaveCount(0)
+      await shot(page, 'age-band', size)
+    })
+    for (const role of ['owner', 'visitor', 'scout', 'other-player']) test(`${role} summary visibility and private request boundary`, async ({ page }) => {
+      const evidence = await fixture(page, { role })
+      await page.goto('/local-players/9')
+      await expect(page.getByRole('heading', { name: 'Synthetic Adult', exact: true })).toBeVisible()
+      await page.waitForLoadState('networkidle')
+      const summary = page.getByRole('region', { name: 'Your applications', exact: true })
+      if (role === 'owner') { await expect(summary).toBeVisible(); await expect(summary.getByText('Adult trial')).toBeVisible(); await shot(page, 'owner-summary', size) }
+      else { await expect(summary).toHaveCount(0); expect(evidence.calls).not.toContain('/api/me/applications') }
+    })
+    test('ineligible owner keeps teaser and makes no applications read', async ({ page }) => {
+      const evidence = await fixture(page, { eligible: false })
+      await page.goto('/local-players/9')
+      await expect(page.getByRole('heading', { name: 'Your next chapter.' })).toBeVisible()
+      await page.waitForLoadState('networkidle')
+      expect(evidence.calls).not.toContain('/api/me/applications')
+    })
+    test('valid long title and venue wrap on club and owner summary', async ({ page }) => {
+      const title = 'X'.repeat(180), venue = 'V'.repeat(200)
+      await fixture(page, { item: { ...opportunity, title, venue }, rows: [{ ...application, opportunity_title: title }] })
+      await page.goto('/programs/synthetic-uxbf1')
+      await expect(page.getByText(title, { exact: true })).toBeVisible()
+      await expect(page.getByText(venue, { exact: false })).toBeVisible()
+      await shot(page, 'long-club-title-venue', size)
+      await page.goto('/local-players/9')
+      await expect(page.getByRole('region', { name: 'Your applications', exact: true }).getByText(title)).toBeVisible()
+      await shot(page, 'long-owner-title', size)
+    })
+    test('pending bootstrap never shows coming-soon teaser', async ({ page }) => {
+      let resolve
+      const waitFeatures = new Promise(r => { resolve = r })
+      await fixture(page, { waitFeatures })
+      await page.goto('/programs/synthetic-uxbf1')
+      await expect(page.getByText('Loading opportunities…')).toBeVisible()
+      await expect(page.getByRole('heading', { name: 'Straight from the club, soon.' })).toHaveCount(0)
+      resolve()
+      await expect(page.getByText('Adult trial', { exact: true })).toBeVisible()
+    })
+    test('pending claims never show wrong audience and discovery stays below applications', async ({ page }) => {
+      let resolve
+      const waitClaims = new Promise(r => { resolve = r })
+      await fixture(page, { waitClaims })
+      await page.goto('/onboarding/player')
+      await expect(page.getByText('Checking your profiles…', { exact: true })).toBeVisible()
+      await expect(page.getByRole('heading', { name: 'Are you a player?' })).toHaveCount(0)
+      resolve()
+      await expect(page.getByRole('heading', { name: 'Your next step.' })).toBeVisible()
+      await expect(page.getByText('Find your profile', { exact: true })).toBeVisible()
+      await expect(page.getByRole('link', { name: 'Create your profile', exact: true })).toBeVisible()
+      const appY = await page.locator('#my-applications').evaluate(el => el.getBoundingClientRect().top)
+      const discoveryY = await page.getByText('Find your profile', { exact: true }).evaluate(el => el.getBoundingClientRect().top)
+      expect(discoveryY).toBeGreaterThan(appY)
+      await shot(page, 'player-home-discovery', size)
+    })
+    test('bootstrap failure remains unavailable instead of declaring feature off', async ({ page }) => {
+      await fixture(page, { featuresStatus: 429 })
+      await page.goto('/programs/synthetic-uxbf1')
+      await expect(page.getByRole('alert')).toContainText('Could not load opportunities')
+      await expect(page.getByRole('heading', { name: 'Straight from the club, soon.' })).toHaveCount(0)
+    })
+    test('failed bootstrap never advertises recruiting as coming soon', async ({ page }) => {
+      await fixture(page, { role: 'club-owner', featuresStatus: 429 })
+      await page.goto('/my-club?view=recruiting')
+      await expect(page.getByRole('alert')).toContainText('Could not load opportunities')
+      await expect(page.getByRole('heading', { name: 'The next player. The right place.' })).toHaveCount(0)
+    })
+    test('expired retained duplicate hides form without expired details', async ({ page }) => {
+      await fixture(page, { claims: [{ ...claim, application_unavailable: true }] })
+      await page.goto(`/opportunities/${oid}`)
+      await expect(page.getByText('You already applied. This application is no longer available.')).toBeVisible()
+      await expect(page.getByRole('button', { name: 'Send application' })).toHaveCount(0)
+      await shot(page, 'expired-retained-duplicate', size)
+    })
+    test('already_applied response replaces form with useful status copy', async ({ page }) => {
+      await fixture(page, { conflict: true })
+      await page.goto(`/opportunities/${oid}`)
+      await page.getByLabel('Position', { exact: true }).fill('Midfielder')
+      await page.getByRole('checkbox', { name: 'I agree that this club may contact me about my application.' }).check()
+      await page.getByRole('button', { name: 'Send application' }).click()
+      await expect(page.getByText('You already applied. View your applications and next steps on player home.')).toBeVisible()
+      await expect(page.getByRole('button', { name: 'Send application' })).toHaveCount(0)
+    })
+    test('parent-interest deep link scrolls and focuses signup after asynchronous detail load', async ({ page }) => {
+      const evidence = await fixture(page, { role: 'visitor' })
+      await page.goto(`/opportunities/${oid}#parent-interest`)
+      const block = page.locator('#parent-interest')
+      await expect(block).toBeFocused()
+      await expect(block).toBeInViewport()
+      await expect(block.getByRole('heading', { name: 'A path for younger players.' })).toBeVisible()
+      await expect(block.getByLabel('Email address')).toBeVisible()
+      expect(evidence.calls.filter(p => p.startsWith('/api/me/'))).toEqual([])
+      await shot(page, 'parent-interest-anchor', size)
+    })
+  })
+}

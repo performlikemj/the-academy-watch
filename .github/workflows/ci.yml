@@ -111,7 +111,7 @@ jobs:
 
   frontend-tests:
     name: Frontend Tests
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    # Include drafts: deterministic UX regressions must run on every reviewed head.
     needs: dependency-security
     runs-on: ubuntu-latest
     steps:
@@ -136,3 +136,11 @@ jobs:
       - name: Run tests
         working-directory: academy-watch-frontend
         run: node scripts/run-tests.mjs
+
+      - name: Install Chromium for deterministic UX regressions
+        working-directory: academy-watch-frontend
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run deterministic directory and opportunity UX regressions
+        working-directory: academy-watch-frontend
+        run: pnpm exec playwright test --config playwright.uxb.config.js

@@ -17,3 +17,12 @@ test('range keeps defensive unsupported-zone and missing-date fallbacks', () => 
   assert.match(whenRange('invalid', '2026-10-18T01:00:00Z', 'UTC'), /^Date to be arranged/)
   assert.equal(whenRange('2026-10-17T10:30:00Z', '2026-10-17T13:00:00Z', 'Factory'), '17 Oct 2026, 10:30–13:00 UTC (UTC)')
 })
+
+test('range falls back when the offset formatter is unavailable', (t) => {
+  const Original = Intl.DateTimeFormat
+  t.mock.method(Intl, 'DateTimeFormat', function (locale, options) {
+    if (options?.timeZoneName === 'shortOffset') throw new RangeError('Unsupported offset')
+    return new Original(locale, options)
+  })
+  assert.equal(whenRange('2026-10-17T10:30:00Z', '2026-10-17T13:00:00Z', 'Europe/London'), '17 Oct 2026, 11:30 BST (Europe/London) – 17 Oct 2026, 14:00 BST (Europe/London)')
+})

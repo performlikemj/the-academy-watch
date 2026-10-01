@@ -1,3 +1,4 @@
+import { loadFeatures } from './features.js'
 import {
     normalizeNewsletterIds,
     parseNewsletterId,
@@ -260,7 +261,7 @@ export class APIService {
     }
 
     static async getFeatures() {
-        return this.request('/features')
+        return loadFeatures(() => this.request('/features'))
     }
 
     static async getProfile() {

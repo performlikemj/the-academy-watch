@@ -132,6 +132,8 @@ Log one-liner in CONTINUITY.md's "Trivial Log" section.
 
 ---
 
+- Web feature consumers share `APIService.getFeatures()` through `src/lib/features.js`: cache successful bootstrap responses per page session, keep dark opportunity/application keys absent, and distinguish failed/pending flags from OFF. New dark entry points must make zero opportunity/application requests.
+
 ## Quality Bar
 
 Before marking work complete:

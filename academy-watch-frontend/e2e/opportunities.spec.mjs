@@ -24,7 +24,7 @@ async function fixture(page, { on = true, apps = true, empty = false, invited = 
   await page.route('**/api/**', async route => {
     const req = route.request(), url = new URL(req.url()), p = url.pathname
     const reply = json => route.fulfill({ json })
-    if (p === '/api/opportunities/features') return on ? reply({ opportunities: on, applications: on && apps }) : route.fulfill({ status: 404, json: { error: 'Not found' } })
+    if (p === '/api/features') return reply(on ? { opportunities: on, applications: on && apps } : {})
     if (p === '/api/opportunities') return reply({ opportunities: empty ? [] : [opportunity], has_more: false })
     if (p === `/api/opportunities/${oid}`) return reply({ opportunity })
     if (p === '/api/me/application-claims') return reply({ claims: deniedClaims ? [] : [{ claim_id: 3, signed_player_id: 7001, name: 'Synthetic Adult Applicant' }] })
@@ -83,8 +83,7 @@ for (const width of [1440, 390]) {
         const publicReplies = {
           '/api/meta/data-mode': { api_football_frozen: false },
           '/api/sync-status': { syncing: false },
-          '/api/features': {},
-          '/api/opportunities/features': { opportunities: true, applications: true },
+          '/api/features': { opportunities: true, applications: true },
           '/api/opportunities': { opportunities: [opportunity], has_more: false },
           [`/api/opportunities/${oid}`]: { opportunity },
         }

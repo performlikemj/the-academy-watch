@@ -29,16 +29,18 @@ export function whenRange(start, end, timezone = 'UTC') {
   let first, last
   try { first = new Date(start); last = new Date(end) } catch { return `${when(start, zone)} – ${when(end, zone)}` }
   if (!start || !Number.isFinite(first.getTime()) || !Number.isFinite(last.getTime())) return `${when(start, zone)} – ${when(end, zone)}`
-  const parts = date => Object.fromEntries(new Intl.DateTimeFormat('en-GB', {
-    timeZone: zone, year: 'numeric', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZoneName: 'shortOffset',
-  }).formatToParts(date).map(part => [part.type, part.value]))
-  const a = parts(first), b = parts(last)
-  if (a.timeZoneName !== b.timeZoneName) return `${when(start, zone)} – ${when(end, zone)}`
-  const label = new Intl.DateTimeFormat('en-GB', { timeZone: zone, timeZoneName: 'short' }).formatToParts(last).find(part => part.type === 'timeZoneName').value
-  const date = p => `${p.day} ${p.month} ${p.year}`
-  const time = p => `${p.hour}:${p.minute}`
-  const sameDay = date(a) === date(b)
-  return `${date(a)}, ${time(a)}${sameDay ? '–' : ' – ' + date(b) + ', '}${time(b)} ${label} (${zone})`
+  try {
+    const parts = date => Object.fromEntries(new Intl.DateTimeFormat('en-GB', {
+      timeZone: zone, year: 'numeric', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZoneName: 'shortOffset',
+    }).formatToParts(date).map(part => [part.type, part.value]))
+    const a = parts(first), b = parts(last)
+    if (a.timeZoneName !== b.timeZoneName) return `${when(start, zone)} – ${when(end, zone)}`
+    const label = new Intl.DateTimeFormat('en-GB', { timeZone: zone, timeZoneName: 'short' }).formatToParts(last).find(part => part.type === 'timeZoneName').value
+    const date = p => `${p.day} ${p.month} ${p.year}`
+    const time = p => `${p.hour}:${p.minute}`
+    const sameDay = date(a) === date(b)
+    return `${date(a)}, ${time(a)}${sameDay ? '–' : ' – ' + date(b) + ', '}${time(b)} ${label} (${zone})`
+  } catch { return `${when(start, zone)} – ${when(end, zone)}` }
 }
 
 export function localInput(value, timezone) {
