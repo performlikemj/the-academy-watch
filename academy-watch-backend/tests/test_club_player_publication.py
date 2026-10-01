@@ -1,7 +1,7 @@
 # ruff: noqa: F811
 """The club origin stays private unless every independent publication key is live."""
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 import pytest
 from src.auth import issue_user_token
@@ -32,6 +32,9 @@ def env(club_app, client, monkeypatch):
     from src.services.club_player_publication_account import register_publication_notifications
 
     register_publication_notifications()
+    from src.routes.api import api_bp
+
+    club_app.register_blueprint(api_bp, url_prefix="/api")
     club_app.register_blueprint(publication_bp, url_prefix="/api")
     club_app.register_blueprint(contact_bp, url_prefix="/api")
     club_app.register_blueprint(scout_bp, url_prefix="/api")
@@ -153,7 +156,7 @@ def assert_private(client, env):
     )
     results = client.get("/api/scout/players?search=C1").json
     assert results is not None
-    assert pid not in [r["player_api_id"] for r in results.get("players", [])]
+    assert pid not in [r["player_id"] for r in results.get("players", [])]
 
 
 @pytest.mark.parametrize("birth", [date(2010, 1, 1), date.today(), date.today() + timedelta(days=1), None])
@@ -240,6 +243,8 @@ def test_explicit_current_consent(client, env, key, value):
         "minor",
         "roster_removed",
         "suspended",
+        "shadow_minor",
+        "birthday",
     ],
 )
 def test_live_removal_from_all_reads(client, env, monkeypatch, which):
@@ -282,6 +287,16 @@ def test_live_removal_from_all_reads(client, env, monkeypatch, which):
         db.session.get(LocalPlayer, env["local"]).birth_date = date(2010, 1, 1)
     elif which == "roster_removed":
         ClubRosterMember.query.filter_by(local_player_id=env["local"]).delete()
+    elif which == "birthday":
+        publication = ClubPlayerPublication.query.first()
+        publication.adult_invited_at = datetime(2024, 1, 1)
+        publication.consented_at = datetime(2024, 1, 1)
+        local = db.session.get(LocalPlayer, env["local"])
+        local.birth_date = date(date.today().year - 18, 1, 1)
+    elif which == "shadow_minor":
+        from src.models.follow import PlayerShadow
+
+        PlayerShadow.query.filter_by(player_api_id=pid).first().birth_date = date(2015, 1, 1)
     elif which == "suspended":
         db.session.get(UserAccount, env["player"]).account_status = "suspended"
     db.session.commit()
@@ -332,4 +347,185 @@ def test_strict_club_first_even_when_claim_says_free_agent(client, env):
             f"/api/contact/requests/{id_}/messages", headers=_headers("scout"), json={"body": "After revocation"}
         ).status_code
         == 409
+    )
+
+
+def surface_ids(client, env):
+    import csv
+    import io
+
+    from src.models.follow import Follow, FollowList
+    from src.services.follow_resolver import resolve_list
+    from src.services.player_shadow_service import search_players
+    from src.services.scout_digest_service import _player_state
+
+    headers = _headers("scout")
+    follow_list = FollowList.query.filter_by(name="C1 saved fixture").first()
+    if follow_list is None:
+        scout = UserAccount.query.filter_by(email="manager-scout@c2.example").one()
+        follow_list = FollowList(user_account_id=scout.id, name="C1 saved fixture")
+        db.session.add(follow_list)
+        db.session.flush()
+        db.session.commit()
+    if public_adult_ids([-env["local"]]) and not follow_list.follows.first():
+        db.session.add(
+            Follow(
+                list_id=follow_list.id, kind="player", selector={"player_api_id": -env["local"]}, label="Saved C1 adult"
+            )
+        )
+        db.session.commit()
+    pid = -env["local"]
+    browse = client.get("/api/scout/players?search=C1").json
+    compare = client.get(f"/api/scout/compare?ids={pid}")
+    exported = client.get(f"/api/scout/export.csv?ids={pid}", headers=headers)
+    global_search = client.get("/api/players/search?q=C1")
+    embedded = client.get("/api/scout/lists", headers=headers)
+    assert compare.status_code == exported.status_code == global_search.status_code == embedded.status_code == 200
+    return {
+        "browse": {r["player_id"] for r in browse["players"]},
+        "compare": {r["profile"]["player_id"] for r in compare.json["players"]},
+        "csv": {int(r["player_id"]) for r in csv.DictReader(io.StringIO(exported.get_data(as_text=True)))},
+        "global_search": {r["player_api_id"] for r in global_search.json},
+        "follow_search": {r["player_api_id"] for r in search_players("C1 adult")},
+        "embedded": {r["selector"]["player_api_id"] for r in embedded.json["lists"][0]["follows"]},
+        "resolved": {r["player_api_id"] for r in resolve_list(follow_list)},
+        "digest": {pid} if _player_state(pid, {})["kind"] != "none" else set(),
+    }
+
+
+def test_all_public_surfaces_require_consent_and_remove_on_withdrawal(client, env, monkeypatch):
+    # C1 admits club adults independently of the separate community inclusion flag.
+    monkeypatch.setenv("SCOUT_INCLUDE_LOCAL_PLAYERS", "false")
+    assert all(not ids for ids in surface_ids(client, env).values())
+    row = published(client, env)
+    pid = -env["local"]
+    assert all(ids == {pid} for ids in surface_ids(client, env).values())
+    assert (
+        client.post(
+            f"/api/me/player-publications/{row['id']}/withdraw",
+            headers=env["ph"],
+            json={"expected_version": row["version"]},
+        ).status_code
+        == 200
+    )
+    assert all(not ids for ids in surface_ids(client, env).values())
+
+
+@pytest.mark.parametrize("case", ["expired", "not_self", "guardian", "duplicate", "namespace"])
+def test_private_invite_fail_closed(client, env, case):
+    from src.models.follow import PlayerShadow
+
+    result = invite(client, env)
+    row = ClubPlayerPublication.query.first()
+    if case == "expired":
+        row.invite_expires_at = service.now() - timedelta(seconds=1)
+        db.session.commit()
+    if case == "guardian":
+        db.session.add(
+            PlayerProfileClaim(
+                local_player_id=env["local"],
+                user_account_id=env["player"],
+                relationship_type="guardian",
+                status="approved",
+            )
+        )
+        db.session.commit()
+    response = client.post(
+        "/api/me/player-publication-invites/accept",
+        headers=env["ph"],
+        json={"token": result["token"], "self_claim": case != "not_self"},
+    )
+    if case in {"expired", "not_self", "guardian"}:
+        assert response.status_code == {"expired": 404, "not_self": 400, "guardian": 409}[case]
+        assert not row.claimed_at
+        return
+    assert response.status_code == 200
+    service.consent(
+        row,
+        env["player"],
+        {"expected_version": row.version, "public_profile_consent": True, "consent_version": service.CONSENT_VERSION},
+    )
+    if case == "duplicate":
+        local = db.session.get(LocalPlayer, env["local"])
+        db.session.add(
+            LocalPlayer(
+                display_name=local.display_name,
+                birth_date=local.birth_date,
+                birth_year=local.birth_year,
+                provenance="community",
+            )
+        )
+    else:
+        db.session.add(PlayerShadow(player_api_id=-env["local"], player_name="Conflicting legacy fixture"))
+    db.session.commit()
+    response = client.post(
+        f"/api/admin/player-publications/{row.id}/review",
+        headers=_admin_headers(),
+        json={"action": "approve", "reason": "Review fixture", "expected_version": row.version},
+    )
+    assert response.status_code == 409
+    assert not public_adult_ids([-env["local"]])
+
+
+def test_export_erasure_and_introduction_notification_keys(client, env):
+    from src.models.contact import ContactRequest
+    from src.models.p2_foundation import NotificationOutbox
+    from src.services.account import _SchemaView
+    from src.services.club_player_publication_account import erase_publications, export_publications
+
+    published(client, env)
+    player = db.session.get(UserAccount, env["player"])
+    schema = _SchemaView()
+    exported = export_publications(player, schema)["club_player_publications"]
+    assert "invite_token_hash" not in exported[0] and "recipient_email" not in exported[0]
+    response = client.post(
+        "/api/contact/requests",
+        headers=_headers("scout"),
+        json={"player_api_id": -env["local"], "message": "Test introduction"},
+    )
+    assert response.status_code == 201
+    contact_id = response.json["contact_request"]["id"]
+    notices = NotificationOutbox.query.filter_by(template="c1_introduction").all()
+    assert notices and all(n.recipient_user_id != player.id and not n.payload for n in notices)
+    assert (
+        client.post(
+            f"/api/contact/requests/{contact_id}/club-consent", headers=_headers("a"), json={"action": "grant"}
+        ).status_code
+        == 200
+    )
+    assert NotificationOutbox.query.filter_by(template="c1_introduction", recipient_user_id=player.id).count() == 1
+    erase_publications(player.id, player.email, schema)
+    db.session.commit()
+    assert not ClubPlayerPublication.query.first()
+    assert db.session.get(ContactRequest, contact_id).status == "withdrawn"
+    assert not public_adult_ids([-env["local"]])
+
+
+@pytest.mark.parametrize("spa", [False, True])
+@pytest.mark.parametrize("method", ["GET", "HEAD", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/me/player-publications",
+        "/api/me/player-publication-invites/accept",
+        "/api/club/1/players/1/publication-invite",
+        "/api/admin/player-publications/1/review",
+        "/api/contact/requests/fixture/revoke",
+    ],
+)
+def test_c1_dark_routing_matches_unknown_real_app(monkeypatch, tmp_path, spa, method, path):
+    from src.main import app
+
+    monkeypatch.setenv("CLUB_PLAYER_PUBLICATION_ENABLED", "false")
+    monkeypatch.setattr(app, "static_folder", str(tmp_path))
+    if spa:
+        (tmp_path / "index.html").write_text("SPA shell")
+    client = app.test_client()
+    unknown_path = "/api/contact/not-a-real-c1-path" if path.startswith("/api/contact/") else "/api/not-a-real-c1-path"
+    unknown = client.open(unknown_path, method=method)
+    response = client.open(path, method=method)
+    assert (response.status_code, response.data, dict(response.headers)) == (
+        unknown.status_code,
+        unknown.data,
+        dict(unknown.headers),
     )

@@ -30,6 +30,33 @@ class PublicationError(ValueError):
         super().__init__(code)
 
 
+def adult_at_consent(local, timestamp):
+    # A corrected child DOB cannot become public merely by reaching a birthday.
+    # Current adulthood and adulthood at each explicit permission are separate keys.
+    born_year = sa.extract("year", local.birth_date)
+    at_year = sa.extract("year", timestamp)
+    born_month = sa.extract("month", local.birth_date)
+    at_month = sa.extract("month", timestamp)
+    return sa.or_(
+        sa.and_(
+            local.birth_date.is_not(None),
+            sa.or_(
+                born_year < at_year - 18,
+                sa.and_(
+                    born_year == at_year - 18,
+                    sa.or_(
+                        born_month < at_month,
+                        sa.and_(
+                            born_month == at_month, sa.extract("day", local.birth_date) <= sa.extract("day", timestamp)
+                        ),
+                    ),
+                ),
+            ),
+        ),
+        sa.and_(local.birth_date.is_(None), local.birth_year < at_year - 18),
+    )
+
+
 def publication_local_ids():
     """One live SQL policy, shared by resolvers, discovery and cached reads."""
     query = (
@@ -50,6 +77,8 @@ def publication_local_ids():
             Publication.claimed_at.is_not(None),
             Publication.association_confirmed_at.is_not(None),
             Publication.consented_at.is_not(None),
+            adult_at_consent(LocalPlayer, Publication.adult_invited_at),
+            adult_at_consent(LocalPlayer, Publication.consented_at),
             Publication.consent_version == CONSENT_VERSION,
             Publication.moderation_status == "approved",
             Publication.withdrawn_at.is_(None),
@@ -263,7 +292,8 @@ def review(row, actor, payload):
     if action not in {"approve", "reject"}:
         raise PublicationError("invalid_action", 400)
     local = private_local(row.program_id, row.local_player_id)
-    claim = db.session.get(PlayerProfileClaim, row.claim_id)
+    claim = PlayerProfileClaim.query.filter_by(id=row.claim_id).with_for_update().first()
+    recipient = db.session.get(UserAccount, row.recipient_user_id)
     if (
         not row.consented_at
         or row.consent_version != CONSENT_VERSION
@@ -271,6 +301,9 @@ def review(row, actor, payload):
         or row.club_revoked_at
         or not row.claimed_at
         or not row.association_confirmed_at
+        or recipient is None
+        or recipient.is_tombstone
+        or recipient.account_status != "active"
         or claim is None
         or claim.user_account_id != row.recipient_user_id
         or claim.relationship_type != "player"
@@ -288,6 +321,11 @@ def review(row, actor, payload):
     ).first()
     if action == "approve" and duplicate:
         raise PublicationError("duplicate_identity_review_required")
+    if action == "approve" and not (local.status == "approved" and claim.status == "approved"):
+        from src.routes.showcase import _legacy_negative_identity_conflict
+
+        if _legacy_negative_identity_conflict(-local.id) is not None:
+            raise PublicationError("identity_review_required")
     row.moderation_status = "approved" if action == "approve" else "rejected"
     row.reviewed_by, row.reviewed_at = actor, now()
     if action == "approve":
@@ -335,11 +373,13 @@ def revoke(row, *, club=False):
         .all()
     ):
         contact.status = "withdrawn"
-        add_audit_event(contact, "withdrawn", metadata={"publication_id": row.id})
+        add_audit_event(contact, "withdrawn", actor_user_id=None, metadata={"publication_id": row.id})
 
 
 def dto(row, *, names=True):
     local = db.session.get(LocalPlayer, row.local_player_id)
+    from src.services.public_adult import is_public_adult
+
     return {
         "id": row.id,
         "program_id": row.program_id,
@@ -354,7 +394,7 @@ def dto(row, *, names=True):
         "version": row.version,
         "consent_version": CONSENT_VERSION,
         "consent_text": CONSENT_TEXT,
-        "public": bool(local and club_local_is_eligible(local)),
+        "public": bool(local and local.provenance == "club" and is_public_adult(-local.id)),
     }
 
 

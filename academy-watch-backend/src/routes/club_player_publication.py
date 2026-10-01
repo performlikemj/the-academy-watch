@@ -40,21 +40,57 @@ def flagged(view):
 def dark_routes():
     if service.enabled():
         return
-    # Match even OPTIONS/wrong methods without creating a dark-path oracle.
+    # Re-match without C1 rules, preserving SPA, OPTIONS and wrong-method parity.
     from flask import current_app
+    from flask.globals import request_ctx
     from werkzeug.exceptions import MethodNotAllowed, NotFound
-    from werkzeug.routing import RequestRedirect
+    from werkzeug.routing import Map, RequestRedirect
 
+    def owned(endpoint):
+        return endpoint.startswith("club_player_publication.") or endpoint == "contact.revoke_club_origin_request"
+
+    adapter = current_app.url_map.bind_to_environ(request.environ)
     try:
-        adapter = current_app.url_map.bind_to_environ(request.environ)
-        try:
-            rule, _ = adapter.match(return_rule=True)
-        except MethodNotAllowed as exc:
-            rule, _ = adapter.match(method=exc.valid_methods[0], return_rule=True)
+        rule, _ = adapter.match(method=request.method, return_rule=True)
+    except MethodNotAllowed as error:
+        for method in error.valid_methods:
+            rule, _ = adapter.match(method=method, return_rule=True)
+            if owned(rule.endpoint):
+                break
+        else:
+            return
     except (NotFound, RequestRedirect):
         return
-    if rule.endpoint.startswith("club_player_publication."):
-        abort(404)
+    if not owned(rule.endpoint):
+        return
+    rules = tuple(current_app.url_map.iter_rules())
+    cached = current_app.extensions.get("club_publication_dark_map")
+    if cached is None or cached[0] != rules:
+        visible_rules = []
+        for candidate in rules:
+            if owned(candidate.endpoint):
+                continue
+            copied = candidate.empty()
+            copied.provide_automatic_options = getattr(candidate, "provide_automatic_options", False)
+            visible_rules.append(copied)
+        original = current_app.url_map
+        visible = Map(
+            visible_rules,
+            converters=original.converters,
+            strict_slashes=original.strict_slashes,
+            merge_slashes=original.merge_slashes,
+            redirect_defaults=original.redirect_defaults,
+            host_matching=original.host_matching,
+            default_subdomain=original.default_subdomain,
+        )
+        current_app.extensions["club_publication_dark_map"] = (rules, visible)
+    else:
+        visible = cached[1]
+    request_ctx.url_adapter = visible.bind_to_environ(request.environ)
+    request.routing_exception = None
+    request.url_rule = None
+    request.view_args = None
+    request_ctx.match_request()
 
 
 @publication_bp.after_request
@@ -120,6 +156,7 @@ def candidates(program_id):
             ~local_player_is_minor(LocalPlayer),
         )
         .order_by(LocalPlayer.display_name, LocalPlayer.id)
+        .limit(100)
         .all()
     )
     return jsonify(players=[{"id": p.id, "name": p.display_name} for p in rows])

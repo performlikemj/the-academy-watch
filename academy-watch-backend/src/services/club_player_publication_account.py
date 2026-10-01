@@ -75,6 +75,13 @@ def register_publication_notifications():
             return False
         if contact.status not in {"pending", "accepted"}:
             return False
+        from src.services.contact import utcnow
+        from src.services.user_blocks import users_have_block_relationship
+
+        if contact.expires_at <= utcnow() or users_have_block_relationship(
+            first_user_id=contact.claim.user_account_id, second_user_id=contact.scout_user_id
+        ):
+            return False
         if contact.claim and contact.claim.user_account_id == user.id:
             return contact.club_consent_status == "granted"
         return contact.club_consent_status == "pending" and club_can(user.id, contact.club_program_id, "contact")

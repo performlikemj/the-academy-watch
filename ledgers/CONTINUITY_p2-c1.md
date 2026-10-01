@@ -12,8 +12,13 @@
 
 ## State
 - Done: read master continuity, Phase2/design/BUS/evidence/repo guidance and mockup feature map.
-- Now: map visibility, claims, introduction gates and required stack dependencies.
-- Next: implement schema/workflow/eligibility, UI, regression and real PostgreSQL/browser checks, screenshots, PR and hand-back.
+- Done: real B1/B2 features, B3 d49ec794 and N3 e58521d6 integrated; p2c1 upgraded actual scratch PostgreSQL.
+- Done: independent recipient claim/consent/moderation, live canonical visibility, club-first inbox/notifications/messages/revocation, export/erasure and web handoff.
+- Done: 98 focused backend, 3 real PostgreSQL lock/migration tests, 82 selected browser, 219 Node, OSV/lint/build pass; 14 desktop/mobile fixture PNGs reviewed.
+- Now: final real HTTP/browser workflow, full combined backend gates and hand-back.
+- Next: finish full checks, clean owned resources, create draft PR then mark ready, publish external hand-back.
+- Validation setup: own private .env flags/freeze require explicit OFF overrides for full pytest; early setup-only failures recorded externally, final successful gate is authoritative.
+- Integration: carry B1/B2 adapter fix that omits open_opportunities while B2 dark (BUS agreed); four migration assertions pin p2c1.
 
 ## Acceptance
 - Known adult private invite binds verified recipient; self-claim independent of public consent; moderation and live club association required.

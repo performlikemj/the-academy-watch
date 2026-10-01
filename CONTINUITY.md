@@ -32,7 +32,7 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
 
 ## State
 
-- **Now (2026-10-01):** Phase 2 B2 fix round 3 housekeeping validated for #1113: anonymous claims gate + list/detail request regressions, four head pins → p2b2, latest main/N4 + A2 current. Full foreground gates green with zero pytest failures. PR stays draft/unmerged; hand-back `~/codex-runs/aw-redesign/logs/B2F3.final.md`. See `ledgers/CONTINUITY_p2-b2.md`.
+- **Now (2026-10-01):** Phase 2 C1 adult consent publication and club-first introductions implemented on p2/c1-club-publication; final combined checks and real HTTP verification in progress. See `ledgers/CONTINUITY_p2-c1.md`.
 
 ### Done
 - **2026-10-01 P2 B2 fix round 3:** STG1 signed-out claims gate carried; four desktop/mobile list→detail/direct-detail interception regressions assert zero authenticated requests/401s; four migration-head assertions now p2b2 per orchestrator12:50. Main/N4 812be68d included; A2 30ae5f4a current. Full pytest3689pass67skip0fail, PG17, Node211, Playwright24, Ruff0.16.0/format/OSV/lint/build pass. Own Vite5197/aw_p2_b2/test-results cleaned; draft #1113 unmerged. See `ledgers/CONTINUITY_p2-b2.md`.

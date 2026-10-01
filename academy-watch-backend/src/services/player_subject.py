@@ -145,9 +145,9 @@ def resolve_player_subject(signed_id) -> PlayerSubject | None:
         if local_player is None:
             return None
         if local_player.provenance == "club":
-            from src.services.club_player_publication import club_local_is_eligible
+            from src.services.public_adult import is_public_adult
 
-            if not club_local_is_eligible(local_player):
+            if not is_public_adult(signed_id):
                 return None
         shadow = PlayerShadow.query.filter_by(player_api_id=signed_id, is_active=True).first()
         return PlayerSubject(

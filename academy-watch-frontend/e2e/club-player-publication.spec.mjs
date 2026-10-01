@@ -4,15 +4,15 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 
 const row = { id: 1, program_id: 7, local_player_id: 23, player_name: 'Synthetic C1 adult · test fixture', claimed: true, consented: false, association_confirmed: true, moderation_status: 'pending', withdrawn: false, club_revoked: false, version: 2, consent_version: 'public-profile-v1', consent_text: 'I am this adult player. I agree to make my approved profile public, including scout discovery, watchlists and sharing. Introductions go to my club first, then I choose. I can withdraw at any time.', public: false }
-async function fixture(page, { on = true, admin = false, anonymous = false, published = false, invite = false } = {}) {
+async function fixture(page, { on = true, admin = false, anonymous = false, published = false, consented = false, invite = false } = {}) {
   if (!anonymous) await page.addInitScript(({ admin }) => {
     localStorage.setItem('academy_watch_user_token', 'synthetic-c1-browser-token')
     localStorage.setItem('academy_watch_display_name', 'Synthetic C1 fixture')
     localStorage.setItem('academy_watch_display_name_confirmed', 'true')
     localStorage.setItem('academyWatch.playerOnboardingPromptDismissed.v1', 'true')
-    if (admin) localStorage.setItem('academy_watch_admin_api_key', 'synthetic-c1-key')
+    if (admin) { localStorage.setItem('academy_watch_admin_key', 'synthetic-c1-key'); localStorage.setItem('academy_watch_is_admin', 'true') }
   }, { admin })
-  let current = { ...row, claimed: !invite, consented: published, moderation_status: published ? 'approved' : 'pending', public: published }
+  let current = { ...row, claimed: !invite, consented: published || consented, moderation_status: published ? 'approved' : 'pending', public: published }
   const writes = []
   await page.route('**/api/**', async route => {
     const request = route.request(), url = new URL(request.url()), p = url.pathname
@@ -76,6 +76,16 @@ for (const [viewport, size] of [['desktop', { width: 1440, height: 900 }], ['mob
     await expect(page.getByRole('button', { name: 'Claim my private profile' })).toBeDisabled()
     await expect(page).not.toHaveURL(/#token=/)
     await shot(page, 'claim-test-fixture', viewport)
+  })
+  test(`admin moderation needs a reason ${viewport}`, async ({ page }) => {
+    await page.setViewportSize(size)
+    const writes = await fixture(page, { admin: true, consented: true })
+    await page.goto('/admin/player-publications')
+    await expect(page.getByRole('button', { name: 'Approve profile and self-claim' })).toBeDisabled()
+    await page.getByLabel('Review reason').fill('Independent adult identity and consent checked')
+    await shot(page, 'admin-review-test-fixture', viewport)
+    await page.getByRole('button', { name: 'Approve profile and self-claim' }).click()
+    expect(writes[0]).toMatchObject({ action: 'approve', reason: 'Independent adult identity and consent checked' })
   })
   test(`approved publication can withdraw ${viewport}`, async ({ page }) => {
     await page.setViewportSize(size)

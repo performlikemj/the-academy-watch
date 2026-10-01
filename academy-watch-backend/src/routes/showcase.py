@@ -3861,6 +3861,23 @@ def admin_list_local_players():
         return jsonify(_safe_error_payload(e, "Failed to load local players")), 500
 
 
+def _club_publication_identity_protected(local):
+    if local.provenance != "club":
+        return False
+    from src.services.club_player_publication import enabled
+
+    if enabled():
+        return True
+    # Retained permissions cannot transfer while dark; pre-C1 legacy actions keep parity.
+    from src.services.account import _SchemaView
+    from src.models.club_player_publication import ClubPlayerPublication
+
+    return (
+        _SchemaView().has_table("club_player_publications")
+        and ClubPlayerPublication.query.filter_by(local_player_id=local.id).first() is not None
+    )
+
+
 def _legacy_negative_identity_conflict(player_api_id: int):
     """Lock and return a referenced legacy identity occupying D1's namespace.
 
@@ -4188,7 +4205,7 @@ def admin_merge_local_player(lp_id: int):
         if target is None or target.status in ("merged", "rejected"):
             return jsonify({"error": "merge target must be an active local player"}), 400
 
-        if source.provenance == "club" or target.provenance == "club":
+        if _club_publication_identity_protected(source) or _club_publication_identity_protected(target):
             return jsonify(
                 error="Club-origin identity requires a private identity review; publication consent cannot transfer"
             ), 409
@@ -4985,7 +5002,7 @@ def admin_link_local_player_api(lp_id: int):
         player = LocalPlayer.query.filter_by(id=lp_id).with_for_update().first()
         if player is None:
             return jsonify({"error": "local player not found"}), 404
-        if player.provenance == "club":
+        if _club_publication_identity_protected(player):
             return jsonify(error="Club-origin publication consent cannot transfer to another identity"), 409
         payload, payload_error = _json_object_or_400()
         if payload_error:

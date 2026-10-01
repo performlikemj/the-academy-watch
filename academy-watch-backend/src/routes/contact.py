@@ -471,10 +471,26 @@ def create_contact_request():
             max_len=MAX_REQUEST_MESSAGE_LENGTH,
         )
 
+        club_first = False
         if player_api_id < 0:
             subject = resolve_player_subject(player_api_id)
             if subject is None or not subject.is_public or subject.local_player is None:
                 return _player_not_claimable()
+
+            club_first = subject.local_player.provenance == "club"
+            if club_first:
+                # Serialize creation with withdrawal before locking the claim.
+                from src.models.club_player_publication import ClubPlayerPublication
+
+                publication = (
+                    ClubPlayerPublication.query.filter_by(local_player_id=-player_api_id)
+                    .populate_existing()
+                    .with_for_update()
+                    .first()
+                )
+                if publication is None or resolve_player_subject(player_api_id) is None:
+                    db.session.rollback()
+                    return _player_not_claimable()
 
         if is_player_suppressed(player_api_id):
             return _player_not_claimable()
@@ -562,6 +578,9 @@ def create_contact_request():
             if not permission_attestation:
                 db.session.rollback()
                 return jsonify({"error": APPROACH_RULES_WARNING, "code": "attestation_required"}), 400
+        if club_first and routing_mode != ROUTING_CLUB_INCLUDED:
+            db.session.rollback()
+            return _player_not_claimable()
         club_program_id = claim.club_program_id if routing_mode != "direct" else None
         courtesy_target = None
         if routing_mode == ROUTING_CLUB_NOTIFIED and club_program_id is not None:
@@ -573,9 +592,7 @@ def create_contact_request():
             )
         contact_request = ContactRequest(
             scout_user_id=user.id,
-            club_first=bool(
-                player_api_id < 0 and resolve_player_subject(player_api_id).local_player.provenance == "club"
-            ),
+            club_first=club_first,
             player_api_id=player_api_id,
             claim_id=claim.id,
             message=message,
