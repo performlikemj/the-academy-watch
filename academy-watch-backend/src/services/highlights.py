@@ -60,6 +60,11 @@ def read_evidence():
     )
 
 
+def clear_read_evidence():
+    g.pop("highlight_evidence", None)
+    g.pop("highlight_recording_checks", None)
+
+
 def lookup(model, key):
     evidence = read_evidence()
     if evidence is not None:
@@ -190,14 +195,19 @@ def squad_classification(squad):
         return "unknown"
     if squad.age_limit is not None and squad.age_limit <= 18:
         return "youth"
-    if squad.kind == "age_group" and (squad.age_limit is None or squad.age_limit <= 18):
+    # Dots, underscores and Unicode dashes are common in youth team labels.
+    label = re.sub(r"[\W_]+", " ", squad.name or "", flags=re.UNICODE)
+    if re.search(r"\b(?:youth|academy|juniors?|colts|minis|boys|girls|kids|school\w*)\b", label, re.I):
         return "youth"
-    label = squad.name or ""
-    if re.search(r"\b(?:youth|academy|juniors?|colts|minis)\b", label, re.I):
+    if re.search(r"\b(?:19|20)\d{2}\b|\bunder\s+[a-z]+|\byear\s+\d+", label, re.I):
         return "youth"
-    if any(int(m[1]) <= 18 for m in re.finditer(r"\b(?:u|under)[\s-]?(\d{1,2})(?:s|\b)", label, re.I)):
+    label_limits = [int(m[1]) for m in re.finditer(r"\b(?:u|under|sub)\s*(\d{1,2})(?!\d)", label, re.I)]
+    if any(age <= 18 for age in label_limits):
         return "youth"
-    return "adult" if squad.kind in {"first_team", "reserves"} or (squad.age_limit or 0) > 18 else "unknown"
+    # An upper age bound never establishes a minimum age.
+    if squad.kind == "age_group" or squad.age_limit is not None or label_limits:
+        return "unknown"
+    return "adult" if squad.kind in {"first_team", "reserves"} else "unknown"
 
 
 def recording_block_reason(match, *, frozen_etag=None):
@@ -490,7 +500,7 @@ def eligible(row):
         return evidence["eligible"][row.id]
     program = lookup(ClubProgram, row.program_id)
     claim = lookup(PlayerProfileClaim, row.claim_id) if row.claim_id else None
-    # Pending/private previews never outlive either their response window or raw retention.
+    # Unanswered previews last until the raw recording's deadline.
     if row.player_decision != "approve":
         from datetime import timedelta
 
@@ -499,7 +509,7 @@ def eligible(row):
         raw_deadline = (match.expires_at or (uploaded + timedelta(days=90) if uploaded else None)) if match else None
         if raw_deadline is None:
             return False
-        if row.created_at < now() - timedelta(days=14) or (raw_deadline is not None and raw_deadline <= now()):
+        if raw_deadline <= now():
             return False
     allowed = bool(
         enabled()
@@ -594,6 +604,13 @@ def pick(match, data, actor):
     if selected is None:
         raise ValueError("reviewed_window_required")
     track, window = selected
+    if PlayerHighlight.query.filter_by(
+        video_match_id=match.id,
+        start_s=window["start_s"],
+        end_s=window["end_s"],
+        admin_taken_down=True,
+    ).first():
+        raise ValueError("highlight_admin_taken_down")
     member = lookup(ClubRosterMember, entry.club_roster_member_id)
     pid = member_subject(member)
     claim = claim_for_subject(pid)
@@ -733,11 +750,13 @@ def decide(row, actor, decision, version):
 def discard_preview(row):
     from src.workers.highlight_worker import queue_cleanup
 
-    paths = {job.blob_path for job in HighlightRenderJob.query.filter_by(highlight_id=row.id) if job.blob_path}
+    jobs = HighlightRenderJob.query.filter_by(highlight_id=row.id).all()
+    paths = {job.blob_path for job in jobs if job.blob_path}
+    live_paths = {job.blob_path for job in jobs if job.kind == "highlight_cut" and job.status == "running"}
     if row.output_blob_path:
         paths.add(row.output_blob_path)
     for path in paths:
-        queue_cleanup(path)
+        queue_cleanup(path, delayed=path in live_paths)
     HighlightRenderJob.query.filter_by(highlight_id=row.id).filter(
         HighlightRenderJob.kind == "highlight_cut", HighlightRenderJob.status.in_(("queued", "running"))
     ).update({"status": "cancelled", "lease_token": None}, synchronize_session=False)
@@ -757,6 +776,8 @@ def dto(row, *, private=False):
         label = "Public on your page"
     elif row.render_status == "failed":
         label = "Clip not made · still private"
+    elif row.render_status == "stale" and row.player_decision != "private":
+        label = "Clip needs another try · still private"
     elif row.player_decision == "approve":
         label = "Approved · preparing clip" if allowed else "Unavailable · still private"
     elif row.player_decision == "private":
@@ -810,6 +831,35 @@ def register_notifications():
         render=notification_render,
     )
 
+    def source_changed_eligible(intent, user):
+        from src.models.funding import ClubProgramClaim, ClubProgramManager
+
+        row = db.session.get(PlayerHighlight, (intent.payload or {}).get("highlight_id"))
+        if not row or row.revoke_reason != "source_changed" or not row.revoked_at or not account_can_act(user):
+            return False
+        if row.recipient_user_id == user.id:
+            return True
+        return bool(
+            db.session.query(ClubProgramManager.id)
+            .join(ClubProgramClaim, ClubProgramClaim.id == ClubProgramManager.source_claim_id)
+            .filter(
+                ClubProgramManager.program_id == row.program_id,
+                ClubProgramManager.user_account_id == user.id,
+                ClubProgramManager.status == "active",
+                ClubProgramClaim.status == "approved",
+                ClubProgramClaim.program_id == row.program_id,
+                ClubProgramClaim.user_account_id == user.id,
+            )
+            .first()
+        )
+
+    register_template(
+        "highlight_source_changed",
+        eligible=source_changed_eligible,
+        render=source_changed_render,
+        defer=lambda intent, user: not enabled(),
+    )
+
 
 def candidates(match):
     if not adult_recording(match):
@@ -858,4 +908,12 @@ def notification_render(intent, user):
         "subject": "A highlight is waiting for your decision",
         "html": f'<p>Sign in to Academy Watch to review a highlight request.</p><p><a href="{escape(link, quote=True)}">Review highlights</a></p>',
         "text": f"Sign in to Academy Watch to review a highlight request. {link}",
+    }
+
+
+def source_changed_render(intent, user):
+    return {
+        "subject": "A highlight is now private",
+        "html": "<p>A recording record changed, so a highlight is now private. Sign in to check it. Sharing it again requires a fresh club pick and player approval.</p>",
+        "text": "A recording record changed, so a highlight is now private. Sign in to check it. Sharing it again requires a fresh club pick and player approval.",
     }

@@ -272,7 +272,9 @@ def test_both_keys_required_and_private_standalone_preview(world, monkeypatch):
 def test_preview_without_player_key_does_not_grant_raw_match(world, monkeypatch):
     row = ready(world)
     client = world["app"].test_client()
-    monkeypatch.setattr(highlights_storage, "output_read_url", lambda *args: "https://clips.example.test/clip")
+    monkeypatch.setattr(
+        highlights_storage, "output_read_url", lambda *args, **kwargs: "https://clips.example.test/clip"
+    )
     assert (
         client.get(f"/api/me/highlight-requests/{row.id}/preview", headers=headers(world["player"])).status_code == 302
     )
@@ -505,6 +507,7 @@ def test_duplicate_pick_and_decision_version(world):
 
 def test_export_erase_outputs_and_history_even_dark(world, monkeypatch):
     row = ready(world)
+    path = row.output_blob_path
     monkeypatch.setenv("HIGHLIGHTS_ENABLED", "0")
     schema = _SchemaView()
     assert export_highlights(world["player"], schema)["highlights"][0]["id"] == row.id
@@ -512,8 +515,20 @@ def test_export_erase_outputs_and_history_even_dark(world, monkeypatch):
     db.session.commit()
     assert result == {"highlights_deleted": 1}
     assert PlayerHighlight.query.count() == 0 and HighlightConsentEvent.query.count() == 0
-    cleanup = HighlightRenderJob.query.filter_by(kind="highlight_delete").one()
-    assert cleanup.blob_path.startswith("highlights/") and cleanup.highlight_id is None
+    cleanups = HighlightRenderJob.query.filter_by(kind="highlight_delete").all()
+    assert cleanups and {job.blob_path for job in cleanups} == {path}
+    assert all(job.highlight_id is None for job in cleanups)
+    deleted = Mock(return_value=True)
+    monkeypatch.setattr("src.services.video_storage.delete_blob", deleted)
+    for job in cleanups:
+        job.created_at = now() - timedelta(seconds=1)
+    db.session.commit()
+    from src.workers.highlight_worker import run_one
+
+    while claimed := claim_next():
+        assert run_one(*claimed)
+    assert deleted.call_count == len(cleanups)
+    assert all(job.status == "succeeded" for job in cleanups)
 
 
 def test_redirect_only_grants_standalone_output(world, monkeypatch):
@@ -648,7 +663,9 @@ def test_rendered_clip_survives_normal_raw_retention_expiry(world, monkeypatch):
     db.session.refresh(row)
     assert row.source_version == 1 and row.player_decision == "approve" and row.revoked_at is None
     assert highlights.public(row)
-    monkeypatch.setattr(highlights_storage, "output_read_url", lambda *args: "https://clips.example.test/clip")
+    monkeypatch.setattr(
+        highlights_storage, "output_read_url", lambda *args, **kwargs: "https://clips.example.test/clip"
+    )
     assert world["app"].test_client().get(f"/api/highlights/{row.id}/clip").status_code == 302
 
 

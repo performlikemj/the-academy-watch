@@ -2,6 +2,7 @@
 
 import json
 import re
+from datetime import UTC, timedelta
 from functools import wraps
 
 from flask import Blueprint, abort, current_app, g, jsonify, request
@@ -22,6 +23,9 @@ highlights_bp = Blueprint("highlights", __name__)
 @highlights_bp.before_app_request
 def hide_dark_routes():
     if service.enabled():
+        # A test/CLI may reuse an app context across HTTP requests. Evidence is
+        # still scoped to this request, including the final grant recheck.
+        service.clear_read_evidence()
         return
     # The real application has a SPA fallback and automatic OPTIONS. Re-match
     # with this blueprint absent, including wrong-method requests.
@@ -199,9 +203,9 @@ def review_recording(program_id, match_id):
         return jsonify(error="whole_recording_review_required"), 422
     db.session.refresh(match, with_for_update=True)
     row = db.session.get(HighlightFootageReview, match.id)
-    if row is None:
+    new_review = row is None
+    if new_review:
         row = HighlightFootageReview(video_match_id=match.id)
-        db.session.add(row)
     attested = data.get("squad_adult_attested") is True
     same_source = (
         row.classification == classification
@@ -231,6 +235,8 @@ def review_recording(program_id, match_id):
     row.reviewer_user_id = g.user_id
     row.squad_adult_attested = attested
     row.reviewed_at = now()
+    if new_review:
+        db.session.add(row)
     record_admin_event(
         g.user,
         "highlight_recording_review",
@@ -394,7 +400,7 @@ def public_list(query):
     return jsonify(highlights=[service.dto(row) for row in rows if service.public(row)])
 
 
-def clip_response(row):
+def clip_response(row, *, expires_at, audience, program_id=None, match_id=None):
     from flask import redirect
     from src.services.highlights_storage import output_read_url
 
@@ -406,10 +412,66 @@ def clip_response(row):
         abort(404)
     if not row.output_etag or not 0 < (row.output_bytes or 0) <= 30 * 1024 * 1024:
         abort(404)
+    hid, version, source_version, path, etag = (
+        row.id,
+        row.version,
+        row.source_version,
+        row.output_blob_path,
+        row.output_etag,
+    )
+    actor_id = getattr(g, "user_id", None)
+    actor_epoch = getattr(getattr(g, "user", None), "auth_epoch", None)
     try:
-        response = redirect(output_read_url(row.output_blob_path, row.output_etag), code=302)
+        url = output_read_url(row.output_blob_path, row.output_etag, expires_at=expires_at)
     except Exception:
         abort(404)
+    # End the pre-storage read transaction and discard every ORM/request cache.
+    # A READ COMMITTED re-read must see revocation committed during storage I/O.
+    db.session.rollback()
+    service.clear_read_evidence()
+    row = db.session.get(PlayerHighlight, hid)
+    if (
+        not row
+        or now().replace(tzinfo=UTC) >= expires_at
+        or (row.version, row.source_version, row.output_blob_path, row.output_etag)
+        != (version, source_version, path, etag)
+    ):
+        abort(404)
+    service.prepare_reads([row])
+    if audience == "public":
+        allowed = service.public(row)
+    else:
+        from src.models.league import UserAccount
+
+        actor = db.session.get(UserAccount, actor_id, populate_existing=True)
+        if not actor or not service.account_can_act(actor) or actor.auth_epoch != actor_epoch:
+            abort(404)
+        allowed = service.eligible(row) and service.preview_ready(row)
+        if audience == "player":
+            allowed = allowed and row.recipient_user_id == actor_id
+        else:
+            allowed = allowed and row.program_id == program_id and row.video_match_id == match_id
+            manager = (
+                db.session.query(ClubProgramManager.id)
+                .join(ClubProgramClaim, ClubProgramClaim.id == ClubProgramManager.source_claim_id)
+                .filter(
+                    ClubProgramManager.program_id == program_id,
+                    ClubProgramManager.user_account_id == actor_id,
+                    ClubProgramManager.status == "active",
+                    ClubProgramClaim.status == "approved",
+                    ClubProgramClaim.program_id == program_id,
+                    ClubProgramClaim.user_account_id == actor_id,
+                )
+                .first()
+            )
+            allowed = allowed and bool(manager)
+    if not allowed:
+        abort(404)
+    # Web preview requests ask for a URL then use native video transport. Other
+    # clients retain the redirect contract; no authenticated fetch reaches storage.
+    response = (
+        jsonify(url=url) if audience != "public" and request.args.get("transport") == "url" else redirect(url, code=302)
+    )
     response.headers["Referrer-Policy"] = "no-referrer"
     return response
 
@@ -420,8 +482,24 @@ def clip_response(row):
 @require_user_auth
 def admin_takedown(highlight_id):
     row = locked_row(highlight_id)
+    row.admin_taken_down = True
     service.revoke(row, g.user_id, "admin_takedown")
     record_admin_event(g.user, "highlight_takedown", "player_highlight", row.id, "Admin withdrew clip publication")
+    db.session.commit()
+    return jsonify(id=row.id, revoked=True)
+
+
+@highlights_bp.post("/admin/highlights/<highlight_id>/lift")
+@service.gated
+@require_api_key
+@require_user_auth
+def admin_lift(highlight_id):
+    row = locked_row(highlight_id)
+    row.admin_taken_down = False
+    if row.revoke_reason == "admin_takedown":
+        row.revoke_reason = "admin_lift"
+    service.event(row, g.user_id, "admin_lift")
+    record_admin_event(g.user, "highlight_takedown_lift", "player_highlight", row.id, "Admin lifted clip takedown")
     db.session.commit()
     return jsonify(id=row.id, revoked=True)
 
@@ -431,10 +509,12 @@ def admin_takedown(highlight_id):
 @limiter.limit("120/minute")
 def public_clip(highlight_id):
     valid_id(highlight_id)
+    expires_at = now().replace(tzinfo=UTC) + timedelta(seconds=60)
     row = db.session.get(PlayerHighlight, highlight_id)
+    service.prepare_reads([row] if row else [])
     if not row or not service.public(row):
         abort(404)
-    return clip_response(row)
+    return clip_response(row, expires_at=expires_at, audience="public")
 
 
 @highlights_bp.get("/me/highlight-requests/<highlight_id>/preview")
@@ -442,7 +522,9 @@ def public_clip(highlight_id):
 @require_user_auth
 def preview(highlight_id):
     valid_id(highlight_id)
+    expires_at = now().replace(tzinfo=UTC) + timedelta(seconds=60)
     row = db.session.get(PlayerHighlight, highlight_id)
+    service.prepare_reads([row] if row else [])
     if (
         not row
         or row.recipient_user_id != g.user_id
@@ -451,7 +533,7 @@ def preview(highlight_id):
         or row.render_source_version != row.source_version
     ):
         abort(404)
-    return clip_response(row)
+    return clip_response(row, expires_at=expires_at, audience="player")
 
 
 @highlights_bp.get("/club/<int:program_id>/matches/<int:match_id>/highlights/<highlight_id>/preview")
@@ -459,8 +541,10 @@ def preview(highlight_id):
 @require_club_key
 def club_preview(program_id, match_id, highlight_id):
     valid_id(highlight_id)
+    expires_at = now().replace(tzinfo=UTC) + timedelta(seconds=60)
     club_match(program_id, match_id)
     row = db.session.get(PlayerHighlight, highlight_id)
+    service.prepare_reads([row] if row else [])
     if (
         not row
         or row.program_id != program_id
@@ -470,4 +554,4 @@ def club_preview(program_id, match_id, highlight_id):
         or row.render_source_version != row.source_version
     ):
         abort(404)
-    return clip_response(row)
+    return clip_response(row, expires_at=expires_at, audience="club", program_id=program_id, match_id=match_id)

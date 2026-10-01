@@ -192,6 +192,10 @@ def finish(job_id, lease, *, output_etag=None, output_size=None, error=None):
         or not highlights.eligible(row)
     ):
         job.status = "cancelled"
+        if row and not row.revoked_at and row.render_status != "ready":
+            row.render_status = "stale"
+        if job.blob_path:
+            queue_cleanup(job.blob_path)
     elif error:
         job.status = "failed"
         row.render_status = "failed"
@@ -209,11 +213,15 @@ def finish(job_id, lease, *, output_etag=None, output_size=None, error=None):
     return job.status == "succeeded"
 
 
-def queue_cleanup(path):
+def queue_cleanup(path, *, delayed=True):
     # Reclaimed/cancelled attempts can finish uploading late; wait beyond their lease.
     if path:
         db.session.add(
-            HighlightRenderJob(kind="highlight_delete", blob_path=path, created_at=now() + timedelta(minutes=20))
+            HighlightRenderJob(
+                kind="highlight_delete",
+                blob_path=path,
+                created_at=now() + timedelta(minutes=20) if delayed else now(),
+            )
         )
 
 

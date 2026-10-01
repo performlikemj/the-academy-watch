@@ -8,12 +8,13 @@
 - Own port5202 and scratch aw_c2f1/aw_c2f1_pre; foreground only; clean own resources.
 
 ## State
+- In progress C2F2: review-duel union; O1 first-use autoflush first. Lead rulings: unknown senior attestation verified-manager-only, sticky admin takedown, source revocation notified/recoverable. No 14-day expiry; unanswered follows raw deadline, declined ready assets deleted immediately.
 - Complete (fix round 1): all RC2 F1–F16 FIXED; final application d2c9750f verified; delivery/cleanup below.
 - Fix gates: final focused102 pass1 optional C1 skip; PG57 pass; query/failure-download4 pass (SQL10/11/12/14 at1/25/100 clips); exact real-app98 dark-method/path pairs/zeroSQL; modern browser242 pass4skip. OSV547/Node219/lint0errors192warnings/build pass; Ruff598 clean.
 - Full gate: final flags-OFF4343 pass94skip0fail149warnings (1054.65s), DB_SSLMODE=disable corrected local SSL-only fixture errors. Unfiltered browser240pass20fail5skip16serial-not-run:18 historical legacy/live-fixture failures +2 C4 fixed1s initialization races under parallel load; same C4 file4/4 pass with normal worker setting (and included in modern242-pass suite).
 - Fix migration: p2c1 copied verbatim c11e36f; p2c2 6a641362 (C4 copied); whole public schema upgrade == preapply twice (38ffed21), RLS4/guards7; empty downgrade/re-upgrade pass.
 - Integration: latest main/B2 784b1490/55b1d3ac and B3 46a4274f included; C2 application/test bytes preserved by release refresh.
-- Fix policy: raw-independent revoke; 60s single-clip redirects; verified club key; preview-ready approvals; institutional staff keys survive erasure; pending14d per current user task. BUS conflicts with14d; optional direct user clarification pending.
+- Fix policy: raw-independent revoke; 60s single-clip redirects; verified club key; preview-ready approvals; institutional staff keys survive erasure; unanswered follows raw deadline; declined immediate with fenced live-attempt cleanup (C2F2 final user/BUS ruling).
 - Complete: private tables, source fences, capability routes, independent consent, standalone worker+private bytes, outbox, erasure/export and dark web mounts.
 - Complete: dependency cut B1811fabca/B216540e03/B3d49ec794/N3adea5177; main B1 squash e82bb4e3 refreshed with byte-identical application/test tree.
 - Complete: recording-date DOB checks prevent childhood/unknown/future footage; independent clips survive raw expiry; UTC SQL/ORM guards fence source/date/identity changes and delayed cleanup.

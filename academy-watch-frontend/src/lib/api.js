@@ -21,11 +21,12 @@ export class APIService {
         if (!/^\/api\/highlights\/[a-f0-9-]{36}\/clip$/.test(path || '')) throw new Error('Invalid highlight URL')
         return `${API_BASE_URL}${path.slice(4)}`
     }
-    static async highlightPreviewBlob(path) {
+    static async highlightPreviewUrl(path) {
         if (!/^\/api\/(?:me\/highlight-requests\/[a-f0-9-]{36}|club\/\d+\/matches\/\d+\/highlights\/[a-f0-9-]{36})\/preview$/.test(path || '')) throw new Error('Invalid highlight preview')
-        const response = await fetch(`${API_BASE_URL}${path.slice(4)}`, { headers: { Authorization: `Bearer ${this.userToken}` }, cache: 'no-store' })
-        if (!response.ok) throw new Error('Highlight unavailable')
-        return response.blob()
+        const result = await this.request(`${path.slice(4)}?transport=url`)
+        const url = new URL(result.url)
+        if (!['https:', 'http:'].includes(url.protocol)) throw new Error('Highlight unavailable')
+        return url.href
     }
     // --- p2-c2 end ---
     // --- p2-b3 begin ---
@@ -275,8 +276,13 @@ export class APIService {
         this.setDisplayNameConfirmed(false, { silent: true })
     }
 
-    static async getFeatures() {
-        return this.request('/features')
+    static featuresPromise = null
+    static getFeatures() {
+        this.featuresPromise ||= this.request('/features').catch(error => {
+            this.featuresPromise = null
+            throw error
+        })
+        return this.featuresPromise
     }
 
     static async getProfile() {

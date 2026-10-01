@@ -2,6 +2,7 @@
 
 from datetime import timedelta
 from uuid import uuid4
+from weakref import WeakKeyDictionary
 
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
@@ -14,6 +15,20 @@ from src.models.highlights import (
     now,
 )
 from src.models.video import VideoMatch, VideoPlayerReport, VideoRosterEntry, VideoTracklet
+
+# Positive discovery only: preapply can introduce the table after process start.
+# Engines are replaced on fixture/schema lifecycle changes and process restarts.
+_available_engines = WeakKeyDictionary()
+
+
+def highlight_schema_available(connection):
+    if _available_engines.get(connection.engine):
+        return True
+    available = sa.inspect(connection).has_table("player_highlights")
+    if available:
+        _available_engines[connection.engine] = True
+    return available
+
 
 MATCH_FIELDS = {
     "match_date",
@@ -82,7 +97,7 @@ def invalidate_sources(session, flush_context, instances):
     if not matches:
         return
     connection = session.connection()
-    if not sa.inspect(connection).has_table("player_highlights"):
+    if not highlight_schema_available(connection):
         return
     # Lock order: match -> highlight -> render jobs. Same as decision/finalization.
     connection.execute(
@@ -151,3 +166,44 @@ def invalidate_sources(session, flush_context, instances):
             for row in rows
         ],
     )
+    notify_source_changes(connection, ids)
+
+
+def notify_source_changes(connection, ids):
+    """Same-transaction neutral intents; SQL guards mirror this for non-ORM writers."""
+    from src.models.funding import ClubProgramClaim, ClubProgramManager
+    from src.models.p2_foundation import NotificationOutbox
+
+    managers = (
+        sa.select(ClubProgramManager.program_id, ClubProgramManager.user_account_id)
+        .join(ClubProgramClaim, ClubProgramClaim.id == ClubProgramManager.source_claim_id)
+        .where(
+            ClubProgramManager.status == "active",
+            ClubProgramClaim.status == "approved",
+            ClubProgramClaim.program_id == ClubProgramManager.program_id,
+            ClubProgramClaim.user_account_id == ClubProgramManager.user_account_id,
+        )
+        .subquery()
+    )
+    recipients = sa.union(
+        sa.select(PlayerHighlight.id, PlayerHighlight.version, PlayerHighlight.recipient_user_id.label("uid")).where(
+            PlayerHighlight.id.in_(ids), PlayerHighlight.recipient_user_id.is_not(None)
+        ),
+        sa.select(PlayerHighlight.id, PlayerHighlight.version, managers.c.user_account_id)
+        .join(managers, managers.c.program_id == PlayerHighlight.program_id)
+        .where(PlayerHighlight.id.in_(ids)),
+    )
+    values = [
+        dict(
+            dedupe_key=f"highlight_source:{hid}:{version}:{uid}",
+            recipient_user_id=uid,
+            event_type="highlight_source_changed",
+            entity_type="user_account",
+            entity_id=str(uid),
+            template="highlight_source_changed",
+            payload={"highlight_id": hid, "version": version},
+        )
+        for hid, version, uid in connection.execute(recipients)
+    ]
+    if values:
+        connection.execute(sa.insert(NotificationOutbox), values)

@@ -6,7 +6,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 import logging
 
 import dotenv
-from flask import Flask, jsonify, send_from_directory
+from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 from flask_migrate import Migrate
 from flask_talisman import Talisman
@@ -208,6 +208,15 @@ csp = {
     "connect-src": ["'self'", "https:"],
     "frame-ancestors": ["'none'"],
 }
+
+
+@app.after_request
+def highlight_media_referrer_policy(response):
+    # Registered before Talisman so this runs after its default header writer.
+    if request.endpoint in {"highlights.public_clip", "highlights.preview", "highlights.club_preview"}:
+        response.headers["Referrer-Policy"] = "no-referrer"
+    return response
+
 
 Talisman(
     app,

@@ -143,20 +143,20 @@ for (const width of [1440, 390]) {
   })
 }
 
-test('recipient preview fetches authenticated standalone bytes only', async ({ page }) => {
+test('recipient preview gets authenticated standalone URL only', async ({ page }) => {
   await fixture(page)
   await page.route('**/api/me/highlight-requests?*', route => route.fulfill({ json: { highlights: [{ ...clip, preview_url: `/api/me/highlight-requests/${id}/preview` }], has_more: false } }))
   let reads = 0
-  await page.route(`**/api/me/highlight-requests/${id}/preview`, route => {
+  await page.route(`**/api/me/highlight-requests/${id}/preview?transport=url`, route => {
     expect(route.request().headers().authorization).toBe('Bearer synthetic-c2-browser-token')
     reads += 1
-    return route.fulfill({ contentType: 'video/mp4', body: Buffer.from([0, 0, 0, 0]) })
+    return route.fulfill({ json: { url: 'https://storage.example.test/highlights/standalone.mp4' } })
   })
   const fullMatchReads = []
   page.on('request', req => { if (/media-token|footage|sas/.test(req.url())) fullMatchReads.push(req.url()) })
   await page.goto('/highlight-approvals')
   await page.getByRole('button', { name: 'Preview short clip' }).click()
-  await expect(page.locator('video')).toHaveAttribute('src', /^blob:/)
+  await expect(page.locator('video')).toHaveAttribute('src', 'https://storage.example.test/highlights/standalone.mp4')
   expect(reads).toBe(1)
   await page.getByRole('button', { name: 'Make public' }).click()
   await expect(page.locator('video')).toHaveCount(0)
@@ -240,7 +240,77 @@ test('admin can take down one clip without raw footage', async ({ page }) => {
   })
   await page.getByLabel('Highlight ID').fill(id)
   await page.getByRole('button', { name: 'Take down clip', exact: true }).click()
-  await expect(page.getByRole('status')).toContainText('Clip taken down.')
+  await expect(page.getByRole('status')).toContainText('Clip taken down until an admin lifts it.')
   expect(actions).toHaveLength(1)
   await shot(page, 'admin-clip-takedown')
+  await page.route(`**/api/admin/highlights/${id}/lift`, route => route.fulfill({json:{id,revoked:true}}))
+  await page.getByRole('button',{name:'Lift takedown'}).click()
+  await expect(page.getByRole('status')).toContainText('A fresh club pick and player approval are required')
+  await shot(page,'admin-lift-requires-fresh-consent')
+})
+
+test('native preview plays across page, authenticated API and storage origins without storage CORS', async ({ page }) => {
+  const { createServer } = await import('node:http')
+  const { execFileSync } = await import('node:child_process')
+  const { mkdtemp, readFile, rm } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const dir = await mkdtemp(path.join(tmpdir(), 'c2-duel-media-'))
+  const mp4Path = path.join(dir, 'clip.mp4')
+  execFileSync('ffmpeg', ['-nostdin','-hide_banner','-loglevel','error','-f','lavfi','-i','color=c=black:s=160x90:d=1','-an','-c:v','libx264','-pix_fmt','yuv420p','-movflags','+faststart',mp4Path])
+  const bytes = await readFile(mp4Path)
+  const storageReads = [], apiReads = []
+  const storage = createServer((req, res) => {
+    storageReads.push(req.headers)
+    // Azurite-style private blob endpoint: valid standalone capability, ranges,
+    // and intentionally NO Access-Control-Allow-Origin response header.
+    const range = req.headers.range?.match(/bytes=(\d+)-(\d*)/)
+    const start = range ? Number(range[1]) : 0
+    const end = range?.[2] ? Math.min(Number(range[2]), bytes.length-1) : bytes.length-1
+    res.writeHead(range ? 206 : 200, { 'Content-Type':'video/mp4', 'Cache-Control':'private, no-store',
+      'Accept-Ranges':'bytes', 'Content-Length':end-start+1, ...(range ? {'Content-Range':`bytes ${start}-${end}/${bytes.length}`} : {}) })
+    res.end(bytes.subarray(start,end+1))
+  })
+  let storageOrigin
+  const api = createServer((req, res) => {
+    res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*')
+    res.setHeader('Access-Control-Allow-Headers','Authorization, Content-Type')
+    res.setHeader('Referrer-Policy','no-referrer')
+    res.setHeader('Cache-Control','private, no-store')
+    if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return }
+    apiReads.push(req.headers)
+    if (req.headers.authorization !== 'Bearer synthetic-c2-browser-token') { res.writeHead(401); res.end(); return }
+    res.setHeader('Content-Type','application/json')
+    res.end(JSON.stringify({url:storageOrigin+'/highlights/standalone.mp4?read=60'}))
+  })
+  const listen = server => new Promise(resolve => server.listen(0,'127.0.0.1',resolve))
+  try {
+    await listen(storage); await listen(api)
+    storageOrigin = `http://127.0.0.1:${storage.address().port}`
+    const apiOrigin = `http://127.0.0.1:${api.address().port}`
+    await fixture(page)
+    await page.route('**/src/lib/api.js*', async route => {
+      const original = await route.fetch()
+      const body = await original.text()
+      expect(body).toMatch(/\|\| ['"]\/api['"]/)
+      await route.fulfill({response:original,body:body.replace(/\|\| ['"]\/api['"]/, `|| '${apiOrigin}/api'`)})
+    })
+    await page.route(`**/api/me/highlight-requests/${id}/preview?transport=url`, route => route.continue())
+    await page.goto('/highlight-approvals')
+    await page.getByRole('button',{name:'Preview short clip'}).click()
+    await expect(page.locator('video')).toHaveAttribute('src',storageOrigin+'/highlights/standalone.mp4?read=60')
+    await expect.poll(() => page.locator('video').evaluate(video => video.readyState)).toBeGreaterThanOrEqual(1)
+    expect(apiReads).toHaveLength(1)
+    expect(apiReads[0].origin).toBe(new URL(page.url()).origin)
+    expect(storageReads.length).toBeGreaterThan(0)
+    for (const headers of storageReads) {
+      expect(headers.origin).not.toBe('null')
+      expect(headers.authorization).toBeUndefined()
+      expect(headers.referer).toBeUndefined()
+    }
+    await shot(page,'three-origin-preview')
+  } finally {
+    await page.close()
+    await Promise.all([api,storage].map(server => new Promise(resolve => { server.closeAllConnections(); server.close(resolve) })))
+    await rm(dir,{recursive:true,force:true})
+  }
 })

@@ -55,7 +55,9 @@ def test_f1_takedown_survives_missing_or_expired_raw(world, monkeypatch, expired
         assert expire_raw_footage()["expired"] == 1
     # Do not patch scoped_recording_intact: verify_expected_blob is the real boundary.
     monkeypatch.setattr(video_storage, "verify_expected_blob", Mock(side_effect=RuntimeError("storage offline")))
-    monkeypatch.setattr(highlights_storage, "output_read_url", lambda *args: "https://clips.example.test/standalone")
+    monkeypatch.setattr(
+        highlights_storage, "output_read_url", lambda *args, **kwargs: "https://clips.example.test/standalone"
+    )
     client = world["app"].test_client()
     assert client.get(f"/api/highlights/{row.id}/clip").status_code == 302
     listing = client.get(f"{club_base(world)}/highlights", headers=headers(world["manager"]))
@@ -126,7 +128,7 @@ def test_f2_youth_names_always_private(world, name):
     [
         ("age_group", None, False),
         ("age_group", 18, False),
-        ("age_group", 19, True),
+        ("age_group", 19, False),
         ("other", None, False),
         ("reserves", None, True),
     ],
@@ -198,16 +200,20 @@ def test_f4_short_read_only_blob_scoped_capability(world, monkeypatch):
     monkeypatch.setattr(video_storage, "_service_client", lambda: service)
     mint = Mock(return_value="https://clips.example.test/standalone")
     monkeypatch.setattr(video_storage, "mint_media_read_sas", mint)
-    assert highlights_storage.output_read_url(row.output_blob_path, row.output_etag) == mint.return_value
-    mint.assert_called_once_with(row.output_blob_path, seconds=60)
+    expiry = now().replace(tzinfo=__import__("datetime").UTC) + timedelta(seconds=60)
+    assert (
+        highlights_storage.output_read_url(row.output_blob_path, row.output_etag, expires_at=expiry)
+        == mint.return_value
+    )
+    mint.assert_called_once_with(row.output_blob_path, seconds=60, expires_at=expiry)
     service.get_blob_client.assert_called_once_with(video_storage._container(), row.output_blob_path)
     client.download_blob.assert_not_called()
     assert "matches/" not in mint.call_args.args[0]
     with pytest.raises(ValueError):
-        highlights_storage.output_read_url(world["match"].blob_path, row.output_etag)
+        highlights_storage.output_read_url(world["match"].blob_path, row.output_etag, expires_at=expiry)
     client.get_blob_properties.return_value.etag = "changed"
     with pytest.raises(ValueError):
-        highlights_storage.output_read_url(row.output_blob_path, row.output_etag)
+        highlights_storage.output_read_url(row.output_blob_path, row.output_etag, expires_at=expiry)
 
 
 def test_f5_decline_fences_worker_deletes_preview_and_requires_new_preview(world):
@@ -232,6 +238,10 @@ def test_f5_decline_fences_worker_deletes_preview_and_requires_new_preview(world
     )
     assert approve(world, row).status_code == 422
     claimed = worker.claim_next()
+    # Immediate declined-output cleanup precedes the fresh cut.
+    assert claimed and db.session.get(HighlightRenderJob, claimed[0]).kind == "highlight_delete"
+    assert worker.finish(*claimed)
+    claimed = worker.claim_next()
     assert claimed and worker.finish(*claimed, output_etag="recut", output_size=20)
     assert approve(world, row).status_code == 200
 
@@ -244,7 +254,7 @@ def test_f5_pending_retention_dark_and_bounded(world, monkeypatch, raw_expired):
         assert world["match"].status == "finalized"
         world["match"].status, world["match"].blob_path, world["match"].blob_etag = "expired", None, None
     else:
-        row.created_at = now() - timedelta(days=15)
+        world["match"].expires_at = now() - timedelta(seconds=1)
     db.session.commit()
     monkeypatch.setenv("HIGHLIGHTS_ENABLED", "0")
     assert sweep_highlights(limit=1)["expired"] == 1

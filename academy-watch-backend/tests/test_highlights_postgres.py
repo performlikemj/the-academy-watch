@@ -186,3 +186,48 @@ def test_f14_parent_cascade_queues_standalone_asset_cleanup(world, parent):
     db.session.commit()
     assert PlayerHighlight.query.filter_by(id=hid).count() == 0
     assert HighlightRenderJob.query.filter_by(kind="highlight_delete", blob_path=path).count() == 1
+
+
+@pytest.mark.parametrize("audience", ["public", "player", "club"])
+def test_duel_completed_revoke_during_storage_never_releases_grant(world, monkeypatch, audience):
+    from threading import Event
+
+    from src.services import highlights_storage
+
+    row = ready(world)
+    assert approve(world, row).status_code == 200
+    hid = row.id
+    app = world["app"]
+    program_id, match_id = world["program"].id, world["match"].id
+    player_auth = headers(world["player"])
+    grant_auth = {} if audience == "public" else headers(world["player" if audience == "player" else "manager"])
+    path = (
+        f"/api/highlights/{hid}/clip"
+        if audience == "public"
+        else f"/api/me/highlight-requests/{hid}/preview"
+        if audience == "player"
+        else f"/api/club/{program_id}/matches/{match_id}/highlights/{hid}/preview"
+    )
+    started, release = Event(), Event()
+
+    def storage(*args, **kwargs):
+        started.set()
+        assert release.wait(10)
+        return "https://storage.example.test/highlights/standalone.mp4"
+
+    monkeypatch.setattr(highlights_storage, "output_read_url", storage)
+    db.session.commit()
+
+    def grant():
+        with app.test_client() as client:
+            return client.get(path, headers=grant_auth).status_code
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        pending = pool.submit(grant)
+        try:
+            assert started.wait(10)
+            response = app.test_client().post(f"/api/me/highlight-requests/{hid}/revoke", headers=player_auth)
+            assert response.status_code == 200
+        finally:
+            release.set()
+        assert pending.result(timeout=10) == 404

@@ -56,6 +56,7 @@ class PlayerHighlight(db.Model):
     approved_source_version = db.Column(db.Integer)
     revoked_at = db.Column(db.DateTime)
     revoke_reason = db.Column(db.String(30))
+    admin_taken_down = db.Column(db.Boolean, nullable=False, default=False, server_default="false")
     render_status = db.Column(db.String(20), nullable=False, default="queued", server_default="queued")
     output_blob_path = db.Column(db.String(500))
     output_etag = db.Column(db.String(100))

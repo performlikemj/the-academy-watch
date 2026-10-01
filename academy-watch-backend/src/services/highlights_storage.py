@@ -46,7 +46,7 @@ def upload_output(blob_path, file_path):
     return result["etag"], size
 
 
-def output_read_url(blob_path, etag):
+def output_read_url(blob_path, etag, *, expires_at):
     """One immutable attempt blob, read only, 60 seconds. Never a raw/container grant."""
     import re
 
@@ -55,4 +55,4 @@ def output_read_url(blob_path, etag):
     client = video_storage._service_client().get_blob_client(video_storage._container(), blob_path)
     if client.get_blob_properties(timeout=5).etag != etag:
         raise ValueError("output_changed")
-    return video_storage.mint_media_read_sas(blob_path, seconds=60)
+    return video_storage.mint_media_read_sas(blob_path, seconds=60, expires_at=expires_at)

@@ -16,6 +16,19 @@ BEGIN
    FROM (SELECT output_blob_path AS path FROM public.player_highlights WHERE id=changed.id
          UNION SELECT blob_path FROM public.highlight_render_jobs WHERE highlight_id=changed.id) assets
    WHERE path IS NOT NULL;
+  INSERT INTO public.notification_outbox(dedupe_key,recipient_user_id,event_type,entity_type,entity_id,template,payload)
+   SELECT 'highlight_source:'||changed.id||':'||changed.version||':'||uid,uid,
+    'highlight_source_changed','user_account',uid::text,'highlight_source_changed',
+    json_build_object('highlight_id',changed.id,'version',changed.version)
+   FROM (
+    SELECT recipient_user_id AS uid FROM public.player_highlights WHERE id=changed.id
+    UNION
+    SELECT m.user_account_id FROM public.club_program_managers m
+    JOIN public.player_highlights h ON h.program_id=m.program_id AND h.id=changed.id
+    JOIN public.club_program_claims c ON c.id=m.source_claim_id AND c.program_id=m.program_id AND c.user_account_id=m.user_account_id
+    WHERE m.status='active' AND c.status='approved'
+   ) recipients WHERE uid IS NOT NULL
+   ON CONFLICT(dedupe_key) DO NOTHING;
   UPDATE public.highlight_render_jobs SET status='cancelled',lease_token=NULL
    WHERE highlight_id=changed.id AND status IN ('queued','running');
  END LOOP;

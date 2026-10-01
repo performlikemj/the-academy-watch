@@ -32,7 +32,7 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
 
 ## State
 
-- **Now (2026-10-01):** C2 fix round 1 complete on PR #1122; F1–F16 fixed, final4343 backend/57PG/242modern browser pass. Push and independent dual review hand-off; no merge. See ledgers/CONTINUITY_p2-c2.md.
+- **Now (2026-10-01):** C2 fix round 2 in progress on PR #1122 after REVIEW-DUEL; union findings and lead rulings, first-use review autoflush first; foreground gates/push, no merge. See ledgers/CONTINUITY_p2-c2.md.
 
 ### Done
 - **2026-10-01 C2 fix round 1:** RC2 F1–F16 fixed; raw-independent revoke/admin takedown, robust youth/private guards, constant10/11/12/14SQL, ready-preview approval, 60s standalone grants, bounded14d previews/audit cleanup, ordered SQL locks/cascades, verified club key/staff anonymity. Latest main/B2/B3 included; C1 c11e36f verbatim, C2 6a641362 CONTRACT copied by C4; PG upgrade==preapply twice/RLS4/guards7. Full4343pass94skip0fail, PG57, focused102+1skip, Node219/modernbrowser242+4skip/Ruff598/lint0err192warn/build/OSV547 green. Unfiltered legacy/parallel limitations recorded;19 reviewed shots; logs/C2F1.final.md and C2F1.report.md. Own resources cleaned; PR1122 unmerged.

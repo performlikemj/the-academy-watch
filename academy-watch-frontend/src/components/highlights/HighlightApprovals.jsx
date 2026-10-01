@@ -10,10 +10,9 @@ function Preview({ row }) {
   const [url, setUrl] = useState(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
-  useEffect(() => () => { if (url) URL.revokeObjectURL(url) }, [url])
   const load = async () => {
     setBusy(true); setError('')
-    try { const blob = await APIService.highlightPreviewBlob(row.preview_url); setUrl(URL.createObjectURL(blob)) }
+    try { setUrl(await APIService.highlightPreviewUrl(row.preview_url)) }
     catch { setError('This clip is unavailable. Refresh to check its current status.') }
     finally { setBusy(false) }
   }
@@ -91,6 +90,7 @@ export function HighlightApprovals() {
   if (!loaded) return null
   if (!enabled) return <Navigate to="/" replace />
   return <div className="floodlight-container py-12 max-w-5xl">
+    <meta name="referrer" content="no-referrer" />
     <Link to="/" className="inline-flex min-h-11 items-center text-chalk mb-6">← Home</Link>
     <Inbox />
   </div>
