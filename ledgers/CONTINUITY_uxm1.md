@@ -13,3 +13,8 @@
 - Next: review draft PR; no outstanding implementation work/decisions.
 - Acceptance: each bug evidenced and tested; full pytest, Ruff/format, Node/lint/build/relevant Playwright pass; screenshots reviewed; own servers/aw_uxm1/temp removed.
 - Evidence/report: ~/codex-runs/aw-redesign/{shots/UXM1,logs/UXM1.final.md}.
+
+## RUXM1 fix round 1
+- Status: in-progress; five findings accepted; foreground gates and real backend/browser season + games evidence required.
+- Now: implement server display-season directory contract; retain frozen resolver; correct community games, scout verification, positions and introductions.
+- Next: merge moved main if needed, run all gates, push draft #1119, clean owned resources, hand back UXM1F1.final.md.
