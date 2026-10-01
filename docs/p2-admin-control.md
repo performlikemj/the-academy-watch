@@ -7,10 +7,10 @@ Draft, stacked on A2 #1109. No production switch-on is part of this lane.
   return unavailable while off; existing admin routes and navigation remain.
 - GET `/api/features` adds only enabled `admin_programs`, `admin_people`,
   `admin_safety`, `admin_business` keys. Every new admin API requires the existing
-  admin bearer plus API key. Responses are `Cache-Control: no-store`.
+  admin bearer plus API key. Enabled responses are `Cache-Control: no-store`.
 - Web routes: `/admin/programs`, `/admin/people`, `/admin/safety`, `/admin/business`.
-- Migration `p2b3` → **`p2b2`**, after real B1/B2 migrations. No placeholder revisions
-  are shipped. Guarded DDL, all four new tables use RLS. Downgrade refuses retained
+- Migration `p2b3` → **`p2b2`**, after real B1/B2 migrations. Their verbatim migration files are included
+  as required graph prerequisites; no placeholder revisions are shipped. Guarded DDL, all four new tables use RLS. Downgrade refuses retained
   cases/events/cash/deployment observations or changed account standing.
 
 ## Programs
@@ -63,8 +63,8 @@ Draft, stacked on A2 #1109. No production switch-on is part of this lane.
   `safeguarding_case_events` retains actions; PostgreSQL forbids UPDATE/DELETE/TRUNCATE
   except exact identity erasure. A1 audit records each decision/evidence read.
 - ORM intake creates the case/event in the original report/takedown transaction
-  while enabled. Migration imports prior requests; enabled application startup
-  reconciles requests received during a dark period without resetting existing cases.
+  while enabled. Migration imports prior requests; enabled authenticated admin reads
+  lazily reconcile requests received during a dark period without resetting existing cases.
   The deadline always uses original receipt + 24h.
 - `hide` activates the existing player suppression (including web `local:<id>` and
   signed IDs), or applies the existing derived program hold. Showcase-photo reports
