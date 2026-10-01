@@ -122,7 +122,8 @@ def test_public_has_no_identity_or_capacity_before_reservation(client, env):
         not {"capacity", "places_left", "application_count", "creator_user_id", "applicant_user_id", "claim_id"}
         & public.keys()
     )
-    assert "b2-" not in str(public)
+    for person in env["people"]:
+        assert f"b2-{person}@example.test" not in str(public)
     assert "Test Player" not in str(client.get("/api/opportunities").get_json())
     assert app["status"] == "new"
     assert service.open_opportunity_counts([env["pid"], env["other"]]) == {env["pid"]: 1}

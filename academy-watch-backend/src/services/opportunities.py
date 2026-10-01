@@ -469,6 +469,15 @@ def close_opportunity(program_id, actor_id, oid, data):
     return row
 
 
+def claim_subject_id(claim, local):
+    if claim.player_api_id:
+        return claim.player_api_id
+    if local is None or local.status != "approved" or local.merged_into_local_player_id is not None:
+        return None
+    # The approved local bridge is the canonical identity, including graduated API subjects.
+    return local.api_player_id
+
+
 def adult_claim(claim_id, user_id):
     claim = (
         PlayerProfileClaim.query.filter_by(
@@ -479,14 +488,13 @@ def adult_claim(claim_id, user_id):
     )
     if claim is None:
         raise OpportunityError("approved_adult_self_claim_required", 403)
-    pid = claim.player_api_id or (-claim.local_player_id if claim.local_player_id else None)
+    local = (
+        db.session.get(LocalPlayer, claim.local_player_id, populate_existing=True) if claim.local_player_id else None
+    )
+    pid = claim_subject_id(claim, local)
     if not is_public_adult(pid):
         raise OpportunityError("approved_adult_self_claim_required", 403)
-    source = (
-        db.session.get(LocalPlayer, claim.local_player_id)
-        if claim.local_player_id
-        else TrackedPlayer.query.filter_by(player_api_id=pid).first()
-    )
+    source = local if local else TrackedPlayer.query.filter_by(player_api_id=pid).first()
     if source is None:
         from src.models.follow import PlayerShadow
 
@@ -503,14 +511,14 @@ def eligible_claims(user_id):
         .limit(100)
         .all()
     )
-    ids = [c.player_api_id or -c.local_player_id for c in claims]
-    eligible = public_adult_ids(ids)
     locals_ = {
         r.id: r
         for r in LocalPlayer.query.filter(
             LocalPlayer.id.in_([c.local_player_id for c in claims if c.local_player_id])
         ).all()
     }
+    ids = [claim_subject_id(c, locals_.get(c.local_player_id)) for c in claims]
+    eligible = public_adult_ids(ids)
     api_ids = [pid for pid in eligible if pid > 0]
     api = (
         {r.player_api_id: r for r in PlayerShadow.query.filter(PlayerShadow.player_api_id.in_(api_ids)).all()}
@@ -764,13 +772,26 @@ def eligible_application_claims(apps):
         if apps
         else {}
     )
-    public_ids = public_adult_ids([c.player_api_id or -c.local_player_id for c in claims.values()])
+    locals_ = (
+        {
+            r.id: r
+            for r in LocalPlayer.query.filter(
+                LocalPlayer.id.in_([c.local_player_id for c in claims.values() if c.local_player_id])
+            )
+            .populate_existing()
+            .all()
+        }
+        if claims
+        else {}
+    )
+    subjects = {c.id: claim_subject_id(c, locals_.get(c.local_player_id)) for c in claims.values()}
+    public_ids = public_adult_ids(subjects.values())
     return {
         a.id: claims[a.claim_id]
         for a in apps
         if a.claim_id in claims
         and claims[a.claim_id].user_account_id == a.applicant_user_id
-        and (claims[a.claim_id].player_api_id or -claims[a.claim_id].local_player_id) == a.signed_player_id
+        and subjects[a.claim_id] == a.signed_player_id
         and a.signed_player_id in public_ids
     }
 

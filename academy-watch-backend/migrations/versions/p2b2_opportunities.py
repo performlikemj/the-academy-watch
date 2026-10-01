@@ -114,7 +114,17 @@ def upgrade():
         )
     add_column_safe(
         "opportunity_applications",
-        sa.Column("eligibility_checked_at", sa.DateTime(), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
+        sa.Column(
+            "eligibility_checked_at",
+            sa.DateTime(),
+            nullable=False,
+            server_default=sa.text("timezone('UTC', CURRENT_TIMESTAMP)"),
+        ),
+    )
+    op.alter_column(
+        "opportunity_applications",
+        "eligibility_checked_at",
+        server_default=sa.text("timezone('UTC', CURRENT_TIMESTAMP)"),
     )
     create_index_safe(
         "ix_application_eligibility", "opportunity_applications", ["eligibility_checked_at"], unique=False

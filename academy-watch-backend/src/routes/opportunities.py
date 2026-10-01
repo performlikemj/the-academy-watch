@@ -14,6 +14,17 @@ from src.services.club_access import require_club_permission
 opportunities_bp = Blueprint("opportunities", __name__)
 
 
+@opportunities_bp.record_once
+def hide_dark_features(state):
+    path = (state.url_prefix or "") + "/opportunities/features"
+
+    @state.app.before_request
+    def dark_features_not_found():
+        # Includes Flask's automatic OPTIONS and otherwise-405 methods: exact dark parity.
+        if request.path == path and not service.enabled("OPPORTUNITIES_ENABLED"):
+            return jsonify(error="Not found"), 404
+
+
 def key():
     return f"b2:{getattr(g, 'user_id', None) or request.remote_addr}"
 

@@ -436,3 +436,52 @@ def test_postgres_nul_and_timestamp_overflow_are_400_without_database_error(pg):
     assert response.status_code == 400
     assert OpportunityApplication.query.filter_by(opportunity_id=ids["oid"]).count() == 0
     assert db.session.execute(sa.text("SELECT 1")).scalar() == 1
+
+
+def test_eligibility_default_is_utc_even_in_non_utc_database_session(pg):
+    _, ids = pg
+    aid = submit(ids)
+    db.session.execute(sa.text("SET LOCAL TIME ZONE 'Asia/Tokyo'"))
+    db.session.execute(
+        sa.text("UPDATE opportunity_applications SET eligibility_checked_at=DEFAULT WHERE id=:id"), {"id": aid}
+    )
+    db.session.expire_all()
+    assert abs((db.session.get(OpportunityApplication, aid).eligibility_checked_at - now()).total_seconds()) < 5
+
+
+def test_admin_merge_into_graduated_bridge_uses_resolved_subject_across_claims(pg, monkeypatch):
+    from src.models.follow import PlayerShadow
+
+    app, ids = pg
+    aid = submit(ids)
+    source_id, target_id, target_claim_id = merge_setup(ids, duplicate_claim=True)
+    api_id = 500000000 + int(uuid4().hex[:6], 16)
+    db.session.get(LocalPlayer, target_id).api_player_id = api_id
+    db.session.add(
+        PlayerShadow(
+            player_api_id=api_id, player_name="Synthetic API adult", birth_date=date(2000, 1, 1), is_active=True
+        )
+    )
+    alias_claim = PlayerProfileClaim(
+        player_api_id=api_id, user_account_id=ids["users"][0], relationship_type="player", status="approved"
+    )
+    db.session.add(alias_claim)
+    db.session.commit()
+    alias_claim_id = alias_claim.id
+    response = merge_http(app, monkeypatch, source_id, target_id)
+    assert response.status_code == 200, response.get_json()
+    db.session.expire_all()
+    stored = db.session.get(OpportunityApplication, aid)
+    assert stored.signed_player_id == api_id and stored.claim_id == target_claim_id
+    assert service.adult_claim(target_claim_id, ids["users"][0])[1] == api_id
+    assert service.adult_claim(alias_claim_id, ids["users"][0])[1] == api_id
+    assert aid in service.reconcile_applications([stored])
+    assert {item["signed_player_id"] for item in service.eligible_claims(ids["users"][0])} == {api_id}
+    for claim_id in (target_claim_id, alias_claim_id):
+        with pytest.raises(service.OpportunityError, match="already_applied"):
+            service.submit(
+                ids["oid"],
+                ids["users"][0],
+                dict(claim_id=claim_id, position="Midfielder", contact_consent=True, client_request_id=str(uuid4())),
+            )
+    assert OpportunityApplication.query.filter_by(opportunity_id=ids["oid"], signed_player_id=api_id).count() == 1

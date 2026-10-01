@@ -450,3 +450,11 @@ def test_read_rails_are_rate_limited(client, env, route, club_app, monkeypatch):
         path, headers = f"/api/club/{env['pid']}/applications/{app['id']}", _headers("a")
     statuses = [client.get(path, headers=headers).status_code for _ in range(61)]
     assert statuses[:60] == [200] * 60 and statuses[60] == 429
+
+
+def test_dark_features_is_unrouted_for_head_options_and_unsupported_methods(client, env, monkeypatch):
+    monkeypatch.setenv("OPPORTUNITIES_ENABLED", "false")
+    monkeypatch.setenv("APPLICATIONS_ENABLED", "false")
+    for method in ("GET", "HEAD", "OPTIONS", "POST", "PATCH", "DELETE"):
+        response = client.open("/api/opportunities/features", method=method)
+        assert response.status_code == 404 and "Allow" not in response.headers
