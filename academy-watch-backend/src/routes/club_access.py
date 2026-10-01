@@ -122,8 +122,20 @@ def _people(program_id):
 # ---------------------------------------------------------------------------
 
 
+def access_read_enabled(view):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        from src.services.opportunities import enabled
+
+        if not staff_access_enabled() and not enabled("OPPORTUNITIES_ENABLED"):
+            return jsonify({"error": "Not found"}), 404
+        return view(*args, **kwargs)
+
+    return wrapped
+
+
 @club_access_bp.route("/club/<int:program_id>/access/me", methods=["GET"])
-@flagged
+@access_read_enabled
 @require_club_permission("players.view")
 def my_club_access(program_id):
     return jsonify(access=current_access().to_dict())

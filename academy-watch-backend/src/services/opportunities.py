@@ -251,6 +251,12 @@ def opportunity_dict(
         reserved, unavailable_reserved = reservation_snapshot(row.id)
     if private:
         data.update(
+            created_at=iso(row.created_at),
+            trial_invite_deadline=iso(
+                row.closes_at + timedelta(days=14)
+                if row.type == "position"
+                else row.created_at + timedelta(days=EVENT_HORIZON_DAYS)
+            ),
             capacity=row.capacity,
             places_left=max(0, row.capacity - reserved) if row.capacity is not None else None,
             temporarily_unavailable_reservations=unavailable_reserved,
