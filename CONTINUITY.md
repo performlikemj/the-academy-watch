@@ -32,7 +32,7 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
 
 ## State
 
-- **Now (2026-10-02):** C4F3 O1–O4 implementation complete; resumed under GOVERNOR.md after MJ pause. Main784b1490/B3F5 51f30f5b included, B3/C1F2/C2F2 migration contracts verbatim with whole-schema preapply-twice equality. Completed targeted108/PG11/browser32 and refreshed50 shots retained; resumed editor8pass2opt-in-skip. Final governed gate results, delivery SHA and cleanup are recorded in `~/codex-runs/aw-redesign/logs/C4F3.final.md` (durable detailed copy `C4F3.report.md`); see `ledgers/CONTINUITY_p2-c4.md`. No PR merge; final delivery record controls readiness.
+- **Now (2026-10-02):** C4F3 O1–O4 implementation complete; resumed under GOVERNOR.md after MJ pause. Main784b1490/B3F5 51f30f5b included, B3/C1F2/C2F2 migration contracts verbatim with whole-schema preapply-twice equality. Completed targeted108/PG11/browser32 +related45 retained; resumed editor8pass2opt-in-skip and final O1–O4/DST browser17pass,51 refreshed shots. Pre-guard full4366pass114skip0fail; final changed-head cached gates recorded below. Final governed gate results, delivery SHA and cleanup are recorded in `~/codex-runs/aw-redesign/logs/C4F3.final.md` (durable detailed copy `C4F3.report.md`); see `ledgers/CONTINUITY_p2-c4.md`. No PR merge; final delivery record controls readiness.
 
 - **Now (2026-10-01):** C4F2 fixes/full gates complete on8c050f32: ten remaining REVIEW-DUEL union items FIXED incl both N1s, X3 preserved; full flags-off4341pass96skip0fail, PG11, modern browser244pass4skip. Final delivery SHA/cleanup in `logs/C4F2.report.md`; PR #1120 unmerged. See `ledgers/CONTINUITY_p2-c4.md`.
 

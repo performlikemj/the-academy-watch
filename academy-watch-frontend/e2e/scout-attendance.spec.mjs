@@ -9,7 +9,7 @@ const rid = '00000000-0000-4000-8000-000000000042'
 const post = { id: oid, program_id: 7, title: 'C4 TEST ONLY adult trial', club_name: 'C4 TEST ONLY Club', club_slug: 'c4-test-only', type: 'trial', starts_at: '2026-10-17T10:00:00Z', timezone: 'Europe/London', venue: 'Test ground', birth_year_max: 2005, status: 'published', distance_km: null }
 const request = { id: rid, opportunity_id: oid, program_id: 7, title: post.title, note: 'Test only observation request.', status: 'pending', version: 1, scout: { name: 'C4 TEST ONLY Scout', organization: 'Test only organization', role_title: 'Scout', verified: true } }
 
-async function fixture(page, { enabled = true, verified = true, attendance = null, empty = false, conflict = false, coach = false, second = null, introductionsMore = false } = {}) {
+async function fixture(page, { enabled = true, verified = true, attendance = null, empty = false, conflict = false, coach = false, second = null, introductionsMore = false, editorDates = {} } = {}) {
   await page.addInitScript(() => {
     localStorage.clear()
     localStorage.setItem('academy_watch_user_token', 'c4-test-only-token')
@@ -48,7 +48,7 @@ async function fixture(page, { enabled = true, verified = true, attendance = nul
     if (p === '/api/club/7/access/me') return reply({ role: 'coach', whole_club: false, all_squads: true, squad_ids: [], capabilities: scopes })
     if (p === '/api/club/7/roster') return reply({ program, members: [], count: 0 })
     if (p === '/api/club/7/map') return reply({ program, squads: [], staff: [], unassigned_count: 0 })
-    if (p === '/api/club/7/opportunities') return reply({ opportunities: [{ ...post, description: 'TEST ONLY description', instructions: '', position_requirements: 'All positions', gender_program: 'all', address: '', ends_at: '2026-10-17T12:00:00Z', closes_at: '2026-10-10T10:00:00Z', version: 1, application_count: 0, live_attendance: Boolean(current) }], has_more: false })
+    if (p === '/api/club/7/opportunities') return reply({ opportunities: [{ ...post, description: 'TEST ONLY description', instructions: '', position_requirements: 'All positions', gender_program: 'all', address: '', ends_at: '2026-10-17T12:00:00Z', closes_at: '2026-10-10T10:00:00Z', version: 1, application_count: 0, live_attendance: Boolean(current), ...editorDates }], has_more: false })
     if (p === `/api/club/7/opportunities/${oid}/applications`) return reply({ applications: [], has_more: false })
     if (p === '/api/club/7/matches') return reply({ matches: [], total: 0 })
     return reply({})
@@ -351,4 +351,26 @@ test('C4F3 failed read clears private rows and drafts', async ({ page }) => {
   await expect(page.getByText('C4 TEST ONLY Scout · Test only organization')).toHaveCount(0)
   await expect(page.getByLabel('Where to stand and who to report to')).toHaveCount(0)
   await expect(page.getByRole('alert')).toBeVisible()
+})
+
+
+test('C4F3 unchanged locked dates preserve the exact instant in a repeated DST hour', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  const dates = { starts_at: '2026-10-25T00:30:37.123Z', ends_at: '2026-10-25T02:30:41.456Z' }
+  await fixture(page, { attendance: request, editorDates: dates })
+  let saved = null
+  await page.route(`**/api/club/7/opportunities/${oid}`, route => {
+    saved = route.request().postDataJSON()
+    return route.fulfill({ json: { opportunity: { ...post, ...saved } } })
+  })
+  await page.goto('/my-club?program=7&view=recruiting')
+  await page.getByRole('button', { name: 'Edit opportunity' }).click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByLabel('About this opportunity').fill('Corrected TEST ONLY description in repeated hour')
+  await dialog.getByText(/Scout attendance is pending or accepted/).scrollIntoViewIfNeeded()
+  await shot(page, 'live-attendance-dst-testonly-390')
+  await dialog.getByRole('button', { name: 'Save opportunity' }).click()
+  await expect(dialog.getByRole('alert')).toHaveCount(0)
+  await expect(dialog).toHaveCount(0)
+  expect(saved).toMatchObject({ ...dates, description: 'Corrected TEST ONLY description in repeated hour' })
 })

@@ -26,7 +26,7 @@ function OpportunityEditor({ programId, squads, item, onClose, onSaved }) {
     try {
     const data = { status: values.status, type: values.type, gender_program: values.gender_program, squad_id: values.squad_id ? Number(values.squad_id) : null }
     for (const [key, , type] of FIELDS) {
-      if (locked && LOCKED.has(key)) continue
+      if ((locked && LOCKED.has(key)) || (attendanceLocked && ATTENDANCE_TERMS.has(key))) continue
       const value = values[key] || ''
       data[key] = type === 'number' ? value ? Number(value) : null : type === 'datetime-local' ? value ? fromLocalInput(value, values.timezone) : null : value
     }
