@@ -1,5 +1,7 @@
+import { useSeasonDirectory } from '@/hooks/useSeasonDirectory'
+import { seasonStore } from '@/lib/seasonStore'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { ArrowRight, MapPin, ShieldAlert, UserPlus } from 'lucide-react'
 import { APIService } from '@/lib/api'
 import { ContentReportDialog } from '@/components/ContentReportDialog'
@@ -107,6 +109,10 @@ function LocalSeasonStats({ stats, position }) {
 }
 
 function LocalPlayerProfile({ numericPlayerId, onPublicConfirmed, onRetry }) {
+  const { currentSeason, ready: seasonReady } = useSeasonDirectory()
+  const [searchParams] = useSearchParams()
+  const seasonParam = searchParams.get('season')
+  const season = /^\d{4}$/.test(seasonParam || '') ? Number(seasonParam) : (seasonStore.get() ?? currentSeason)
   const [player, setPlayer] = useState(null)
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
@@ -145,9 +151,9 @@ function LocalPlayerProfile({ numericPlayerId, onPublicConfirmed, onRetry }) {
   }, [numericPlayerId])
 
   useEffect(() => {
-    if (!player) return undefined
+    if (!player || !seasonReady) return undefined
     let cancelled = false
-    APIService.getPublicPlayerSeasonStats(matchPlayerApiId)
+    APIService.getPublicPlayerSeasonStats(matchPlayerApiId, season)
       .then((response) => {
         if (!cancelled) setSeasonStats(response || null)
       })
@@ -155,7 +161,7 @@ function LocalPlayerProfile({ numericPlayerId, onPublicConfirmed, onRetry }) {
         if (!cancelled) setSeasonStats(null)
     })
     return () => { cancelled = true }
-  }, [matchPlayerApiId, player])
+  }, [matchPlayerApiId, player, season, seasonReady])
 
   if (loading) return <LoadingState />
   if (notFound) return <MissingState />
@@ -241,6 +247,7 @@ function LocalPlayerProfile({ numericPlayerId, onPublicConfirmed, onRetry }) {
           canonicalPlayerApiId={canonicalPlayerApiId}
           playerName={player.display_name}
           playerPosition={player.position}
+          season={season}
           onSeasonStatsChange={setSeasonStats}
         />
 

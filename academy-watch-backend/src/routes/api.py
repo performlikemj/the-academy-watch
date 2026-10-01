@@ -1731,7 +1731,7 @@ def _sync_player_club_fixtures(
 
 @api_bp.route("/players/search", methods=["GET"])
 def public_player_search():
-    """Public search for tracked players by name."""
+    """Public search for tracked players and eligible community adults by name."""
     q = (request.args.get("q") or "").strip()
     if len(q) < 2:
         return jsonify([])
@@ -1765,7 +1765,37 @@ def public_player_search():
             )
             if len(results) >= 8:
                 break
-        return jsonify(results)
+        from src.models.showcase import LocalPlayer
+        from src.services.public_adult import public_adult_ids
+
+        community = (
+            LocalPlayer.query.filter(
+                LocalPlayer.display_name.ilike(f"%{q}%"),
+                LocalPlayer.status == "approved",
+                LocalPlayer.provenance != "club",
+                LocalPlayer.api_player_id < 0,
+                LocalPlayer.merged_into_local_player_id.is_(None),
+            )
+            .order_by(LocalPlayer.display_name, LocalPlayer.id)
+            .limit(100)
+            .all()
+        )
+        eligible = public_adult_ids([player.api_player_id for player in community])
+        for player in community:
+            if player.api_player_id not in eligible or player.api_player_id in seen:
+                continue
+            seen.add(player.api_player_id)
+            results.append(
+                {
+                    "player_api_id": player.api_player_id,
+                    "player_name": player.display_name,
+                    "photo_url": None,
+                    "position": player.position,
+                    "team_name": None,
+                    "current_club_name": player.club_name,
+                }
+            )
+        return jsonify(sorted(results, key=lambda row: row["player_name"].casefold())[:8])
     except Exception as e:
         return jsonify(_safe_error_payload(e, "Player search failed")), 500
 

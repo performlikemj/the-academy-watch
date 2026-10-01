@@ -1,11 +1,11 @@
-export function PublicMatchPanels({ stats }) {
+export function PublicMatchPanels({ stats, hideProviderFreshness = false }) {
   const publicData = stats?.public_match_data
   const clubData = stats?.club_verified
   const asOf = publicData?.as_of ? publicData.as_of.slice(0, 10) : 'unknown'
   return (
     <div className="grid gap-4 md:grid-cols-2" data-testid="source-stat-panels">
       {[
-        { block: publicData, title: `Public match data — last updated ${asOf}` },
+        { block: publicData, title: hideProviderFreshness ? 'Public match data' : `Public match data — last updated ${asOf}` },
         { block: clubData, title: 'Club-verified' },
       ].map(({ block, title }) => (
         <section key={title} className="rounded-xl border bg-card p-5" aria-label={title}>

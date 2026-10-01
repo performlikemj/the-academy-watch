@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { APIService } from '@/lib/api'
+import { useEffect } from 'react'
+import { useSeasonDirectory } from '@/hooks/useSeasonDirectory'
 import {
   Select,
   SelectContent,
@@ -10,18 +10,6 @@ import {
 import { formatSeasonLabel } from '@/lib/seasons'
 import { cn } from '@/lib/utils'
 
-let seasonDirectoryPromise
-
-function getSeasonDirectory() {
-  if (!seasonDirectoryPromise) {
-    seasonDirectoryPromise = APIService.getSeasons().catch((error) => {
-      seasonDirectoryPromise = undefined
-      throw error
-    })
-  }
-  return seasonDirectoryPromise
-}
-
 export function SeasonSelect({
   value,
   onValueChange,
@@ -29,24 +17,10 @@ export function SeasonSelect({
   className,
   ariaLabel = 'Select season',
 }) {
-  const [directory, setDirectory] = useState(null)
-  const [error, setError] = useState(false)
-
+  const { directory, error, currentSeason } = useSeasonDirectory()
   useEffect(() => {
-    let cancelled = false
-    getSeasonDirectory()
-      .then((data) => {
-        if (!cancelled) {
-          setDirectory(data)
-          const currentSeason = Number(data?.current_season)
-          if (Number.isInteger(currentSeason)) onCurrentSeasonChange?.(currentSeason)
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setError(true)
-      })
-    return () => { cancelled = true }
-  }, [onCurrentSeasonChange])
+    if (currentSeason != null) onCurrentSeasonChange?.(currentSeason)
+  }, [currentSeason, onCurrentSeasonChange])
 
   const resolvedValue = value ?? directory?.current_season
   const selectedItem = directory?.seasons?.find((item) => Number(item.season) === Number(resolvedValue))

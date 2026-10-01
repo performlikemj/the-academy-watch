@@ -124,6 +124,8 @@ Log one-liner in CONTINUITY.md's "Trivial Log" section.
 
 ---
 
+- Web current-season reads share `lib/seasonDirectory.js` / `useSeasonDirectory`; pass that season explicitly to desk and player stats, while retaining historical URL/store overrides and the existing frozen-mode logic. Short positions use `lib/positions.js::positionAbbreviation`; keep free text on player profiles.
+
 ## Quality Bar
 
 Before marking work complete:

@@ -59,3 +59,7 @@ export async function fetchAllRequests(fetchPage, { pageSize = 100, maxPages = 2
   }
   return rows
 }
+
+export function defaultIntroductionBox({ inbox = [] } = {}) {
+  return inbox.length > 0 ? 'inbox' : 'sent'
+}

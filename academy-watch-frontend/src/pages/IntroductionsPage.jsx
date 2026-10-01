@@ -10,7 +10,7 @@ import { useAuth, useAuthUI } from '@/context/AuthContext'
 import { useContactRail } from '@/hooks/useContactRail.js'
 import { ContactThread } from '@/components/contact/ContactThread'
 import { ScoutSurface, ScoutHeader } from '@/components/scout/ScoutDesk'
-import { statusLabel, counterpartName, canWithdraw, canRespond, previewText, upsertRequest, fetchAllRequests } from '@/lib/introductions'
+import { statusLabel, counterpartName, canWithdraw, canRespond, previewText, upsertRequest, fetchAllRequests, defaultIntroductionBox } from '@/lib/introductions'
 
 function formatDate(value) {
   if (!value) return ''
@@ -70,7 +70,7 @@ export function IntroductionsPage() {
   const auth = useAuth()
   const contactRail = useContactRail()
   const { openLoginModal } = useAuthUI()
-  const [box, setBox] = useState('sent')
+  const [box, setBox] = useState(null)
   const [requests, setRequests] = useState({ sent: [], inbox: [] })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -90,6 +90,14 @@ export function IntroductionsPage() {
     setLoading(true)
     setError(null)
     try {
+      if (which == null) {
+        const [sent, inbox] = await Promise.all(['sent', 'inbox'].map((nextBox) =>
+          fetchAllRequests((limit, offset) => APIService.listContactRequests({ box: nextBox, limit, offset }))))
+        if (seq !== loadSeq.current) return
+        setRequests({ sent, inbox })
+        setBox(defaultIntroductionBox({ sent, inbox }))
+        return
+      }
       const rows = await fetchAllRequests((limit, offset) => APIService.listContactRequests({ box: which, limit, offset }))
       if (seq !== loadSeq.current) return
       setRequests((current) => ({ ...current, [which]: rows }))
@@ -172,21 +180,21 @@ export function IntroductionsPage() {
           accent="done properly"
           lede="Scout ↔ player introductions. Messaging opens once an introduction is accepted (and, for contracted players, allowed by the club)."
         />
-        <Tabs value={box} onValueChange={setBox}>
+        <Tabs value={box || 'inbox'} onValueChange={setBox}>
           <TabsList className="mb-6">
             <TabsTrigger value="sent"><Send className="mr-1.5 h-4 w-4" /> Sent</TabsTrigger>
-            <TabsTrigger value="inbox"><Inbox className="mr-1.5 h-4 w-4" /> Inbox</TabsTrigger>
+            <TabsTrigger value="inbox"><Inbox className="mr-1.5 h-4 w-4" /> Received</TabsTrigger>
           </TabsList>
           {['sent', 'inbox'].map((which) => (
             <TabsContent key={which} value={which}>
               <div className="grid items-start gap-8 lg:grid-cols-[24rem_minmax(0,1fr)]">
                 <div>
-                  <RequestList box={which} requests={requests[which] || []} loading={loading && box === which} error={box === which ? error : null} selectedId={selectedId} onSelect={setSelectedId} onAction={act} busyId={busyId} />
+                  <RequestList box={which} requests={requests[which] || []} loading={loading && (box || 'inbox') === which} error={(box || 'inbox') === which ? error : null} selectedId={selectedId} onSelect={setSelectedId} onAction={act} busyId={busyId} />
                   {actionError && box === which ? <p className="mt-2 text-sm text-[#E9967A]">{actionError}</p> : null}
                 </div>
                 <Card className="py-0">
                   <CardContent className="p-6">
-                    {box === which ? <ContactThread request={selected} onRequestChange={applyUpdate} /> : null}
+                    {box === which ? <ContactThread request={selected} onRequestChange={applyUpdate} viewerRole={box === 'sent' ? 'scout' : 'player'} canReportOutcome={box === 'sent'} /> : null}
                   </CardContent>
                 </Card>
               </div>
