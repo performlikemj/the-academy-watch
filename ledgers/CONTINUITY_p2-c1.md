@@ -12,6 +12,7 @@
 
 ## State
 - Done: RC1 focused218 pass (includes original C1 + N3), main baseline provider8 parity checks green; seven-private-state compact sweep + published control green. Fixes/evidence and nullable-email/index p2c1 CONTRACT posted; full gates next.
+- Done: main/B2 squash784b1490 included with zero application delta vs360628dc refresh; B3 d49ec794 current. PostgreSQL5 and exact preapply twice/upgrade schema parity green; Node219/OSV547/lint0err191warn/build/Ruff594, focused browser22 green. Reviewed new moderation/self-invite mobile shots.
 - Now: fix round 1 RC1 F1–F11 in progress; merge main/B2/B3, regression evidence per finding, full foreground gates, push only.
 - Decision: admin evidence exposes masked emails + adult yes/no/source; same inviter/claimant approval blocked by default. Flag OFF preserves provider read/query parity with main.
 - Done: read master continuity, Phase2/design/BUS/evidence/repo guidance and mockup feature map.

@@ -122,3 +122,21 @@ def test_cached_enabled_sitemap_is_discarded_on_flag_withdrawal(parity, monkeypa
     assert response.status_code == 503
     assert b"7001" not in response.data
     assert not statements
+
+
+@pytest.mark.parametrize("on,ids", [(False, [-23, 7001]), (True, [7001])])
+def test_cache_policy_performs_no_sql_while_dark_or_for_provider_ids(parity, monkeypatch, on, ids):
+    from src.services.club_player_publication import hidden_club_subject_ids
+
+    monkeypatch.setenv("CLUB_PLAYER_PUBLICATION_ENABLED", str(on).lower())
+    statements = []
+
+    def count(connection, cursor, statement, parameters, context, many):
+        statements.append(statement)
+
+    event.listen(db.engine, "before_cursor_execute", count)
+    try:
+        assert hidden_club_subject_ids(ids) == set()
+    finally:
+        event.remove(db.engine, "before_cursor_execute", count)
+    assert statements == []

@@ -3,7 +3,7 @@
 import importlib.util
 import os
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from threading import Barrier
 from uuid import uuid4
@@ -212,9 +212,23 @@ def test_postgres_migration_reapply_rls_and_retention_guard(pg):
             ).scalar()
             == "false"
         )
+        assert (
+            connection.execute(
+                sa.text(
+                    "SELECT is_nullable FROM information_schema.columns WHERE table_name='club_player_publications' AND column_name='recipient_email'"
+                )
+            ).scalar()
+            == "YES"
+        )
+        assert (
+            connection.execute(sa.text("SELECT indexdef FROM pg_indexes WHERE indexname='ix_publication_local_player'"))
+            .scalar()
+            .endswith("(local_player_id)")
+        )
 
 
 def test_postgres_erasure_clears_publication_claim_foreign_key(pg):
+    from src.models.contact import ContactAuditEvent, ContactRequest
     from src.services.account import delete_account
 
     app, ids = pg
@@ -227,9 +241,44 @@ def test_postgres_erasure_clears_publication_claim_foreign_key(pg):
     )
     db.session.commit()
     assert public_adult_ids([-ids["local"]])
+    request = ContactRequest(
+        scout_user_id=ids["owner"],
+        player_api_id=-ids["local"],
+        claim_id=row.claim_id,
+        club_first=True,
+        routing_mode="club_included",
+        club_program_id=ids["program"],
+        club_consent_status="pending",
+        message="Withheld PostgreSQL erasure fixture",
+        expires_at=service.now() + timedelta(days=7),
+    )
+    db.session.add(request)
+    db.session.flush()
+    request_id = request.id
+    db.session.add(ContactAuditEvent(contact_request_id=request.id, actor_user_id=ids["owner"], event_type="created"))
+    db.session.commit()
     user = db.session.get(UserAccount, ids["adult"])
     delete_account(user)
     db.session.commit()
     assert db.session.get(Publication, row_id) is None
     assert db.session.get(UserAccount, ids["adult"]) is None
     assert not public_adult_ids([-ids["local"]])
+    assert ContactRequest.query.filter_by(id=request_id).count() == 0
+    assert ContactAuditEvent.query.filter_by(contact_request_id=request_id).count() == 0
+
+
+def test_postgres_invite_email_privacy_retains_evidence_while_dark(pg, monkeypatch):
+    from src.services.club_player_publication_account import purge_invited_emails
+
+    app, ids = pg
+    id_, token = make_invite(ids)
+    row = db.session.get(Publication, id_)
+    row.invite_expires_at = service.now() - timedelta(seconds=1)
+    db.session.commit()
+    monkeypatch.setenv("CLUB_PLAYER_PUBLICATION_ENABLED", "false")
+    assert purge_invited_emails(limit=1) == {"invited_emails_purged": 1}
+    db.session.commit()
+    db.session.expire_all()
+    row = db.session.get(Publication, id_)
+    assert row.recipient_email is row.invite_token_hash is row.invite_expires_at is None
+    assert row.adult_invited_at and row.association_confirmed_at and row.creator_user_id == ids["owner"]

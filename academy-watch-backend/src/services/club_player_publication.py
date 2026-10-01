@@ -421,12 +421,12 @@ def masked_email(email):
 def self_invitation(row, recipient=None):
     if recipient is None and row.recipient_user_id:
         recipient = db.session.get(UserAccount, row.recipient_user_id)
-    inviter = db.session.get(UserAccount, row.creator_user_id) if row.creator_user_id else None
+    inviter_id = row.association_confirmed_by or row.creator_user_id
+    inviter = db.session.get(UserAccount, inviter_id) if inviter_id else None
     return bool(
         recipient
         and (
-            row.creator_user_id == recipient.id
-            or (inviter and inviter.email.strip().lower() == recipient.email.strip().lower())
+            inviter_id == recipient.id or (inviter and inviter.email.strip().lower() == recipient.email.strip().lower())
         )
     )
 
@@ -436,7 +436,8 @@ def moderation_evidence(row, local):
 
     program = db.session.get(ClubProgram, row.program_id)
     recipient = db.session.get(UserAccount, row.recipient_user_id) if row.recipient_user_id else None
-    inviter = db.session.get(UserAccount, row.creator_user_id) if row.creator_user_id else None
+    inviter_id = row.association_confirmed_by or row.creator_user_id
+    inviter = db.session.get(UserAccount, inviter_id) if inviter_id else None
     squads = (
         db.session.query(ClubSquad.name)
         .join(ClubRosterMember, ClubRosterMember.squad_id == ClubSquad.id)
@@ -456,7 +457,7 @@ def moderation_evidence(row, local):
         "invited_email_masked": masked_email(row.recipient_email),
         "claimant_email_masked": masked_email(recipient.email if recipient else None),
         "inviter_email_masked": masked_email(inviter.email if inviter else None),
-        "same_account": bool(recipient and row.creator_user_id == recipient.id),
+        "same_account": bool(recipient and inviter_id == recipient.id),
         "same_email": bool(recipient and inviter and recipient.email.strip().lower() == inviter.email.strip().lower()),
         "self_invitation": self_invitation(row, recipient),
         "invited_at": row.adult_invited_at.isoformat() if row.adult_invited_at else None,

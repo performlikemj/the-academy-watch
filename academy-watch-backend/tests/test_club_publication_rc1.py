@@ -119,6 +119,52 @@ def test_admin_authenticity_evidence_is_masked_scoped_and_self_invite_blocked(cl
         assert not service.live_publication(env["local"])
 
 
+def test_reinvitation_uses_current_inviter_for_self_claim_guard(client, env):
+    from src.models.funding import ClubProgramClaim, ClubProgramManager
+
+    original = invite(client, env)
+    other = UserAccount.query.filter_by(email="manager-b@c2.example").one()
+    claim = ClubProgramClaim(
+        program_id=env["pid"], user_account_id=other.id, relationship_type="club_official", status="approved"
+    )
+    db.session.add(claim)
+    db.session.flush()
+    db.session.add(
+        ClubProgramManager(
+            program_id=env["pid"],
+            user_account_id=other.id,
+            source_claim_id=claim.id,
+            status="active",
+            granted_by="fixture",
+        )
+    )
+    db.session.commit()
+    response = client.post(
+        f"/api/club/{env['pid']}/players/{env['local']}/publication-invite",
+        headers=_headers("b"),
+        json={"recipient_email": other.email, "expected_version": original["publication"]["version"]},
+    )
+    assert response.status_code == 201, response.json
+    row = service.redeem(other, {"token": response.json["token"], "self_claim": True})
+    service.consent(
+        row,
+        other.id,
+        {"expected_version": row.version, "public_profile_consent": True, "consent_version": service.CONSENT_VERSION},
+    )
+    db.session.commit()
+    assert row.creator_user_id != other.id and row.association_confirmed_by == other.id
+    evidence = client.get("/api/admin/player-publications", headers=_admin_headers()).json["publications"][0][
+        "moderation_evidence"
+    ]
+    assert evidence["same_account"] and evidence["same_email"] and evidence["self_invitation"]
+    response = client.post(
+        f"/api/admin/player-publications/{row.id}/review",
+        headers=_admin_headers(),
+        json={"expected_version": row.version, "action": "approve", "reason": "Independent review"},
+    )
+    assert response.status_code == 409 and response.json["error"] == "self_invitation_review_required"
+
+
 @pytest.mark.parametrize("stage", ["invited", "claimed", "consented", "withdrawn", "club_revoked"])
 def test_admin_queue_never_names_unclaimed_or_inactive_invites(client, env, stage):
     if stage == "invited":
@@ -223,6 +269,20 @@ def test_compact_private_state_leak_sweep(client, env, monkeypatch, state):
 
     client.application.register_blueprint(journey_bp, url_prefix="/api")
     client.application.register_blueprint(players_bp, url_prefix="/api")
+    from src.models.follow import Follow, FollowList
+    from src.models.scout_watchlist import ScoutWatchlistEntry
+
+    def seed_saved():
+        scout_id = client.application.c2["users"]["scout"]
+        saved = FollowList(user_account_id=scout_id, name="C1 saved fixture")
+        db.session.add(saved)
+        db.session.flush()
+        db.session.add(
+            Follow(list_id=saved.id, kind="player", selector={"player_api_id": -env["local"]}, label="C1 adult fixture")
+        )
+        db.session.add(ScoutWatchlistEntry(user_account_id=scout_id, player_api_id=-env["local"]))
+        db.session.commit()
+
     if state == "claimed":
         claimed(client, env)
     elif state == "consented":
@@ -230,6 +290,7 @@ def test_compact_private_state_leak_sweep(client, env, monkeypatch, state):
     elif state != "never_invited":
         result = published(client, env)
         row = db.session.get(Publication, result["id"])
+        seed_saved()
         if state == "rejected":
             service.review(
                 row, "reviewer", {"expected_version": row.version, "action": "reject", "reason": "RC1 sweep"}
@@ -239,6 +300,8 @@ def test_compact_private_state_leak_sweep(client, env, monkeypatch, state):
         elif state == "flag_off":
             monkeypatch.setenv("CLUB_PLAYER_PUBLICATION_ENABLED", "false")
         db.session.commit()
+    if state in {"never_invited", "claimed", "consented"}:
+        seed_saved()
     pid, lid = -env["local"], env["local"]
     paths = [
         f"/api/local-players/{lid}",
