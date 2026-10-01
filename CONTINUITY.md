@@ -32,11 +32,12 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
 
 ## State
 
-- **Now (2026-10-01 N5):** shared cleat loader + trial time-zone picker complete; OSV/lint/build,225Node/64Playwright pass; six reviewed screenshots; PR/review delivery recorded in `~/codex-runs/aw-redesign/logs/N5.final.md`; see `ledgers/CONTINUITY_n5-web.md`.
+- **Now (2026-10-01 N5 redraw):** renewal19:00 low-cut/solid-colour round complete on#1125; lint/build,225Node/64Playwright pass;30 surface/phase/picker PNGs reviewed; exact paths for I1 in `~/codex-runs/aw-redesign/logs/N5F1.loader.json`; delivery SHA/CI in `logs/N5F1.final.md`. See `ledgers/CONTINUITY_n5-web.md`.
 
 
 
 ### Done
+- **2026-10-01 N5 loader redraw:** low collar/tapered toe/contrasting instep laces/soleplate/five blades; solid club colours +gold heel. Six1.2s phases with200ms ease, still green Reduce Motion; picker/routes/logo unchanged. Lint/build +225Node/64Playwright;30 shots, exact geometry/timing handoff to I1;#1125 push status in external N5F1 hand-back.
 - **2026-10-01 N5 web:** shared inline SVG loader + canonical region-grouped trial time-zone picker; reduced-motion/boot parity, browser/club defaults, aliases, keyboard/select/locked regressions pass. OSV547/lint0errors186 inherited warnings/build,225Node/64Playwright; six reviewed chalk/night/desktop/phone/picker PNGs. No backend, dependency or logo changes; see `ledgers/CONTINUITY_n5-web.md` and external `logs/N5.final.md` for PR/CI/review status.
 - **2026-10-01 P2 B2 fix round 5:** pure mechanical B1/main e82bb4e3 refresh of reviewed16540e03; exactly7 conflicts resolved per RB2V3 (real ClubsPage + B2 two routes, both blueprints, p2b2 pins, both histories). All36 untouched B2 blobs identical; p2b1 byte-identical to main; test-only real B1 dark-count/card omission2 added. Foreground full4075pass69skip0fail (790.70s), PG19/Node219/Playwright45/Ruff-format579/lint0err186warn/build pass. Owned stale Vite59996 and temporary5397 stopped; aw_p2_b2 absent. PR #1113 READY with CI36826539175 green; renewal merged784b1490. No builder merge.
 - **2026-10-01 P2 B2 fix round 4:** A2 main9f329ea5 refreshed, then latest N3 mainadea5177 included; exact reviewed tree b5c7864d matched. All177 IANA aliases canonicalized with backend/frontend parity + browser-device exhaustive checks. PATCH/close serialize with ordered locks before commit; two distinct staff PG races pass. Due hold emails defer without attempts, neutral applicant/reserved messages, dark directory countsNone/zeroSQL. Final full3954pass69skip0fail, PG19/Node211/Playwright32/Ruff-format575/OSV547/lint0err186warn/build green. Own Vite5297/aw_p2_b2/browser outputs cleaned; draft #1113 unmerged; daily retention required before flags ON.
