@@ -12,7 +12,8 @@
 ## State
 - Done: four pages/backend flows, standing/audit, case intake/actions/outbox, authoritative cash/deployment views, tests, 14 reviewed screenshots and schema-only SQL.
 - Done: latest A2 ef005e35 stack (includes c576762e snapshots); only B3 marked additive shared blocks, permitted narrow standing hooks.
-- Now: push branch and create draft PR to main; final hand-back.
+- Done: draft PR #1115 to main, stacked on #1109: https://github.com/performlikemj/the-academy-watch/pull/1115
+- Now: delivered; hand-back `~/codex-runs/aw-redesign/logs/B3.final.md`.
 - Next: orchestrator adversarial review and integration; four head pins updated there, B1/B2 precede p2b3. No flag switch-on authorized.
 
 ## Validation
