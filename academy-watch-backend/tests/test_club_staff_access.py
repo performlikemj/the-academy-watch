@@ -622,9 +622,11 @@ def test_owner_protections_and_listing(env, client, club_app):
     listing = client.get(f"{env['base']}/access", headers=_headers("a")).get_json()
     roles = {p["email"]: p["role"] for p in listing["people"]}
     assert roles["manager-a@c2.example"] == "owner" and roles[_email("coach")] == "coach"
-    assert listing["matrix"]["roles"]["viewer"] == [True, False, False, False, False, False, False]
-    assert listing["matrix"]["roles"]["coach"] == [True, True, True, False, False, False, False]
-    assert listing["matrix"]["roles"]["manager"][-1] is False
+    # Each person carries their own marks, built from their resolved access (see test_club_staff_access_a2f9.py).
+    marks = {p["email"]: p["permissions"] for p in listing["people"]}
+    assert len(listing["matrix"]["rows"]) == 7 and "roles" not in listing["matrix"]
+    assert marks[_email("coach")] == [True, True, True, False, False, False, False]
+    assert marks["manager-a@c2.example"] == [True] * 7
     assert any(a["action"] == "invite_accepted" for a in listing["activity"])
     programs = client.get("/api/me/club-access", headers=_h(_email("coach"))).get_json()["programs"]
     assert [p["program"]["id"] for p in programs] == [env["pid"]]

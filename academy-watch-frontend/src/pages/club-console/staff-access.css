@@ -38,7 +38,7 @@
 }
 .sa-invite {
   display:grid;
-  grid-template-columns:minmax(0,1fr) 200px 220px 140px;
+  grid-template-columns:minmax(0,1fr) 220px;
   gap:14px;
   align-items:end;
   padding:24px;
@@ -72,6 +72,10 @@
   outline-offset:2px
 }
 .sa-invite button {
+  justify-self:end;
+  align-self:end;
+  min-width:140px;
+  padding:0 24px;
   height:48px;
   border:0;
   border-radius:999px;
@@ -79,6 +83,115 @@
   color:var(--color-ink);
   font-size:14.5px;
   font-weight:500
+}
+.sa-scope {
+  min-width:0;
+  margin:0;
+  padding:0;
+  border:0
+}
+.club-home .sa-scope legend {
+  margin-bottom:6px;
+  padding:0;
+  font-family:var(--font-mono);
+  font-size:10.5px;
+  font-weight:400;
+  letter-spacing:.16em;
+  text-transform:uppercase;
+  color:var(--color-muted)
+}
+.club-home .sa-invite .sa-scope legend {
+  color:var(--color-muted-dark)
+}
+.sa-chips {
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px
+}
+.club-home .sa-root .sa-chip {
+  position:relative;
+  display:inline-flex;
+  max-width:100%
+}
+.club-home .sa-root .sa-chip input {
+  position:absolute;
+  inset:0;
+  width:100%;
+  height:100%;
+  margin:0;
+  padding:0;
+  border:0;
+  opacity:0;
+  cursor:pointer
+}
+.club-home .sa-root .sa-chip>span {
+  display:inline-flex;
+  align-items:center;
+  min-height:40px;
+  padding:0 14px;
+  border:1px solid var(--color-muted);
+  border-radius:999px;
+  font-family:var(--font-sans);
+  font-size:14px;
+  font-weight:400;
+  letter-spacing:0;
+  text-transform:none;
+  color:var(--color-ink);
+  overflow-wrap:anywhere
+}
+.club-home .sa-root .sa-chip input:checked+span {
+  border-color:var(--color-ink);
+  background:var(--color-ink);
+  color:var(--color-chalk)
+}
+.club-home .sa-root .sa-chip input:checked+span::before {
+  content:"\2713";
+  margin-right:6px
+}
+.club-home .sa-root .sa-chip input:focus-visible {
+  outline:0
+}
+.club-home .sa-root .sa-chip input:focus-visible+span {
+  outline:2px solid var(--color-ink);
+  outline-offset:2px
+}
+.club-home .sa-root .sa-chip input:disabled {
+  cursor:not-allowed
+}
+.club-home .sa-root .sa-chip input:disabled+span {
+  opacity:.65
+}
+.club-home .sa-root .sa-invite .sa-chip>span {
+  border-color:rgba(243,240,232,.45);
+  color:var(--color-chalk)
+}
+.club-home .sa-root .sa-invite .sa-chip input:checked+span {
+  border-color:var(--color-chalk);
+  background:var(--color-chalk);
+  color:var(--color-ink)
+}
+.club-home .sa-root .sa-invite .sa-chip input:focus-visible+span {
+  outline-color:var(--color-gold)
+}
+.sa-root .sa-scope-hint {
+  margin:8px 0 0;
+  font-size:12.5px;
+  color:var(--color-muted)
+}
+.sa-root .sa-invite .sa-scope-hint {
+  color:var(--color-muted-dark)
+}
+.sa-root .sa-scope-hint.warn {
+  color:var(--color-danger);
+  font-weight:500
+}
+.sa-root .sa-invite .sa-scope-hint.warn {
+  color:var(--color-gold)
+}
+.sa-root .sa-matrix-note {
+  padding-top:12px;
+  border-top:1px solid var(--color-hairline);
+  font-size:13px
 }
 .sa-quiet {
   margin:0;
@@ -192,8 +305,12 @@
 }
 .sa-editor-fields {
   display:grid;
-  grid-template-columns:repeat(2,minmax(0,1fr));
-  gap:14px
+  grid-template-columns:minmax(0,220px) minmax(0,1fr);
+  gap:14px 20px;
+  align-items:start
+}
+.club-home .sa-editor-fields select {
+  height:40px
 }
 .club-home .sa-editor label>span {
   color:var(--color-muted)
@@ -270,9 +387,6 @@
   .sa-grid {
     grid-template-columns:minmax(0,1fr)
   }
-  .sa-invite {
-    grid-template-columns:repeat(2,minmax(0,1fr))
-  }
 }
 @media (max-width:640px) {
   .sa-head h1 {
@@ -283,6 +397,12 @@
   }
   .sa-invite {
     padding:18px
+  }
+  .sa-invite button {
+    justify-self:stretch
+  }
+  .club-home .sa-root .sa-chip>span {
+    min-height:44px
   }
   .sa-row {
     grid-template-columns:minmax(0,1fr) auto;
