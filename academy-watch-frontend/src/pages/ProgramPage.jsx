@@ -256,18 +256,6 @@ function ProgramPageContent({ slug }) {
                         </section>
                     ) : null}
 
-                    {program.roster_links?.team_page ? (
-                        <section aria-labelledby="club-roster">
-                            <SectionHeading id="club-roster" title="Squad & academy" meta="Football data" />
-                            <Link to={program.roster_links.team_page} className="group flex items-center justify-between gap-6 border-b border-border px-1 py-6 transition-colors hover:bg-chalk-2">
-                                <span>
-                                    <span className="display block text-[26px] leading-tight">View team + academy roster</span>
-                                    <span className="mt-1 block text-sm text-muted-foreground">We already follow this club’s team through our football-data provider.</span>
-                                </span>
-                                <ArrowUpRight className="h-5 w-5 shrink-0 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
-                            </Link>
-                        </section>
-                    ) : null}
                 </div>
 
                 <aside className="space-y-12">

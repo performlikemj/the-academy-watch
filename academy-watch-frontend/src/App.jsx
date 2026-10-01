@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, useRef, Fragment } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef, Fragment, lazy, Suspense } from 'react'
 import { BrowserRouter as Router, Routes, Route, Link, Navigate, useLocation, useParams, useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button.jsx'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card.jsx'
@@ -11,7 +11,6 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrig
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs.jsx'
 import TeamMultiSelect from '@/components/ui/TeamMultiSelect.jsx'
 import TeamSelect from '@/components/ui/TeamSelect.jsx'
-import { JournalistList } from '@/components/JournalistList.jsx'
 import { BuyMeCoffeeButton } from '@/components/BuyMeCoffeeButton.jsx'
 import SyncBanner from '@/components/SyncBanner.jsx'
 import { CommentaryManager } from '@/components/CommentaryManager.jsx'
@@ -90,8 +89,6 @@ import { ClubsPage } from '@/pages/clubs/ClubsPage' // p2-b1: real directory whe
 import { OpportunitiesTeaser } from '@/pages/teasers/OpportunitiesTeaser'
 import { AdminInterest } from '@/pages/admin/AdminInterest'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { PublicFormationBuilder } from '@/pages/PublicFormationBuilder'
-import { CohortBrowser } from '@/pages/CohortBrowser'
 import { ScoutPage } from '@/pages/ScoutPage'
 import { WatchlistPage } from '@/pages/WatchlistPage'
 import { ListsPage } from '@/pages/ListsPage'
@@ -101,8 +98,6 @@ import { LocalPlayerCreate } from '@/pages/LocalPlayerCreate'
 import { PlayerOnboarding } from '@/pages/PlayerOnboarding'
 import { PricingPage } from '@/pages/PricingPage'
 import { AccountBillingPage } from '@/pages/AccountBillingPage'
-import { CohortDetail } from '@/pages/CohortDetail'
-import { CohortAnalytics } from '@/pages/CohortAnalytics'
 import { GolPanel } from '@/components/gol/GolPanel'
 import { ClaimAccount } from '@/pages/ClaimAccount'
 import { IntroductionsPage } from '@/pages/IntroductionsPage'
@@ -110,21 +105,16 @@ import { ScoutVerificationPage } from '@/pages/ScoutVerificationPage'
 import { useContactRail } from '@/hooks/useContactRail.js'
 import { ClubConsentPage } from '@/pages/ClubConsentPage'
 import { StaffInviteAccept } from '@/pages/StaffInviteAccept'
-import { SubmitTake } from '@/pages/SubmitTake'
 import { FlagData } from '@/pages/FlagData'
 import { WriterLogin } from '@/pages/writer/WriterLogin'
 import { WriterDashboard } from '@/pages/writer/WriterDashboard'
 import { WriteupEditor } from '@/pages/writer/WriteupEditor'
 import { ContributorManager } from '@/pages/writer/ContributorManager'
 import { CuratorDashboard } from '@/pages/curator/CuratorDashboard'
-import { WriteupPage } from '@/pages/WriteupPage'
 import { PlayerPage } from '@/pages/PlayerPage'
-import { TeamDetailPage } from '@/pages/TeamDetailPage'
 import { ProgramClaimPage } from '@/pages/ProgramClaimPage'
 import { ProgramPage } from '@/pages/ProgramPage'
-import { JournalistProfile } from '@/pages/JournalistProfile'
 import { CommunityRulesPage, PrivacyPage, SupportPage, TermsPage } from '@/pages/LegalPages'
-import { JournalistNewsletterView } from '@/components/JournalistNewsletterView'
 import {
   NewsletterWriterOverlay,
   NewsletterWriterProvider,
@@ -141,6 +131,19 @@ import { AuthContext, AuthUIContext, useAuth, useAuthUI, buildAuthSnapshot } fro
 import { GlobalSearchContext, useGlobalSearchContext } from '@/context/GlobalSearchContext'
 import { AuthModal } from '@/components/auth/AuthModal'
 import { AccountDataControls } from '@/components/AccountDataControls'
+import { LEGACY_PUBLIC_PAGES, LEGACY_PUBLIC_ROUTES, isLegacyPublicRoute } from '@/lib/legacyRoutes.js'
+
+const JournalistList = LEGACY_PUBLIC_PAGES ? lazy(() => import('@/components/JournalistList.jsx').then((module) => ({ default: module.JournalistList }))) : null
+const PublicFormationBuilder = LEGACY_PUBLIC_PAGES ? lazy(() => import('@/pages/PublicFormationBuilder').then((module) => ({ default: module.PublicFormationBuilder }))) : null
+const CohortBrowser = LEGACY_PUBLIC_PAGES ? lazy(() => import('@/pages/CohortBrowser').then((module) => ({ default: module.CohortBrowser }))) : null
+const CohortDetail = LEGACY_PUBLIC_PAGES ? lazy(() => import('@/pages/CohortDetail').then((module) => ({ default: module.CohortDetail }))) : null
+const CohortAnalytics = LEGACY_PUBLIC_PAGES ? lazy(() => import('@/pages/CohortAnalytics').then((module) => ({ default: module.CohortAnalytics }))) : null
+const SubmitTake = LEGACY_PUBLIC_PAGES ? lazy(() => import('@/pages/SubmitTake').then((module) => ({ default: module.SubmitTake }))) : null
+const WriteupPage = LEGACY_PUBLIC_PAGES ? lazy(() => import('@/pages/WriteupPage').then((module) => ({ default: module.WriteupPage }))) : null
+const TeamDetailPage = LEGACY_PUBLIC_PAGES ? lazy(() => import('@/pages/TeamDetailPage').then((module) => ({ default: module.TeamDetailPage }))) : null
+const JournalistProfile = LEGACY_PUBLIC_PAGES ? lazy(() => import('@/pages/JournalistProfile').then((module) => ({ default: module.JournalistProfile }))) : null
+const JournalistNewsletterView = LEGACY_PUBLIC_PAGES ? lazy(() => import('@/components/JournalistNewsletterView').then((module) => ({ default: module.JournalistNewsletterView }))) : null
+
 import './App.css'
 import { useQueryParam } from '@/hooks/useQueryParam'
 
@@ -2987,6 +2990,21 @@ function SettingsPage() {
   // Paid subscriptions and journalist follows state
   const [paidSubscriptions, setPaidSubscriptions] = useState([])
   const [journalistFollows, setJournalistFollows] = useState([])
+  const [unfollowState, setUnfollowState] = useState({})
+
+  const handleUnfollow = async (follow) => {
+    if (unfollowState[follow.id]?.pending) return
+    setUnfollowState((prev) => ({ ...prev, [follow.id]: { pending: true, error: null } }))
+    try {
+      await APIService.unsubscribeFromJournalist(follow.journalist_id)
+      setJournalistFollows((prev) => prev.filter((item) => item.id !== follow.id))
+    } catch (error) {
+      setUnfollowState((prev) => ({
+        ...prev,
+        [follow.id]: { pending: false, error: error?.body?.error || error.message || 'Unable to unfollow. Please try again.' },
+      }))
+    }
+  }
 
   useEffect(() => {
     setDisplayNameInput(auth.displayName || '')
@@ -3534,10 +3552,9 @@ function SettingsPage() {
                 <CardContent>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {journalistFollows.map((follow) => (
-                      <Link
+                      <div
                         key={follow.id}
-                        to={`/journalists/${follow.journalist_id}`}
-                        className="flex items-center gap-3 p-3 border rounded-lg bg-secondary hover:bg-secondary hover:border-border transition-colors group"
+                        className="flex flex-wrap items-center gap-3 p-3 border rounded-lg bg-secondary"
                       >
                         <Avatar className="h-10 w-10">
                           <AvatarImage src={follow.journalist_profile_image} />
@@ -3546,7 +3563,7 @@ function SettingsPage() {
                           </AvatarFallback>
                         </Avatar>
                         <div className="flex-1 min-w-0">
-                          <div className="font-medium text-foreground truncate group-hover:text-primary transition-colors">{follow.journalist_name || 'Unknown'}</div>
+                          <div className="font-medium text-foreground truncate">{follow.journalist_name || 'Unknown'}</div>
                           {follow.assigned_teams && follow.assigned_teams.length > 0 && (
                             <div className="flex items-center gap-1 mt-0.5">
                               {follow.assigned_teams.slice(0, 3).map((team) => (
@@ -3558,16 +3575,25 @@ function SettingsPage() {
                             </div>
                           )}
                         </div>
-                        <div className="flex items-center gap-2">
-                          <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20">Following</Badge>
-                          <ChevronRight className="h-4 w-4 text-muted-foreground/70 group-hover:text-primary transition-colors" />
-                        </div>
-                      </Link>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          aria-label={`Unfollow ${follow.journalist_name || 'Unknown'}`}
+                          aria-busy={unfollowState[follow.id]?.pending || false}
+                          disabled={unfollowState[follow.id]?.pending || false}
+                          onClick={() => handleUnfollow(follow)}
+                        >
+                          {unfollowState[follow.id]?.pending ? 'Unfollowing…' : 'Unfollow'}
+                        </Button>
+                        {unfollowState[follow.id]?.error && (
+                          <p role="alert" className="w-full text-sm text-destructive">
+                            {unfollowState[follow.id].error}
+                          </p>
+                        )}
+                      </div>
                     ))}
                   </div>
-                  <p className="text-xs text-muted-foreground mt-3">
-                    Click on a journalist to view their profile or unfollow.
-                  </p>
                 </CardContent>
               </Card>
             )}
@@ -4041,6 +4067,7 @@ function AppWithRouter() {
           onClearRecent={globalSearch.clearRecentSearches}
         />
         <PlayerOnboardingPrompt />
+        {isLegacyPublicRoute(location.pathname) && !LEGACY_PUBLIC_PAGES ? <meta name="robots" content="noindex, nofollow" /> : null}
         <main>
           <AppRoutes />
         </main>
@@ -4066,15 +4093,38 @@ function AppWithRouter() {
   )
 }
 
+function LegacyPublicRedirect() {
+  return <Navigate to="/" replace />
+}
+
+// Inline legacy pages remain in this file; external pages above are lazy imports.
+const legacyPublicElements = LEGACY_PUBLIC_PAGES ? [
+  <PublicFormationBuilder />,
+  <CohortBrowser />,
+  <CohortDetail />,
+  <CohortAnalytics />,
+  <TeamsPage />,
+  <TeamDetailPage />,
+  <NewslettersPage />,
+  <NewslettersPage />,
+  <HistoricalNewslettersPage />,
+  <JournalistNewsletterView />,
+  <JournalistList apiService={APIService} />,
+  <JournalistProfile />,
+  <WriteupPage />,
+  <SubmitTake />,
+] : []
+
 // App routes extracted for cleaner structure
 function AppRoutes() {
   return (
     <Routes>
+      {LEGACY_PUBLIC_ROUTES.map((path, index) => (
+        <Route key={path} path={LEGACY_PUBLIC_PAGES ? path.replace(':id', path.startsWith('/academy/') ? ':cohortId' : path.startsWith('/newsletters/') ? ':newsletterId' : ':id') : path} element={LEGACY_PUBLIC_PAGES ? <Suspense fallback={null}>{legacyPublicElements[index]}</Suspense> : <LegacyPublicRedirect />} />
+      ))}
       <Route path="/" element={<HomePage />} />
       <Route path="/clubs" element={<ClubsPage />} />
       <Route path="/opportunities" element={<OpportunitiesTeaser />} />
-      <Route path="/teams" element={<TeamsPage />} />
-      <Route path="/teams/:teamSlug" element={<TeamDetailPage />} />
       <Route
         path="/programs/claim"
         element={(
@@ -4084,16 +4134,10 @@ function AppRoutes() {
         )}
       />
       <Route path="/programs/:slug" element={<ProgramPage />} />
-      <Route path="/dream-team" element={<PublicFormationBuilder />} />
-      <Route path="/newsletters" element={<NewslettersPage />} />
-      <Route path="/newsletters/:newsletterId" element={<NewslettersPage />} />
-      <Route path="/newsletters/historical" element={<HistoricalNewslettersPage />} />
-      <Route path="/writeups/:commentaryId" element={<WriteupPage />} />
       <Route path="/players/:playerId" element={<PlayerPage />} />
       <Route path="/onboarding/player" element={<PlayerOnboarding />} />
       <Route path="/local-players/new" element={<LocalPlayerCreate />} />
       <Route path="/local-players/:localPlayerId" element={<LocalPlayerPage />} />
-      <Route path="/journalists" element={<JournalistList apiService={APIService} />} />
       <Route
         path="/settings"
         element={(
@@ -4108,7 +4152,6 @@ function AppRoutes() {
       <Route path="/verify" element={<VerifyPage />} />
       <Route path="/claim-account" element={<ClaimAccount />} />
       <Route path="/contact/club-consent/:token" element={<ClubConsentPage />} />
-      <Route path="/submit-take" element={<SubmitTake />} />
       <Route path="/flag" element={<FlagData />} />
       <Route path="/scout" element={<ScoutPage />} />
       <Route path="/scout/watchlist" element={<WatchlistPage />} />
@@ -4123,9 +4166,6 @@ function AppRoutes() {
       <Route path="/privacy" element={<PrivacyPage />} />
       <Route path="/community-rules" element={<CommunityRulesPage />} />
       <Route path="/support" element={<SupportPage />} />
-      <Route path="/academy" element={<CohortBrowser />} />
-      <Route path="/academy/cohorts/:cohortId" element={<CohortDetail />} />
-      <Route path="/academy/analytics" element={<CohortAnalytics />} />
       <Route path="/admin" element={<AdminLayout />}>
         <Route index element={<Navigate to="/admin/dashboard" replace />} />
         <Route path="dashboard" element={<AdminDashboard />} />
@@ -4159,8 +4199,6 @@ function AppRoutes() {
             routes, so without this the parent renders an empty <Outlet/>. */}
         <Route path="*" element={<Navigate to="/admin/dashboard" replace />} />
       </Route>
-      <Route path="/journalists/:id" element={<JournalistProfile />} />
-      <Route path="/newsletters/:newsletterId/writer/:journalistId" element={<JournalistNewsletterView />} />
 
       {/* Writer Portal Routes */}
       <Route path="/writer/login" element={<WriterLogin />} />

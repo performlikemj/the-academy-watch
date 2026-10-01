@@ -13,6 +13,7 @@ from src.models.league import db
 
 GRANT_ROLES = ("owner", "manager", "coach", "analyst", "viewer")
 INVITE_ROLES = ("manager", "coach", "analyst", "viewer")
+ONE_ACTIVE_OWNER = "role = 'owner' AND status = 'active'"
 
 
 def _now():
@@ -33,6 +34,14 @@ class ClubAccessGrant(db.Model):
         db.CheckConstraint("status IN ('active','revoked')", name="ck_club_access_grants_status"),
         db.UniqueConstraint("program_id", "user_account_id", name="uq_club_access_grants_program_user"),
         db.Index("ix_club_access_grants_user_status", "user_account_id", "status"),
+        # A club has at most one active owner; the database enforces it, not just the service lock.
+        db.Index(
+            "uq_club_access_grants_one_active_owner",
+            "program_id",
+            unique=True,
+            postgresql_where=db.text(ONE_ACTIVE_OWNER),
+            sqlite_where=db.text(ONE_ACTIVE_OWNER),
+        ),
     )
 
     id = db.Column(db.Integer, primary_key=True)

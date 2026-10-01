@@ -13,8 +13,6 @@ from src.models.league import UserAccount, db
 from src.services import club_access as access_service
 from src.services.club_access import (
     BOARD_MATRIX,
-    ROLE_CAPABILITIES,
-    VERIFIED_ONLY,
     AccessError,
     current_access,
     require_club_permission,
@@ -51,17 +49,13 @@ def _payload():
 
 
 def _matrix():
-    roles = ("owner", "manager", "coach", "analyst", "viewer")
-    return {
-        "rows": [label for label, _ in BOARD_MATRIX],
-        "roles": {
-            role: [
-                cap in ROLE_CAPABILITIES[role] and not (role not in ("owner", "manager") and cap in VERIFIED_ONLY)
-                for _, cap in BOARD_MATRIX
-            ]
-            for role in roles
-        },
-    }
+    # Row labels only. Each person carries their own marks (``permissions``), built from the access the
+    # resolver gives them, so an invited (unverified) manager never shows a verified-only right.
+    return {"rows": [label for label, _ in BOARD_MATRIX]}
+
+
+def _permissions(program_id, user_id):
+    return access_service.board_permissions(access_service.resolve_club_access(user_id, program_id))
 
 
 def _person(user, **extra):
@@ -98,6 +92,7 @@ def _people(program_id):
                 all_squads=True,
                 squad_ids=[],
                 editable=False,
+                permissions=_permissions(program_id, manager.user_account_id),
             )
         )
     for grant in (
@@ -116,6 +111,7 @@ def _people(program_id):
                 squad_ids=grant.squad_ids,
                 version=grant.version,
                 editable=True,
+                permissions=_permissions(program_id, grant.user_account_id),
             )
         )
     return people

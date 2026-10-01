@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 import requests
 from flask import render_template
 from src.models.league import Newsletter, NewsletterCommentary, NewsletterDigestQueue, UserAccount, UserSubscription, db
+from src.utils.legacy_pages import legacy_public_url
 
 logger = logging.getLogger(__name__)
 
@@ -167,7 +168,7 @@ def _send_single_digest(user_id: int, week_key: str) -> dict:
             from src.routes.api import _absolute_url, _newsletter_issue_slug
 
             slug = _newsletter_issue_slug(n)
-            web_url = _absolute_url(f"/newsletters/{slug}")
+            web_url = legacy_public_url(_absolute_url(f"/newsletters/{slug}"))
 
             newsletter_data.append(
                 {
@@ -190,7 +191,7 @@ def _send_single_digest(user_id: int, week_key: str) -> dict:
 
         # Get manage URL and unsubscribe URLs
         public_base = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
-        manage_url = f"{public_base}/subscriptions" if public_base else None
+        manage_url = f"{public_base}/settings" if public_base else None
 
         # Get an unsubscribe token from one of the user's active subscriptions
         # For digest, we use the subscription management page as the primary unsubscribe mechanism
