@@ -407,6 +407,11 @@ def admin_issue_curator_token():
 
     try:
         user = _ensure_user_account(email)
+        # p2-b3 standing: check before changing permissions or consuming credentials.
+        from src.services.account_standing import account_can_act
+
+        if not account_can_act(user):
+            return jsonify(error="account unavailable"), 403
         user.is_curator = True
         db.session.commit()
 
@@ -13231,6 +13236,11 @@ def features():
     if os.getenv("CLUB_DIRECTORY_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}:
         flags["club_directory"] = True
     # --- p2-b1 end ---
+    # --- p2-b3 begin ---
+    for name in ("programs", "people", "safety", "business"):
+        if os.getenv(f"ADMIN_{name.upper()}_ENABLED", "").strip().lower() in {"1", "true", "yes", "on"}:
+            flags[f"admin_{name}"] = True
+    # --- p2-b3 end ---
     return jsonify(flags)
 
 

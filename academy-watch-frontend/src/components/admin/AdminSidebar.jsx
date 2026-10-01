@@ -31,6 +31,10 @@ import { useAuthUI } from '@/context/AuthContext'
 import { fetchInboxCounts } from '@/pages/admin/AdminInbox'
 import { APIService } from '@/lib/api'
 
+// --- p2-b3 begin ---
+import { useControlFlags } from '@/components/admin/B3Control'
+// --- p2-b3 end ---
+
 const GROUPS_KEY = 'academy_watch_admin_sidebar_groups'
 const BRAND_LOGO_SRC = '/assets/loan_army_assets/apple-touch-icon.png'
 
@@ -105,6 +109,14 @@ function saveGroupState(state) {
 }
 
 export function AdminSidebar({ className, collapsed = false, onNavigate }) {
+    // --- p2-b3 begin ---
+    const flags = useControlFlags()
+    const groups = sidebarGroups.map(group => ({ ...group, items: [...group.items] }))
+    if (flags?.admin_programs) groups[2].items.unshift({ icon: Landmark, label: 'Programs', href: '/admin/programs' })
+    if (flags?.admin_people) groups[2].items.unshift({ icon: Users, label: 'People', href: '/admin/people' })
+    if (flags?.admin_safety) groups[1].items.push({ icon: ShieldCheck, label: 'Safeguarding', href: '/admin/safety' })
+    if (flags?.admin_business) groups[3].items.push({ icon: Landmark, label: 'Business & data', href: '/admin/business' })
+    // --- p2-b3 end ---
     const location = useLocation()
     const { logout } = useAuthUI()
     const [groupOpen, setGroupOpen] = useState(() => loadGroupState())
@@ -231,7 +243,7 @@ export function AdminSidebar({ className, collapsed = false, onNavigate }) {
                     )}
                 </Link>
 
-                {sidebarGroups.map((group) => {
+                {groups.map((group) => {
                     if (collapsed) {
                         return (
                             <div key={group.label} className="flex flex-col gap-0.5 border-t border-hairline-dark pt-3 first-of-type:border-t-0">

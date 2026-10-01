@@ -1035,8 +1035,13 @@ def handle_webhook(raw_body: bytes, signature_header: str | None) -> tuple[dict,
     event_type = str(_get(event, "type"))
     event_created = _get(event, "created")
     payload_hash = hashlib.sha256(raw_body).hexdigest()
+    obj = _get(_get(event, "data", {}), "object", {})
     existing = StripeWebhookEvent.query.filter_by(event_id=event_id).first()
     if existing is not None and existing.status in {"processed", "ignored"}:
+        db.session.commit()
+        from src.services.admin_control_business import project_cash_isolated
+
+        project_cash_isolated(event_type, obj, event_id, int(event_created or 0))
         return {"received": True, "duplicate": True}, 200
 
     claim_existing = existing is not None
@@ -1101,6 +1106,11 @@ def handle_webhook(raw_body: bytes, signature_header: str | None) -> tuple[dict,
 
     for intent in intents:
         _send_email_intent(intent)
+    # --- p2-b3 begin ---
+    from src.services.admin_control_business import project_cash_isolated
+
+    project_cash_isolated(event_type, obj, event_id, int(event_created or 0))
+    # --- p2-b3 end ---
     return {"received": True, "duplicate": False}, 200
 
 

@@ -178,6 +178,10 @@ class _ReviewAwareUserSerializer(URLSafeTimedSerializer):
                 payload = loaded[0] if return_timestamp else loaded
             if not _review_account_is_configured(payload.get("email") or ""):
                 raise BadSignature("review account is no longer configured")
+        if has_app_context() and current_app.extensions.get("sqlalchemy") is db:
+            from src.services.account_standing import assert_token_standing
+
+            assert_token_standing(payload)
         return loaded
 
 
@@ -216,6 +220,11 @@ def issue_user_token(email: str, ttl_seconds: int = USER_TOKEN_TTL_SECONDS, role
         # email would otherwise revive every still-valid pre-deletion token.
         user = UserAccount.query.filter_by(email=email).first()
         if user is not None and not getattr(user, "is_tombstone", False):
+            from src.services.account_standing import account_can_act
+
+            if not account_can_act(user):
+                raise ValueError("account unavailable")
+            payload["auth_epoch"] = user.auth_epoch or 0
             payload["user_id"] = user.id
             if user.created_at is not None:
                 payload["account_created_at"] = user.created_at.isoformat()
@@ -264,6 +273,14 @@ def mint_media_token(
     if club_user_id is not None:
         # Club staff access: the media route re-resolves this account's live access per request.
         payload["club_user_id"] = int(club_user_id)
+    if current_app.extensions.get("sqlalchemy") is db:
+        user = (
+            db.session.get(UserAccount, club_user_id)
+            if club_user_id
+            else (UserAccount.query.filter_by(email=email).first() if email else None)
+        )
+        if user is not None:
+            payload["auth_epoch"] = user.auth_epoch or 0
     return {"token": _media_serializer().dumps(payload), "expires_in": ttl_seconds}
 
 
@@ -277,6 +294,23 @@ def media_token_claims(token: str, match_id: int, max_age: int = MEDIA_TOKEN_TTL
             return None
     except Exception:  # bad signature, expired, malformed — all mean "deny"
         return None
+    if current_app.extensions.get("sqlalchemy") is db:
+        from src.services.account_standing import account_can_act, actor_id_can_act
+
+        if data.get("club_user_id") is not None and not actor_id_can_act(data["club_user_id"]):
+            return None
+        # Also recheck legacy club/admin capabilities that carry only email.
+        user = (
+            db.session.get(UserAccount, data["club_user_id"], populate_existing=True)
+            if data.get("club_user_id")
+            else (
+                UserAccount.query.filter_by(email=data["email"]).populate_existing().first()
+                if data.get("email")
+                else None
+            )
+        )
+        if user is not None and (not account_can_act(user) or data.get("auth_epoch", 0) != (user.auth_epoch or 0)):
+            return None
     return data
 
 
@@ -483,7 +517,14 @@ def resolve_bearer_user() -> UserAccount | None:
     if not token:
         return None
 
-    data = _user_serializer().loads(token, max_age=USER_TOKEN_TTL_SECONDS)
+    # --- p2-b3 begin ---
+    from src.services.account_standing import AccountBindingUnavailable
+
+    try:
+        data = _user_serializer().loads(token, max_age=USER_TOKEN_TTL_SECONDS)
+    except AccountBindingUnavailable as exc:
+        raise LookupError("account not found") from exc
+    # --- p2-b3 end ---
     if not isinstance(data, dict):
         raise ValueError("invalid token payload")
     raw_email = data.get("email")
@@ -520,6 +561,8 @@ def resolve_bearer_user() -> UserAccount | None:
 
     if user is None or getattr(user, "is_tombstone", False):
         raise LookupError("account not found")
+    # Reuse this validated role in /auth/me without a second token decode.
+    g.user_token_role = data.get("role") or "user"
     return user
 
 
