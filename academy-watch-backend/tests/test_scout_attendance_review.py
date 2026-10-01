@@ -74,13 +74,17 @@ def test_m1_started_session_expires_pending_and_notifies_once(client, c4, read):
 
 
 @pytest.mark.parametrize("youth", [False, True])
-def test_m2_accepted_visible_and_rescind_is_versioned_audited_notified(client, c4, youth):
+@pytest.mark.parametrize("session_started", [False, True])
+def test_m2_accepted_visible_and_rescind_is_versioned_audited_notified(client, c4, youth, session_started):
     post = trial(client, c4)
     if youth:
         db.session.get(ClubOpportunity, post["id"]).birth_year_max = now().year - 16
         db.session.commit()
     row = ask(client, c4, post).get_json()["attendance"]
     accepted = answer(client, c4, row).get_json()["attendance"]
+    if session_started:
+        db.session.get(ClubOpportunity, post["id"]).starts_at = now() - timedelta(minutes=1)
+        db.session.commit()
     queues = today(client, c4)["queues"]
     assert queues["attendance"] == []
     accepted_row = queues["accepted_attendance"][0]

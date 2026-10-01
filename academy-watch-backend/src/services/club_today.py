@@ -90,7 +90,11 @@ def summary(program_id, *, accepted_after=None):
                         UserAccount.is_tombstone.is_(False),
                         ClubOpportunity.type.in_(("trial", "open_session")),
                         ClubOpportunity.status.in_(("published", "closed")),
-                        sa.func.coalesce(ClubOpportunity.starts_at, ClubOpportunity.ends_at) > now(),
+                        # Accepted permissions remain visible for check-in/rescinds;
+                        # only undecided requests expire at session start.
+                        sa.func.coalesce(ClubOpportunity.starts_at, ClubOpportunity.ends_at) > now()
+                        if state == "pending"
+                        else sa.true(),
                     )
                     .filter(
                         ScoutAttendance.id > accepted_after if state == "accepted" and accepted_after else sa.true()
