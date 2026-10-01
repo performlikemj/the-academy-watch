@@ -95,7 +95,8 @@ Both anonymous, one shared budget of 60/min per IP, `Cache-Control: no-store`, b
 
 - `GET /api/programs`: `country`/`region`/`city` (exact, case-insensitive — both sides folded by the
   database), `level`, `programme` (comma lists, any-of), `page` (≤100), `per_page` (≤50, default 20).
-- `POST /api/club-directory/search` (JSON body ≤ 2 kB, else 413): all of the above (`level`/`programme`
+- `POST /api/club-directory/search` (JSON body ≤ 2 kB, else 413 — a cap on the request stream itself, so chunked
+  bodies with no `Content-Length` are cut off at 2049 bytes too, never buffered): all of the above (`level`/`programme`
   may be lists) plus `q` (2–80 chars, LIKE-escaped; matches name, city, region, approved venue and
   postcode), `lat`,`lng` (numbers), `radius_km` (1–250).
 
