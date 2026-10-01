@@ -30,7 +30,7 @@
 - Cleanup complete: owned servers/SQLite/temp/build/browser output removed; tracked baseline browser report retained; no PostgreSQL DB created. Implementation627520a0; origin/main e82bb4e3 remains ancestor. Delivery: implementation627520a0 pushed with validation ledger d3f8baa7 to draft #1119; remote verified OPEN/DRAFT, PR body updated, no merge. Hand-back logs/UXM1F1.final.md.
 
 ## RUXM1V fix round 2
-- Status: in-progress; N2 signed-out checking state, N1 implicit-season request defaults, N3 explicit pick survives player link.
+- Status: validated; N1/N2/N3 fixed; delivery pending push of draft #1119, no merge.
 - Now: inspect request/label separation and extend mocked/real Flask browser regressions.
 - Next: main refresh, foreground full gates, push draft #1119 without merge, hand-back logs/UXM1F2.final.md.
 - Milestone: signed-out pill Get verified + login row CTA; request/default label separated; explicit selections preserved. Mocked desktop/mobile and real Flask older shadow15/limited30 regressions added. Main still e82bb4e3; no merge needed.
@@ -38,3 +38,6 @@
 - Initial browser37pass/3 test-assertion failures: modal hides header after delayed lookup; frozen source uses public_match_data wrapper. Corrected assertions; direct real HTTP already confirms shadow15/1200 and limited30/2500 with no param, both0 with explicit display. Full lane rerun40 in progress. Baseline evidence logs/UXM1F2.real-baselines.json.
 - Browser final: all40 lane checks pass (36 mocked desktop/mobile +4 real Flask/SQLite, freezeON); real freezeOFF repeat4pass. No API interception in real spec. Implicit shadow15/1200 and limited30/2500 match main; explicit display returns0 and calendar picks persist in links. Full pytest remains in progress with no failures.
 - Main refresh: #1113 advanced origin/main to784b1490. Interrupted only owned pre-main pytest (2800pass50skip/no failures) to restart on combined tree. Merge only conflicted CONTINUITY.md; retained both histories. UXM1 product/fixture/test files untouched by refresh; combined full gates restarting.
+- Combined main gates: Ruff/format571 clean; Node263 pass; lint0errors185inherited warnings; build pass. Foreground full pytest + lane40 (real freezeOFF) running at merge f6e73e3b; main parity remains exact for player routes/fallback models, logs/UXM1F2.real-main-baselines.json.
+- Combined browser final40pass (36 mocked +4 real freezeOFF); real freezeON repeat4pass. Owned5160/5210 servers stopped; temporary SQLite and generated build/browser outputs removed; tracked frontend report retained. Node263/lint0errors185warnings/build/Ruff-format571 green. Only full combined pytest remains.
+- Final combined full pytest4089passed/69skipped/0failed (953.63s); final Ruff0.16.0 check clean and format580 files clean. Removed unused fixture-only E402 suppression caught by pinned Ruff (no runtime change); earlier local0.15.22 checks also passed. Node263/lint0errors185inherited warnings/build/lane40+real frozen4 pass. Main refreshed again, still784b1490. Ready to push; no dependency restore/lockfile changes.

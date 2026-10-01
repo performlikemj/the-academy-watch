@@ -32,7 +32,7 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
 
 ## State
 
-- **Now (2026-10-01 UXM1F2):** RUXM1V N1/N2/N3 implemented on draft #1119; lane browser40 + real freezeOFF4 and frontend/Ruff gates pass. Main advanced to #1113/784b1490; merge retained both continuity histories, combined foreground gates underway. See `ledgers/CONTINUITY_uxm1.md`.
+- **Now (2026-10-01 UXM1F2):** All three RUXM1V findings fixed; combined main784b1490 gates green: full pytest4089/69skip, Node263, lane Playwright40 + real frozen4, CI Ruff-format580/lint/build. Push draft #1119 and hand-back next; no merge. See `ledgers/CONTINUITY_uxm1.md`.
 
 ### Done
 - **2026-10-01 UXM1F1:** all five RUXM1 findings fixed for draft #1119; server display season, unfiltered games, neutral verification/fallback, safe positions, single introductions load/retry. Main e82bb4e3 included; full pytest3766/50skip, Node257,216 unique modern Playwright/4existing skips, real Flask season+games freezeON/OFF, Ruff/format/lint/build pass. Own servers/SQLite/temp cleaned; no merge. Ledger `ledgers/CONTINUITY_uxm1.md`; report `~/codex-runs/aw-redesign/logs/UXM1F1.final.md`.

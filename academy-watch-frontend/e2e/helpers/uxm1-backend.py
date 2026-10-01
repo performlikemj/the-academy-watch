@@ -4,8 +4,6 @@ Run with the repository Python environment; no provider or production access.
 The real route blueprints and SQL queries serve every /api request.
 """
 
-# ruff: noqa: E402 -- configure offline mode and SQLite types before route imports
-
 import os
 import sys
 import tempfile
