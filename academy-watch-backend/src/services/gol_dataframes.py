@@ -44,7 +44,7 @@ class DataFrameCache:
     @staticmethod
     def _adult_frames(app, frames):
         """Recheck every cache read: DOB corrections/holds cannot wait for TTL."""
-        from src.services.public_adult import public_adult_ids
+        from src.services.public_adult import gol_public_adult_ids
 
         with app.app_context():
             ids = {
@@ -53,10 +53,7 @@ class DataFrameCache:
                 if "player_api_id" in frame.columns
                 for pid in frame["player_api_id"].dropna().unique()
             }
-            adults = set()
-            ids = sorted(ids)
-            for offset in range(0, len(ids), 500):
-                adults.update(public_adult_ids(ids[offset : offset + 500]))
+            adults = gol_public_adult_ids(ids)
             return {
                 name: frame.loc[frame["player_api_id"].isin(adults)].copy()
                 if "player_api_id" in frame.columns

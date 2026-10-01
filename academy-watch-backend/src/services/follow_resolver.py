@@ -15,7 +15,7 @@ import logging
 from src.models.follow import Follow, PlayerShadow
 from src.models.tracked_player import TrackedPlayer
 from src.services.player_suppression import without_active_suppression
-from src.services.public_adult import cached_public_adult_ids
+from src.services.public_adult import cached_public_adult_ids, filter_public_adult_query
 
 logger = logging.getLogger(__name__)
 
@@ -232,9 +232,27 @@ def _resolve_player(selector: dict, adult_player_ids: set[int]) -> list[tuple[in
     return []
 
 
-def _resolve_academy_club(selector: dict, limit: int | None) -> list[tuple[int, str]]:
+def _dynamic_base_query(eligibility_cache):
+    """One immutable scout query/season per request or digest run."""
     from src.routes.scout import _base_scout_query
 
+    key = "__scout_follow_base_query__"
+    if key not in eligibility_cache:
+        eligibility_cache[key] = _base_scout_query(adult_filter=False)
+    return eligibility_cache[key]
+
+
+def _dynamic_pairs(query, columns, cap, eligibility_cache):
+    query = filter_public_adult_query(query, columns["player_api_id"], eligibility_cache=eligibility_cache)
+    # Empty selectors should only perform the candidate read. Avoid compiling
+    # and executing the much wider stats payload query for a known empty set.
+    if not query.get_execution_options()["public_adult_candidate_count"]:
+        return []
+    rows = query.order_by(columns["player_api_id"]).limit(cap).all()
+    return [(row.player_api_id, "shadow" if row.is_local else "tracked") for row in rows]
+
+
+def _resolve_academy_club(selector: dict, limit: int | None, eligibility_cache: dict) -> list[tuple[int, str]]:
     # A saved future-funding program is an expansion-demand/notification
     # signal only. It must never resolve players or affect digest/ranking.
     if selector.get("program_id"):
@@ -242,25 +260,23 @@ def _resolve_academy_club(selector: dict, limit: int | None) -> list[tuple[int, 
     team_id = selector.get("team_id")
     if not team_id:
         return []
-    query, columns = _base_scout_query()
+    query, columns = _dynamic_base_query(eligibility_cache)
     query = query.filter(columns["primary_team_id"] == team_id)
     cap = min(limit or MAX_RESOLVE_PER_FOLLOW, MAX_RESOLVE_PER_FOLLOW)
-    rows = query.order_by(columns["player_api_id"]).limit(cap).all()
-    return [(row.player_api_id, "shadow" if row.is_local else "tracked") for row in rows]
+    return _dynamic_pairs(query, columns, cap, eligibility_cache)
 
 
-def _resolve_geo(selector: dict, limit: int | None) -> list[tuple[int, str]]:
+def _resolve_geo(selector: dict, limit: int | None, eligibility_cache: dict) -> list[tuple[int, str]]:
     from sqlalchemy import func
     from sqlalchemy.orm import aliased
     from src.models.league import Team
-    from src.routes.scout import _base_scout_query
 
     countries = selector.get("countries") or []
     if not countries:
         return []
     match = selector.get("match") or "playing_in"
     lowered = [c.lower() for c in countries]
-    query, columns = _base_scout_query()
+    query, columns = _dynamic_base_query(eligibility_cache)
     if match == "nationality":
         query = query.filter(func.lower(columns["nationality"]).in_(lowered))
     else:
@@ -271,15 +287,12 @@ def _resolve_geo(selector: dict, limit: int | None) -> list[tuple[int, str]]:
             func.lower(current_club.country).in_(lowered)
         )
     cap = min(limit or MAX_RESOLVE_PER_FOLLOW, MAX_RESOLVE_PER_FOLLOW)
-    rows = query.order_by(columns["player_api_id"]).limit(cap).all()
-    return [(row.player_api_id, "shadow" if row.is_local else "tracked") for row in rows]
+    return _dynamic_pairs(query, columns, cap, eligibility_cache)
 
 
-def _resolve_query(selector: dict, limit: int | None) -> list[tuple[int, str]]:
-    from src.routes.scout import _base_scout_query
-
+def _resolve_query(selector: dict, limit: int | None, eligibility_cache: dict) -> list[tuple[int, str]]:
     scout_args = selector.get("scout_args") or {}
-    query, columns = _base_scout_query()
+    query, columns = _dynamic_base_query(eligibility_cache)
 
     if scout_args.get("position"):
         query = query.filter(columns["position"] == scout_args["position"])
@@ -299,8 +312,7 @@ def _resolve_query(selector: dict, limit: int | None) -> list[tuple[int, str]]:
         query = query.filter(columns["minutes_played"] >= scout_args["min_minutes"])
 
     cap = min(limit or QUERY_FOLLOW_CAP, QUERY_FOLLOW_CAP)
-    rows = query.order_by(columns["player_api_id"]).limit(cap).all()
-    return [(row.player_api_id, "shadow" if row.is_local else "tracked") for row in rows]
+    return _dynamic_pairs(query, columns, cap, eligibility_cache)
 
 
 def resolve_list(follow_list, limit: int | None = None, *, eligibility_cache: dict | None = None) -> list[dict]:
@@ -313,10 +325,11 @@ def resolve_list(follow_list, limit: int | None = None, *, eligibility_cache: di
     loop. A digest may share its run-owned eligibility cache across lists and
     cursor pages; ordinary calls use a fresh cache.
     """
+    eligibility_cache = eligibility_cache if eligibility_cache is not None else {}
     follows = follow_list.follows.order_by(Follow.created_at.asc(), Follow.id.asc()).all()
     adult_player_ids = cached_public_adult_ids(
         ((follow.selector or {}).get("player_api_id") for follow in follows if follow.kind == "player"),
-        eligibility_cache if eligibility_cache is not None else {},
+        eligibility_cache,
     )
     seen: set[int] = set()
     result: list[dict] = []
@@ -326,11 +339,11 @@ def resolve_list(follow_list, limit: int | None = None, *, eligibility_cache: di
             if follow.kind == "player":
                 pairs = _resolve_player(selector, adult_player_ids)
             elif follow.kind == "academy_club":
-                pairs = _resolve_academy_club(selector, limit)
+                pairs = _resolve_academy_club(selector, limit, eligibility_cache)
             elif follow.kind == "geo":
-                pairs = _resolve_geo(selector, limit)
+                pairs = _resolve_geo(selector, limit, eligibility_cache)
             elif follow.kind == "query":
-                pairs = _resolve_query(selector, limit)
+                pairs = _resolve_query(selector, limit, eligibility_cache)
             else:
                 pairs = []
         except Exception:

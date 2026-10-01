@@ -22,7 +22,7 @@ from src.models.journey import PlayerJourney
 from src.models.league import Team, db
 from src.models.tracked_player import TrackedPlayer
 from src.services.journey_sync import JourneySyncService
-from src.services.public_adult import filter_public_adult_query, is_public_adult, public_adult_profile_ids
+from src.services.public_adult import filter_public_adult_query, gol_public_adult_ids, public_adult_profile_ids
 from src.services.transfer_resolver import resolve_transfer_state
 from src.utils.academy_classifier import (
     classify_tracked_player,
@@ -221,7 +221,7 @@ class GolPlayerLookup:
 
             DataFrameCache.invalidate()
 
-            if not is_public_adult(player_id):
+            if player_id not in gol_public_adult_ids([player_id]):
                 return {
                     "found": False,
                     "player_name": "",
@@ -300,12 +300,14 @@ class GolPlayerLookup:
                 func.lower(PlayerJourney.player_name) == target,
             ),
             PlayerJourney.player_api_id,
+            allow_journeys=True,
         ).first()
         if not journey:
             journey = (
                 filter_public_adult_query(
                     PlayerJourney.query.filter(PlayerJourney.player_name.ilike(f"%{name.strip()}%")),
                     PlayerJourney.player_api_id,
+                    allow_journeys=True,
                 )
                 .order_by(PlayerJourney.player_name)
                 .first()

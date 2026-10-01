@@ -65,3 +65,22 @@
 - Delivery: fix94b9683c3a70bc34cdc4fa5a65286a1578a362fd pushed; inline SHA reply https://github.com/performlikemj/the-academy-watch/pull/1116#discussion_r4151561223 . Final-head re-review command: `gh pr comment 1116 --body "@codex review"`.
 - Hand-back: ~/codex-runs/aw-redesign/logs/N3F3.final.md. Foreground commands only; no servers, persistent DB, provider sends or copied env. No merge/deploy.
 - Next: Codex/lead review.
+
+## Fix round 4 — PR #1116
+
+- State: in-progress; read RN3 findings in full; start1ca06807.
+- Scope: negative active-shadow conflicts; GOL journey-only identity adapter and replay invalidation; selective candidate eligibility, board/request and dynamic-follow/run reuse.
+- Gates: requested regressions/query counts, scratch aw_n3 synthetic3500 benchmark vs origin/main and prior head; Ruff/format, scout/GOL set, full pytest; push + PR impact/performance body; no merge.
+- Next: implement and validate; hand-back ~/codex-runs/aw-redesign/logs/N3F4.final.md; drop scratch DB and clean own files.
+- Done: shared negative-shadow DOB evidence; GOL-only journey adapter; revision v3 includes journey IDs; narrow union evidence and VALUES hold candidates; filters before evidence; immutable board bases and request/run eligibility cache.
+- Validation: adult regression file77 pass incl22 new cases; full source check four SQL regardless3500 IDs, replay revision eight SQL across500/501/3500 boundaries. Scratch aw_n3 cloned after source connection check; synthetic scale build in progress.
+- Next: requested scout/GOL gate, exact synthetic3500 measurements, full pytest/Ruff, push/body/report/cleanup.
+- Gates: requested318-test scout/GOL set now340 passed in121.62s; Ruff check/format535 pass; diff whitespace clean. Full pytest running.
+- Performance tuning: PostgreSQL hold relation uses one array bind (SQLite VALUES retained); dynamic follows share one immutable base/season and skip payload SQL when eligible candidates are empty. Smoke SQL browse49→11, boards186→11; initial five-empty timing missed1.5× main, so final tuning/measurement required. Initial full suite deliberately superseded after2457pass/47skip, no failures; final full gate will run after tuning.
+- Impact: exact212 journey-only adult IDs restored to GOL; scout/Phase2 helper admits0 of those212.
+- Validation: final performance/policy focused246 pass after base-query/empty-result changes; added mixed query/geo/academy reuse regression. Final30-request interleaved benchmark running without our test process; full gate will rerun after numbers meet targets.
+- FINAL scale benchmark30 samples/version+2 warmups, rotating order: browse main379ms/before798/after458 SQL6/49/11; boards1479/2705/864 SQL14/186/11; empty search35/643/39 SQL4/47/5; five empty follows95/1881/43 SQL15/230/7. All p50≤1.5×main and SQL budgets pass. DB4480tracked/3500IDs/86940stats; no own tests during final timing.
+- Final focused gate341 pass in72.10s (original318+23 new); PostgreSQL array/scalar hold, negative-conflict, journey identity and suppression checks pass in rolled-back scratch transaction. Original desk828→744 unchanged;212 GOL journey adults restored. Final full pytest running.
+- Gates: FINAL full pytest3353 passed/47 skipped/121 warnings in446.25s; final scout/GOL341 pass (78 adult cases), Ruff check+format535 clean, diff whitespace clean. All23 new cases pass; no dependency/lockfile changes.
+- Cleanup: aw_n3 dropped and absence verified; PostgreSQL probes rolled back; reproduction scripts/results retained in external logs; no owned servers or background shell commands.
+- Next: commit/push, update PR1116 impact/performance body, complete hand-back/BUS/ledgers.

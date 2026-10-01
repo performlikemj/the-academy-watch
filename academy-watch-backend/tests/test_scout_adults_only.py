@@ -287,9 +287,9 @@ def test_digest_eligibility_queries_once_per_player_per_run_across_pages(app, de
         assert summary["users_considered"] == summary["would_send"] == len(users)
         assert summary["errors"] == summary["skipped"] == 0
         assert evaluations == Counter({1800: run, 1810: run})
-        # Six source/hold queries per check, independent of eight watchers and
+        # Four source/hold queries per check, independent of eight watchers and
         # four pages. List resolution batches both IDs in one check.
-        assert len(queries) == run * (6 if source == "list" else 12)
+        assert len(queries) == run * (4 if source == "list" else 8)
     assert ScoutWatchlistEntry.query.filter_by(player_api_id=1810).count() >= 1
     assert FollowPlayerSnapshot.query.count() == 0  # dry runs never persist baselines
 
@@ -373,7 +373,7 @@ def test_hidden_capacity_allows_add_with_bounded_eligibility_sql(client, desk, m
     response = client.post(path, json=payload, headers=desk.headers)
     assert response.status_code == 201, response.get_json()
     assert batches == [hidden_ids]  # one capacity evaluation, independent of row count
-    assert len(queries) == 6  # source evidence and holds, never six queries per row
+    assert len(queries) == 4  # narrow evidence and holds, independent of saved-row count
 
     if source == "list":
         body = client.get("/api/scout/lists", headers=desk.headers).get_json()["lists"][0]
@@ -550,7 +550,20 @@ def test_gol_cannot_call_unverified_web_discovery(monkeypatch):
     assert service._execute_tool("search_web", {"query": "best U18 players"})["result_type"] == "error"
 
 
-@pytest.mark.parametrize("change", ["minor", "unknown", "add_adult", "delete_tracked", "delete_shadow", "delete_local"])
+@pytest.mark.parametrize(
+    "change",
+    [
+        "minor",
+        "unknown",
+        "add_adult",
+        "delete_tracked",
+        "delete_shadow",
+        "delete_local",
+        "local_shadow_minor",
+        "delete_journey",
+        "journey_minor",
+    ],
+)
 def test_paid_gol_replay_rechecks_adult_eligibility_before_returning_stored_answer(
     app, client, desk, monkeypatch, change
 ):
@@ -567,7 +580,11 @@ def test_paid_gol_replay_rechecks_adult_eligibility_before_returning_stored_answ
         pid = 9900
         model = PlayerShadow
         db.session.add(PlayerShadow(player_api_id=pid, player_name="Stored adult", birth_date=date(2000, 1, 1)))
-    elif change == "delete_local":
+    elif change in {"delete_journey", "journey_minor"}:
+        model = PlayerJourney
+        pid = 9900
+        db.session.add(PlayerJourney(player_api_id=pid, player_name="Stored adult", birth_date="2000-01-01"))
+    elif change in {"delete_local", "local_shadow_minor"}:
         model = LocalPlayer
         local = LocalPlayer(
             display_name="Stored adult", status="approved", provenance="community", birth_date=date(2000, 1, 1)
@@ -575,8 +592,12 @@ def test_paid_gol_replay_rechecks_adult_eligibility_before_returning_stored_answ
         db.session.add(local)
         db.session.flush()
         local.api_player_id = pid = -local.id
+        if change == "local_shadow_minor":
+            db.session.add(PlayerShadow(player_api_id=pid, player_name="Stored adult", birth_date=date(2000, 1, 1)))
     db.session.commit()
-    assert public_adult_ids([pid]) == {pid}
+    from src.services.public_adult import gol_public_adult_ids
+
+    assert gol_public_adult_ids([pid]) == {pid}
     # A model-free initial answer containing a currently eligible adult.
     monkeypatch.setattr(GolService, "__init__", lambda self, **kwargs: None)
     monkeypatch.setattr(
@@ -606,13 +627,17 @@ def test_paid_gol_replay_rechecks_adult_eligibility_before_returning_stored_answ
                 player_api_id=9900, player_name="Unrelated adult", team_id=desk.team.id, birth_date="2000-01-01"
             )
         )
+    elif change == "local_shadow_minor":
+        PlayerShadow.query.filter_by(player_api_id=pid).update({"birth_date": date(2015, 1, 1)})
+    elif change == "journey_minor":
+        PlayerJourney.query.filter_by(player_api_id=pid).update({"birth_date": "2015-01-01"})
     else:
         TrackedPlayer.query.filter_by(player_api_id=pid).update(
             {"birth_date": "2015-01-01" if change == "minor" else None}
         )
     db.session.commit()
     if change != "add_adult":
-        assert public_adult_ids([pid]) == set()
+        assert gol_public_adult_ids([pid]) == set()
     replay = client.post("/api/gol/chat", json=payload, headers=desk.headers)
     assert replay.status_code == 409
     assert replay.get_json() == {"error": "client_msg_id_reused"}
@@ -620,7 +645,7 @@ def test_paid_gol_replay_rechecks_adult_eligibility_before_returning_stored_answ
     assert GolCreditLedger.query.filter_by(client_msg_id="n3_replay_adult", kind="debit").count() == 1
 
 
-@pytest.mark.parametrize("additional,expected_queries", [(0, 9), (490, 9), (491, 15)])
+@pytest.mark.parametrize("additional,expected_queries", [(0, 8), (490, 8), (491, 8), (3490, 8)])
 def test_gol_policy_revision_queries_are_batched(app, desk, additional, expected_queries):
     from src.services.public_adult import scout_adult_policy_revision
 
@@ -644,3 +669,242 @@ def test_gol_policy_revision_queries_are_batched(app, desk, additional, expected
     assert len(revision) == 64
     assert len(statements) == expected_queries
     print(f"GOL policy revision: {10 + additional} known IDs, {len(statements)} SQL queries")
+
+
+@pytest.mark.parametrize("include_local", [False, True])
+def test_negative_shadow_dob_conflict_across_all_reads(app, client, desk, monkeypatch, include_local):
+    from src.services.gol_dataframes import DataFrameCache
+    from src.services.scout_digest_service import _player_state
+
+    monkeypatch.setenv("SCOUT_INCLUDE_LOCAL_PLAYERS", "1" if include_local else "0")
+    local = LocalPlayer(
+        display_name="Conflicting local", status="approved", provenance="community", birth_date=date(2000, 1, 1)
+    )
+    db.session.add(local)
+    db.session.flush()
+    local.api_player_id = pid = -local.id
+    shadow = PlayerShadow(player_api_id=pid, player_name=local.display_name, birth_date=date(2000, 1, 1))
+    db.session.add_all(
+        [
+            shadow,
+            ScoutWatchlistEntry(user_account_id=desk.user.id, player_api_id=pid),
+            Follow(
+                list_id=desk.follow_list.id, kind="player", selector={"player_api_id": pid}, label=local.display_name
+            ),
+        ]
+    )
+    db.session.commit()
+    assert public_adult_ids([pid]) == {pid}
+    frames = {name: pd.DataFrame({"player_api_id": [pid]}) for name in ("players", "journey_entries", "fixture_stats")}
+    assert _player_state(pid, {})["kind"] != "none"
+    shadow.birth_date = date(2015, 1, 1)
+    db.session.commit()
+    assert public_adult_ids([pid]) == set()
+    assert pid not in {row["player_id"] for row in client.get("/api/scout/players?per_page=100").get_json()["players"]}
+    assert pid not in client.get("/api/scout/watchlist/ids", headers=desk.headers).get_json()["player_ids"]
+    assert pid not in {
+        row["player_api_id"] for row in client.get("/api/scout/watchlist", headers=desk.headers).get_json()["entries"]
+    }
+    body = client.get("/api/scout/lists", headers=desk.headers).get_json()["lists"][0]
+    assert pid not in {row["selector"]["player_api_id"] for row in body["follows"]}
+    assert _player_state(pid, {})["kind"] == "none"
+    assert all(frame.empty for frame in DataFrameCache._adult_frames(app, frames).values())
+    assert Follow.query.filter_by(kind="player").count() == len(desk.ids) + 1
+
+
+@pytest.mark.parametrize("case", ["adult", "minor", "unknown", "invalid", "held", "suppressed", "bridge", "conflict"])
+def test_gol_journey_only_identity_keeps_shared_vetoes(app, client, desk, monkeypatch, case):
+    from src.models.funding import ClubProgram, ClubRosterMember, FundingLeague
+    from src.models.player_suppression import PlayerSuppression
+    from src.services.gol_dataframes import DataFrameCache
+    from src.services.gol_player_lookup import GolPlayerLookup
+    from src.services.public_adult import gol_public_adult_ids
+
+    pid = 9900
+    dob = {"minor": "2015-01-01", "unknown": None, "invalid": "unknown"}.get(case, "2000-01-01")
+    db.session.add(PlayerJourney(player_api_id=pid, player_name="Journey-only fixture", birth_date=dob))
+    if case == "held":
+        league = FundingLeague(
+            name="Hold fixture",
+            country="JP",
+            region="Fixture",
+            level="recreational",
+            gender_program="both",
+            season_calendar="calendar_year",
+            data_tier="self_reported",
+            registry_status="approved",
+            admission_state="open",
+        )
+        db.session.add(league)
+        db.session.flush()
+        program = ClubProgram(
+            funding_league_id=league.id,
+            name="Hold fixture",
+            legal_name="Hold fixture",
+            slug="hold-fixture",
+            country="JP",
+            region="Fixture",
+            platform_status="approved",
+            emergency_hidden=True,
+        )
+        db.session.add(program)
+        db.session.flush()
+        db.session.add(ClubRosterMember(program_id=program.id, player_api_id=pid, added_by_user_id=desk.user.id))
+    elif case == "suppressed":
+        monkeypatch.delenv("PLAYER_SUPPRESSION_ENCRYPTION_KEY", raising=False)
+        db.session.add(
+            PlayerSuppression(
+                player_api_id=pid,
+                reason_code="player_request",
+                requester_role="player",
+                requester_contact="fixture@example.test",
+                request_statement="Fixture",
+                status="active",
+            )
+        )
+    elif case == "bridge":
+        db.session.add(
+            LocalPlayer(
+                display_name="Club bridge",
+                api_player_id=pid,
+                provenance="club",
+                status="approved",
+                birth_date=date(2000, 1, 1),
+            )
+        )
+    elif case == "conflict":
+        db.session.add(PlayerShadow(player_api_id=pid, player_name="Conflicting shadow", birth_date=date(2015, 1, 1)))
+    db.session.commit()
+    expected = {pid} if case == "adult" else set()
+    assert gol_public_adult_ids([pid]) == expected
+    assert public_adult_ids([pid]) == set()  # Phase 2/scout universe is unchanged.
+    assert pid not in {row["player_id"] for row in client.get("/api/scout/players?per_page=100").get_json()["players"]}
+    frames = {name: pd.DataFrame({"player_api_id": [pid]}) for name in ("journeys", "journey_entries", "fixture_stats")}
+    assert all(set(frame["player_api_id"]) == expected for frame in DataFrameCache._adult_frames(app, frames).values())
+    result = GolPlayerLookup(app)._find_existing("Journey-only fixture")
+    assert (result is not None) == bool(expected)
+    if result:
+        assert result["source"] == "journey"
+
+
+@pytest.fixture
+def scale_desk(desk):
+    db.session.add_all(
+        TrackedPlayer(
+            player_api_id=10000 + index,
+            player_name="Scale adult",
+            team_id=desk.team.id,
+            birth_date="2000-01-01",
+            nationality="England",
+            position="Goalkeeper",
+            is_active=True,
+        )
+        for index in range(3490)
+    )
+    db.session.commit()
+    return desk
+
+
+@pytest.mark.parametrize("endpoint,budget", [("players", 12), ("leaderboards", 25)])
+def test_scout_scale_query_budget_and_request_freshness(client, scale_desk, endpoint, budget):
+    statements = []
+
+    def counted(conn, cursor, statement, parameters, context, executemany):
+        statements.append(statement)
+
+    sa.event.listen(db.engine, "before_cursor_execute", counted)
+    try:
+        response = client.get(f"/api/scout/{endpoint}?limit=25")
+    finally:
+        sa.event.remove(db.engine, "before_cursor_execute", counted)
+    assert response.status_code == 200, response.get_json()
+    assert len(statements) <= budget
+    print(f"Scale {endpoint}: {len(statements)} SQL")
+    # A new request must recheck a DOB correction.
+    TrackedPlayer.query.filter_by(player_api_id=1800).update({"birth_date": "2015-01-01"})
+    db.session.commit()
+    body = client.get(f"/api/scout/{endpoint}?limit=25").get_json()
+    rows = (
+        body["players"] if endpoint == "players" else [row for board in body["leaderboards"].values() for row in board]
+    )
+    assert 1800 not in {row["player_id"] for row in rows}
+
+
+@pytest.mark.parametrize(
+    "kind,empty", [(kind, empty) for kind in ("query", "geo", "academy_club") for empty in (False, True)]
+)
+def test_dynamic_follow_scale_cache_and_query_budget(scale_desk, monkeypatch, kind, empty):
+    from src.services import public_adult
+    from src.services.follow_resolver import resolve_list
+    from src.services.scout_digest_service import _player_state
+
+    Follow.query.delete()
+    selector = {
+        "query": {"scout_args": {"nationality": "Absent" if empty else "England"}},
+        "geo": {"countries": ["Absent" if empty else "England"], "match": "nationality"},
+        "academy_club": {"team_id": 99999 if empty else scale_desk.team.id},
+    }[kind]
+    db.session.add_all(
+        Follow(list_id=scale_desk.follow_list.id, kind=kind, selector=selector, label="Scale") for _ in range(5)
+    )
+    db.session.commit()
+    calls, statements = [], []
+    check = public_adult.public_adult_ids
+
+    def checked(ids):
+        ids = set(ids)
+        calls.append(ids)
+        return check(ids)
+
+    def counted(conn, cursor, statement, parameters, context, executemany):
+        statements.append(statement)
+
+    monkeypatch.setattr(public_adult, "public_adult_ids", checked)
+    cache = {}
+    sa.event.listen(db.engine, "before_cursor_execute", counted)
+    try:
+        result = resolve_list(scale_desk.follow_list, eligibility_cache=cache)
+    finally:
+        sa.event.remove(db.engine, "before_cursor_execute", counted)
+    assert len(statements) <= 30
+    assert len(calls) == (0 if empty else 1)
+    assert bool(result) != empty
+    print(f"Scale five {kind} follows empty={empty}: {len(statements)} SQL")
+    resolve_list(scale_desk.follow_list, eligibility_cache=cache)
+    if not empty:
+        _player_state(result[0]["player_api_id"], cache)
+    assert len(calls) == (0 if empty else 1)  # later lists/player states share the run cache
+    resolve_list(scale_desk.follow_list, eligibility_cache={})
+    assert len(calls) == (0 if empty else 2)  # the next run evaluates again
+
+
+def test_mixed_dynamic_follows_share_eligibility_across_kinds_and_lists(scale_desk, monkeypatch):
+    from src.services import public_adult
+    from src.services.follow_resolver import resolve_list
+
+    Follow.query.delete()
+    db.session.add_all(
+        Follow(list_id=scale_desk.follow_list.id, kind=kind, selector=selector, label="Mixed scale")
+        for kind, selector in (
+            ("query", {"scout_args": {"nationality": "England"}}),
+            ("geo", {"countries": ["England"], "match": "nationality"}),
+            ("academy_club", {"team_id": scale_desk.team.id}),
+        )
+    )
+    db.session.commit()
+    evaluations = Counter()
+    check = public_adult.public_adult_ids
+
+    def checked(ids):
+        ids = set(ids)
+        evaluations.update(ids)
+        return check(ids)
+
+    monkeypatch.setattr(public_adult, "public_adult_ids", checked)
+    cache = {}
+    resolve_list(scale_desk.follow_list, eligibility_cache=cache)
+    assert evaluations == Counter(dict.fromkeys(scale_desk.ids | set(range(10000, 13490)), 1))
+    resolve_list(scale_desk.follow_list, eligibility_cache=cache)
+    assert all(count == 1 for count in evaluations.values())
+    resolve_list(scale_desk.follow_list, eligibility_cache={})
+    assert all(count == 2 for count in evaluations.values())

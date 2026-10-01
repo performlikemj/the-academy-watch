@@ -477,7 +477,6 @@ def _scout_identity_subquery(*, include_local=None):
         )
     )
 
-    tracked = filter_public_adult_query(tracked, TrackedPlayer.player_api_id)
     if include_local is None:
         include_local = _local_players_enabled()
     if not include_local:
@@ -532,11 +531,12 @@ def _scout_identity_subquery(*, include_local=None):
             ~active_local_suppression_exists(LocalPlayer.id),
         )
     )
-    local = filter_public_adult_query(local, PlayerShadow.player_api_id)
     return tracked.union_all(local).subquery("scout_identity")
 
 
-def _base_scout_query(requested_season=None, *, allow_rollup=True, legacy_season=None, include_local=None):
+def _base_scout_query(
+    requested_season=None, *, allow_rollup=True, legacy_season=None, include_local=None, adult_filter=True
+):
     """Normalized player-universe rows joined to one season's stats."""
     from src.utils.academy_window import resolve_stats_season, stats_season_with_data
 
@@ -709,6 +709,8 @@ def _base_scout_query(requested_season=None, *, allow_rollup=True, legacy_season
     }
     for key in PHASE_STAT_KEYS:
         columns[key] = phase_column_exprs[key]
+    if adult_filter:
+        query = filter_public_adult_query(query, columns["player_api_id"])
     return query, columns
 
 
@@ -962,7 +964,7 @@ def scout_players():
     - page / per_page: pagination (per_page max 100)
     """
     try:
-        query, columns = _base_scout_query(request.args.get("season") or None)
+        query, columns = _base_scout_query(request.args.get("season") or None, adult_filter=False)
         query, error = _apply_filters(query, columns)
         if error:
             return error
@@ -976,6 +978,7 @@ def scout_players():
             min_minutes = request.args.get("min_minutes", type=int) or 0
             query = query.filter(columns["minutes_played"] >= max(min_minutes, PER90_MIN_MINUTES))
 
+        query = filter_public_adult_query(query, columns["player_api_id"])
         default_order = "asc" if sort in ("name", "age") else "desc"
         order = request.args.get("order", default_order).strip().lower()
         if order == "desc":
@@ -1088,21 +1091,28 @@ def scout_leaderboards():
             allow_history=use_rollup,
         )
 
+        # Immutable base queries and one caller-owned eligibility snapshot serve
+        # every board, including the mixed rollup/fixture phases.
+        base_queries = {}
+        eligibility_cache = {}
+
         def board(sort_key, extra_min_minutes=0, board_order="desc"):
             board_uses_rollup = use_rollup and sort_key in ROLLUP_LEADERBOARD_SORT_KEYS
-            query, columns = _base_scout_query(
-                requested_season if board_uses_rollup else None,
-                allow_rollup=board_uses_rollup,
-                legacy_season=season if use_rollup and not board_uses_rollup else None,
-            )
-            query, error = _apply_filters(query, columns, exclude_self_by_default=True)
-            if error:
-                return None, error
-            if phase == "gk":
-                # Outfielders aggregate goals_conceded/saves as 0, which would
-                # top every ascending GK board — clamp regardless of the
-                # caller's position filter.
-                query = query.filter(columns["position"] == "Goalkeeper")
+            if board_uses_rollup not in base_queries:
+                query, columns = _base_scout_query(
+                    requested_season if board_uses_rollup else None,
+                    allow_rollup=board_uses_rollup,
+                    legacy_season=season,
+                    adult_filter=False,
+                )
+                query, error = _apply_filters(query, columns, exclude_self_by_default=True)
+                if error:
+                    return None, error
+                if phase == "gk":
+                    query = query.filter(columns["position"] == "Goalkeeper")
+                query = filter_public_adult_query(query, columns["player_api_id"], eligibility_cache=eligibility_cache)
+                base_queries[board_uses_rollup] = query, columns
+            query, columns = base_queries[board_uses_rollup]
             if extra_min_minutes:
                 query = query.filter(columns["minutes_played"] >= extra_min_minutes)
             sort_expr = _sort_expression(sort_key, columns)
@@ -1355,11 +1365,12 @@ def scout_compare():
             else {}
         )
 
-        candidate_query, candidate_columns = _base_scout_query(requested_season)
+        candidate_query, candidate_columns = _base_scout_query(requested_season, adult_filter=False)
         candidate_query = candidate_query.filter(candidate_columns["player_api_id"].in_(player_ids))
         candidate_query, source_error = _apply_source_filter(candidate_query, candidate_columns)
         if source_error:
             return source_error
+        candidate_query = filter_public_adult_query(candidate_query, candidate_columns["player_api_id"])
         candidate_payloads = {}
         for candidate_row in candidate_query.all():
             candidate_payload = _row_to_dict(candidate_row)
@@ -1597,8 +1608,9 @@ def _watched_player_dicts(player_api_ids):
     ids = [pid for pid in set(player_api_ids) if pid]
     if not ids:
         return {}
-    query, columns = _base_scout_query(include_local=True)
-    rows = query.filter(columns["player_api_id"].in_(ids)).all()
+    query, columns = _base_scout_query(include_local=True, adult_filter=False)
+    query = query.filter(columns["player_api_id"].in_(ids))
+    rows = filter_public_adult_query(query, columns["player_api_id"]).all()
     players = [_row_to_dict(row) for row in rows]
     _attach_recent_form(players)
     return {p["player_id"]: p for p in players}
@@ -1882,7 +1894,7 @@ def scout_export_csv():
     other filters except sort/order. Capped at 1000 rows.
     """
     try:
-        query, columns = _base_scout_query(request.args.get("season") or None)
+        query, columns = _base_scout_query(request.args.get("season") or None, adult_filter=False)
 
         raw_ids = [p.strip() for p in request.args.get("ids", "").split(",") if p.strip()]
         if raw_ids:
@@ -1909,6 +1921,7 @@ def scout_export_csv():
             min_minutes = request.args.get("min_minutes", type=int) or 0
             query = query.filter(columns["minutes_played"] >= max(min_minutes, PER90_MIN_MINUTES))
 
+        query = filter_public_adult_query(query, columns["player_api_id"])
         default_order = "asc" if sort in ("name", "age") else "desc"
         order = request.args.get("order", default_order).strip().lower()
         if order == "desc":
