@@ -31,7 +31,7 @@ import { useAuth, useAuthUI } from '@/context/AuthContext'
 import { track } from '@/lib/track'
 import { useContactRail } from '@/hooks/useContactRail.js'
 import { useClubStaffAccess } from '@/hooks/useClubStaffAccess'
-import { can } from '@/lib/staff-access'
+import { can, introductionsPanelState } from '@/lib/staff-access'
 import { formatDateOnly } from '@/lib/dateOnly'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import {
@@ -2640,7 +2640,11 @@ export function MyClubConsole({
       roster: allow('players.manage') && <RosterPanel programId={programId} members={members} systemBrief={systemBrief} loading={rosterLoading} error={rosterError} onMembersChange={setMembers} onSystemBriefChange={setSystemBrief} onReload={loadRoster} onAccessDenied={onAccessDenied} />,
       matches: <MatchesPanel key={programId} programId={programId} rosterMembers={members} matches={matches} loading={matchesLoading} error={matchesError} loadFailureCount={matchesLoadFailureCount} uploadGrants={uploadGrants} onMatchesChange={setMatches} onUploadGrantChange={setGrant} onReload={loadMatches} onAccessDenied={onAccessDenied} canUpload={allow('matches.upload')} canResults={allow('results')} chooseSquad={staffFlag === true} squadRequired={Boolean(access && access.whole_club === false)} />,
       profile: allow('branding') && <ClubProfile program={program} claim={programClaim} onAccessDenied={onAccessDenied} />,
-      introductions: !allow('contact') ? null : contactRail === true ? <ClubIntroductionsPanel programId={programId} onAccessDenied={onAccessDenied} /> : <p>Scout introductions are not enabled for this club.</p>,
+      introductions: {
+        panel: <ClubIntroductionsPanel programId={programId} onAccessDenied={onAccessDenied} />,
+        unavailable: <p>Scout introductions are not enabled for this club.</p>,
+        hidden: null,
+      }[introductionsPanelState(access, contactRail)],
       affiliations: moderationContent || <p>No affiliations need review.</p>,
     }} moderationCount={moderationCount}
   />

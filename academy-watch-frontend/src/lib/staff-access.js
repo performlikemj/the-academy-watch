@@ -17,6 +17,34 @@ export function can(access, capability) {
   return !access || (Array.isArray(access.capabilities) && access.capabilities.includes(capability))
 }
 
+// Which Club Home views this caller may open. access === null (flag off, or a claim-verified manager whose
+// access hasn't been fetched) allows everything, exactly as before staff access existed.
+export function clubViewAllowed(access, staffAccessEnabled = false) {
+  const allow = (capability) => can(access, capability)
+  return {
+    today: true,
+    map: allow('players.view'),
+    squad: allow('players.view'),
+    player: allow('players.view'),
+    matches: allow('matches.view'),
+    recruiting: allow('recruiting'),
+    introductions: allow('contact'),
+    branding: allow('branding'),
+    profile: allow('branding'),
+    squads: allow('players.manage'),
+    roster: allow('players.manage'),
+    staff: allow('staff.directory') || (Boolean(staffAccessEnabled) && allow('access.view')),
+    affiliations: !access || Boolean(access.verified),
+  }
+}
+
+// What the Scouts / Introductions view shows: 'panel' (the club introductions panel), 'unavailable' (the
+// "not enabled" note while the contact rail flag is off or unknown) or 'hidden' (role lacks the contact capability).
+export function introductionsPanelState(access, contactRail) {
+  if (!can(access, 'contact')) return 'hidden'
+  return contactRail === true ? 'panel' : 'unavailable'
+}
+
 export function staffAccessFromFeatures(res) {
   return Boolean(res && res.club_staff_access === true)
 }
