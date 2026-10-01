@@ -201,6 +201,11 @@ for (const width of [390, 1440]) for (const route of ['/my-club?program=7&view=s
     await mock(page, { role: route.startsWith('/admin') ? 'admin' : 'owner' })
     await page.goto(route)
     await expect(page.getByRole('heading').first()).toBeVisible()
+    if (route === '/account/billing') {
+      await expect(page.getByRole('heading', { name: 'Billing', exact: true })).toBeVisible()
+      await expect(page.getByText('Renews on 27 Oct 2026', { exact: true })).toBeVisible()
+    }
+    await page.evaluate(() => document.fonts.ready)
     const launcher = page.getByRole('button', { name: 'Open GOL Assistant chat', exact: true })
     await expect(launcher).toHaveCount(1)
     await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
@@ -220,7 +225,9 @@ for (const width of [390, 1440]) for (const route of ['/my-club?program=7&view=s
       const bounds = await last.boundingBox()
       expect(bounds.y + bounds.height).toBeLessThanOrEqual(button.y)
     }
-    expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false)
+    // Check settled geometry after async content/font layout. Persistent
+    // overflow still fails within the bounded wait.
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false)
   })
 }
 
