@@ -26,6 +26,7 @@ struct AccountView: View {
     let fixtureDestination: FullCircleFixtureDestination?
     let onSignInRequested: () -> Void
     let onGolRequested: () -> Void
+    var phase2Membership: ClubMembership? = nil
 
     @State private var isDeleteAccountPresented = false
     @State private var hasApprovedPlayerClaim = false
@@ -141,6 +142,9 @@ struct AccountView: View {
                     .accessibilityIdentifier("gol-entry")
                     if displaysSignedInAccount {
                         signedInHeader
+                        if let membership = phase2Membership, membership.access.canManageAccess {
+                            NavigationLink { StaffAccessView(programId: membership.id, client: apiClient) } label: { Label("Staff & access", systemImage: "person.badge.key") }.accessibilityIdentifier("account-staff-access")
+                        }
                         identityOnboardingSection
                         verificationSection
                         contactSection

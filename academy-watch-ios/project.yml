@@ -31,6 +31,7 @@ targets:
           - InstrumentSerif-Italic.ttf
           - Geist.ttf
           - GeistMono.ttf
+        NSLocationWhenInUseUsageDescription: Find approved clubs near your location. Your location is used only when you ask to search nearby.
         LSRequiresIPhoneOS: true
         UILaunchScreen:
           UIColorName: LaunchBackground
@@ -112,6 +113,7 @@ schemes:
       targets:
         - name: AcademyWatchUITests
           selectedTests:
+            - Phase2UITests
             - PlayerClubExperienceUITests
             - JourneyRunnerUITests
             - GolChatUITests

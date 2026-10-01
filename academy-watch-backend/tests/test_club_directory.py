@@ -427,7 +427,7 @@ def test_console_local_club_is_listed_but_a_real_unapproved_league_is_not(client
     assert [club["name"] for club in body["clubs"]] == ["Console Local Town"]
     assert body["total"] == 1
     card = body["clubs"][0]
-    assert set(card) == CARD_KEYS
+    assert set(card) - {"open_opportunities"} == CARD_KEYS  # optional B2 aggregate, when its service is installed
     # The reserved league is plumbing, not a public league name.
     assert card["league"] is None
     assert CONSOLE_LEAGUE_NAME not in json.dumps(body)
@@ -582,7 +582,7 @@ def test_card_is_an_exact_allowlist_and_never_carries_people(client, on):
         body = response.get_json()
         assert set(body) == {"clubs", "page", "per_page", "total", "has_more", "filters"}
         (card,) = body["clubs"]
-        assert set(card) == CARD_KEYS
+        assert set(card) - {"open_opportunities"} == CARD_KEYS  # optional B2 aggregate, when its service is installed
         assert set(card["brand"]) == {"primary_color", "accent_color"}
         assert set(card["venue"]) == {"name", "postcode", "latitude", "longitude"}
         assert card["league"] == {"name": "Harbour County League"}

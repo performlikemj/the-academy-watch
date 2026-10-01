@@ -367,7 +367,7 @@ enum ContactOutcomeStage: String, Codable, CaseIterable, Equatable, Sendable {
     var displayName: String {
         switch self {
         case .contacted: "Contacted"
-        case .trialScheduled: "Trial scheduled"
+        case .trialScheduled: "Trial booked"
         case .trialCompleted: "Trial completed"
         case .signed: "Signed"
         case .noFit: "No fit"

@@ -75,7 +75,7 @@ final class ScoutDeskViewModel: ObservableObject {
     ) {
         self.apiClient = apiClient
         #if DEBUG && targetEnvironment(simulator)
-        self.responseCache = FloodlightPreview.isActive ? FloodlightPreviewCache() : responseCache
+        self.responseCache = (FloodlightPreview.isActive || Phase2Fixtures.active) ? FloodlightPreviewCache() : responseCache
         #else
         self.responseCache = responseCache
         #endif

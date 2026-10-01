@@ -39,6 +39,10 @@ struct AcademyWatchApp: App {
         FloodlightNativeAppearance.configure()
         LaunchPerformance.markLaunchStarted()
         #if DEBUG && targetEnvironment(simulator)
+        if Phase2Fixtures.active {
+            UserDefaults.standard.set(Phase2Fixtures.isClubExperience ? "club" : "player", forKey: ExperienceRole.storageKey)
+            return
+        }
         if FloodlightPreview.isActive { return }
         do {
             try ExperienceRole.applySimulatorLaunchArguments(ProcessInfo.processInfo.arguments)
@@ -60,7 +64,9 @@ struct AcademyWatchApp: App {
         WindowGroup {
             Group {
                 #if DEBUG && targetEnvironment(simulator)
-                if let screen = FloodlightPreview.screen {
+                if let screen = Phase2Fixtures.screen {
+                    Phase2PreviewRoot(screen: screen)
+                } else if let screen = FloodlightPreview.screen {
                     FloodlightPreviewRoot(screen: screen)
                 } else {
                     normalRoot

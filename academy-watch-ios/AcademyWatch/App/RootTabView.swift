@@ -6,8 +6,19 @@ enum RootTab: String, Hashable {
     case watchlist
     case lists
     case account
+    case clubs, trials, applied, squads, matches, recruiting
 
-    static func available(for role: ExperienceRole?) -> [RootTab] {
+    static func available(for role: ExperienceRole?, flags: Phase2Flags? = nil, access: ClubAccess? = nil) -> [RootTab]
+    {
+        if let flags, role == .player, flags.directory || flags.opportunities || flags.applications {
+            return [.home] + (flags.directory ? [.clubs] : []) + (flags.opportunities ? [.trials] : [])
+                + (flags.applications ? [.applied] : []) + [.account]
+        }
+        if let flags, role == .club, flags.staff {
+            return [.home] + (access?.can("players.view") == true ? [.squads] : [])
+                + (access?.can("matches.view") == true ? [.matches] : [])
+                + (access?.canRecruit == true && flags.opportunities ? [.recruiting] : []) + [.account]
+        }
         if role == .scout {
             return [.scoutDesk, .watchlist, .lists, .account]
         }
@@ -31,7 +42,7 @@ enum RootTab: String, Hashable {
 
     private static func launchOverride(from arguments: [String]) -> RootTab? {
         guard let flagIndex = arguments.firstIndex(of: "-initialTab"),
-              arguments.indices.contains(flagIndex + 1)
+            arguments.indices.contains(flagIndex + 1)
         else {
             return arguments.contains("-playerId")
                 || arguments.contains("-comparePlayerIds")
@@ -39,6 +50,12 @@ enum RootTab: String, Hashable {
         }
 
         switch arguments[flagIndex + 1].lowercased() {
+        case "clubs": return .clubs
+        case "trials": return .trials
+        case "applied": return .applied
+        case "squads": return .squads
+        case "matches": return .matches
+        case "recruiting": return .recruiting
         case "home": return .home
         case "watchlist": return .watchlist
         case "lists": return .lists
@@ -50,7 +67,7 @@ enum RootTab: String, Hashable {
     private static func tab(for fixtureDestination: FullCircleFixtureDestination?) -> RootTab? {
         switch fixtureDestination {
         case .verification, .inbox, .clubConsent, .thread, .playerInbox, .declineConfirmation,
-             .messageReport, .deleteAccount, .blockedUsers, .exportData:
+            .messageReport, .deleteAccount, .blockedUsers, .exportData:
             return .account
         case .watchlistNullStats:
             return .watchlist
@@ -65,18 +82,22 @@ enum RootTab: String, Hashable {
 @MainActor
 struct RootTabView: View {
     @AppStorage(ExperienceRole.storageKey) private var roleValue = ""
+    @Environment(\.scenePhase) private var scenePhase
+    @StateObject private var workspace: Phase2Workspace
     @StateObject private var authManager: AuthManager
     @StateObject private var watchlistViewModel: WatchlistViewModel
     @StateObject private var followListsViewModel: FollowListsViewModel
     @StateObject private var contactAvailability: ContactFeatureAvailability
     @StateObject private var sentRequestsViewModel: SentContactRequestsViewModel
     @StateObject private var incomingRequestsViewModel: IncomingContactRequestsViewModel
+    @State private var hasLoadedWorkspace = false
     @State private var selectedTab: RootTab
     @State private var isSignInPresented: Bool
     @State private var accountDestination: AccountDestination?
     @State private var isGolPresented = false
     @StateObject private var golChatViewModel: GolChatViewModel
 
+    private let launchArguments: [String]
     private let apiClient: APIClient
     private let initialPhase: ScoutPhase
     private let initialPlayerID: Int?
@@ -95,46 +116,57 @@ struct RootTabView: View {
         )
         let fixtureState: AuthState?
         #if DEBUG && targetEnvironment(simulator)
-        if FloodlightPreview.isActive {
-            fixtureState = ["auth", "chooser", "account-signed-out"].contains(FloodlightPreview.screen ?? "")
-                ? .signedOut
-                : .signedIn(email: "review@example.invalid", accountRole: .scout, displayName: "Sample Reviewer", isVerifiedScout: true)
-        } else if PlayerClubExperienceFixtures.mode != nil {
-            fixtureState = .signedIn(email: "maya@fixture.example", accountRole: .player, displayName: "Maya Okafor", isVerifiedScout: false)
-        } else if fixtureDestination != nil {
-            switch fixtureDestination {
-            case .fanRow:
-                fixtureState = nil
-            case .playerInbox, .declineConfirmation, .watchingYou, .messageReport, .claimGate, .takedown:
+            if Phase2Fixtures.active {
                 fixtureState = .signedIn(
-                    email: "habeeb.player@fixture.example",
-                    accountRole: .player,
-                    displayName: "Habeeb Amass",
-                    isVerifiedScout: false
-                )
-            case .verification, .introduction, .attestationWarning, .inbox, .clubConsent, .thread,
-                 .deleteAccount, .blockedUsers, .watchlistNullStats, .exportData:
+                    email: "phase2@fixture.invalid", accountRole: .player, displayName: "Reuben Castellane",
+                    isVerifiedScout: false)
+            } else if FloodlightPreview.isActive {
+                fixtureState =
+                    ["auth", "chooser", "account-signed-out"].contains(FloodlightPreview.screen ?? "")
+                    ? .signedOut
+                    : .signedIn(
+                        email: "review@example.invalid", accountRole: .scout, displayName: "Sample Reviewer",
+                        isVerifiedScout: true)
+            } else if PlayerClubExperienceFixtures.mode != nil {
                 fixtureState = .signedIn(
-                    email: "alex.scout@fixture.example",
-                    accountRole: .scout,
-                    displayName: "Alex Scout",
-                    isVerifiedScout: true
-                )
-            case nil:
+                    email: "maya@fixture.example", accountRole: .player, displayName: "Maya Okafor",
+                    isVerifiedScout: false)
+            } else if fixtureDestination != nil {
+                switch fixtureDestination {
+                case .fanRow:
+                    fixtureState = nil
+                case .playerInbox, .declineConfirmation, .watchingYou, .messageReport, .claimGate, .takedown:
+                    fixtureState = .signedIn(
+                        email: "habeeb.player@fixture.example",
+                        accountRole: .player,
+                        displayName: "Habeeb Amass",
+                        isVerifiedScout: false
+                    )
+                case .verification, .introduction, .attestationWarning, .inbox, .clubConsent, .thread,
+                    .deleteAccount, .blockedUsers, .watchlistNullStats, .exportData:
+                    fixtureState = .signedIn(
+                        email: "alex.scout@fixture.example",
+                        accountRole: .scout,
+                        displayName: "Alex Scout",
+                        isVerifiedScout: true
+                    )
+                case nil:
+                    fixtureState = nil
+                }
+            } else {
                 fixtureState = nil
             }
-        } else {
-            fixtureState = nil
-        }
         #else
-        fixtureState = nil
+            fixtureState = nil
         #endif
 
         let tokenStore: any TokenStoreProtocol
         #if DEBUG && targetEnvironment(simulator)
-        tokenStore = PlayerClubExperienceFixtures.mode == nil && !FloodlightPreview.isActive ? KeychainTokenStore() : ExperienceTokenStore()
+            tokenStore =
+                PlayerClubExperienceFixtures.mode == nil && !FloodlightPreview.isActive && !Phase2Fixtures.active
+                ? KeychainTokenStore() : ExperienceTokenStore()
         #else
-        tokenStore = KeychainTokenStore()
+            tokenStore = KeychainTokenStore()
         #endif
         let authManager = AuthManager(
             authClient: APIClient(),
@@ -147,6 +179,7 @@ struct RootTabView: View {
             contactAvailability.recordSuccess()
         }
 
+        _workspace = StateObject(wrappedValue: Phase2Workspace(client: apiClient))
         _authManager = StateObject(wrappedValue: authManager)
         _golChatViewModel = StateObject(wrappedValue: GolChatViewModel(client: apiClient))
         _watchlistViewModel = StateObject(
@@ -179,14 +212,16 @@ struct RootTabView: View {
         _selectedTab = State(initialValue: resolvedTab)
         _isSignInPresented = State(initialValue: initiallyShowsSignIn)
         _accountDestination = State(initialValue: nil)
+        self.launchArguments = launchArguments
         self.apiClient = apiClient
         self.initialPhase = initialPhase
-        self.initialPlayerID = fixtureDestination == .introduction
-            || fixtureDestination == .attestationWarning
-            || fixtureDestination == .watchingYou
-            || fixtureDestination == .claimGate
-            || fixtureDestination == .takedown
-            || fixtureDestination == .fanRow
+        self.initialPlayerID =
+            fixtureDestination == .introduction
+                || fixtureDestination == .attestationWarning
+                || fixtureDestination == .watchingYou
+                || fixtureDestination == .claimGate
+                || fixtureDestination == .takedown
+                || fixtureDestination == .fanRow
             ? 403_064
             : initialPlayerID
         self.initialComparePlayerIDs = initialComparePlayerIDs
@@ -195,86 +230,31 @@ struct RootTabView: View {
 
     var body: some View {
         TabView(selection: tabSelection) {
-            if RootTab.available(for: role).contains(.home) {
-                PlayerHomeView(
-                    apiClient: apiClient,
-                    onSignIn: presentSignIn,
-                    onNavigate: select,
-                    onRoleSelected: selectInitialTab,
-                    onGolRequested: { isGolPresented = true }
-                )
-                    .id(authManager.email ?? "signed-out")
-                    .tabItem {
-                        Label("Home", systemImage: "house.fill")
-                            .accessibilityIdentifier("tab-bar-home")
-                    }
-                    .tag(RootTab.home)
-            }
-
-            ScoutDeskView(
-                apiClient: apiClient,
-                playerDetailAPIClient: apiClient,
-                initialPhase: initialPhase,
-                initialPlayerID: initialPlayerID,
-                initialComparePlayerIDs: initialComparePlayerIDs,
-                onSignInRequested: presentSignIn,
-                onVerificationRequested: presentVerification,
-                onGolRequested: { isGolPresented = true }
-            )
-            .tabItem {
-                Label("Scout Desk", systemImage: "binoculars.fill")
-                    .accessibilityIdentifier("tab-bar-scout-desk")
-            }
-            .tag(RootTab.scoutDesk)
-
-            WatchlistView(
-                playerDetailAPIClient: apiClient,
-                onSignInRequested: presentSignIn,
-                onVerificationRequested: presentVerification
-            )
-                .tabItem {
-                    Label("Watchlist", systemImage: "star.fill")
-                        .accessibilityIdentifier("tab-bar-watchlist")
-                }
-            .tag(RootTab.watchlist)
-
-            ListsView(
-                apiClient: apiClient,
-                playerDetailAPIClient: apiClient,
-                onSignInRequested: presentSignIn,
-                onVerificationRequested: presentVerification
-            )
-                .tabItem {
-                    Label("Lists", systemImage: "list.bullet.rectangle.fill")
-                        .accessibilityIdentifier("tab-bar-lists")
-                }
-                .tag(RootTab.lists)
-
-            AccountView(
-                sentRequestsViewModel: sentRequestsViewModel,
-                incomingRequestsViewModel: incomingRequestsViewModel,
-                contactAvailability: contactAvailability,
-                destination: $accountDestination,
-                apiClient: apiClient,
-                fixtureDestination: fixtureDestination,
-                onSignInRequested: presentSignIn,
-                onGolRequested: { isGolPresented = true }
-            )
-                // Protected destinations own verification and thread state.
-                // Rebuild their navigation tree whenever auth crosses the
-                // signed-in boundary so one account cannot retain another
-                // account's private form or conversation data.
-                .id(authManager.isAuthenticated)
-                .tabItem {
-                    Label("Account", systemImage: "person.crop.circle.fill")
-                        .accessibilityIdentifier("tab-bar-account")
-                }
-                .tag(RootTab.account)
+            homeTab
+            phase2Tabs
+            legacyTabs
+            accountTab
         }
-        .id(roleValue)
+        .id(tabTreeIdentity)
+        .environmentObject(workspace)
         .environmentObject(authManager)
         .environmentObject(watchlistViewModel)
         .environmentObject(followListsViewModel)
+        .onChange(of: availableTabs) { _, tabs in
+            if !tabs.contains(selectedTab) { selectedTab = role == .scout ? .scoutDesk : .home }
+        }
+        .task(id: authManager.email) {
+            await workspace.load(authenticated: authManager.isAuthenticated)
+            guard !Task.isCancelled else { return }
+            hasLoadedWorkspace = true
+            let requested = RootTab.fromLaunchArguments(launchArguments)
+            if availableTabs.contains(requested) { selectedTab = requested }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active && hasLoadedWorkspace {
+                Task { await workspace.load(authenticated: authManager.isAuthenticated) }
+            }
+        }
         .onChange(of: roleValue) { _, newValue in
             selectInitialTab(ExperienceRole(rawValue: newValue))
         }
@@ -282,7 +262,13 @@ struct RootTabView: View {
             if !authenticated { golChatViewModel.resetAccount() }
         }
         .onChange(of: authManager.email) { old, new in
-            if old != nil && old != new { golChatViewModel.resetAccount() }
+            if old != nil && old != new {
+                golChatViewModel.resetAccount()
+                watchlistViewModel.resetForSignOut()
+                followListsViewModel.resetForSignOut()
+                sentRequestsViewModel.resetForSignOut()
+                incomingRequestsViewModel.resetForSignOut()
+            }
         }
         .sheet(isPresented: $isGolPresented) {
             GolChatView(model: golChatViewModel)
@@ -311,7 +297,7 @@ struct RootTabView: View {
         } message: {
             Text(authManager.signOutErrorMessage ?? "Your credential is still stored on this device.")
         }
-        .task(id: authManager.isAuthenticated) {
+        .task(id: authManager.email) {
             guard fixtureDestination == nil else { return }
             if authManager.isAuthenticated {
                 async let account: Void = authManager.refreshAccount(using: apiClient)
@@ -330,6 +316,139 @@ struct RootTabView: View {
         }
     }
 
+    private var tabTreeIdentity: String {
+        roleValue + "|" + (authManager.email ?? "signed-out") + "|"
+            + availableTabs.map(\.rawValue).joined(separator: ",") + "|" + String(workspace.selected?.id ?? 0)
+    }
+
+    @ViewBuilder private var homeTab: some View {
+
+        if availableTabs.contains(.home) {
+            PlayerHomeView(
+                apiClient: apiClient,
+                onSignIn: presentSignIn,
+                onNavigate: select,
+                onRoleSelected: selectInitialTab,
+                onGolRequested: { isGolPresented = true },
+                incoming: incomingRequestsViewModel,
+                availability: contactAvailability
+            )
+            .id(authManager.email ?? "signed-out")
+            .tabItem {
+                Label(role == .club && workspace.flags.staff ? "Today" : "Home", systemImage: "house.fill")
+                    .accessibilityIdentifier("tab-bar-home")
+            }
+            .tag(RootTab.home)
+        }
+
+    }
+
+    @ViewBuilder private var phase2Tabs: some View {
+        if availableTabs.contains(.clubs) {
+            NavigationStack { ClubsNearYouView(client: apiClient) }.tabItem { Label("Clubs", systemImage: "shield") }
+                .tag(RootTab.clubs)
+        }
+        if availableTabs.contains(.trials) {
+            NavigationStack { TrialsView(client: apiClient) }.tabItem { Label("Trials", systemImage: "soccerball") }
+                .tag(RootTab.trials)
+        }
+        if availableTabs.contains(.applied) {
+            NavigationStack { MyApplicationsView(client: apiClient) }.tabItem {
+                Label("Applied", systemImage: "paperplane")
+            }.tag(RootTab.applied)
+        }
+        if let membership = workspace.selected {
+            if availableTabs.contains(.squads) {
+                NavigationStack { SquadQuickView(membership: membership, client: apiClient) }.tabItem {
+                    Label("Squads", systemImage: "person.3")
+                }.tag(RootTab.squads)
+            }
+            if availableTabs.contains(.matches) {
+                NavigationStack { SquadQuickView(membership: membership, client: apiClient, matchesOnly: true) }.tabItem
+                { Label("Matches", systemImage: "play.rectangle") }.tag(RootTab.matches)
+            }
+            if availableTabs.contains(.recruiting) {
+                NavigationStack { RecruitingView(client: apiClient, membership: membership) }.tabItem {
+                    Label("Recruiting", systemImage: "person.badge.plus")
+                }.tag(RootTab.recruiting)
+            }
+        }
+
+    }
+
+    @ViewBuilder private var legacyTabs: some View {
+        if availableTabs.contains(.scoutDesk) {
+            ScoutDeskView(
+                apiClient: apiClient,
+                playerDetailAPIClient: apiClient,
+                initialPhase: initialPhase,
+                initialPlayerID: initialPlayerID,
+                initialComparePlayerIDs: initialComparePlayerIDs,
+                onSignInRequested: presentSignIn,
+                onVerificationRequested: presentVerification,
+                onGolRequested: { isGolPresented = true }
+            )
+            .tabItem {
+                Label("Scout Desk", systemImage: "binoculars.fill")
+                    .accessibilityIdentifier("tab-bar-scout-desk")
+            }
+            .tag(RootTab.scoutDesk)
+        }
+
+        if availableTabs.contains(.watchlist) {
+            WatchlistView(
+                playerDetailAPIClient: apiClient,
+                onSignInRequested: presentSignIn,
+                onVerificationRequested: presentVerification
+            )
+            .tabItem {
+                Label("Watchlist", systemImage: "star.fill")
+                    .accessibilityIdentifier("tab-bar-watchlist")
+            }
+            .tag(RootTab.watchlist)
+        }
+
+        if availableTabs.contains(.lists) {
+            ListsView(
+                apiClient: apiClient,
+                playerDetailAPIClient: apiClient,
+                onSignInRequested: presentSignIn,
+                onVerificationRequested: presentVerification
+            )
+            .tabItem {
+                Label("Lists", systemImage: "list.bullet.rectangle.fill")
+                    .accessibilityIdentifier("tab-bar-lists")
+            }
+            .tag(RootTab.lists)
+        }
+
+    }
+
+    @ViewBuilder private var accountTab: some View {
+        AccountView(
+            sentRequestsViewModel: sentRequestsViewModel,
+            incomingRequestsViewModel: incomingRequestsViewModel,
+            contactAvailability: contactAvailability,
+            destination: $accountDestination,
+            apiClient: apiClient,
+            fixtureDestination: fixtureDestination,
+            onSignInRequested: presentSignIn,
+            onGolRequested: { isGolPresented = true },
+            phase2Membership: workspace.flags.staff ? workspace.selected : nil
+        )
+        // Protected destinations own verification and thread state.
+        // Rebuild their navigation tree whenever auth crosses the
+        // signed-in boundary so one account cannot retain another
+        // account's private form or conversation data.
+        .id(authManager.isAuthenticated)
+        .tabItem {
+            Label("Account", systemImage: "person.crop.circle.fill")
+                .accessibilityIdentifier("tab-bar-account")
+        }
+        .tag(RootTab.account)
+
+    }
+
     private func presentSignIn() {
         isSignInPresented = true
     }
@@ -344,19 +463,24 @@ struct RootTabView: View {
         ExperienceRole(rawValue: roleValue)
     }
 
+    private var availableTabs: [RootTab] {
+        RootTab.available(for: role, flags: workspace.flags, access: workspace.selected?.access)
+    }
+
     private var tabSelection: Binding<RootTab> {
         Binding(
             get: {
-                RootTab.available(for: role).contains(selectedTab)
+                availableTabs.contains(selectedTab)
                     ? selectedTab
                     : RootTab.initial(role: role, launchArguments: [])
             },
-            set: select
+            set: { select($0) }
         )
     }
 
     private func select(_ tab: RootTab) {
-        selectedTab = RootTab.available(for: role).contains(tab)
+        selectedTab =
+            availableTabs.contains(tab)
             ? tab
             : RootTab.initial(role: role, launchArguments: [])
     }

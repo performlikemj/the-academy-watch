@@ -252,6 +252,10 @@ struct APIClient: GolAPIClientProtocol, PlayerClubAPIClientProtocol, ScoutAPICli
         }
         #if DEBUG && targetEnvironment(simulator)
         // Offline review and experience fixtures cannot send credentials over the network.
+        if Phase2Fixtures.active {
+            try await PlayerClubExperienceFixtures.streamGol(question, onEvent: onEvent)
+            return
+        }
         if FloodlightPreview.isActive {
             try await PreviewGolClient().streamGol(question, onEvent: onEvent)
             return
@@ -300,7 +304,7 @@ struct APIClient: GolAPIClientProtocol, PlayerClubAPIClientProtocol, ScoutAPICli
             request.setValue("application/json", forHTTPHeaderField: "Accept")
 
             #if DEBUG && targetEnvironment(simulator)
-            if FloodlightPreview.isActive { return }
+            if FloodlightPreview.isActive || Phase2Fixtures.active { return }
             if let fixtureMode {
                 _ = try PlayerClubExperienceFixtures.data(for: request, mode: fixtureMode)
                 return
@@ -1062,11 +1066,18 @@ struct APIClient: GolAPIClientProtocol, PlayerClubAPIClientProtocol, ScoutAPICli
 
         // Scout aggregation can approach 30 seconds during an Azure cold start.
         request.timeoutInterval = 60
-        if method == "GET", token == nil {
+        if path == "features" || path == "opportunities" || path.hasPrefix("opportunities/") || path.hasPrefix("programs/") || path == "club-directory/search" {
+            request.cachePolicy = .reloadIgnoringLocalCacheData
+            request.setValue("no-store", forHTTPHeaderField: "Cache-Control")
+        } else if method == "GET", token == nil {
             request.cachePolicy = .reloadRevalidatingCacheData
         }
 
         #if DEBUG && targetEnvironment(simulator)
+        if Phase2Fixtures.active {
+            let data = try Phase2Fixtures.data(for: request)
+            return (data, ProcessInfo.processInfo.systemUptime)
+        }
         if FloodlightPreview.isActive {
             let data = try FloodlightPreview.data(for: request)
             return (data, ProcessInfo.processInfo.systemUptime)
@@ -1251,4 +1262,10 @@ private struct APIErrorPayload: Decodable {
     let message: String?
     let code: String?
     let cooldownDays: Int?
+}
+
+extension APIClient: Phase2API {
+    func phase2Data(path: String, method: String, query: [URLQueryItem], body: Data?) async throws -> Data {
+        try await requestData(path: path, method: method, queryItems: query, body: body).data
+    }
 }

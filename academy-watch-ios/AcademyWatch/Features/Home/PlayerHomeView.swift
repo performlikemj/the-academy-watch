@@ -36,6 +36,8 @@ struct PlayerHomeView: View {
     let onNavigate: (RootTab) -> Void
     let onRoleSelected: (ExperienceRole?) -> Void
     var onGolRequested: () -> Void = {}
+    @ObservedObject var incoming: IncomingContactRequestsViewModel
+    @ObservedObject var availability: ContactFeatureAvailability
     private var role: ExperienceRole? { ExperienceRole(rawValue: roleValue) }
 
     var body: some View {
@@ -72,6 +74,7 @@ struct PlayerHomeView: View {
                         Button("Explore players first") { onNavigate(.scoutDesk) }
                             .accessibilityIdentifier("home-skip")
                     } else {
+                        Phase2HomeCards(client: apiClient, role: role, incoming: incoming, availability: availability)
                         if role == .scout {
                             scoutingLink(
                                 tab: .scoutDesk,
@@ -117,7 +120,9 @@ struct PlayerHomeView: View {
                                         .accessibilityIdentifier("home-sign-in")
                                 }.homeCard()
                             }
-                            Button { onNavigate(.scoutDesk) } label: {
+                            NavigationLink {
+                                ScoutDeskView(apiClient: apiClient, playerDetailAPIClient: apiClient, onSignInRequested: onSignIn)
+                            } label: {
                                 OnboardingActionRow(
                                     icon: "binoculars.fill", title: "Explore players",
                                     detail: "Discover profiles, follow players, and build your watchlist.")

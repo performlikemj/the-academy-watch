@@ -77,7 +77,7 @@ struct ContactThreadView: View {
                                     .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 10))
                             }
                         }
-                        .padding(.horizontal, 14)
+                        .padding(.horizontal, 16)
                         .padding(.vertical, 12)
                     }.background(AcademyColors.background)
                     .onChange(of: viewModel.messages.count) { _, _ in
@@ -149,7 +149,7 @@ struct ContactThreadView: View {
             Spacer(minLength: 0)
         }
         .foregroundStyle(AcademyColors.warnText)
-        .padding(.horizontal, 14)
+        .padding(.horizontal, 16)
         .padding(.vertical, 9)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(AcademyColors.warnText.opacity(0.1))
@@ -163,7 +163,7 @@ struct ContactThreadView: View {
     private var requestSummary: some View {
         VStack(alignment: .leading, spacing: 9) {
             HStack {
-                Label("INTRODUCTION ACCEPTED", systemImage: "checkmark.circle.fill")
+                Label(viewModel.contactRequest.messagingOpen ? "CONVERSATION OPEN" : viewModel.contactRequest.status.displayName.uppercased(), systemImage: "checkmark.circle.fill")
                     .font(AcademyType.caption.weight(.medium))
                     .tracking(0.8)
                     .foregroundStyle(AcademyColors.good)
@@ -171,6 +171,13 @@ struct ContactThreadView: View {
                 ContactStatusBadge(status: viewModel.contactRequest.status)
             }
             ContactRoutingBadge(request: viewModel.contactRequest)
+            if viewModel.contactRequest.routingMode == .clubIncluded {
+                Label(viewModel.contactRequest.clubConsentStatus == .granted ? "Club agreed" : viewModel.contactRequest.clubConsentStatus == .declined ? "Club declined" : "Waiting on club", systemImage: viewModel.contactRequest.clubConsentStatus == .granted ? "checkmark.circle" : "clock")
+                    .font(AcademyType.subheadline)
+                Label(viewModel.contactRequest.status == .accepted ? "Player accepted" : viewModel.contactRequest.status.displayName, systemImage: viewModel.contactRequest.status == .accepted ? "checkmark.circle" : "clock")
+                    .font(AcademyType.subheadline)
+                Text("The club is in this thread and sees every message.").font(AcademyType.footnote).foregroundStyle(AcademyColors.secondaryText)
+            }
             Text(viewModel.contactRequest.message)
                 .font(AcademyType.subheadline)
                 .foregroundStyle(AcademyColors.secondaryText)
