@@ -459,6 +459,7 @@ def source_fingerprint(match, entry, tracklet, *, frozen_etag=None):
                 review.source_etag,
                 review.source_snapshot,
                 review.squad_adult_attested,
+                review.source_context,
             ]
             if review
             else None,

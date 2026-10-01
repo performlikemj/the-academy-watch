@@ -366,7 +366,7 @@ for (const width of [1440, 390]) {
     let grants = 0
     await page.route(`**/api/me/highlight-requests/${id}/preview?transport=url`, route => {
       grants++
-      return route.fulfill({ json: { url: `/synthetic-preview-${grants}.mp4` } })
+      return route.fulfill({ json: { url: new URL(`/synthetic-preview-${grants}.mp4`, page.url()).href } })
     })
     await page.route('**/synthetic-preview-*.mp4', route => route.fulfill({ status: 403, body: 'expired' }))
     await page.goto('/highlight-approvals')

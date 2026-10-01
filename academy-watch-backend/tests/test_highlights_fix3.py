@@ -567,3 +567,74 @@ def test_x2_other_subject_overlap_blocked_and_only_admin_can_lift(world, monkeyp
     assert client.post(f"/api/admin/highlights/{row.id}/lift", headers=auth).status_code == 200
     result = pick(world, **overlap)
     assert result.status_code == 201 and result.json["player_decision"] == "pending"
+
+
+@pytest.mark.parametrize("field", ["match_date", "squad_id", "finalized_at", "squad_name"])
+def test_o3_raw_sql_context_roundtrip_cannot_reuse_review(world, field):
+    import os
+
+    import sqlalchemy as sa
+
+    if os.getenv("C2_POSTGRES_TESTS") != "1":
+        pytest.skip("raw SQL context guards require PostgreSQL")
+    row = ready(world)
+    assert approve(world, row).status_code == 200
+    if field == "squad_name":
+        table, original = "club_squads", world["squad"].name
+        column, changed, target = "name", "Another senior name", world["squad"].id
+    else:
+        table, column, target = "video_matches", field, world["match"].id
+        original = getattr(world["match"], field)
+        changed = {
+            "match_date": now().date() - timedelta(days=1),
+            "squad_id": None,
+            "finalized_at": now() + timedelta(seconds=1),
+        }[field]
+    for value in (changed, original):
+        db.session.execute(
+            sa.text(f"UPDATE c2_checks.{table} SET {column}=:value WHERE id=:id"), {"value": value, "id": target}
+        )
+        db.session.commit()
+        db.session.expire_all()
+        assert pick(world).status_code == 422
+    db.session.refresh(row)
+    assert row.revoked_at and row.revoke_reason == "source_changed"
+    assert review_recording(world).status_code == 200
+    assert pick(world).status_code == 201
+
+
+def test_o4_real_admin_claim_approval_hides_existing_clip_without_consent_transfer(world, monkeypatch):
+    from src.routes.showcase import showcase_bp
+
+    world["app"].register_blueprint(showcase_bp, url_prefix="/api")
+    monkeypatch.setenv("ADMIN_API_KEY", "c2-claim-test-key")
+    monkeypatch.setattr(
+        "src.services.trust_decision_email_service.send_player_claim_decision_email", lambda *a, **k: True
+    )
+    world["manager"].is_admin = True
+    db.session.commit()
+    row = ready(world)
+    assert approve(world, row).status_code == 200
+    other = PlayerProfileClaim(
+        local_player_id=world["local"].id,
+        user_account_id=world["stranger"].id,
+        relationship_type="player",
+        status="pending",
+    )
+    db.session.add(other)
+    db.session.commit()
+    auth = {
+        "Authorization": "Bearer " + issue_user_token(world["manager"].email, role="admin")["token"],
+        "X-API-Key": "c2-claim-test-key",
+    }
+    client = world["app"].test_client()
+    result = client.post(f"/api/admin/showcase/claims/{other.id}/review", headers=auth, json={"action": "approve"})
+    assert result.status_code == 200, result.json
+    assert highlights.claim_for_subject(row.signed_id) is None
+    monkeypatch.setattr(highlights_storage, "output_read_url", lambda *a, **k: "https://storage.example/clip.mp4")
+    assert client.get(f"/api/highlights/{row.id}/clip").status_code == 404
+    assert sweep_highlights()["expired"] == 0
+    assert row.claim_id == world["claim"].id and row.recipient_user_id == world["player"].id
+    other.status = "rejected"
+    db.session.commit()
+    assert client.get(f"/api/highlights/{row.id}/clip").status_code == 302

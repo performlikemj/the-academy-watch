@@ -76,3 +76,8 @@
 - Implementation: shared claim subject resolution; active interval holds with batched reads; NFKC/youth/ambiguous digits; finalized context review with fail-closed context invalidation; unique pinned self-owner; referenced tracklets; grouped player+manager notices excluding declined; shared feature cache and native media retry.
 - New source_context column, squad context SQL guard and notification SQL changed; final preapply/upgrade equality and CONTRACT pending.
 - Final gates delayed until code committed/integrated. Governor waiting at high shared load is normal; no retry/bypass.
+- Integrated origin/main784b1490 + B3F551f30f5b + C1F328cb333e; ancestor migrations re-copied verbatim (B3f073ecc8/C1 172d6c0a).
+- Reverse full backend probes:73fail5controls3PG-onlyskip on38512c3d; hook reverse2fail1control, current3pass. Real PostgreSQL new82pass44.61s + existing lane176pass255.17s. Final source additionally pins review context in clip fingerprint and adds raw SQL/admin-route regressions.
+- NEW p2c2 CONTRACT posted: migration3504f91e0e0fdaa0185a92b0e5c0a9f716aa8baef8513a69ae4bf1e9691ba410; SQL9462f0687b29c5608366bc04d542edbf11478b806429c14da24acf5f408cf64f; guard16285d11fafc3c2592bcf4e35a738ef053a638b12cc17099122012f87990ddd4.
+- Actual parent whole schema directupgrade==preapply twice+upgrade233e4a58;RLS5/source7+delete1; both DDL paths5s lock bound. Legacy reviews without context require fresh verified review; no consent transfer/backfill.
+- Next: final commit, four cached gov gates, full final C2 PostgreSQL selection and one lane browser run with refreshed shots; push/hand-back/cleanup.
