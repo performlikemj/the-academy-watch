@@ -61,3 +61,11 @@
 - Cleanup complete: owned foreground services stopped, aw_p2_b3 dropped/absent, temp/auth/browser reports removed. Actual B1/B2 graph dependencies intentionally retained; hashes match their committed lane files.
 - Decisions for MJ updated: deletion+same-email re-registration bypasses account-level suspension; whether to retain an address marker needs a policy/retention decision. Existing cancellation/ownership/whole-player-hide defaults retained.
 - Delivery: fix2efda789 + latest A2 merge09056eb7 + real prerequisite/docs commit aa87d572 pushed; PR body verified with final gates/Decisions for MJ. Report ~/codex-runs/aw-redesign/logs/B3F2.final.md; no merge. Closing ledger-only commit follows.
+
+## B3 fix round 3 — in progress
+- RB3V2 READY; fix two LOWs: real-app dark-method parity and early refund metadata backfill.
+- Set four migration-head tests to p2b3 per orchestrator12:50; refresh origin A2/main and compare local B1/B2 prerequisite bytes.
+- Next: regression tests, full foreground gates, push PR1115, hand-back B3F3.final.md; no merge.
+- Milestone: both LOWs fixed; 88 new real-app/receipt regressions pass. Dark map preserves SPA, Allow/405 and sibling routes; metadata backfill repairs new and already-deduplicated receipts.
+- Base: main812be68d merged as ac37fbfd; A2 30ae5f4a already included. B1 14b26fbc/B2 ec569859 migration bytes unchanged; no re-copy needed. All four pins p2b3.
+- Gates: OSV no findings/frozen deps unchanged; Ruff+format568 clean, Node205, lint0err185warn/build and Playwright13 pass. Full/PG running; initial fixture missing ADMIN_API_KEY corrected (88/88 pass).
