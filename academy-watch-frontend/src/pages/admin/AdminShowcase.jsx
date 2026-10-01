@@ -790,6 +790,22 @@ function LocalPlayersTab({ setMessage }) {
         }
     }
 
+    const unlinkClubPlayer = async () => {
+        setActingId(linkPlayer.id)
+        setLinkError('')
+        try {
+            await APIService.adminLinkLocalPlayerApi(linkPlayer.id, { player_api_id: null })
+            setMessage({ type: 'success', text: 'Provider link removed. The club profile is private and needs its own consent.' })
+            closeLink()
+            setLoading(true)
+            setReloadKey((key) => key + 1)
+        } catch (err) {
+            setLinkError(err.message || 'Failed to remove provider link')
+        } finally {
+            setActingId(null)
+        }
+    }
+
     return (
         <>
             <Card>
@@ -1022,6 +1038,7 @@ function LocalPlayersTab({ setMessage }) {
                     </div>
                     <DialogFooter>
                         <Button variant="outline" onClick={closeLink} disabled={actingId === linkPlayer?.id}>Cancel</Button>
+                        {linkPlayer?.provenance === 'club' && linkPlayer?.api_player_id > 0 && <Button variant="outline" onClick={unlinkClubPlayer} disabled={actingId === linkPlayer?.id}>Remove provider link</Button>}
                         <Button onClick={linkApiPlayer} disabled={!playerApiId.trim() || actingId === linkPlayer?.id}>
                             {actingId === linkPlayer?.id && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                             Save API link

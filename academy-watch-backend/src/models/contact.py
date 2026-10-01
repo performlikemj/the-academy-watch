@@ -25,6 +25,7 @@ def _iso(value):
 
 
 class ContactRequest(db.Model):
+    club_first = db.Column(db.Boolean, nullable=False, default=False, server_default="false")
     """A verified scout's introduction request to an adult player claimant."""
 
     __tablename__ = "contact_requests"
@@ -152,7 +153,11 @@ class ContactRequest(db.Model):
         if include_user_ids:
             scout_participant["user_id"] = self.scout_user_id
             player_participant["user_id"] = self.claim.user_account_id if self.claim is not None else None
+        from src.services.club_player_publication import club_request_available
+
+        extra = {"club_first": True} if self.club_first else {}
         return {
+            **extra,
             "id": self.id,
             "player_api_id": self.player_api_id,
             "message": self.message,
@@ -165,7 +170,8 @@ class ContactRequest(db.Model):
             "club_consent_note": self.club_consent_note,
             "permission_attestation": bool(self.permission_attestation),
             "permission_attested_at": _iso(self.permission_attested_at),
-            "messaging_open": self.status == "accepted"
+            "messaging_open": club_request_available(self)
+            and self.status == "accepted"
             and (self.routing_mode != "club_included" or self.club_consent_status == "granted"),
             "created_at": _iso(self.created_at),
             "responded_at": _iso(self.responded_at),

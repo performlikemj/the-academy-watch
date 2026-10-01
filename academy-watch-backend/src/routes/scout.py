@@ -47,6 +47,7 @@ from src.models.showcase import (
 )
 from src.models.tracked_player import TrackedPlayer
 from src.models.weekly import Fixture, FixturePlayerStats
+from src.services.club_player_publication import club_subject_filter, local_publication_filter
 from src.services.follow_resolver import derive_label, resolve_list, validate_selector
 from src.services.player_shadow_service import (
     mint_shadow,
@@ -182,6 +183,12 @@ def _local_players_enabled() -> bool:
     union back without a process restart; the safe default remains off.
     """
 
+    from src.services.club_player_publication import enabled
+
+    return _community_local_players_enabled() or enabled()
+
+
+def _community_local_players_enabled():
     return os.getenv("SCOUT_INCLUDE_LOCAL_PLAYERS", "").strip().lower() in {"1", "true", "yes", "on"}
 
 
@@ -477,6 +484,7 @@ def _scout_identity_subquery(*, include_local=None):
         )
     )
 
+    include_community = _community_local_players_enabled() if include_local is None else include_local
     if include_local is None:
         include_local = _local_players_enabled()
     if not include_local:
@@ -525,7 +533,8 @@ def _scout_identity_subquery(*, include_local=None):
             PlayerShadow.player_api_id < 0,
             PlayerShadow.is_active.is_(True),
             LocalPlayer.status == "approved",
-            LocalPlayer.provenance != "club",
+            local_publication_filter(LocalPlayer),
+            or_(LocalPlayer.provenance == "club", include_community),
             ~local_player_is_minor(LocalPlayer),
             public_player_visible_filter(PlayerShadow.player_api_id),
             ~active_local_suppression_exists(LocalPlayer.id),
@@ -1658,6 +1667,7 @@ def scout_watchlist():
             return jsonify({"error": "auth context missing email"}), 401
         entries = (
             ScoutWatchlistEntry.query.filter_by(user_account_id=user.id)
+            .filter(club_subject_filter(ScoutWatchlistEntry.player_api_id))
             .order_by(ScoutWatchlistEntry.created_at.desc(), ScoutWatchlistEntry.id.desc())
             .all()
         )
@@ -1850,7 +1860,9 @@ def scout_watchlist_ids():
             return jsonify({"error": "auth context missing email"}), 401
         rows = (
             db.session.query(ScoutWatchlistEntry.player_api_id)
-            .filter(ScoutWatchlistEntry.user_account_id == user.id)
+            .filter(
+                ScoutWatchlistEntry.user_account_id == user.id, club_subject_filter(ScoutWatchlistEntry.player_api_id)
+            )
             .order_by(ScoutWatchlistEntry.created_at.desc(), ScoutWatchlistEntry.id.desc())
             .all()
         )

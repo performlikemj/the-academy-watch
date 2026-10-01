@@ -1773,6 +1773,35 @@ def public_player_search():
             )
             if len(results) >= 8:
                 break
+        from src.services.club_player_publication import enabled, local_publication_filter
+
+        if enabled():
+            from src.models.showcase import LocalPlayer
+            from src.services.public_adult import public_adult_ids
+
+            local_rows = (
+                LocalPlayer.query.filter(
+                    LocalPlayer.provenance == "club",
+                    LocalPlayer.display_name.ilike(f"%{q}%"),
+                    local_publication_filter(LocalPlayer),
+                )
+                .order_by(LocalPlayer.display_name)
+                .limit(8)
+                .all()
+            )
+            eligible = public_adult_ids([-p.id for p in local_rows])
+            results.extend(
+                {
+                    "player_api_id": -p.id,
+                    "player_name": p.display_name,
+                    "photo_url": None,
+                    "position": p.position,
+                    "team_name": None,
+                    "current_club_name": p.club_name,
+                }
+                for p in local_rows
+                if -p.id in eligible
+            )
         return jsonify(results)
     except Exception as e:
         return jsonify(_safe_error_payload(e, "Player search failed")), 500
@@ -13245,6 +13274,10 @@ def features():
     if os.getenv("HIGHLIGHTS_ENABLED", "").strip().lower() in {"1", "true", "yes", "on"}:
         flags["highlights"] = True
     # --- p2-c2 end ---
+    # --- p2-c1 begin ---
+    if os.getenv("CLUB_PLAYER_PUBLICATION_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}:
+        flags["club_player_publication"] = True
+    # --- p2-c1 end ---
     return jsonify(flags)
 
 

@@ -1779,8 +1779,12 @@ def _local_player_publication_held(player):
 def _local_player_visible_to_context(player: LocalPlayer, auth_context) -> bool:
     if _local_player_publication_held(player):
         return False
-    if player.provenance == "club" or _local_player_is_suppressed(player):
+    if _local_player_is_suppressed(player):
         return False
+    if player.provenance == "club":
+        from src.services.public_adult import is_public_adult
+
+        return is_public_adult(-player.id)
     user = auth_context["user"] if auth_context else None
     # Minor academy records are club-private even after an identity moderator
     # approves the row. Their claimant may still manage it.
@@ -3840,6 +3844,10 @@ def admin_list_local_players():
     try:
         status = (request.args.get("status") or "").strip().lower()
         query = LocalPlayer.query.filter(LocalPlayer.provenance != "club")
+        from src.services.club_player_publication import enabled
+
+        if enabled():
+            query = LocalPlayer.query.filter(or_(LocalPlayer.provenance != "club", LocalPlayer.api_player_id > 0))
         if status:
             if status not in LOCAL_PLAYER_STATUSES:
                 return jsonify({"error": f"invalid status; one of {sorted(LOCAL_PLAYER_STATUSES)}"}), 400
@@ -3855,6 +3863,23 @@ def admin_list_local_players():
     except Exception as e:
         logger.error("Error in admin_list_local_players: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to load local players")), 500
+
+
+def _club_publication_identity_protected(local):
+    if local.provenance != "club":
+        return False
+    from src.services.club_player_publication import enabled
+
+    if enabled():
+        return True
+    # Retained permissions cannot transfer while dark; pre-C1 legacy actions keep parity.
+    from src.models.club_player_publication import ClubPlayerPublication
+    from src.services.account import _SchemaView
+
+    return (
+        _SchemaView().has_table("club_player_publications")
+        and ClubPlayerPublication.query.filter_by(local_player_id=local.id).first() is not None
+    )
 
 
 def _legacy_negative_identity_conflict(player_api_id: int):
@@ -4184,6 +4209,10 @@ def admin_merge_local_player(lp_id: int):
         if target is None or target.status in ("merged", "rejected"):
             return jsonify({"error": "merge target must be an active local player"}), 400
 
+        if _club_publication_identity_protected(source) or _club_publication_identity_protected(target):
+            return jsonify(
+                error="Club-origin identity requires a private identity review; publication consent cannot transfer"
+            ), 409
         now = datetime.now(UTC)
         claims = _merge_local_player_claims(source.id, target.id)
         profiles = _merge_local_player_profiles(source.id, target.id, now)
@@ -4981,6 +5010,30 @@ def admin_link_local_player_api(lp_id: int):
         if payload_error:
             return payload_error
         player_api_id = payload.get("player_api_id")
+        from src.services import club_player_publication as publication_service
+
+        if (
+            publication_service.enabled()
+            and player.provenance == "club"
+            and "player_api_id" in payload
+            and player_api_id is None
+        ):
+            if not player.api_player_id or player.api_player_id <= 0:
+                return jsonify(error="Club player has no provider link to remove"), 409
+            if _legacy_negative_identity_conflict(-player.id) is not None:
+                return jsonify(error="synthetic player id conflicts with a legacy manual player"), 409
+            from src.models.club_player_publication import ClubPlayerPublication
+
+            for publication in ClubPlayerPublication.query.filter_by(local_player_id=player.id).with_for_update().all():
+                publication_service.revoke(publication, club=True)
+            # Remove the mapping only. Provider claims/content/stats stay with
+            # that provider; their permissions cannot transfer to this local.
+            player.api_player_id, player.status = -player.id, "pending"
+            player.updated_at = datetime.now(UTC)
+            db.session.commit()
+            return jsonify(player=_local_player_admin_dict(player))
+        if _club_publication_identity_protected(player):
+            return jsonify(error="Club-origin publication consent cannot transfer to another identity"), 409
         if isinstance(player_api_id, bool) or not isinstance(player_api_id, int) or player_api_id <= 0:
             return jsonify({"error": "player_api_id must be a positive integer"}), 400
         if player.status != "approved":

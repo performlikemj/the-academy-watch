@@ -1,6 +1,7 @@
 // --- p2-c2 begin ---
 import { HighlightInboxLink } from '@/components/highlights/HighlightApprovals'
 // --- p2-c2 end ---
+import { usePublicationFlag } from '@/hooks/usePublicationFlag'
 import '@/styles/floodlight-player.css'
 // --- p2-b2 begin ---
 import { PlayerApplications } from '@/components/applications/PlayerApplications'
@@ -61,6 +62,7 @@ function PlayerSearchResult({ player }) {
 }
 
 export function PlayerOnboarding() {
+  const publicationEnabled = usePublicationFlag()
   const { api_football_frozen: frozen } = useDataMode()
   const [query, setQuery] = useState('')
   const [searchState, setSearchState] = useState({
@@ -217,6 +219,7 @@ export function PlayerOnboarding() {
       {/* --- p2-b2 begin --- */}
       <PlayerApplications />
       <div className="floodlight-container pb-12"><HighlightInboxLink /></div>
+      {publicationEnabled && <Link className="block py-4 underline" to="/player-publications">Manage public profile consent</Link>}
       {/* --- p2-b2 end --- */}
     </div>
   )

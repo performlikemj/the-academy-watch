@@ -1,3 +1,4 @@
+import { usePublicationFlag } from '@/hooks/usePublicationFlag'
 import { useEffect, useState } from 'react'
 import { APIService } from '@/lib/api'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -716,12 +717,14 @@ function ContactOversightTab({ setMessage }) {
 }
 
 export function AdminTrust() {
+  const publicationEnabled = usePublicationFlag()
     const [message, setMessage] = useState(null)
     const [tab, setTab] = useState('verifications')
 
     return (
         <div className="space-y-6">
-            <AdminPageHeader
+            {publicationEnabled && <a className="block py-4 underline" href="/admin/player-publications">Review club adult public profiles</a>}
+      <AdminPageHeader
                 eyebrow={<span className="inline-flex items-center gap-2"><ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />Review · Trust &amp; safety</span>}
                 title="Trust"
                 accent="Desk"
