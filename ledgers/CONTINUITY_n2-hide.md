@@ -44,8 +44,8 @@
 
 ## Fix round 3
 
-- State: implementation and validation complete; delivery in progress.
-- Now: commit/push, reply to inline P1 with fix SHA, update PR body and request @codex review.
+- State: complete; fix pushed and inline P1 replied; PR description includes SWA redirects and post-deploy curl check.
+- Now: PR #1112 awaits fresh review; final ledger push precedes @codex review request.
 - Next: lead review and deployed HTTP verification; no merge in this lane.
 - Constraints: no background commands; no dependency changes; backend remains unchanged unless audit identifies a dependency.
 - Done: noindex depends only on current legacy pathname; Navigate carries no redirect state. Home and all tested non-legacy pages have no robots meta, including old persisted redirect state.
@@ -54,3 +54,4 @@
 - Audit: workflow bakes https://api.theacademywatch.com/api and deploys only frontend dist to SWA; main.py registers share_bp on Flask API host, serving /p/<id> and /p/<id>/card.png, sitemap/robots. public_share_origin defaults to API origin; runtime override UNCONFIRMED (no production config accessed). Email unsubscribe /subscriptions/unsubscribe/<token>, one-click /api/subscriptions/one-click-unsubscribe/<token>, API verify /api/verify/<token>, SPA /verify, /manage, /unsubscribe, /settings and auth paths are outside redirects. Prior backend legacy URL gate covers hidden email/OG emitters; no backend edits required.
 - Gates: OSV clean, frozen dependencies already installed (no restore/lockfile change); lint 0 errors / 181 existing warnings; build pass (existing chunk-size warning); 200 Node pass; legacy Playwright 29 pass (43.2s); git diff --check pass. No separate JSX typecheck script. Ruff/pytest not rerun because backend unchanged this round.
 - Cleanup: owned foreground Vite on 5194 stopped; generated Playwright reports/test-results removed. No backend/DB/env/tmp/simulator/provider/prod work. Build output retained for redirect-config inspection.
+- Delivery: code fix d9ccb5a23a7716a871058801fa62e245ba3f8b67 pushed; inline P1 discussion_r4151200839 replied as discussion_r4151278405; PR body refreshed. Final head/review-request receipt and BUS DONE recorded in external ~/codex-runs/aw-redesign/logs/N2F3.final.md after ledger push. No merge.
