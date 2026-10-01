@@ -60,4 +60,4 @@
 - shots/B3:26 reviewed PNGs (22 refreshed+4 new); real OTP verification/export at both widths excludes private reason; only request-code intercepted to avoid email. Staff-OFF last-manager warning and protected requester hold live captured.
 - Cleanup complete: owned foreground services stopped, aw_p2_b3 dropped/absent, temp/auth/browser reports removed. Actual B1/B2 graph dependencies intentionally retained; hashes match their committed lane files.
 - Decisions for MJ updated: deletion+same-email re-registration bypasses account-level suspension; whether to retain an address marker needs a policy/retention decision. Existing cancellation/ownership/whole-player-hide defaults retained.
-- Delivery: code2efda789 + latest A2 merge09056eb7; docs/ledger/dependency commit follows. Report ~/codex-runs/aw-redesign/logs/B3F2.final.md; push/PR body, no merge.
+- Delivery: fix2efda789 + latest A2 merge09056eb7 + real prerequisite/docs commit aa87d572 pushed; PR body verified with final gates/Decisions for MJ. Report ~/codex-runs/aw-redesign/logs/B3F2.final.md; no merge. Closing ledger-only commit follows.
