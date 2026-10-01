@@ -114,8 +114,10 @@
 ## I1F3 final verification / delivery record
 - All accepted runtime findings implemented; O8 excluded by weak-reference evidence (9 live while owned,0 after scope). Backend-only8305283b is a parent commit for independent cherry-pick/release; original native history is retained without a force push.
 - Targeted UI:7 distinct regression cases pass across initial/corrected runs; additional analyst/viewer and late-bootstrap2 pass. Model tests cover all public/private flag outcomes,31applications/older invitation/current priority, time-zone wall values/gap/repeated DST, dirty/in-flight state, reader dates and actual tab text AA contrast.
-- Source frozen before final cached backend/full/lint/frontend gates, full unit/offline and Release. Exact receipts/counts, light/dark screenshot index, resource cleanup and pushed SHA are authoritative in external `I1F3.final.md`; no migration changes/preapply contract needed.
+- Source frozen before final cached backend/full/lint/frontend gates, full unit/offline and Release. Exact receipts/counts, light/dark screenshot index, resource cleanup and pushed SHA are authoritative in external `I1F3.final.md`; no I1-authored migration changes; inherited B3 timeout migration/preapply CONTRACT and schema equality are recorded in the external hand-back.
 - Release dependency: `/opportunities/<id>#parent-interest` app link is retained; UXB #1124 must ship its web anchor/focus implementation before the app build.
 - Question for MJ (design, not defect): keep the approved N17 “Other states you will see” legend in the live thread?
 
 - Final visual inspection found the long-name DEBUG fixture was overwritten by auth/me refresh; fixture now preserves it and the390pt test asserts the actual name. Runtime source unchanged; final gates run on the revised committed head.
+
+- Final-head full offline run caught the inherited first-location test assuming fresh simulator authorization after a previous run denied it. Test now resets authorization via XCTest before launch; verify twice on the reused simulator. Runtime sources unchanged. Final gates and full offline scheme run on the new test head; all prior receipts remain labelled interim.

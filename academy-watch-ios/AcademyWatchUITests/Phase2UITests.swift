@@ -214,6 +214,8 @@ final class Phase2UITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["Scout Desk"].waitForExistence(timeout: 10))
     }
     func testFirstLocationPermissionKeepsClubsAndSearchDraft() {
+        // A reused simulator must still exercise the first permission prompt.
+        app.resetAuthorizationStatus(for: .location)
         launch("player", tab: "clubs")
         tap(app.tabBars.buttons["Clubs"])
         let query = app.textFields["clubs-search"]

@@ -34,7 +34,7 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
 
 - **Now (2026-10-01):** B2F5 local gates green after mechanical refresh onto main/B1 e82bb4e3: full flags-off4075pass69skip0fail, PG19/Node219/Playwright45/Ruff-format579/lint0err186warn/build. All36 untouched B2 blobs equal reviewed16540e03; p2b1 matches main; real dark-count omission2 pass. Push + ready #1113 + CI verification next; no merge. Hand-back `~/codex-runs/aw-redesign/logs/B2F5.final.md`; see `ledgers/CONTINUITY_p2-b2.md`.
 
-- **Now (2026-10-02):** I1F3 review-duel implementation complete; final gates/delivery receipts in `~/codex-runs/aw-redesign/logs/I1F3.final.md`; see `ledgers/CONTINUITY_ios-phase2.md`.
+- **Now (2026-10-02):** I1F3 review-duel implementation complete; reused-simulator location test resets its authorization before launch; final gates/delivery receipts in `~/codex-runs/aw-redesign/logs/I1F3.final.md`; see `ledgers/CONTINUITY_ios-phase2.md`.
 
 ### Done
 - **2026-10-01 I1 round 2:** native owner/manager opportunity editor, exact N5F1 solid low-cut loader/static launch;56 staging contracts,292 unit tests,42 offline pass/2 opt-in skips,4 final affected UI pass,80 backend and Release green.60 indexed round2 PNGs; owned simulators/DerivedData removed. Draft #1118 unmerged. See `ledgers/CONTINUITY_ios-phase2.md`.
