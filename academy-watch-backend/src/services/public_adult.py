@@ -7,10 +7,12 @@ checks share this loaded-source evaluation instead of per-candidate queries.
 
 from collections import defaultdict
 from datetime import UTC, datetime
+from hashlib import sha256
 
 import sqlalchemy as sa
 from src.models.follow import PlayerShadow
 from src.models.journey import PlayerJourney
+from src.models.league import db
 from src.models.player_suppression import PlayerSuppression
 from src.models.showcase import LocalPlayer, local_player_is_minor
 from src.models.tracked_player import TrackedPlayer
@@ -23,8 +25,11 @@ def _valid_id(pid):
     return isinstance(pid, int) and not isinstance(pid, bool) and 0 < abs(pid) <= MAX_SIGNED_PLAYER_ID
 
 
-def public_adult_ids(signed_ids):
+def public_adult_ids(signed_ids, *, trusted_birth_dates=None):
     """At most five IN-source queries plus one hold query, regardless of page size."""
+    # Only server-fetched API profiles may supply additional DOB evidence.
+    # Request payloads, age snapshots and caller-supplied seeds are never evidence.
+    trusted_birth_dates = trusted_birth_dates or {}
     ids = set(pid for pid in signed_ids if _valid_id(pid))
     if not ids:
         return set()
@@ -91,13 +96,18 @@ def public_adult_ids(signed_ids):
                 for local in local_rows
             ):
                 continue
-        elif not (any(row.data_source != "owning-club" for row in tracked[pid]) or pid in shadows):
+        elif not (
+            any(row.data_source != "owning-club" for row in tracked[pid])
+            or pid in shadows
+            or pid in trusted_birth_dates
+        ):
             continue
         if any(local.provenance == "club" or local_player_is_minor(local, today=today) for local in local_rows):
             continue
         sources = list(local_rows) + tracked[pid]
         sources += [row for row in (shadows.get(pid), journeys.get(pid)) if row is not None]
         dates = [row.birth_date for row in sources if row.birth_date is not None]
+        dates.extend(value for value in trusted_birth_dates.get(pid, []) if value is not None)
         if dates:
             ages = [age_from_birth_date(value, today=today) for value in dates]
             adult = all(age is not None and age >= 18 for age in ages)
@@ -108,6 +118,58 @@ def public_adult_ids(signed_ids):
         if adult:
             eligible.add(pid)
     return eligible
+
+
+def filter_public_adult_query(query, signed_id_column):
+    """Apply strict eligibility before ordering, pagination, counts or ranking.
+
+    Unlike filter_public_adults, this preserves the whole candidate set. Load
+    only distinct IDs, then resolve evidence in bounded batches. Never cap the
+    eligible universe or filter a presentation page after LIMIT.
+    """
+    ids = [pid for (pid,) in query.with_entities(signed_id_column).order_by(None).distinct().all()]
+    eligible = set()
+    for offset in range(0, len(ids), 500):
+        eligible.update(public_adult_ids(ids[offset : offset + 500]))
+    return query.filter(signed_id_column.in_(eligible))
+
+
+def public_adult_profile_ids(profiles):
+    """Strict rule for trusted upstream search results, without persisting them.
+
+    Existing contradictory DOBs, local bridges, suppression and holds still
+    veto a result. Missing upstream DOB does not establish adult age.
+    """
+    dates = {}
+    for row in profiles:
+        player = (row or {}).get("player") or {}
+        pid = player.get("id")
+        if _valid_id(pid) and pid > 0:
+            dates.setdefault(pid, []).append((player.get("birth") or {}).get("date"))
+    return public_adult_ids(dates, trusted_birth_dates=dates)
+
+
+def scout_adult_policy_revision():
+    """Bind stored GOL replays to current eligibility, including legacy answers.
+
+    A newly added eligible adult does not invalidate existing answers. A change
+    to the excluded set does, so an old replay cannot restore a player after a
+    DOB correction, suppression or hold. Versioning rejects pre-policy replays.
+    """
+    ids = {
+        pid
+        for model in (TrackedPlayer, PlayerShadow, LocalPlayer)
+        for (pid,) in db.session.query(model.api_player_id if model is LocalPlayer else model.player_api_id)
+        .distinct()
+        .all()
+        if _valid_id(pid)
+    }
+    eligible = set()
+    ordered = sorted(ids)
+    for offset in range(0, len(ordered), 500):
+        eligible.update(public_adult_ids(ordered[offset : offset + 500]))
+    excluded = ",".join(str(pid) for pid in sorted(ids - eligible))
+    return sha256(f"scout-adults-v1:{excluded}".encode()).hexdigest()
 
 
 def is_public_adult(subject) -> bool:

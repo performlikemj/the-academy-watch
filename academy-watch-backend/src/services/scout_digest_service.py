@@ -26,6 +26,7 @@ from src.models.scout_watchlist import ScoutWatchlistEntry
 from src.models.showcase import without_minor_local_bridge
 from src.models.tracked_player import TrackedPlayer
 from src.services.player_suppression import public_player_visible_filter
+from src.services.public_adult import is_public_adult
 
 logger = logging.getLogger(__name__)
 
@@ -178,6 +179,8 @@ def _player_state(player_api_id: int, cache: dict, api_client=None) -> dict:
     NEVER goes through the shadow branch (compute_stats stays authoritative);
     only players with no active tracked row fall back to a PlayerShadow.
     """
+    if not is_public_adult(player_api_id):
+        return {"kind": "none", "tracked": None, "shadow": None, "stats": None, "absences": None}
     if player_api_id in cache:
         return cache[player_api_id]
     tracked_player = _preferred_tracked_player(player_api_id)

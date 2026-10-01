@@ -22,6 +22,7 @@ from src.models.journey import PlayerJourney
 from src.models.league import Team, db
 from src.models.tracked_player import TrackedPlayer
 from src.services.journey_sync import JourneySyncService
+from src.services.public_adult import filter_public_adult_query, is_public_adult, public_adult_profile_ids
 from src.services.transfer_resolver import resolve_transfer_state
 from src.utils.academy_classifier import (
     classify_tracked_player,
@@ -125,6 +126,8 @@ class GolPlayerLookup:
                     "rate_limited": False,
                 }
 
+            adult_ids = public_adult_profile_ids(rows)
+            rows = [row for row in rows if (row.get("player") or {}).get("id") in adult_ids]
             best = self._pick_best_match(rows, player_name, team)
             if not best:
                 return {
@@ -158,6 +161,15 @@ class GolPlayerLookup:
                     "rate_limited": False,
                 }
 
+            # Sync may reveal DOB evidence contradicting the search profile.
+            if player_id not in public_adult_profile_ids([best]):
+                return {
+                    "found": False,
+                    "player_name": "",
+                    "team": "",
+                    "message": "No eligible adult player found.",
+                    "rate_limited": False,
+                }
             parent_team = self._resolve_parent_team(best, team)
             if not parent_team:
                 return {
@@ -209,6 +221,14 @@ class GolPlayerLookup:
 
             DataFrameCache.invalidate()
 
+            if not is_public_adult(player_id):
+                return {
+                    "found": False,
+                    "player_name": "",
+                    "team": "",
+                    "message": "No eligible adult player found.",
+                    "rate_limited": False,
+                }
             display_current_club = tracked.current_club_name
             if not display_current_club and tracked.status in {"academy", "first_team"}:
                 display_current_club = (journey.current_club_name if journey else None) or parent_team.name
@@ -246,16 +266,22 @@ class GolPlayerLookup:
         """Find player already in local records by name."""
         target = name.strip().lower()
 
-        tracked = TrackedPlayer.query.filter(
-            func.lower(TrackedPlayer.player_name) == target,
-            TrackedPlayer.is_active,
+        tracked = filter_public_adult_query(
+            TrackedPlayer.query.filter(
+                func.lower(TrackedPlayer.player_name) == target,
+                TrackedPlayer.is_active,
+            ),
+            TrackedPlayer.player_api_id,
         ).first()
         if not tracked:
             like = f"%{name.strip()}%"
             tracked = (
-                TrackedPlayer.query.filter(
-                    TrackedPlayer.player_name.ilike(like),
-                    TrackedPlayer.is_active,
+                filter_public_adult_query(
+                    TrackedPlayer.query.filter(
+                        TrackedPlayer.player_name.ilike(like),
+                        TrackedPlayer.is_active,
+                    ),
+                    TrackedPlayer.player_api_id,
                 )
                 .order_by(TrackedPlayer.player_name)
                 .first()
@@ -269,12 +295,18 @@ class GolPlayerLookup:
                 "source": "tracked",
             }
 
-        journey = PlayerJourney.query.filter(
-            func.lower(PlayerJourney.player_name) == target,
+        journey = filter_public_adult_query(
+            PlayerJourney.query.filter(
+                func.lower(PlayerJourney.player_name) == target,
+            ),
+            PlayerJourney.player_api_id,
         ).first()
         if not journey:
             journey = (
-                PlayerJourney.query.filter(PlayerJourney.player_name.ilike(f"%{name.strip()}%"))
+                filter_public_adult_query(
+                    PlayerJourney.query.filter(PlayerJourney.player_name.ilike(f"%{name.strip()}%")),
+                    PlayerJourney.player_api_id,
+                )
                 .order_by(PlayerJourney.player_name)
                 .first()
             )

@@ -105,6 +105,7 @@ def _seed_live_player(
         parent, loan = _teams()
 
     tracked = TrackedPlayer(
+        birth_date="2000-01-01",
         player_api_id=player_api_id,
         player_name=f"Player {player_api_id}",
         position="Midfielder",

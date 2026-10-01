@@ -15,6 +15,7 @@ import logging
 from src.models.follow import Follow, PlayerShadow
 from src.models.tracked_player import TrackedPlayer
 from src.services.player_suppression import without_active_suppression
+from src.services.public_adult import is_public_adult
 
 logger = logging.getLogger(__name__)
 
@@ -206,7 +207,7 @@ def derive_label(kind: str, selector: dict, name: str | None = None) -> str:
 
 def _resolve_player(selector: dict) -> list[tuple[int, str]]:
     pid = selector.get("player_api_id")
-    if not pid:
+    if not pid or not is_public_adult(pid):
         return []
     if pid < 0:
         subject = _resolve_subject(pid)
