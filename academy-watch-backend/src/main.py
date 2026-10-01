@@ -79,6 +79,14 @@ from src.services.opportunities import register_notifications
 
 # --- p2-b2 end ---
 
+# isort: split
+# --- p2-b3 begin ---
+from src.routes.admin_control import admin_control_bp
+from src.services.admin_control_safety import register_safety
+
+register_safety()
+# --- p2-b3 end ---
+
 dotenv.load_dotenv(dotenv.find_dotenv())
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -144,6 +152,9 @@ app.register_blueprint(seasons_bp, url_prefix="/api")
 app.register_blueprint(showcase_bp, url_prefix="/api")
 app.register_blueprint(funding_bp, url_prefix="/api")
 app.register_blueprint(admin_programs_bp, url_prefix="/api")
+# --- p2-b3 begin ---
+app.register_blueprint(admin_control_bp, url_prefix="/api")
+# --- p2-b3 end ---
 app.register_blueprint(club_bp, url_prefix="/api")
 app.register_blueprint(club_access_bp, url_prefix="/api")
 app.register_blueprint(club_directory_bp, url_prefix="/api")  # p2-b1
@@ -291,6 +302,11 @@ app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
     "pool_recycle": 300,  # Recycle connections every 5 minutes
 }
 db.init_app(app)
+# --- p2-b3 begin ---
+from src.services.admin_control_safety import register_control_reconciliation
+
+register_control_reconciliation(app)
+# --- p2-b3 end ---
 
 
 @app.teardown_appcontext

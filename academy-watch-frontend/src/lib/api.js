@@ -17,6 +17,10 @@ export function nextWindowIndex(currentTime, windows, currentIdx) {
 }
 
 export class APIService {
+    // --- p2-b3 begin ---
+    static adminControlRead(path) { return this.request(path, {}, { admin: true }) }
+    static adminControlAction(path, payload) { return this.request(path, { method: 'POST', body: JSON.stringify(payload) }, { admin: true }) }
+    // --- p2-b3 end ---
     static submitInterest(data) {
         return this.request('/interest', { method: 'POST', body: JSON.stringify(data) })
     }
@@ -349,6 +353,9 @@ export class APIService {
             } else if (this.userToken) {
                 headers['Authorization'] = `Bearer ${this.userToken}`
             }
+            // --- p2-b3 begin ---
+            if (extra?.accountAccess) headers.Authorization = `Bearer ${extra.accountAccess}`
+            // --- p2-b3 end ---
             const response = await fetch(`${API_BASE_URL}${endpoint}`, { ...options, headers })
 
             if (extra?.nullOn404 && response.status === 404) return null
