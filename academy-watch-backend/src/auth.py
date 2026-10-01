@@ -517,7 +517,14 @@ def resolve_bearer_user() -> UserAccount | None:
     if not token:
         return None
 
-    data = _user_serializer().loads(token, max_age=USER_TOKEN_TTL_SECONDS)
+    # --- p2-b3 begin ---
+    from src.services.account_standing import AccountBindingUnavailable
+
+    try:
+        data = _user_serializer().loads(token, max_age=USER_TOKEN_TTL_SECONDS)
+    except AccountBindingUnavailable as exc:
+        raise LookupError("account not found") from exc
+    # --- p2-b3 end ---
     if not isinstance(data, dict):
         raise ValueError("invalid token payload")
     raw_email = data.get("email")

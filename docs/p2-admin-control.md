@@ -118,3 +118,6 @@ Draft, stacked on A2 #1109. No production switch-on is part of this lane.
 - Apply A2's latest p2a2 and B1/B2 before p2b3; pre-apply on production is the
   orchestrator's responsibility. Four shared migration-head pins remain p2a2 per BUS;
   integration updates them once to the final chain head.
+- Schema-only SQL for orchestrator review: `~/codex-runs/aw-redesign/p2b3_preapply.sql`.
+  Generated from the migration operations/constants and reapplied twice on the scratch DB.
+  It changes no flags and does not stamp Alembic.

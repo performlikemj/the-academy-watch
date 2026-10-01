@@ -39,7 +39,7 @@ for (const width of [1440, 390]) {
             await page.goto(`/admin/${route}`)
             await expect(page.getByRole('heading', { name: heading })).toBeVisible()
             await expect(page.getByText(message)).toBeVisible()
-            expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+            expect(await page.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth)).toBe(true)
         }
         expect(errors).toEqual([])
     })

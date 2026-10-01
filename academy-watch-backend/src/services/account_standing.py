@@ -1,6 +1,11 @@
 """Persisted safety standing survives feature rollback; active accounts are unchanged."""
 
+from itsdangerous import BadSignature
 from src.models.league import UserAccount, db
+
+
+class AccountBindingUnavailable(BadSignature):
+    """Rejected centrally while retaining required-auth account-not-found semantics."""
 
 
 def account_can_act(user):
@@ -13,20 +18,19 @@ def assert_token_standing(payload):
         return
     user = UserAccount.query.filter_by(email=payload["email"]).populate_existing().first()
     bound_id = payload.get("user_id")
-    unavailable = user is None and bound_id is not None
+    stale_binding = user is None and bound_id is not None
     if user is not None:
-        unavailable = (
-            not account_can_act(user)
-            or payload.get("auth_epoch", 0) != (user.auth_epoch or 0)
+        stale_binding = (
+            user.is_tombstone
             or (bound_id is not None and bound_id != user.id)
             or (
                 payload.get("account_created_at") is not None
                 and (user.created_at is None or payload["account_created_at"] != user.created_at.isoformat())
             )
         )
-    if unavailable:
-        from itsdangerous import BadSignature
-
+    if stale_binding:
+        raise AccountBindingUnavailable("account not found")
+    if user is not None and (not account_can_act(user) or payload.get("auth_epoch", 0) != (user.auth_epoch or 0)):
         raise BadSignature("account unavailable")
 
 

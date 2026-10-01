@@ -22,19 +22,21 @@ export function B3Gate({ flag, children }) {
 }
 
 export function useControlData(path) {
-    const [data, setData] = useState(null)
-    const [error, setError] = useState('')
+    const [result, setResult] = useState({})
     const [revision, setRevision] = useState(0)
     const reload = useCallback(() => setRevision(value => value + 1), [])
     useEffect(() => {
-        if (!path) { setData(null); return }
+        if (!path) return
         let live = true
-        setData(null)
-        setError('')
-        APIService.adminControlRead(path).then(value => { if (live) setData(value) }).catch(err => { if (live) setError(err.message || 'Could not load this view.') })
+        APIService.adminControlRead(path).then(data => {
+            if (live) setResult({ path, revision, data, error: '' })
+        }).catch(err => {
+            if (live) setResult({ path, revision, data: null, error: err.message || 'Could not load this view.' })
+        })
         return () => { live = false }
     }, [path, revision])
-    return { data, error, reload }
+    const current = result.path === path && result.revision === revision
+    return { data: current ? result.data : null, error: current ? result.error : '', reload }
 }
 
 export function LoadState({ error, data }) {
