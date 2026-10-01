@@ -318,4 +318,26 @@ final class Phase2ViewModelTests: XCTestCase {
         XCTAssertTrue(Phase2Time.zoneLabel("Unknown/Zone", at: nil).contains("UTC fallback"))
         XCTAssertEqual(Phase2Time.display("bad", zone: "Europe/London"), "Date unavailable")
     }
+    func testContactNaiveUTCTimestampsMatchExplicitUTCAndPreserveOffsets() throws {
+        let naive = try XCTUnwrap(Phase2Time.date("2026-08-26T11:15:00"))
+        XCTAssertEqual(naive, Phase2Time.date("2026-08-26T11:15:00Z"))
+        XCTAssertEqual(naive, Phase2Time.date("2026-08-26T12:15:00+01:00"))
+        XCTAssertEqual(
+            Phase2Time.date("2026-08-26T11:15:00.123456"), Phase2Time.date("2026-08-26T11:15:00.123456Z"))
+        XCTAssertTrue(Phase2Time.display("2026-08-26T11:15:00", zone: "Europe/London").contains("12:15 BST"))
+        XCTAssertNil(Phase2Time.date("2026-08-26"))
+        XCTAssertNil(Phase2Time.date("2026-08-26T11:15:00junk"))
+    }
+    func testTimeRangePreservesEndTimeAndBothZonesAcrossDST() {
+        XCTAssertEqual(
+            Phase2Time.interval("2026-10-07T18:30:00Z", "2026-10-07T20:00:00Z", zone: "Europe/London"),
+            "Wed 7 Oct, 19:30–21:00 BST")
+        let change = Phase2Time.interval("2026-10-25T00:30:00Z", "2026-10-25T01:30:00Z", zone: "Europe/London")
+        XCTAssertTrue(change.contains("BST"))
+        XCTAssertTrue(change.contains("GMT"))
+        let midnight = Phase2Time.interval("2026-10-07T22:30:00Z", "2026-10-08T01:00:00Z", zone: "Europe/London")
+        XCTAssertTrue(midnight.contains("Wed 7 Oct"))
+        XCTAssertTrue(midnight.contains("Thu 8 Oct"))
+        XCTAssertEqual(Phase2Time.interval(nil, nil, zone: "Europe/London"), "No fixed date")
+    }
 }

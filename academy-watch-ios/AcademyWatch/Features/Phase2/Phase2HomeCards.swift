@@ -104,3 +104,202 @@ struct Phase2HomeCards: View {
         }
     }
 }
+
+struct Phase2PlayerHome: View {
+    let client: APIClient
+    @ObservedObject var incoming: IncomingContactRequestsViewModel
+    @ObservedObject var availability: ContactFeatureAvailability
+    @EnvironmentObject private var workspace: Phase2Workspace
+    @EnvironmentObject private var auth: AuthManager
+    @StateObject private var applications: ApplicationsViewModel
+    @StateObject private var openings: OpportunitiesViewModel
+    init(client: APIClient, incoming: IncomingContactRequestsViewModel, availability: ContactFeatureAvailability) {
+        self.client = client
+        self.incoming = incoming
+        self.availability = availability
+        _applications = StateObject(wrappedValue: ApplicationsViewModel(client: client))
+        _openings = StateObject(wrappedValue: OpportunitiesViewModel(client: client))
+    }
+    private var invitations: [Phase2Application] {
+        workspace.flags.applications ? applications.applications.filter { $0.canRespond() } : []
+    }
+    private var introductions: [ContactRequest] {
+        workspace.flags.contact && !availability.isUnavailable
+            ? incoming.requests.filter { $0.clubConsentStatus == .granted && $0.status == .pending } : []
+    }
+    private var waiting: Int { invitations.count + introductions.count }
+    private var firstName: String { auth.displayName?.split(separator: " ").first.map(String.init) ?? "there" }
+    private var heroDate: Date {
+        #if DEBUG && targetEnvironment(simulator)
+            if Phase2Fixtures.active { return Phase2Time.date("2026-10-01T18:00:00Z")! }
+        #endif
+        return Date()
+    }
+    private var greeting: String {
+        var calendar = Calendar.current
+        #if DEBUG && targetEnvironment(simulator)
+            if Phase2Fixtures.active { calendar.timeZone = TimeZone(identifier: "Europe/London")! }
+        #endif
+        let hour = calendar.component(.hour, from: heroDate)
+        return hour < 12 ? "Good morning," : hour < 17 ? "Good afternoon," : "Good evening,"
+    }
+    private var dateEyebrow: String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_GB")
+        formatter.dateFormat = "EEEE d MMMM"
+        #if DEBUG && targetEnvironment(simulator)
+            if Phase2Fixtures.active { formatter.timeZone = TimeZone(identifier: "Europe/London")! }
+        #endif
+        return formatter.string(from: heroDate).uppercased()
+    }
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 0) {
+                ZStack(alignment: .bottomLeading) {
+                    Image("FootballAtmosphere").resizable().scaledToFill().frame(height: 174).clipped().opacity(0.42)
+                    LinearGradient(
+                        colors: [AcademyColors.night.opacity(0.15), AcademyColors.night.opacity(0.92)],
+                        startPoint: .top, endPoint: .bottom)
+                    VStack(alignment: .leading, spacing: 9) {
+                        Text(dateEyebrow)
+                            .font(AcademyType.mono(10)).tracking(2).foregroundStyle(AcademyColors.gold)
+                        (Text(greeting + " ").font(AcademyType.serif(40)).foregroundColor(AcademyColors.chalk)
+                            + Text(firstName + ".").font(AcademyType.serif(40, italic: true)).foregroundColor(
+                                AcademyColors.gold))
+                            .fixedSize(horizontal: false, vertical: true)
+                        Text(
+                            waiting == 0
+                                ? "You're all caught up."
+                                : "\(waiting) \(waiting == 1 ? "thing is" : "things are") waiting on you."
+                        )
+                        .font(AcademyType.subheadline).foregroundStyle(AcademyColors.mutedDark)
+                    }.padding(.horizontal, 20).padding(.bottom, 18)
+                }.frame(height: 174).background(AcademyColors.night)
+                VStack(alignment: .leading, spacing: 20) {
+                    if waiting > 0 {
+                        VStack(spacing: 0) {
+                            Phase2Section(title: "Needs you", trailing: phase2Count(waiting, "thing"))
+                            ForEach(invitations) { application in
+                                NavigationLink {
+                                    ApplicationDetailView(id: application.id, client: client)
+                                } label: {
+                                    homeNeed(
+                                        icon: "calendar", eyebrow: "Trial invite · reply needed",
+                                        title: application.opportunityTitle,
+                                        detail: Phase2Time.display(application.trialAt, zone: application.timezone)
+                                            + " · " + (application.trialVenue ?? ""),
+                                        zone: Phase2Time.zoneLabel(application.timezone, at: application.trialAt))
+                                }.buttonStyle(.plain).accessibilityIdentifier(
+                                    "home-application-invite-\(application.id)")
+                            }
+                            ForEach(introductions) { request in
+                                NavigationLink {
+                                    IncomingContactRequestsView(
+                                        viewModel: incoming, availability: availability, apiClient: client)
+                                } label: {
+                                    homeNeed(
+                                        icon: "bubble.left", eyebrow: "Introduction · club said yes",
+                                        title: "A verified scout wants to talk",
+                                        detail: "Your club agreed. The decision is yours.")
+                                }.buttonStyle(.plain).accessibilityIdentifier("home-introductions")
+                            }
+                        }
+                    }
+                    if workspace.flags.applications && auth.isAuthenticated {
+                        VStack(alignment: .leading, spacing: 0) {
+                            Phase2Section(title: "Applications", trailing: "\(applications.applications.count) sent")
+                            ForEach(applications.applications.prefix(3)) { application in
+                                NavigationLink {
+                                    ApplicationDetailView(id: application.id, client: client)
+                                } label: {
+                                    HStack(spacing: 12) {
+                                        VStack(alignment: .leading, spacing: 5) {
+                                            Text(application.opportunityTitle).font(AcademyType.serif(20))
+                                            Phase2Eyebrow(
+                                                text: application.clubName + " · "
+                                                    + Phase2Time.shortDate(
+                                                        application.submittedAt, zone: application.timezone,
+                                                        format: "d MMM"))
+                                        }.frame(maxWidth: .infinity, alignment: .leading)
+                                        Phase2Status(application: application).frame(
+                                            maxWidth: 118, alignment: .trailing)
+                                    }.padding(.vertical, 13)
+                                    Divider()
+                                }.buttonStyle(.plain)
+                            }
+                            NavigationLink("See every step") { MyApplicationsView(client: client) }
+                                .font(AcademyType.subheadline.weight(.medium)).underline().frame(minHeight: 44)
+                                .accessibilityIdentifier("home-applications")
+                        }
+                    }
+                    if workspace.flags.opportunities {
+                        VStack(alignment: .leading, spacing: 0) {
+                            Phase2Eyebrow(text: "Open near you").padding(.bottom, 10)
+                            Divider()
+                            // The public endpoint has no distance: use its titles/dates without inventing proximity.
+                            ForEach(
+                                openings.posts.filter { post in
+                                    !applications.applications.contains { $0.opportunityId == post.id }
+                                }.prefix(2)
+                            ) { post in
+                                NavigationLink {
+                                    TrialDetailView(id: post.id, client: client)
+                                } label: {
+                                    HStack {
+                                        Text(post.title).font(AcademyType.serif(20))
+                                        Spacer(minLength: 8)
+                                        Phase2Eyebrow(text: Phase2Time.shortDate(post.startsAt, zone: post.timezone))
+                                    }.padding(.vertical, 12)
+                                    Divider()
+                                }.buttonStyle(.plain)
+                            }
+                            Text("Open opportunities · distance unavailable").font(AcademyType.footnote)
+                                .foregroundStyle(AcademyColors.secondaryText).padding(.top, 8)
+                        }
+                    }
+                    HStack(spacing: 10) {
+                        if workspace.flags.directory {
+                            NavigationLink {
+                                ClubsNearYouView(client: client)
+                            } label: {
+                                Label("Clubs near you", systemImage: "mappin.and.ellipse")
+                            }
+                            .buttonStyle(FloodlightPillStyle(variant: .outline)).accessibilityIdentifier("home-clubs")
+                        }
+                        if workspace.flags.opportunities {
+                            NavigationLink {
+                                TrialsView(client: client)
+                            } label: {
+                                Label("All trials", systemImage: "flag")
+                            }
+                            .buttonStyle(FloodlightPillStyle(variant: .outline)).accessibilityIdentifier("home-trials")
+                        }
+                    }
+                }.padding(16)
+            }
+        }.background(AcademyColors.background).foregroundStyle(AcademyColors.text)
+            .task(id: workspace.flags) {
+                if workspace.flags.applications && auth.isAuthenticated { await applications.load() }
+                if workspace.flags.opportunities { await openings.load() }
+            }
+    }
+    private func homeNeed(icon: String, eyebrow: String, title: String, detail: String, zone: String? = nil)
+        -> some View
+    {
+        VStack(spacing: 0) {
+            HStack(spacing: 14) {
+                Image(systemName: icon).font(.system(size: 20, weight: .light)).foregroundStyle(AcademyColors.accent)
+                    .frame(width: 44, height: 44).background(AcademyColors.elevatedSurface, in: Circle())
+                VStack(alignment: .leading, spacing: 4) {
+                    Phase2Eyebrow(text: eyebrow, gold: true)
+                    Text(title).font(AcademyType.serif(21))
+                    Text(detail).font(AcademyType.subheadline).foregroundStyle(AcademyColors.secondaryText)
+                    if let zone { Phase2Eyebrow(text: zone) }
+                }.frame(maxWidth: .infinity, alignment: .leading)
+                Image(systemName: "chevron.right").font(.system(size: 14, weight: .light)).foregroundStyle(
+                    AcademyColors.secondaryText)
+            }.padding(.vertical, 13).frame(minHeight: 44)
+            Divider()
+        }
+    }
+}

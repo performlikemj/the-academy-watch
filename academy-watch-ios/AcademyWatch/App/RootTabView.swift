@@ -236,6 +236,14 @@ struct RootTabView: View {
             accountTab
         }
         .id(tabTreeIdentity)
+        .toolbar(usesEditorialTabs ? .hidden : .visible, for: .tabBar)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if usesEditorialTabs {
+                Phase2TabBar(tabs: availableTabs, role: role, selection: tabSelection)
+                    .frame(height: 64).padding(.horizontal, 14).padding(.top, 8).padding(.bottom, 4)
+                    .background(AcademyColors.background)
+            }
+        }
         .environmentObject(workspace)
         .environmentObject(authManager)
         .environmentObject(watchlistViewModel)
@@ -335,7 +343,7 @@ struct RootTabView: View {
             )
             .id(authManager.email ?? "signed-out")
             .tabItem {
-                Label(role == .club && workspace.flags.staff ? "Today" : "Home", systemImage: "house.fill")
+                Label(role == .club && workspace.flags.staff ? "Today" : "Home", systemImage: "house")
                     .accessibilityIdentifier("tab-bar-home")
             }
             .tag(RootTab.home)
@@ -345,16 +353,18 @@ struct RootTabView: View {
 
     @ViewBuilder private var phase2Tabs: some View {
         if availableTabs.contains(.clubs) {
-            NavigationStack { ClubsNearYouView(client: apiClient) }.tabItem { Label("Clubs", systemImage: "shield") }
-                .tag(RootTab.clubs)
+            NavigationStack { ClubsNearYouView(client: apiClient) }.tabItem {
+                Label("Clubs", systemImage: "mappin.and.ellipse")
+            }
+            .tag(RootTab.clubs)
         }
         if availableTabs.contains(.trials) {
-            NavigationStack { TrialsView(client: apiClient) }.tabItem { Label("Trials", systemImage: "soccerball") }
+            NavigationStack { TrialsView(client: apiClient) }.tabItem { Label("Trials", systemImage: "flag") }
                 .tag(RootTab.trials)
         }
         if availableTabs.contains(.applied) {
             NavigationStack { MyApplicationsView(client: apiClient) }.tabItem {
-                Label("Applied", systemImage: "paperplane")
+                Label("Applied", systemImage: "tray")
             }.tag(RootTab.applied)
         }
         if let membership = workspace.selected {
@@ -442,7 +452,7 @@ struct RootTabView: View {
         // account's private form or conversation data.
         .id(authManager.isAuthenticated)
         .tabItem {
-            Label("Account", systemImage: "person.crop.circle.fill")
+            Label("Account", systemImage: "person")
                 .accessibilityIdentifier("tab-bar-account")
         }
         .tag(RootTab.account)
@@ -461,6 +471,12 @@ struct RootTabView: View {
 
     private var role: ExperienceRole? {
         ExperienceRole(rawValue: roleValue)
+    }
+
+    private var usesEditorialTabs: Bool {
+        (role == .player
+            && (workspace.flags.directory || workspace.flags.opportunities || workspace.flags.applications))
+            || (role == .club && workspace.flags.staff)
     }
 
     private var availableTabs: [RootTab] {

@@ -11,8 +11,8 @@
 
 ## State
 - Done: merged B3 + final B1/B2 dependencies; conflicts preserved owned feature blocks. Native role tabs, browse/apply/application actions, recruiting/invites/notes/signing, owner staff grants and scoped squads implemented.
-- Now: complete; draft PR [#1118](https://github.com/performlikemj/the-academy-watch/pull/1118) to main, unmerged.
-- Next: owner review of draft PR; no merge.
+- Now: I1F fidelity delivery complete; all 14 boards refined/compared with current IMF1 references; draft #1118 remains unmerged.
+- Next: orchestrator’s separate I1F1 correctness fix round for RI1 findings; no merge.
 
 ## Validation
 - Debug simulator compile passes. First XCTest launch hit simulator infrastructure error before tests; rerun on booted dedicated simulator, parallel testing disabled.
@@ -39,3 +39,30 @@
 - Draft PR #1118 to main: https://github.com/performlikemj/the-academy-watch/pull/1118; exact requested title; DO NOT MERGE.
 - Hand-back: ~/codex-runs/aw-redesign/logs/I1.final.md.
 - Native implementation commit d0bb7fb5; main reconciliation 5706739d. Dependency commits remain visible until their separate PRs land.
+
+## I1F fidelity round
+- Approved references: current project/N*.dc.html + preview/shots/N*.png; IMF1 confirms these are the regenerated fix-round versions.
+- Dedicated tabs requested by user supersede IMF1 legacy tab choices; backend capability/data rules still apply.
+- Gaps: generic home hero, filled system tab symbols, redundant large headings, picker/menu treatments, stage chips absent, sparse fixture data, plain staff forms and consent rail.
+
+- I1F visual refinement: personal photo hero, serif/hairline rows, outline role tab bar, stage chips and native swipe actions, timeline cards, branded headers, compact staff roles/squad chips, consent rail/messages, checkbox consent and framed forms. Public/scoped DTO omissions preserved.
+- Focused UI gate: 4/4 pass (hero/banner/tab count, swipe shortlist/counts, adult consent/submission, staff edit preserving both squads). Fixed hidden system-tab accessibility duplication and replaced gesture with native List swipe actions.
+- I1F unit/API gate: 262/262 pass, including interval end times, midnight and DST offsets. Full offline suite and Release simulator build running. Owned review/capture simulators: 12A44BED-AC86-4A10-9133-38C73C1CCE2A / B6BEDF10-6865-4149-B922-0C451D97DC38; temporary builds /tmp/aw-I1F-derived and /tmp/aw-I1F-release.
+- I1F Release simulator build passes (arm64 + x86_64); offline suite running. Re-captures on the separate owned capture simulator; tests retain the owned review simulator.
+- Full offline first pass: one failure, private-note save obscured by keyboard; remaining journeys and all 14 board captures pass. Added a focused keyboard Done control, retained multi-line notes and explicit submission; test now dismisses the keyboard as a user would. Final focused/full reruns pending.
+- Final visual pass removed a duplicate native List disclosure chevron, corrected same-day fixture message order/count, and aligned location filter pills and branded navigation headers. No API/model workflow contract changes.
+- Private-note focus regression rerun passes with actual keyboard Done → save → persisted note. Final build/UI capture data includes 4 trial posts, 14 pipeline applicants/stage counts, 6 staff and pending/expired invite states; expired Invite again fills the form for explicit sending.
+- Final full offline gate is running on frozen source. Final Release compile green; recapture/compare and push remain.
+- Final offline run: note submission passes; parent card accessibility assertion caught the uppercase visual copy change. Kept approved uppercase typography and restored the natural-language accessibility label. Full final rerun required before delivery.
+
+- Full offline delivery: 30 pass / 2 opt-in skips / 0 fail, including all 14 Phase 2 journeys. Contract audit found contact DTOs use naive UTC timestamps; date labels now accept exact naive UTC ISO timestamps, with a regression test and review fixture matching the real contract. Final reruns pending.
+- Final UTC contract unit/API regression gate: 263/263 pass (27 Phase 2 checks); Release arm64/x86_64 compile green. Final board pass also checks corrected DEBUG-only back label sizing. All 14 comparisons inspected; supported omissions documented in INDEX.
+- Exact final native source: 263/263 unit/API pass; final all-14-board/scrolled UI check passes (186s), corrected Clubs/Trials labels visually checked. Final full timestamp-contract UI run: all 14 Phase 2 tests pass; inherited regression suite finishing.
+
+## I1F final gates / delivery
+- 263 native unit/API pass (27 Phase 2 checks); full offline Experience 30 pass / 2 opt-in skips / 0 fail (all 14 Phase 2 journeys); final all-14-board/scrolled check passes separately. Release simulator arm64 + x86_64 green.
+- Personal photo home, outline editorial role tabs, stage chips/swipe actions, application timeline, branded club/trial headers, framed forms, staff/squad controls and consent/thread typography match supported IMF1 elements. Singular applicants/places corrected. Contract omissions recorded in INDEX; no C2 approvals or invented public/minor data.
+- 28 recaptured board PNGs, 14 required light comparisons + 14 dark comparisons, nine separately labelled scrolled captures, source/comparison hash manifests and successful UI attachments in ~/codex-runs/aw-redesign/shots/I1/INDEX.md.
+- Logs/result bundles: ~/codex-runs/aw-redesign/logs/I1F/. Hand-back: ~/codex-runs/aw-redesign/logs/I1F.final.md.
+- Owned simulators 12A44BED-AC86-4A10-9133-38C73C1CCE2A / B6BEDF10-6865-4149-B922-0C451D97DC38 shut down/deleted; /tmp/aw-I1F-derived, /tmp/aw-I1F-release and /tmp/aw-I1F-capture removed. Other lanes’ resources untouched. No background shell commands, live emails/servers, backend changes or dependency restores.
+- Draft #1118 retains the exact requested title and targets main; DO NOT MERGE. Final commit identity is recorded in the external hand-back. RI1 correctness fixes remain for the queued I1F1 lane.

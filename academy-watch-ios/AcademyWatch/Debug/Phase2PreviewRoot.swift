@@ -8,6 +8,7 @@
         @StateObject private var watchlist: WatchlistViewModel
         @State private var post: Phase2Opportunity?
         @State private var request: ContactRequest?
+        @State private var chosenTab: RootTab?
         private let client: APIClient
         init(screen: String) {
             self.screen = screen
@@ -25,9 +26,28 @@
         var body: some View {
             content.environmentObject(workspace).environmentObject(auth).environmentObject(watchlist)
                 .overlay(alignment: .top) {
-                    Text("OFFLINE FIXTURE · WENDLESHIRE").font(.system(size: 9, design: .monospaced)).foregroundStyle(
-                        AcademyColors.secondaryText
-                    ).allowsHitTesting(false).offset(y: -10)
+                    if !Phase2ReviewCapture.isActive {
+                        Text("OFFLINE FIXTURE · WENDLESHIRE").font(.system(size: 9, design: .monospaced))
+                            .foregroundStyle(
+                                AcademyColors.secondaryText
+                            ).allowsHitTesting(false).offset(y: -10)
+                    }
+                }
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    if chosenTab == nil && ["N03", "N05", "N09", "N09b", "N10", "N13"].contains(screen) {
+                        let role: ExperienceRole = Phase2Fixtures.isClubExperience ? .club : .player
+                        Phase2TabBar(
+                            tabs: RootTab.available(
+                                for: role, flags: workspace.flags, access: workspace.selected?.access), role: role,
+                            selection: Binding(
+                                get: {
+                                    screen == "N03"
+                                        ? .clubs : screen == "N05" ? .trials : screen == "N13" ? .account : .recruiting
+                                }, set: { chosenTab = $0 })
+                        )
+                        .frame(height: 64).padding(.horizontal, 14).padding(.top, 8).padding(.bottom, 4).background(
+                            AcademyColors.background)
+                    }
                 }
                 .task {
                     await workspace.load(authenticated: true)
@@ -37,41 +57,67 @@
                     let decoder = JSONDecoder()
                     decoder.keyDecodingStrategy = .convertFromSnakeCase
                     if let data {
-                        request = try? decoder.decode(ContactRequestsResponse.self, from: data).requests.first
+                        request = try? decoder.decode(
+                            ContactRequestsResponse.self, from: Phase2Fixtures.contactFixture(data, messages: false)
+                        ).requests.first
                     }
                 }
         }
         @ViewBuilder private var content: some View {
-            switch screen {
-            case "N01": RootTabView(launchArguments: ["-initialTab", "home"])
-            case "N02", "N02b": RootTabView(launchArguments: ["-initialTab", "clubs"])
-            case "N03":
-                NavigationStack { PublicClubView(slug: "quillmere-athletic", searchDistance: 0.8, client: client) }
-            case "N04": RootTabView(launchArguments: ["-initialTab", "trials"])
-            case "N05":
-                NavigationStack {
-                    if workspace.flags.opportunities {
-                        TrialDetailView(id: Phase2FixtureTransport.postId, client: client)
+            if let chosenTab {
+                RootTabView(launchArguments: ["-initialTab", chosenTab.rawValue])
+            } else {
+                switch screen {
+                case "N01": RootTabView(launchArguments: ["-initialTab", "home"])
+                case "N02", "N02b": RootTabView(launchArguments: ["-initialTab", "clubs"])
+                case "N03":
+                    NavigationStack {
+                        PublicClubView(slug: "quillmere-athletic", searchDistance: 0.8, client: client)
+                            .toolbar { ToolbarItem(placement: .topBarLeading) { reviewBack("Clubs", tab: .clubs) } }
                     }
-                }
-            case "N06", "N06b": RootTabView(launchArguments: ["-initialTab", "applied"])
-            case "N09", "N09b": NavigationStack { if let post { RecruitingPipelineView(post: post, client: client) } }
-            case "N10":
-                NavigationStack {
-                    if let post {
-                        RecruitingApplicantView(id: Phase2FixtureTransport.applicationId, post: post, client: client)
+                case "N04": RootTabView(launchArguments: ["-initialTab", "trials"])
+                case "N05":
+                    NavigationStack {
+                        if workspace.flags.opportunities {
+                            TrialDetailView(id: Phase2FixtureTransport.postId, client: client)
+                                .toolbar {
+                                    ToolbarItem(placement: .topBarLeading) { reviewBack("Trials", tab: .trials) }
+                                }
+                        }
                     }
-                }
-            case "N13": NavigationStack { StaffAccessView(programId: 101, client: client) }
-            case "N14": RootTabView(launchArguments: ["-initialTab", "squads"])
-            case "N17":
-                NavigationStack {
-                    if let request {
-                        ContactThreadView(contactRequest: request, apiClient: client, availability: .shared)
+                case "N06", "N06b": RootTabView(launchArguments: ["-initialTab", "applied"])
+                case "N09", "N09b":
+                    NavigationStack { if let post { RecruitingPipelineView(post: post, client: client) } }
+                case "N10":
+                    NavigationStack {
+                        if let post {
+                            RecruitingApplicantView(
+                                id: Phase2FixtureTransport.applicationId, post: post, client: client)
+                        }
                     }
+                case "N13": NavigationStack { StaffAccessView(programId: 101, client: client) }
+                case "N14": RootTabView(launchArguments: ["-initialTab", "squads"])
+                case "N17":
+                    NavigationStack {
+                        if let request {
+                            ContactThreadView(contactRequest: request, apiClient: client, availability: .shared)
+                        }
+                    }
+                default: RootTabView()
                 }
-            default: RootTabView()
             }
+        }
+        private func reviewBack(_ title: String, tab: RootTab) -> some View {
+            Button {
+                chosenTab = tab
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "chevron.left")
+                    Text(title)
+                }
+                .font(AcademyType.ui(15)).foregroundStyle(AcademyColors.chalk)
+                .frame(minWidth: 74, minHeight: 44).fixedSize(horizontal: true, vertical: false)
+            }.buttonStyle(.plain)
         }
     }
 #endif

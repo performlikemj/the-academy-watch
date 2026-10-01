@@ -322,7 +322,11 @@ enum Phase2Time {
         guard let raw else { return nil }
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter.date(from: raw) ?? ISO8601DateFormatter().date(from: raw)
+        if let value = formatter.date(from: raw) ?? ISO8601DateFormatter().date(from: raw) { return value }
+        // Contact DTOs serialize naive UTC timestamps; never interpret these in the device zone.
+        guard raw.range(of: #"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?$"#, options: .regularExpression) != nil
+        else { return nil }
+        return formatter.date(from: raw + "Z") ?? ISO8601DateFormatter().date(from: raw + "Z")
     }
     static func zone(_ value: String) -> TimeZone { TimeZone(identifier: value) ?? TimeZone(secondsFromGMT: 0)! }
     static func display(_ raw: String?, zone value: String) -> String {
@@ -332,6 +336,26 @@ enum Phase2Time {
         formatter.timeZone = zone(value)
         formatter.dateFormat = "EEE d MMM, HH:mm z"
         return formatter.string(from: date)
+    }
+    static func interval(_ start: String?, _ end: String?, zone value: String) -> String {
+        guard let startDate = date(start) else { return start == nil ? "No fixed date" : "Date unavailable" }
+        guard let endDate = date(end), endDate > startDate else { return display(start, zone: value) }
+        let timeZone = zone(value)
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        // Keep both zone labels across midnight or a daylight-saving change.
+        guard calendar.isDate(startDate, inSameDayAs: endDate),
+            timeZone.secondsFromGMT(for: startDate) == timeZone.secondsFromGMT(for: endDate)
+        else {
+            return display(start, zone: value) + " — " + display(end, zone: value)
+        }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_GB")
+        formatter.timeZone = timeZone
+        formatter.dateFormat = "EEE d MMM, HH:mm"
+        let leading = formatter.string(from: startDate)
+        formatter.dateFormat = "HH:mm z"
+        return leading + "–" + formatter.string(from: endDate)
     }
     static func zoneLabel(_ value: String, at raw: String?) -> String {
         let zone = zone(value)

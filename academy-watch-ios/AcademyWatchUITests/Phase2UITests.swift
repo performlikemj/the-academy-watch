@@ -38,7 +38,9 @@ final class Phase2UITests: XCTestCase {
         XCTAssertTrue(app.tabBars.buttons["Clubs"].waitForExistence(timeout: 15))
         XCTAssertEqual(app.tabBars.buttons.count, 5)
         tap(app.tabBars.buttons["Clubs"])
-        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Distance unavailable")).firstMatch.waitForExistence(timeout: 8))
+        XCTAssertTrue(
+            app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Distance unavailable")).firstMatch
+                .waitForExistence(timeout: 8))
         capture("clubs-location-off")
         tap(app.buttons["club-101"])
         XCTAssertTrue(app.staticTexts["Verified club"].waitForExistence(timeout: 8))
@@ -111,6 +113,7 @@ final class Phase2UITests: XCTestCase {
         let note = app.descendants(matching: .any)["applicant-note"]
         tap(note)
         note.typeText("Club-private fixture note\n")
+        tap(app.buttons["Done"])
         tap(app.buttons["applicant-save-note"])
         XCTAssertTrue(app.staticTexts["Club-private fixture note"].waitForExistence(timeout: 8))
         capture("private-note")
@@ -172,5 +175,56 @@ final class Phase2UITests: XCTestCase {
         XCTAssertFalse(app.buttons["home-clubs"].exists)
         XCTAssertFalse(app.buttons["home-applications"].exists)
         capture("flags-off")
+    }
+    func testReviewHomeUsesPersonalHeroWithoutFixtureBanner() {
+        app.launchArguments = ["-phase2Preview", "N01", "-reviewCapture"]
+        app.launch()
+        XCTAssertTrue(app.staticTexts["Good evening, Reuben."].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.staticTexts["2 things are waiting on you."].exists)
+        XCTAssertTrue(app.staticTexts["Needs you"].exists)
+        XCTAssertFalse(
+            app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'OFFLINE FIXTURE'")).firstMatch.exists)
+        XCTAssertEqual(app.tabBars.buttons.count, 5)
+        XCTAssertTrue(app.tabBars.buttons["Home"].isSelected)
+        capture("fidelity-home")
+    }
+    func testRecruitingSwipeShortlistUpdatesStageCounts() {
+        app.launchArguments = ["-phase2Preview", "N09", "-reviewCapture"]
+        app.launch()
+        let declan = app.buttons["applicant-20202020-1111-4111-8111-010101010101"]
+        XCTAssertTrue(declan.waitForExistence(timeout: 15))
+        declan.swipeLeft()
+        capture("review-N09-swiped")
+        tap(app.buttons["pipeline-shortlist-20202020-1111-4111-8111-010101010101"])
+        XCTAssertTrue(app.buttons["New  2"].waitForExistence(timeout: 10))
+        tap(app.buttons["Shortlisted  3"])
+        XCTAssertTrue(declan.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.tabBars.buttons["Recruiting"].exists)
+        capture("fidelity-shortlisted")
+    }
+    func testReviewBoardsAndScrolledContent() {
+        let screens = [
+            "N01", "N02", "N02b", "N03", "N04", "N05", "N06", "N06b", "N09", "N09b", "N10", "N13", "N14", "N17",
+        ]
+        let longBoards = ["N01", "N03", "N04", "N05", "N06", "N10", "N13", "N14", "N17"]
+        for screen in screens {
+            app.launchArguments = ["-phase2Preview", screen, "-reviewCapture", "-AppleInterfaceStyle", "Light"]
+            if ["N02", "N02b"].contains(screen) { app.launchArguments.append("-reviewLocation") }
+            app.launch()
+            XCTAssertTrue(app.navigationBars.firstMatch.waitForExistence(timeout: 15), screen)
+            // Fixture transport is synchronous; allow the role/flag tasks and native layout to settle.
+            Thread.sleep(forTimeInterval: 2)
+            XCTAssertFalse(
+                app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'OFFLINE FIXTURE'")).firstMatch.exists,
+                screen)
+            XCTAssertFalse(app.otherElements["phase2-error"].exists, screen)
+            capture("review-\(screen)-top")
+            if longBoards.contains(screen) {
+                app.swipeUp()
+                app.swipeUp()
+                capture("review-\(screen)-scrolled")
+            }
+            app.terminate()
+        }
     }
 }

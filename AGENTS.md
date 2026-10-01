@@ -137,6 +137,8 @@ Log one-liner in CONTINUITY.md's "Trivial Log" section.
 
 - iOS Phase 2: `-phase2Fixture <mode>` and `-phase2Preview <Nxx>` are DEBUG simulator-only, fail-closed transports with ephemeral auth and a fixed fixture clock. `sim/capture-phase2.py` captures the native boards; `Phase2UITests` belongs to the offline Experience scheme.
 - iOS club access: resolve verified managers through approved `/funding/claims/me` plus `/club/<id>/access/me`, and invited staff through `/me/club-access`; `all_squads` never grants whole-club capabilities.
+- iOS Phase 2 review: `-reviewCapture` hides the DEBUG fixture badge only for simulator review evidence. `sim/compare-phase2.py` pairs current IMF1 previews with actual viewports, labels separate scrolled captures and records source hashes; it never invents a full-page native capture.
+
 
 ## Quality Bar
 

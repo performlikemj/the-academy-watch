@@ -36,8 +36,6 @@ struct ContactThreadView: View {
 
             ScrollViewReader { proxy in
                 VStack(spacing: 0) {
-                    antiScamBanner
-
                     ScrollView {
                         LazyVStack(spacing: 14) {
                             requestSummary
@@ -47,7 +45,10 @@ struct ContactThreadView: View {
                                 ProgressView("Loading conversation…")
                                     .padding(.vertical, 28)
                             } else if viewModel.messages.isEmpty {
-                                FloodlightEmptyState(title: "Conversation ready", systemImage: "bubble.left.and.bubble.right", description: "Send the first message to continue the introduction.")
+                                FloodlightEmptyState(
+                                    title: "Conversation ready", systemImage: "bubble.left.and.bubble.right",
+                                    description: "Send the first message to continue the introduction."
+                                )
                                 .padding(.vertical, 12)
                             } else {
                                 if viewModel.canLoadMore {
@@ -68,6 +69,7 @@ struct ContactThreadView: View {
                                 }
                             }
 
+                            antiScamBanner
                             if let error = viewModel.errorMessage {
                                 Label(error, systemImage: "exclamationmark.triangle.fill")
                                     .font(AcademyType.footnote)
@@ -80,21 +82,22 @@ struct ContactThreadView: View {
                         .padding(.horizontal, 16)
                         .padding(.vertical, 12)
                     }.background(AcademyColors.background)
-                    .onChange(of: viewModel.messages.count) { _, _ in
-                        if let lastID = viewModel.messages.last?.id {
-                            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) {
+                        .onChange(of: viewModel.messages.count) { _, _ in
+                            guard !Phase2ReviewCapture.isActive else { return }
+                            if let lastID = viewModel.messages.last?.id {
+                                withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) {
+                                    proxy.scrollTo(lastID, anchor: .bottom)
+                                }
+                            }
+                        }
+                        .onAppear {
+                            guard !Phase2ReviewCapture.isActive, viewModel.isFixturePreview,
+                                let lastID = viewModel.messages.last?.id
+                            else { return }
+                            DispatchQueue.main.async {
                                 proxy.scrollTo(lastID, anchor: .bottom)
                             }
                         }
-                    }
-                    .onAppear {
-                        guard viewModel.isFixturePreview,
-                              let lastID = viewModel.messages.last?.id
-                        else { return }
-                        DispatchQueue.main.async {
-                            proxy.scrollTo(lastID, anchor: .bottom)
-                        }
-                    }
                 }
             }
         }
@@ -143,9 +146,11 @@ struct ContactThreadView: View {
             Image(systemName: "shield.lefthalf.filled")
                 .font(AcademyType.footnote.weight(.semibold))
                 .accessibilityHidden(true)
-            Text("Never pay to be scouted. Legitimate scouts and clubs never ask players for fees — report anyone who does.")
-                .font(AcademyType.footnote)
-                .fixedSize(horizontal: false, vertical: true)
+            Text(
+                "Never pay to be scouted. Legitimate scouts and clubs never ask players for fees — report anyone who does."
+            )
+            .font(AcademyType.footnote)
+            .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
         }
         .foregroundStyle(AcademyColors.warnText)
@@ -161,107 +166,114 @@ struct ContactThreadView: View {
     }
 
     private var requestSummary: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            HStack {
-                Label(viewModel.contactRequest.messagingOpen ? "CONVERSATION OPEN" : viewModel.contactRequest.status.displayName.uppercased(), systemImage: "checkmark.circle.fill")
-                    .font(AcademyType.caption.weight(.medium))
-                    .tracking(0.8)
-                    .foregroundStyle(AcademyColors.good)
-                Spacer()
-                ContactStatusBadge(status: viewModel.contactRequest.status)
-            }
-            ContactRoutingBadge(request: viewModel.contactRequest)
+        VStack(alignment: .leading, spacing: 16) {
+            Phase2Eyebrow(
+                text: viewModel.contactRequest.routingMode == .clubIncluded ? "Club and player consent" : "Introduction"
+            )
             if viewModel.contactRequest.routingMode == .clubIncluded {
-                Label(viewModel.contactRequest.clubConsentStatus == .granted ? "Club agreed" : viewModel.contactRequest.clubConsentStatus == .declined ? "Club declined" : "Waiting on club", systemImage: viewModel.contactRequest.clubConsentStatus == .granted ? "checkmark.circle" : "clock")
-                    .font(AcademyType.subheadline)
-                Label(viewModel.contactRequest.status == .accepted ? "Player accepted" : viewModel.contactRequest.status.displayName, systemImage: viewModel.contactRequest.status == .accepted ? "checkmark.circle" : "clock")
-                    .font(AcademyType.subheadline)
-                Text("The club is in this thread and sees every message.").font(AcademyType.footnote).foregroundStyle(AcademyColors.secondaryText)
+                consentRow(
+                    done: viewModel.contactRequest.clubConsentStatus == .granted,
+                    title: viewModel.contactRequest.clubConsentStatus == .granted
+                        ? (viewModel.contactRequest.participants.club?.displayName ?? "Club") + " said yes"
+                        : viewModel.contactRequest.clubConsentStatus == .declined ? "Club declined" : "Waiting on club",
+                    detail: [
+                        viewModel.contactRequest.clubConsentAt.map { Phase2Time.shortDate($0, zone: "UTC") },
+                        viewModel.contactRequest.clubConsentNote,
+                    ].compactMap { $0 }.joined(separator: " · "))
             }
-            Text(viewModel.contactRequest.message)
-                .font(AcademyType.subheadline)
-                .foregroundStyle(AcademyColors.secondaryText)
-                .fixedSize(horizontal: false, vertical: true)
+            consentRow(
+                done: viewModel.contactRequest.status == .accepted,
+                title: viewModel.contactRequest.status == .accepted
+                    ? (viewModel.contactRequest.participants.player.displayName?.split(separator: " ").first.map(
+                        String.init) ?? "Player") + " accepted" : viewModel.contactRequest.status.displayName,
+                detail: viewModel.contactRequest.respondedAt.map { Phase2Time.shortDate($0, zone: "UTC") }
+                    ?? "The player decides who they talk to.")
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: "bubble.left").font(.system(size: 15, weight: .light)).foregroundStyle(
+                    AcademyColors.accent
+                )
+                .frame(width: 28, height: 28).overlay(Circle().stroke(AcademyColors.accent, lineWidth: 1))
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(viewModel.contactRequest.messagingOpen ? "Conversation open" : "Conversation not open").font(
+                        AcademyType.headline)
+                    Text(
+                        viewModel.contactRequest.routingMode == .clubIncluded
+                            ? "The club is in the thread and sees every message." : viewModel.contactRequest.message
+                    )
+                    .font(AcademyType.subheadline).foregroundStyle(AcademyColors.secondaryText)
+                }
+            }
             if let accountID = viewModel.counterpartAccountID {
                 Divider()
                 BlockUserButton(
-                    accountID: accountID,
-                    displayName: viewModel.counterpartDisplayName,
-                    apiClient: apiClient
+                    accountID: accountID, displayName: viewModel.counterpartDisplayName, apiClient: apiClient
                 )
-                .font(AcademyType.caption.weight(.medium))
-                .buttonStyle(.plain)
-                .foregroundStyle(AcademyColors.danger)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .font(AcademyType.footnote).buttonStyle(.plain).foregroundStyle(AcademyColors.danger).frame(
+                    minHeight: 44)
             }
-        }
-        .padding(14)
-        .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 10))
-        .overlay {
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(AcademyColors.good.opacity(0.22), lineWidth: 0.75)
+            Divider()
+            Phase2Eyebrow(text: "Other states you will see")
+            Phase2Flow {
+                ForEach(["Waiting on club", "Waiting on player", "Declined", "Expired", "Withdrawn"], id: \.self) {
+                    state in
+                    Text(state.uppercased()).font(AcademyType.mono(9)).tracking(1)
+                        .foregroundStyle(AcademyColors.secondaryText).padding(.horizontal, 9).padding(.vertical, 5)
+                        .overlay(Capsule().stroke(AcademyColors.hairline, lineWidth: 1))
+                }
+            }
+        }.padding(16).frame(maxWidth: .infinity, alignment: .leading).background(
+            AcademyColors.elevatedSurface, in: RoundedRectangle(cornerRadius: 14))
+    }
+    private func consentRow(done: Bool, title: String, detail: String) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: done ? "checkmark" : "clock").font(.system(size: 14))
+                .foregroundStyle(done ? AcademyColors.background : AcademyColors.accent).frame(width: 28, height: 28)
+                .background(done ? AcademyColors.good : .clear, in: Circle())
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title).font(AcademyType.headline)
+                if !detail.isEmpty {
+                    Text(detail).font(AcademyType.subheadline).foregroundStyle(AcademyColors.secondaryText).fixedSize(
+                        horizontal: false, vertical: true)
+                }
+            }
         }
     }
-
     private var outcomeCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                Label("OUTCOME", systemImage: "flag.checkered")
-                    .font(AcademyType.caption.weight(.medium))
-                    .tracking(0.9)
-                    .foregroundStyle(AcademyColors.secondaryText)
-                Spacer()
-                Button(
-                    viewModel.contactRequest.latestOutcome == nil
-                        ? "Record outcome"
-                        : "Update outcome"
-                ) {
+        VStack(alignment: .leading, spacing: 8) {
+            Rectangle().fill(AcademyColors.text).frame(height: 1)
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 7) {
+                    if let outcome = viewModel.contactRequest.latestOutcome {
+                        HStack(spacing: 6) {
+                            Circle().fill(AcademyColors.good).frame(width: 6, height: 6)
+                            Phase2Eyebrow(text: outcome.stage.displayName)
+                        }
+                        if let notes = outcome.notes, !notes.isEmpty {
+                            Text(notes).font(AcademyType.subheadline).foregroundStyle(AcademyColors.secondaryText)
+                        }
+                    } else {
+                        Phase2Eyebrow(text: "Introduction progress")
+                    }
+                }.frame(maxWidth: .infinity, alignment: .leading)
+                Button(viewModel.contactRequest.latestOutcome == nil ? "Record outcome" : "Update outcome") {
                     isOutcomePresented = true
                 }
-                .font(AcademyType.subheadline.weight(.semibold))
-                .accessibilityIdentifier("report-contact-outcome")
+                .font(AcademyType.footnote).underline().frame(minHeight: 44).accessibilityIdentifier(
+                    "report-contact-outcome")
             }
-
-            if let outcome = viewModel.contactRequest.latestOutcome {
-                HStack(alignment: .top, spacing: 11) {
-                    Image(systemName: outcome.stage.iconName)
-                        .font(AcademyType.title3)
-                        .foregroundStyle(AcademyColors.secondaryText)
-                        .frame(width: 28)
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(outcome.stage.displayName)
-                            .font(AcademyType.headline)
-                        if let notes = outcome.notes, !notes.isEmpty {
-                            Text(notes)
-                                .font(AcademyType.subheadline)
-                                .foregroundStyle(AcademyColors.secondaryText)
-                        }
-                    }
-                }
-            } else {
-                Text("Record progress from first contact through trial and signing decisions.")
-                    .font(AcademyType.subheadline)
-                    .foregroundStyle(AcademyColors.secondaryText)
-            }
-        }
-        .padding(14)
-        .background(
-            AcademyColors.secondaryText.opacity(0.08),
-            in: RoundedRectangle(cornerRadius: 10)
-        )
-        .overlay {
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(AcademyColors.secondaryText.opacity(0.24), lineWidth: 0.75)
+            Divider()
         }
     }
 
     private var messageComposer: some View {
         HStack(alignment: .bottom, spacing: 10) {
             TextField("Message", text: $viewModel.draft, axis: .vertical)
-                .lineLimit(1 ... 4)
+                .textFieldStyle(.plain)
+                .lineLimit(1...4)
                 .padding(.horizontal, 13)
                 .padding(.vertical, 11)
-                .background(AcademyColors.elevatedSurface, in: RoundedRectangle(cornerRadius: 10))
+                .background(AcademyColors.elevatedSurface, in: Capsule())
+                .overlay(Capsule().stroke(AcademyColors.hairline, lineWidth: 1))
                 .accessibilityIdentifier("contact-message-composer")
 
             Button {
@@ -271,11 +283,11 @@ struct ContactThreadView: View {
                     if viewModel.isSending {
                         ProgressView().tint(AcademyColors.onPrimary)
                     } else {
-                        Image(systemName: "arrow.up")
+                        Image(systemName: "arrow.right")
                             .font(AcademyType.body.weight(.semibold))
                     }
                 }
-                .frame(width: 42, height: 42)
+                .frame(width: 44, height: 44)
                 .foregroundStyle(AcademyColors.onPrimary)
                 .background(AcademyColors.primaryFill, in: Circle())
             }
@@ -285,21 +297,22 @@ struct ContactThreadView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 9)
-        .background(.bar)
+        .background(AcademyColors.background)
     }
 
     private func presentMessageReportFixtureIfNeeded() {
         #if DEBUG
-        guard FullCircleFixtureDestination.fromLaunchArguments(
-            ProcessInfo.processInfo.arguments
-        ) == .messageReport,
-            reportSubject == nil,
-            let counterpartMessage = viewModel.messages.first(where: {
-                $0.senderRole != viewModel.viewerRole
-            })
-        else { return }
+            guard
+                FullCircleFixtureDestination.fromLaunchArguments(
+                    ProcessInfo.processInfo.arguments
+                ) == .messageReport,
+                reportSubject == nil,
+                let counterpartMessage = viewModel.messages.first(where: {
+                    $0.senderRole != viewModel.viewerRole
+                })
+            else { return }
 
-        reportSubject = .message(counterpartMessage)
+            reportSubject = .message(counterpartMessage)
         #endif
     }
 }
@@ -357,14 +370,24 @@ private struct ContactMessageBubble: View {
                 alignment: rendering.kind == .viewer ? .trailing : .leading,
                 spacing: 5
             ) {
-                if rendering.kind == .club {
-                    Label(rendering.displayLabel, systemImage: "building.2.fill")
-                        .font(AcademyType.caption.weight(.medium))
-                        .foregroundStyle(AcademyColors.secondaryText)
-                } else {
-                    Text(rendering.displayLabel)
-                        .font(AcademyType.caption2.weight(.medium))
-                        .foregroundStyle(AcademyColors.secondaryText)
+                HStack(spacing: 8) {
+                    Text(
+                        (rendering.kind == .viewer
+                            ? "You"
+                            : (message.senderDisplayName?.split(separator: " ").first.map(String.init)
+                                ?? rendering.displayLabel) + " · "
+                                + (rendering.kind == .club ? clubDisplayName ?? "Club" : message.senderRole.rawValue))
+                            .uppercased() + " · "
+                            + Phase2Time.shortDate(message.createdAt, zone: "UTC", format: "d MMM").uppercased()
+                    )
+                    .font(AcademyType.mono(9)).tracking(1.2).foregroundStyle(
+                        rendering.kind == .club ? AcademyColors.accent : AcademyColors.secondaryText)
+                    if rendering.kind != .viewer {
+                        Button(action: onReport) { Image(systemName: "ellipsis").frame(width: 44, height: 44) }
+                            .font(AcademyType.footnote).buttonStyle(.plain).foregroundStyle(AcademyColors.secondaryText)
+                            .accessibilityLabel("Report message").accessibilityIdentifier(
+                                "report-contact-message-\(message.id)")
+                    }
                 }
                 Text(message.body)
                     .font(AcademyType.subheadline)
@@ -375,24 +398,15 @@ private struct ContactMessageBubble: View {
                     .padding(.vertical, 10)
                     .background(
                         bubbleColor,
-                        in: RoundedRectangle(cornerRadius: 10)
+                        in: RoundedRectangle(cornerRadius: 14)
                     )
                     .overlay {
-                        if rendering.kind == .club {
-                            RoundedRectangle(cornerRadius: 10)
-                                .stroke(AcademyColors.secondaryText.opacity(0.4), lineWidth: 1)
+                        if rendering.kind != .viewer {
+                            RoundedRectangle(cornerRadius: 14).stroke(
+                                rendering.kind == .club ? AcademyColors.accent : AcademyColors.hairline, lineWidth: 1)
                         }
                     }
 
-                if rendering.kind != .viewer {
-                    Button(action: onReport) {
-                        Label("Report", systemImage: "exclamationmark.bubble")
-                    }
-                    .font(AcademyType.caption.weight(.medium))
-                    .foregroundStyle(AcademyColors.secondaryText)
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("report-contact-message-\(message.id)")
-                }
             }
 
             if rendering.kind != .viewer {
@@ -409,7 +423,7 @@ private struct ContactMessageBubble: View {
         case .counterpart:
             AcademyColors.surface
         case .club:
-            AcademyColors.secondaryText.opacity(0.1)
+            AcademyColors.surface
         }
     }
 }
@@ -465,7 +479,8 @@ private struct OutcomeSheet: View {
                             if await viewModel.reportOutcome() {
                                 dismiss()
                             } else {
-                                submissionError = viewModel.errorMessage
+                                submissionError =
+                                    viewModel.errorMessage
                                     ?? "We couldn't save this outcome. Please try again."
                             }
                         }
@@ -482,8 +497,8 @@ private struct OutcomeSheet: View {
                     .accessibilityIdentifier("save-contact-outcome")
                 }.listRowBackground(AcademyColors.background)
             }
-        .scrollContentBackground(.hidden)
-        .background(AcademyColors.background)
+            .scrollContentBackground(.hidden)
+            .background(AcademyColors.background)
             .navigationTitle("Record Outcome")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -508,8 +523,8 @@ private struct OutcomeSheet: View {
     }
 }
 
-private extension ContactOutcomeStage {
-    var iconName: String {
+extension ContactOutcomeStage {
+    fileprivate var iconName: String {
         switch self {
         case .contacted: "phone.fill"
         case .trialScheduled: "calendar.badge.clock"

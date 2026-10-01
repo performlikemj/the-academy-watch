@@ -27,7 +27,7 @@ def main():
     run("status_bar", args.simulator, "override", "--time", "9:41", "--dataNetwork", "wifi", "--wifiMode", "active", "--wifiBars", "3", "--batteryState", "charged", "--batteryLevel", "100")
     for screen in args.screens:
         subprocess.run(["xcrun", "simctl", "terminate", args.simulator, "com.theacademywatch.app"], capture_output=True)
-        run("launch", args.simulator, "com.theacademywatch.app", "-phase2Preview", screen)
+        run("launch", args.simulator, "com.theacademywatch.app", "-phase2Preview", screen, "-reviewCapture", *(["-reviewLocation"] if screen in ["N02", "N02b"] else []))
         time.sleep(4)
         run("io", args.simulator, "screenshot", str(args.output / f"{screen}-{args.appearance}.png"))
         print(f"{screen} {args.appearance}", flush=True)
