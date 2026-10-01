@@ -97,7 +97,12 @@ for (const width of [1440, 390]) {
   }
 }
 
-test('settings keeps writer follows as plain text', async ({ page }) => {
+const followedWriters = [
+  { id: 71, journalist_id: 7, journalist_name: 'Followed Writer' },
+  { id: 82, journalist_id: 8, journalist_name: 'Another Writer' },
+]
+
+async function mockSettings(page) {
   await mockApi(page, [])
   await page.addInitScript(() => {
     localStorage.setItem('academy_watch_user_token', 'test-token')
@@ -105,12 +110,69 @@ test('settings keeps writer follows as plain text', async ({ page }) => {
     localStorage.setItem('academyWatch.playerOnboardingPromptDismissed.v1', 'true')
   })
   await page.route('**/api/auth/me', (route) => route.fulfill({ json: { email: 'test@example.test', user_id: 42, display_name: 'Test Scout', display_name_confirmed: true } }))
-  await page.route('**/api/user/all-subscriptions', (route) => route.fulfill({ json: { free_subscriptions: [], paid_subscriptions: [], journalist_follows: [{ id: 7, journalist_id: 7, journalist_name: 'Followed Writer' }] } }))
-  await page.goto('/settings')
-  await expect(page.getByText('Followed Writer', { exact: true })).toBeVisible()
-  const hrefs = await page.locator('a[href]').evaluateAll((anchors) => anchors.map((anchor) => anchor.getAttribute('href')))
-  expect(hrefs.filter(isLegacyPublicRoute)).toEqual([])
-})
+  await page.route('**/api/user/all-subscriptions', (route) => route.fulfill({ json: { free_subscriptions: [], paid_subscriptions: [], journalist_follows: followedWriters } }))
+}
+
+for (const width of [1440, 390]) {
+  test(`settings unfollows a writer and has no hidden links at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 900 })
+    await mockSettings(page)
+    let unsubscribeRoute
+    await page.route('**/api/journalists/*/unsubscribe', (route) => { unsubscribeRoute = route })
+    await page.goto('/settings')
+    const unfollow = page.getByRole('button', { name: 'Unfollow Followed Writer', exact: true })
+    await expect(unfollow).toBeVisible()
+    const hrefs = await page.locator('a[href]').evaluateAll((anchors) => anchors.map((anchor) => anchor.getAttribute('href')))
+    expect(hrefs.filter(isLegacyPublicRoute)).toEqual([])
+    expect(await page.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth)).toBe(true)
+    if (process.env.N2_SCREENSHOTS) {
+      await fs.mkdir(process.env.N2_SCREENSHOTS, { recursive: true })
+      await page.evaluate(() => globalThis.document.fonts.ready)
+      await page.addStyleTag({ content: 'agentation, [data-agentation-root] { display: none !important; }' })
+      await page.screenshot({ path: path.join(process.env.N2_SCREENSHOTS, `settings-following-${width === 390 ? 'mobile' : 'desktop'}.png`), fullPage: true, animations: 'disabled' })
+    }
+    await unfollow.click()
+    await expect(unfollow).toBeDisabled()
+    await expect(unfollow).toHaveAttribute('aria-busy', 'true')
+    await expect(unfollow).toHaveText('Unfollowing…')
+    await expect(page.getByText('Followed Writer', { exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Unfollow Another Writer' })).toBeEnabled()
+    await expect.poll(() => Boolean(unsubscribeRoute)).toBe(true)
+    expect(new URL(unsubscribeRoute.request().url()).pathname).toBe('/api/journalists/7/unsubscribe')
+    expect(unsubscribeRoute.request().method()).toBe('POST')
+    expect(unsubscribeRoute.request().headers().authorization).toBe('Bearer test-token')
+    await unsubscribeRoute.fulfill({ json: { message: 'Unsubscribed successfully' } })
+    await expect(page.getByText('Followed Writer', { exact: true })).toHaveCount(0)
+    await expect(unfollow).toHaveCount(0)
+    await expect(page.getByText('Another Writer', { exact: true })).toBeVisible()
+    await page.route('**/api/journalists/8/unsubscribe', (route) => route.fulfill({ json: { message: 'Unsubscribed successfully' } }))
+    await page.getByRole('button', { name: 'Unfollow Another Writer' }).click()
+    await expect(page.getByText('Journalists You Follow', { exact: true })).toHaveCount(0)
+  })
+
+  test(`settings keeps the followed writer after an unsubscribe error and allows retry at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 900 })
+    await mockSettings(page)
+    let attempts = 0
+    await page.route('**/api/journalists/7/unsubscribe', (route) => {
+      attempts += 1
+      return route.fulfill(attempts === 1
+        ? { status: 500, json: { error: 'Unable to unfollow. Please try again.' } }
+        : { json: { message: 'Unsubscribed successfully' } })
+    })
+    await page.goto('/settings')
+    const unfollow = page.getByRole('button', { name: 'Unfollow Followed Writer', exact: true })
+    await unfollow.click()
+    await expect(page.getByRole('alert')).toHaveText('Unable to unfollow. Please try again.')
+    await expect(page.getByText('Followed Writer', { exact: true })).toBeVisible()
+    await expect(unfollow).toBeEnabled()
+    await expect(unfollow).toHaveAttribute('aria-busy', 'false')
+    await unfollow.click()
+    await expect(page.getByText('Followed Writer', { exact: true })).toHaveCount(0)
+    await expect(page.getByRole('alert')).toHaveCount(0)
+    expect(attempts).toBe(2)
+  })
+}
 
 test('GOL keeps hidden links as text while player and external links work', async ({ page }) => {
   await mockApi(page, [])

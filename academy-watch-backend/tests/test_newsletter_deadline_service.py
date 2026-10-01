@@ -55,11 +55,20 @@ def test_send_single_digest_loads_content_without_enriched_content(app, monkeypa
     db.session.add(queue_entry)
     db.session.commit()
 
-    monkeypatch.setattr("requests.post", lambda *args, **kwargs: _DummyResponse())
+    captured = []
+
+    def fake_post(*args, **kwargs):
+        captured.append(kwargs["json"])
+        return _DummyResponse()
+
+    monkeypatch.setattr("requests.post", fake_post)
 
     result = _send_single_digest(user.id, "2025-W01")
     assert result["success"] is True
     assert result["newsletter_count"] == 1
+    assert captured[0]["meta"]["unsubscribe_url"] == "https://example.com/settings"
+    assert 'href="https://example.com/settings"' in captured[0]["html"]
+    assert "https://example.com/settings" in captured[0]["text"]
 
     refreshed = NewsletterDigestQueue.query.get(queue_entry.id)
     assert refreshed.sent is True

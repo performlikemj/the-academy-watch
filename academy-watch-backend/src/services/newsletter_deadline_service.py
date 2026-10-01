@@ -190,7 +190,7 @@ def _send_single_digest(user_id: int, week_key: str) -> dict:
 
         # Get manage URL and unsubscribe URLs
         public_base = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
-        manage_url = f"{public_base}/subscriptions" if public_base else None
+        manage_url = f"{public_base}/settings" if public_base else None
 
         # Get an unsubscribe token from one of the user's active subscriptions
         # For digest, we use the subscription management page as the primary unsubscribe mechanism

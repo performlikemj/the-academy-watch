@@ -2989,6 +2989,21 @@ function SettingsPage() {
   // Paid subscriptions and journalist follows state
   const [paidSubscriptions, setPaidSubscriptions] = useState([])
   const [journalistFollows, setJournalistFollows] = useState([])
+  const [unfollowState, setUnfollowState] = useState({})
+
+  const handleUnfollow = async (follow) => {
+    if (unfollowState[follow.id]?.pending) return
+    setUnfollowState((prev) => ({ ...prev, [follow.id]: { pending: true, error: null } }))
+    try {
+      await APIService.unsubscribeFromJournalist(follow.journalist_id)
+      setJournalistFollows((prev) => prev.filter((item) => item.id !== follow.id))
+    } catch (error) {
+      setUnfollowState((prev) => ({
+        ...prev,
+        [follow.id]: { pending: false, error: error?.body?.error || error.message || 'Unable to unfollow. Please try again.' },
+      }))
+    }
+  }
 
   useEffect(() => {
     setDisplayNameInput(auth.displayName || '')
@@ -3538,7 +3553,7 @@ function SettingsPage() {
                     {journalistFollows.map((follow) => (
                       <div
                         key={follow.id}
-                        className="flex items-center gap-3 p-3 border rounded-lg bg-secondary"
+                        className="flex flex-wrap items-center gap-3 p-3 border rounded-lg bg-secondary"
                       >
                         <Avatar className="h-10 w-10">
                           <AvatarImage src={follow.journalist_profile_image} />
@@ -3559,9 +3574,22 @@ function SettingsPage() {
                             </div>
                           )}
                         </div>
-                        <div className="flex items-center gap-2">
-                          <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20">Following</Badge>
-                        </div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          aria-label={`Unfollow ${follow.journalist_name || 'Unknown'}`}
+                          aria-busy={unfollowState[follow.id]?.pending || false}
+                          disabled={unfollowState[follow.id]?.pending || false}
+                          onClick={() => handleUnfollow(follow)}
+                        >
+                          {unfollowState[follow.id]?.pending ? 'Unfollowing…' : 'Unfollow'}
+                        </Button>
+                        {unfollowState[follow.id]?.error && (
+                          <p role="alert" className="w-full text-sm text-destructive">
+                            {unfollowState[follow.id].error}
+                          </p>
+                        )}
                       </div>
                     ))}
                   </div>

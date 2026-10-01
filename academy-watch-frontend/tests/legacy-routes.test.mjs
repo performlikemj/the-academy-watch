@@ -18,9 +18,11 @@ test('all frozen legacy paths, including query strings, match; allowed paths sta
   }
 })
 
-test('public robots excludes the hidden collections', async () => {
+test('public robots lets crawlers observe legacy noindex and redirects', async () => {
   const robots = await readFile(new URL('../public/robots.txt', import.meta.url), 'utf8')
   for (const route of LEGACY_PUBLIC_ROUTES) {
-    assert.ok(robots.includes(`Disallow: /${route.split('/')[1]}\n`), route)
+    assert.ok(!robots.includes(`Disallow: /${route.split('/')[1]}`), route)
   }
+  assert.match(robots, /^Allow: \/$/m)
+  assert.match(robots, /^Sitemap: https:\/\/theacademywatch\.com\/sitemap\.xml$/m)
 })
