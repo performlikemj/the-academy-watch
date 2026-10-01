@@ -39,6 +39,17 @@ def invalidate_sources(session, flush_context, instances):
         if not state.persistent:
             continue
         if isinstance(row, VideoMatch):
+            changed = {key for key in MATCH_FIELDS if state.attrs[key].history.has_changes()}
+            ordinary_expiry = (
+                row not in session.deleted
+                and row.status == "expired"
+                and state.attrs.status.history.deleted == ["finalized"]
+                and row.blob_path is None
+                and row.blob_etag is None
+                and changed <= {"blob_path", "blob_etag"}
+            )
+            if ordinary_expiry:
+                continue  # independent rendered assets survive the raw-footage retention sweep
             if row in session.deleted or any(state.attrs[key].history.has_changes() for key in MATCH_FIELDS):
                 matches.add(row.id)
         elif isinstance(row, HighlightFootageReview):

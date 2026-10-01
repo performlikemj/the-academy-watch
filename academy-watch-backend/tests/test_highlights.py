@@ -594,3 +594,95 @@ def test_repick_is_new_request_never_inherits_player_approval(world):
     assert new.player_decision == "pending" and new.approved_source_version is None
     assert not highlights.public(new)
     assert pick(world).json["id"] == new.id
+
+
+def test_notification_delivers_neutral_authenticated_destination(world):
+    from src.services.notification_outbox import dispatch_due
+
+    assert pick(world).status_code == 201
+    intent = NotificationOutbox.query.one()
+    assert set(intent.payload) == {"highlight_id", "version"}
+    from src.services.email_service import EmailResult
+
+    sent = Mock(return_value=EmailResult(success=True, provider="local-test", message_id="test"))
+    assert dispatch_due(limit=1, send=sent)["sent"] == 1
+    assert "/highlight-approvals" in sent.call_args.kwargs["text"]
+    assert world["local"].display_name not in sent.call_args.kwargs["text"]
+
+
+@pytest.mark.parametrize("reason", ["revoke", "dark", "minor", "hold", "suspend"])
+def test_outbox_rechecks_eligibility_at_delivery(world, monkeypatch, reason):
+    from src.services.notification_outbox import dispatch_due
+
+    assert pick(world).status_code == 201
+    row = PlayerHighlight.query.one()
+    if reason == "revoke":
+        highlights.revoke(row, world["player"].id, "player_revoke")
+    elif reason == "dark":
+        monkeypatch.setenv("HIGHLIGHTS_ENABLED", "0")
+    elif reason == "minor":
+        world["local"].birth_date = date(2015, 1, 1)
+    elif reason == "hold":
+        world["program"].emergency_hidden = True
+    else:
+        world["player"].account_status = "suspended"
+    db.session.commit()
+    sent = Mock()
+    assert dispatch_due(limit=1, send=sent)["cancelled"] == 1
+    sent.assert_not_called()
+
+
+def test_rendered_clip_survives_normal_raw_retention_expiry(world, monkeypatch):
+    from src.services import video_retention
+
+    row = ready(world)
+    assert approve(world, row).status_code == 200
+    world["match"].expires_at = now() - timedelta(days=1)
+    db.session.commit()
+    monkeypatch.setattr(video_retention.video_storage, "is_configured", lambda: True)
+    monkeypatch.setattr(video_retention.video_storage, "delete_blob", lambda path: True)
+    assert video_retention.expire_raw_footage()["expired"] == 1
+    db.session.refresh(row)
+    assert row.source_version == 1 and row.player_decision == "approve" and row.revoked_at is None
+    assert highlights.public(row)
+    monkeypatch.setattr(highlights_storage, "read_output", lambda *args: b"standalone-clip-bytes")
+    assert world["app"].test_client().get(f"/api/highlights/{row.id}/clip").status_code == 200
+
+
+def test_c1_club_origin_requires_current_canonical_publication(world, monkeypatch):
+    module = pytest.importorskip(
+        "src.models.club_player_publication", reason="C1 canonical code lands in preceding lane"
+    )
+    Publication = module.ClubPlayerPublication
+    Publication.__table__.create(db.engine, checkfirst=True)
+    monkeypatch.setenv("CLUB_PLAYER_PUBLICATION_ENABLED", "1")
+    world["local"].provenance = "club"
+    world["local"].origin_program_id = world["program"].id
+    world["claim"].club_program_id = world["program"].id
+    db.session.commit()
+    assert pick(world).status_code == 422
+    publication = Publication(
+        program_id=world["program"].id,
+        local_player_id=world["local"].id,
+        recipient_email=world["player"].email,
+        recipient_user_id=world["player"].id,
+        claim_id=world["claim"].id,
+        adult_invited_at=now(),
+        claimed_at=now(),
+        association_confirmed_at=now(),
+        association_confirmed_by=world["manager"].id,
+        consented_at=now(),
+        consent_version="public-profile-v1",
+        moderation_status="approved",
+        reviewed_at=now(),
+        reviewed_by="test-admin",
+    )
+    db.session.add(publication)
+    db.session.commit()
+    row = ready(world)
+    assert approve(world, row).status_code == 200
+    assert highlights.public(row)
+    publication.withdrawn_at = now()
+    db.session.commit()
+    assert not highlights.public(row)
+    assert world["app"].test_client().get(f"/api/highlights/{row.id}/clip").status_code == 404

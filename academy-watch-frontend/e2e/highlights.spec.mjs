@@ -136,3 +136,23 @@ for (const width of [1440, 390]) {
     await shot(page, `public-clip-${width}`)
   })
 }
+
+test('recipient preview fetches authenticated standalone bytes only', async ({ page }) => {
+  await fixture(page)
+  await page.route('**/api/me/highlight-requests?*', route => route.fulfill({ json: { highlights: [{ ...clip, preview_url: `/api/me/highlight-requests/${id}/preview` }], has_more: false } }))
+  let reads = 0
+  await page.route(`**/api/me/highlight-requests/${id}/preview`, route => {
+    expect(route.request().headers().authorization).toBe('Bearer synthetic-c2-browser-token')
+    reads += 1
+    return route.fulfill({ contentType: 'video/mp4', body: Buffer.from([0, 0, 0, 0]) })
+  })
+  const fullMatchReads = []
+  page.on('request', req => { if (/media-token|footage|sas/.test(req.url())) fullMatchReads.push(req.url()) })
+  await page.goto('/highlight-approvals')
+  await page.getByRole('button', { name: 'Preview short clip' }).click()
+  await expect(page.locator('video')).toHaveAttribute('src', /^blob:/)
+  expect(reads).toBe(1)
+  await page.getByRole('button', { name: 'Make public' }).click()
+  await expect(page.locator('video')).toHaveCount(0)
+  expect(fullMatchReads).toEqual([])
+})

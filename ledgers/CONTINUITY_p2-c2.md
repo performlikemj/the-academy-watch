@@ -10,8 +10,9 @@
 ## State
 - Done: read Phase2/design/BUS/P2R5 and repo guidance; verified clean branch/base.
 - Done: implemented private tables, source fences, capability routes, independent consent, standalone worker+private bytes, outbox, erasure/export, dark web mounts.
-- Checks: SQLite32 and PostgreSQL4 concurrency/source-writer tests pass; scratch real chain upgraded; guarded upgrade twice/RLS4/source guards6; OSV547 clean, lint0 errors/build pass.
-- Now: interrupted-worker cleanup, browser states, full integration gates; merge latest foundation fixes/C1 when ready.
+- Checks: focused PostgreSQL39 pass (35 behavior +4 concurrency), browser12 pass at1440/390 with reviewed screenshots; real ffmpeg cut1.001s/noaudio/1280px; Node219 pass; scratch real chain upgraded; guarded upgrade twice/RLS4/source guards6; OSV547 clean, lint0 errors/build pass.
+- Done: latest B3d49ec794 + B1811fabca merged; B2 5cd45b0b retained; worker/source/erasure cleanup fences late uploads; outbox delivery assertions added.
+- Now: full gate in progress; schema preapply twice passed; waiting C1 canonical branch readiness contract while consuming helpers unchanged.
 - Next: backend+worker; web surfaces; security/browser/PG/full gates; screenshots; PR ready+hand-back.
 
 ## Acceptance / checks

@@ -23,6 +23,10 @@ DECLARE mid integer;
 BEGIN
  IF TG_OP='UPDATE' AND to_jsonb(NEW)=to_jsonb(OLD) THEN RETURN NEW; END IF;
  IF TG_TABLE_NAME='video_matches' THEN
+  IF TG_OP='UPDATE' AND OLD.status='finalized' AND NEW.status='expired'
+   AND NEW.blob_path IS NULL AND NEW.blob_etag IS NULL
+   AND (to_jsonb(NEW)-ARRAY['status','blob_path','blob_etag','updated_at']) = (to_jsonb(OLD)-ARRAY['status','blob_path','blob_etag','updated_at'])
+   THEN RETURN NEW; END IF;
   IF TG_OP='UPDATE' AND
    (to_jsonb(NEW)->'blob_path',to_jsonb(NEW)->'blob_etag',to_jsonb(NEW)->'scoped_snapshot',to_jsonb(NEW)->'scoped_ready_etag',
     to_jsonb(NEW)->'duration_s',to_jsonb(NEW)->'finalized_at',to_jsonb(NEW)->'club_program_id',to_jsonb(NEW)->'squad_id',

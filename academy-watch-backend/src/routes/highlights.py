@@ -78,6 +78,7 @@ def features():
 @highlights_bp.post("/club/<int:program_id>/matches/<int:match_id>/highlight-review")
 @service.gated
 @require_club_permission("matches.upload")
+@limiter.limit("10/hour")
 def review_recording(program_id, match_id):
     match = club_match(program_id, match_id)
     if not g.club_access.whole_club:
@@ -207,6 +208,7 @@ def revoke(highlight_id):
 @highlights_bp.post("/me/highlight-requests/<highlight_id>/retry")
 @service.gated
 @require_user_auth
+@limiter.limit("5/hour")
 def retry(highlight_id):
     row = locked_row(highlight_id, g.user_id)
     if not service.eligible(row) or row.render_status != "failed":
@@ -273,7 +275,7 @@ def clip_response(row):
     partial = False
     range_header = request.headers.get("Range")
     if range_header:
-        m = re.fullmatch(r"bytes=(\d*)-(\d*)", range_header)
+        m = re.fullmatch(r"bytes=(\d{0,12})-(\d{0,12})", range_header)
         if not m or not any(m.groups()):
             return Response(status=416, headers={"Content-Range": f"bytes */{size}"})
         if m[1]:

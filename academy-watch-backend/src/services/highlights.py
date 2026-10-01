@@ -87,15 +87,16 @@ def claim_for_subject(signed_id):
     return claims[0] if len(claims) == 1 else None
 
 
-def adult_recording(match):
+def adult_recording(match, *, frozen_etag=None):
     """Fail closed without a source-bound human review of EVERY visible person."""
-    if not match or not match.blob_etag or not match.scoped_snapshot or match.scoped_ready_etag != match.blob_etag:
+    etag = frozen_etag or (match.blob_etag if match else None)
+    if not match or not etag or not match.scoped_snapshot or match.scoped_ready_etag != etag:
         return False
     review = db.session.get(HighlightFootageReview, match.id)
     if not (
         review
         and review.classification == "adult_only"
-        and review.source_etag == match.blob_etag
+        and review.source_etag == etag
         and review.source_snapshot == match.scoped_snapshot
         and review.reviewer_user_id
         and is_account_active(review.reviewer_user_id)
@@ -118,7 +119,7 @@ def adult_recording(match):
     return True
 
 
-def source_fingerprint(match, entry, tracklet):
+def source_fingerprint(match, entry, tracklet, *, frozen_etag=None):
     review = db.session.get(HighlightFootageReview, match.id)
     members = []
     for roster in VideoRosterEntry.query.filter_by(video_match_id=match.id).order_by(VideoRosterEntry.id):
@@ -132,8 +133,7 @@ def source_fingerprint(match, entry, tracklet):
                 match.id,
                 match.club_program_id,
                 match.squad_id,
-                match.blob_path,
-                match.blob_etag,
+                frozen_etag or match.blob_etag,
                 match.scoped_snapshot,
                 match.scoped_ready_etag,
                 match.duration_s,
@@ -212,13 +212,17 @@ def current_source(row):
     if not match or not entry or not track or entry.video_match_id != match.id:
         return False
     member = db.session.get(ClubRosterMember, entry.club_roster_member_id) if entry.club_roster_member_id else None
+    expired = match.status == "expired" and match.blob_path is None and match.blob_etag is None
+    if expired and row.render_status != "ready":
+        return False  # a missing source cannot create a new cut
+    frozen_etag = row.source_etag if expired else None
     return bool(
         match.club_program_id == row.program_id
         and member_subject(member) == row.signed_id
         and match.status in {"finalized", "expired"}
         and track.roster_entry_id == entry.id
-        and source_fingerprint(match, entry, track) == row.source_fingerprint
-        and adult_recording(match)
+        and source_fingerprint(match, entry, track, frozen_etag=frozen_etag) == row.source_fingerprint
+        and adult_recording(match, frozen_etag=frozen_etag)
     )
 
 

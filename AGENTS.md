@@ -129,6 +129,8 @@ Log one-liner in CONTINUITY.md's "Trivial Log" section.
 
 ---
 
+- Phase 2 highlights use reviewed immutable adult-only match snapshots and server reel windows; public lists/bytes recheck both keys via `services/highlights.py`. Separate `highlight_worker` performs bounded cuts and delayed private cleanup; never mint raw-match SAS or run ffmpeg in Flask. Source guards revoke consent even while dark.
+
 ## Quality Bar
 
 Before marking work complete:
