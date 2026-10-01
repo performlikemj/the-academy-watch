@@ -43,6 +43,7 @@ from src.routes.billing import billing_bp
 from src.routes.blocks import blocks_bp
 from src.routes.club import club_bp
 from src.routes.club_access import club_access_bp
+from src.routes.club_directory import club_directory_bp  # p2-b1
 from src.routes.cohort import cohort_bp
 from src.routes.community_takes import community_takes_bp
 from src.routes.contact import contact_bp
@@ -145,6 +146,7 @@ app.register_blueprint(funding_bp, url_prefix="/api")
 app.register_blueprint(admin_programs_bp, url_prefix="/api")
 app.register_blueprint(club_bp, url_prefix="/api")
 app.register_blueprint(club_access_bp, url_prefix="/api")
+app.register_blueprint(club_directory_bp, url_prefix="/api")  # p2-b1
 # --- p2-b2 begin ---
 app.register_blueprint(opportunities_bp, url_prefix="/api")
 register_notifications()
