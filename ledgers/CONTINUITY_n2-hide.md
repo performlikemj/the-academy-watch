@@ -30,9 +30,9 @@
 
 ## Fix round 2
 
-- State: verified; commit/push and PR replies next.
-- Now: all implementation/validation complete; delivery next.
-- Next: Ruff/format, full pytest, Node, push and inline reply/review request; no merge.
+- State: complete; fix pushed and inline reply / @codex review posted.
+- Now: PR #1112 awaits fresh review; no merge.
+- Next: lead review of PR #1112; no merge in this lane.
 - Constraints: newsletter sending/freeze/content unchanged; player/settings links retained; True restores prior URLs; no background commands.
 - Done: moved backend LEGACY_PUBLIC_PAGES to utils/legacy_pages.py; sitemap enumeration and cached XML filtering share it. API newsletter web/submit links and canonical/OG URL, digest HTML/text read-more, weekly commentary snippets, both Reddit routes + markdown renderer, public-program team-page link and generated GOL PDF team anchors use legacy_public_url.
 - Template audit: newsletter_email.html and newsletter_digest_email.html already guard all CTA blocks on a truthy URL; no template edits needed for those links. newsletter_web.html now omits absent og:url. Player/settings/unsubscribe/API links and editorial content unchanged.
@@ -40,3 +40,4 @@
 - Tests: false/true render and actual mocked delivery assertions for individual/digest/snippet HTML/text, newsletter metadata, cached/fresh sitemap, Reddit auto/manual posts, public-program URL and GOL export template; no real provider sends. Initial local tests needed the same placeholder OPENAI_API_KEY as CI; fixtures corrected to valid funding model values and Reddit adapter mocked (local PRAW absent).
 - Gates: full pytest 3273 passed / 47 skipped (offline CI placeholder key); final focused render/emitter suite 117 passed, including the two GOL PDF template cases added after full-suite collection. Final extra-emitter suite 24 passed. Node 197 passed. Whole-backend Ruff check/format (534 files) and git diff --check pass. Backend-only change; no frontend dependency restore, lint/build not required this round.
 - Cleanup: no servers, DBs, copied env or provider sends; temporary emitter audit moved to external logs and removed. Worktree retained.
+- Delivery: fix 1c26b269c5274f05b6ea2dd2f04a962182c17392 pushed; inline finding discussion_r4151061526 replied as discussion_r4151175737; @codex review issuecomment-5923385347; PR description refreshed. No merge. Hand-back ~/codex-runs/aw-redesign/logs/N2F2.final.md. BUS DONE after final ledger push.
