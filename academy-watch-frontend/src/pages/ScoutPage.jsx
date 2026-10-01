@@ -1,3 +1,7 @@
+// --- p2-c4 begin ---
+import { useScoutAttend } from '@/components/attendance/useScoutAttend'
+import { ScoutClubsTrials, ScoutTabs } from '@/components/attendance/ScoutClubsTrials'
+// --- p2-c4 end ---
 import { useDataMode } from '@/hooks/useDataMode'
 import { useState, useEffect, useMemo, useCallback, useRef, Fragment } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
@@ -491,7 +495,7 @@ function CompareDialog({ open, onOpenChange, playerIds, season, seasonOverride, 
   )
 }
 
-export function ScoutPage() {
+function PlayerScoutPage({ clubsEnabled }) {
   const { api_football_frozen: frozen } = useDataMode()
   const [players, setPlayers] = useState([])
   const [total, setTotal] = useState(0)
@@ -834,6 +838,7 @@ export function ScoutPage() {
             </>
           )}
         >
+          {clubsEnabled && <ScoutTabs />}
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
             <label className="flex h-14 min-w-0 flex-1 items-center gap-3 rounded-full border border-chalk/25 px-5 transition-colors focus-within:border-gold">
               <Search className="h-[18px] w-[18px] shrink-0 text-muted-dark" aria-hidden="true" />
@@ -1159,3 +1164,11 @@ export function ScoutPage() {
     </ScoutSurface>
   )
 }
+
+// --- p2-c4 begin ---
+export function ScoutPage() {
+  const enabled = useScoutAttend()
+  const [params] = useSearchParams()
+  return enabled && params.get('desk') === 'clubs' ? <ScoutClubsTrials /> : <PlayerScoutPage clubsEnabled={enabled} />
+}
+// --- p2-c4 end ---

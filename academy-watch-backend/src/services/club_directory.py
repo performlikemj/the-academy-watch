@@ -270,6 +270,10 @@ _opportunity_counts = None  # resolved once: B2's function, or False when that l
 
 def open_opportunity_counts(program_ids) -> dict[int, int] | None:
     """B2's public open-opportunity counts when that lane is present; ``None`` otherwise."""
+    # --- p2-c4 begin --- combined-stack parity: a dark B2 does not add a field
+    if os.getenv("OPPORTUNITIES_ENABLED", "false").strip().lower() not in {"1", "true", "yes", "on"}:
+        return None
+    # --- p2-c4 end ---
     global _opportunity_counts
     if _opportunity_counts is None:
         try:

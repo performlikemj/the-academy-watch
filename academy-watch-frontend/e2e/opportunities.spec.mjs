@@ -84,6 +84,7 @@ for (const width of [1440, 390]) {
           '/api/meta/data-mode': { api_football_frozen: false },
           '/api/sync-status': { syncing: false },
           '/api/features': {},
+          '/api/scout-attendance/features': { scout_attend: false },
           '/api/opportunities/features': { opportunities: true, applications: true },
           '/api/opportunities': { opportunities: [opportunity], has_more: false },
           [`/api/opportunities/${oid}`]: { opportunity },

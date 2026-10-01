@@ -82,6 +82,10 @@ def features():
 @flagged()
 @limiter.limit("60/minute")
 def listing():
+    # --- p2-c4 begin ---
+    if service.enabled("SCOUT_ATTEND_ENABLED") and any(k in request.args for k in ("lat", "lng", "radius_km")):
+        raise service.OpportunityError("coordinates_require_post_search", 400)
+    # --- p2-c4 end ---
     program_id = request.args.get("program_id", type=int)
     if "program_id" in request.args and (program_id is None or not 1 <= program_id <= 2147483647):
         raise service.OpportunityError("invalid_program_id", 400)
