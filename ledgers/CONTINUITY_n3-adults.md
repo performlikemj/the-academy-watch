@@ -52,7 +52,7 @@
 
 ## Fix round 3 — PR #1116
 
-- State: in-progress; pulled branch, confirmed head63d76987.
+- State: complete; implemented, validated and pushed; inline finding answered. Started from pulled63d76987.
 - Finding: eligible player deletion leaves excluded-only revision unchanged, replay exposes erased name.
 - Decision: stored prose/token answers have no reliable ID inventory; authorized fallback hashes current known-ID universe AND excluded set, version2. Additions also invalidate; no extra source queries.
 - Gates: deletion/no-extra-debit across tracked/shadow/local identities, addition trade-off, minors/unknown exclusion, measured batched query counts; Ruff/format + full pytest.
@@ -62,3 +62,6 @@
 - Next: full pytest, final Ruff/format, commit/push and review delivery.
 - Gates: FINAL full pytest3330 passed/47 skipped/121 warnings in247.39s; Ruff check + format535 clean; whitespace clean. Full log ~/codex-runs/aw-redesign/logs/N3F3.pytest.log.
 - Next: commit/push, inline finding4151487274 SHA reply + final-head @codex review, hand-back. No frontend/native/dependency restore or persistent DB/provider access.
+- Delivery: fix94b9683c3a70bc34cdc4fa5a65286a1578a362fd pushed; inline SHA reply https://github.com/performlikemj/the-academy-watch/pull/1116#discussion_r4151561223 . Final-head re-review command: `gh pr comment 1116 --body "@codex review"`.
+- Hand-back: ~/codex-runs/aw-redesign/logs/N3F3.final.md. Foreground commands only; no servers, persistent DB, provider sends or copied env. No merge/deploy.
+- Next: Codex/lead review.
