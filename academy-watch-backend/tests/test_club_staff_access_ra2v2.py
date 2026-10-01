@@ -83,7 +83,10 @@ def test_legacy_reattestation_never_creates_origin(
         else f"/api/admin/video/matches/{mid}/upload-complete"
     )
     r = client.post(url, json={"kickoff_s": 0}, headers=_headers("a") if completion == "club" else _admin_headers())
-    assert r.status_code == 200, r.get_json()
+    # A club re-attestation with a different generation is itself refused (recording_locked);
+    # same-generation and admin completions succeed but still never create provenance.
+    locked = completion == "club" and etag != "legacy-original-etag"
+    assert r.status_code == (409 if locked else 200), r.get_json()
     assert verified == [blob]
     assert _kinds(mid) == []
     monkeypatch.setattr(video_storage, "is_configured", lambda: mode == "azure")
@@ -101,7 +104,7 @@ def test_legacy_reattestation_never_creates_origin(
 @pytest.mark.parametrize("role", ["coach", "analyst", "viewer"])
 @pytest.mark.parametrize("completion", ["club", "admin"])
 def test_admin_unknown_cleanup_and_new_etag_remain_denied(env, client, club_app, monkeypatch, role, completion):
-    mid = _match(client, env, "sa")
+    mid = _match(client, env, "sa", uploaded=False)
     assert _put(client, env, mid, [env["m1"]]).status_code == 200
     _upload(client, env, monkeypatch, mid)
     _join(client, env, role, role, squads=[env["sa"]])
@@ -121,10 +124,9 @@ def test_admin_unknown_cleanup_and_new_etag_remain_denied(env, client, club_app,
         video_storage, "verify_uploaded_blob", lambda path: {"ok": True, "etag": "different-etag", "size_bytes": 10}
     )
     url = f"{env['base']}/matches/{mid}/upload-complete" if completion == "club" else admin + "/upload-complete"
-    assert (
-        client.post(url, json={}, headers=_headers("a") if completion == "club" else _admin_headers()).status_code
-        == 200
-    )
+    assert client.post(
+        url, json={}, headers=_headers("a") if completion == "club" else _admin_headers()
+    ).status_code == (409 if completion == "club" else 200)
     assert set(_kinds(mid)) == before
     for verb in ["get", "head"]:
         for suffix in ["", "/report", "/reel", "/media-token"]:
@@ -148,7 +150,7 @@ def test_admin_unknown_cleanup_and_new_etag_remain_denied(env, client, club_app,
     ],
 )
 def test_other_mutations_do_not_shrink_coverage(env, client, club_app, monkeypatch, role, operation):
-    mid = _match(client, env, "sa")
+    mid = _match(client, env, "sa", uploaded=False)
     lp, member = _minor(env, client, club_app)
     assert _put(client, env, mid, [env["m1"], member]).status_code == 200
     _upload(client, env, monkeypatch, mid)
@@ -321,7 +323,7 @@ def test_legacy_unknown_history_stays_legacy(env, client, club_app, monkeypatch,
     h = _h(_email(role))
     assert client.get(f"{env['base']}/matches/{mid}/media-token", headers=h).status_code == 404
     monkeypatch.setenv("CLUB_STAFF_ACCESS_ENABLED", "true" if flag_at_reattest == "on" else "false")
-    _upload(client, env, monkeypatch, mid)
+    _upload(client, env, monkeypatch, mid, etag="same-unknown-etag")
     monkeypatch.setenv("CLUB_STAFF_ACCESS_ENABLED", "true")
     assert _kinds(mid) == []
     for suffix in ["", "/report", "/reel", "/media-token"]:

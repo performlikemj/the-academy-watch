@@ -8,6 +8,17 @@ PREFLIGHT_VALUES = {
 }
 
 
+# Keys only trusted server code may set (dev artifact paths). Never accepted from any API client.
+SERVER_OWNED_KEYS = frozenset({"local"})
+
+
+def strip_server_owned(capture_meta):
+    """Drop server-owned keys from client-supplied capture metadata (club AND admin input)."""
+    if not isinstance(capture_meta, dict):
+        return capture_meta
+    return {key: value for key, value in capture_meta.items() if key not in SERVER_OWNED_KEYS}
+
+
 def merge_preflight(capture_meta, data: dict) -> dict | None:
     """Merge only validated preflight keys into the existing metadata object."""
     if capture_meta is not None and not isinstance(capture_meta, dict):

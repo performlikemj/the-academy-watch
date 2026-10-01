@@ -121,6 +121,7 @@ def upgrade():
     op.execute("ALTER TABLE public.video_match_coverage ENABLE ROW LEVEL SECURITY")
 
     add_column_safe("video_matches", sa.Column("scoped_ready_etag", sa.String(100), nullable=True))
+    add_column_safe("video_matches", sa.Column("scoped_snapshot", sa.String(64), nullable=True))
     add_column_safe("video_matches", sa.Column("squad_id", sa.Integer(), nullable=True))
     if not _fk_exists("video_matches", "fk_video_matches_squad_id"):
         op.create_foreign_key(
@@ -140,6 +141,8 @@ def downgrade():
         op.drop_column("video_matches", "squad_id")
     if column_exists("video_matches", "scoped_ready_etag"):
         op.drop_column("video_matches", "scoped_ready_etag")
+    if column_exists("video_matches", "scoped_snapshot"):
+        op.drop_column("video_matches", "scoped_snapshot")
     for table in ("video_match_coverage", "club_access_grant_squads", "club_access_grants", "club_staff_invites"):
         if table_exists(table):
             op.drop_table(table)

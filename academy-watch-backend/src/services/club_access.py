@@ -311,11 +311,17 @@ def match_visible_to(access, match, *, require_bytes=False) -> bool:
 def upload_completed(match) -> bool:
     """A finished, verified upload that is currently published for scoped reads.
 
-    Never true for bytes sitting in storage before completion, nor while an admin re-grant has the
-    recording "replacing" (``scoped_ready_etag`` cleared until the next verified completion).
+    Needs the verified ETag to be the published one AND an immutable snapshot of that generation.
+    Never true for bytes sitting in storage before completion, while an admin replacement grant
+    has the recording "replacing", or when no snapshot could be taken.
     """
     etag = getattr(match, "blob_etag", None)
-    return bool(getattr(match, "uploaded_at", None) and etag and getattr(match, "scoped_ready_etag", None) == etag)
+    return bool(
+        getattr(match, "uploaded_at", None)
+        and etag
+        and getattr(match, "scoped_ready_etag", None) == etag
+        and getattr(match, "scoped_snapshot", None)
+    )
 
 
 def recording_completed(match) -> bool:
@@ -323,16 +329,38 @@ def recording_completed(match) -> bool:
     return bool(getattr(match, "uploaded_at", None) and getattr(match, "blob_etag", None))
 
 
+REPLACING = "replacing"  # scoped_ready_etag value while an admin replacement grant is outstanding
+
+
+def replacement_granted(match) -> bool:
+    """An admin replacement grant is outstanding: the only state in which a completed club
+    recording may be completed again with a different generation."""
+    return getattr(match, "scoped_ready_etag", None) == REPLACING
+
+
 def publish_recording(match) -> None:
-    """Called only right after a verified upload-complete stamped ``blob_etag`` (flag on or off)."""
-    if match is not None and match.club_program_id is not None:
-        match.scoped_ready_etag = match.blob_etag
+    """Called only right after a verified upload-complete stamped ``blob_etag`` (flag on or off).
+
+    Takes an immutable snapshot of exactly that generation (conditional on its ETag) and publishes
+    it for scoped reads. A same-generation retry keeps the existing snapshot. If no snapshot can be
+    taken the recording stays unpublished for scoped staff (whole-club access is unaffected).
+    """
+    from src.services import video_storage
+
+    if match is None or match.club_program_id is None:
+        return
+    if match.scoped_snapshot and match.scoped_ready_etag == match.blob_etag:
+        return
+    snapshot = video_storage.create_verified_snapshot(match.blob_path, match.blob_etag)
+    match.scoped_snapshot = snapshot
+    match.scoped_ready_etag = match.blob_etag if snapshot else None
 
 
 def unpublish_recording(match) -> None:
     """An upload grant was re-issued for a completed recording: scoped reads stop until re-verified."""
     if match is not None and match.club_program_id is not None:
-        match.scoped_ready_etag = None
+        match.scoped_ready_etag = REPLACING
+        match.scoped_snapshot = None
 
 
 def scoped_recording_intact(match) -> bool:
