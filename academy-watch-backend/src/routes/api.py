@@ -13238,6 +13238,10 @@ def features():
     if os.getenv("CLUB_DIRECTORY_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}:
         flags["club_directory"] = True
     # --- p2-b1 end ---
+    # --- p2-c2 begin ---
+    if os.getenv("HIGHLIGHTS_ENABLED", "").strip().lower() in {"1", "true", "yes", "on"}:
+        flags["highlights"] = True
+    # --- p2-c2 end ---
     return jsonify(flags)
 
 

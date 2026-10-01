@@ -1,3 +1,6 @@
+// --- p2-c2 begin ---
+import { HighlightInboxLink } from '@/components/highlights/HighlightApprovals'
+// --- p2-c2 end ---
 import '@/styles/floodlight-player.css'
 // --- p2-b2 begin ---
 import { PlayerApplications } from '@/components/applications/PlayerApplications'
@@ -213,6 +216,7 @@ export function PlayerOnboarding() {
       </div>
       {/* --- p2-b2 begin --- */}
       <PlayerApplications />
+      <div className="floodlight-container pb-12"><HighlightInboxLink /></div>
       {/* --- p2-b2 end --- */}
     </div>
   )

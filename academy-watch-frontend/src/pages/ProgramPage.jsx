@@ -1,3 +1,6 @@
+// --- p2-c2 begin ---
+import { PublicHighlights } from '@/components/highlights/PublicHighlights'
+// --- p2-c2 end ---
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import {
@@ -207,6 +210,7 @@ function ProgramPageContent({ slug }) {
 
                     <section aria-labelledby="club-opportunities">
                         <SectionHeading id="club-opportunities" title="Opportunities" meta="Coming soon" />
+                        <PublicHighlights slug={slug} />
                         <TeaserBlock
                             className="mt-6"
                             feature="opportunities"

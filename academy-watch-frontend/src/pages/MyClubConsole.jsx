@@ -1,3 +1,6 @@
+// --- p2-c2 begin ---
+import { ClubHighlightPicker } from '@/components/highlights/ClubHighlightPicker'
+// --- p2-c2 end ---
 import { Link } from 'react-router-dom'
 import { ClubHome } from './club-console/ClubHome'
 import { DevelopmentActionFields, DevelopmentActionSummary, DevelopmentProgress, FeedbackEvidencePicker } from '@/components/showcase/DevelopmentAction'
@@ -2084,6 +2087,9 @@ function MatchDetail({ programId, match, uploadGrant, rosterMembers, onMatchChan
         </section>
 
         <ClubPlayerReels programId={programId} match={match} rosterMembers={rosterMembers} onAccessDenied={onAccessDenied} />
+        {/* --- p2-c2 begin --- */}
+        {canUpload && match.status === 'finalized' && <ClubHighlightPicker programId={programId} matchId={match.id} />}
+        {/* --- p2-c2 end --- */}
       </CardContent>
     </Card>
   )

@@ -3,13 +3,15 @@
 ## Goal / constraints
 - Club picks a server reel window; independent adult self-claimant approves; standalone private clip output; revoke on next request.
 - Branch p2/c2-highlights from origin/p2/b3-admin; PR against main stacked on #1115, ready at end; no merge.
-- HIGHLIGHTS_ENABLED default OFF; p2c2 -> p2c1 (scratch placeholder never committed).
+- HIGHLIGHTS_ENABLED default OFF; p2c2 -> real p2c1 ancestor copied verbatim; no placeholder.
 - Reuse A1 adult/holds/outbox/audit, A2 capability+byte scope, B1 is_listed. No public minors, youth/mixed footage, raw match SAS or metadata.
 - Own ports5151/5202 and scratch aw_p2_c2; foreground only; clean own resources.
 
 ## State
 - Done: read Phase2/design/BUS/P2R5 and repo guidance; verified clean branch/base.
-- Now: trace reviewed reel windows, snapshot worker and privacy lifecycle; define C2 contract.
+- Done: implemented private tables, source fences, capability routes, independent consent, standalone worker+private bytes, outbox, erasure/export, dark web mounts.
+- Checks: SQLite32 and PostgreSQL4 concurrency/source-writer tests pass; scratch real chain upgraded; guarded upgrade twice/RLS4/source guards6; OSV547 clean, lint0 errors/build pass.
+- Now: interrupted-worker cleanup, browser states, full integration gates; merge latest foundation fixes/C1 when ready.
 - Next: backend+worker; web surfaces; security/browser/PG/full gates; screenshots; PR ready+hand-back.
 
 ## Acceptance / checks

@@ -509,6 +509,11 @@ def build_account_export(user: UserAccount) -> dict:
 
     foundation_export.update(export_opportunities(user, schema))
     # --- p2-b2 end ---
+    # --- p2-c2 begin ---
+    from src.services.highlights_account import export_highlights
+
+    foundation_export.update(export_highlights(user, schema))
+    # --- p2-c2 end ---
     normalized_email = (user.email or "").strip().lower()
     subscriptions = []
     if normalized_email:
@@ -1042,6 +1047,12 @@ def delete_account(user: UserAccount) -> AccountDeletionEvent:
         "reset": {"showcase_pending_claims": 0, "reel_items": 0},
         "forfeited_credits": 0,
     }
+
+    # --- p2-c2 begin ---
+    from src.services.highlights_account import erase_highlights
+
+    counts["deleted"].update(erase_highlights(user_id, _SchemaView()))
+    # --- p2-c2 end ---
 
     counts["pilot"] = _erase_pilot_rows(_SchemaView(), user_id, claim_ids, tombstone.id)
 

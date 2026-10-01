@@ -16,6 +16,18 @@ export function nextWindowIndex(currentTime, windows, currentIdx) {
 }
 
 export class APIService {
+    // --- p2-c2 begin ---
+    static highlightClipUrl(path) {
+        if (!/^\/api\/highlights\/[a-f0-9-]{36}\/clip$/.test(path || '')) throw new Error('Invalid highlight URL')
+        return `${API_BASE_URL}${path.slice(4)}`
+    }
+    static async highlightPreviewBlob(path) {
+        if (!/^\/api\/(?:me\/highlight-requests\/[a-f0-9-]{36}|club\/\d+\/matches\/\d+\/highlights\/[a-f0-9-]{36})\/preview$/.test(path || '')) throw new Error('Invalid highlight preview')
+        const response = await fetch(`${API_BASE_URL}${path.slice(4)}`, { headers: { Authorization: `Bearer ${this.userToken}` }, cache: 'no-store' })
+        if (!response.ok) throw new Error('Highlight unavailable')
+        return response.blob()
+    }
+    // --- p2-c2 end ---
     // --- p2-b3 begin ---
     static adminControlRead(path) { return this.request(path, {}, { admin: true }) }
     static adminControlAction(path, payload) { return this.request(path, { method: 'POST', body: JSON.stringify(payload) }, { admin: true }) }

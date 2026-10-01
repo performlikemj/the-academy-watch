@@ -55,7 +55,7 @@ class TestMigrationHead:
     def test_single_head_descends_from_shp05(self):
         """The whole chain resolves to exactly one head, and descends from shp05."""
         heads = _script_directory().get_heads()
-        assert heads == ["p2b3"], f"expected the single head to be p2b3, got {heads}"
+        assert heads == ["p2c2"], f"expected the single head to be p2c2, got {heads}"
         assert "shp05" in {revision.revision for revision in _script_directory().walk_revisions()}
 
     def test_sea01_chains_off_aw23(self):

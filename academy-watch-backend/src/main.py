@@ -85,6 +85,15 @@ from src.services.opportunities import register_notifications
 
 # --- p2-b2 end ---
 
+# isort: split
+# --- p2-c2 begin ---
+import src.models.highlights  # noqa: F401
+import src.services.highlights_source  # noqa: F401
+from src.routes.highlights import highlights_bp
+from src.services.highlights import register_notifications as register_highlight_notifications
+
+# --- p2-c2 end ---
+
 dotenv.load_dotenv(dotenv.find_dotenv())
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -153,6 +162,10 @@ app.register_blueprint(admin_programs_bp, url_prefix="/api")
 # --- p2-b3 begin ---
 app.register_blueprint(admin_control_bp, url_prefix="/api")
 # --- p2-b3 end ---
+# --- p2-c2 begin ---
+app.register_blueprint(highlights_bp, url_prefix="/api")
+register_highlight_notifications()
+# --- p2-c2 end ---
 app.register_blueprint(club_bp, url_prefix="/api")
 app.register_blueprint(club_access_bp, url_prefix="/api")
 app.register_blueprint(club_directory_bp, url_prefix="/api")  # p2-b1
