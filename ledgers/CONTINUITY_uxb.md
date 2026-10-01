@@ -1,6 +1,6 @@
 # UXB staging directory and opportunities polish
 
-- Status: implementation complete; draft PR delivery next.
+- Status: complete; draft PR #1124 (https://github.com/performlikemj/the-academy-watch/pull/1124), unmerged.
 - Goal: P-01–P-07 and P-23 behind existing B1/B2 flags; draft PR, no merge.
 - Base: main 784b1490; branch fix/staging-ux-opportunities.
 - Constraints: foreground only; no migrations/dependency changes; minors/private applicant DTO invariants.
@@ -10,4 +10,5 @@
 - Screenshots: 60 PNGs, 1440×900/390×844 plus full-page variants; reviewed, no overflow.
 - Cleanup: own5162/5212 stopped; aw_uxb dropped; dump/persona tokens/temp/browser/build outputs removed.
 - Evidence: ~/codex-runs/aw-redesign/logs/UXB.final.md, logs/uxb/, shots/UXB/INDEX.md.
-- Next: push and open draft PR against main; independent review, no merge.
+- Code: 204eb42e; draft PR against main.
+- Next: independent review; keep draft, no merge.

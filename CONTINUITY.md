@@ -32,7 +32,7 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
 
 ## State
 
-- **Now (2026-10-01 UXB):** P-01–P-07/P-23 staging polish implemented and gated on main784b1490; see `ledgers/CONTINUITY_uxb.md`. Flags-off parity; pytest4083/Node222/Playwright65+2 green; own resources cleaned; draft PR delivery next, no migrations/dependencies.
+- **Now (2026-10-01 UXB):** P-01–P-07/P-23 staging polish implemented and gated on main784b1490; see `ledgers/CONTINUITY_uxb.md`. Flags-off parity; pytest4083/Node222/Playwright65+2 green; own resources cleaned; draft PR #1124 open, unmerged; no migrations/dependencies.
 
 - **Now (2026-10-01):** B2F5 local gates green after mechanical refresh onto main/B1 e82bb4e3: full flags-off4075pass69skip0fail, PG19/Node219/Playwright45/Ruff-format579/lint0err186warn/build. All36 untouched B2 blobs equal reviewed16540e03; p2b1 matches main; real dark-count omission2 pass. Push + ready #1113 + CI verification next; no merge. Hand-back `~/codex-runs/aw-redesign/logs/B2F5.final.md`; see `ledgers/CONTINUITY_p2-b2.md`.
 
