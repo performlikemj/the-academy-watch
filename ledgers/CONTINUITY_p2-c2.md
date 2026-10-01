@@ -8,7 +8,7 @@
 - C2F2 owns foreground Vite5204 and scratch aw_c2f2/aw_c2f2_upgrade/aw_c2f2_preapply/aw_c2f2_reverse; clean own resources. Historical C2F1 resources were already cleaned.
 
 ## State
-- C2F2 final C1F2 integration/gates in progress: review-duel union; O1 first-use autoflush first. Lead rulings: unknown senior attestation verified-manager-only, sticky admin takedown, source revocation notified/recoverable. No 14-day expiry; unanswered follows raw deadline, declined ready assets deleted immediately.
+- C2F2 implementation complete; exact final gate/delivery outcome is recorded in external logs/C2F2.final.md and durable C2F2.report.md: review-duel union; O1 first-use autoflush first. Lead rulings: unknown senior attestation verified-manager-only, sticky admin takedown, source revocation notified/recoverable. No 14-day expiry; unanswered follows raw deadline, declined ready assets deleted immediately.
 - Complete (fix round 1): all RC2 F1–F16 FIXED; final application d2c9750f verified; delivery/cleanup below.
 - Fix gates: final focused102 pass1 optional C1 skip; PG57 pass; query/failure-download4 pass (SQL10/11/12/14 at1/25/100 clips); exact real-app98 dark-method/path pairs/zeroSQL; modern browser242 pass4skip. OSV547/Node219/lint0errors192warnings/build pass; Ruff598 clean.
 - Full gate: final flags-OFF4343 pass94skip0fail149warnings (1054.65s), DB_SSLMODE=disable corrected local SSL-only fixture errors. Unfiltered browser240pass20fail5skip16serial-not-run:18 historical legacy/live-fixture failures +2 C4 fixed1s initialization races under parallel load; same C4 file4/4 pass with normal worker setting (and included in modern242-pass suite).
@@ -35,11 +35,11 @@
 - Preview authenticated JSON URL -> native video src; real three-origin no-CORS MP4/range test passes without bearer/referrer/Origin:null at storage. Effective real-app no-referrer. Shared features/positive schema discovery cache; dark guards retained and request cache reset.
 - Minimal recording/window takedown hold survives clip audit/subject erasure; existing duplicate windows revoked. Dual-auth admin lift by archived ID restores no old consent. Source edits still fail-closed, neutral player/club outbox, fresh pick+approval allowed. Cancelled cuts stale/retryable; staff public wording corrected.
 - Reversed reviewed a1c5584c final69 regressions:66fail/3controls; current69pass. PG166 final +10 added distinct =176 unique pass/0skip; overlapping race/SQL11 pass. Focused162 incl real C1; actual dark7 pass/105 method-path comparisons/zeroSQL, including lift.
-- Final modern Playwright269pass/5 existing opt-in skips/0fail; relevant32pass/3opt-in skips incl15 C2. OSV547 clean; Node221/lint0errors193 inherited warnings/build/Ruff-format611 pass; JS repo has no separate TypeScript gate.
-- Final full flags-OFF4574pass117skip0fail153warnings881.07s; application source freeze c2521e6b includes B3F5. Later changes only dark-lift test (targeted7pass) and docs/ledgers; Ruff/format rerun green.
+- Pre-refresh modern Playwright269pass/5 existing opt-in skips/0fail; relevant32pass/3opt-in skips incl15 C2. OSV547 clean; Node221/lint0errors193 inherited warnings/build/Ruff-format611 pass; JS repo has no separate TypeScript gate.
+- Pre-refresh full flags-OFF4574pass117skip0fail153warnings881.07s; application source freeze c2521e6b includes B3F5. Later changes only dark-lift test (targeted7pass) and docs/ledgers; Ruff/format rerun green.
 - FINAL p2c2 migration58af1d880ef55e7dccd1182ec5f827c3d5a9c9bd1aa8537ab0467d635a58acfc; preapply751d8879e46f941952d760c1373eadf5ddf57f41e7dc03f77fb0f2fa50572a37 repo/external equal. CONTRACT posted for C4 verbatim copy; supersedes early7a523 contract.
 - Whole public schema upgrade==preapply twice + guarded upgrade; normalized4b560bf86c929de7aef991b967b916a21ec7d3213a8db629dfb56e158ef997fd/RLS5/source guards7; empty downgrade/re-upgrade pass. C1 7ff6c7d2 and B3 f073ecc8 copied verbatim.
-- Latest published main784b1490/C1d9105c37/B3F551f30f5b merged before final gates; final re-fetch confirms all ancestors included. BUS re-read: no C2 ruling override.
+- Pre-refresh main784b1490/C1d9105c37/B3F551f30f5b merged before gates; final re-fetch confirms all ancestors included. BUS re-read: no C2 ruling override.
 -23 refreshed synthetic-fixture desktop/mobile PNGs shots/C2F2 with INDEX/SHA256SUMS; affected mobile inbox/club-approved/admin-lift/three-origin captures inspected, mobile overflow checks green.
 - Own Vite5204 stopped; four owned scratch DBs/temp/browser/build/cache outputs cleaned. Final per-finding evidence/contract/gates/screenshots in external logs/C2F2.final.md and durable C2F2.report.md; exact pushed local/remote/PR SHA and BUS DONE recorded there. PR1122 remains open/unmerged; no deploy/provider sends/flag activation.
 
@@ -54,3 +54,15 @@
 - C1 aafb11d5 published during first delivery verification; first64855e1f push is interim, no BUS DONE/final hand-back. Final full gates repeated on merged current lower head.
 - API conflict adopts C1 shared15s feature cache, preserving C2 native preview URL API; cache failure/TTL behavior covered by inherited C1 Node regressions, C2 bootstrap test keeps concurrent dedup assertions. All C2 server/migration/worker code unchanged.
 - CONTINUITY retains both current C1 evidence and C2 history. C1/B3 migration contracts unchanged.
+- Final source frozen3bbdea20 after raw-expiry worker deletion assertion: completed unanswered outputs delete immediately at raw expiry; only live attempt paths retain late-upload fence. Targeted PG1 pass; first integrated176 pass. Frozen PG176 passed; full run stopped at65% by MJ fleet pause, final governed gate required; intermediate full run intentionally interrupted1659pass/56skip/0fail after change.
+- Final C1-integrated browser277pass/5existing skips/0fail, all15 C2 cases; Node223/lint0err193warnings/build/Ruff-format612/OSV547 pass; no dependency restore.23 shots refreshed/indexed; Vite5204 stopped.
+- Actual parent p2b2→p2b3→p2c1 upgraded before cloning schema gate; final upgrade==preapply twice + guarded upgrade, normalizedd6726bb718c5ed8efc77e90aa4390f6580215c007b66a710df765ae82b2a07f9/RLS5/guards7, empty rollback pass. Supersedes earlier4b560bf8 evidence baseline; migration58af1d88 unchanged/CONTRACT reconfirmed.
+
+## C2F2R governed resume (2026-10-02)
+- Saved source3bbdea20 and one ledger WIP preserved; same fix round, no restart. Read BUS from MJ-PAUSE through renewal22:51 final rulings; existing implementation matches all three confirmed policies and final retention.
+- Current main784b1490/B351f30f5b/C1aafb11d5 fetched/included; latest migration files copied verbatim. Source/migration/frontend/test files unchanged on resume.
+- Before pause: frozen PostgreSQL176pass0skip698.14s; final modern browser277pass5opt-in skips0fail11.3m; Node223/lint0err193warnings/build/Ruff-format612/OSV547 pass. Final full backend at65% was intentionally stopped by MJ, so no pass claimed.
+- Commit final ledgers before governed cached gates so pushed-head results remain reusable. Four exact-head gate outcomes/cache keys/log paths and final pushed SHA are authoritative in external logs/C2F2.final.md/C2F2.report.md. No further source changes are planned.
+- Final schema equality from actual upgraded B3/C1 parent: d6726bb7/RLS5/guards7/empty rollback pass; C2 migration58af1d88 and preapply751d8879 unchanged, C4 verbatim copy checked.23 final refreshed/inspected screenshots retained.
+- Resume owns only remaining aw_c2f2 scratch; no dev server is running. Drop it and remove owned temp/generated artifacts after the remaining governed gate. No merge/deploy/provider/flag actions.
+- Resume targeted governed first-review classifications + completed unanswered raw-expiry deletion:3pass66deselected (resume-targeted.log). No source changes. Final cached full/style/unit/build gates run after this ledger commit; exact results and pushed SHA are recorded in the external delivery ledger/hand-back.
