@@ -464,6 +464,13 @@ def build_account_export(user: UserAccount) -> dict:
             .order_by(ContactRequest.created_at.asc(), ContactRequest.id.asc())
             .all()
         )
+        from src.services.club_player_publication import club_request_available
+
+        received_requests = [
+            row
+            for row in received_requests
+            if not row.club_first or (row.club_consent_status == "granted" and club_request_available(row))
+        ]
     received_request_ids = {row.id for row in received_requests}
 
     managed_program_ids = [
@@ -1046,9 +1053,10 @@ def delete_account(user: UserAccount) -> AccountDeletionEvent:
         "forfeited_credits": 0,
     }
 
-    from src.services.club_player_publication_account import erase_publications
+    from src.services.club_player_publication_account import erase_introductions, erase_publications
 
     counts.update(erase_publications(user_id, email, _SchemaView()))
+    counts["deleted"]["club_first_requests"] = erase_introductions(user_id, claim_ids)
     counts["pilot"] = _erase_pilot_rows(_SchemaView(), user_id, claim_ids, tombstone.id)
 
     # Break the sole indirect FK that cannot point at a UserAccount tombstone.

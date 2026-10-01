@@ -121,14 +121,16 @@ def local_publication_filter(local):
 
 
 def club_subject_filter(signed_id):
+    if not enabled():
+        return sa.true()
     from sqlalchemy.orm import aliased
 
     local = aliased(LocalPlayer)
-    # A club origin can never bypass consent by acquiring a positive provider bridge.
-    return ~sa.exists().where(
-        sa.or_(local.api_player_id == signed_id, local.id == -signed_id),
-        local.provenance == "club",
-        sa.or_(signed_id > 0, ~local_publication_filter(local)),
+    # Provider surfaces retain their legacy policy. Resolver-backed surfaces
+    # separately reject consent transfer through a positive provider bridge.
+    return sa.or_(
+        signed_id >= 0,
+        ~sa.exists().where(local.id == -signed_id, local.provenance == "club", ~local_publication_filter(local)),
     )
 
 
@@ -306,12 +308,15 @@ def review(row, actor, payload):
     if action == "reject":
         row.moderation_status = "rejected"
         row.reviewed_by, row.reviewed_at = actor, now()
+        close_threads(row)
         bump(row)
         review_audit(row, actor, payload, False)
         return
     local = private_local(row.program_id, row.local_player_id)
     claim = PlayerProfileClaim.query.filter_by(id=row.claim_id).with_for_update().first()
     recipient = db.session.get(UserAccount, row.recipient_user_id)
+    if self_invitation(row, recipient):
+        raise PublicationError("self_invitation_review_required")
     if (
         not row.consented_at
         or row.consent_version != CONSENT_VERSION
@@ -383,7 +388,12 @@ def revoke(row, *, club=False):
         row.withdrawn_at = now()
     row.invite_token_hash = None
     row.invite_expires_at = None
+    row.recipient_email = None
     bump(row)
+    close_threads(row)
+
+
+def close_threads(row):
     # Either key closes every old conversation; fresh consent cannot revive it.
     from src.models.contact import ContactRequest
     from src.services.contact import add_audit_event
@@ -401,11 +411,65 @@ def revoke(row, *, club=False):
         add_audit_event(contact, "withdrawn", actor_user_id=None, metadata={"publication_id": row.id})
 
 
-def dto(row, *, names=True):
+def masked_email(email):
+    if not email or "@" not in email:
+        return None
+    name, domain = email.split("@", 1)
+    return f"{name[:1]}***@{domain}"
+
+
+def self_invitation(row, recipient=None):
+    if recipient is None and row.recipient_user_id:
+        recipient = db.session.get(UserAccount, row.recipient_user_id)
+    inviter = db.session.get(UserAccount, row.creator_user_id) if row.creator_user_id else None
+    return bool(
+        recipient
+        and (
+            row.creator_user_id == recipient.id
+            or (inviter and inviter.email.strip().lower() == recipient.email.strip().lower())
+        )
+    )
+
+
+def moderation_evidence(row, local):
+    from src.models.funding import ClubSquad
+
+    program = db.session.get(ClubProgram, row.program_id)
+    recipient = db.session.get(UserAccount, row.recipient_user_id) if row.recipient_user_id else None
+    inviter = db.session.get(UserAccount, row.creator_user_id) if row.creator_user_id else None
+    squads = (
+        db.session.query(ClubSquad.name)
+        .join(ClubRosterMember, ClubRosterMember.squad_id == ClubSquad.id)
+        .filter(ClubRosterMember.program_id == row.program_id, ClubRosterMember.local_player_id == row.local_player_id)
+        .distinct()
+        .all()
+    )
+    return {
+        "club_name": program.name if program else None,
+        "squads": sorted(name for (name,) in squads),
+        "adult": bool(local and not local_player_is_minor(local)),
+        "adult_evidence_source": "club_birth_date"
+        if local and local.birth_date
+        else "club_birth_year"
+        if local and local.birth_year
+        else "missing",
+        "invited_email_masked": masked_email(row.recipient_email),
+        "claimant_email_masked": masked_email(recipient.email if recipient else None),
+        "inviter_email_masked": masked_email(inviter.email if inviter else None),
+        "same_account": bool(recipient and row.creator_user_id == recipient.id),
+        "same_email": bool(recipient and inviter and recipient.email.strip().lower() == inviter.email.strip().lower()),
+        "self_invitation": self_invitation(row, recipient),
+        "invited_at": row.adult_invited_at.isoformat() if row.adult_invited_at else None,
+        "claimed_at": row.claimed_at.isoformat() if row.claimed_at else None,
+        "consented_at": row.consented_at.isoformat() if row.consented_at else None,
+    }
+
+
+def dto(row, *, names=True, admin=False):
     local = db.session.get(LocalPlayer, row.local_player_id)
     from src.services.public_adult import is_public_adult
 
-    return {
+    result = {
         "id": row.id,
         "program_id": row.program_id,
         "local_player_id": row.local_player_id,
@@ -421,17 +485,26 @@ def dto(row, *, names=True):
         "consent_text": CONSENT_TEXT,
         "public": bool(local and local.provenance == "club" and is_public_adult(-local.id)),
     }
+    if admin:
+        result["moderation_evidence"] = moderation_evidence(row, local)
+    return result
 
 
 def hidden_club_subject_ids(signed_ids):
-    ids = {i for i in signed_ids if isinstance(i, int) and not isinstance(i, bool) and i != 0}
+    if not enabled():
+        return set()
+    ids = {i for i in signed_ids if isinstance(i, int) and not isinstance(i, bool) and i < 0}
     if not ids:
         return set()
-    locals_ = LocalPlayer.query.filter(
-        LocalPlayer.provenance == "club",
-        sa.or_(LocalPlayer.api_player_id.in_(ids), LocalPlayer.id.in_([-i for i in ids if i < 0])),
-    ).all()
-    club_ids = {i for local in locals_ for i in (-local.id, local.api_player_id) if i in ids}
+    club_ids = set()
+    ordered = sorted(ids)
+    for offset in range(0, len(ordered), 100):
+        rows = (
+            db.session.query(LocalPlayer.id)
+            .filter(LocalPlayer.provenance == "club", LocalPlayer.id.in_([-i for i in ordered[offset : offset + 100]]))
+            .all()
+        )
+        club_ids.update(-id_ for (id_,) in rows)
     from src.services.public_adult import public_adult_ids
 
     return club_ids - public_adult_ids(club_ids)

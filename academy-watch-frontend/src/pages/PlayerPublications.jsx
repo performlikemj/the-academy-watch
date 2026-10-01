@@ -99,8 +99,32 @@ export function PlayerPublications({ mode = 'player' }) {
       {mode === 'player' && !row.club_revoked && !row.public && !row.consented && <><label className="flex items-start gap-3"><input className="mt-1 size-5 shrink-0" type="checkbox" checked={checked[row.id] || false} onChange={e => setChecked({ ...checked, [row.id]: e.target.checked })} />{row.consent_text}</label><Button disabled={busy || !checked[row.id]} onClick={() => act(row, 'consent')}>Give public profile consent</Button></>}
       {mode === 'player' && row.consented && !row.withdrawn && <Button variant="outline" disabled={busy} onClick={() => act(row, 'withdraw')}>Withdraw public consent</Button>}
       {mode === 'club' && !row.club_revoked && <Button variant="outline" disabled={busy} onClick={() => act(row, 'revoke')}>Revoke club association</Button>}
-      {mode === 'admin' && <><label className="block">Review reason<Input maxLength={2000} value={reason[row.id] || ''} onChange={e => setReason({ ...reason, [row.id]: e.target.value })} /></label><div className="flex flex-wrap gap-3"><Button disabled={busy || !row.claimed || !row.consented || !reason[row.id]?.trim()} onClick={() => act(row, 'approve')}>Approve profile and self-claim</Button><Button variant="outline" disabled={busy || !reason[row.id]?.trim()} onClick={() => act(row, 'reject')}>Keep private</Button></div></>}
+      {mode === 'admin' && <>
+        <ModerationEvidence evidence={row.moderation_evidence} />
+        <label className="block">Review reason<Input maxLength={2000} value={reason[row.id] || ''} onChange={e => setReason({ ...reason, [row.id]: e.target.value })} /></label><div className="flex flex-wrap gap-3"><Button disabled={busy || !row.claimed || !row.consented || !row.moderation_evidence?.adult || row.moderation_evidence?.self_invitation || !reason[row.id]?.trim()} onClick={() => act(row, 'approve')}>Approve profile and self-claim</Button><Button variant="outline" disabled={busy || !reason[row.id]?.trim()} onClick={() => act(row, 'reject')}>Keep private</Button></div>
+      </>}
       {row.public && <Link className="inline-block underline" to={`/local-players/${row.local_player_id}`}>View public profile</Link>}
     </section>)}</div>}
   </main>
+}
+
+function ModerationEvidence({ evidence }) {
+  if (!evidence) return <p role="alert">Identity evidence unavailable. Refresh before approving.</p>
+  const sources = { club_birth_date: 'Full birth date on club record', club_birth_year: 'Birth year on club record', missing: 'No birth evidence' }
+  return <div className="space-y-3 break-words rounded-lg border border-border p-4 text-sm">
+    <dl className="grid gap-3 sm:grid-cols-2">
+      {[
+        ['Club', evidence.club_name || 'Unavailable'],
+        ['Squad', evidence.squads?.join(', ') || 'Unassigned'],
+        ['Known adult', `${evidence.adult ? 'Yes' : 'No'} · ${sources[evidence.adult_evidence_source] || 'Unknown source'}`],
+        ['Invited email', evidence.invited_email_masked || 'Purged'],
+        ['Claiming account', evidence.claimant_email_masked || 'Unavailable'],
+        ['Inviter', evidence.inviter_email_masked || 'Unavailable'],
+        ['Same inviter and claimant account', evidence.same_account ? 'Yes' : 'No'],
+        ['Same inviter and claimant email', evidence.same_email ? 'Yes' : 'No'],
+        ['Invited', evidence.invited_at], ['Claimed', evidence.claimed_at], ['Consented', evidence.consented_at],
+      ].map(([label, value]) => <div key={label}><dt className="text-muted-foreground">{label}</dt><dd>{value || 'Unavailable'}</dd></div>)}
+    </dl>
+    {evidence.self_invitation && <p role="alert" className="font-medium text-danger">The inviter and claimant match. Approval is blocked; keep this profile private for independent identity review.</p>}
+  </div>
 }

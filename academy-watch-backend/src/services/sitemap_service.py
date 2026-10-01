@@ -220,9 +220,12 @@ def _run_background_build(app) -> None:
     global _building, _build_thread, _cache_generation
 
     try:
+        from src.services.club_player_publication import enabled
+
+        publication_enabled = enabled()
         with app.app_context():
             xml = build_sitemap_xml()
-        _cache.update(xml=xml, built_at=time.monotonic())
+        _cache.update(xml=xml, built_at=time.monotonic(), publication_enabled=publication_enabled)
         _cache_generation += 1
     except Exception:
         logger.exception("Background sitemap build failed")
@@ -334,6 +337,12 @@ def get_sitemap_response():
     cached_xml = _cache["xml"]
     built_at = _cache["built_at"]
     app = current_app._get_current_object()
+    from src.services.club_player_publication import enabled
+
+    # An enabled build may contain club identities. Turning the feature off
+    # discards that build without adding any SQL to ordinary dark cache hits.
+    if _cache.get("publication_enabled") is True and not enabled():
+        cached_xml = None
 
     if isinstance(cached_xml, bytes):
         ttl_seconds = _env_nonnegative_float("SITEMAP_TTL_SECONDS", SITEMAP_TTL_SECONDS)

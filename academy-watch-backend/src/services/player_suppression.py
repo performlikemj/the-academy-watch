@@ -133,11 +133,17 @@ def hide_suppressed_player(argument_name: str, *, public_read: bool = False):
             if current_app.extensions.get("sqlalchemy") is not db:
                 return view(*args, **kwargs)
             player_api_id = kwargs.get(argument_name)
-            from src.services.club_player_publication import club_subject_filter
+            from src.services.club_player_publication import club_subject_filter, enabled
             from src.services.club_publication_hold import subject_publication_held
 
             club_unavailable = False
-            if public_read and request.method in {"GET", "HEAD"} and player_api_id is not None:
+            if (
+                public_read
+                and request.method in {"GET", "HEAD"}
+                and player_api_id is not None
+                and player_api_id < 0
+                and enabled()
+            ):
                 club_unavailable = not db.session.query(club_subject_filter(player_api_id)).scalar()
 
             if player_api_id is not None and (

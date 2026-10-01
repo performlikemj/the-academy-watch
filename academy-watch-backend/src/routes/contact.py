@@ -1331,9 +1331,10 @@ def revoke_club_origin_request(request_id):
     if contact.status not in ACTIVE_REQUEST_STATUSES:
         db.session.rollback()
         return jsonify(error="request_closed"), 409
-    contact.status = "withdrawn"
     if _is_club_manager(contact, user):
-        contact.club_consent_status = "declined"
-    add_audit_event(contact, "withdrawn", actor_user_id=user.id)
+        _apply_club_consent(contact, "decline", actor_user_id=user.id, note=None)
+    else:
+        contact.status = "withdrawn"
+        add_audit_event(contact, "withdrawn", actor_user_id=user.id)
     db.session.commit()
     return jsonify(contact_request=_contact_request_payload(contact))

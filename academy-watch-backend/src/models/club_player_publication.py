@@ -16,12 +16,13 @@ class ClubPlayerPublication(db.Model):
         db.CheckConstraint("moderation_status IN ('pending','approved','rejected')", name="ck_publication_moderation"),
         db.CheckConstraint("version > 0", name="ck_publication_version"),
         db.Index("ix_publication_recipient", "recipient_user_id"),
+        db.Index("ix_publication_local_player", "local_player_id"),
     )
 
     id = db.Column(db.Integer, primary_key=True)
     program_id = db.Column(db.Integer, db.ForeignKey("club_programs.id"), nullable=False)
     local_player_id = db.Column(db.Integer, db.ForeignKey("local_players.id"), nullable=False)
-    recipient_email = db.Column(db.String(254), nullable=False)
+    recipient_email = db.Column(db.String(254))
     recipient_user_id = db.Column(db.Integer, db.ForeignKey("user_accounts.id"))
     claim_id = db.Column(db.Integer, db.ForeignKey("player_profile_claims.id"))
     invite_token_hash = db.Column(db.String(64), unique=True)

@@ -11,6 +11,7 @@
 - Own local aw_p2_c1 and foreground ports5150/5201; no provider sends/prod writes.
 
 ## State
+- Done: RC1 focused218 pass (includes original C1 + N3), main baseline provider8 parity checks green; seven-private-state compact sweep + published control green. Fixes/evidence and nullable-email/index p2c1 CONTRACT posted; full gates next.
 - Now: fix round 1 RC1 F1–F11 in progress; merge main/B2/B3, regression evidence per finding, full foreground gates, push only.
 - Decision: admin evidence exposes masked emails + adult yes/no/source; same inviter/claimant approval blocked by default. Flag OFF preserves provider read/query parity with main.
 - Done: read master continuity, Phase2/design/BUS/evidence/repo guidance and mockup feature map.

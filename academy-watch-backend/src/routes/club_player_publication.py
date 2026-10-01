@@ -248,7 +248,7 @@ def admin_list():
         .limit(100)
         .all()
     )
-    return jsonify(publications=[service.dto(r) for r in rows])
+    return jsonify(publications=[service.dto(r, admin=True) for r in rows])
 
 
 @publication_bp.post("/admin/player-publications/<int:publication_id>/review")
@@ -259,4 +259,4 @@ def admin_review(publication_id):
     service.review(publication, g.user_email, payload())
     notice(publication)
     db.session.commit()
-    return jsonify(publication=service.dto(publication))
+    return jsonify(publication=service.dto(publication, admin=True))

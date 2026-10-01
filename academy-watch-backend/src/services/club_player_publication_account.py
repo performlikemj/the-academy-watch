@@ -1,9 +1,40 @@
 """Privacy and neutral notifications remain safe after the feature is dark."""
 
+from datetime import timedelta
+
 import sqlalchemy as sa
 from src.models.club_player_publication import ClubPlayerPublication as Publication
 from src.models.league import db
 from src.services.club_player_publication import enabled
+
+
+def purge_invited_emails(*, limit=100, at=None):
+    """Bounded privacy maintenance, even while dark; caller commits."""
+    from src.models.club_player_publication import now
+
+    if not 1 <= limit <= 1000:
+        raise ValueError("limit must be 1–1000")
+    at = at or now()
+    rows = (
+        Publication.query.filter(
+            Publication.recipient_email.is_not(None),
+            sa.or_(
+                Publication.withdrawn_at.is_not(None),
+                Publication.club_revoked_at.is_not(None),
+                sa.and_(Publication.claimed_at.is_(None), Publication.invite_expires_at <= at),
+                Publication.created_at <= at - timedelta(days=180),
+            ),
+        )
+        .order_by(Publication.id)
+        .limit(limit)
+        .with_for_update()
+        .all()
+    )
+    for row in rows:
+        row.recipient_email = None
+        row.invite_token_hash = None
+        row.invite_expires_at = None
+    return {"invited_emails_purged": len(rows)}
 
 
 def export_publications(user, schema):
@@ -47,6 +78,30 @@ def erase_publications(user_id, email, schema):
     Publication.query.filter_by(association_confirmed_by=user_id).update({"association_confirmed_by": None})
     Publication.query.filter_by(reviewed_by=email).update({"reviewed_by": "Account deleted"})
     return {"club_player_publications": count} if count else {}
+
+
+def erase_introductions(user_id, claim_ids):
+    """Account erasure includes withheld requests, independent of export visibility."""
+    from src.models.contact import ContactAuditEvent, ContactMessage, ContactOutcome, ContactRequest
+    from src.models.p2_foundation import NotificationOutbox
+
+    ids = [
+        id_
+        for (id_,) in db.session.query(ContactRequest.id)
+        .filter(
+            ContactRequest.club_first.is_(True),
+            sa.or_(ContactRequest.scout_user_id == user_id, ContactRequest.claim_id.in_(claim_ids)),
+        )
+        .all()
+    ]
+    if not ids:
+        return 0
+    NotificationOutbox.query.filter(
+        NotificationOutbox.template == "c1_introduction", NotificationOutbox.entity_id.in_(ids)
+    ).delete(synchronize_session=False)
+    for model in (ContactMessage, ContactOutcome, ContactAuditEvent):
+        model.query.filter(model.contact_request_id.in_(ids)).delete(synchronize_session=False)
+    return ContactRequest.query.filter(ContactRequest.id.in_(ids)).delete(synchronize_session=False)
 
 
 def register_publication_notifications():
