@@ -67,23 +67,64 @@ def page(which):
 
 @admin_control_bp.before_app_request
 def hide_dark_control_routes():
-    # Matching independently of the method also handles Flask's method-only 405s.
-    # Match the actual rule so A1/A2 tools sharing these prefixes keep their own gates.
+    # Try the actual method first: GET can match the SPA shell for a POST-only path.
+    from flask.globals import request_ctx
     from werkzeug.exceptions import MethodNotAllowed, NotFound
-    from werkzeug.routing import RequestRedirect
+    from werkzeug.routing import Map, RequestRedirect
 
     adapter = current_app.url_map.bind_to_environ(request.environ)
     try:
-        rule, _ = adapter.match(method="GET", return_rule=True)
+        rule, _ = adapter.match(method=request.method, return_rule=True)
     except MethodNotAllowed as error:
-        rule, _ = adapter.match(method=error.valid_methods[0], return_rule=True)
+        # Do not rely on set ordering: GET/OPTIONS might select the SPA fallback.
+        for method in error.valid_methods:
+            rule, _ = adapter.match(method=method, return_rule=True)
+            if rule.endpoint.startswith("admin_control."):
+                break
+        else:
+            return
     except (NotFound, RequestRedirect):
         return
     if not rule.endpoint.startswith("admin_control."):
         return
     view = current_app.view_functions[rule.endpoint]
     if not flag_enabled(FLAGS[view.control_page]):
-        abort(404)
+        # Route as though every dark B3 rule were absent. This preserves the real
+        # app's SPA fallback, 405 body and OPTIONS Allow header, and sibling tools.
+        rules = tuple(current_app.url_map.iter_rules())
+        disabled = tuple(which for which, flag in FLAGS.items() if not flag_enabled(flag))
+        key = (rules, disabled)
+        cached = current_app.extensions.get("admin_control_dark_map")
+        if cached is None or cached[0] != key:
+            original = current_app.url_map
+            visible_rules = []
+            for candidate in rules:
+                if (
+                    candidate.endpoint.startswith("admin_control.")
+                    and current_app.view_functions[candidate.endpoint].control_page in disabled
+                ):
+                    continue
+                copied = candidate.empty()
+                # Flask adds this attribute after Werkzeug constructs the rule.
+                copied.provide_automatic_options = getattr(candidate, "provide_automatic_options", False)
+                visible_rules.append(copied)
+            visible = Map(
+                visible_rules,
+                converters=original.converters,
+                strict_slashes=original.strict_slashes,
+                merge_slashes=original.merge_slashes,
+                redirect_defaults=original.redirect_defaults,
+                host_matching=original.host_matching,
+                default_subdomain=original.default_subdomain,
+            )
+            current_app.extensions["admin_control_dark_map"] = (key, visible)
+        else:
+            visible = cached[1]
+        request_ctx.url_adapter = visible.bind_to_environ(request.environ)
+        request.routing_exception = None
+        request.url_rule = None
+        request.view_args = None
+        request_ctx.match_request()
 
 
 @admin_control_bp.after_request
