@@ -52,6 +52,45 @@ def erase_admin_control(user_id, email, schema):
             {"uid": user_id},
         ).rowcount
     if email:
+        if (
+            schema.has_columns("safeguarding_cases", "suppression_id", "report_id")
+            and schema.has_columns("safeguarding_case_events", "actor_email")
+            and schema.has_columns("player_suppressions", "requester_contact", "request_statement", "notes")
+        ):
+            from src.models.admin_control import SafeguardingCase, SafeguardingCaseEvent
+            from src.models.player_suppression import PlayerSuppression
+
+            # A report's suppression_id is assigned only when its case creates
+            # a new suppression. Guardian intake cases have no report_id; reused
+            # requester holds are never assigned to the report's source key.
+            generated = PlayerSuppression.query.join(
+                SafeguardingCase, SafeguardingCase.suppression_id == PlayerSuppression.id
+            ).filter(SafeguardingCase.report_id.is_not(None))
+            count = 0
+            for row in generated:
+                first_hide = (
+                    SafeguardingCaseEvent.query.join(
+                        SafeguardingCase, SafeguardingCase.id == SafeguardingCaseEvent.case_id
+                    )
+                    .filter(SafeguardingCase.suppression_id == row.id, SafeguardingCaseEvent.action == "hide")
+                    .order_by(SafeguardingCaseEvent.id)
+                    .first()
+                )
+                if first_hide is None:
+                    continue
+                if first_hide.actor_email.lower() == email.lower():
+                    row.requester_contact = "Account deleted"
+                    row.request_statement = "[redacted]"
+                    # Notes may have been replaced by a later moderator. Scrub
+                    # only a copy of this creator's reason, never other evidence.
+                    if row.notes == first_hide.reason:
+                        row.notes = "[redacted]"
+                    count += 1
+                if (row.decided_by or "").lower() == email.lower():
+                    row.notes = "[redacted]"
+            if count:
+                counts["case_suppression_copies_redacted"] = count
+            db.session.flush()  # capture provenance before append-only event redaction
         for table, actor in (("safeguarding_case_events", "actor_email"), ("safeguarding_cases", "resolver_email")):
             if schema.has_columns(table, actor):
                 extra = ", reason='[redacted]'" if table.endswith("events") else ""
