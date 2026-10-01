@@ -71,6 +71,14 @@ from src.routes.teams import teams_bp
 from src.routes.trust import trust_bp
 from src.routes.video import video_bp
 
+# isort: split
+# --- p2-b2 begin ---
+import src.models.opportunities  # noqa: E402, F401
+from src.routes.opportunities import opportunities_bp
+from src.services.opportunities import register_notifications
+
+# --- p2-b2 end ---
+
 dotenv.load_dotenv(dotenv.find_dotenv())
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -139,6 +147,10 @@ app.register_blueprint(admin_programs_bp, url_prefix="/api")
 app.register_blueprint(club_bp, url_prefix="/api")
 app.register_blueprint(club_access_bp, url_prefix="/api")
 app.register_blueprint(club_directory_bp, url_prefix="/api")  # p2-b1
+# --- p2-b2 begin ---
+app.register_blueprint(opportunities_bp, url_prefix="/api")
+register_notifications()
+# --- p2-b2 end ---
 app.register_blueprint(feedback_bp, url_prefix="/api")
 app.register_blueprint(interest_bp, url_prefix="/api")
 app.register_blueprint(trust_bp, url_prefix="/api")

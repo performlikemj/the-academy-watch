@@ -1,0 +1,20 @@
+.p2-opportunities{color:var(--color-ink,#0E1311);background:var(--color-chalk,#F3F0E8);min-width:0}
+.p2-opportunities h1,.p2-opportunities h2,.p2-opportunities h3{overflow-wrap:anywhere}
+.p2-opportunities .opp-heading{font-family:'Instrument Serif',Georgia,serif;font-weight:400;line-height:.98;letter-spacing:-.02em;font-size:clamp(44px,6vw,88px)}
+.p2-opportunities .opp-section{font-family:'Instrument Serif',Georgia,serif;font-weight:400;line-height:1.1;font-size:34px}
+.p2-opportunities .opp-label{font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#5A6560}
+.p2-opportunities .opp-button{display:inline-flex;align-items:center;justify-content:center;min-height:42px;padding:8px 18px;border-radius:999px;border:1px solid #D8D2C4;background:transparent;color:#0E1311;font-size:14px;text-decoration:none;gap:8px}
+.p2-opportunities .opp-button.primary{background:#0E1311;color:#F3F0E8;border-color:#0E1311}
+.p2-opportunities .opp-button:disabled{opacity:.55;cursor:wait}
+.p2-opportunities :is(button,a,input,select,textarea):focus-visible{outline:2px solid #0E1311;outline-offset:3px}
+.p2-opportunities .opp-field{display:flex;flex-direction:column;gap:8px;min-width:0;font-size:13px;color:#5A6560}
+.p2-opportunities .opp-field :is(input,select,textarea){min-width:0;width:100%;padding:12px 14px;border:1px solid #D8D2C4;border-radius:8px;background:#F3F0E8;color:#0E1311;font-size:15px}
+.p2-opportunities .opp-field textarea{min-height:110px;resize:vertical}
+.p2-opportunities .opp-row{padding:24px 0;border-bottom:1px solid #D8D2C4;min-width:0}
+.p2-opportunities .opp-board{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:16px;align-items:start}
+.p2-opportunities .opp-candidate{padding:16px 0;border-bottom:1px solid #D8D2C4;overflow-wrap:anywhere;font-size:14px;display:grid;gap:10px}
+.p2-opportunities .opp-error{color:#9E3A31;padding:12px 0;font-size:14px}
+.p2-opportunities dialog{margin:auto;width:min(700px,calc(100% - 32px));max-height:calc(100dvh - 32px);overflow:auto;border:1px solid #D8D2C4;border-radius:10px;background:#F3F0E8;padding:28px;color:#0E1311}
+.p2-opportunities dialog::backdrop{background:rgba(11,14,13,.6)}
+@media(max-width:1100px){.p2-opportunities .opp-board{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:640px){.p2-opportunities .opp-board{grid-template-columns:minmax(0,1fr)}.p2-opportunities dialog{padding:20px}}
