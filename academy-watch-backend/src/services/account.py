@@ -499,6 +499,11 @@ def build_account_export(user: UserAccount) -> dict:
     from src.services.foundation_account import export_foundation_rows
 
     foundation_export = export_foundation_rows(user, schema)
+    # --- p2-b2 begin ---
+    from src.services.opportunities_account import export_opportunities
+
+    foundation_export.update(export_opportunities(user, schema))
+    # --- p2-b2 end ---
     normalized_email = (user.email or "").strip().lower()
     subscriptions = []
     if normalized_email:
@@ -1230,6 +1235,11 @@ def delete_account(user: UserAccount) -> AccountDeletionEvent:
     schema = _SchemaView()
     from src.services.foundation_account import erase_foundation_rows
 
+    # --- p2-b2 begin ---
+    from src.services.opportunities_account import erase_opportunities
+
+    counts.update(erase_opportunities(user_id, schema))
+    # --- p2-b2 end ---
     foundation_counts = erase_foundation_rows(user_id, email, schema)
     if any(foundation_counts.values()):
         counts["foundation"] = foundation_counts

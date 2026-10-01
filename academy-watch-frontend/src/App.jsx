@@ -87,7 +87,9 @@ import { AdminClubIdentities } from '@/pages/admin/AdminClubIdentities'
 import { AdminFunding } from '@/pages/admin/AdminFunding'
 import { HomePage } from '@/pages/HomePage'
 import { ClubsNearYouTeaser } from '@/pages/teasers/ClubsNearYouTeaser'
-import { OpportunitiesTeaser } from '@/pages/teasers/OpportunitiesTeaser'
+// --- p2-b2 begin ---
+import { OpportunitiesPage, OpportunityDetail } from '@/pages/opportunities/OpportunitiesPage'
+// --- p2-b2 end ---
 import { AdminInterest } from '@/pages/admin/AdminInterest'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { PublicFormationBuilder } from '@/pages/PublicFormationBuilder'
@@ -4072,7 +4074,10 @@ function AppRoutes() {
     <Routes>
       <Route path="/" element={<HomePage />} />
       <Route path="/clubs" element={<ClubsNearYouTeaser />} />
-      <Route path="/opportunities" element={<OpportunitiesTeaser />} />
+      {/* --- p2-b2 begin --- */}
+      <Route path="/opportunities" element={<OpportunitiesPage />} />
+      <Route path="/opportunities/:opportunityId" element={<OpportunityDetail />} />
+      {/* --- p2-b2 end --- */}
       <Route path="/teams" element={<TeamsPage />} />
       <Route path="/teams/:teamSlug" element={<TeamDetailPage />} />
       <Route
