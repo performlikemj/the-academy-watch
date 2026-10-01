@@ -501,7 +501,7 @@ export function ScoutPage() {
   const [boards, setBoards] = useState(null)
   const [boardsLoading, setBoardsLoading] = useState(true)
   const [resolvedSeason, setResolvedSeason] = useState(null)
-  const { currentSeason, displaySeason: defaultSeason, ready: seasonReady } = useSeasonDirectory()
+  const { currentSeason, displaySeason: defaultSeason } = useSeasonDirectory()
   const [storedSeason, setStoredSeason] = useState(() => seasonStore.get())
 
   const [search, setSearch] = useState('')
@@ -717,7 +717,6 @@ export function ScoutPage() {
   useEffect(() => { setPage(1) }, [filterParams, sort, order])
 
   useEffect(() => {
-    if (!seasonReady) return
     let cancelled = false
     setLoading(true)
     APIService.getScoutPlayers({ ...filterParams, sort, order, page, per_page: 25 })
@@ -734,10 +733,9 @@ export function ScoutPage() {
       })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [filterParams, sort, order, page, seasonReady])
+  }, [filterParams, sort, order, page])
 
   useEffect(() => {
-    if (!seasonReady) return
     let cancelled = false
     setBoardsLoading(true)
     const boardFilters = { limit: 5, phase }
@@ -759,7 +757,7 @@ export function ScoutPage() {
       })
       .finally(() => { if (!cancelled) setBoardsLoading(false) })
     return () => { cancelled = true }
-  }, [phase, effectivePosition, status, source, agePreset, selectedSeason, seasonReady])
+  }, [phase, effectivePosition, status, source, agePreset, selectedSeason])
 
   const toggleCompare = useCallback((playerId) => {
     const normalizedPlayerId = normalizeSignedPlayerId(playerId)

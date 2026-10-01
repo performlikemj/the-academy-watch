@@ -1,4 +1,3 @@
-import { useSeasonDirectory } from '@/hooks/useSeasonDirectory'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { ArrowRight, MapPin, ShieldAlert, UserPlus } from 'lucide-react'
@@ -108,10 +107,9 @@ function LocalSeasonStats({ stats, position }) {
 }
 
 function LocalPlayerProfile({ numericPlayerId, onPublicConfirmed, onRetry }) {
-  const { displaySeason, ready: seasonReady } = useSeasonDirectory()
   const [searchParams] = useSearchParams()
   const seasonParam = searchParams.get('season')
-  const season = /^\d{4}$/.test(seasonParam || '') ? Number(seasonParam) : displaySeason
+  const season = /^\d{4}$/.test(seasonParam || '') ? Number(seasonParam) : undefined
   const [player, setPlayer] = useState(null)
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
@@ -151,7 +149,7 @@ function LocalPlayerProfile({ numericPlayerId, onPublicConfirmed, onRetry }) {
   }, [numericPlayerId])
 
   useEffect(() => {
-    if (!player || !seasonReady) return undefined
+    if (!player) return undefined
     let cancelled = false
     APIService.getPublicPlayerSeasonStats(matchPlayerApiId, season)
       .then((response) => {
@@ -161,7 +159,7 @@ function LocalPlayerProfile({ numericPlayerId, onPublicConfirmed, onRetry }) {
         if (!cancelled) setSeasonStats(null)
     })
     return () => { cancelled = true }
-  }, [matchPlayerApiId, player, season, seasonReady, seasonStatsRevision])
+  }, [matchPlayerApiId, player, season, seasonStatsRevision])
 
   if (loading) return <LoadingState />
   if (notFound) return <MissingState />

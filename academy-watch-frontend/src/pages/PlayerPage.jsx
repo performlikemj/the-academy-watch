@@ -264,7 +264,7 @@ export function PlayerPage() {
     const seasonParam = searchParams.get('season')
     const urlSeason = /^\d{4}$/.test(seasonParam || '') ? Number(seasonParam) : undefined
     const [storedSeason, setStoredSeason] = useState(() => seasonStore.get())
-    const { displaySeason: defaultSeason, ready: seasonReady } = useSeasonDirectory()
+    const { displaySeason: defaultSeason } = useSeasonDirectory()
     // An explicit pick scopes reads; the default label must not disable server fallbacks.
     const selectedSeason = seasonParam === null ? storedSeason : urlSeason
     const seasonOverride = selectedSeason
@@ -272,6 +272,7 @@ export function PlayerPage() {
     const [stats, setStats] = useState([])
     const [statsMeta, setStatsMeta] = useState(null)
     const [seasonStats, setSeasonStats] = useState(null)
+    const [seasonStatsRevision, setSeasonStatsRevision] = useState(0)
     const [loading, setLoading] = useState(true)
     const [notFound, setNotFound] = useState(false)
     const [error, setError] = useState(null)
@@ -390,11 +391,20 @@ export function PlayerPage() {
 
     useEffect(() => {
         let cancelled = false
-        if (playerId && seasonReady) {
+        if (playerId) {
             loadPlayerData(() => cancelled)
         }
         return () => { cancelled = true }
-    }, [playerId, selectedSeason, seasonReady])
+    }, [playerId, selectedSeason])
+
+    useEffect(() => {
+        if (!playerId || seasonStatsRevision === 0) return
+        let cancelled = false
+        APIService.getPublicPlayerSeasonStats(playerId, selectedSeason)
+            .then((response) => { if (!cancelled) setSeasonStats(response) })
+            .catch(() => {})
+        return () => { cancelled = true }
+    }, [playerId, selectedSeason, seasonStatsRevision])
 
     const loadPlayerData = async (isCancelled) => {
         setLoading(true)
@@ -575,7 +585,7 @@ export function PlayerPage() {
     const currentConfig = METRIC_CONFIG[position] || METRIC_CONFIG[DEFAULT_POSITION]
     const playerName = profile?.name || `Player #${playerId}`
     const resolvedSeason = selectedSeason ?? seasonStats?.season ?? statsMeta?.summary?.season
-    const seasonLabel = formatSeasonLabel(selectedSeason ?? defaultSeason ?? resolvedSeason)
+    const seasonLabel = formatSeasonLabel(resolvedSeason ?? defaultSeason)
     const provenance = seasonStats?.provenance ?? statsMeta?.provenance
     const provenanceSource = provenance?.primary_source ?? provenance?.source
     const provenanceText = provenanceSource === 'journey' && ['cup-gap', 'fixtures-invisible'].includes(provenance?.reconcile_flag)
@@ -763,10 +773,14 @@ export function PlayerPage() {
                             playerApiId={String(playerId)}
                             playerName={playerName}
                             playerPosition={profile?.position || position}
-                            season={selectedSeason}
+                            season={isLocalPlayer ? selectedSeason : (selectedSeason ?? resolvedSeason)}
                             onSeasonStatsChange={(nextStats) => {
                                 const nextSeason = Number.parseInt(String(nextStats?.season ?? ''), 10)
-                                if (selectedSeason == null || nextSeason === Number(selectedSeason)) {
+                                if (selectedSeason == null) {
+                                    // A mutation describes its game's season. Reload the server's
+                                    // default so older games cannot replace the displayed totals.
+                                    setSeasonStatsRevision((revision) => revision + 1)
+                                } else if (nextSeason === Number(selectedSeason)) {
                                     setSeasonStats(nextStats)
                                 }
                             }}

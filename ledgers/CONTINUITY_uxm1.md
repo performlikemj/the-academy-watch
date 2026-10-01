@@ -1,6 +1,6 @@
 # UXM1 — scout/player staging polish
 
-- Status: complete including RUXM1 rounds 1 and 2; owner Codex; branch fix/staging-ux-scout-player; draft PR #1119 against main; no merge.
+- Status: UXM1F3 fixes and gates complete; delivery in-progress (RUXM1 rounds 1 and 2 complete); owner Codex; branch fix/staging-ux-scout-player; draft PR #1119 against main; no merge.
 - Goal: P-08/P-09/P-10/P-11/P-12/P-27/P-28 plus small additive public-adult community search.
 - Constraints: behavior preserved outside fixes; frozen unchanged; no dependencies/migrations; staging read-only; minors/club-private unfindable.
 - Done: fixes implemented; read-only staging evidence captured; 16 fixed-view full-page PNGs + detail screenshots visually reviewed.
@@ -42,3 +42,15 @@
 - Combined browser final40pass (36 mocked +4 real freezeOFF); real freezeON repeat4pass. Owned5160/5210 servers stopped; temporary SQLite and generated build/browser outputs removed; tracked frontend report retained. Node263/lint0errors185warnings/build/Ruff-format571 green. Only full combined pytest remains.
 - Final combined full pytest4089passed/69skipped/0failed (953.63s); final Ruff0.16.0 check clean and format580 files clean. Removed unused fixture-only E402 suppression caught by pinned Ruff (no runtime change); earlier local0.15.22 checks also passed. Node263/lint0errors185inherited warnings/build/lane40+real frozen4 pass. Main refreshed again, still784b1490. Ready to push; no dependency restore/lockfile changes.
 - Delivery: implementation32a9046e + main refresh f6e73e3b + pinned-Ruff/comment/validation d0c7573a pushed to draft #1119; remote verified OPEN/DRAFT/MERGEABLE. Final documentation commit records delivery; hand-back logs/UXM1F2.final.md. No outstanding work; next is review/merge by owner.
+
+## UXM1F3 review-duel fix round
+- Status: fixes/gates complete; delivery in-progress; reviewed all four X/O findings/cross-examinations at63700256.
+- Now: commit/push completed five Mediums and S1/S2 order/S3 synonyms; then final hand-back.
+- Decision: O-M3 pre-existing server default remains unchanged; NEEDS DECISION with staging evidence in hand-back.
+- Next: confirm pushed draft1119 SHA, write hand-back and BUS DONE; no merge.
+- Milestone: five backend search regressions fail on reviewed source; fixed SQLite17pass/17skip and SQLite+PostgreSQL34pass. Browser reverse15fail/12controls covers request scheduling, signed/provider mutations, frozen shadow labels and linked local defaults; position reverse14fail. Shared flag/eligibility-before-cap/DB-order+accent merge, season reads/labels/mutations and synonyms implemented.
+- Main refresh: origin/main784b1490 unchanged; git merge reports already up to date. Pinned Ruff0.16.0 check/format580 pass; full flags-off pytest foreground running. Node277pass/buildpass; lint found one unused test variable, removed for rerun.
+- Gates: focused browser42pass; relevant browser101pass; screenshot recapture12pass after coherent availability fixture/settled showcase. Reverse exact63700256 backend10fail/24controls acrossSQLite/PostgreSQL; direct origin/main OFF parity2pass with exact payload/order/7SQL. Node277pass, OSV547clean, buildpass; full flags-off pytest continues without failures.
+- Cleanup milestone: isolated aw_uxm1f3 dropped after PG34pass + reverse/parity probes; temporary pytest plugins removed.
+- Milestone: real freezeOFF12pass (desktop/mobile); freezeON12 in relevant101pass. All16 refreshed PNGs visually reviewed at shots/UXM1F3/INDEX.md. Owned5160/5210 servers stopped, no listeners; disposable SQLite directories and temp/browser/build/Vite outputs removed; PostgreSQL scratch already dropped. Only full flags-off pytest remains; no migrations/dependencies/typecheck target.
+- Final gates: full flags-off pytest4095passed/86skipped/0failed/147warnings(996.15s); pinned Ruff0.16.0 check/format580clean; lane SQLite+PostgreSQL34pass; Node277pass; lint0errors/185inherited warnings; buildpass; relevant Playwright101pass, freezeOFF12pass, screenshot recapture12pass. OSV547clean, no dependency restore/lockfile changes. Main784b1490 current; no lower stack or migration/preapply changes.

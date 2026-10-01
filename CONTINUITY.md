@@ -1086,6 +1086,9 @@ CONTINUITY.md
 
 - iOS cold-start diagnostic complete; scoped fix delivered with PR #634 (merged to main `be02736`).
 
+## UXM1F3
+- 2026-10-01: draft PR1119 review-duel union five Mediums/three Smalls fixed; full pytest4095pass86skip0fail, PG34/Node277/browser101+freezeOFF12 and Ruff/lint/build/OSV pass. Delivery in-progress; ledger `ledgers/CONTINUITY_uxm1.md`; O-M3 default-season policy unchanged pending decision.
+
 ## Trivial Log
 
 - 2026-10-01 N4 CI draft gating: delivered on `chore/ci-skip-drafts`; only `ci.yml` handles PRs. Keep OSV on drafts (recent successful scans 31s/35s); guard four other jobs, add ready-for-review trigger, preserve names/main pushes/deploy workflows. Validation: all four workflow YAML files parse; assertions pass for PR events/guards/OSV exception, stable names and unchanged push/config; diff check clean. Delivery: ready PR #1117 to main; all-green squash merge required. Final CI/merge/cleanup record: `~/codex-runs/aw-redesign/logs/N4.final.md`.

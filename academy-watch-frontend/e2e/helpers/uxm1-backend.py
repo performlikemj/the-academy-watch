@@ -38,7 +38,7 @@ from src.routes.seasons import seasons_bp
 from src.routes.showcase import showcase_bp
 from src.utils.academy_window import current_stats_season
 
-with tempfile.TemporaryDirectory(prefix="aw_uxm1f2_") as scratch:
+with tempfile.TemporaryDirectory(prefix="aw_uxm1f3_") as scratch:
     app = Flask(__name__)
     app.config.update(
         SECRET_KEY="local-uxm1-fixture",
@@ -82,7 +82,12 @@ with tempfile.TemporaryDirectory(prefix="aw_uxm1f2_") as scratch:
             status="approved",
             position="Centre half",
         )
-        db.session.add_all([team, user, local])
+        db.session.add_all([team, user, local,
+            LocalPlayer(id=72, api_player_id=43, display_name="Real Linked Shadow Adult",
+                status="approved", birth_date=date(2000, 1, 1), birth_year=2000),
+            LocalPlayer(id=73, api_player_id=44, display_name="Real Linked Limited Adult",
+                status="approved", birth_date=date(2000, 1, 1), birth_year=2000),
+        ])
         db.session.flush()
         db.session.add(
             TrackedPlayer(
