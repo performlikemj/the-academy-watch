@@ -100,14 +100,14 @@ for (const width of [1440, 390]) {
   test(`club review pick remove and public clips at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 })
     await fixture(page)
-    let reviewed = false, picked = false
+    let reviewed = false, picked = false, approved = false
     const candidate = { roster_entry_id: 1, tracklet_id: 2, start_s: 10, end_s: 30, player_name: 'Synthetic Adult' }
     await page.route('**/api/club/7/matches/41/**', route => {
       const req = route.request(), p = new URL(req.url()).pathname
       if (p.endsWith('/highlight-review')) { if (req.postDataJSON().classification === 'private') { reviewed = false; picked = false } else { expect(req.postDataJSON().all_visible_people_adults).toBe(true); reviewed = true } }
       else if (req.method() === 'POST') { expect(req.postDataJSON().start_s).toBe(10); expect(req.postDataJSON().end_s).toBe(30); picked = true }
       else if (req.method() === 'DELETE') picked = false
-      return route.fulfill({ json: { adult_recording: reviewed, review_classification: reviewed ? 'adult_only' : 'private', can_review: true, candidates: reviewed ? [candidate] : [], highlights: picked ? [{ ...clip, ...candidate }] : [] } })
+      return route.fulfill({ json: { adult_recording: reviewed, review_classification: reviewed ? 'adult_only' : 'private', can_review: true, candidates: reviewed ? [candidate] : [], highlights: picked ? [{ ...clip, ...candidate, ...(approved ? { player_decision: 'approve', status_label: 'Public on your page' } : {}) }] : [] } })
     })
     await page.goto('/highlight-approvals')
     await page.evaluate(async () => {
@@ -126,6 +126,11 @@ for (const width of [1440, 390]) {
     await page.getByRole('button', { name: 'Pick moment' }).click()
     await expect(page.getByText('Waiting for player', { exact: true })).toBeVisible()
     await shot(page, `club-picked-${width}`)
+    approved = true
+    await page.getByRole('button', { name: 'Refresh highlights' }).click()
+    await expect(page.getByText('Public on player and club pages', { exact: true })).toBeVisible()
+    await expect(page.getByText('Public on your page', { exact: true })).toHaveCount(0)
+    await shot(page, `club-approved-${width}`)
     await page.getByRole('button', { name: 'Remove pick' }).click()
     await expect(page.getByRole('button', { name: 'Pick moment' })).toBeVisible()
     await page.route('**/api/players/-7/highlights', route => route.fulfill({ json: { highlights: [{ ...clip, clip_url: `/api/highlights/${id}/clip` }] } }))

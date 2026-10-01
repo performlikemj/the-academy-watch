@@ -203,7 +203,7 @@ def test_o11_age_upper_bound_needs_senior_attestation(world, age_limit):
 
 
 @pytest.mark.parametrize("audience", ["public", "player", "club"])
-@pytest.mark.parametrize("change", ["revoke", "hold", "source", "standing", "deadline", "delay"])
+@pytest.mark.parametrize("change", ["revoke", "hold", "source", "standing", "claim", "dob", "deadline", "delay"])
 def test_x3_n2_final_grant_rechecks_after_storage(world, monkeypatch, audience, change):
     row = ready(world)
     if change != "deadline" or audience == "public":
@@ -211,7 +211,7 @@ def test_x3_n2_final_grant_rechecks_after_storage(world, monkeypatch, audience, 
     start = now()
     seen = []
 
-    def storage(path, etag, *, expires_at):
+    def storage(path, etag, *, expires_at=None):
         seen.append(expires_at)
         if change == "revoke":
             highlights.revoke(row, world["player"].id, "player_revoke")
@@ -221,6 +221,11 @@ def test_x3_n2_final_grant_rechecks_after_storage(world, monkeypatch, audience, 
             world["entry"].jersey_number = 10
         elif change == "standing":
             world["player"].account_status = "suspended"
+        elif change == "claim":
+            world["claim"].status = "revoked"
+        elif change == "dob":
+            world["local"].birth_date = date(now().year - 16, 1, 1)
+            world["local"].birth_year = now().year - 16
         elif change == "deadline":
             world["match"].expires_at = now() - timedelta(seconds=1)
         db.session.commit()
@@ -535,3 +540,65 @@ def test_o6_existing_duplicate_window_also_loses_both_grants(world, monkeypatch)
     db.session.refresh(second)
     assert first.revoked_at and second.revoked_at
     assert not highlights.public(first) and not highlights.public(second)
+
+
+@pytest.mark.parametrize("change", ["claim", "standing", "epoch"])
+def test_x3_club_actor_rechecked_even_with_another_verified_manager(world, monkeypatch, change):
+    from src.models.funding import ClubProgramClaim, ClubProgramManager
+
+    claim = ClubProgramClaim(program_id=world["program"].id, user_account_id=world["stranger"].id, status="approved")
+    db.session.add(claim)
+    db.session.flush()
+    db.session.add(
+        ClubProgramManager(
+            program_id=world["program"].id,
+            user_account_id=world["stranger"].id,
+            source_claim_id=claim.id,
+            granted_by="test",
+            status="active",
+        )
+    )
+    db.session.commit()
+    row = ready(world)
+
+    def storage(*args, **kwargs):
+        if change == "claim":
+            ClubProgramClaim.query.filter_by(user_account_id=world["manager"].id).one().status = "revoked"
+        elif change == "standing":
+            world["manager"].account_status = "suspended"
+        else:
+            world["manager"].auth_epoch += 1
+        db.session.commit()
+        return "https://storage.example/standalone.mp4"
+
+    monkeypatch.setattr(highlights_storage, "output_read_url", storage)
+    assert (
+        world["app"].test_client().get(grant_path(world, row, "club"), headers=headers(world["manager"])).status_code
+        == 404
+    )
+    assert highlights.eligible(row)  # Other verified manager still holds the institutional key.
+
+
+def test_x3_storage_mints_the_absolute_authorization_deadline(monkeypatch):
+    from types import SimpleNamespace
+
+    from src.services import video_storage
+
+    authorization = now().replace(tzinfo=UTC)
+    deadline = authorization + timedelta(seconds=60)
+    mint = Mock(return_value="read-only")
+    monkeypatch.setattr(video_storage, "_mint_sas", mint)
+    monkeypatch.setattr(video_storage, "_service_client", lambda: SimpleNamespace(url="https://storage.example/"))
+    monkeypatch.setattr(
+        video_storage, "datetime", SimpleNamespace(now=lambda zone: authorization + timedelta(seconds=20))
+    )
+    assert video_storage.mint_media_read_sas("highlights/clip.mp4", seconds=60, expires_at=deadline).startswith(
+        "https://storage.example/"
+    )
+    assert mint.call_args.args[2] == deadline
+    monkeypatch.setattr(
+        video_storage, "datetime", SimpleNamespace(now=lambda zone: authorization + timedelta(seconds=61))
+    )
+    with pytest.raises(ValueError, match="media_grant_expired"):
+        video_storage.mint_media_read_sas("highlights/clip.mp4", seconds=60, expires_at=deadline)
+    assert mint.call_count == 1
