@@ -270,11 +270,13 @@ def _brief_payload(body, *, max_lines: int) -> tuple[dict | None, int]:
 
 def _brief_context(match, roster_entries, roster_members) -> dict | None:
     """Build private brief input separately from the team-visible analysis context."""
+    from src.services.brief_names import stored_name_tokens, strip_named_lines
     from src.services.coach_brief import MAX_BRIEF_LINES
 
     program_id = _row_value(match, "club_program_id")
     if program_id is None:
         return None
+    tokens = stored_name_tokens(program_id)
     members_by_id = {
         int(_row_value(member, "id")): member
         for member in roster_members
@@ -315,7 +317,11 @@ def _brief_context(match, roster_entries, roster_members) -> dict | None:
     skipped_roster = {}
     for entry, member in brief_entries:
         body = _row_value(member, "coach_brief_body")
+        # Enforce the original length cap before redaction, then hash only the
+        # filtered text that actually reaches the model.
         payload, line_count = _brief_payload(body, max_lines=MAX_BRIEF_LINES)
+        if payload is not None:
+            payload, _ = _brief_payload(strip_named_lines(body, tokens), max_lines=MAX_BRIEF_LINES)
         if payload is not None:
             roster[str(int(_row_value(entry, "id")))] = {
                 **payload,
@@ -328,10 +334,10 @@ def _brief_context(match, roster_entries, roster_members) -> dict | None:
                 "reason": "brief_longer_than_max_lines",
             }
     program = _row_value(match, "club_program")
-    system_brief, _ = _brief_payload(
-        _row_value(program, "system_brief_body"),
-        max_lines=MAX_BRIEF_LINES,
-    )
+    system_body = _row_value(program, "system_brief_body")
+    system_brief, _ = _brief_payload(system_body, max_lines=MAX_BRIEF_LINES)
+    if system_brief is not None:
+        system_brief, _ = _brief_payload(strip_named_lines(system_body, tokens), max_lines=MAX_BRIEF_LINES)
     return {
         "schema_version": BRIEF_CONTEXT_SCHEMA_VERSION,
         "max_lines": MAX_BRIEF_LINES,

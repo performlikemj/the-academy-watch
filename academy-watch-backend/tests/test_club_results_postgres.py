@@ -520,3 +520,49 @@ def test_suppressed_roster_name_cannot_change_a_manager_brief(postgres_app, pg_c
         assert response.json == {"error": "Briefs describe behaviours, not people — remove player names."}
     with postgres_app.app_context():
         assert db.session.get(ClubRosterMember, pg_case["members_a"][0]).coach_brief_body == "Check both shoulders"
+
+
+@pytest.mark.parametrize("key_form", ["local", "provider", "merged", "signed_shadow"])
+def test_complete_alias_inventory_and_worker_filter_on_postgres(postgres_app, pg_case, key_form):
+    from src.models.follow import PlayerShadow
+    from src.models.showcase import LocalPlayer
+    from src.workers.vision_worker import _brief_context
+
+    with postgres_app.app_context():
+        outside = db.session.get(ClubRosterMember, pg_case["members_a"][1])
+        provider_id = outside.player_api_id
+        local = LocalPlayer(
+            display_name="Localalias Privatealias",
+            birth_year=2010,
+            status="approved",
+        )
+        db.session.add(local)
+        db.session.flush()
+        local.api_player_id = -local.id if key_form == "signed_shadow" else provider_id
+        db.session.add(PlayerShadow(player_api_id=local.api_player_id, player_name="Shadowalias Hiddenalias"))
+        if key_form != "signed_shadow":
+            TrackedPlayer.query.filter_by(player_api_id=provider_id).update({"player_name": "Brannock Outsidesquad"})
+        if key_form in {"local", "signed_shadow"}:
+            outside.player_api_id, outside.local_player_id = None, local.id
+        elif key_form == "merged":
+            old = LocalPlayer(display_name="Oldalias Oldperson", status="merged", merged_into_local_player_id=local.id)
+            db.session.add(old)
+            db.session.flush()
+            outside.player_api_id, outside.local_player_id = None, old.id
+        db.session.commit()
+    url = f"/api/club/{pg_case['program_a']}/roster/{pg_case['members_a'][0]}/brief"
+    with postgres_app.test_client() as client:
+        for word in ["Localalias", "Shadowalias", "Hiddenalias"]:
+            response = client.put(url, json={"body": f"{word} scans"}, headers=_headers(pg_case))
+            assert response.status_code == 422
+            assert response.json == {"error": "Briefs describe behaviours, not people — remove player names."}
+    with postgres_app.app_context():
+        target = db.session.get(ClubRosterMember, pg_case["members_a"][0])
+        assert target.coach_brief_body is None
+        target.coach_brief_body = "Localalias scans\nShadowalias scans\nCheck shoulders"
+        result = _brief_context(
+            {"club_program_id": pg_case["program_a"], "our_kit_color": "blue"},
+            [{"id": 101, "club_roster_member_id": target.id, "jersey_number": 9}],
+            [target],
+        )
+        assert result["roster"]["101"]["lines"] == ["Check shoulders"]

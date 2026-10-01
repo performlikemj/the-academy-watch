@@ -12,6 +12,7 @@ from src.models.journey import PlayerJourney, PlayerJourneyEntry
 from src.models.league import db
 from src.models.weekly import Fixture, FixturePlayerStats
 from src.utils.data_mode import api_football_frozen
+from src.utils.sanitize import display_plain_text
 
 
 def public_match_metadata(player_id, season=None):
@@ -72,7 +73,17 @@ def separated_season_stats(player_id, season, legacy):
             "available": total is not None,
             "totals": {key: total.get(key) for key in stat_keys} if total else None,
             "primary_source": total["primary_source"] if total else None,
-            "clubs": total["clubs"] if total else [],
+            "clubs": [
+                {
+                    **club,
+                    "competition_tiers": list(
+                        dict.fromkeys(display_plain_text(label) for label in club.get("competition_tiers", []))
+                    ),
+                }
+                for club in total["clubs"]
+            ]
+            if total
+            else [],
         }
 
     public = block("public_match_data", "Public match data", [c for c in cells if c["source"] not in {"club", "user"}])

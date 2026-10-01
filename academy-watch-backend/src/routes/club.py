@@ -13,8 +13,6 @@ import json
 import logging
 import math
 import os
-import re
-import unicodedata
 import uuid
 from datetime import UTC, date, datetime, timedelta
 from functools import wraps
@@ -54,6 +52,7 @@ from src.models.showcase import LocalPlayer, local_player_is_minor
 from src.models.tracked_player import TrackedPlayer
 from src.models.video import VideoMatch, VideoPlayerReport, VideoRosterEntry, VideoTracklet
 from src.services import club_directory, season_rollup_service, video_retention, video_storage
+from src.services.brief_names import brief_name_token_matches, name_tokens, stored_name_tokens
 from src.services.capture_meta import merge_preflight, strip_server_owned
 from src.services.club_access import (
     current_access,
@@ -93,7 +92,6 @@ MAX_CAPTURE_META_BYTES = 8 * 1024
 MAX_CAPTURE_META_DEPTH = 4
 MAX_CAPTURE_META_KEYS = 50
 MAX_TIMELINE_SECONDS = 6 * 60 * 60
-BRIEF_NAME_TOKEN_RE = re.compile(r"[^\W\d_]{2,}")
 CLUB_EDITABLE_MATCH_STATUSES = {"created", "uploaded"}
 RESULT_COUNT_FIELDS = ("goals", "assists", "yellows", "reds")
 RESULT_OPTIONAL_COUNT_FIELDS = ("saves", "goals_conceded")
@@ -628,8 +626,6 @@ def _brief_dict(body: str | None, updated_at: datetime | None) -> dict:
     }
 
 
-# Main's behaviour-only policy; change only after an explicit squad-name ruling.
-ALLOW_SCOPED_BRIEF_NAMES = False
 BRIEF_NAME_REFUSAL = "Briefs describe behaviours, not people — remove player names."
 
 
@@ -638,75 +634,28 @@ class BriefNameError(ValueError):
 
 
 def _brief_name_tokens(program: ClubProgram) -> dict[str, str]:
-    """Private validation inventory, independent of display/availability filters."""
+    scope = scoped_squad_ids()
+    if scope is None:
+        return stored_name_tokens(program.id)
+    # The scoped save answer depends exclusively on readable identities. Hidden
+    # aliases are handled by the full inventory at the worker boundary instead.
     names = []
-    for model, column in [(TrackedPlayer, TrackedPlayer.player_name), (PlayerShadow, PlayerShadow.player_name)]:
-        names.extend(
-            db.session.query(column, ClubRosterMember.squad_id)
-            .join(ClubRosterMember, ClubRosterMember.player_api_id == model.player_api_id)
-            .filter(ClubRosterMember.program_id == program.id)
-            .all()
-        )
+    members = ClubRosterMember.query.filter(
+        ClubRosterMember.program_id == program.id, ClubRosterMember.squad_id.in_(scope)
+    ).all()
+    for member in members:
+        subject, _ = _member_subject(member)
+        if subject:
+            names.append(subject["display_name"])
+    matches = VideoMatch.query.filter(VideoMatch.club_program_id == program.id, VideoMatch.squad_id.in_(scope)).all()
+    readable_matches = [match.id for match in matches if match_in_scope(match, require_bytes=True)]
     names.extend(
-        db.session.query(LocalPlayer.display_name, ClubRosterMember.squad_id)
-        .join(
-            ClubRosterMember,
-            or_(
-                ClubRosterMember.local_player_id == LocalPlayer.id,
-                ClubRosterMember.player_api_id == LocalPlayer.api_player_id,
-            ),
+        name
+        for (name,) in db.session.query(VideoRosterEntry.player_name).filter(
+            VideoRosterEntry.video_match_id.in_(readable_matches)
         )
-        .filter(ClubRosterMember.program_id == program.id)
-        .all()
     )
-    names.extend(
-        db.session.query(VideoRosterEntry.player_name, VideoMatch.squad_id)
-        .join(VideoMatch, VideoRosterEntry.video_match_id == VideoMatch.id)
-        .filter(VideoMatch.club_program_id == program.id)
-        .all()
-    )
-    tokens = {}
-    scope = scoped_squad_ids() if ALLOW_SCOPED_BRIEF_NAMES else None
-    for name, squad_id in names:
-        if not name:
-            continue
-        for token in BRIEF_NAME_TOKEN_RE.findall(name):
-            key = _fold_brief_name(token)
-            if scope is not None and squad_id in scope:
-                continue
-            tokens.setdefault(key, token)
-    # Shared name tokens remain forbidden if any identity is outside the scope.
-    return tokens
-
-
-def _fold_brief_name(value: str) -> str:
-    return "".join(
-        character for character in unicodedata.normalize("NFKD", value) if not unicodedata.combining(character)
-    ).casefold()
-
-
-def _is_latin_word_character(character: str) -> bool:
-    return character == "_" or character.isdigit() or unicodedata.name(character, "").startswith("LATIN ")
-
-
-def _brief_name_token_matches(token: str, line: str) -> bool:
-    folded_token = _fold_brief_name(token)
-    folded_line = _fold_brief_name(line)
-    contains_non_latin_letter = any(
-        character.isalpha() and not unicodedata.name(character, "").startswith("LATIN ") for character in token
-    )
-    if contains_non_latin_letter:
-        return folded_token in folded_line
-
-    start = 0
-    while (match_start := folded_line.find(folded_token, start)) != -1:
-        match_end = match_start + len(folded_token)
-        left_is_word = match_start > 0 and _is_latin_word_character(folded_line[match_start - 1])
-        right_is_word = match_end < len(folded_line) and _is_latin_word_character(folded_line[match_end])
-        if not left_is_word and not right_is_word:
-            return True
-        start = match_start + 1
-    return False
+    return name_tokens(names)
 
 
 def _clean_brief(body, program: ClubProgram) -> str | None:
@@ -726,7 +675,7 @@ def _clean_brief(body, program: ClubProgram) -> str | None:
         if len(line) > MAX_BRIEF_LINE_CHARS:
             raise ValueError(f"Brief lines must be at most {MAX_BRIEF_LINE_CHARS} characters")
         for token in name_tokens.values():
-            if _brief_name_token_matches(token, line):
+            if brief_name_token_matches(token, line):
                 raise BriefNameError(BRIEF_NAME_REFUSAL)
     return "\n".join(line for _line_number, line in lines)
 
@@ -1161,7 +1110,11 @@ def _brief_rate_rejected(limit):
 
 
 _brief_write_limit = limiter.shared_limit(
-    "20 per hour", scope="club-roster-brief", key_func=_brief_rate_limit_key, on_breach=_brief_rate_rejected
+    "20 per hour",
+    scope="club-roster-brief",
+    key_func=_brief_rate_limit_key,
+    on_breach=_brief_rate_rejected,
+    deduct_when=lambda response: response.status_code == 422,
 )
 
 

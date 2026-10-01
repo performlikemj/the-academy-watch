@@ -229,7 +229,7 @@ def test_relationship_names_add_no_database_queries(client, pilot, local):
     assert response.json == named
 
 
-def test_scoped_brief_rejects_all_club_names_with_generic_error(client, env):
+def test_scoped_brief_saves_hidden_club_names_while_manager_refuses(client, env):
     from src.models.tracked_player import TrackedPlayer
     from src.models.video import VideoRosterEntry
 
@@ -243,10 +243,17 @@ def test_scoped_brief_rejects_all_club_names_with_generic_error(client, env):
     for body in ["Outside checks shoulders", "Privateperson scans", "Sheetonly scans", "Secretperson scans"]:
         assert client.put(url, json={"body": body}, headers=_headers("a")).status_code == 422
         response = client.put(url, json={"body": body}, headers=_h(_email("coach")))
-        assert response.status_code == 422
-        assert response.json == {"error": "Briefs describe behaviours, not people — remove player names."}
-        assert body.split()[0] not in response.get_data(as_text=True)
-    assert db.session.get(ClubRosterMember, env["m1"]).coach_brief_body is None
+        assert response.status_code == 200
+        assert response.json["member"]["brief"]["body"] == body
+    from src.workers.vision_worker import _brief_context
+
+    target = db.session.get(ClubRosterMember, env["m1"])
+    context = _brief_context(
+        {"club_program_id": env["pid"], "our_kit_color": "blue"},
+        [{"id": 102, "club_roster_member_id": target.id, "jersey_number": 9}],
+        [target],
+    )
+    assert context["roster"] == {}
 
 
 def test_old_and_new_result_entries_share_one_public_competition(client, club_app):
@@ -393,13 +400,18 @@ def test_brief_checks_stored_unavailable_names_without_display_serializer(
         return original(member)
 
     monkeypatch.setattr(club_routes, "_member_subject", target_only)
-    for headers in [_headers("a"), _h(_email("coach"))]:
+    for headers in [_headers("a")]:
         for token in ["Outsidesquad", "Privateperson"]:
             response = client.put(url, json={"body": f"{token} checks shoulders"}, headers=headers)
             assert response.status_code == 422, response.json
             assert response.json == BRIEF_REFUSAL
             db.session.refresh(target)
             assert (target.coach_brief_body, target.brief_updated_at, target.brief_updated_by_user_id) == before
+    for token in ["Outsidesquad", "Privateperson"]:
+        response = client.put(
+            url, json={"body": f"{token} checks shoulders\nCheck both shoulders"}, headers=_h(_email("coach"))
+        )
+        assert response.status_code == 200
     context = _brief_context(
         {"id": 101, "club_program_id": env["pid"], "our_kit_color": "blue"},
         [{"id": 102, "club_roster_member_id": target.id, "jersey_number": 9}],
@@ -424,21 +436,18 @@ def test_brief_rejects_in_squad_names_for_every_role_and_preserves_shape_errors(
         assert client.put(url, json={"body": "Check both shoulders"}, headers=headers).status_code == 200
 
 
-def test_brief_rate_budget_is_account_keyed_and_counts_refused_and_successful_writes(
-    rate_limited_club_app, monkeypatch
-):
+def test_brief_rate_budget_is_account_keyed_and_counts_only_refusals(rate_limited_club_app, monkeypatch):
     from src.extensions import limiter
     from src.models.tracked_player import TrackedPlayer
 
     club_app = rate_limited_club_app
     client = club_app.test_client()
     case = env.__wrapped__(club_app, client, monkeypatch)
-    member = db.session.get(ClubRosterMember, case["m2"])
+    member = db.session.get(ClubRosterMember, case["m1"])
     TrackedPlayer.query.filter_by(player_api_id=member.player_api_id).update(
         {"player_name": "Outsidesquad Privateperson"}
     )
     db.session.commit()
-    _active_suppression(player_api_id=member.player_api_id)
     _join(client, case, "coach", "coach", squads=[case["sa"]])
     _join(client, case, "allcoach", "coach", squads=[case["sa"]])
     monkeypatch.setattr(limiter, "enabled", True)
@@ -447,17 +456,19 @@ def test_brief_rate_budget_is_account_keyed_and_counts_refused_and_successful_wr
     url = f"{case['base']}/roster/{case['m1']}/brief"
     try:
         for index in range(20):
-            body = "Outsidesquad checks shoulders" if index % 2 else "Watch Zzyzzx and copy"
+            assert (
+                client.put(url, json={"body": "Watch Zzyzzx and copy"}, headers=_h(_email("coach"))).status_code == 200
+            )
+            body = "Outsidesquad checks shoulders"
             response = client.put(
                 url,
                 json={"body": body},
                 headers=_h(_email("coach")),
                 environ_base={"REMOTE_ADDR": f"127.0.0.{index + 1}"},
             )
-            assert response.status_code == (422 if index % 2 else 200)
-            if index % 2:
-                assert response.json == BRIEF_REFUSAL
-        for member_id in [case["m1"], case["m2"]]:
+            assert response.status_code == 422
+            assert response.json == BRIEF_REFUSAL
+        for member_id in [case["m1"], case["m1"]]:
             limited = client.put(
                 f"{case['base']}/roster/{member_id}/brief",
                 json={"body": "Watch Zzyzzx and copy"},
@@ -472,6 +483,7 @@ def test_brief_rate_budget_is_account_keyed_and_counts_refused_and_successful_wr
         limiter.reset()
 
 
+@pytest.mark.parametrize("frozen", [False, True])
 @pytest.mark.parametrize(
     "competition,expected",
     [
@@ -482,7 +494,7 @@ def test_brief_rate_budget_is_account_keyed_and_counts_refused_and_successful_wr
     ],
 )
 def test_public_rollup_endpoints_decode_once_preserving_stored_grouping(
-    client, club_app, monkeypatch, competition, expected
+    client, club_app, monkeypatch, competition, expected, frozen
 ):
     from unittest.mock import patch
 
@@ -490,6 +502,7 @@ def test_public_rollup_endpoints_decode_once_preserving_stored_grouping(
     from src.services import season_rollup_service
 
     club_app.register_blueprint(players_bp, url_prefix="/api")
+    monkeypatch.setenv("API_FOOTBALL_FROZEN", "1" if frozen else "0")
     monkeypatch.setenv("SEASON_ROLLUP_READS", "season_stats,player_stats")
     pid = club_app.c2["program_a"]
     mid = _add_api_member(client, pid)
@@ -497,6 +510,22 @@ def test_public_rollup_endpoints_decode_once_preserving_stored_grouping(
         f"/api/club/{pid}/results", headers=_headers("a"), json=_result_payload([mid], competition=competition)
     )
     assert response.status_code == 201, response.json
+    db.session.add(
+        PlayerMatchEntry(
+            player_api_id=7001,
+            season=2025,
+            match_date=date(2025, 8, 30),
+            opponent="Self FC",
+            home_away="home",
+            competition=sanitize_plain_text(competition),
+            source="self",
+            status="self_reported",
+            minutes=90,
+            club_program_id=pid,
+            reported_by_user_id=club_app.c2["users"]["a"],
+        )
+    )
+    db.session.commit()
     season_rollup_service.refresh_player(7001, 2025, session=db.session)
     cell = PlayerSeasonCell.query.filter_by(player_api_id=7001, season=2025, source="club").one()
     total = PlayerSeasonTotal.query.filter_by(player_api_id=7001, season=2025).one()
@@ -511,9 +540,13 @@ def test_public_rollup_endpoints_decode_once_preserving_stored_grouping(
             assert row["competition_tier"] == expected
             assert row["detail"]["competition"] == expected
             if endpoint == "season-stats":
-                assert payload["clubs"][0]["competition_tiers"] == [expected]
+                if not frozen:
+                    assert payload["clubs"][0]["competition_tiers"] == [expected]
+                if frozen:
+                    assert payload["club_verified"]["clubs"][0]["competition_tiers"] == [expected]
+                    assert payload["self_reported"]["clubs"][0]["competition_tiers"] == [expected]
     db.session.refresh(cell)
     db.session.refresh(total)
     assert cell.detail == {"competition": stored}
-    assert PlayerMatchEntry.query.one().competition == stored
+    assert {entry.competition for entry in PlayerMatchEntry.query.all()} == {stored}
     assert total.clubs == original_clubs

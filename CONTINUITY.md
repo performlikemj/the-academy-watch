@@ -32,6 +32,8 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
 
 ## State
 
+- **Now UXM2F3 (2026-10-01):** draft1123 review-duel union + lead option1; complete identity inventory, scoped save/full-inventory worker strip, refusal budget, real429 and frozen decode. See `ledgers/CONTINUITY_uxm2.md`.
+
 - **UXM2F2 (2026-10-01):** Review-duel union fixes/gates complete at code28a4883c on draft #1123; full4111pass70skip0fail, PG9/Node225/Playwright140pass1skip/Ruff-format571/OSV/lint/build. Stored-name inventory, neutral422/account budget, served public rollup decode; all names refused per fallback (BUS ruling absent at final reread). Cleanup complete; delivery SHA in `~/codex-runs/aw-redesign/logs/UXM2F2.final.md`; next independent duel, no merge. See `ledgers/CONTINUITY_uxm2.md`.
 
 - **Now (2026-10-01):** B2F5 local gates green after mechanical refresh onto main/B1 e82bb4e3: full flags-off4075pass69skip0fail, PG19/Node219/Playwright45/Ruff-format579/lint0err186warn/build. All36 untouched B2 blobs equal reviewed16540e03; p2b1 matches main; real dark-count omission2 pass. Push + ready #1113 + CI verification next; no merge. Hand-back `~/codex-runs/aw-redesign/logs/B2F5.final.md`; see `ledgers/CONTINUITY_p2-b2.md`.
