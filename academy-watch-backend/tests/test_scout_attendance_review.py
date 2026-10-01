@@ -6,6 +6,8 @@ from uuid import uuid4
 
 import pytest
 import sqlalchemy as sa
+from src.models.club_access import ClubAccessGrant
+from src.models.funding import ClubProgram, ClubProgramClaim, ClubProgramManager
 from src.models.league import UserAccount, db
 from src.models.opportunities import ClubOpportunity, OpportunityApplication, now
 from src.models.p2_foundation import AdminActionEvent, NotificationOutbox
@@ -48,6 +50,9 @@ def test_m1_started_session_expires_pending_and_notifies_once(client, c4, read):
     db.session.get(ClubOpportunity, post["id"]).starts_at = now() - timedelta(seconds=1)
     db.session.commit()
     if read == "today":
+        # The maintenance sweep owns transitions; Today remains read-only.
+        assert service.expire_pending() == 1
+        db.session.commit()
         assert today(client, c4)["queues"]["attendance"] == []
     elif read == "mine":
         history = client.get("/api/me/scout-attendance", headers=c4["scout_headers"]).get_json()["attendance"]
@@ -298,3 +303,70 @@ def test_l5_model_has_scout_leading_index(c4):
         "scout_user_id",
         "id",
     ]
+
+
+def test_l3_hold_does_not_defer_notice_to_manager_whose_verified_claim_was_revoked(client, c4):
+    post = trial(client, c4)
+    row = ask(client, c4, post).get_json()["attendance"]
+    recipient = UserAccount(
+        email="rc4-former-contact@example.test",
+        display_name="TEST ONLY manager",
+        display_name_lower="test only manager",
+    )
+    db.session.add(recipient)
+    db.session.flush()
+    claim = ClubProgramClaim(
+        program_id=c4["pid"], user_account_id=recipient.id, relationship_type="club_official", status="approved"
+    )
+    db.session.add(claim)
+    db.session.flush()
+    db.session.add_all(
+        [
+            ClubProgramManager(
+                program_id=c4["pid"],
+                user_account_id=recipient.id,
+                source_claim_id=claim.id,
+                status="active",
+                granted_by="test",
+            ),
+            ClubAccessGrant(
+                program_id=c4["pid"], user_account_id=recipient.id, role="manager", all_squads=True, status="active"
+            ),
+        ]
+    )
+    db.session.commit()
+    service.notify(db.session.get(ScoutAttendance, row["id"]))
+    db.session.commit()
+    intent = NotificationOutbox.query.filter_by(template="c4_attendance", recipient_user_id=recipient.id).one()
+    assert service.eligible(intent, recipient)
+    claim.status = "rejected"
+    db.session.get(ClubProgram, c4["pid"]).emergency_hidden = True
+    db.session.commit()
+    # A temporary club hold cannot preserve a permanently lost contact permission.
+    assert not service.eligible(intent, recipient)
+    assert not service.deferred(intent, recipient)
+
+
+def test_l4_today_expired_backlog_is_read_only_and_constant_queries(client, c4):
+    post = trial(client, c4)
+    seed_requests(c4, post, 50)
+    db.session.get(ClubOpportunity, post["id"]).starts_at = now() - timedelta(seconds=1)
+    db.session.commit()
+    headers = _headers("a")
+    statements = []
+
+    def before(conn, cursor, statement, parameters, context, executemany):
+        statements.append(statement)
+
+    sa.event.listen(db.engine, "before_cursor_execute", before)
+    try:
+        response = client.get(f"/api/club/{c4['pid']}/today", headers=headers)
+    finally:
+        sa.event.remove(db.engine, "before_cursor_execute", before)
+    assert response.status_code == 200 and response.get_json()["queues"]["attendance"] == []
+    assert len(statements) <= 24
+    assert not any(q.lstrip().split()[0].upper() in {"INSERT", "UPDATE", "DELETE"} for q in statements)
+    print(f"RC4 Today 50 expired pending: {len(statements)} SQL statements, no writes")
+    assert service.expire_pending() == 50
+    db.session.commit()
+    assert ScoutAttendance.query.filter_by(status="expired").count() == 50

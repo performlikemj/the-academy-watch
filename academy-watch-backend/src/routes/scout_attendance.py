@@ -199,6 +199,4 @@ def today(program_id):
     after = request.args.get("accepted_after")
     if after and (len(after) != 36 or not re.fullmatch(r"[a-f0-9-]+", after)):
         raise service.Error("invalid_cursor", 400)
-    result = summary(program_id, accepted_after=after)
-    db.session.commit()
-    return jsonify(result)
+    return jsonify(summary(program_id, accepted_after=after))

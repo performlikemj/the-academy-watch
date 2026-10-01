@@ -1,4 +1,4 @@
-"""Bounded club inbox with lazy lifecycle reconciliation. Queue keys are absent without their live capability."""
+"""Read-only bounded club inbox. Queue keys are absent without their live capability."""
 
 import sqlalchemy as sa
 from src.models.club_access import VideoMatchCoverage
@@ -69,8 +69,6 @@ def summary(program_id, *, accepted_after=None):
             queues["introductions"] = [
                 {"id": r.id, "created_at": opportunities.iso(r.created_at)} for r in rows if r.player_api_id in eligible
             ]
-        attendance.expire_pending(program_id=program_id)
-        attendance.revoke_ineligible(program_id=program_id)
         program = ClubProgram.query.filter_by(id=program_id).filter(opportunities.public_club_eligibility()).first()
         for state, queue in (("pending", "attendance"), ("accepted", "accepted_attendance")):
             rows = (

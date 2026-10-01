@@ -108,10 +108,9 @@ async function harness(page, options = {}) {
     return route.fulfill({ status: 500, json: { error: 'unexpected_api_call' } })
   })
   await page.goto('/__pilot-p4')
-  await page.waitForTimeout(1000)
-  if (!await page.evaluate(() => Boolean(window.renderEdit))) {
-    throw new Error(`P4 harness failed to initialize: ${unexpected.join('; ')}`)
-  }
+  await expect.poll(() => page.evaluate(() => Boolean(window.renderEdit)), {
+    message: 'P4 harness must finish loading before actions run',
+  }).toBe(true)
   return { events, requests, state, unexpected }
 }
 

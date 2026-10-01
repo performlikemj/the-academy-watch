@@ -279,7 +279,6 @@ def notification_contact(user_id, program_id, *, ignore_hold=False):
         return False
     # Emergency holds veto club_can, but never turn a non-contact into a recipient.
     from src.models.funding import ClubProgramClaim
-    from src.services.club_access import ROLE_CAPABILITIES
 
     owner = (
         ClubProgramManager.query.join(
@@ -298,14 +297,9 @@ def notification_contact(user_id, program_id, *, ignore_hold=False):
         )
         .first()
     )
-    if owner:
-        return True
-    grant = (
-        ClubAccessGrant.query.filter_by(program_id=program_id, user_account_id=user_id, status="active").first()
-        if staff_access_enabled()
-        else None
-    )
-    return bool(grant and grant.role != "owner" and "contact" in ROLE_CAPABILITIES.get(grant.role, ()))
+    # Contact is VERIFIED_ONLY: an invited manager grant cannot replace the
+    # authoritative approved manager claim, even during a publication hold.
+    return bool(owner)
 
 
 def eligible(intent, user):

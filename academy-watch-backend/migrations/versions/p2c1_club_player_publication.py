@@ -17,7 +17,7 @@ DDL = """CREATE TABLE public.club_player_publications (
  id SERIAL PRIMARY KEY,
  program_id INTEGER NOT NULL REFERENCES public.club_programs(id),
  local_player_id INTEGER NOT NULL REFERENCES public.local_players(id),
- recipient_email VARCHAR(254) NOT NULL,
+ recipient_email VARCHAR(254),
  recipient_user_id INTEGER REFERENCES public.user_accounts(id),
  claim_id INTEGER REFERENCES public.player_profile_claims(id),
  invite_token_hash VARCHAR(64) UNIQUE, invite_expires_at TIMESTAMP,
@@ -45,6 +45,10 @@ def upgrade():
         op.execute(DDL)
     op.execute(
         "CREATE INDEX IF NOT EXISTS ix_publication_recipient ON public.club_player_publications(recipient_user_id)"
+    )
+    op.execute("ALTER TABLE public.club_player_publications ALTER COLUMN recipient_email DROP NOT NULL")
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS ix_publication_local_player ON public.club_player_publications(local_player_id)"
     )
     op.execute("ALTER TABLE public.club_player_publications ENABLE ROW LEVEL SECURITY")
 
