@@ -501,7 +501,7 @@ export function ScoutPage() {
   const [boards, setBoards] = useState(null)
   const [boardsLoading, setBoardsLoading] = useState(true)
   const [resolvedSeason, setResolvedSeason] = useState(null)
-  const { currentSeason, ready: seasonReady } = useSeasonDirectory()
+  const { currentSeason, displaySeason: defaultSeason, ready: seasonReady } = useSeasonDirectory()
   const [storedSeason, setStoredSeason] = useState(() => seasonStore.get())
 
   const [search, setSearch] = useState('')
@@ -529,7 +529,9 @@ export function ScoutPage() {
   const contactRail = useContactRail()
   const { openLoginModal } = useAuthUI()
   const [verificationState, setVerificationState] = useState(null)
-  const verifiedScout = verificationState?.token === auth?.token && verificationState?.verified === true
+  const scoutVerification = verificationState?.token === auth?.token ? verificationState.status : 'loading'
+  const verifiedScout = scoutVerification === 'approved'
+  const canIntroduce = scoutVerification !== 'unverified'
   const [introducePlayer, setIntroducePlayer] = useState(null)
   const [watchedIds, setWatchedIds] = useState(null)
   const [exporting, setExporting] = useState(false)
@@ -538,7 +540,7 @@ export function ScoutPage() {
   const source = SOURCE_VALUES.has(requestedSource) ? requestedSource : 'all'
   const seasonParam = searchParams.get('season')
   const urlSeason = /^\d{4}$/.test(seasonParam || '') ? Number(seasonParam) : undefined
-  const selectedSeason = seasonParam === null ? (storedSeason ?? currentSeason) : urlSeason
+  const selectedSeason = seasonParam === null ? (storedSeason ?? defaultSeason) : urlSeason
   const seasonOverride = selectedSeason != null && (
     (currentSeason != null ? selectedSeason !== currentSeason : seasonParam === null)
     || (seasonParam !== null && storedSeason != null && selectedSeason !== storedSeason)
@@ -620,9 +622,9 @@ export function ScoutPage() {
     let live = true
     APIService.getScoutVerification()
       .then((data) => {
-        if (live) setVerificationState({ token: auth.token, verified: data?.verification?.status === 'approved' })
+        if (live) setVerificationState({ token: auth.token, status: data?.verification?.status === 'approved' ? 'approved' : 'unverified' })
       })
-      .catch(() => { if (live) setVerificationState({ token: auth.token, verified: false }) })
+      .catch(() => { if (live) setVerificationState({ token: auth.token, status: 'unavailable' }) })
     return () => { live = false }
   }, [auth?.token, contactRail])
 
@@ -840,7 +842,7 @@ export function ScoutPage() {
               <Button variant="outline" size="sm" asChild className={deskPillClass}>
                 <Link to="/scout/verification" className="no-underline hover:no-underline">
                   <ShieldCheck className="mr-1.5 h-4 w-4" />
-                  {verifiedScout ? 'Verified scout' : contactRail === true ? 'Get verified to introduce yourself' : 'Get verified'}
+                  {verifiedScout ? 'Verified scout' : scoutVerification === 'loading' && contactRail === true ? 'Checking verification…' : scoutVerification === 'unavailable' ? 'Scout verification' : contactRail === true ? 'Get verified to introduce yourself' : 'Get verified'}
                 </Link>
               </Button>
               <Button variant="outline" size="sm" onClick={handleExportCsv} disabled={exporting} className={deskPillClass}>
@@ -1037,7 +1039,7 @@ export function ScoutPage() {
                           >
                             <Star className={`h-4 w-4 transition-colors ${watched ? 'fill-gold text-gold' : 'text-muted-dark/60 hover:text-muted-dark'}`} />
                           </button>
-                          {contactRail === true && player.contactable ? (auth?.token && !verifiedScout ? (
+                          {contactRail === true && player.contactable ? (auth?.token && !canIntroduce ? (
                             <Link to="/scout/verification" className="ml-0.5 inline-flex h-8 w-8 items-center justify-center rounded-full hover:bg-chalk/[0.06]" aria-label="Get verified to introduce yourself" title="Get verified to introduce yourself"><Send className="h-4 w-4 text-muted-dark/70" /></Link>
                           ) : (
                             <button
@@ -1169,7 +1171,7 @@ export function ScoutPage() {
           source={source}
         />
         <IntroduceDialog
-          open={verifiedScout && !!introducePlayer}
+          open={canIntroduce && !!introducePlayer}
           onOpenChange={(next) => { if (!next) setIntroducePlayer(null) }}
           player={introducePlayer}
         />

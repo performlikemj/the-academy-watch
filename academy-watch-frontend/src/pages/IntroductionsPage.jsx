@@ -18,9 +18,9 @@ function formatDate(value) {
   return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
-function RequestList({ box, requests, loading, error, selectedId, onSelect, onAction, busyId }) {
+function RequestList({ box, requests, loading, error, selectedId, onSelect, onAction, busyId, onRetry }) {
   if (loading) return <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</p>
-  if (error) return <p className="text-sm text-[#E9967A]">{error}</p>
+  if (error) return <div><p className="text-sm text-[#E9967A]">{error}</p><Button className="mt-2" variant="outline" onClick={onRetry}>Retry</Button></div>
   if (!requests.length) {
     return (
       <p className="border-t border-hairline-dark py-6 text-[15px] leading-relaxed text-muted-dark">
@@ -79,6 +79,8 @@ export function IntroductionsPage() {
   const [actionError, setActionError] = useState(null)
   // Sent and Inbox share loading/error state; a late result from the other box must not overwrite this one.
   const loadSeq = useRef(0)
+  const initialBox = useRef(null)
+  const loadedSelection = useRef(null)
   // Same for actions: a Sent accept/decline/withdraw that finishes after switching to Inbox must not write its
   // error or clear the busy flag there (its data update still lands in the right box via the closure).
   const actionSeq = useRef(0)
@@ -95,7 +97,9 @@ export function IntroductionsPage() {
           fetchAllRequests((limit, offset) => APIService.listContactRequests({ box: nextBox, limit, offset }))))
         if (seq !== loadSeq.current) return
         setRequests({ sent, inbox })
-        setBox(defaultIntroductionBox({ sent, inbox }))
+        const chosen = defaultIntroductionBox({ sent, inbox })
+        initialBox.current = chosen
+        setBox(chosen)
         return
       }
       const rows = await fetchAllRequests((limit, offset) => APIService.listContactRequests({ box: which, limit, offset }))
@@ -103,6 +107,10 @@ export function IntroductionsPage() {
       setRequests((current) => ({ ...current, [which]: rows }))
     } catch (err) {
       if (seq !== loadSeq.current) return
+      if (which == null) {
+        initialBox.current = 'inbox'
+        setBox('inbox')
+      }
       setError(err?.body?.error || err?.message || 'Introductions could not be loaded.')
     } finally {
       if (seq === loadSeq.current) setLoading(false)
@@ -110,12 +118,19 @@ export function IntroductionsPage() {
   }, [auth?.token])
 
   useEffect(() => {
+    // Strict Mode replays mount effects; share the pending load for this selection.
+    if (loadedSelection.current?.box === box && loadedSelection.current?.token === auth?.token) return
+    loadedSelection.current = { box, token: auth?.token }
     actionSeq.current += 1
     setSelectedId(null)
     setActionError(null)
     setBusyId(null)
+    if (box != null && initialBox.current === box) {
+      initialBox.current = null
+      return
+    }
     load(box)
-  }, [box, load])
+  }, [box, load, auth?.token])
 
   const applyUpdate = useCallback((updated) => {
     setRequests((current) => ({ ...current, [box]: upsertRequest(current[box], updated) }))
@@ -189,7 +204,7 @@ export function IntroductionsPage() {
             <TabsContent key={which} value={which}>
               <div className="grid items-start gap-8 lg:grid-cols-[24rem_minmax(0,1fr)]">
                 <div>
-                  <RequestList box={which} requests={requests[which] || []} loading={loading && (box || 'inbox') === which} error={(box || 'inbox') === which ? error : null} selectedId={selectedId} onSelect={setSelectedId} onAction={act} busyId={busyId} />
+                  <RequestList box={which} requests={requests[which] || []} loading={loading && (box || 'inbox') === which} error={(box || 'inbox') === which ? error : null} selectedId={selectedId} onSelect={setSelectedId} onAction={act} busyId={busyId} onRetry={() => load(which)} />
                   {actionError && box === which ? <p className="mt-2 text-sm text-[#E9967A]">{actionError}</p> : null}
                 </div>
                 <Card className="py-0">

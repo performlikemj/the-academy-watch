@@ -1,5 +1,4 @@
 import { useSeasonDirectory } from '@/hooks/useSeasonDirectory'
-import { seasonStore } from '@/lib/seasonStore'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { ArrowRight, MapPin, ShieldAlert, UserPlus } from 'lucide-react'
@@ -109,15 +108,16 @@ function LocalSeasonStats({ stats, position }) {
 }
 
 function LocalPlayerProfile({ numericPlayerId, onPublicConfirmed, onRetry }) {
-  const { currentSeason, ready: seasonReady } = useSeasonDirectory()
+  const { displaySeason, ready: seasonReady } = useSeasonDirectory()
   const [searchParams] = useSearchParams()
   const seasonParam = searchParams.get('season')
-  const season = /^\d{4}$/.test(seasonParam || '') ? Number(seasonParam) : (seasonStore.get() ?? currentSeason)
+  const season = /^\d{4}$/.test(seasonParam || '') ? Number(seasonParam) : displaySeason
   const [player, setPlayer] = useState(null)
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
   const [error, setError] = useState(null)
   const [seasonStats, setSeasonStats] = useState(null)
+  const [seasonStatsRevision, setSeasonStatsRevision] = useState(0)
   const signedPlayerApiId = `-${String(numericPlayerId)}`
   const canonicalPlayerApiId = player?.api_player_id == null
     ? null
@@ -161,7 +161,7 @@ function LocalPlayerProfile({ numericPlayerId, onPublicConfirmed, onRetry }) {
         if (!cancelled) setSeasonStats(null)
     })
     return () => { cancelled = true }
-  }, [matchPlayerApiId, player, season, seasonReady])
+  }, [matchPlayerApiId, player, season, seasonReady, seasonStatsRevision])
 
   if (loading) return <LoadingState />
   if (notFound) return <MissingState />
@@ -247,8 +247,11 @@ function LocalPlayerProfile({ numericPlayerId, onPublicConfirmed, onRetry }) {
           canonicalPlayerApiId={canonicalPlayerApiId}
           playerName={player.display_name}
           playerPosition={player.position}
-          season={season}
-          onSeasonStatsChange={setSeasonStats}
+          onSeasonStatsChange={() => {
+            // A game from another year can change this season's totals too when moved.
+            // Reload the displayed totals rather than adopting the edited game's season.
+            setSeasonStatsRevision((revision) => revision + 1)
+          }}
         />
 
         <LocalSeasonStats stats={seasonStats} position={player.position} />

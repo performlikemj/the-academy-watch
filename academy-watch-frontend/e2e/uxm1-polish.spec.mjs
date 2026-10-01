@@ -5,7 +5,7 @@ const player = { player_id: -71, player_name: 'Test Community Adult', position: 
 const introduction = { id: 'test-intro', player_api_id: -71, message: 'A test introduction', status: 'pending', routing_mode: 'direct', messaging_open: false,
   participants: { scout: { display_name: 'Test Scout' }, player: { display_name: 'Test Community Adult' } } }
 
-async function mocks(page, { verified = false, signedIn = true, incoming = true, accepted = false } = {}) {
+async function mocks(page, { verified = false, signedIn = true, incoming = true, accepted = false, displaySeason = 2026, verificationMode, failIntroductions = false } = {}) {
   const seen = []
   await page.addInitScript((signedIn) => {
     localStorage.setItem('academyWatch.playerOnboardingPromptDismissed.v1', 'true')
@@ -18,9 +18,12 @@ async function mocks(page, { verified = false, signedIn = true, incoming = true,
     if (path === '/api/auth/me') json = { email: 'test@example.com', display_name: 'Test Viewer', role: 'user', display_name_confirmed: true }
     else if (path === '/api/features') json = { contact_rail: true }
     else if (path === '/api/meta/data-mode') json = { api_football_frozen: true }
-    else if (path === '/api/seasons') json = { current_season: 2026, seasons: [{ season: 2026, label: '2026/27', is_current: true, has_rollup: true }, { season: 2025, label: '2025/26', has_rollup: true }], bounds: { min: 2025, max: 2027 } }
+    else if (path === '/api/seasons') json = { current_season: 2026, display_season: displaySeason, seasons: [{ season: 2026, label: '2026/27', is_current: true, has_rollup: true }, { season: 2025, label: '2025/26', has_rollup: true }], bounds: { min: 2025, max: 2027 } }
     else if (path === '/api/players/search') json = [{ player_api_id: -71, player_name: player.player_name, position: player.position }]
-    else if (path === '/api/scout/verification') json = { verification: { status: verified ? 'approved' : 'pending' } }
+    else if (path === '/api/scout/verification') {
+      if (verificationMode === 'failed') return route.fulfill({ status: 500, json: { error: 'Unavailable' } })
+      json = { verification: { status: verified ? 'approved' : 'pending' } }
+    }
     else if (path === '/api/scout/players') json = { season: Number(url.searchParams.get('season') || 2025), players: [player], total: 1, total_pages: 1 }
     else if (path === '/api/scout/leaderboards') json = { season: Number(url.searchParams.get('season') || 2025), leaderboards: { top_scorers: [], top_assists: [], most_minutes: [], best_per90: [] } }
     else if (path === '/api/scout/watchlist') json = { entries: [{ id: 1, player, player_api_id: -71 }], digest_opt_in: true }
@@ -32,7 +35,13 @@ async function mocks(page, { verified = false, signedIn = true, incoming = true,
     else if (path.endsWith('/showcase')) json = { profile: { bio: 'Test profile', contract_status: 'contracted', profile_contract_status: 'under_contract', current_club_name: 'Test Accepted Club', local_player_id: 71 }, affiliations: [], reel: [], photos: [] }
     else if (path === '/api/me/club-invitations') json = { invitations: [{ id: 'test-club', status: 'accepted', program_name: 'Test Accepted Club', program_id: 1 }], next_before: null }
     else if (path === '/api/me/claims') json = { claims: [{ id: 7, player_api_id: null, local_player_id: 71, status: 'approved', relationship_type: 'player' }] }
-    else if (path === '/api/contact/requests') json = { requests: (url.searchParams.get('box') === 'inbox') === incoming ? [{ ...introduction, status: accepted ? 'accepted' : 'pending', messaging_open: accepted }] : [], total: 1 }
+    else if (path === '/api/contact/requests') {
+      if (failIntroductions) {
+        failIntroductions = false
+        return route.fulfill({ status: 500, json: { error: 'First load failed' } })
+      }
+      json = { requests: (url.searchParams.get('box') === 'inbox') === incoming ? [{ ...introduction, status: accepted ? 'accepted' : 'pending', messaging_open: accepted }] : [], total: 1 }
+    }
     else if (path.endsWith('/messages')) json = { messages: [] }
     else if (path.endsWith('/matches')) json = { matches: [], total: 0 }
     return route.fulfill({ json })
@@ -137,3 +146,107 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     })
   })
 }
+
+for (const verificationMode of ['slow', 'failed']) {
+  test(`verification ${verificationMode} keeps neutral copy and allows composer`, async ({ page }) => {
+    await mocks(page, { verified: true, verificationMode })
+    let finishVerification
+    if (verificationMode === 'slow') {
+      const waiting = new Promise(resolve => { finishVerification = resolve })
+      await page.route('**/api/scout/verification', async route => {
+        await waiting
+        await route.fulfill({ json: { verification: { status: 'approved' } } })
+      })
+    }
+    await page.goto('/scout')
+    await expect(page.getByRole('cell', { name: 'RW', exact: true })).toBeVisible()
+    await expect(page.getByRole('link', { name: 'Get verified to introduce yourself', exact: true })).toHaveCount(0)
+    await expect(page.getByRole('link', { name: verificationMode === 'slow' ? 'Checking verification…' : 'Scout verification', exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'Introduce yourself to Test Community Adult' }).click()
+    await expect(page.getByRole('textbox', { name: 'Message to Test Community Adult' })).toBeVisible()
+    finishVerification?.()
+  })
+}
+
+test('fixtures lagging the calendar default desk and tracked totals to display season', async ({ page }) => {
+  const seen = await mocks(page, { displaySeason: 2025 })
+  await page.route('**/api/players/42/profile', route => route.fulfill({ json: { name: 'Tracked Adult', position: 'Midfielder', age: 23 } }))
+  await page.route('**/api/players/42/stats*', route => route.fulfill({ json: { matches: [], summary: { season: 2025 } } }))
+  await page.route('**/api/players/42/season-stats*', route => {
+    seen.push({ path: '/api/players/42/season-stats', search: new URL(route.request().url()).search })
+    return route.fulfill({ json: { season: '2025/2026', appearances: 1, minutes: 90, goals: 1 } })
+  })
+  await page.goto('/scout')
+  await expect(page.getByRole('combobox', { name: 'Select season' })).toContainText('2025/26')
+  await expect(page.getByRole('cell', { name: 'RW', exact: true })).toBeVisible()
+  for (const path of ['/api/scout/players', '/api/scout/leaderboards']) {
+    await expect.poll(() => seen.some(r => r.path === path)).toBe(true)
+    expect(seen.filter(r => r.path === path).every(r => r.search.includes('season=2025'))).toBe(true)
+  }
+  await page.goto('/players/42')
+  await expect(page.getByRole('heading', { name: '2025/26 Totals' })).toBeVisible()
+  expect(seen.filter(r => r.path === '/api/players/42/season-stats').every(r => r.search.includes('season=2025'))).toBe(true)
+})
+
+test('community games stay unfiltered while totals ignore stored history', async ({ page }) => {
+  const seen = await mocks(page)
+  await page.addInitScript(() => window.sessionStorage.setItem('aw.season', '2025'))
+  await page.goto('/local-players/71')
+  await expect(page.getByRole('heading', { name: '2026/27 Totals' })).toBeVisible()
+  await expect.poll(() => seen.some(r => r.path.endsWith('/matches'))).toBe(true)
+  expect(seen.filter(r => r.path.endsWith('/matches')).every(r => !new URLSearchParams(r.search).has('season'))).toBe(true)
+})
+
+for (const incoming of [true, false]) {
+  test(`introductions loads each box once with incoming=${incoming}`, async ({ page }) => {
+    const seen = await mocks(page, { incoming })
+    await page.goto('/introductions')
+    await expect(page.getByRole('button', { name: incoming ? /Test Scout.*Pending/ : /Test Community Adult.*Pending/ })).toBeVisible()
+    for (const box of ['sent', 'inbox']) {
+      expect(seen.filter(r => r.path === '/api/contact/requests' && new URLSearchParams(r.search).get('box') === box)).toHaveLength(1)
+    }
+    await page.getByRole('tab', { name: incoming ? 'Sent' : 'Received', exact: true }).click()
+    await expect(page.getByText(incoming ? 'Nothing sent yet.' : 'No introductions yet.', { exact: false })).toBeVisible()
+    expect(seen.filter(r => r.path === '/api/contact/requests')).toHaveLength(3)
+  })
+}
+
+test('introductions failed first load can be retried on the visible tab', async ({ page }) => {
+  const seen = await mocks(page, { failIntroductions: true })
+  await page.goto('/introductions')
+  await expect(page.getByText('First load failed', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Retry', exact: true }).click()
+  await expect(page.getByRole('button', { name: /Test Scout.*Pending/ })).toBeVisible()
+  expect(seen.filter(r => r.path === '/api/contact/requests')).toHaveLength(3)
+})
+
+
+test('adding an older community game keeps it visible and refreshes the display totals', async ({ page }) => {
+  const seen = await mocks(page)
+  let saved
+  const gamesRequests = []
+  await page.route('**/api/players/-71/matches*', async route => {
+    gamesRequests.push(new URL(route.request().url()))
+    if (route.request().method() === 'POST') {
+      saved = { ...route.request().postDataJSON(), id: 73, player_api_id: -71, season: 2025,
+        source: 'self', status: 'self_reported', editable: true,
+        provenance: { source_category: 'self', primary_source: 'user', source_label: 'Self-reported' } }
+      return route.fulfill({ json: { match: saved, season_stats: { season: '2025/2026', appearances: 1, minutes: 90 } } })
+    }
+    return route.fulfill({ json: { matches: saved ? [saved] : [], total: saved ? 1 : 0 } })
+  })
+  await page.goto('/local-players/71')
+  await expect(page.getByRole('heading', { name: '2026/27 Totals' })).toBeVisible()
+  const initialTotalsReads = seen.filter(r => r.path.endsWith('/season-stats')).length
+  await page.getByRole('button', { name: 'Add a game', exact: true }).click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByLabel('Match date').fill('2025-09-01')
+  await dialog.getByLabel('Opponent').fill('Older Season United')
+  await dialog.getByLabel('Minutes').fill('90')
+  await dialog.getByRole('button', { name: 'Add game', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'vs Older Season United', exact: true })).toBeVisible()
+  await expect.poll(() => seen.filter(r => r.path.endsWith('/season-stats') && r.search.includes('season=2026')).length).toBeGreaterThan(initialTotalsReads)
+  await expect(page.getByRole('heading', { name: '2026/27 Totals' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '2025/26 Totals' })).toHaveCount(0)
+  expect(gamesRequests.every(url => !url.searchParams.has('season'))).toBe(true)
+})

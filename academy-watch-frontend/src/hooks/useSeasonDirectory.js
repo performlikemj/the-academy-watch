@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { displaySeasonFromDirectory } from '@/lib/seasons'
 import { getSeasonDirectory } from '@/lib/seasonDirectory'
 
 export function useSeasonDirectory() {
@@ -12,5 +13,5 @@ export function useSeasonDirectory() {
   }, [])
   const value = state.directory?.current_season
   const currentSeason = value != null && Number.isInteger(Number(value)) ? Number(value) : undefined
-  return { ...state, currentSeason }
+  return { ...state, currentSeason, displaySeason: displaySeasonFromDirectory(state.directory) }
 }

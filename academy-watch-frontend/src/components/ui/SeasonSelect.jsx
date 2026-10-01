@@ -17,12 +17,12 @@ export function SeasonSelect({
   className,
   ariaLabel = 'Select season',
 }) {
-  const { directory, error, currentSeason } = useSeasonDirectory()
+  const { directory, error, currentSeason, displaySeason } = useSeasonDirectory()
   useEffect(() => {
     if (currentSeason != null) onCurrentSeasonChange?.(currentSeason)
   }, [currentSeason, onCurrentSeasonChange])
 
-  const resolvedValue = value ?? directory?.current_season
+  const resolvedValue = value ?? displaySeason
   const selectedItem = directory?.seasons?.find((item) => Number(item.season) === Number(resolvedValue))
 
   return (

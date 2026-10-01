@@ -264,8 +264,8 @@ export function PlayerPage() {
     const seasonParam = searchParams.get('season')
     const urlSeason = /^\d{4}$/.test(seasonParam || '') ? Number(seasonParam) : undefined
     const [storedSeason, setStoredSeason] = useState(() => seasonStore.get())
-    const { currentSeason, ready: seasonReady } = useSeasonDirectory()
-    const selectedSeason = seasonParam === null ? (storedSeason ?? currentSeason) : urlSeason
+    const { currentSeason, displaySeason: defaultSeason, ready: seasonReady } = useSeasonDirectory()
+    const selectedSeason = seasonParam === null ? (storedSeason ?? defaultSeason) : urlSeason
     const seasonOverride = selectedSeason != null && (
         (currentSeason != null ? selectedSeason !== currentSeason : seasonParam === null)
         || (seasonParam !== null && storedSeason != null && selectedSeason !== storedSeason)

@@ -9,3 +9,11 @@ export function withSeasonParam(path, season) {
     const separator = path.includes('?') ? '&' : '?'
     return `${path}${separator}season=${encodeURIComponent(season)}`
 }
+
+// The display default follows available fixtures; the calendar is a last resort.
+export function displaySeasonFromDirectory(directory) {
+    for (const value of [directory?.display_season, directory?.current_season]) {
+        if (value != null && Number.isInteger(Number(value))) return Number(value)
+    }
+    return undefined
+}
