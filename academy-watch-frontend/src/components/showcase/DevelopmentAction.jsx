@@ -1,3 +1,4 @@
+import '@/styles/floodlight-player.css'
 import { useEffect, useRef, useState } from 'react'
 import { CheckCircle2, ClipboardCheck, Flag, Sparkles } from 'lucide-react'
 import { APIService } from '@/lib/api'
@@ -8,7 +9,7 @@ import { Textarea } from '@/components/ui/textarea'
 const statusLabels = { not_started: 'Your next step', working_on_it: 'Working on it', ready_for_review: 'Ready for coach review', reviewed: 'Reviewed by your coach' }
 
 export function DevelopmentActionFields({ value, onChange, disabled }) {
-  return <fieldset className="space-y-4 rounded-xl border border-primary/25 bg-background p-4" disabled={disabled}>
+  return <fieldset className="fl-development space-y-4" disabled={disabled}>
     <legend className="px-2 text-sm font-semibold">One clear development action</legend>
     <p className="text-sm text-muted-foreground">Give the player something specific to practise and a way to recognise progress.</p>
     <label className="block space-y-1 text-sm">What to work on<Input value={value.focus} maxLength={160} required onChange={(event) => onChange({ ...value, focus: event.target.value })} /></label>
@@ -20,7 +21,7 @@ export function DevelopmentActionFields({ value, onChange, disabled }) {
 
 export function DevelopmentActionSummary({ action }) {
   if (!action) return null
-  return <section className="space-y-4 rounded-xl border border-primary/25 bg-primary/5 p-4" aria-label="Development action">
+  return <section className="fl-development fl-development-focus space-y-4" aria-label="Development action">
     <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-primary"><Flag className="h-4 w-4" /> Your next step</div>
     <h4 className="break-words text-lg font-semibold">{action.focus}</h4>
     <dl className="space-y-3 text-sm"><div><dt className="font-semibold">What to practise</dt><dd className="mt-1 whitespace-pre-wrap break-words leading-relaxed">{action.practice}</dd></div><div><dt className="font-semibold">What progress looks like</dt><dd className="mt-1 whitespace-pre-wrap break-words leading-relaxed">{action.success}</dd></div></dl>
@@ -45,7 +46,7 @@ export function FeedbackEvidencePicker({ programId, invitationId, disabled, onSe
       if ([401, 403, 404, 409].includes(err.status)) onFailure(err)
     } finally { if (!lifetime.current.signal.aborted) setBusy(false) }
   }
-  return <section className="space-y-3 rounded-xl border border-border bg-muted/25 p-4" aria-label="AI match observations">
+  return <section className="fl-development space-y-3" aria-label="AI match observations">
     <div className="flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-2 font-semibold"><Sparkles className="h-4 w-4 text-primary" /> Start from a match observation</div><Button type="button" variant="outline" size="sm" onClick={load} disabled={disabled || busy}>{busy ? 'Loading observations…' : 'Find AI observations'}</Button></div>
     <p className="text-xs leading-relaxed text-muted-foreground">Player-matched observations from finalized film. Check the interpretation and edit your advice before sharing anything.</p>
     {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
@@ -83,7 +84,7 @@ function ProgressForm({ feedback, manager, programId, onUpdated, onAccessLost })
     } finally { if (!lifetime.current.signal.aborted) setBusy(false) }
   }
   const canEdit = manager ? progress?.status === 'ready_for_review' : feedback.can_update_progress
-  return <section className="space-y-4 rounded-xl border border-border p-4" aria-label={manager ? 'Review player progress' : 'My development progress'}>
+  return <section className="fl-development space-y-4" aria-label={manager ? 'Review player progress' : 'My development progress'}>
     <div className="flex items-center gap-2 text-sm font-semibold"><ClipboardCheck className="h-4 w-4 text-primary" />{statusLabels[progress?.status || 'not_started']}</div>
     {manager && progress?.reflection && <div><p className="text-xs font-semibold text-muted-foreground">Player reflection</p><p className="mt-1 whitespace-pre-wrap break-words text-sm">{progress.reflection}</p></div>}
     {progress?.coach_note && <div className="rounded-lg bg-primary/5 p-3"><p className="text-xs font-semibold text-primary">Coach review</p><p className="mt-1 whitespace-pre-wrap break-words text-sm">{progress.coach_note}</p></div>}

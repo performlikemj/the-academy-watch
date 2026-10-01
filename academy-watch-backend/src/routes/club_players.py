@@ -13,8 +13,15 @@ from src.models.league import db
 from src.models.showcase import LocalPlayer, local_player_is_minor
 from src.routes.club_home import HomeError, payload, resource, transaction
 from src.services import showcase_media_storage as storage
+from src.services.club_access import (
+    match_bytes_in_scope,
+    match_summary,
+    member_in_scope,
+    profile_view,
+    require_club_permission_by_method,
+    scoped_squad_ids,
+)
 from src.services.club_player_profile import profile_payload
-from src.services.club_registry import require_club_manager
 from src.services.photo_processing import process_photo
 from src.services.player_suppression import is_local_player_suppressed
 
@@ -34,10 +41,12 @@ def _delete_previous(path, prefix):
 
 
 def register(club_bp):
-    def route(path, methods):
+    def route(path, methods, capability):
+        caps = capability if isinstance(capability, dict) else dict.fromkeys(methods, capability)
+
         def decorate(view):
             return club_bp.route(f"/club/<int:program_id>/roster/<int:member_id>/{path}", methods=methods)(
-                require_club_manager()(transaction(view))
+                require_club_permission_by_method(caps)(transaction(view))
             )
 
         return decorate
@@ -46,17 +55,27 @@ def register(club_bp):
         from src.routes.club import _member_subject
 
         member = resource(ClubRosterMember, program_id, member_id)
-        if _member_subject(member)[0] is None:
+        if _member_subject(member)[0] is None or not member_in_scope(member):
             raise HomeError("Not found", 404)
         return member
 
-    @route("profile", ["GET"])
+    @route("profile", ["GET"], "players.view")
     def club_player_profile(program_id, member_id):
-        response = jsonify(profile_payload(member_resource(program_id, member_id)))
+        scoped = scoped_squad_ids() is not None
+        body = profile_payload(
+            member_resource(program_id, member_id),
+            match_filter=match_bytes_in_scope if scoped else None,
+            match_dto=match_summary if scoped else None,
+        )
+        response = jsonify(profile_view(body))
         response.headers["Cache-Control"] = "private, no-store"
         return response
 
-    @route("photo", ["GET", "POST", "DELETE"])
+    @route(
+        "photo",
+        ["GET", "POST", "DELETE"],
+        {"GET": "players.view", "POST": "players.manage", "DELETE": "players.manage"},
+    )
     def club_player_photo(program_id, member_id):
         member = member_resource(program_id, member_id)
         prefix = f"club-player-photos/{program_id}/{member_id}/"
@@ -90,7 +109,7 @@ def register(club_bp):
         response.headers["X-Content-Type-Options"] = "nosniff"
         return response
 
-    @route("photo/complete", ["POST"])
+    @route("photo/complete", ["POST"], "players.manage")
     def club_player_photo_complete(program_id, member_id):
         member = member_resource(program_id, member_id)
         prefix = f"club-player-photos/{program_id}/{member_id}/"

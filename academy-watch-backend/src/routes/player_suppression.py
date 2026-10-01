@@ -10,11 +10,8 @@ from flask import Blueprint, g, jsonify, request
 from sqlalchemy.exc import IntegrityError
 from src.auth import _safe_error_payload, require_api_key
 from src.extensions import limiter
-from src.models.follow import PlayerShadow
 from src.models.league import db
 from src.models.player_suppression import PlayerSuppression
-from src.models.showcase import PlayerProfileClaim
-from src.models.showcase_moderation import record_moderation_event
 from src.utils.sanitize import sanitize_plain_text
 
 logger = logging.getLogger(__name__)
@@ -73,6 +70,9 @@ def _neutral_acknowledgment():
 def _submit_takedown_request(*, player_api_id: int | None = None, local_player_id: int | None = None):
     """Accept one API or local request without revealing subject existence."""
     try:
+        from src.services.admin_control_safety import bounded_id
+
+        bounded_id(player_api_id or local_player_id)
         payload = _json_object()
         requester_role = _clean_required(payload.get("requester_role"), "requester_role", max_len=20).lower()
         if requester_role not in REQUESTER_ROLES:
@@ -105,15 +105,7 @@ def _submit_takedown_request(*, player_api_id: int | None = None, local_player_i
                 updated_at=now,
             )
             db.session.add(suppression)
-        elif suppression.status == "requested":
-            # Attach the latest sanitized request details to the one open
-            # lifecycle. Once active, public duplicates are acknowledged but
-            # cannot overwrite the evidence behind an admin decision.
-            suppression.requester_role = requester_role
-            suppression.requester_contact = contact
-            suppression.request_statement = statement
-            suppression.updated_at = now
-            suppression.reason_code = ROLE_REASON_CODES[requester_role]
+        # Duplicate anonymous submissions cannot replace original evidence or contact.
         try:
             db.session.commit()
         except IntegrityError:
@@ -198,22 +190,6 @@ def _decision_notes() -> str:
     return _clean_required(payload.get("notes"), "notes", max_len=MAX_NOTES_LENGTH)
 
 
-def _claim_owner_ids(suppression: PlayerSuppression) -> set[int]:
-    """Return distinct approved claim owners for the exact subject."""
-    query = db.session.query(PlayerProfileClaim.user_account_id).filter(PlayerProfileClaim.status == "approved")
-    if suppression.local_player_id is not None:
-        query = query.filter(
-            PlayerProfileClaim.local_player_id == suppression.local_player_id,
-            PlayerProfileClaim.player_api_id.is_(None),
-        )
-    else:
-        query = query.filter(
-            PlayerProfileClaim.player_api_id == suppression.player_api_id,
-            PlayerProfileClaim.local_player_id.is_(None),
-        )
-    return {user_account_id for (user_account_id,) in query.distinct().all()}
-
-
 def _decide_suppression(suppression_id: int, action: str):
     transitions = {
         "activate": ({"requested", "active"}, "active"),
@@ -225,39 +201,15 @@ def _decide_suppression(suppression_id: int, action: str):
         suppression = PlayerSuppression.query.filter_by(id=suppression_id).populate_existing().with_for_update().first()
         if suppression is None:
             return jsonify({"error": "suppression not found"}), 404
-        allowed, target = transitions[action]
+        allowed, _target = transitions[action]
         if suppression.status not in allowed:
             return jsonify({"error": f"cannot {action} a {suppression.status} suppression"}), 409
 
-        became_active = action == "activate" and suppression.status != "active"
-        suppression.status = target
-        suppression.notes = notes
-        suppression.decided_at = datetime.now(UTC)
-        suppression.decided_by = _admin_actor()
-        suppression.updated_at = suppression.decided_at
+        from src.services.admin_control_safety import sync_source_case
+        from src.services.suppression_decision import decide_suppression
 
-        if became_active:
-            for user_account_id in _claim_owner_ids(suppression):
-                record_moderation_event(
-                    user_account_id=user_account_id,
-                    target_kind="suppression",
-                    target_id=suppression.id,
-                    action="suppressed",
-                    actor_email=suppression.decided_by,
-                    session=db.session,
-                )
-        if action == "activate" and suppression.player_api_id is not None:
-            PlayerShadow.query.filter_by(player_api_id=suppression.player_api_id).update(
-                {PlayerShadow.is_active: False},
-                synchronize_session=False,
-            )
-        elif action == "lift" and suppression.player_api_id is not None:
-            # Activation only soft-deactivates the shadow; lifting restores it
-            # so existing follows work again without deleting/re-minting data.
-            PlayerShadow.query.filter_by(player_api_id=suppression.player_api_id).update(
-                {PlayerShadow.is_active: True},
-                synchronize_session=False,
-            )
+        decide_suppression(suppression, action, _admin_actor(), notes)
+        sync_source_case(suppression, _admin_actor(), notes)
 
         db.session.commit()
         return jsonify({"suppression": suppression.admin_dict()})

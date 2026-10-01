@@ -24,6 +24,7 @@ from src.api_football_client import APIFootballClient
 from src.mcp import brave as brave_api
 from src.models.league import LeagueLocalization, Newsletter, Player, Team, TeamProfile, db
 from src.models.tracked_player import TrackedPlayer
+from src.utils.legacy_pages import legacy_public_url
 from src.utils.newsletter_slug import compose_newsletter_public_slug
 
 from agents import (
@@ -2428,7 +2429,9 @@ def _render_variants_custom(
                     "snippet": snippet,
                     "type": c.commentary_type,
                     # We'll need a proper URL builder eventually, but for now:
-                    "read_more_url": f"{_default_manage_url() or ''}/newsletters/{news.get('public_slug', 'preview')}#commentary-{c.id}",
+                    "read_more_url": legacy_public_url(
+                        f"{_default_manage_url() or ''}/newsletters/{news.get('public_slug', 'preview')}#commentary-{c.id}"
+                    ),
                 }
             )
         else:

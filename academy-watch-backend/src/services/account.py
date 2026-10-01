@@ -389,6 +389,29 @@ def _erase_pilot_rows(schema, user_id, claim_ids, tombstone_id):
     return counts
 
 
+def _club_access_export(user: UserAccount) -> dict | None:
+    """Staff access rows (p2a2); omitted entirely when the account has none."""
+    from src.models.club_access import ClubAccessGrant, ClubStaffInvite
+
+    if not _SchemaView().has_table("club_access_grants"):
+        return None
+    grants = ClubAccessGrant.query.filter_by(user_account_id=user.id).order_by(ClubAccessGrant.id).all()
+    invites = (
+        ClubStaffInvite.query.filter(sa.func.lower(ClubStaffInvite.email) == (user.email or "").strip().lower())
+        .order_by(ClubStaffInvite.created_at)
+        .all()
+    )
+    if not grants and not invites:
+        return None
+    return {
+        "grants": [row.to_dict() for row in grants],
+        "invites_received": [
+            {k: v for k, v in row.to_dict().items() if k in {"program_id", "role", "status", "created_at"}}
+            for row in invites
+        ],
+    }
+
+
 def build_account_export(user: UserAccount) -> dict:
     """Build the authenticated caller's narrow, portable JSON document."""
     from flask import after_this_request, has_request_context
@@ -473,6 +496,14 @@ def build_account_export(user: UserAccount) -> dict:
 
     schema = _SchemaView()
     pilot_export = _pilot_export(user, schema)
+    from src.services.foundation_account import export_foundation_rows
+
+    foundation_export = export_foundation_rows(user, schema)
+    # --- p2-b3 begin ---
+    from src.services.admin_control_account import export_admin_control
+
+    foundation_export.update(export_admin_control(user, schema))
+    # --- p2-b3 end ---
     normalized_email = (user.email or "").strip().lower()
     subscriptions = []
     if normalized_email:
@@ -510,8 +541,11 @@ def build_account_export(user: UserAccount) -> dict:
             payload["unavailable"] = True
         watchlist_payloads.append(payload)
 
+    club_access = _club_access_export(user)
     return {
         **pilot_export,
+        **foundation_export,
+        **({"club_access": club_access} if club_access else {}),
         "exported_at": datetime.now(UTC).isoformat(),
         "account": account,
         "billing": {
@@ -664,6 +698,42 @@ def _delete_optional_funding_rows(schema: _SchemaView, user_id: int) -> dict[str
             f"{user_column} = :user_id",
             {"user_id": user_id},
         )
+    return counts
+
+
+def _erase_club_access_rows(schema: _SchemaView, user_id: int, email: str | None) -> dict[str, int]:
+    """Club staff access (p2a2): drop the user's grants and invites addressed to them; unlink actor pointers."""
+    counts = {"club_access_grants": 0, "club_staff_invites": 0}
+    params = {"user_id": user_id, "email": (email or "").strip().lower()}
+    if schema.has_columns("club_access_grants", "user_account_id"):
+        grants = schema.quote("club_access_grants")
+        if schema.has_columns("club_access_grant_squads", "grant_id"):
+            _delete_where(
+                schema,
+                "club_access_grant_squads",
+                f"grant_id IN (SELECT id FROM {grants} WHERE user_account_id = :user_id)",
+                params,
+            )
+        counts["club_access_grants"] = _delete_where(schema, "club_access_grants", "user_account_id = :user_id", params)
+        for column in ("granted_by_user_id", "revoked_by_user_id"):
+            if column in schema.columns("club_access_grants"):
+                _update_where(schema, "club_access_grants", f"{column} = NULL", f"{column} = :user_id", params)
+    if schema.has_columns("club_staff_invites", "email"):
+        invites = schema.quote("club_staff_invites")
+        if schema.has_columns("club_access_grants", "source_invite_id"):
+            _update_where(
+                schema,
+                "club_access_grants",
+                "source_invite_id = NULL",
+                f"source_invite_id IN (SELECT id FROM {invites} WHERE lower(email) = :email "
+                "OR accepted_by_user_id = :user_id)",
+                params,
+            )
+        counts["club_staff_invites"] = _delete_where(
+            schema, "club_staff_invites", "lower(email) = :email OR accepted_by_user_id = :user_id", params
+        )
+        for column in ("invited_by_user_id", "revoked_by_user_id"):
+            _update_where(schema, "club_staff_invites", f"{column} = NULL", f"{column} = :user_id", params)
     return counts
 
 
@@ -1163,8 +1233,21 @@ def delete_account(user: UserAccount) -> AccountDeletionEvent:
     counts["anonymized"]["cached_identity_rows"] = _redact_cached_content_identities(user_id)
 
     schema = _SchemaView()
+    from src.services.foundation_account import erase_foundation_rows
+
+    foundation_counts = erase_foundation_rows(user_id, email, schema)
+    if any(foundation_counts.values()):
+        counts["foundation"] = foundation_counts
     funding_deleted = _delete_optional_funding_rows(schema, user_id)
     counts["deleted"].update(funding_deleted)
+    # --- p2-b3 begin ---
+    from src.services.admin_control_account import erase_admin_control
+
+    b3_counts = erase_admin_control(user_id, email, schema)
+    if b3_counts:
+        counts["admin_control"] = b3_counts
+    # --- p2-b3 end ---
+    counts["deleted"].update(_erase_club_access_rows(schema, user_id, email))
     if email:
         string_identities, funding_events = _redact_string_identity_columns(schema, email)
         counts["anonymized"]["cached_identity_rows"] += string_identities

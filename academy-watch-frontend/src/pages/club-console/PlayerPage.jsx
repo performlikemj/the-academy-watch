@@ -5,6 +5,7 @@ import { ClubPlayerReels, MatchReport } from '../MyClubConsole';
 import { DevelopmentProgress } from '@/components/showcase/DevelopmentAction';
 import { PlayerAvatar } from './PlayerAvatar';
 import { ageDescription } from './presentation';
+import { can } from '@/lib/staff-access';
 
 const tabs = ['Overview', 'Film', 'Development', 'Scout interest', 'Notes'];
 const date = value => value ? new Date(value).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '';
@@ -13,7 +14,7 @@ function Section({ title, detail, children }) {
   return <section className="ch-profile-section"><div className="ch-section-heading"><h2>{title}</h2>{detail && <small>{detail}</small>}</div>{children}</section>;
 }
 
-export function PlayerPage({ program, memberId, squads, members, onReload, onAccessDenied, onClub, onSquad, onScouts }) {
+export function PlayerPage({ access = null, program, memberId, squads, members, onReload, onAccessDenied, onClub, onSquad, onScouts }) {
   const [profile, setProfile] = useState(null);
   const [tab, setTab] = useState('Overview');
   const [error, setError] = useState('');
@@ -24,6 +25,8 @@ export function PlayerPage({ program, memberId, squads, members, onReload, onAcc
   const [file, setFile] = useState(null);
   const [filmMatch, setFilmMatch] = useState(null);
   const endpoint = `/club/${program.id}/roster/${memberId}`;
+  const canManage = can(access, 'players.manage');
+  const visibleTabs = tabs.filter(t => (t !== 'Notes' || canManage) && (t !== 'Development' || can(access, 'feedback')) && (t !== 'Scout interest' || can(access, 'contact')));
   const fail = useCallback(err => { if (err.status === 403) onAccessDenied(); else setError(err.body?.error || err.message); }, [onAccessDenied]);
   const load = useCallback(async () => {
     try { setProfile(await APIService.request(`${endpoint}/profile`)); } catch (err) { fail(err); }
@@ -66,7 +69,7 @@ export function PlayerPage({ program, memberId, squads, members, onReload, onAcc
   </div>;
   const scoutCard = <Section title="Scout interest">{profile.scout_interest?.locked
     ? <div className="ch-scout-locked"><LockKeyhole size={24} /><strong>Scout interest is locked</strong><p>This player is under 18. Their club page and photo stay private. Scouts cannot contact them.</p></div>
-    : profile.scout_interest?.requests?.length ? <>{profile.scout_interest.requests.map(row => <div key={row.id} className="ch-feedback-row"><strong>Scout introduction</strong><p>{row.status} · {date(row.created_at)}</p></div>)}<button className="ch-btn" onClick={onScouts}>Manage introductions</button></>
+    : profile.scout_interest?.requests?.length ? <>{profile.scout_interest.requests.map(row => <div key={row.id} className="ch-feedback-row"><strong>Scout introduction</strong><p>{row.status} · {date(row.created_at)}</p></div>)}{can(access, 'contact') && <button className="ch-btn" onClick={onScouts}>Manage introductions</button>}</>
       : empty('No scout introductions visible to your club.')}</Section>;
   return <div className="ch-player-page">
     <header className="ch-player-hero">
@@ -77,11 +80,11 @@ export function PlayerPage({ program, memberId, squads, members, onReload, onAcc
         <p>{[identity.position, identity.squad?.name, ageDescription(identity)].filter(Boolean).join(' · ')}</p>
         <div className="ch-player-chips">{identity.is_minor && <span>Minor — club-private</span>}<span>{identity.claim_status === 'claimed' ? 'Claimed by player' : 'Not yet claimed'}</span><span>Private club page</span></div>
       </div>
-      <div className="ch-player-actions"><button className="ch-btn outline" disabled={busy} onClick={() => setEditor('photo')}><Upload size={16} />{identity.has_club_photo ? 'Manage photo' : 'Upload photo'}</button><button className="ch-btn outline" disabled={busy} onClick={() => setEditor('squad')}>Move squad</button><button className="ch-btn accent" disabled={busy} onClick={() => setEditor('brief')}>Edit brief</button></div>
+      {canManage && <div className="ch-player-actions"><button className="ch-btn outline" disabled={busy} onClick={() => setEditor('photo')}><Upload size={16} />{identity.has_club_photo ? 'Manage photo' : 'Upload photo'}</button><button className="ch-btn outline" disabled={busy} onClick={() => setEditor('squad')}>Move squad</button><button className="ch-btn accent" disabled={busy} onClick={() => setEditor('brief')}>Edit brief</button></div>}
     </header>
-    <div className="ch-player-tabs" role="tablist" aria-label="Player sections">{tabs.map(t => <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)}>{t}</button>)}</div>
+    <div className="ch-player-tabs" role="tablist" aria-label="Player sections">{visibleTabs.map(t => <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)}>{t}</button>)}</div>
     {error && <p className="ch-error" role="alert">{error}</p>}
-    {editor && <section className="ch-player-editor ch-profile-section" aria-label={`Edit ${editor}`}>
+    {editor && canManage && <section className="ch-player-editor ch-profile-section" aria-label={`Edit ${editor}`}>
       <div className="ch-section-heading"><h2>{editor === 'photo' ? 'Private club photo' : editor === 'brief' ? "Coach’s brief" : 'Move squad'}</h2><button disabled={busy} onClick={() => { setEditor(null); setFile(null); setPreview(null); }}>Close</button></div>
       {editor === 'photo' ? <><p>Only verified managers of this club can see the uploaded photo. An adult player’s approved photo takes priority.</p><input aria-label="Choose player photo" type="file" accept="image/jpeg,image/png,image/webp" disabled={busy} onChange={e => setFile(e.target.files?.[0] || null)} />
         {file && preview && <img className="ch-photo-preview" src={preview} alt="New club photo preview" />}{progress != null && <><progress max="100" value={progress} /><p role="status">{progress === 100 ? 'Processing photo…' : `Uploading ${progress}%`}</p></>}
@@ -96,9 +99,9 @@ export function PlayerPage({ program, memberId, squads, members, onReload, onAcc
         <Section title="Film Room" detail="Private club footage">{film.length ? filmCard(film[0]) : empty('Add this player to a match roster to bring their footage here.')}</Section>
         <Section title="Coach’s brief" detail="Private to club">{profile.coach_brief?.lines?.length ? <ul className="ch-brief-lines">{profile.coach_brief.lines.map((line, i) => <li key={i}>{line}</li>)}</ul> : empty('Add a short brief so your coaches know what to look for.')}</Section></>}
       {tab === 'Film' && <><Section title="Film Room">{film.length ? film.map(filmCard) : empty('No matches include this player yet.')}</Section>{filmMatch && <Section title={`vs ${filmMatch.opponent_name || 'Opponent not recorded'}`}><ClubPlayerReels programId={program.id} rosterEntryId={film.find(row => row.match.id === filmMatch.id)?.roster_entry_id} match={filmMatch} rosterMembers={members} onAccessDenied={onAccessDenied} />{filmMatch.status === 'finalized' && <MatchReport programId={program.id} rosterEntryId={film.find(row => row.match.id === filmMatch.id)?.roster_entry_id} match={filmMatch} onAccessDenied={onAccessDenied} />}</Section>}</>}
-      {tab === 'Development' && <Section title="Development">{development.length ? development.map(row => <article className="ch-feedback-row" key={row.id}><h3>{row.title}</h3><p>{row.body}</p><DevelopmentProgress feedback={row} manager programId={program.id} onUpdated={load} onAccessLost={load} /></article>) : empty('No shared coaching feedback yet. Accepted player relationships can receive feedback from Roster & briefs.')}</Section>}
-      {tab === 'Scout interest' && scoutCard}
-      {tab === 'Notes' && <Section title="Private notes" detail="Only your club managers"><form onSubmit={e => { e.preventDefault(); save('', 'PATCH', { note: new FormData(e.currentTarget).get('note') }); }}><textarea aria-label="Private roster note" name="note" rows="7" maxLength="500" defaultValue={profile.note || ''} placeholder="Add context for your coaching team…" /><button className="ch-btn" disabled={busy}>Save note</button></form></Section>}
+      {tab === 'Development' && can(access, 'feedback') && <Section title="Development">{development.length ? development.map(row => <article className="ch-feedback-row" key={row.id}><h3>{row.title}</h3><p>{row.body}</p><DevelopmentProgress feedback={row} manager programId={program.id} onUpdated={load} onAccessLost={load} /></article>) : empty('No shared coaching feedback yet. Accepted player relationships can receive feedback from Roster & briefs.')}</Section>}
+      {tab === 'Scout interest' && can(access, 'contact') && scoutCard}
+      {tab === 'Notes' && canManage && <Section title="Private notes" detail="Only your club managers"><form onSubmit={e => { e.preventDefault(); save('', 'PATCH', { note: new FormData(e.currentTarget).get('note') }); }}><textarea aria-label="Private roster note" name="note" rows="7" maxLength="500" defaultValue={profile.note || ''} placeholder="Add context for your coaching team…" /><button className="ch-btn" disabled={busy}>Save note</button></form></Section>}
     </div><aside className="ch-player-secondary">{tab === 'Overview' && scoutCard}<Section title={`Pathway at ${program.name}`}>{profile.pathway?.length ? <ol className="ch-pathway">{profile.pathway.map(row => <li key={row.id} className={!row.ended_at ? 'current' : ''}><strong>{row.squad_name}</strong><small>{date(row.started_at)} – {row.ended_at ? date(row.ended_at) : 'now'}</small></li>)}</ol> : empty('Squad assignments will appear here when this player joins a squad.')}</Section>
       <Section title="Development actions">{development.filter(row => row.development_action).length ? development.filter(row => row.development_action).map(row => <div className="ch-feedback-row" key={row.id}><strong>{row.development_action.focus}</strong><p>{row.development_action.practice}</p><small>{(row.development_progress?.status || 'Waiting on player').replaceAll('_', ' ')}</small></div>) : empty('No active development actions yet.')}</Section></aside></div>
   </div>;

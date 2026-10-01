@@ -86,7 +86,11 @@ from src.models.transfer_event import PlayerTransferEvent
 from src.services.email_service import email_service
 from src.services.player_shadow_service import is_external_player_id
 from src.services.player_subject import resolve_player_subject
-from src.services.player_suppression import hide_suppressed_player, neutral_player_not_found, without_active_suppression
+from src.services.player_suppression import (
+    hide_suppressed_player,
+    neutral_player_not_found,
+    public_player_visible_filter,
+)
 from src.services.transfer_resolver import resolve_transfer_state
 from src.utils.academy_classifier import (
     _club_matches_parent,
@@ -114,6 +118,7 @@ from src.utils.background_jobs import (
 from src.utils.data_mode import api_enabled_route, api_football_frozen, newsletters_enabled_route, newsletters_frozen
 from src.utils.feature_flags import rollup_reads_enabled
 from src.utils.fixture_stats_mapper import map_player_stat_block
+from src.utils.legacy_pages import legacy_public_url
 from src.utils.newsletter_slug import compose_newsletter_public_slug
 from src.utils.player_names import resolve_player_name
 from src.utils.sanitize import (
@@ -402,6 +407,11 @@ def admin_issue_curator_token():
 
     try:
         user = _ensure_user_account(email)
+        # p2-b3 standing: check before changing permissions or consuming credentials.
+        from src.services.account_standing import account_can_act
+
+        if not account_can_act(user):
+            return jsonify(error="account unavailable"), 403
         user.is_curator = True
         db.session.commit()
 
@@ -1735,7 +1745,7 @@ def public_player_search():
             TrackedPlayer.query.filter(
                 TrackedPlayer.player_name.ilike(f"%{q}%"),
                 TrackedPlayer.is_active,
-                without_active_suppression(TrackedPlayer.player_api_id),
+                public_player_visible_filter(TrackedPlayer.player_api_id),
             )
             .order_by(TrackedPlayer.player_name)
             .limit(20)
@@ -1825,7 +1835,7 @@ def create_newsletter_comment(newsletter_id: int):
 
 
 @api_bp.route("/players/<int:player_id>/comments", methods=["GET"])
-@hide_suppressed_player("player_id")
+@hide_suppressed_player("player_id", public_read=True)
 def list_player_comments(player_id: int):
     try:
         rows = (
@@ -1879,7 +1889,7 @@ def create_player_comment(player_id: int):
 
 
 @api_bp.route("/players/<int:player_id>/links", methods=["GET"])
-@hide_suppressed_player("player_id")
+@hide_suppressed_player("player_id", public_read=True)
 def list_player_links(player_id: int):
     try:
         rows = (
@@ -3466,7 +3476,7 @@ def _compute_newsletter_social_meta(n: Newsletter, context: dict[str, Any]) -> d
         description = f"{team_name} weekly loan watch from The Academy Watch."
 
     canonical_slug = _newsletter_issue_slug(n)
-    canonical_url = _absolute_url(f"/newsletters/{canonical_slug}")
+    canonical_url = legacy_public_url(_absolute_url(f"/newsletters/{canonical_slug}"))
 
     team_logo = context.get("team_logo")
     cover_rel = _ensure_newsletter_cover_image(n, team_logo=team_logo)
@@ -3602,7 +3612,7 @@ def _fetch_community_takes_for_newsletter(n: Newsletter) -> list[dict]:
     """
     community_takes: list[dict] = []
     takes_query = CommunityTake.query.filter_by(status="approved").filter(
-        without_active_suppression(CommunityTake.player_id)
+        public_player_visible_filter(CommunityTake.player_id)
     )
     if n.id:
         newsletter_takes = takes_query.filter_by(newsletter_id=n.id).all()
@@ -3931,7 +3941,7 @@ def _build_academy_watch(n: Newsletter) -> list[dict]:
                 TrackedPlayer.team_id == n.team_id,
                 TrackedPlayer.status == "academy",
                 TrackedPlayer.is_active.is_(True),
-                without_active_suppression(TrackedPlayer.player_api_id),
+                public_player_visible_filter(TrackedPlayer.player_api_id),
             )
             .all()
         )
@@ -3986,7 +3996,7 @@ def _newsletter_render_context(n: Newsletter) -> dict[str, Any]:
 
     # Generate web URL for newsletter
     canonical_slug = _newsletter_issue_slug(n)
-    web_url = _absolute_url(f"/newsletters/{canonical_slug}")
+    web_url = legacy_public_url(_absolute_url(f"/newsletters/{canonical_slug}"))
 
     commentaries = _collect_commentaries_for_newsletter(n)
     intro_commentary = []
@@ -4014,7 +4024,7 @@ def _newsletter_render_context(n: Newsletter) -> dict[str, Any]:
     twitter_takes_by_player = _build_twitter_takes_by_player(community_takes)
 
     # Submit take URL for footer
-    submit_take_url = f"{public_base_url}/submit-take" if public_base_url else None
+    submit_take_url = legacy_public_url(f"{public_base_url}/submit-take") if public_base_url else None
 
     # Flag/report URL for data corrections
     flag_base_url = f"{public_base_url}/flag" if public_base_url else None
@@ -4028,7 +4038,7 @@ def _newsletter_render_context(n: Newsletter) -> dict[str, Any]:
             TrackedPlayer.team_id == n.team_id,
             TrackedPlayer.is_active.is_(True),
             TrackedPlayer.status == "academy",
-            without_active_suppression(TrackedPlayer.player_api_id),
+            public_player_visible_filter(TrackedPlayer.player_api_id),
         ).all()
 
         if tracked_players:
@@ -8101,7 +8111,7 @@ def _maybe_post_to_reddit_on_publish(newsletters: list) -> list:
 
             web_url = None
             if newsletter.public_slug:
-                web_url = f"https://theacademywatch.com/newsletters/{newsletter.public_slug}"
+                web_url = legacy_public_url(f"https://theacademywatch.com/newsletters/{newsletter.public_slug}")
 
             for sub in subreddits:
                 try:
@@ -8851,7 +8861,7 @@ def admin_post_newsletter_to_reddit(newsletter_id: int):
         # Get web URL for linking back
         web_url = None
         if newsletter.public_slug:
-            web_url = f"https://theacademywatch.com/newsletters/{newsletter.public_slug}"
+            web_url = legacy_public_url(f"https://theacademywatch.com/newsletters/{newsletter.public_slug}")
 
         results = []
         for sub in subreddits:
@@ -10681,7 +10691,7 @@ def admin_review_manual_player(submission_id):
 
 
 @api_bp.route("/players/<int(signed=True):player_id>/journey/map", methods=["GET"])
-@hide_suppressed_player("player_id")
+@hide_suppressed_player("player_id", public_read=True)
 def get_player_journey_map(player_id: int):
     """
     Get a player's journey in map-optimized format (grouped by club with coordinates).
@@ -12963,7 +12973,7 @@ def get_team_players(team_identifier):
                 team_id=team_id,
                 is_active=True,
             )
-            .filter(without_active_suppression(TrackedPlayer.player_api_id))
+            .filter(public_player_visible_filter(TrackedPlayer.player_api_id))
             .order_by(TrackedPlayer.player_name)
             .all()
         )
@@ -13215,7 +13225,16 @@ def features():
     service here would load the contact models into every test app and break their create_all().
     """
     enabled = os.getenv("CONTACT_RAIL_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}
-    return jsonify({"contact_rail": enabled})
+    flags = {"contact_rail": enabled}
+    # Dark club staff access: the key is absent (payload unchanged) until the flag is on.
+    if os.getenv("CLUB_STAFF_ACCESS_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}:
+        flags["club_staff_access"] = True
+    # --- p2-b3 begin ---
+    for name in ("programs", "people", "safety", "business"):
+        if os.getenv(f"ADMIN_{name.upper()}_ENABLED", "").strip().lower() in {"1", "true", "yes", "on"}:
+            flags[f"admin_{name}"] = True
+    # --- p2-b3 end ---
+    return jsonify(flags)
 
 
 @api_bp.route("/meta/data-mode", methods=["GET"])

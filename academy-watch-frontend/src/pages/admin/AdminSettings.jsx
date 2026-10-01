@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { KeyRound, LogIn, AlertCircle, CheckCircle2 } from 'lucide-react'
+import { AdminPageHeader } from '@/components/admin/ControlRoom'
 
 export function AdminSettings() {
     const { token } = useAuth()
@@ -152,10 +153,11 @@ export function AdminSettings() {
 
     return (
         <div className="space-y-6">
-            <div>
-                <h2 className="text-3xl font-bold tracking-tight">Settings</h2>
-                <p className="text-muted-foreground mt-1">Manage your admin access and newsletter configuration</p>
-            </div>
+            <AdminPageHeader
+                eyebrow="Operations · Settings"
+                title="Settings"
+                lede="Manage your admin access and newsletter configuration"
+            />
 
             {/* Message Display */}
             {message && (

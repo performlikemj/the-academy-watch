@@ -7,15 +7,16 @@ import { Textarea } from '@/components/ui/textarea'
 import { Loader2, ShieldCheck, Clock, XCircle } from 'lucide-react'
 import { APIService } from '@/lib/api'
 import { useAuth, useAuthUI } from '@/context/AuthContext'
+import { ScoutSurface, ScoutHeader } from '@/components/scout/ScoutDesk'
 import { buildVerificationPayload, describeVerificationStatus, canApply, LIMITS } from '@/lib/scout-verification'
 
 const EMPTY = { full_name: '', organization: '', role_title: '', statement: '', evidence_text: '' }
 
 function StatusIcon({ tone }) {
-  if (tone === 'approved') return <ShieldCheck className="h-8 w-8 text-emerald-500" />
-  if (tone === 'pending') return <Clock className="h-8 w-8 text-amber-500" />
-  if (tone === 'rejected' || tone === 'revoked') return <XCircle className="h-8 w-8 text-rose-500" />
-  return <ShieldCheck className="h-8 w-8 text-primary" />
+  if (tone === 'approved') return <ShieldCheck className="h-8 w-8 shrink-0 text-[#8FBFA4]" aria-hidden="true" />
+  if (tone === 'pending') return <Clock className="h-8 w-8 shrink-0 text-[#E9C46A]" aria-hidden="true" />
+  if (tone === 'rejected' || tone === 'revoked') return <XCircle className="h-8 w-8 shrink-0 text-[#E9967A]" aria-hidden="true" />
+  return <ShieldCheck className="h-8 w-8 shrink-0 text-gold" aria-hidden="true" />
 }
 
 export function ScoutVerificationPage() {
@@ -70,21 +71,28 @@ export function ScoutVerificationPage() {
   const status = describeVerificationStatus(verification)
 
   return (
-    <div className="min-h-screen bg-background p-4">
-      <div className="mx-auto w-full max-w-2xl space-y-4">
-        <Card>
+    <ScoutSurface>
+      <div className="floodlight-container pb-24">
+        <ScoutHeader
+          eyebrow="Verification · Reviewed by a person"
+          title="Get"
+          accent="verified"
+          lede="Tell us who you scout for and where. A person reviews every application before a scout is marked verified."
+        />
+      <div className="w-full max-w-2xl space-y-6">
+        <Card className="gap-4">
           <CardHeader>
             <div className="flex items-center gap-3">
               <StatusIcon tone={status.tone} />
               <div>
-                <CardTitle>{status.title}</CardTitle>
+                <CardTitle className="text-[1.75rem]">{status.title}</CardTitle>
                 <CardDescription>{status.body}</CardDescription>
               </div>
             </div>
           </CardHeader>
           {!auth?.token ? (
             <CardFooter>
-              <Button onClick={openLoginModal}>Sign in to apply</Button>
+              <Button variant="on-dark" onClick={openLoginModal}>Sign in to apply</Button>
             </CardFooter>
           ) : loading ? (
             <CardContent className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</CardContent>
@@ -98,24 +106,24 @@ export function ScoutVerificationPage() {
         </Card>
 
         {auth?.token && !loading && canApply(verification) ? (
-          <Card>
+          <Card className="gap-4">
             <CardHeader>
-              <CardTitle>Apply for verification</CardTitle>
+              <CardTitle className="text-[1.75rem]">Apply for verification</CardTitle>
               <CardDescription>Reviewed by a person. Use links that show your role — a club staff page, a federation listing, LinkedIn.</CardDescription>
             </CardHeader>
             <form onSubmit={handleSubmit}>
-              <CardContent className="space-y-3">
+              <CardContent className="space-y-3 pb-2">
                 <Input value={fields.full_name} onChange={update('full_name')} placeholder="Full name" maxLength={LIMITS.full_name} aria-label="Full name" />
                 <Input value={fields.organization} onChange={update('organization')} placeholder="Organisation (club, agency, federation)" maxLength={LIMITS.organization} aria-label="Organisation" />
                 <Input value={fields.role_title} onChange={update('role_title')} placeholder="Your role (e.g. Head of Recruitment)" maxLength={LIMITS.role_title} aria-label="Role" />
                 <Textarea value={fields.statement} onChange={update('statement')} placeholder="What do you scout, where, and for whom?" rows={5} maxLength={LIMITS.statement} aria-label="Statement" />
                 <Textarea value={fields.evidence_text} onChange={update('evidence_text')} placeholder={'https:// links, one per line (max 10)'} rows={3} aria-label="Evidence links" />
                 {errors.length > 0 ? (
-                  <ul className="list-disc pl-5 text-sm text-rose-600">{errors.map((e) => <li key={e}>{e}</li>)}</ul>
+                  <ul className="list-disc pl-5 text-sm text-[#E9967A]">{errors.map((e) => <li key={e}>{e}</li>)}</ul>
                 ) : null}
               </CardContent>
               <CardFooter>
-                <Button type="submit" disabled={submitting}>
+                <Button type="submit" variant="on-dark" disabled={submitting}>
                   {submitting ? (<><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Submitting…</>) : 'Submit for review'}
                 </Button>
               </CardFooter>
@@ -123,7 +131,8 @@ export function ScoutVerificationPage() {
           </Card>
         ) : null}
       </div>
-    </div>
+      </div>
+    </ScoutSurface>
   )
 }
 

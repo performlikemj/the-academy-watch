@@ -200,6 +200,9 @@ def verify_login_code():
                 get_client_ip(),
             )
             return jsonify({"error": "email and code are required"}), 400
+        from src.services.account_standing import account_can_act
+
+        existing = UserAccount.query.filter_by(email=email).populate_existing().first()
         client_ip = get_client_ip()
         logger.info("Verifying login code for %s from %s", email, client_ip)
         # Static review credentials require a byte-exact submitted code. Keep
@@ -213,6 +216,14 @@ def verify_login_code():
             # Mark one-time email codes used. The env-gated review code is
             # intentionally reusable until operators revoke either env var.
             row.used_at = datetime.now(UTC)
+        if existing is not None and not account_can_act(existing):
+            db.session.commit()  # consume the correct code before issuing restricted access
+            from src.services.account_standing import issue_account_access_token
+
+            return jsonify(
+                error="Sign-in unavailable. You can still manage your subscription and account.",
+                account_access_token=issue_account_access_token(existing),
+            ), 403
         is_new_user = not UserAccount.query.filter_by(email=email).first()
         user = _ensure_user_account(email)
         if user:

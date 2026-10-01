@@ -81,8 +81,8 @@ export function ClubConsentPage() {
       <Shell>
         <CardHeader>
           <div className="flex items-center gap-3">
-            <XCircle className="h-8 w-8 text-rose-500" />
-            <CardTitle className="text-rose-700">{INVALID_LINK_COPY.title}</CardTitle>
+            <XCircle className="h-8 w-8 text-danger" />
+            <CardTitle className="display text-3xl font-normal text-danger">{INVALID_LINK_COPY.title}</CardTitle>
           </div>
         </CardHeader>
         <CardContent>
@@ -100,8 +100,8 @@ export function ClubConsentPage() {
       <Shell>
         <CardHeader>
           <div className="flex items-center gap-3">
-            <AlertTriangle className="h-8 w-8 text-amber-500" />
-            <CardTitle>We couldn&apos;t check your link</CardTitle>
+            <AlertTriangle className="h-8 w-8 text-warn" />
+            <CardTitle className="display text-3xl font-normal">We couldn&apos;t check your link</CardTitle>
           </div>
         </CardHeader>
         <CardContent>
@@ -121,8 +121,8 @@ export function ClubConsentPage() {
       <Shell>
         <CardHeader>
           <div className="flex items-center gap-3">
-            <CheckCircle className="h-8 w-8 text-emerald-500" />
-            <CardTitle className="text-emerald-700">{copy.title}</CardTitle>
+            <CheckCircle className="h-8 w-8 text-good" />
+            <CardTitle className="display text-3xl font-normal text-good">{copy.title}</CardTitle>
           </div>
         </CardHeader>
         <CardContent>
@@ -144,7 +144,7 @@ export function ClubConsentPage() {
             <ShieldCheck className="h-6 w-6 text-primary" />
           </div>
           <div>
-            <CardTitle>{copy.title}</CardTitle>
+            <CardTitle className="display text-3xl font-normal">{copy.title}</CardTitle>
             <CardDescription>The Academy Watch · club consent</CardDescription>
           </div>
         </div>
@@ -152,7 +152,7 @@ export function ClubConsentPage() {
       <CardContent className="space-y-4">
         <p className="text-sm text-muted-foreground">{copy.body}</p>
         <p className="text-xs text-muted-foreground">Only a club manager should answer this. The decision is recorded for the club and the scout.</p>
-        {submitError ? <p className="text-sm text-rose-600">{submitError}</p> : null}
+        {submitError ? <p className="text-sm text-danger">{submitError}</p> : null}
       </CardContent>
       <CardFooter className="flex gap-3">
         <Button variant="outline" onClick={() => navigate('/')}>Not now</Button>

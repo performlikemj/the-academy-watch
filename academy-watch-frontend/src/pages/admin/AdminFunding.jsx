@@ -33,6 +33,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
+import { AdminPageHeader, BigStat } from '@/components/admin/ControlRoom'
 
 const LEVEL_OPTIONS = [
     ['pro_academy', 'Pro academy'],
@@ -491,7 +492,7 @@ function ContentReviewQueues() {
         </Card>
     )
 
-    return <section className="space-y-4" aria-labelledby="content-review-heading"><div><h2 id="content-review-heading" className="font-serif text-3xl font-semibold">Program content review</h2><p className="text-sm text-muted-foreground">Approve only content supplied by the verified program manager.</p></div>{error ? <Alert className="border-rose-300 bg-rose-50"><AlertTriangle className="h-4 w-4" /><AlertDescription>{error}</AlertDescription></Alert> : null}<div className="grid gap-5 xl:grid-cols-2">{queue('profile', 'Profile revisions', profiles)}{queue('update', 'Program updates', updates)}</div></section>
+    return <section className="space-y-4" aria-labelledby="content-review-heading"><div><h2 id="content-review-heading" className="display border-b border-chalk pb-3 text-[2.25rem] leading-none sm:text-[2.5rem]">Program content review</h2><p className="mt-3 text-sm text-muted-foreground">Approve only content supplied by the verified program manager.</p></div>{error ? <Alert className="border-rose-300 bg-rose-50"><AlertTriangle className="h-4 w-4" /><AlertDescription>{error}</AlertDescription></Alert> : null}<div className="grid gap-5 xl:grid-cols-2">{queue('profile', 'Profile revisions', profiles)}{queue('update', 'Program updates', updates)}</div></section>
 }
 
 export function AdminFunding() {
@@ -592,21 +593,27 @@ export function AdminFunding() {
 
     return (
         <div className="space-y-6">
-            <section className="relative overflow-hidden rounded-3xl bg-[#0b1f19] px-6 py-7 text-white shadow-xl sm:px-8">
-                <div className="absolute inset-0 opacity-20" style={{ backgroundImage: 'linear-gradient(rgba(255,255,255,.12) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.12) 1px, transparent 1px)', backgroundSize: '36px 36px' }} />
-                <div className="relative flex flex-col justify-between gap-6 lg:flex-row lg:items-end">
-                    <div className="max-w-2xl"><div className="mb-4 flex h-11 w-11 items-center justify-center rounded-full border border-emerald-200/30 bg-emerald-200/10"><ShieldCheck className="h-5 w-5 text-emerald-200" /></div><p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-200/70">Grassroots funding · F2</p><h1 className="mt-2 font-serif text-4xl font-semibold tracking-tight sm:text-5xl">Registry control room</h1><p className="mt-3 max-w-xl text-sm leading-relaxed text-emerald-50/70">League-gated admission, adult authority evidence, and organization verification. No donations are processed in this build.</p></div>
-                    <div className="grid grid-cols-3 gap-3"><div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3"><p className="text-2xl font-semibold">{stats.open}</p><p className="text-xs text-emerald-50/60">Open leagues</p></div><div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3"><p className="text-2xl font-semibold">{stats.proposed}</p><p className="text-xs text-emerald-50/60">Waitlist</p></div><div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3"><p className="text-2xl font-semibold">{stats.pending}</p><p className="text-xs text-emerald-50/60">Claims</p></div></div>
-                </div>
-            </section>
+            <AdminPageHeader
+                eyebrow={<span className="inline-flex items-center gap-2"><ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />Operations · Grassroots funding · F2</span>}
+                title="Registry"
+                accent="control room"
+                lede="League-gated admission, adult authority evidence, and organization verification. No donations are processed in this build."
+                meta={(
+                    <div className="grid grid-cols-3 gap-8 border-t border-chalk/20 pt-4 md:border-t-0 md:pt-0">
+                        <BigStat label="Open leagues" value={stats.open} />
+                        <BigStat label="Waitlist" value={stats.proposed} />
+                        <BigStat label="Claims" value={stats.pending} />
+                    </div>
+                )}
+            />
 
             {message ? <Alert className={message.type === 'error' ? 'border-rose-300 bg-rose-50 text-rose-900' : 'border-emerald-300 bg-emerald-50 text-emerald-900'}>{message.type === 'error' ? <AlertTriangle className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}<AlertDescription>{message.text}</AlertDescription></Alert> : null}
 
             <Tabs value={tab} onValueChange={changeTab}>
-                <TabsList className="grid h-auto w-full grid-cols-3 rounded-2xl bg-secondary p-1 sm:w-[560px]">
-                    <TabsTrigger value="registry" className="rounded-xl py-2.5"><Landmark className="mr-2 h-4 w-4" />League registry</TabsTrigger>
-                    <TabsTrigger value="claims" className="rounded-xl py-2.5"><FileCheck2 className="mr-2 h-4 w-4" />Approval queue</TabsTrigger>
-                    <TabsTrigger value="demand" className="rounded-xl py-2.5"><BellRing className="mr-2 h-4 w-4" />Demand</TabsTrigger>
+                <TabsList className="grid h-auto w-full grid-cols-3 sm:w-[560px]">
+                    <TabsTrigger value="registry" className="py-2.5"><Landmark className="mr-2 h-4 w-4" />League registry</TabsTrigger>
+                    <TabsTrigger value="claims" className="py-2.5"><FileCheck2 className="mr-2 h-4 w-4" />Approval queue</TabsTrigger>
+                    <TabsTrigger value="demand" className="py-2.5"><BellRing className="mr-2 h-4 w-4" />Demand</TabsTrigger>
                 </TabsList>
                 <TabsContent value="registry" className="mt-5"><RegistryTab leagues={leagues} loading={loading} filters={filters} setFilters={setFilters} onCreate={() => { setEditingLeague(null); setDialogOpen(true) }} onEdit={(league) => { setEditingLeague(league); setDialogOpen(true) }} onDelete={removeLeague} /></TabsContent>
                 <TabsContent value="claims" className="mt-5"><ClaimsTab claims={claims} loading={loading} status={claimStatus} setStatus={setClaimStatus} onReview={(claim, action) => { setReview({ claim, action }); setReviewReason('') }} onSyncConnect={syncConnect} /></TabsContent>

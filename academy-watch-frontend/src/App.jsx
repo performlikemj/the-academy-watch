@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, useRef, Fragment } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef, Fragment, lazy, Suspense } from 'react'
 import { BrowserRouter as Router, Routes, Route, Link, Navigate, useLocation, useParams, useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button.jsx'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card.jsx'
@@ -11,7 +11,6 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrig
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs.jsx'
 import TeamMultiSelect from '@/components/ui/TeamMultiSelect.jsx'
 import TeamSelect from '@/components/ui/TeamSelect.jsx'
-import { JournalistList } from '@/components/JournalistList.jsx'
 import { BuyMeCoffeeButton } from '@/components/BuyMeCoffeeButton.jsx'
 import SyncBanner from '@/components/SyncBanner.jsx'
 import { CommentaryManager } from '@/components/CommentaryManager.jsx'
@@ -32,12 +31,10 @@ import {
   TrendingUp,
   Globe,
   ListChecks,
-  Star,
   ArrowLeft,
   ArrowRight,
   CheckCircle,
   AlertCircle,
-  Home,
   UserPlus,
   FileText,
   Settings,
@@ -85,11 +82,19 @@ import { AdminFormation } from '@/pages/admin/AdminFormation'
 import { AdminShowcase } from '@/pages/admin/AdminShowcase'
 import { AdminTrust } from '@/pages/admin/AdminTrust'
 import { AdminLocalClubs } from '@/pages/admin/AdminLocalClubs'
+// --- p2-b3 begin ---
+import { AdminPrograms } from '@/pages/admin/AdminPrograms'
+import { AdminPeople } from '@/pages/admin/AdminPeople'
+import { AdminSafety } from '@/pages/admin/AdminSafety'
+import { AdminBusiness } from '@/pages/admin/AdminBusiness'
+// --- p2-b3 end ---
 import { AdminClubIdentities } from '@/pages/admin/AdminClubIdentities'
 import { AdminFunding } from '@/pages/admin/AdminFunding'
 import { HomePage } from '@/pages/HomePage'
-import { PublicFormationBuilder } from '@/pages/PublicFormationBuilder'
-import { CohortBrowser } from '@/pages/CohortBrowser'
+import { ClubsNearYouTeaser } from '@/pages/teasers/ClubsNearYouTeaser'
+import { OpportunitiesTeaser } from '@/pages/teasers/OpportunitiesTeaser'
+import { AdminInterest } from '@/pages/admin/AdminInterest'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { ScoutPage } from '@/pages/ScoutPage'
 import { WatchlistPage } from '@/pages/WatchlistPage'
 import { ListsPage } from '@/pages/ListsPage'
@@ -99,29 +104,23 @@ import { LocalPlayerCreate } from '@/pages/LocalPlayerCreate'
 import { PlayerOnboarding } from '@/pages/PlayerOnboarding'
 import { PricingPage } from '@/pages/PricingPage'
 import { AccountBillingPage } from '@/pages/AccountBillingPage'
-import { CohortDetail } from '@/pages/CohortDetail'
-import { CohortAnalytics } from '@/pages/CohortAnalytics'
 import { GolPanel } from '@/components/gol/GolPanel'
 import { ClaimAccount } from '@/pages/ClaimAccount'
 import { IntroductionsPage } from '@/pages/IntroductionsPage'
 import { ScoutVerificationPage } from '@/pages/ScoutVerificationPage'
 import { useContactRail } from '@/hooks/useContactRail.js'
 import { ClubConsentPage } from '@/pages/ClubConsentPage'
-import { SubmitTake } from '@/pages/SubmitTake'
+import { StaffInviteAccept } from '@/pages/StaffInviteAccept'
 import { FlagData } from '@/pages/FlagData'
 import { WriterLogin } from '@/pages/writer/WriterLogin'
 import { WriterDashboard } from '@/pages/writer/WriterDashboard'
 import { WriteupEditor } from '@/pages/writer/WriteupEditor'
 import { ContributorManager } from '@/pages/writer/ContributorManager'
 import { CuratorDashboard } from '@/pages/curator/CuratorDashboard'
-import { WriteupPage } from '@/pages/WriteupPage'
 import { PlayerPage } from '@/pages/PlayerPage'
-import { TeamDetailPage } from '@/pages/TeamDetailPage'
 import { ProgramClaimPage } from '@/pages/ProgramClaimPage'
 import { ProgramPage } from '@/pages/ProgramPage'
-import { JournalistProfile } from '@/pages/JournalistProfile'
 import { CommunityRulesPage, PrivacyPage, SupportPage, TermsPage } from '@/pages/LegalPages'
-import { JournalistNewsletterView } from '@/components/JournalistNewsletterView'
 import {
   NewsletterWriterOverlay,
   NewsletterWriterProvider,
@@ -138,6 +137,19 @@ import { AuthContext, AuthUIContext, useAuth, useAuthUI, buildAuthSnapshot } fro
 import { GlobalSearchContext, useGlobalSearchContext } from '@/context/GlobalSearchContext'
 import { AuthModal } from '@/components/auth/AuthModal'
 import { AccountDataControls } from '@/components/AccountDataControls'
+import { LEGACY_PUBLIC_PAGES, LEGACY_PUBLIC_ROUTES, isLegacyPublicRoute } from '@/lib/legacyRoutes.js'
+
+const JournalistList = LEGACY_PUBLIC_PAGES ? lazy(() => import('@/components/JournalistList.jsx').then((module) => ({ default: module.JournalistList }))) : null
+const PublicFormationBuilder = LEGACY_PUBLIC_PAGES ? lazy(() => import('@/pages/PublicFormationBuilder').then((module) => ({ default: module.PublicFormationBuilder }))) : null
+const CohortBrowser = LEGACY_PUBLIC_PAGES ? lazy(() => import('@/pages/CohortBrowser').then((module) => ({ default: module.CohortBrowser }))) : null
+const CohortDetail = LEGACY_PUBLIC_PAGES ? lazy(() => import('@/pages/CohortDetail').then((module) => ({ default: module.CohortDetail }))) : null
+const CohortAnalytics = LEGACY_PUBLIC_PAGES ? lazy(() => import('@/pages/CohortAnalytics').then((module) => ({ default: module.CohortAnalytics }))) : null
+const SubmitTake = LEGACY_PUBLIC_PAGES ? lazy(() => import('@/pages/SubmitTake').then((module) => ({ default: module.SubmitTake }))) : null
+const WriteupPage = LEGACY_PUBLIC_PAGES ? lazy(() => import('@/pages/WriteupPage').then((module) => ({ default: module.WriteupPage }))) : null
+const TeamDetailPage = LEGACY_PUBLIC_PAGES ? lazy(() => import('@/pages/TeamDetailPage').then((module) => ({ default: module.TeamDetailPage }))) : null
+const JournalistProfile = LEGACY_PUBLIC_PAGES ? lazy(() => import('@/pages/JournalistProfile').then((module) => ({ default: module.JournalistProfile }))) : null
+const JournalistNewsletterView = LEGACY_PUBLIC_PAGES ? lazy(() => import('@/components/JournalistNewsletterView').then((module) => ({ default: module.JournalistNewsletterView }))) : null
+
 import './App.css'
 import { useQueryParam } from '@/hooks/useQueryParam'
 
@@ -191,6 +203,7 @@ const LEGAL_FOOTER_LINKS = [
   { to: '/privacy', label: 'Privacy' },
   { to: '/community-rules', label: 'Community Rules' },
   { to: '/support', label: 'Support' },
+  { to: '/pricing', label: 'Pricing' },
 ]
 
 const PLAYER_ONBOARDING_PROMPT_KEY = 'academyWatch.playerOnboardingPromptDismissed.v1'
@@ -538,27 +551,6 @@ function RequireAuth({ children, requireJournalist = false }) {
 // Navigation component
 const BRAND_LOGO_SRC = '/assets/loan_army_assets/apple-touch-icon.png'
 
-function SoccerBallToggleIcon({ spinning }) {
-  return (
-    <svg
-      viewBox="0 0 64 64"
-      className="h-10 w-10 text-foreground"
-      style={{ transform: spinning ? 'rotate(360deg)' : 'rotate(0deg)', transition: 'transform 0.6s ease' }}
-      aria-hidden="true"
-    >
-      <circle cx="32" cy="32" r="28" fill="#f5f5f5" stroke="currentColor" strokeWidth="4" />
-      <polygon points="32,22 38,26 36,34 28,34 26,26" fill="currentColor" />
-      <path d="M32 16L23 22L16 30L19 40L28 46H36L45 40L48 30L41 22Z" fill="none" stroke="currentColor" strokeWidth="3" strokeLinejoin="round" />
-      <path d="M23 22L18 14" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
-      <path d="M41 22L46 14" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
-      <path d="M19 40L11 43" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
-      <path d="M45 40L53 43" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
-      <path d="M28 46L25 56" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
-      <path d="M36 46L39 56" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
-    </svg>
-  )
-}
-
 function Navigation() {
   const location = useLocation()
   const isMobile = useIsMobile()
@@ -569,51 +561,43 @@ function Navigation() {
 
   const adminUnlocked = !!token && isAdmin && hasApiKey
 
-  const navItems = useMemo(() => {
+  const primaryItems = [
+    { path: '/clubs', label: 'Clubs', icon: Users },
+    { path: '/onboarding/player', label: 'Players', icon: UserPlus },
+    { path: '/scout', label: 'Scouts', icon: Globe },
+    { path: '/opportunities', label: 'Opportunities', icon: ArrowRight },
+  ]
+  const accountItems = useMemo(() => {
     const items = [
-      { path: '/', label: 'Home', icon: Home },
-      { path: '/scout', label: 'Scout', icon: Globe },
-      { path: '/teams', label: 'Teams', icon: Users },
-      // Dream XI demoted from top-level nav (2026-07-02, MJ) — the page stays
-      // at /dream-team and is featured on the Home grid.
-      { path: '/newsletters', label: 'Newsletters', icon: FileText },
-      { path: '/journalists', label: 'Journalists', icon: UserPlus },
-      { path: '/pricing', label: 'Pricing', icon: CreditCard },
+      { path: '/my-club', label: 'My club', icon: Users },
+      { path: '/scout/lists', label: 'Lists', icon: ListChecks },
     ]
-    if (isJournalist) {
-      items.push({ path: '/writer/dashboard', label: 'Writer Dashboard', icon: FileText })
-    }
-    if (isCurator) {
-      items.push({ path: '/curator/dashboard', label: 'Curator', icon: FileText })
-    }
-    if (token) {
-      // The retention surface: logged-in scouts jump straight to their lists.
-      items.push({ path: '/scout/lists', label: 'Lists', icon: ListChecks })
-      if (contactRail === true) items.push({ path: '/introductions', label: 'Introductions', icon: Send })
-      items.push({ path: '/settings', label: 'Settings', icon: UserCog })
-      items.push({ path: '/account/billing', label: 'Billing', icon: CreditCard })
-    }
-    if (adminUnlocked) {
-      items.push({ path: '/admin', label: 'Admin', icon: Settings })
-    }
+    if (contactRail === true) items.push({ path: '/introductions', label: 'Introductions', icon: Send })
+    items.push(
+      { path: '/settings', label: 'Settings', icon: UserCog },
+      { path: '/account/billing', label: 'Billing', icon: CreditCard },
+    )
+    if (isJournalist) items.push({ path: '/writer/dashboard', label: 'Writer dashboard', icon: FileText })
+    if (isCurator) items.push({ path: '/curator/dashboard', label: 'Curator', icon: FileText })
+    if (adminUnlocked) items.push({ path: '/admin', label: 'Admin', icon: Settings })
     return items
-  }, [adminUnlocked, contactRail, isJournalist, isCurator, token])
+  }, [adminUnlocked, contactRail, isJournalist, isCurator])
 
   const linkClasses = (isActive) => (
     `inline-flex items-center gap-2 rounded-full px-3 py-2 text-sm font-medium transition-colors sm:px-3 whitespace-nowrap no-underline hover:no-underline ` +
     (isActive
-      ? 'text-primary bg-primary/5 shadow-inner'
+      ? 'text-primary bg-accent'
       : 'text-foreground/80 hover:text-foreground hover:bg-secondary'
     )
   )
 
-  const renderNavLinks = (variant) => navItems.map((item) => {
+  const renderNavLinks = (variant, items) => items.map((item) => {
     const { path, label, icon } = item
     const Icon = icon
     const isActive = location.pathname === path
     const content = (
       <span className="flex items-center gap-2">
-        <Icon className="h-4 w-4" />
+        {variant === 'mobile' && <Icon className="h-4 w-4" />}
         {label}
       </span>
     )
@@ -638,73 +622,43 @@ function Navigation() {
   })
 
   return (
-    <nav className="border-b bg-background/90 backdrop-blur supports-[backdrop-filter]:bg-background/70">
-      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8 gap-4">
-        <Link to="/" className="flex items-center gap-2 text-foreground no-underline hover:no-underline sm:gap-3 shrink-0">
-          <span className="inline-flex h-10 w-10 items-center justify-center rounded bg-slate-900 shadow">
-            <img src={BRAND_LOGO_SRC} alt="The Academy Watch logo" className="h-7 w-7" />
-          </span>
-          <div className="flex flex-col leading-tight">
-            <span className="text-lg font-semibold">The Academy Watch</span>
-            <span className="hidden text-xs text-muted-foreground sm:block">Academy player tracker</span>
-          </div>
+    <nav aria-label="Main navigation" className="border-b bg-background text-foreground">
+      <div className="floodlight-container flex min-h-20 flex-wrap items-center justify-between gap-4 py-3 lg:flex-nowrap">
+        <Link to="/" className="flex shrink-0 items-center gap-3">
+          <img src={BRAND_LOGO_SRC} alt="The Academy Watch logo" className="h-9 w-9 rounded-lg" />
+          <span className="text-base font-semibold tracking-tight sm:text-lg">The Academy Watch</span>
         </Link>
-
         {isMobile ? (
           <Drawer open={drawerOpen} onOpenChange={setDrawerOpen} autoFocus>
             <DrawerTrigger asChild>
-              <button
-                type="button"
-                className="inline-flex items-center justify-center rounded-full border border-border bg-secondary p-2 shadow-sm transition hover:bg-muted"
-                aria-label="Toggle navigation menu"
-                aria-expanded={drawerOpen}
-              >
-                <SoccerBallToggleIcon spinning={drawerOpen} />
-              </button>
+              <Button variant="outline" size="icon" aria-label="Toggle navigation menu" aria-expanded={drawerOpen}>
+                <ListChecks className="h-5 w-5" />
+              </Button>
             </DrawerTrigger>
-            <DrawerContent className="pb-6">
-              <DrawerHeader>
-                <DrawerTitle className="text-base font-semibold">The Academy Watch</DrawerTitle>
-                <DrawerDescription>Quick access to every page.</DrawerDescription>
+            <DrawerContent className="h-[90dvh] overflow-hidden pb-[calc(1rem+env(safe-area-inset-bottom))] data-[vaul-drawer-direction=bottom]:max-h-[90dvh]">
+              <DrawerHeader className="shrink-0">
+                <DrawerTitle>The Academy Watch</DrawerTitle>
+                <DrawerDescription>Find your side of the touchline.</DrawerDescription>
               </DrawerHeader>
-              <div className="flex flex-col gap-2 px-4">
-                <DrawerClose asChild>
-                  <button
-                    type="button"
-                    onClick={() => { setDrawerOpen(false); openSearch(); }}
-                    className="inline-flex items-center gap-2 rounded-full px-3 py-2 text-sm font-medium text-foreground/80 hover:text-foreground hover:bg-secondary transition-colors justify-start"
-                  >
-                    <Search className="h-4 w-4" />
-                    Search
-                  </button>
-                </DrawerClose>
-                {renderNavLinks('mobile')}
+              <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-4">
+                {renderNavLinks('mobile', primaryItems)}
+                <Button variant="ghost" className="justify-start" onClick={() => { setDrawerOpen(false); openSearch() }}>
+                  <Search /> Search
+                </Button>
+                {token && <div className="mt-2 flex flex-col gap-1 border-t pt-2">{renderNavLinks('mobile', accountItems)}</div>}
+                {!token && <Button asChild><Link to="/#early-access" onClick={() => setDrawerOpen(false)}>Get early access</Link></Button>}
               </div>
-              <DrawerFooter>
-                <AuthControls isMobile onNavigate={() => setDrawerOpen(false)} />
-              </DrawerFooter>
+              <DrawerFooter className="shrink-0"><AuthControls isMobile onNavigate={() => setDrawerOpen(false)} /></DrawerFooter>
             </DrawerContent>
           </Drawer>
         ) : (
-          <div className="flex min-w-0 flex-1 items-center gap-4 overflow-hidden">
-            <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3 md:gap-4 overflow-x-auto pr-2">
-              {renderNavLinks('desktop')}
-            </div>
-            <div className="flex shrink-0 items-center gap-2">
-              <button
-                type="button"
-                onClick={openSearch}
-                className="inline-flex items-center gap-2 rounded-md border border-border bg-card px-3 py-1.5 text-sm text-muted-foreground shadow-sm hover:bg-secondary hover:text-foreground/80 transition-colors"
-                aria-label="Search"
-              >
-                <Search className="h-4 w-4" />
-                <span className="hidden sm:inline">Search</span>
-                <kbd className="hidden sm:inline-flex items-center gap-1 rounded border border-border bg-secondary px-1.5 font-mono text-xs text-muted-foreground">
-                  <span className="text-xs">⌘</span>K
-                </kbd>
-              </button>
-              <AuthControls />
-            </div>
+          <div className="flex min-w-0 flex-1 items-center justify-end gap-2 xl:gap-4">
+            {renderNavLinks('desktop', primaryItems)}
+            <Button variant="ghost" size="icon" aria-label="Search" onClick={openSearch} className="shrink-0">
+              <Search className="h-5 w-5" />
+            </Button>
+            <AuthControls accountItems={accountItems} />
+            {!token && <Button asChild><Link to="/#early-access">Get early access</Link></Button>}
           </div>
         )}
       </div>
@@ -712,7 +666,7 @@ function Navigation() {
   )
 }
 
-function AuthControls({ isMobile = false, onNavigate }) {
+function AuthControls({ isMobile = false, onNavigate, accountItems = [] }) {
   const { token, displayName, isAdmin, hasApiKey } = useAuth()
   const { openLoginModal, logout } = useAuthUI()
 
@@ -755,6 +709,7 @@ function AuthControls({ isMobile = false, onNavigate }) {
     return (
       <Button
         size={isMobile ? 'lg' : 'sm'}
+        variant="ghost"
         className={isMobile ? 'w-full' : ''}
         onClick={() => {
           openLoginModal()
@@ -767,17 +722,34 @@ function AuthControls({ isMobile = false, onNavigate }) {
   }
 
   return (
-    <div className={isMobile ? 'flex flex-col gap-3' : 'flex items-center gap-4 min-w-0 max-w-xs'}>
+    <div className={isMobile ? 'flex flex-col gap-3' : 'flex min-w-0 items-center gap-3'}>
       {isAdmin && !adminUnlocked && (
         <span className="sr-only">Admin access requires API key</span>
       )}
-      <div className="flex items-center gap-2 text-sm">
-        <span
-          className="max-w-[140px] truncate font-semibold text-foreground sm:max-w-[200px]"
-          title={displayName || 'Signed in'}
-        >
-          {displayName || 'Signed in'}
-        </span>
+      <div className="flex min-w-0 items-center gap-2 text-sm">
+        {isMobile ? (
+          <span className="min-w-0 max-w-[180px] truncate font-semibold text-foreground" title={displayName || 'Signed in'}>
+            {displayName || 'Signed in'}
+          </span>
+        ) : (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="sm" className="min-w-0" title={displayName || 'Signed in'}>
+                <span className="min-w-0 max-w-[180px] truncate font-semibold">{displayName || 'Signed in'}</span>
+                <ChevronDown className="h-4 w-4 shrink-0" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-52">
+              {accountItems.map(({ path, label, icon: Icon }) => (
+                <DropdownMenuItem key={path} asChild>
+                  <Link to={path}><Icon className="h-4 w-4" />{label}</Link>
+                </DropdownMenuItem>
+              ))}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={logout}><LogOut className="h-4 w-4" />Log out</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
         {isAdmin ? (
           adminUnlocked ? (
             <Badge variant="default" className="bg-emerald-100 text-emerald-700 border-emerald-200">
@@ -891,10 +863,10 @@ function AuthControls({ isMobile = false, onNavigate }) {
             </Popover>
           )
         ) : (
-          <Badge variant="secondary">Go On Member</Badge>
+          isMobile && <Badge variant="secondary">Go On Member</Badge>
         )}
       </div>
-      <div className={isMobile ? 'flex flex-col gap-2' : 'flex items-center gap-2'}>
+      {isMobile && <div className="flex flex-col gap-2">
         <Button
           size="sm"
           variant="ghost"
@@ -903,9 +875,9 @@ function AuthControls({ isMobile = false, onNavigate }) {
             onNavigate?.()
           }}
         >
-          <LogOut className="mr-1 h-4 w-4" /> Log Out
+          <LogOut className="mr-1 h-4 w-4" /> Log out
         </Button>
-      </div>
+      </div>}
     </div>
   )
 }
@@ -3024,6 +2996,21 @@ function SettingsPage() {
   // Paid subscriptions and journalist follows state
   const [paidSubscriptions, setPaidSubscriptions] = useState([])
   const [journalistFollows, setJournalistFollows] = useState([])
+  const [unfollowState, setUnfollowState] = useState({})
+
+  const handleUnfollow = async (follow) => {
+    if (unfollowState[follow.id]?.pending) return
+    setUnfollowState((prev) => ({ ...prev, [follow.id]: { pending: true, error: null } }))
+    try {
+      await APIService.unsubscribeFromJournalist(follow.journalist_id)
+      setJournalistFollows((prev) => prev.filter((item) => item.id !== follow.id))
+    } catch (error) {
+      setUnfollowState((prev) => ({
+        ...prev,
+        [follow.id]: { pending: false, error: error?.body?.error || error.message || 'Unable to unfollow. Please try again.' },
+      }))
+    }
+  }
 
   useEffect(() => {
     setDisplayNameInput(auth.displayName || '')
@@ -3571,10 +3558,9 @@ function SettingsPage() {
                 <CardContent>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {journalistFollows.map((follow) => (
-                      <Link
+                      <div
                         key={follow.id}
-                        to={`/journalists/${follow.journalist_id}`}
-                        className="flex items-center gap-3 p-3 border rounded-lg bg-secondary hover:bg-secondary hover:border-border transition-colors group"
+                        className="flex flex-wrap items-center gap-3 p-3 border rounded-lg bg-secondary"
                       >
                         <Avatar className="h-10 w-10">
                           <AvatarImage src={follow.journalist_profile_image} />
@@ -3583,7 +3569,7 @@ function SettingsPage() {
                           </AvatarFallback>
                         </Avatar>
                         <div className="flex-1 min-w-0">
-                          <div className="font-medium text-foreground truncate group-hover:text-primary transition-colors">{follow.journalist_name || 'Unknown'}</div>
+                          <div className="font-medium text-foreground truncate">{follow.journalist_name || 'Unknown'}</div>
                           {follow.assigned_teams && follow.assigned_teams.length > 0 && (
                             <div className="flex items-center gap-1 mt-0.5">
                               {follow.assigned_teams.slice(0, 3).map((team) => (
@@ -3595,16 +3581,25 @@ function SettingsPage() {
                             </div>
                           )}
                         </div>
-                        <div className="flex items-center gap-2">
-                          <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20">Following</Badge>
-                          <ChevronRight className="h-4 w-4 text-muted-foreground/70 group-hover:text-primary transition-colors" />
-                        </div>
-                      </Link>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          aria-label={`Unfollow ${follow.journalist_name || 'Unknown'}`}
+                          aria-busy={unfollowState[follow.id]?.pending || false}
+                          disabled={unfollowState[follow.id]?.pending || false}
+                          onClick={() => handleUnfollow(follow)}
+                        >
+                          {unfollowState[follow.id]?.pending ? 'Unfollowing…' : 'Unfollow'}
+                        </Button>
+                        {unfollowState[follow.id]?.error && (
+                          <p role="alert" className="w-full text-sm text-destructive">
+                            {unfollowState[follow.id].error}
+                          </p>
+                        )}
+                      </div>
                     ))}
                   </div>
-                  <p className="text-xs text-muted-foreground mt-3">
-                    Click on a journalist to view their profile or unfollow.
-                  </p>
                 </CardContent>
               </Card>
             )}
@@ -4066,8 +4061,9 @@ function AppWithRouter() {
 
   return (
     <GlobalSearchContext.Provider value={globalSearch}>
-      <div className="min-h-screen bg-secondary">
-        <Navigation />
+      <div className="min-h-screen bg-background">
+        {/* The admin control room carries its own chrome (sidebar + top bar). */}
+        {!isAdminRoute ? <Navigation /> : null}
         <SyncBanner />
         <GlobalSearchDialog
           open={globalSearch.isOpen}
@@ -4077,13 +4073,15 @@ function AppWithRouter() {
           onClearRecent={globalSearch.clearRecentSearches}
         />
         <PlayerOnboardingPrompt />
+        {isLegacyPublicRoute(location.pathname) && !LEGACY_PUBLIC_PAGES ? <meta name="robots" content="noindex, nofollow" /> : null}
         <main>
           <AppRoutes />
         </main>
-        <footer className="bg-secondary border-t border-border py-8 mt-auto">
-          <div className="max-w-6xl mx-auto px-4 text-center">
-            <BuyMeCoffeeButton />
-            {!isAdminRoute ? (
+        {!isAdminRoute ? (
+          <footer className="dark bg-night text-chalk border-t border-border py-12 mt-auto">
+            <div className="floodlight-container text-center">
+              <p className="display text-3xl">For the whole game.</p>
+              <div className="mt-6"><BuyMeCoffeeButton /></div>
               <nav aria-label="Legal and support" className="mt-6 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-sm">
                 {LEGAL_FOOTER_LINKS.map((item) => (
                   <Link key={item.to} to={item.to} className="text-muted-foreground transition-colors hover:text-foreground">
@@ -4091,23 +4089,48 @@ function AppWithRouter() {
                   </Link>
                 ))}
               </nav>
-            ) : null}
-            <p className="text-sm text-muted-foreground mt-4">&copy; {new Date().getFullYear()} The Academy Watch. All rights reserved.</p>
-          </div>
-        </footer>
+              <p className="text-sm text-muted-foreground mt-4">&copy; {new Date().getFullYear()} The Academy Watch. All rights reserved.</p>
+            </div>
+          </footer>
+        ) : null}
         <LoginModal />
       </div>
     </GlobalSearchContext.Provider>
   )
 }
 
+function LegacyPublicRedirect() {
+  return <Navigate to="/" replace />
+}
+
+// Inline legacy pages remain in this file; external pages above are lazy imports.
+const legacyPublicElements = LEGACY_PUBLIC_PAGES ? [
+  <PublicFormationBuilder />,
+  <CohortBrowser />,
+  <CohortDetail />,
+  <CohortAnalytics />,
+  <TeamsPage />,
+  <TeamDetailPage />,
+  <NewslettersPage />,
+  <NewslettersPage />,
+  <HistoricalNewslettersPage />,
+  <JournalistNewsletterView />,
+  <JournalistList apiService={APIService} />,
+  <JournalistProfile />,
+  <WriteupPage />,
+  <SubmitTake />,
+] : []
+
 // App routes extracted for cleaner structure
 function AppRoutes() {
   return (
     <Routes>
+      {LEGACY_PUBLIC_ROUTES.map((path, index) => (
+        <Route key={path} path={LEGACY_PUBLIC_PAGES ? path.replace(':id', path.startsWith('/academy/') ? ':cohortId' : path.startsWith('/newsletters/') ? ':newsletterId' : ':id') : path} element={LEGACY_PUBLIC_PAGES ? <Suspense fallback={null}>{legacyPublicElements[index]}</Suspense> : <LegacyPublicRedirect />} />
+      ))}
       <Route path="/" element={<HomePage />} />
-      <Route path="/teams" element={<TeamsPage />} />
-      <Route path="/teams/:teamSlug" element={<TeamDetailPage />} />
+      <Route path="/clubs" element={<ClubsNearYouTeaser />} />
+      <Route path="/opportunities" element={<OpportunitiesTeaser />} />
       <Route
         path="/programs/claim"
         element={(
@@ -4117,16 +4140,10 @@ function AppRoutes() {
         )}
       />
       <Route path="/programs/:slug" element={<ProgramPage />} />
-      <Route path="/dream-team" element={<PublicFormationBuilder />} />
-      <Route path="/newsletters" element={<NewslettersPage />} />
-      <Route path="/newsletters/:newsletterId" element={<NewslettersPage />} />
-      <Route path="/newsletters/historical" element={<HistoricalNewslettersPage />} />
-      <Route path="/writeups/:commentaryId" element={<WriteupPage />} />
       <Route path="/players/:playerId" element={<PlayerPage />} />
       <Route path="/onboarding/player" element={<PlayerOnboarding />} />
       <Route path="/local-players/new" element={<LocalPlayerCreate />} />
       <Route path="/local-players/:localPlayerId" element={<LocalPlayerPage />} />
-      <Route path="/journalists" element={<JournalistList apiService={APIService} />} />
       <Route
         path="/settings"
         element={(
@@ -4141,7 +4158,6 @@ function AppRoutes() {
       <Route path="/verify" element={<VerifyPage />} />
       <Route path="/claim-account" element={<ClaimAccount />} />
       <Route path="/contact/club-consent/:token" element={<ClubConsentPage />} />
-      <Route path="/submit-take" element={<SubmitTake />} />
       <Route path="/flag" element={<FlagData />} />
       <Route path="/scout" element={<ScoutPage />} />
       <Route path="/scout/watchlist" element={<WatchlistPage />} />
@@ -4149,18 +4165,23 @@ function AppRoutes() {
       <Route path="/scout/verification" element={<ScoutVerificationPage />} />
       <Route path="/introductions" element={<IntroductionsPage />} />
       <Route path="/my-club" element={<MyClub />} />
+      <Route path="/staff-invite" element={<StaffInviteAccept />} />
       <Route path="/pricing" element={<PricingPage />} />
       <Route path="/account/billing" element={<AccountBillingPage />} />
       <Route path="/terms" element={<TermsPage />} />
       <Route path="/privacy" element={<PrivacyPage />} />
       <Route path="/community-rules" element={<CommunityRulesPage />} />
       <Route path="/support" element={<SupportPage />} />
-      <Route path="/academy" element={<CohortBrowser />} />
-      <Route path="/academy/cohorts/:cohortId" element={<CohortDetail />} />
-      <Route path="/academy/analytics" element={<CohortAnalytics />} />
       <Route path="/admin" element={<AdminLayout />}>
         <Route index element={<Navigate to="/admin/dashboard" replace />} />
         <Route path="dashboard" element={<AdminDashboard />} />
+        <Route path="interest" element={<AdminInterest />} />
+        {/* --- p2-b3 begin --- */}
+        <Route path="programs" element={<AdminPrograms />} />
+        <Route path="people" element={<AdminPeople />} />
+        <Route path="safety" element={<AdminSafety />} />
+        <Route path="business" element={<AdminBusiness />} />
+        {/* --- p2-b3 end --- */}
         <Route path="inbox" element={<AdminInbox />} />
         <Route path="operations" element={<AdminOperations />} />
         <Route path="seeding" element={<AdminSeeding />} />
@@ -4190,8 +4211,6 @@ function AppRoutes() {
             routes, so without this the parent renders an empty <Outlet/>. */}
         <Route path="*" element={<Navigate to="/admin/dashboard" replace />} />
       </Route>
-      <Route path="/journalists/:id" element={<JournalistProfile />} />
-      <Route path="/newsletters/:newsletterId/writer/:journalistId" element={<JournalistNewsletterView />} />
 
       {/* Writer Portal Routes */}
       <Route path="/writer/login" element={<WriterLogin />} />

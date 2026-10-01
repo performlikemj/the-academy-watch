@@ -72,12 +72,12 @@ export function GolChatWindow({
     <div className="flex flex-col flex-1 min-h-0">
       <div
         ref={scrollRef}
-        className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain px-4 py-3"
+        className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain px-6 py-5"
       >
         {messages.length === 0 ? (
           <GolSuggestions onSelect={sendMessage} disabled={accessState !== 'available' || creditsExhausted} />
         ) : (
-          <div className="space-y-4 min-w-0">
+          <div className="space-y-6 min-w-0">
             {messages.map(msg => (
               <GolMessage key={msg.id} message={msg} expanded={expanded} onPlayerClick={setPreviewPlayerId} />
             ))}
@@ -86,7 +86,7 @@ export function GolChatWindow({
         )}
       </div>
 
-      <div className="border-t px-4 py-3">
+      <div className="border-t border-hairline-dark px-6 py-4">
         {messages.length > 0 && (
           <>
             <div className="flex justify-end gap-1 mb-2">
@@ -134,19 +134,19 @@ export function GolChatWindow({
           </>
         )}
         {accessState === 'signed_out' ? (
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-muted/35 px-4 py-3">
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-[10px] border border-hairline-dark px-4 py-3">
             <div>
               <p className="text-sm font-semibold text-foreground">Sign in to ask GOL</p>
               <p className="mt-0.5 text-xs text-muted-foreground">Your suggestions will be waiting when you return.</p>
             </div>
-            <Button size="sm" onClick={onSignIn}>
+            <Button size="sm" variant="on-dark" onClick={onSignIn}>
               <LogIn className="mr-1.5 h-4 w-4" />
               Sign in
             </Button>
           </div>
         ) : creditsExhausted ? (
           <div className="space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-300/70 bg-amber-50/70 px-4 py-3 text-amber-950">
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-[10px] border border-amber-300/70 bg-amber-50/70 px-4 py-3 text-amber-950">
               <div className="flex min-w-0 items-start gap-2.5">
                 <CircleDollarSign className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
                 <div>
@@ -171,7 +171,7 @@ export function GolChatWindow({
           <div className="space-y-2">
             {creditUiLit && freeQuestionsRemaining !== null && creditBalance !== null ? (
               <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground" aria-live="polite">
-                <span className="font-medium tabular-nums text-foreground/75">
+                <span className="rounded-full border border-gold/50 px-3 py-1 font-mono text-[11px] uppercase tracking-[0.12em] tabular-nums text-gold">
                   {freeQuestionsRemaining > 0
                     ? `${freeQuestionsRemaining} free question${freeQuestionsRemaining === 1 ? '' : 's'} left`
                     : `Credits: ${creditBalance}`}

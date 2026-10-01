@@ -1,0 +1,35 @@
+# Phase 2 A1 foundation
+
+- Goal: transactional notification outbox, append-only admin audit, canonical new-public adult rule, reversible club publication hold.
+- Branch: p2/a1-foundation; PR #1110 https://github.com/performlikemj/the-academy-watch/pull/1110.
+- Migration: p2a1 → fl01; RLS on notification_outbox/admin_action_events; guarded schema-only external p2a1_preapply.sql does not stamp.
+- Flag: P2_FOUNDATION_ENABLED defaults OFF for new admin mutations/enqueue/dispatch. Existing emergency holds and privacy export/erasure survive OFF.
+- Constraints: no A2 registry/home/club guard/access edits; RA1 explicitly authorizes minimal existing public hold checks; legacy age policy and individual suppression rows unchanged; no child PII/credentials in queue.
+- Status: complete; foundation and fix rounds 1/2/3 verified.
+- Done: all ten RA1 findings fixed; contracts posted to A2/orchestrator on BUS, documented in docs/p2-foundation.md and AGENTS.md.
+- Now: deliver fix round 3 through PR #1110 and request @codex review.
+- Next: orchestrator review/A2 integration, preapply/stamp/deploy with flag OFF; MJ decides activation. Retain A2 p2a2 head values in four shared migration-head assertion files when combining.
+- Original delivery: code 44e412e8, ledger a5940bb2; 3179 pytest passed/40 skipped; PostgreSQL concurrent dedupe/worker and real HTTP checks passed.
+- RA1 worker: savepoint callback isolation; claim/commit sending lease/token, provider outside DB locks/transaction, fresh tombstone recheck/finalize; expiry reclaims stuck rows and fences late workers. Unknown templates retry then fail after five attempts. All per-row callback/provider failures continue the batch.
+- RA1 payload/erasure: *_id integer/UUID only; other strings per-template enums. Referenced account convention entity_type=user_account/entity_id=uid; erasure removes pending/retry/sending subject intents to other recipients; templates cancel tombstoned/missing subjects. Empty foundation deletion counts omitted.
+- RA1 publication: local-only console-local-club-ID and single-hop merged clubs covered; existing public player/local/showcase/media/share/search/query surfaces enforce holds independently of rollout. Suppression stays separate.
+- RA1 adult queries: batched source IN queries and one hold query; max/default100 candidates, after keyset cursor, Query option p2_adult_next_cursor; eight SQL queries including final positive page for both one and 100 candidates.
+- RA1 audit: BEFORE TRUNCATE trigger; erasure form allowed only before initial redaction; downgrade refuses retained history/intents.
+- RA1 gates: Ruff check/format check all 532 backend files pass; Python 3.11 compile pass; full backend pytest 3205 passed/40 skipped/115 warnings in 224.95s, including all seven opt-in PostgreSQL regressions. Focused foundation 59/59 (52 SQLite + seven PostgreSQL). Frontend untouched.
+- RA1 PostgreSQL: actual main DB_NAME connection verified localhost/aw_p2_a1 using DB_SSLMODE=disable, upgraded ch02→fl01→p2a1; RLS true; generated guarded preapply from migration, applied twice, trigger/function/status constants match exactly. Invalid SQL eligible/render/provider retries with attempts1 while next row sends; lock_timeout test proves account is writable during provider call; tombstone/deletion race never resurrects intents; audit guards pass.
+- Legacy fixture adjustments: partial registry tables gain hold-query columns; hidden-player contact/feedback expectations use existing neutral suppression denials; suspended-club routing checks retained.
+- Limits: at-least-once delivery across crash or lease expiry; erasure can race an already-started send. Templates must register in application startup and must not commit or perform external side effects. Account-only outbox; orchestrator-approved A2 synchronous invitation email exception unchanged.
+- Cleanup: no server/frontend/env copy/dependency install/provider send/production write; own aw_p2_a1 dropped, ports5120/5190 free; worktree retained. Evidence logs under ~/codex-runs/aw-redesign/logs/A1F*; short hand-back A1F.final.md.
+
+- Fix round 2: BUS re-read; new GitHub findings accepted. Restore without_active_suppression to suppression-only; public query predicate explicit. Default decorator keeps original suppression write guards; only declared public GET/HEAD reads consult publication holds.
+- Fix round 2 focused gates: 77 foundation/suppression tests passed (including ten new regressions); API/local owner profile/photo/reel changes work under flag-off hold, strangers denied, public GET/HEAD/media held, actual suppression preserved; default and cursor refresh update held stats/profile and continue to next row. Internal follow resolution also stays suppression-only for pulse maintenance.
+- Fix round 2 full initial: 3206 passed/47 skipped, two failures were round1-only private-contact hold assertions. Restored original private write-routing expectations; hidden-club courtesy-email exclusion retained. Final full rerun passed (below).
+- Fix round 2 final gates: full pytest 3208 passed/47 skipped/115 warnings in193.53s; 47 skips include seven opt-in PostgreSQL regressions (worker/migration unchanged, previously passed). Ruff check/format532 files + Python3.11 compile pass; focused77 pass. No DB/server/frontend/env/provider work in this round; worktree retained. Contracts documented and posted on BUS; requested PR review comment is part of delivery.
+
+- Fix round 3 audit: signed player GETs + positive-only detail reads + local identity/showcase + published media + share/OG/card + indirect tracked journey + sitemap checked; private admin/writer/staff/owner previews excluded. Added public matches opt-in only; shared owner resolver unchanged. Cached sitemap player/program links revalidate current holds on every response, copy-only filter permits immediate lift restoration. Detailed coverage docs/p2-foundation.md; evidence A1F3.public-get-inventory.txt.
+
+- Fix round 3 focused gates: 136 foundation/sitemap/match-entry tests passed; 33 added regressions cover every public player-ID GET (GET/HEAD), both signed namespaces, populated self/club logs and owner CRUD, both rollup paths, tracked journey and fresh/stale sitemap hide/lift. Ruff/format532 files pass. Older mutation-guard review comment replied: discussion_r4149470703; fixed by f79a607c and existing owner regressions still green. Full pytest running.
+
+- Fix round 3 initial full run: 3237 passed/47 skipped; four new sitemap test failures were origin assumptions (`conftest.app` sets PUBLIC_BASE_URL=https://example.com). Tests now explicitly set their origin; no production defect. Full suite rerunning; evidence A1F3.pytest-initial.log.
+
+- Fix round 3 final gates: full pytest 3241 passed/47 skipped/115 warnings in198.95s; Ruff/format532 files and git diff --check pass. Seven opt-in PostgreSQL tests skipped (unchanged worker/migration, prior real-PG run green). Focused136 pass. No frontend/server/DB/env/provider/production work; ports5120/5190 free. Report A1F3.final.md, PR body coverage table and BUS contract updated; no unresolved requested finding.

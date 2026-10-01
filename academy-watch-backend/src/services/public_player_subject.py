@@ -24,6 +24,10 @@ def resolve_public_adult_subject(signed_id) -> PlayerSubject | None:
     ):
         return None
 
+    from src.services.club_publication_hold import subject_publication_held
+
+    if subject_publication_held(signed_id):
+        return None
     subject = resolve_player_subject(signed_id)
     if subject is None or subject.is_suppressed:
         return None

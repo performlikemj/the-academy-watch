@@ -1,12 +1,16 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { PlayerPage } from './PlayerPage';
-import { Network, Users, Film, Send, Settings, ShieldCheck, Plus, LockKeyhole, Search } from 'lucide-react';
+import { Network, Users, Film, Send, Settings, ShieldCheck, Plus, LockKeyhole, Search, CalendarDays, ArrowRight } from 'lucide-react';
+import { ComingSoon } from '@/components/interest/ComingSoon';
 import { APIService } from '@/lib/api';
 import { AddRosterMemberDialog } from '../MyClubConsole';
 import { HomeSettings } from './HomeSettings';
 import { PitchMap, PlayerCard } from './PitchMap';
-import { initials, positionGroup } from './presentation';
+import { initials, positionGroup, countLabel } from './presentation';
+import { clubSurfaceColors } from './club-colors';
+import { StaffAccess } from './StaffAccess';
+import { can, clubViewAllowed } from '@/lib/staff-access';
 import './club-home.css';
 export function ClubHome({
   program,
@@ -17,13 +21,20 @@ export function ClubHome({
   onProgramChange,
   panels,
   statusContent,
-  moderationCount
+  moderationCount,
+  matches = [],
+  matchesLoading = false,
+  matchesError,
+  rosterLoading = false,
+  rosterError,
+  access = null,
+  staffAccessEnabled = false
 }) {
   const [map, setMap] = useState(null);
   const [navigationOpen, setNavigationOpen] = useState(false);
   const [params, setParams] = useSearchParams();
   const playerId = params.get('player');
-  const view = playerId ? 'player' : (params.get('view') || 'map');
+  const requestedView = playerId ? 'player' : (params.get('view') || 'map');
   const [focus, setFocus] = useState(null);
   const [selected, setSelected] = useState(null);
   const [squadMembers, setSquadMembers] = useState([]);
@@ -33,6 +44,11 @@ export function ClubHome({
   const [addOpen, setAddOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const programId = program.id;
+  // access === null: flag off or a claim-verified manager — every control stays exactly as before.
+  const allow = capability => can(access, capability);
+  const wholeClub = !access || access.whole_club !== false;
+  const viewAllowed = clubViewAllowed(access, staffAccessEnabled);
+  const staffScreen = viewAllowed.staff;
   const squads = map?.squads || [];
   const staff = map?.staff || [];
   const club = map?.program || program;
@@ -40,6 +56,7 @@ export function ClubHome({
     primary_color: '#0F3D2E',
     accent_color: '#E3B23C'
   };
+  const view = viewAllowed[requestedView] === false ? 'map' : requestedView;
   const squad = squads.find(s => s.id === focus);
   const lead = staff.find(s => s.id === squad?.lead_staff_id);
   const fail = useCallback(err => {
@@ -103,12 +120,19 @@ export function ClubHome({
   const matchesQuery = value => (value || '').toLowerCase().includes(query.toLowerCase());
   const visibleSquads = squads.filter(s => matchesQuery(s.name) || members.some(m => m.squad_id === s.id && matchesQuery(m.display_name)));
   const settingsViews = ['branding', 'squads', 'staff', 'profile', 'affiliations', 'roster'];
-  const rail = [['Club', Network, 'map'], ['Squads', Users, 'squad'], ['Matches', Film, 'matches'], ['Scouts', Send, 'introductions'], ['Settings', Settings, 'branding']];
-  const activeRail = settingsViews.includes(view) ? 'branding' : view;
+  const settingsTarget = ['branding', 'squads', 'staff', 'roster', 'profile'].find(v => viewAllowed[v]);
+  const rail = [['Today', CalendarDays, 'today'], ['Club', Network, 'map'], ['Squads', Users, 'squad'], ['Matches', Film, 'matches'], ['Recruiting', Users, 'recruiting'], ['Scouts', Send, 'introductions'], ['Settings', Settings, settingsTarget || 'branding']].filter(([label, , target]) => label === 'Settings' ? Boolean(settingsTarget) : viewAllowed[target] !== false);
+  const activeRail = settingsViews.includes(view) ? (settingsTarget || 'branding') : view;
   const effectiveMembers = squadMembers.filter(m => m.available && matchesQuery(m.display_name));
+  const tasks = [
+    ...(!rosterLoading && !rosterError && map && allow('players.manage') ? [{ count: map.unassigned_count || 0, title: 'Give every player a squad', detail: 'Players waiting for a place in your club pathway.', target: 'squad', unassigned: true }] : []),
+    ...(!matchesLoading && !matchesError && allow('matches.upload') ? [{ count: matches.filter(m => m.status === 'created').length, title: 'Bring the match into Film Room', detail: 'Matches awaiting a footage upload.', target: 'matches' }] : []),
+    { count: moderationCount || 0, title: 'Review club affiliations', detail: 'Players naming your club on their showcase.', target: 'affiliations' },
+  ].filter(task => task.count > 0);
   return <div className="club-home" style={{
     '--club-primary': brand.primary_color,
-    '--club-accent': brand.accent_color
+    '--club-accent': brand.accent_color,
+    ...clubSurfaceColors(brand.primary_color, brand.accent_color)
   }}>
     <nav className="ch-rail" aria-label="Club console">
       <div className="ch-mark">{club.crest_url ? <img src={club.crest_url} alt="" /> : initials(club.name)}</div>
@@ -125,7 +149,7 @@ export function ClubHome({
         <div className="ch-mark">{initials(club.name)}</div>
         <div>
           <strong>{club.name}</strong>
-          <small>{'Verified club · '}{members.length}{' players'}</small>
+          <small>{'Verified club · '}{countLabel(members.length, 'player')}</small>
         </div>
       </div>
       {programOptions.length > 1 && <select aria-label="Switch club program" value={programId} onChange={e => onProgramChange(Number(e.target.value))}>{programOptions.map(p => <option key={p.program.id} value={p.program.id}>{p.program.name}</option>)}</select>}
@@ -134,10 +158,11 @@ export function ClubHome({
         <input aria-label="Search squads and players" placeholder="Find a squad or player…" value={query} onChange={e => setQuery(e.target.value)} />
       </label>
       <div className="ch-eyebrow">Club</div>
+      {rail.filter(([, , target]) => !['map', 'squad'].includes(target)).map(([label, Icon, target]) => <button key={target} className={activeRail === target ? 'active' : ''} aria-current={activeRail === target ? 'page' : undefined} onClick={() => navigate(target)}><Icon size={17} />{label}</button>)}
       <button className={view === 'map' ? 'active' : ''} onClick={() => navigate('map')}>
         <Network size={17} />{' Club map'}</button>
-      <button onClick={() => navigate('staff')}>
-        <Users size={17} />{' Staff'}</button>
+      {staffScreen && <button onClick={() => navigate('staff')}>
+        <Users size={17} />{staffAccessEnabled ? ' Staff & access' : ' Staff'}</button>}
       <div className="ch-eyebrow">Squads</div>
       {visibleSquads.map(s => <button key={s.id} className={view === 'squad' && focus === s.id ? 'active' : ''} onClick={() => openSquad(s.id)}>
         <span>
@@ -146,10 +171,10 @@ export function ClubHome({
         </span>
         <span className="ch-count">{s.member_count}</span>
       </button>)}
-      <button onClick={() => openSquad('none')}>{'Unassigned '}<span className="ch-count">{map?.unassigned_count || 0}</span>
-      </button>
-      <button onClick={() => navigate('squads')}>
-        <Plus size={17} />{' Add squad'}</button>
+      {wholeClub && <button onClick={() => openSquad('none')}>{'Unassigned '}<span className="ch-count">{map?.unassigned_count || 0}</span>
+      </button>}
+      {allow('players.manage') && <button onClick={() => navigate('squads')}>
+        <Plus size={17} />{' Add squad'}</button>}
       {query && members.filter(m => m.available && matchesQuery(m.display_name)).slice(0, 12).map(m => <button key={m.id} onClick={() => {
         setFocus(m.squad_id || 'none');
         openPlayer(m.id);
@@ -167,32 +192,43 @@ export function ClubHome({
         backgroundImage: `linear-gradient(#00000033, #00000033), linear-gradient(color-mix(in srgb, var(--club-primary) 88%, transparent), color-mix(in srgb, var(--club-primary) 88%, transparent)), url("${brand.banner_url}")`
       } : undefined}>
         <div className="ch-crest">{club.crest_url ? <img src={club.crest_url} alt={`${club.name} crest`} /> : initials(club.name)}</div>
-        <div>
+        <div className="ch-banner-title">
           <div className="ch-verified">
             <ShieldCheck size={15} />{' YOUR CLUB HOME'}</div>
           <h1>{club.name}</h1>
           <p>
-            {squads.length}{' squads · '}{members.length}{' players · One club'}</p>
+            {countLabel(squads.length, 'squad')}{' · '}{countLabel(members.length, 'player')}{' · One club'}</p>
         </div>
-        <button className="ch-banner-edit" onClick={() => navigate('branding')}>Edit branding</button>
+        {allow('branding') && <button className="ch-banner-edit" onClick={() => navigate('branding')}>Edit branding</button>}
       </header>}
       {statusContent}
-      {view === 'player' && <PlayerPage key={`${programId}:${playerId}`} program={club} memberId={playerId} squads={squads} members={members} onReload={onReload} onAccessDenied={onAccessDenied} onClub={() => navigate('map')} onSquad={openSquad} onScouts={() => navigate('introductions')} />}
+      {view === 'player' && <PlayerPage key={`${programId}:${playerId}`} access={access} program={club} memberId={playerId} squads={squads} members={members} onReload={onReload} onAccessDenied={onAccessDenied} onClub={() => navigate('map')} onSquad={openSquad} onScouts={() => navigate('introductions')} />}
       <div className="ch-content">
         {error && <p className="ch-error" role="alert">{error}</p>}
+        {view === 'today' && <>
+          <div className="ch-heading"><div><p className="eyebrow">Your private workspace</p><h2>The club, today.</h2><p>A little attention. A stronger pathway.</p></div></div>
+          <div className="ch-today-grid">
+            <section aria-labelledby="ch-today-tasks"><div className="ch-section-heading"><h2 id="ch-today-tasks">Needs you today</h2><small>{tasks.length} {tasks.length === 1 ? 'thing' : 'things'}</small></div>
+              {tasks.map(task => <button key={task.target} className="ch-task rule-row" onClick={() => { if (task.unassigned) setFocus('none'); navigate(task.target); }}><span className="ch-task-number">{task.count}</span><span><strong>{task.title}</strong><small>{task.detail}</small></span><ArrowRight size={19} /></button>)}
+              {tasks.length === 0 && <p className="ch-player-empty">{matchesError || rosterError || error ? 'Some club information could not be checked. Open the relevant section to retry.' : matchesLoading || rosterLoading || !map ? 'Checking your club workspace…' : 'Nothing in the loaded club information needs your attention. Your squads and Film Room are ready when you are.'}</p>}
+            </section>
+            <aside><p className="eyebrow">Your club</p><div className="ch-today-stats"><span>{members.length}<small>{members.length === 1 ? 'Player' : 'Players'}</small></span><span>{squads.length}<small>{squads.length === 1 ? 'Squad' : 'Squads'}</small></span></div><p className="ch-privacy"><LockKeyhole size={17} />Player identities and footage stay within their existing privacy rules.</p><button className="ch-btn dark" onClick={() => navigate('map')}>Open club map <ArrowRight size={16} /></button></aside>
+          </div>
+        </>}
+        {view === 'recruiting' && <ComingSoon feature="recruiting" role="club" image="/media/club-match.webp" title="The next player. The right place." lede="Trials and applications will have a home here. Join the list to hear when recruiting opens." bullets={['Share the opportunities your club is ready to offer.', 'Keep applications and next steps together.', 'Build a clearer path into your squads.']} />}
         {view === 'map' && <>
           <div className="ch-heading">
             <div>
               <h2>Club map</h2>
               <p>Your people. Your pathway. Your club.</p>
             </div>
-            <button className="ch-btn" onClick={() => navigate('staff')}>Manage staff</button>
+            {staffScreen && <button className="ch-btn" onClick={() => navigate('staff')}>Manage staff</button>}
           </div>
           <div className="ch-pills">
             <button aria-pressed={focus === null} onClick={() => setFocus(null)}>Whole club</button>
             {squads.map(s => <button key={s.id} aria-pressed={focus === s.id} onClick={() => setFocus(s.id)}>{s.name}</button>)}
           </div>
-          <PitchMap program={club} squads={squads} staff={staff} focus={focus} members={effectiveMembers} selected={selected} onSelect={setSelected} onOpenPlayer={openPlayer} onFocus={setFocus} onOpenSquad={openSquad} onStaff={() => navigate('staff')} onTemplate={() => mutate('squads/template', 'POST', {})} busy={busy} loading={loading} />
+          <PitchMap staffAccessEnabled={staffAccessEnabled} program={club} squads={squads} staff={staff} focus={focus} members={effectiveMembers} selected={selected} onSelect={setSelected} onOpenPlayer={openPlayer} onFocus={setFocus} onOpenSquad={openSquad} onStaff={staffScreen ? () => navigate('staff') : null} onTemplate={allow('players.manage') ? () => mutate('squads/template', 'POST', {}) : null} busy={busy} loading={loading} />
         </>}
         {view === 'squad' && <>
           <div className="ch-squad-header">
@@ -203,17 +239,17 @@ export function ClubHome({
               <div>
                 <h2>{squad?.name || 'Unassigned'}</h2>
                 <p>
-                  {squadMembers.length}{' players'}{lead ? ` · ${lead.display_name}, ${lead.title}` : ''}
+                  {countLabel(squadMembers.length, 'player')}{lead ? ` · ${lead.display_name}, ${lead.title}` : ''}
                 </p>
               </div>
-              <button className="ch-btn accent" onClick={() => setAddOpen(true)}>
-                <Plus size={16} />{' Add player'}</button>
+              {allow('players.manage') && <button className="ch-btn accent" onClick={() => setAddOpen(true)}>
+                <Plus size={16} />{' Add player'}</button>}
             </div>
           </div>
           <div className="ch-tabs">
             <button aria-current="page">Players</button>
             <button onClick={() => navigate('matches')}>Matches</button>
-            <button onClick={() => navigate('roster')}>Briefs & player management</button>
+            {allow('players.manage') && <button onClick={() => navigate('roster')}>Briefs & player management</button>}
           </div>
           {effectiveMembers.length > 0 && effectiveMembers.every(m => m.is_minor) && <p className="ch-privacy">
             <LockKeyhole size={17} />
@@ -221,21 +257,22 @@ export function ClubHome({
           </p>}
           {loading ? <p role="status">Loading players…</p> : effectiveMembers.length === 0 ? <div className="ch-empty">
             <h3>A place for your next team</h3>
-            <p>Add a player or move someone here from another squad.</p>
-            <button className="ch-btn accent" onClick={() => setAddOpen(true)}>Add player</button>
+            <p>{allow('players.manage') ? 'Add a player or move someone here from another squad.' : 'No players in this squad yet.'}</p>
+            {allow('players.manage') && <button className="ch-btn accent" onClick={() => setAddOpen(true)}>Add player</button>}
           </div> : ['Goalkeepers', 'Defenders', 'Midfielders', 'Forwards', 'Other'].map(group => {
             const players = effectiveMembers.filter(m => positionGroup(m.position) === group);
             return players.length > 0 && <section className="ch-position" key={group}>
             <h3>
               {group}{' · '}{players.length}
             </h3>
-            <div className="ch-player-grid">{players.map(m => <PlayerCard key={m.id} onOpen={() => openPlayer(m.id)} member={m} squads={squads} onSave={data => mutate(`roster/${m.id}`, 'PATCH', data)} />)}</div>
+            <div className="ch-player-grid">{players.map(m => <PlayerCard key={m.id} onOpen={() => openPlayer(m.id)} member={m} squads={squads} onSave={allow('players.manage') ? data => mutate(`roster/${m.id}`, 'PATCH', data) : null} />)}</div>
           </section>;
           })}
         </>}
-        {settingsViews.includes(view) && <div className="ch-settings-nav">{[['branding', 'Branding'], ['squads', 'Squads & age groups'], ['staff', 'Staff & roles'], ['roster', 'Roster & briefs'], ['profile', 'Club profile'], ['affiliations', `Affiliations${moderationCount ? ` (${moderationCount})` : ''}`]].map(([key, label]) => <button aria-current={view === key ? 'page' : undefined} key={key} onClick={() => navigate(key)}>{label}</button>)}</div>}
-        {['branding', 'squads', 'staff'].includes(view) && <HomeSettings key={`${view}:${programId}`} view={view} program={club} squads={squads} staff={staff} mutate={mutate} refresh={refresh} onAccessDenied={onAccessDenied} />}
-        {panels[view]}
+        {settingsViews.includes(view) && <div className="ch-settings-nav">{[['branding', 'Branding'], ['squads', 'Squads & age groups'], ['staff', staffAccessEnabled ? 'Staff & access' : 'Staff & roles'], ['roster', 'Roster & briefs'], ['profile', 'Club profile'], ['affiliations', `Affiliations${moderationCount ? ` (${moderationCount})` : ''}`]].filter(([key]) => viewAllowed[key]).map(([key, label]) => <button aria-current={view === key ? 'page' : undefined} key={key} onClick={() => navigate(key)}>{label}</button>)}</div>}
+        {view === 'staff' && staffAccessEnabled && allow('access.view') && <StaffAccess key={`access:${programId}`} programId={programId} squads={squads} access={access} onAccessDenied={onAccessDenied} />}
+        {['branding', 'squads', 'staff'].includes(view) && (view !== 'staff' || allow('staff.directory')) && <HomeSettings key={`${view}:${programId}`} staffAccessEnabled={staffAccessEnabled} view={view} program={club} squads={squads} staff={staff} mutate={mutate} refresh={refresh} onAccessDenied={onAccessDenied} />}
+        {viewAllowed[view] !== false && panels[view]}
       </div>
     </main>
     {addOpen && <AddRosterMemberDialog open onOpenChange={setAddOpen} programId={programId} squads={squads} defaultSquad={focus === 'none' ? null : focus} onAdded={onReload} onAccessDenied={onAccessDenied} />}

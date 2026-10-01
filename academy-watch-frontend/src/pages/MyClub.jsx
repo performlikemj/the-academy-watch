@@ -1,3 +1,4 @@
+import '@/styles/floodlight-player.css'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import {
@@ -32,25 +33,26 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { VerificationCode, VerificationInstructions } from '@/components/showcase/VerificationCode'
 import { MyClubConsole } from '@/pages/MyClubConsole'
+import { useClubStaffAccess } from '@/hooks/useClubStaffAccess'
 
 const EMPTY_CLUB_RESULTS = { api_teams: [], local_clubs: [] }
 
 const CLAIM_STATUS = {
-  pending: { label: 'Pending', className: 'bg-amber-50 text-amber-800 border-amber-200' },
-  approved: { label: 'Approved', className: 'bg-emerald-50 text-emerald-800 border-emerald-200' },
-  rejected: { label: 'Rejected', className: 'bg-rose-50 text-rose-800 border-rose-200' },
-  revoked: { label: 'Revoked', className: 'bg-stone-100 text-stone-700 border-stone-200' },
+  pending: { label: 'Pending', className: 'bg-warn/5 text-gold-text border-warn/30' },
+  approved: { label: 'Approved', className: 'bg-good/5 text-good border-good/30' },
+  rejected: { label: 'Rejected', className: 'bg-danger/5 text-danger border-danger/30' },
+  revoked: { label: 'Revoked', className: 'bg-chalk-2 text-muted-foreground border-hairline' },
 }
 
 const VERIFICATION_STATUS = {
-  unverified: { label: 'Unverified', className: 'bg-amber-50 text-amber-800 border-amber-200' },
-  code_found: { label: 'Code detected', className: 'bg-emerald-50 text-emerald-800 border-emerald-300' },
-  code_not_found: { label: 'Code not found', className: 'bg-rose-50 text-rose-800 border-rose-200' },
+  unverified: { label: 'Unverified', className: 'bg-warn/5 text-gold-text border-warn/30' },
+  code_found: { label: 'Code detected', className: 'bg-good/5 text-good border-good/30' },
+  code_not_found: { label: 'Code not found', className: 'bg-danger/5 text-danger border-danger/30' },
 }
 
 const AFFILIATION_STATUS = {
-  pending: { label: 'Pending review', className: 'bg-amber-50 text-amber-800 border-amber-200' },
-  self_reported: { label: 'Self-reported', className: 'bg-sky-50 text-sky-800 border-sky-200' },
+  pending: { label: 'Pending review', className: 'bg-warn/5 text-gold-text border-warn/30' },
+  self_reported: { label: 'Self-reported', className: 'bg-chalk-2 text-muted-foreground border-hairline' },
 }
 
 const RELATIONSHIP_LABELS = {
@@ -68,7 +70,7 @@ function formatDate(value) {
 }
 
 function StatusBadge({ status, styles }) {
-  const badge = styles[status] || { label: status || 'Unknown', className: 'bg-stone-100 text-stone-700 border-stone-200' }
+  const badge = styles[status] || { label: status || 'Unknown', className: 'bg-chalk-2 text-muted-foreground border-hairline' }
   return <Badge className={badge.className}>{badge.label}</Badge>
 }
 
@@ -78,7 +80,7 @@ function VerificationBadge({ status }) {
 
 function SignedOutState({ onSignIn }) {
   return (
-    <div className="min-h-screen bg-gradient-to-b from-secondary to-background">
+    <div className="fl-club-entry min-h-screen bg-chalk">
       <div className="mx-auto flex max-w-7xl items-center justify-center px-4 py-24 sm:px-6 lg:px-8">
         <Card className="w-full max-w-md overflow-hidden border-border/80">
           <CardContent className="flex flex-col items-center gap-4 px-8 py-12 text-center">
@@ -126,7 +128,7 @@ function ClubModerationWorkspace({
               <p className="mt-1 text-sm text-muted-foreground">Your role: {clubEntry.claim.role_title}</p>
             ) : null}
           </div>
-          <Badge className="border-emerald-200 bg-emerald-50 text-emerald-800">
+          <Badge className="border-good/30 bg-good/5 text-good">
             <ShieldCheck className="mr-1 h-3.5 w-3.5" />
             Verified official
           </Badge>
@@ -178,7 +180,7 @@ function ClubModerationWorkspace({
                             <Button
                               size="sm"
                               variant="outline"
-                              className="border-rose-600 text-rose-600 hover:bg-rose-50"
+                              className="border-danger/30 text-danger hover:bg-danger/5"
                               disabled={Boolean(actingAffiliationId)}
                               onClick={() => onReviewAffiliation(affiliation, 'reject')}
                             >
@@ -188,7 +190,7 @@ function ClubModerationWorkspace({
                             <Button
                               size="sm"
                               variant="outline"
-                              className="border-emerald-600 text-emerald-700 hover:bg-emerald-50"
+                              className="border-good/30 text-good hover:bg-good/5"
                               disabled={Boolean(actingAffiliationId)}
                               onClick={() => onReviewAffiliation(affiliation, 'confirm')}
                             >
@@ -398,16 +400,37 @@ function AuthenticatedMyClub() {
     && Number(programClaim.program.id) > 0
   )), [programClaims])
 
+  // Club staff access (dark): invited staff have no club claim, so their clubs come from their access grants.
+  const staffFlag = useClubStaffAccess()
+  const [staffPrograms, setStaffPrograms] = useState([])
+  useEffect(() => {
+    if (!auth?.token || staffFlag !== true) return undefined
+    let cancelled = false
+    const expectedToken = auth.token
+    APIService.request('/me/club-access').then((data) => {
+      if (cancelled || activeTokenRef.current !== expectedToken) return
+      setStaffPrograms((Array.isArray(data?.programs) ? data.programs : [])
+        .filter((row) => Number.isInteger(Number(row?.program?.id)))
+        .map((row) => ({ status: 'approved', program: row.program, staff_access: row.access })))
+    }).catch(() => {})
+    return () => { cancelled = true }
+  }, [auth?.token, staffFlag])
+  const consoleCandidates = useMemo(() => {
+    if (staffPrograms.length === 0) return approvedProgramClaims
+    const claimed = new Set(approvedProgramClaims.map((programClaim) => Number(programClaim.program.id)))
+    return [...approvedProgramClaims, ...staffPrograms.filter((row) => !claimed.has(Number(row.program.id)))]
+  }, [approvedProgramClaims, staffPrograms])
+
   useEffect(() => {
     if (!programClaimsLoaded) return undefined
     let cancelled = false
     const expectedToken = auth?.token
     const timer = setTimeout(async () => {
-      setConsoleEligibility({ pending: approvedProgramClaims.length > 0, allowed: [], deniedProgramIds: [], erroredProgramIds: [] })
+      setConsoleEligibility({ pending: consoleCandidates.length > 0, allowed: [], deniedProgramIds: [], erroredProgramIds: [] })
       const allowed = []
       const deniedProgramIds = []
       const erroredProgramIds = []
-      for (const programClaim of approvedProgramClaims) {
+      for (const programClaim of consoleCandidates) {
         const programId = Number(programClaim.program.id)
         try {
           const roster = await APIService.getClubRoster(programId)
@@ -431,7 +454,7 @@ function AuthenticatedMyClub() {
       cancelled = true
       clearTimeout(timer)
     }
-  }, [approvedProgramClaims, auth?.token, programClaimsLoaded])
+  }, [consoleCandidates, auth?.token, programClaimsLoaded])
 
   useEffect(() => {
     const query = clubSearch.trim()
@@ -706,7 +729,7 @@ function AuthenticatedMyClub() {
     const retryProgramIds = consoleEligibility.erroredProgramIds
     if (!expectedToken || consoleEligibility.pending || retryProgramIds.length === 0) return
     const retryProgramIdSet = new Set(retryProgramIds.map(Number))
-    const retryClaims = approvedProgramClaims.filter((programClaim) => (
+    const retryClaims = consoleCandidates.filter((programClaim) => (
       retryProgramIdSet.has(Number(programClaim.program.id))
     ))
     setConsoleEligibility((current) => ({ ...current, pending: true }))
@@ -733,7 +756,7 @@ function AuthenticatedMyClub() {
       erroredProgramIds,
     }))
     setSelectedProgramId((current) => current ?? allowed[0]?.programClaim?.program?.id ?? null)
-  }, [approvedProgramClaims, auth?.token, consoleEligibility.erroredProgramIds, consoleEligibility.pending])
+  }, [consoleCandidates, auth?.token, consoleEligibility.erroredProgramIds, consoleEligibility.pending])
 
   const pendingAffiliationIds = new Set()
   const vouchableClaimIds = new Set()
@@ -757,13 +780,13 @@ function AuthenticatedMyClub() {
     />
   )
   const statusAlert = message ? (
-    <Alert className={message.type === 'error' ? 'border-rose-500 bg-rose-50' : 'border-emerald-500 bg-emerald-50'}>
+    <Alert className={message.type === 'error' ? 'border-danger/30 bg-danger/5' : 'border-good/30 bg-good/5'}>
       {message.type === 'error' ? (
-        <AlertCircle className="h-4 w-4 text-rose-600" />
+        <AlertCircle className="h-4 w-4 text-danger" />
       ) : (
-        <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+        <CheckCircle2 className="h-4 w-4 text-good" />
       )}
-      <AlertDescription className={message.type === 'error' ? 'text-rose-800' : 'text-emerald-800'}>
+      <AlertDescription className={message.type === 'error' ? 'text-danger' : 'text-good'}>
         {message.text}
       </AlertDescription>
     </Alert>
@@ -772,7 +795,7 @@ function AuthenticatedMyClub() {
   const activeProgramId = showConsole ? Number(activeConsoleProgram.programClaim.program.id) : null
 
   return (
-    <div className={showConsole ? undefined : 'min-h-screen bg-gradient-to-b from-secondary to-background'}>
+    <div className={showConsole ? undefined : 'fl-club-entry min-h-screen bg-chalk'}>
       {showConsole ? (
         <MyClubConsole
           key={activeProgramId}
@@ -791,11 +814,11 @@ function AuthenticatedMyClub() {
         <div className="mx-auto max-w-7xl space-y-6 px-4 py-8 sm:px-6 lg:px-8">
         <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <p className="mb-2 inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-primary">
+            <p className="eyebrow mb-4 inline-flex items-center gap-2">
               <ShieldCheck className="h-3.5 w-3.5" />
               Club officials
             </p>
-            <h1 className="text-3xl font-bold tracking-tight text-foreground sm:text-4xl">My Club</h1>
+            <h1 className="display text-[56px] sm:text-[72px]">My Club</h1>
             <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground sm:text-base">
               Prove your role, confirm who represents your club and vouch for player identities you know firsthand.
             </p>
@@ -813,13 +836,13 @@ function AuthenticatedMyClub() {
         {statusAlert}
 
         {hasLoadedData && loadedToken === auth.token && !activeConsoleProgram && consoleEligibility.erroredProgramIds.length > 0 ? (
-          <Alert className="border-amber-200 bg-amber-50">
-            <AlertCircle className="h-4 w-4 text-amber-800" />
-            <AlertDescription className="flex flex-wrap items-center gap-1 text-amber-950">
+          <Alert className="border-warn/30 bg-warn/5">
+            <AlertCircle className="h-4 w-4 text-gold-text" />
+            <AlertDescription className="flex flex-wrap items-center gap-1 text-gold-text">
               We couldn&apos;t check your club console access.
               <Button
                 variant="link"
-                className="h-auto p-0 text-amber-950 underline"
+                className="h-auto p-0 text-gold-text underline"
                 onClick={retryConsoleEligibility}
                 disabled={consoleEligibility.pending}
               >
@@ -839,7 +862,7 @@ function AuthenticatedMyClub() {
         ) : !hasLoadedData ? (
           <Card className="border-dashed">
             <CardContent className="flex flex-col items-center gap-3 px-6 py-12 text-center">
-              <AlertCircle className="h-7 w-7 text-rose-600" />
+              <AlertCircle className="h-7 w-7 text-danger" />
               <div>
                 <h2 className="font-semibold text-foreground">We couldn&apos;t load your club workspace</h2>
                 <p className="mt-1 text-sm text-muted-foreground">Try again before making club-management decisions.</p>
@@ -934,7 +957,7 @@ function AuthenticatedMyClub() {
 
           {claimDone ? (
             <div className="space-y-4 py-2">
-              <div className="flex items-center gap-2 text-sm text-emerald-600" role="status" aria-live="polite">
+              <div className="flex items-center gap-2 text-sm text-good" role="status" aria-live="polite">
                 <Check className="h-4 w-4" />
                 Submitted for review
               </div>
@@ -1119,8 +1142,8 @@ function AuthenticatedMyClub() {
           {verifyDone ? (
             <div className="space-y-3 py-2" role="status" aria-live="polite">
               <div className={verifyResult?.verification_status === 'code_found'
-                ? 'flex items-start gap-2 text-sm font-medium text-emerald-700'
-                : 'flex items-start gap-2 text-sm font-medium text-amber-800'}>
+                ? 'flex items-start gap-2 text-sm font-medium text-good'
+                : 'flex items-start gap-2 text-sm font-medium text-gold-text'}>
                 {verifyResult?.verification_status === 'code_found' ? (
                   <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" />
                 ) : (
@@ -1207,9 +1230,9 @@ function AuthenticatedMyClub() {
               Confirm this person&apos;s identity for {vouchTarget?.clubName || 'your club'}.
             </DialogDescription>
           </DialogHeader>
-          <Alert className="border-amber-300 bg-amber-50">
-            <AlertCircle className="h-4 w-4 text-amber-700" />
-            <AlertDescription className="text-amber-900">
+          <Alert className="border-warn/30 bg-warn/5">
+            <AlertCircle className="h-4 w-4 text-gold-text" />
+            <AlertDescription className="text-gold-text">
               Vouching approves this claim immediately. Only vouch for players you know are who they say they are.
             </AlertDescription>
           </Alert>

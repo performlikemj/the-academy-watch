@@ -20,6 +20,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import TeamSelect from '@/components/ui/TeamSelect'
 import { StatusBadge, PlayerCell } from './ScoutPage'
+import { ScoutSurface, ScoutHeader, DeskSectionTitle, deskPillClass } from '@/components/scout/ScoutDesk'
 import {
   ListChecks, Plus, X, Loader2, Search, Trash2, Star, Users, MapPin, Filter, Check,
 } from 'lucide-react'
@@ -688,75 +689,68 @@ export function ListsPage() {
   // Signed out
   if (!auth?.token) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-secondary to-background">
-        <div className="mx-auto flex max-w-7xl items-center justify-center px-4 py-24 sm:px-6 lg:px-8">
-          <Card className="w-full max-w-md overflow-hidden border-border/80">
-            <CardContent className="flex flex-col items-center gap-4 px-8 py-12 text-center">
-              <span className="inline-flex h-14 w-14 items-center justify-center rounded-full bg-primary/10">
-                <ListChecks className="h-6 w-6 text-primary" />
-              </span>
-              <h1 className="text-xl font-bold tracking-tight text-foreground">Sign in to organize your scouting</h1>
-              <p className="text-sm text-muted-foreground">
-                Group who you track into named lists — players, whole club academies, countries, or saved filters.
-              </p>
-              <Button onClick={openLoginModal}>Sign in</Button>
-            </CardContent>
-          </Card>
+      <ScoutSurface>
+        <div className="floodlight-container flex justify-center py-24">
+          <div className="flex w-full max-w-md flex-col items-center gap-5 text-center">
+            <span className="inline-flex h-14 w-14 items-center justify-center rounded-full border border-gold/60">
+              <ListChecks className="h-6 w-6 text-gold" />
+            </span>
+            <h1 className="display text-4xl text-chalk sm:text-5xl">Sign in to organize your scouting</h1>
+            <p className="text-[15px] leading-relaxed text-muted-dark">
+              Group who you track into named lists — players, whole club academies, countries, or saved filters.
+            </p>
+            <Button variant="on-dark" onClick={openLoginModal}>Sign in</Button>
+          </div>
         </div>
-      </div>
+      </ScoutSurface>
     )
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-secondary to-background">
-      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-        {/* Header */}
-        <header className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div>
-            <p className="mb-2 inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-primary">
-              <ListChecks className="h-3.5 w-3.5" />
-              Scout Pro — free during beta
-            </p>
-            <h1 className="text-3xl font-bold tracking-tight text-foreground sm:text-4xl">Your Lists</h1>
-            <p className="mt-2 max-w-2xl text-sm text-muted-foreground sm:text-base">
-              Organize who you track into named lists. Follow players, whole club academies, countries,
-              or a saved search — each list resolves to a live player set.
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2 lg:shrink-0 lg:pt-7">
-            <Button variant="outline" size="sm" asChild>
-              <Link to="/scout/watchlist" className="no-underline hover:no-underline">
-                <Star className="mr-1.5 h-4 w-4" />
-                Watchlist
-              </Link>
-            </Button>
-            <Button size="sm" asChild>
-              <Link to="/scout" className="no-underline hover:no-underline">
-                <Search className="mr-1.5 h-4 w-4" />
-                Find players
-              </Link>
-            </Button>
-          </div>
-        </header>
+    <ScoutSurface>
+      <div className="floodlight-container pb-24">
+        <ScoutHeader
+          eyebrow={<span className="inline-flex items-center gap-2"><ListChecks className="h-3.5 w-3.5" aria-hidden="true" />Lists · Scout Pro — free during beta</span>}
+          title="Your"
+          accent="lists"
+          lede="Organize who you track into named lists. Follow players, whole club academies, countries, or a saved search — each list resolves to a live player set."
+          actions={(
+            <>
+              <Button variant="outline" size="sm" asChild className={deskPillClass}>
+                <Link to="/scout/watchlist" className="no-underline hover:no-underline">
+                  <Star className="mr-1.5 h-4 w-4" />
+                  Watchlist
+                </Link>
+              </Button>
+              <Button size="sm" variant="on-dark" asChild>
+                <Link to="/scout" className="no-underline hover:no-underline">
+                  <Search className="mr-1.5 h-4 w-4" />
+                  Find players
+                </Link>
+              </Button>
+            </>
+          )}
+        />
 
         {error && <p className="mb-4 text-sm text-destructive">{error}</p>}
 
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-          {/* Left: list cards */}
-          <div className="space-y-3 lg:col-span-1">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Lists</h2>
-              {!creating && (
-                <Button variant="outline" size="sm" onClick={() => { setCreating(true); setCreateError(null) }}>
+        <div className="grid grid-cols-1 gap-x-12 gap-y-10 lg:grid-cols-[minmax(0,360px)_minmax(0,1fr)]">
+          {/* Left: list rows */}
+          <div className="flex flex-col gap-3">
+            <DeskSectionTitle
+              title="Lists"
+              count={!loading ? `${lists.length}` : null}
+              action={!creating ? (
+                <Button variant="outline" size="sm" className={deskPillClass} onClick={() => { setCreating(true); setCreateError(null) }}>
                   <Plus className="mr-1.5 h-4 w-4" />
                   New list
                 </Button>
-              )}
-            </div>
+              ) : null}
+            />
 
             {creating && (
-              <Card className="border-border/80">
-                <CardContent className="space-y-2 p-3">
+              <Card className="gap-0 py-0">
+                <CardContent className="space-y-2 p-4">
                   <Input
                     value={newName}
                     onChange={(e) => setNewName(e.target.value)}
@@ -788,8 +782,8 @@ export function ListsPage() {
               lists.map((list) => {
                 const selected = list.id === selectedListId
                 return (
-                  <Card key={list.id} className={`overflow-hidden border-border/80 transition-shadow ${selected ? 'ring-2 ring-primary' : ''}`}>
-                    <CardContent className="p-3">
+                  <div key={list.id} className={`border-b border-hairline-dark transition-colors duration-150 ${selected ? 'bg-chalk/[0.05] shadow-[inset_2px_0_0_var(--color-gold)]' : 'hover:bg-chalk/[0.03]'}`}>
+                    <div className="px-3 py-3.5">
                       <div className="flex items-start justify-between gap-2">
                         <button
                           type="button"
@@ -797,11 +791,11 @@ export function ListsPage() {
                           className="min-w-0 flex-1 text-left"
                         >
                           <span className="flex items-center gap-2">
-                            <span className="truncate text-sm font-semibold text-foreground">{list.name}</span>
+                            <span className="truncate font-serif text-[1.375rem] leading-tight text-chalk">{list.name}</span>
                             {list.is_default && <Badge variant="secondary" className="shrink-0 text-[10px]">Default</Badge>}
                             {list.is_active === false && <Badge variant="outline" className="shrink-0 text-[10px]">Paused</Badge>}
                           </span>
-                          <span className="mt-0.5 block text-xs text-muted-foreground">
+                          <span className="mt-1 block font-mono text-[10.5px] uppercase tracking-[0.14em] text-[#8C9791]">
                             {followCount(list)} {followCount(list) === 1 ? 'follow' : 'follows'}
                           </span>
                         </button>
@@ -839,56 +833,49 @@ export function ListsPage() {
                           )}
                         </div>
                       </div>
-                    </CardContent>
-                  </Card>
+                    </div>
+                  </div>
                 )
               })
             ) : !creating ? (
-              <Card className="border-border/80">
-                <CardContent className="flex flex-col items-center gap-3 px-6 py-10 text-center">
-                  <span className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
-                    <ListChecks className="h-5 w-5 text-primary" />
-                  </span>
-                  <p className="text-sm text-muted-foreground">No lists yet. Create your first list to start following.</p>
-                  <Button size="sm" onClick={() => { setCreating(true); setCreateError(null) }}>
-                    <Plus className="mr-1.5 h-4 w-4" />
-                    New list
-                  </Button>
-                </CardContent>
-              </Card>
+              <div className="flex flex-col items-start gap-4 py-8">
+                <p className="text-[15px] text-muted-dark">No lists yet. Create your first list to start following.</p>
+                <Button size="sm" variant="on-dark" onClick={() => { setCreating(true); setCreateError(null) }}>
+                  <Plus className="mr-1.5 h-4 w-4" />
+                  New list
+                </Button>
+              </div>
             ) : null}
           </div>
 
           {/* Right: selected list detail + resolved preview */}
-          <div className="lg:col-span-2">
+          <div className="min-w-0">
             {!selectedList ? (
-              <Card className="border-border/80">
-                <CardContent className="px-6 py-16 text-center text-sm text-muted-foreground">
-                  {lists.length ? 'Select a list to manage its follows.' : 'Create a list to get started.'}
-                </CardContent>
-              </Card>
+              <div className="border-t border-hairline-dark px-2 py-16 text-[15px] text-muted-dark">
+                {lists.length ? 'Select a list to manage its follows.' : 'Create a list to get started.'}
+              </div>
             ) : (
-              <div className="space-y-6">
+              <div className="space-y-10">
                 {/* Detail header */}
-                <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap items-end justify-between gap-3 border-b border-chalk pb-3">
                   <div>
-                    <h2 className="text-xl font-bold tracking-tight text-foreground">{selectedList.name}</h2>
-                    <p className="text-xs text-muted-foreground">
+                    <h2 className="display text-[2.25rem] leading-none text-chalk sm:text-[2.75rem]">{selectedList.name}</h2>
+                    <p className="mt-2 font-mono text-[10.5px] uppercase tracking-[0.14em] text-[#8C9791]">
                       {followCount(selectedList)} {followCount(selectedList) === 1 ? 'follow' : 'follows'}
                       {selectedList.is_default ? ' · default list' : ''}
                     </p>
                   </div>
-                  <Button size="sm" onClick={() => { setAddError(null); setAddOpen(true) }}>
+                  <Button size="sm" variant="on-dark" onClick={() => { setAddError(null); setAddOpen(true) }}>
                     <Plus className="mr-1.5 h-4 w-4" />
                     Add follow
                   </Button>
                 </div>
 
                 {/* Follows grouped by kind */}
-                <Card className="overflow-hidden border-border/80">
-                  <CardContent className="p-0">
+                <div>
+                  <div>
                     {!(selectedList.follows && selectedList.follows.length) ? (
-                      <p className="px-4 py-8 text-center text-sm text-muted-foreground">
+                      <p className="py-8 text-[15px] text-muted-dark">
                         No follows yet. Use “Add follow” to track players, clubs, countries or a saved search.
                       </p>
                     ) : (
@@ -897,18 +884,18 @@ export function ListsPage() {
                         if (!rows.length) return null
                         const Icon = meta.icon
                         return (
-                          <div key={meta.kind} className="border-b border-border/50 last:border-b-0">
-                            <div className="flex items-center gap-2 bg-secondary/50 px-4 py-2">
-                              <Icon className="h-3.5 w-3.5 text-primary" />
-                              <span className="text-xs font-semibold uppercase tracking-wider text-foreground/70">{meta.title}</span>
+                          <div key={meta.kind} className="pt-5 first:pt-2">
+                            <div className="flex items-center gap-2 pb-2">
+                              <Icon className="h-3.5 w-3.5 text-gold" aria-hidden="true" />
+                              <span className="font-mono text-[10.5px] font-medium uppercase tracking-[0.16em] text-[#8C9791]">{meta.title}</span>
                             </div>
-                            <ul className="divide-y divide-border/40">
+                            <ul className="divide-y divide-hairline-dark border-y border-hairline-dark">
                               {rows.map((follow) => (
-                                <li key={follow.id} className="flex items-center justify-between gap-3 px-4 py-2.5">
+                                <li key={follow.id} className="flex items-center justify-between gap-3 px-1 py-3">
                                   <div className="min-w-0">
-                                    <span className="block truncate text-sm text-foreground">{followLabel(follow)}</span>
+                                    <span className="block truncate text-[15px] text-chalk">{followLabel(follow)}</span>
                                     {follow.note && (
-                                      <span className="block max-w-full truncate text-xs italic text-primary/80" title={follow.note}>
+                                      <span className="block max-w-full truncate font-serif text-[15px] italic text-gold/90" title={follow.note}>
                                         “{follow.note}”
                                       </span>
                                     )}
@@ -929,35 +916,30 @@ export function ListsPage() {
                         )
                       })
                     )}
-                  </CardContent>
-                </Card>
+                  </div>
+                </div>
 
                 {/* Resolved preview */}
                 <div>
-                  <div className="mb-2 flex items-center justify-between">
-                    <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                      Resolved players
-                    </h3>
-                    {preview.total > 0 && (
-                      <span className="text-xs text-muted-foreground tabular-nums">
-                        {preview.players.length} of {preview.total.toLocaleString()}
-                      </span>
-                    )}
-                  </div>
-                  <Card className="overflow-hidden border-border/80">
+                  <DeskSectionTitle
+                    as="h3"
+                    title="Resolved players"
+                    count={preview.total > 0 ? `${preview.players.length} of ${preview.total.toLocaleString()}` : null}
+                  />
+                  <div>
                     {previewError ? (
                       <p className="px-4 py-8 text-center text-sm text-destructive">{previewError}</p>
                     ) : (
-                      <div className="overflow-x-auto">
+                      <div className="relative overflow-x-auto">
                         <table className="w-full min-w-[480px] border-collapse">
                           <thead>
-                            <tr className="border-b border-border/60 bg-secondary/60">
-                              <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Player</th>
-                              <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Status</th>
-                              <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Club</th>
+                            <tr className="border-b border-hairline-dark">
+                              <th className="px-3 py-3 text-left font-mono text-[10.5px] font-medium uppercase tracking-[0.14em] text-[#8C9791]">Player</th>
+                              <th className="px-3 py-3 text-left font-mono text-[10.5px] font-medium uppercase tracking-[0.14em] text-[#8C9791]">Status</th>
+                              <th className="px-3 py-3 text-left font-mono text-[10.5px] font-medium uppercase tracking-[0.14em] text-[#8C9791]">Club</th>
                             </tr>
                           </thead>
-                          <tbody className="divide-y divide-border/40">
+                          <tbody className="divide-y divide-hairline-dark">
                             {previewLoading && !preview.players.length ? (
                               Array.from({ length: 5 }).map((_, i) => (
                                 <tr key={i}><td colSpan={3} className="px-3 py-2.5"><Skeleton className="h-9 w-full" /></td></tr>
@@ -970,7 +952,7 @@ export function ListsPage() {
                                   player_photo: p.photo,
                                 }
                                 return (
-                                  <tr key={`${p.source}-${p.player_api_id}`} className="transition-colors hover:bg-secondary/40">
+                                  <tr key={`${p.source}-${p.player_api_id}`} className="transition-colors duration-150 hover:bg-chalk/[0.035]">
                                     <td className="px-3 py-2.5">
                                       <div className="flex items-center gap-2">
                                         <PlayerCell player={cellPlayer} />
@@ -998,14 +980,14 @@ export function ListsPage() {
                       </div>
                     )}
                     {preview.players.length < preview.total && (
-                      <div className="border-t border-border/60 px-4 py-3 text-center">
-                        <Button variant="outline" size="sm" onClick={loadMorePreview} disabled={previewLoading}>
+                      <div className="border-t border-hairline-dark px-4 py-4 text-center">
+                        <Button variant="outline" size="sm" className={deskPillClass} onClick={loadMorePreview} disabled={previewLoading}>
                           {previewLoading ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : null}
                           Load more
                         </Button>
                       </div>
                     )}
-                  </Card>
+                  </div>
                 </div>
               </div>
             )}
@@ -1020,6 +1002,6 @@ export function ListsPage() {
           addError={addError}
         />
       </div>
-    </div>
+    </ScoutSurface>
   )
 }

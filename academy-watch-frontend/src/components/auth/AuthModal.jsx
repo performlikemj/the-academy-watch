@@ -13,11 +13,13 @@ import {
     DialogDescription,
     DialogFooter,
 } from '@/components/ui/dialog'
+import { AccountAccess } from './AccountAccess'
 import { Loader2, LogOut, AlertCircle, CheckCircle } from 'lucide-react'
 
 export function AuthModal() {
     const { isLoginModalOpen, closeLoginModal, logout } = useAuthUI()
     const auth = useAuth()
+    const [accountAccess, setAccountAccess] = useState(null)
     const [email, setEmail] = useState('')
     const [code, setCode] = useState('')
     const [requestSent, setRequestSent] = useState(false)
@@ -29,6 +31,7 @@ export function AuthModal() {
 
     useEffect(() => {
         if (!isLoginModalOpen) {
+            setAccountAccess(null)
             setEmail('')
             setCode('')
             setRequestSent(false)
@@ -48,6 +51,7 @@ export function AuthModal() {
             setStatus({ type: 'error', message: 'Enter the email you use for The Academy Watch.' })
             return
         }
+        setAccountAccess(null)
         setBusy(true)
         try {
             await APIService.requestLoginCode(trimmed)
@@ -84,6 +88,7 @@ export function AuthModal() {
                 }, 700)
             }
         } catch (error) {
+            setAccountAccess(error?.body?.account_access_token || null)
             setStatus({ type: 'error', message: error?.body?.error || error.message || 'Verification failed. Try again.' })
         } finally {
             setBusy(false)
@@ -113,11 +118,11 @@ export function AuthModal() {
         <Dialog open={isLoginModalOpen} onOpenChange={(open) => { if (!open) closeLoginModal() }}>
             <DialogContent className="max-w-[calc(100vw-2rem)] sm:max-w-md">
                 <DialogHeader>
-                    <DialogTitle className="text-lg">{auth.token ? 'Account' : 'Sign in to The Academy Watch'}</DialogTitle>
+                    <DialogTitle className="text-lg">{auth.token ? 'Account' : accountAccess ? 'Manage your account' : 'Sign in to The Academy Watch'}</DialogTitle>
                     <DialogDescription className="text-sm">
                         {auth.token
                             ? 'Update your display name or sign out of your session.'
-                            : 'We\u2019ll email you a one-time code to finish signing in.'}
+                            : accountAccess ? 'Manage your subscription and data with your verified email.' : 'We\u2019ll email you a one-time code to finish signing in.'}
                     </DialogDescription>
                 </DialogHeader>
 
@@ -162,6 +167,7 @@ export function AuthModal() {
                     </div>
                 ) : (
                     <div className="space-y-5">
+                        {!accountAccess && <>
                         <form className="space-y-4" onSubmit={handleRequest}>
                             <div className="space-y-2">
                                 <Label htmlFor="login-email" className="text-sm font-medium">Email</Label>
@@ -209,6 +215,8 @@ export function AuthModal() {
                             </form>
                         )}
 
+                        </>}
+                        {accountAccess && <AccountAccess token={accountAccess} />}
                         {status && (
                             <Alert className={`border ${status.type === 'error' ? 'border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/50 dark:text-red-400' : 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-400'}`}>
                                 {status.type === 'error' ? <AlertCircle className="h-4 w-4" /> : <CheckCircle className="h-4 w-4" />}
@@ -224,7 +232,7 @@ export function AuthModal() {
                             <LogOut className="mr-2 h-4 w-4" /> Log out
                         </Button>
                     ) : requestSent ? (
-                        <Button variant="ghost" className="h-11 w-full sm:w-auto" onClick={() => { setRequestSent(false); setCode(''); setStatus(null) }}>
+                        <Button variant="ghost" className="h-11 w-full sm:w-auto" onClick={() => { setAccountAccess(null); setRequestSent(false); setCode(''); setStatus(null) }}>
                             Back
                         </Button>
                     ) : <span className="hidden sm:block" />}

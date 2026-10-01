@@ -36,6 +36,7 @@ import {
     Undo2,
     X,
 } from 'lucide-react'
+import { AdminPageHeader } from '@/components/admin/ControlRoom'
 
 const CLUB_STATUS_STYLES = {
     pending: 'bg-amber-50 text-amber-800 border-amber-200',
@@ -925,15 +926,12 @@ export function AdminLocalClubs() {
 
     return (
         <div className="space-y-6">
-            <div className="flex items-center gap-3">
-                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10">
-                    <Landmark className="h-5 w-5 text-primary" />
-                </div>
-                <div>
-                    <h2 className="text-3xl font-bold tracking-tight">Local Clubs</h2>
-                    <p className="text-muted-foreground">Moderate community clubs, player affiliations and club officials</p>
-                </div>
-            </div>
+            <AdminPageHeader
+                eyebrow={<span className="inline-flex items-center gap-2"><Landmark className="h-3.5 w-3.5" aria-hidden="true" />Clubs &amp; people · Clubs</span>}
+                title="Local"
+                accent="clubs"
+                lede="Moderate community clubs, player affiliations and club officials"
+            />
 
             {message && (
                 <Alert className={message.type === 'error' ? 'border-rose-500 bg-rose-50' : 'border-emerald-500 bg-emerald-50'}>

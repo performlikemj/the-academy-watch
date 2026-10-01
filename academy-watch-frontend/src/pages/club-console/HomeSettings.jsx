@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { APIService } from '@/lib/api';
 import { initials } from './presentation';
+import { clubSurfaceColors } from './club-colors';
 const primarySwatches = ['#0F3D2E', '#7A1426', '#0B2A5B', '#1A1A1A', '#B3261E', '#4B2A7B'];
 const accentSwatches = ['#E3B23C', '#F2F2F2', '#7FC8F8', '#F28C28', '#9BE564', '#D4AF7A'];
 export function HomeSettings({
@@ -10,7 +11,8 @@ export function HomeSettings({
   staff,
   mutate,
   refresh,
-  onAccessDenied
+  onAccessDenied,
+  staffAccessEnabled = false
 }) {
   if (view === 'branding') return <Branding program={program} refresh={refresh} onAccessDenied={onAccessDenied} />;
   const isStaff = view === 'staff';
@@ -18,8 +20,8 @@ export function HomeSettings({
   return <section>
     <div className="ch-heading">
       <div>
-        <h2>{isStaff ? 'Staff & roles' : 'Squads & age groups'}</h2>
-        <p>{isStaff ? 'The people who shape your club. Roles do not grant login access.' : 'Build the pathway that fits your club.'}</p>
+        <h2>{isStaff ? (staffAccessEnabled ? 'Staff directory' : 'Staff & roles') : 'Squads & age groups'}</h2>
+        <p>{isStaff ? (staffAccessEnabled ? 'Names and titles for your club map. Entries here don’t give anyone access — use Staff & access above.' : 'The people who shape your club. Roles do not grant login access.') : 'Build the pathway that fits your club.'}</p>
       </div>
     </div>
     <div className="ch-settings-list">
@@ -239,6 +241,7 @@ function Branding({
       <div>
         <h3 className="ch-preview-label">Live preview</h3>
         <div className="ch-brand-preview" style={{
+          ...clubSurfaceColors(colors.primary_color, colors.accent_color),
           '--preview-primary': /^#[0-9a-f]{6}$/i.test(colors.primary_color) ? colors.primary_color : '#0F3D2E',
           '--preview-accent': /^#[0-9a-f]{6}$/i.test(colors.accent_color) ? colors.accent_color : '#E3B23C'
         }}>

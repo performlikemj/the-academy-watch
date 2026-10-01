@@ -1534,16 +1534,14 @@ def create_local_club():
 
 def _club_creation_program():
     """Only an authorized club request receives the program-scoped allowance."""
-    from src.services.club_registry import is_manager_of_approved_program
+    from src.services.club_access import club_can
 
     if "club_creation_program" not in request.environ:
         data = request.get_json(silent=True)
         program_id = data.get("club_program_id") if isinstance(data, dict) else None
         user = _current_user_account()
         request.environ["club_creation_program"] = (
-            program_id
-            if type(program_id) is int and user and is_manager_of_approved_program(user.id, program_id)
-            else None
+            program_id if type(program_id) is int and user and club_can(user.id, program_id, "players.manage") else None
         )
     return request.environ["club_creation_program"]
 
@@ -1565,7 +1563,7 @@ def create_local_player():
     from src.models.funding import ClubProgram
     from src.routes.club import _clean_optional, _member_dict
     from src.routes.club_home import HomeError, assign_roster, check_roster_capacity
-    from src.services.club_registry import is_manager_of_approved_program
+    from src.services.club_access import club_can
 
     try:
         user = _current_user_account()
@@ -1579,7 +1577,7 @@ def create_local_player():
         club_program_id = payload.get("club_program_id")
         roster_member = None
         if "club_program_id" in payload:
-            if type(club_program_id) is not int or not is_manager_of_approved_program(user.id, club_program_id):
+            if type(club_program_id) is not int or not club_can(user.id, club_program_id, "players.manage"):
                 return jsonify({"error": "Club manager access denied"}), 403
             db.session.query(ClubProgram).filter_by(id=club_program_id).with_for_update().one()
             check_roster_capacity(club_program_id)
@@ -1772,7 +1770,15 @@ def _subject_showcase_payload(subject: ShowcaseSubject, *, auth_context=None) ->
     return {"player_api_id": subject.player_api_id, **payload}
 
 
+def _local_player_publication_held(player):
+    from src.services.club_publication_hold import subject_publication_held
+
+    return subject_publication_held(player.api_player_id or -player.id)
+
+
 def _local_player_visible_to_context(player: LocalPlayer, auth_context) -> bool:
+    if _local_player_publication_held(player):
+        return False
     if player.provenance == "club" or _local_player_is_suppressed(player):
         return False
     user = auth_context["user"] if auth_context else None
@@ -1790,7 +1796,9 @@ def get_local_player(lp_id: int):
     """Public local-player identity, with claimant-only pending visibility."""
     try:
         requested = db.session.get(LocalPlayer, lp_id)
-        if requested is not None and _local_player_is_suppressed(requested):
+        if requested is not None and (
+            _local_player_is_suppressed(requested) or _local_player_publication_held(requested)
+        ):
             return jsonify({"error": "local player not found"}), 404
         player, merged_into = _resolved_local_player(lp_id)
         if player is None:
@@ -1815,7 +1823,9 @@ def get_local_player_showcase(lp_id: int):
     """Showcase-only local profile; local subjects never have Film Room evidence."""
     try:
         requested = db.session.get(LocalPlayer, lp_id)
-        if requested is not None and _local_player_is_suppressed(requested):
+        if requested is not None and (
+            _local_player_is_suppressed(requested) or _local_player_publication_held(requested)
+        ):
             return jsonify({"error": "local player not found"}), 404
         player, _ = _resolved_local_player(lp_id)
         if player is None:
@@ -1830,7 +1840,7 @@ def get_local_player_showcase(lp_id: int):
 
 
 @showcase_bp.route("/players/<int(signed=True):player_api_id>/showcase", methods=["GET"])
-@hide_suppressed_player("player_api_id")
+@hide_suppressed_player("player_api_id", public_read=True)
 def get_player_showcase(player_api_id: int):
     """Showcase payload: approved profile + reel + verified footage + claim status.
 

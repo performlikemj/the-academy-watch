@@ -1,0 +1,2044 @@
+{
+  "GET /api/club/1/available-local-players a": {
+    "body": {
+      "players": []
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 200
+  },
+  "GET /api/club/1/available-local-players anonymous": {
+    "body": {
+      "error": "missing auth token"
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 401
+  },
+  "GET /api/club/1/available-local-players b": {
+    "body": {
+      "error": "Club manager access denied"
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "GET /api/club/1/available-local-players pending": {
+    "body": {
+      "error": "Club manager access denied"
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "GET /api/club/1/invitations a": {
+    "body": {
+      "invitations": [],
+      "next_before": null
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": "private, no-store",
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 200
+  },
+  "GET /api/club/1/invitations anonymous": {
+    "body": {
+      "error": "missing auth token"
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": "private, no-store",
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 401
+  },
+  "GET /api/club/1/invitations b": {
+    "body": {
+      "error": "Club manager access denied"
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": "private, no-store",
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "GET /api/club/1/invitations pending": {
+    "body": {
+      "error": "Club manager access denied"
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": "private, no-store",
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "GET /api/club/1/map a": {
+    "body": {
+      "program": {
+        "brand": {
+          "accent_color": "#E3B23C",
+          "banner_url": null,
+          "primary_color": "#0F3D2E"
+        },
+        "crest_url": null,
+        "id": 1,
+        "name": "Club A"
+      },
+      "squads": [
+        {
+          "age_limit": null,
+          "created_at": "<timestamp>",
+          "id": 1,
+          "kind": "other",
+          "lead_staff_id": null,
+          "member_count": 0,
+          "name": "Parity squad",
+          "program_id": 1,
+          "sort_order": 0,
+          "updated_at": "<timestamp>"
+        }
+      ],
+      "staff": [],
+      "unassigned_count": 1
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 200
+  },
+  "GET /api/club/1/map anonymous": {
+    "body": {
+      "error": "missing auth token"
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 401
+  },
+  "GET /api/club/1/map b": {
+    "body": {
+      "error": "Club manager access denied"
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "GET /api/club/1/map pending": {
+    "body": {
+      "error": "Club manager access denied"
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "GET /api/club/1/matches a": {
+    "body": {
+      "matches": [
+        {
+          "blob_path": "matches/1/<blob-uuid>.mp4",
+          "capture_meta": null,
+          "club_program_id": 1,
+          "competition": null,
+          "created_at": "<timestamp>",
+          "duration_s": null,
+          "expires_at": null,
+          "finalized_at": null,
+          "halftime_s": null,
+          "id": 1,
+          "job": null,
+          "kickoff_s": null,
+          "match_date": "2026-09-01",
+          "opponent_kit_color": null,
+          "opponent_name": "Parity FC",
+          "our_kit_color": null,
+          "our_team_cluster": null,
+          "processing_request_status": null,
+          "processing_requested_at": null,
+          "quality_flags": null,
+          "quality_score": null,
+          "second_half_kickoff_s": null,
+          "status": "created",
+          "team_id": 1,
+          "uploaded_at": null
+        }
+      ],
+      "total": 1
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 200
+  },
+  "GET /api/club/1/matches anonymous": {
+    "body": {
+      "error": "missing auth token"
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 401
+  },
+  "GET /api/club/1/matches b": {
+    "body": {
+      "error": "Club manager access denied"
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "GET /api/club/1/matches pending": {
+    "body": {
+      "error": "Club manager access denied"
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "GET /api/club/1/matches/1 a": {
+    "body": {
+      "blob_path": "matches/1/<blob-uuid>.mp4",
+      "capture_meta": null,
+      "club_program_id": 1,
+      "competition": null,
+      "created_at": "<timestamp>",
+      "duration_s": null,
+      "expires_at": null,
+      "finalized_at": null,
+      "halftime_s": null,
+      "id": 1,
+      "job": null,
+      "kickoff_s": null,
+      "match_date": "2026-09-01",
+      "opponent_kit_color": null,
+      "opponent_name": "Parity FC",
+      "our_kit_color": null,
+      "our_team_cluster": null,
+      "processing_request_status": null,
+      "processing_requested_at": null,
+      "quality_flags": null,
+      "quality_score": null,
+      "roster": [
+        {
+          "club_roster_member_id": 1,
+          "id": 1,
+          "jersey_number": 7,
+          "player_name": "Known Academy Player",
+          "position": "Midfielder",
+          "tracked_player_id": 1,
+          "video_match_id": 1
+        }
+      ],
+      "second_half_kickoff_s": null,
+      "status": "created",
+      "team_id": 1,
+      "uploaded_at": null
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 200
+  },
+  "GET /api/club/1/matches/1 anonymous": {
+    "body": {
+      "error": "missing auth token"
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 401
+  },
+  "GET /api/club/1/matches/1 b": {
+    "body": {
+      "error": "Club manager access denied"
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "GET /api/club/1/matches/1 pending": {
+    "body": {
+      "error": "Club manager access denied"
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "GET /api/club/1/matches/1/media-token a": {
+    "body": {
+      "expires_in": 1800,
+      "token": "<signed-token>"
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 200
+  },
+  "GET /api/club/1/matches/1/media-token anonymous": {
+    "body": {
+      "error": "missing auth token"
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 401
+  },
+  "GET /api/club/1/matches/1/media-token b": {
+    "body": {
+      "error": "Club manager access denied"
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "GET /api/club/1/matches/1/media-token pending": {
+    "body": {
+      "error": "Club manager access denied"
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "GET /api/club/1/matches/1/reel a": {
+    "body": {
+      "players": [],
+      "team_overview": {
+        "clusters": [],
+        "qwen_analysis_present": false
+      },
+      "unassigned": {
+        "count": 0,
+        "visible_s": 0
+      }
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 200
+  },
+  "GET /api/club/1/matches/1/reel anonymous": {
+    "body": {
+      "error": "missing auth token"
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 401
+  },
+  "GET /api/club/1/matches/1/reel b": {
+    "body": {
+      "error": "Club manager access denied"
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "GET /api/club/1/matches/1/reel pending": {
+    "body": {
+      "error": "Club manager access denied"
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "GET /api/club/1/matches/1/report a": {
+    "body": {
+      "error": "Report is not finalized"
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 409
+  },
+  "GET /api/club/1/matches/1/report anonymous": {
+    "body": {
+      "error": "missing auth token"
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 401
+  },
+  "GET /api/club/1/matches/1/report b": {
+    "body": {
+      "error": "Club manager access denied"
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "GET /api/club/1/matches/1/report pending": {
+    "body": {
+      "error": "Club manager access denied"
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "GET /api/club/1/player-feedback a": {
+    "body": {
+      "feedback": [],
+      "next_before": null
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": "private, no-store",
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 200
+  },
+  "GET /api/club/1/player-feedback anonymous": {
+    "body": {
+      "error": "missing auth token"
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": "private, no-store",
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 401
+  },
+  "GET /api/club/1/player-feedback b": {
+    "body": {
+      "error": "Club manager access denied"
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": "private, no-store",
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "GET /api/club/1/player-feedback pending": {
+    "body": {
+      "error": "Club manager access denied"
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": "private, no-store",
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "GET /api/club/1/player-feedback/11111111-1111-4111-8111-111111111111 a": {
+    "body": {
+      "error": "feedback_not_found"
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": "private, no-store",
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 404
+  },
+  "GET /api/club/1/player-feedback/11111111-1111-4111-8111-111111111111 anonymous": {
+    "body": {
+      "error": "missing auth token"
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": "private, no-store",
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 401
+  },
+  "GET /api/club/1/player-feedback/11111111-1111-4111-8111-111111111111 b": {
+    "body": {
+      "error": "Club manager access denied"
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": "private, no-store",
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "GET /api/club/1/player-feedback/11111111-1111-4111-8111-111111111111 pending": {
+    "body": {
+      "error": "Club manager access denied"
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": "private, no-store",
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "GET /api/club/1/player-feedback/suggestions a": {
+    "body": {
+      "error": "invalid_request"
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": "private, no-store",
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 400
+  },
+  "GET /api/club/1/player-feedback/suggestions anonymous": {
+    "body": {
+      "error": "missing auth token"
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": "private, no-store",
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 401
+  },
+  "GET /api/club/1/player-feedback/suggestions b": {
+    "body": {
+      "error": "Club manager access denied"
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": "private, no-store",
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "GET /api/club/1/player-feedback/suggestions pending": {
+    "body": {
+      "error": "Club manager access denied"
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": "private, no-store",
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "GET /api/club/1/profile a": {
+    "body": {
+      "approved": null,
+      "limits": {
+        "funding_purpose_max": 1000,
+        "list_item_max": 40,
+        "list_items_max": 12,
+        "media_urls_max": 6,
+        "summary_max": 2000,
+        "updates_pending_max": 5
+      },
+      "pending": null,
+      "program": {
+        "id": 1,
+        "name": "Club A",
+        "slug": "club-a-c2"
+      }
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 200
+  },
+  "GET /api/club/1/profile anonymous": {
+    "body": {
+      "error": "missing auth token"
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 401
+  },
+  "GET /api/club/1/profile b": {
+    "body": {
+      "error": "Club manager access denied"
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "GET /api/club/1/profile pending": {
+    "body": {
+      "error": "Club manager access denied"
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "GET /api/club/1/results a": {
+    "body": {
+      "next_before": null,
+      "results": [],
+      "total": 0
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": "private, no-store",
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 200
+  },
+  "GET /api/club/1/results anonymous": {
+    "body": {
+      "error": "missing auth token"
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": "private, no-store",
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 401
+  },
+  "GET /api/club/1/results b": {
+    "body": {
+      "error": "Club manager access denied"
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": "private, no-store",
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "GET /api/club/1/results pending": {
+    "body": {
+      "error": "Club manager access denied"
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": "private, no-store",
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "GET /api/club/1/results/missing a": {
+    "body": {
+      "error": "result_not_found"
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": "private, no-store",
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 404
+  },
+  "GET /api/club/1/results/missing anonymous": {
+    "body": {
+      "error": "missing auth token"
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": "private, no-store",
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 401
+  },
+  "GET /api/club/1/results/missing b": {
+    "body": {
+      "error": "Club manager access denied"
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": "private, no-store",
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "GET /api/club/1/results/missing pending": {
+    "body": {
+      "error": "Club manager access denied"
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": "private, no-store",
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "GET /api/club/1/roster a": {
+    "body": {
+      "count": 1,
+      "members": [
+        {
+          "age": 21,
+          "available": true,
+          "brief": {
+            "body": null,
+            "hash": null,
+            "lines": null,
+            "updated_at": null
+          },
+          "created_at": "<timestamp>",
+          "display_name": "Known Academy Player",
+          "id": 1,
+          "is_minor": false,
+          "local_player_id": null,
+          "note": null,
+          "photo": null,
+          "player_api_id": 7001,
+          "position": "Midfielder",
+          "program_id": 1,
+          "public_stats_allowed": true,
+          "role": null,
+          "shirt_number": null,
+          "squad_id": null,
+          "subject_type": "tracked"
+        }
+      ],
+      "program": {
+        "brand": {
+          "accent_color": "#E3B23C",
+          "banner_url": null,
+          "primary_color": "#0F3D2E"
+        },
+        "crest_url": null,
+        "id": 1,
+        "name": "Club A"
+      },
+      "system_brief": {
+        "body": null,
+        "hash": null,
+        "lines": null,
+        "updated_at": null
+      }
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 200
+  },
+  "GET /api/club/1/roster anonymous": {
+    "body": {
+      "error": "missing auth token"
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 401
+  },
+  "GET /api/club/1/roster b": {
+    "body": {
+      "error": "Club manager access denied"
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "GET /api/club/1/roster pending": {
+    "body": {
+      "error": "Club manager access denied"
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "GET /api/club/1/roster/1/photo a": {
+    "body": {
+      "error": "Media storage is unavailable"
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 503
+  },
+  "GET /api/club/1/roster/1/photo anonymous": {
+    "body": {
+      "error": "missing auth token"
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 401
+  },
+  "GET /api/club/1/roster/1/photo b": {
+    "body": {
+      "error": "Club manager access denied"
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "GET /api/club/1/roster/1/photo pending": {
+    "body": {
+      "error": "Club manager access denied"
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "GET /api/club/1/roster/1/profile a": {
+    "body": {
+      "film": [
+        {
+          "match": {
+            "blob_path": "matches/1/<blob-uuid>.mp4",
+            "capture_meta": null,
+            "club_program_id": 1,
+            "competition": null,
+            "created_at": "<timestamp>",
+            "duration_s": null,
+            "expires_at": null,
+            "finalized_at": null,
+            "halftime_s": null,
+            "id": 1,
+            "kickoff_s": null,
+            "match_date": "2026-09-01",
+            "opponent_kit_color": null,
+            "opponent_name": "Parity FC",
+            "our_kit_color": null,
+            "our_team_cluster": null,
+            "processing_requested_at": null,
+            "quality_flags": null,
+            "quality_score": null,
+            "second_half_kickoff_s": null,
+            "status": "created",
+            "team_id": 1,
+            "uploaded_at": null
+          },
+          "minutes_visible": null,
+          "reel_available": false,
+          "reel_url": null,
+          "report_url": null,
+          "roster_entry_id": 1
+        }
+      ],
+      "identity": {
+        "age": 21,
+        "age_label": "21",
+        "available": true,
+        "brief": {
+          "body": null,
+          "hash": null,
+          "lines": null,
+          "updated_at": null
+        },
+        "claim_status": "unclaimed",
+        "created_at": "<timestamp>",
+        "display_name": "Known Academy Player",
+        "has_club_photo": false,
+        "id": 1,
+        "is_minor": false,
+        "local_player_id": null,
+        "note": null,
+        "photo": null,
+        "player_api_id": 7001,
+        "position": "Midfielder",
+        "program_id": 1,
+        "public_stats_allowed": true,
+        "role": null,
+        "shirt_number": null,
+        "squad": null,
+        "squad_id": null,
+        "subject_type": "tracked"
+      }
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": "private, no-store",
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 200
+  },
+  "GET /api/club/1/roster/1/profile anonymous": {
+    "body": {
+      "error": "missing auth token"
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 401
+  },
+  "GET /api/club/1/roster/1/profile b": {
+    "body": {
+      "error": "Club manager access denied"
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "GET /api/club/1/roster/1/profile pending": {
+    "body": {
+      "error": "Club manager access denied"
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "GET /api/club/1/squads a": {
+    "body": {
+      "squads": [
+        {
+          "age_limit": null,
+          "created_at": "<timestamp>",
+          "id": 1,
+          "kind": "other",
+          "name": "Parity squad",
+          "program_id": 1,
+          "sort_order": 0,
+          "updated_at": "<timestamp>"
+        }
+      ]
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 200
+  },
+  "GET /api/club/1/squads anonymous": {
+    "body": {
+      "error": "missing auth token"
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 401
+  },
+  "GET /api/club/1/squads b": {
+    "body": {
+      "error": "Club manager access denied"
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "GET /api/club/1/squads pending": {
+    "body": {
+      "error": "Club manager access denied"
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "GET /api/club/1/staff a": {
+    "body": {
+      "staff": []
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 200
+  },
+  "GET /api/club/1/staff anonymous": {
+    "body": {
+      "error": "missing auth token"
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 401
+  },
+  "GET /api/club/1/staff b": {
+    "body": {
+      "error": "Club manager access denied"
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "GET /api/club/1/staff pending": {
+    "body": {
+      "error": "Club manager access denied"
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "GET /api/club/1/updates a": {
+    "body": {
+      "updates": []
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 200
+  },
+  "GET /api/club/1/updates anonymous": {
+    "body": {
+      "error": "missing auth token"
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 401
+  },
+  "GET /api/club/1/updates b": {
+    "body": {
+      "error": "Club manager access denied"
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "GET /api/club/1/updates pending": {
+    "body": {
+      "error": "Club manager access denied"
+    },
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "HEAD /api/club/1/available-local-players a": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 200
+  },
+  "HEAD /api/club/1/available-local-players anonymous": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 401
+  },
+  "HEAD /api/club/1/available-local-players b": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "HEAD /api/club/1/available-local-players pending": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "HEAD /api/club/1/invitations a": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": "private, no-store",
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 200
+  },
+  "HEAD /api/club/1/invitations anonymous": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": "private, no-store",
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 401
+  },
+  "HEAD /api/club/1/invitations b": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": "private, no-store",
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "HEAD /api/club/1/invitations pending": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": "private, no-store",
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "HEAD /api/club/1/map a": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 200
+  },
+  "HEAD /api/club/1/map anonymous": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 401
+  },
+  "HEAD /api/club/1/map b": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "HEAD /api/club/1/map pending": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "HEAD /api/club/1/matches a": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 200
+  },
+  "HEAD /api/club/1/matches anonymous": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 401
+  },
+  "HEAD /api/club/1/matches b": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "HEAD /api/club/1/matches pending": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "HEAD /api/club/1/matches/1 a": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 200
+  },
+  "HEAD /api/club/1/matches/1 anonymous": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 401
+  },
+  "HEAD /api/club/1/matches/1 b": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "HEAD /api/club/1/matches/1 pending": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "HEAD /api/club/1/matches/1/media-token a": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 200
+  },
+  "HEAD /api/club/1/matches/1/media-token anonymous": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 401
+  },
+  "HEAD /api/club/1/matches/1/media-token b": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "HEAD /api/club/1/matches/1/media-token pending": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "HEAD /api/club/1/matches/1/reel a": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 200
+  },
+  "HEAD /api/club/1/matches/1/reel anonymous": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 401
+  },
+  "HEAD /api/club/1/matches/1/reel b": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "HEAD /api/club/1/matches/1/reel pending": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "HEAD /api/club/1/matches/1/report a": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 409
+  },
+  "HEAD /api/club/1/matches/1/report anonymous": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 401
+  },
+  "HEAD /api/club/1/matches/1/report b": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "HEAD /api/club/1/matches/1/report pending": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "HEAD /api/club/1/player-feedback a": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": "private, no-store",
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 200
+  },
+  "HEAD /api/club/1/player-feedback anonymous": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": "private, no-store",
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 401
+  },
+  "HEAD /api/club/1/player-feedback b": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": "private, no-store",
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "HEAD /api/club/1/player-feedback pending": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": "private, no-store",
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "HEAD /api/club/1/player-feedback/11111111-1111-4111-8111-111111111111 a": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": "private, no-store",
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 404
+  },
+  "HEAD /api/club/1/player-feedback/11111111-1111-4111-8111-111111111111 anonymous": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": "private, no-store",
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 401
+  },
+  "HEAD /api/club/1/player-feedback/11111111-1111-4111-8111-111111111111 b": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": "private, no-store",
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "HEAD /api/club/1/player-feedback/11111111-1111-4111-8111-111111111111 pending": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": "private, no-store",
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "HEAD /api/club/1/player-feedback/suggestions a": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": "private, no-store",
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 400
+  },
+  "HEAD /api/club/1/player-feedback/suggestions anonymous": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": "private, no-store",
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 401
+  },
+  "HEAD /api/club/1/player-feedback/suggestions b": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": "private, no-store",
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "HEAD /api/club/1/player-feedback/suggestions pending": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": "private, no-store",
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "HEAD /api/club/1/profile a": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 200
+  },
+  "HEAD /api/club/1/profile anonymous": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 401
+  },
+  "HEAD /api/club/1/profile b": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "HEAD /api/club/1/profile pending": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "HEAD /api/club/1/results a": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": "private, no-store",
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 200
+  },
+  "HEAD /api/club/1/results anonymous": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": "private, no-store",
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 401
+  },
+  "HEAD /api/club/1/results b": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": "private, no-store",
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "HEAD /api/club/1/results pending": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": "private, no-store",
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "HEAD /api/club/1/results/missing a": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": "private, no-store",
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 404
+  },
+  "HEAD /api/club/1/results/missing anonymous": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": "private, no-store",
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 401
+  },
+  "HEAD /api/club/1/results/missing b": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": "private, no-store",
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "HEAD /api/club/1/results/missing pending": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": "private, no-store",
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "HEAD /api/club/1/roster a": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 200
+  },
+  "HEAD /api/club/1/roster anonymous": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 401
+  },
+  "HEAD /api/club/1/roster b": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "HEAD /api/club/1/roster pending": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "HEAD /api/club/1/roster/1/photo a": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 503
+  },
+  "HEAD /api/club/1/roster/1/photo anonymous": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 401
+  },
+  "HEAD /api/club/1/roster/1/photo b": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "HEAD /api/club/1/roster/1/photo pending": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "HEAD /api/club/1/roster/1/profile a": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": "private, no-store",
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 200
+  },
+  "HEAD /api/club/1/roster/1/profile anonymous": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 401
+  },
+  "HEAD /api/club/1/roster/1/profile b": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "HEAD /api/club/1/roster/1/profile pending": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "HEAD /api/club/1/squads a": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 422
+  },
+  "HEAD /api/club/1/squads anonymous": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 401
+  },
+  "HEAD /api/club/1/squads b": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "HEAD /api/club/1/squads pending": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "HEAD /api/club/1/staff a": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 422
+  },
+  "HEAD /api/club/1/staff anonymous": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 401
+  },
+  "HEAD /api/club/1/staff b": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "HEAD /api/club/1/staff pending": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "HEAD /api/club/1/updates a": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 200
+  },
+  "HEAD /api/club/1/updates anonymous": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 401
+  },
+  "HEAD /api/club/1/updates b": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "HEAD /api/club/1/updates pending": {
+    "body": "",
+    "headers": {
+      "Allow": null,
+      "Cache-Control": null,
+      "Content-Type": "application/json",
+      "Referrer-Policy": null
+    },
+    "status": 403
+  },
+  "HEAD squads with body": {
+    "body": "",
+    "count": 2,
+    "status": 201
+  },
+  "HEAD staff with body": {
+    "body": "",
+    "status": 422
+  },
+  "create_match": {
+    "blob_path": "matches/1/<blob-uuid>.mp4",
+    "capture_meta": null,
+    "club_program_id": 1,
+    "competition": null,
+    "created_at": "<timestamp>",
+    "duration_s": null,
+    "expires_at": null,
+    "finalized_at": null,
+    "halftime_s": null,
+    "id": 1,
+    "kickoff_s": null,
+    "match_date": "2026-09-01",
+    "opponent_kit_color": null,
+    "opponent_name": "Parity FC",
+    "our_kit_color": null,
+    "our_team_cluster": null,
+    "processing_requested_at": null,
+    "quality_flags": null,
+    "quality_score": null,
+    "second_half_kickoff_s": null,
+    "status": "created",
+    "team_id": 1,
+    "upload": null,
+    "upload_unavailable": "blob storage not configured",
+    "uploaded_at": null
+  },
+  "put_match_roster": {
+    "removed": 0,
+    "roster": [
+      {
+        "club_roster_member_id": 1,
+        "id": 1,
+        "jersey_number": 7,
+        "player_name": "Known Academy Player",
+        "position": "Midfielder",
+        "tracked_player_id": 1,
+        "video_match_id": 1
+      }
+    ]
+  }
+}

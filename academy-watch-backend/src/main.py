@@ -18,8 +18,11 @@ from werkzeug.exceptions import HTTPException
 # includes them even before a route/service imports the model directly.
 import src.models.account  # noqa: E402, F401
 import src.models.billing  # noqa: E402, F401
+import src.models.club_access  # noqa: E402, F401
 import src.models.contact  # noqa: E402, F401
 import src.models.gol_credits  # noqa: E402, F401
+import src.models.interest  # noqa: E402, F401
+import src.models.p2_foundation  # noqa: E402, F401
 import src.models.player_fan  # noqa: E402, F401
 import src.models.player_match_entry  # noqa: E402, F401
 import src.models.player_suppression  # noqa: E402, F401
@@ -33,11 +36,13 @@ from src.models.league import League, Newsletter, Team, UserSubscription, db
 from src.models.tracked_player import TrackedPlayer
 from src.routes.academy import academy_bp
 from src.routes.account import account_bp
+from src.routes.admin_programs import admin_programs_bp
 from src.routes.api import api_bp, require_api_key
 from src.routes.auth_routes import auth_bp
 from src.routes.billing import billing_bp
 from src.routes.blocks import blocks_bp
 from src.routes.club import club_bp
+from src.routes.club_access import club_access_bp
 from src.routes.cohort import cohort_bp
 from src.routes.community_takes import community_takes_bp
 from src.routes.contact import contact_bp
@@ -48,6 +53,7 @@ from src.routes.feeder import feeder_bp
 from src.routes.formation import formation_bp
 from src.routes.funding import funding_bp
 from src.routes.gol import gol_bp
+from src.routes.interest import interest_bp
 from src.routes.journalist import journalist_bp
 from src.routes.journey import journey_bp
 from src.routes.newsletter_deadline import newsletter_deadline_bp
@@ -63,6 +69,14 @@ from src.routes.showcase import showcase_bp
 from src.routes.teams import teams_bp
 from src.routes.trust import trust_bp
 from src.routes.video import video_bp
+
+# isort: split
+# --- p2-b3 begin ---
+from src.routes.admin_control import admin_control_bp
+from src.services.admin_control_safety import register_safety
+
+register_safety()
+# --- p2-b3 end ---
 
 dotenv.load_dotenv(dotenv.find_dotenv())
 # Configure logging
@@ -128,8 +142,14 @@ app.register_blueprint(seasons_bp, url_prefix="/api")
 # routes take priority over any api_bp /players/<id>/* catch-alls.
 app.register_blueprint(showcase_bp, url_prefix="/api")
 app.register_blueprint(funding_bp, url_prefix="/api")
+app.register_blueprint(admin_programs_bp, url_prefix="/api")
+# --- p2-b3 begin ---
+app.register_blueprint(admin_control_bp, url_prefix="/api")
+# --- p2-b3 end ---
 app.register_blueprint(club_bp, url_prefix="/api")
+app.register_blueprint(club_access_bp, url_prefix="/api")
 app.register_blueprint(feedback_bp, url_prefix="/api")
+app.register_blueprint(interest_bp, url_prefix="/api")
 app.register_blueprint(trust_bp, url_prefix="/api")
 app.register_blueprint(contact_bp, url_prefix="/api")
 app.register_blueprint(billing_bp, url_prefix="/api")
@@ -268,6 +288,11 @@ app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
     "pool_recycle": 300,  # Recycle connections every 5 minutes
 }
 db.init_app(app)
+# --- p2-b3 begin ---
+from src.services.admin_control_safety import register_control_reconciliation
+
+register_control_reconciliation(app)
+# --- p2-b3 end ---
 
 
 @app.teardown_appcontext

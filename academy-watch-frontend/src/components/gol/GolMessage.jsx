@@ -3,6 +3,7 @@ import { GolDataCard } from './GolDataCard'
 import { AlertTriangle, Loader2 } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { isLegacyPublicRoute } from '@/lib/legacyRoutes.js'
 import {
   Table,
   TableBody,
@@ -28,7 +29,7 @@ const mdComponents = {
   ol: ({ children }) => <ol className="list-decimal ml-4 mb-1.5 space-y-0.5">{children}</ol>,
   li: ({ children }) => <li className="text-sm">{children}</li>,
   hr: () => <hr className="my-2 border-border/50" />,
-  a: ({ href, children }) => (
+  a: ({ href, children }) => isLegacyPublicRoute(href) ? <span>{children}</span> : (
     <a href={href} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 text-primary hover:text-primary/80">
       {children}
     </a>
@@ -72,17 +73,17 @@ export function GolMessage({ message, expanded, onPlayerClick }) {
 
   return (
     <div className={`flex gap-3 ${isUser ? 'flex-row-reverse' : ''}`}>
-      <Avatar className="h-8 w-8 shrink-0">
-        <AvatarFallback className={isUser ? 'bg-primary text-primary-foreground' : 'bg-emerald-600 text-white'}>
-          {isUser ? 'U' : 'G'}
-        </AvatarFallback>
-      </Avatar>
+      {isUser ? null : (
+        <Avatar className="h-9 w-9 shrink-0 border border-gold">
+          <AvatarFallback className="bg-transparent font-serif text-base text-gold">G</AvatarFallback>
+        </Avatar>
+      )}
 
       <div className={`flex-1 min-w-0 ${isUser ? 'text-right' : ''}`}>
-        <div className={`inline-block rounded-lg px-3 py-2 text-sm ${
+        <div className={`inline-block text-left ${
           isUser
-            ? 'max-w-[85%] bg-primary text-primary-foreground'
-            : 'max-w-full bg-muted text-foreground'
+            ? 'max-w-[85%] rounded-2xl bg-chalk px-4 py-3 text-[15px] leading-relaxed text-night'
+            : 'max-w-full py-1 text-[14.5px] leading-relaxed text-[#DCE0DC]'
         }`}>
           {contentEl}
         </div>

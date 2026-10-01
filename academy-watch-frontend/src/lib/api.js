@@ -16,6 +16,30 @@ export function nextWindowIndex(currentTime, windows, currentIdx) {
 }
 
 export class APIService {
+    // --- p2-b3 begin ---
+    static adminControlRead(path) { return this.request(path, {}, { admin: true }) }
+    static adminControlAction(path, payload) { return this.request(path, { method: 'POST', body: JSON.stringify(payload) }, { admin: true }) }
+    // --- p2-b3 end ---
+    static submitInterest(data) {
+        return this.request('/interest', { method: 'POST', body: JSON.stringify(data) })
+    }
+
+    static adminInterest() {
+        return this.request('/admin/interest', {}, { admin: true })
+    }
+
+    static async downloadInterestCsv() {
+        const csv = await this.request('/admin/interest?format=csv', {}, { admin: true, text: true })
+        const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
+        const anchor = document.createElement('a')
+        anchor.href = url
+        anchor.download = 'interest-signups.csv'
+        document.body.appendChild(anchor)
+        anchor.click()
+        anchor.remove()
+        setTimeout(() => URL.revokeObjectURL(url), 1000)
+    }
+
     static getDataMode() { return this.request('/meta/data-mode') }
     static adminKey = (typeof localStorage !== 'undefined' && localStorage.getItem('academy_watch_admin_key')) || null
     static userToken = (typeof localStorage !== 'undefined' && localStorage.getItem('academy_watch_user_token')) || null
@@ -328,6 +352,9 @@ export class APIService {
             } else if (this.userToken) {
                 headers['Authorization'] = `Bearer ${this.userToken}`
             }
+            // --- p2-b3 begin ---
+            if (extra?.accountAccess) headers.Authorization = `Bearer ${extra.accountAccess}`
+            // --- p2-b3 end ---
             const response = await fetch(`${API_BASE_URL}${endpoint}`, { ...options, headers })
 
             if (extra?.nullOn404 && response.status === 404) return null
@@ -358,6 +385,7 @@ export class APIService {
             }
 
             if (response.status === 204) return null
+            if (extra?.text) return response.text()
 
             const data = await response.json()
             return data
