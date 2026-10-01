@@ -3,7 +3,7 @@
 import hashlib
 import os
 import secrets
-from datetime import timedelta
+from datetime import date, timedelta
 
 import sqlalchemy as sa
 from src.models.club_player_publication import ClubPlayerPublication as Publication
@@ -59,6 +59,15 @@ def adult_at_consent(local, timestamp):
 
 def publication_local_ids():
     """One live SQL policy, shared by resolvers, discovery and cached reads."""
+    from sqlalchemy.orm import aliased
+    from src.models.follow import PlayerShadow
+
+    shadow = aliased(PlayerShadow)
+    today = now().date()
+    try:
+        adult_cutoff = date(today.year - 18, today.month, today.day)
+    except ValueError:
+        adult_cutoff = date(today.year - 18, today.month, 28)
     query = (
         sa.select(Publication.local_player_id)
         .join(LocalPlayer, LocalPlayer.id == Publication.local_player_id)
@@ -73,6 +82,9 @@ def publication_local_ids():
             LocalPlayer.api_player_id == -LocalPlayer.id,
             LocalPlayer.merged_into_local_player_id.is_(None),
             ~local_player_is_minor(LocalPlayer),
+            ~sa.exists().where(
+                shadow.player_api_id == -LocalPlayer.id, shadow.is_active.is_(True), shadow.birth_date > adult_cutoff
+            ),
             Publication.adult_invited_at.is_not(None),
             Publication.claimed_at.is_not(None),
             Publication.association_confirmed_at.is_not(None),
@@ -308,6 +320,7 @@ def review(row, actor, payload):
         or claim.user_account_id != row.recipient_user_id
         or claim.relationship_type != "player"
         or claim.local_player_id != local.id
+        or claim.club_program_id != row.program_id
         or claim.status not in {"pending", "approved"}
         or not is_listed(db.session.get(ClubProgram, row.program_id))
     ):

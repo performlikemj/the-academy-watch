@@ -301,16 +301,9 @@ def _without_held_urls(xml: bytes) -> bytes:
     held = set()
     for offset in range(0, len(ids), 100):
         held.update(held_subject_ids(ids[offset : offset + 100]))
-    from src.services.public_adult import public_adult_ids
+    from src.services.club_player_publication import hidden_club_subject_ids
 
-    club_ids = {
-        p.api_player_id or -p.id
-        for p in LocalPlayer.query.filter(
-            LocalPlayer.provenance == "club",
-            sa.or_(LocalPlayer.api_player_id.in_(ids), LocalPlayer.id.in_([-i for i in ids if i < 0])),
-        ).all()
-    }
-    held.update(club_ids - public_adult_ids(club_ids))
+    held.update(hidden_club_subject_ids(ids))
     held_programs = (
         set(
             db.session.execute(

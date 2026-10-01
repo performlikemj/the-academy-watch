@@ -854,12 +854,21 @@ def list_contact_requests():
                 status="approved",
             )
             query = ContactRequest.query.filter(ContactRequest.claim_id.in_(claim_ids))
-            from src.services.club_player_publication import enabled, publication_local_ids
+            from src.services.club_player_publication import enabled
+            from src.services.public_adult import public_adult_ids
 
-            allowed = ContactRequest.club_consent_status == "granted"
-            allowed = (
-                and_(allowed, (-ContactRequest.player_api_id).in_(publication_local_ids())) if enabled() else False
+            candidates = (
+                (
+                    query.with_entities(ContactRequest.player_api_id)
+                    .filter(ContactRequest.club_first.is_(True))
+                    .distinct()
+                    .all()
+                )
+                if enabled()
+                else []
             )
+            adults = public_adult_ids([pid for (pid,) in candidates])
+            allowed = and_(ContactRequest.club_consent_status == "granted", ContactRequest.player_api_id.in_(adults))
             query = query.filter(or_(ContactRequest.club_first.is_(False), allowed))
             if related_user_ids:
                 query = query.filter(ContactRequest.scout_user_id.notin_(related_user_ids))

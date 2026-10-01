@@ -132,6 +132,7 @@ Log one-liner in CONTINUITY.md's "Trivial Log" section.
 - B3 dark routes re-match a cached URL map without disabled B3 rules, preserving the real SPA fallback, wrong-method responses and OPTIONS Allow headers; retain Flask automatic-options attributes when cloning rules. Receipt projection/replay backfills only unmapped refunds sharing a payment intent and currency, preserving cash facts.
 - B3 case notifications omit the mutable case version from both key and payload and isolate enqueue in a savepoint; Safety OFF gates enqueue and delivery. Case hide/restore sync sibling cases, retain/reuse original suppression evidence, and never own another requester's pending hold. Stripe 15 cash boundaries use recursive `to_dict()`, including provider list pages.
 - Phase 2 account suspension uses `services/account_standing.py` plus persisted `account_status`/`auth_epoch`; central bearer, user-bound media and service grants recheck standing even after the admin page flag is OFF. Restore requires fresh login.
+- C1 club-origin publication preserves provenance and uses `club_player_publication` plus canonical `public_adult_ids`; invitation/self-claim, adult consent and moderation are independent keys. Introductions pin the publication claim, conceal the player inbox until club grant and permanently close old threads on either publication permission withdrawal. Consent cannot transfer through a merge/provider bridge.
 
 ---
 

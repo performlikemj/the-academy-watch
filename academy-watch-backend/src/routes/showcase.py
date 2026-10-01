@@ -3869,8 +3869,8 @@ def _club_publication_identity_protected(local):
     if enabled():
         return True
     # Retained permissions cannot transfer while dark; pre-C1 legacy actions keep parity.
-    from src.services.account import _SchemaView
     from src.models.club_player_publication import ClubPlayerPublication
+    from src.services.account import _SchemaView
 
     return (
         _SchemaView().has_table("club_player_publications")

@@ -22,6 +22,8 @@ def flagged(view):
         if not service.enabled():
             abort(404)
         try:
+            if any(isinstance(value, int) and not 0 < value <= 2_147_483_647 for value in kwargs.values()):
+                raise service.PublicationError("invalid_id", 400)
             return view(*args, **kwargs)
         except service.PublicationError as exc:
             db.session.rollback()

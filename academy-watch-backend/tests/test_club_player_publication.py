@@ -529,3 +529,78 @@ def test_c1_dark_routing_matches_unknown_real_app(monkeypatch, tmp_path, spa, me
         unknown.data,
         dict(unknown.headers),
     )
+
+
+def test_publication_permissions_stale_versions_and_token_rotation(client, env):
+    path = f"/api/club/{env['pid']}/players/{env['local']}/publication-invite"
+    assert client.post(path, json={"recipient_email": "adult@c1.example"}).status_code == 401
+    assert client.post(path, headers=_headers("b"), json={"recipient_email": "adult@c1.example"}).status_code == 403
+    first = invite(client, env)
+    assert (
+        client.post(
+            path, headers=_headers("a"), json={"recipient_email": "adult@c1.example", "expected_version": 99}
+        ).status_code
+        == 409
+    )
+    rotated = client.post(
+        path,
+        headers=_headers("a"),
+        json={"recipient_email": "adult@c1.example", "expected_version": first["publication"]["version"]},
+    )
+    assert rotated.status_code == 201
+    assert (
+        client.post(
+            "/api/me/player-publication-invites/preview", headers=env["ph"], json={"token": first["token"]}
+        ).status_code
+        == 404
+    )
+    row = service.redeem(
+        db.session.get(UserAccount, env["player"]), {"token": rotated.json["token"], "self_claim": True}
+    )
+    db.session.commit()
+    assert (
+        client.post(
+            f"/api/admin/player-publications/{row.id}/review",
+            headers=env["ph"],
+            json={"action": "approve", "reason": "Fixture", "expected_version": row.version},
+        ).status_code
+        == 401
+    )
+    assert (
+        client.post(
+            f"/api/me/player-publications/{row.id}/withdraw", headers=env["ph"], json={"expected_version": 99}
+        ).status_code
+        == 409
+    )
+    assert (
+        client.post(
+            f"/api/club/{env['pid']}/players/99999999999999999999/publication-invite",
+            headers=_headers("a"),
+            json={"recipient_email": "adult@c1.example"},
+        ).status_code
+        == 400
+    )
+
+
+@pytest.mark.parametrize("change", ["withdraw", "positive_bridge", "shadow_minor"])
+def test_cached_sitemap_rechecks_consent_and_all_identity_aliases(client, env, monkeypatch, change):
+    import time
+
+    from src.models.follow import PlayerShadow
+    from src.services import sitemap_service
+
+    monkeypatch.setenv("LEGACY_PUBLIC_PAGES", "true")
+    row = published(client, env)
+    url = f"https://theacademywatch.com/local-players/{env['local']}"
+    xml = f'<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>{url}</loc></url></urlset>'.encode()
+    monkeypatch.setattr(sitemap_service, "_cache", {"xml": xml, "built_at": time.monotonic()})
+    assert url.encode() in client.get("/sitemap.xml").data
+    if change == "withdraw":
+        service.revoke(db.session.get(ClubPlayerPublication, row["id"]))
+    elif change == "positive_bridge":
+        db.session.get(LocalPlayer, env["local"]).api_player_id = 991122
+    else:
+        PlayerShadow.query.filter_by(player_api_id=-env["local"]).first().birth_date = date(2015, 1, 1)
+    db.session.commit()
+    assert url.encode() not in client.get("/sitemap.xml").data
+    assert sitemap_service._cache["xml"] == xml

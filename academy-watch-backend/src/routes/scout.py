@@ -484,6 +484,7 @@ def _scout_identity_subquery(*, include_local=None):
         )
     )
 
+    include_community = _community_local_players_enabled() if include_local is None else include_local
     if include_local is None:
         include_local = _local_players_enabled()
     if not include_local:
@@ -533,7 +534,7 @@ def _scout_identity_subquery(*, include_local=None):
             PlayerShadow.is_active.is_(True),
             LocalPlayer.status == "approved",
             local_publication_filter(LocalPlayer),
-            or_(LocalPlayer.provenance == "club", _community_local_players_enabled()),
+            or_(LocalPlayer.provenance == "club", include_community),
             ~local_player_is_minor(LocalPlayer),
             public_player_visible_filter(PlayerShadow.player_api_id),
             ~active_local_suppression_exists(LocalPlayer.id),
