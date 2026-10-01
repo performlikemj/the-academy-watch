@@ -226,15 +226,33 @@ def project_cash(event_type, obj, event_id, created, *, prepared=False):
             or value["amount_cents"] < 0
         ):
             continue
-        if BillingCashEvent.query.filter_by(source_key=value["source_key"]).first():
-            continue
-        try:
-            with db.session.begin_nested():
-                db.session.add(BillingCashEvent(**value))
-                db.session.flush()
-        except IntegrityError:
-            if not BillingCashEvent.query.filter_by(source_key=value["source_key"]).first():
-                raise
+        receipt = BillingCashEvent.query.filter_by(source_key=value["source_key"]).first()
+        if receipt is None:
+            try:
+                with db.session.begin_nested():
+                    receipt = BillingCashEvent(**value)
+                    db.session.add(receipt)
+                    db.session.flush()
+            except IntegrityError:
+                receipt = BillingCashEvent.query.filter_by(source_key=value["source_key"]).first()
+                if receipt is None:
+                    raise
+        # Replays repair older out-of-order rows too, without changing cash facts.
+        if receipt.kind == "receipt" and receipt.payment_intent_id and receipt.product_code != "unmapped":
+            BillingCashEvent.query.filter_by(
+                kind="refund",
+                payment_intent_id=receipt.payment_intent_id,
+                currency=receipt.currency,
+                product_code="unmapped",
+            ).update(
+                {
+                    "product_code": receipt.product_code,
+                    "scope_type": receipt.scope_type,
+                    "scope_id": receipt.scope_id,
+                    "purchaser_user_id": receipt.purchaser_user_id,
+                },
+                synchronize_session="fetch",
+            )
 
 
 def observe_deployment():
