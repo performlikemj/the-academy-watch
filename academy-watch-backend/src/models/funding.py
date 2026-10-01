@@ -389,8 +389,10 @@ class ClubProgramProfileRevision(db.Model):
             name="ck_club_program_revisions_club_level",
         ),
         db.CheckConstraint(
+            # Both or neither: a NULL on one side makes a bare range test UNKNOWN, which a CHECK lets through.
             "(latitude IS NULL AND longitude IS NULL) OR "
-            "(latitude BETWEEN -90 AND 90 AND longitude BETWEEN -180 AND 180)",
+            "(latitude IS NOT NULL AND longitude IS NOT NULL AND "
+            "latitude BETWEEN -90 AND 90 AND longitude BETWEEN -180 AND 180)",
             name="ck_club_program_revisions_coordinates",
         ),
         # --- p2-b1 end ---

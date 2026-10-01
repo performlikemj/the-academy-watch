@@ -7,9 +7,13 @@ Three rules hold this together:
   reads them from the *approved* revision, so a club's edit changes nothing until
   an admin approves it through the existing profile-revision review.
 * **Directory eligibility is its own predicate** (``directory_eligibility``): an
-  approved, not-hidden program in a listed league with an active, claim-verified
-  manager. It deliberately does not reuse ``ClubProgram.is_verified_program``,
-  whose US branch means "payments set up".
+  approved, not-hidden program with an active, claim-verified manager. A club under
+  a real funding league also needs that league approved; a console-local club (the
+  reserved "Console (unlisted)" league) does not. It deliberately does not reuse
+  ``ClubProgram.is_verified_program``, whose US branch means "payments set up".
+* **A visitor's position and search words stay out of URLs.** They arrive in the
+  body of ``POST /api/club-directory/search``; ``GET /api/programs`` refuses them,
+  so they never reach an access log, browser history or analytics.
 * **Clubs, never people.** Cards are built from an explicit allowlist and carry
   only an aggregate squad count — no roster, staff or player data of any age.
 """
@@ -33,6 +37,12 @@ from src.models.funding import (
     revision_dict,
 )
 from src.models.league import db
+from src.services.club_console_bridge import (
+    CONSOLE_LEAGUE_COUNTRY,
+    CONSOLE_LEAGUE_NAME,
+    CONSOLE_LEAGUE_REGION,
+    is_console_league,
+)
 from src.utils.sanitize import sanitize_plain_text
 
 LEVELS = ("grassroots", "amateur", "semi_pro", "professional")
@@ -49,6 +59,10 @@ DIRECTORY_FIELDS = (
 VENUE_NAME_MAX = 120
 POSTCODE_PATTERN = re.compile(r"[A-Z0-9][A-Z0-9 \-]{1,10}[A-Z0-9]")
 GEOCODE_SOURCE_CLUB = "club_entered"
+# Club-supplied text is refused before any decoding once it is this many times its limit, and
+# after this many entity-decoding passes: both bound the work one save can cost.
+RAW_TEXT_FACTOR = 4
+MAX_ENTITY_PASSES = 3
 
 DEFAULT_PER_PAGE = 20
 MAX_PER_PAGE = 50
@@ -57,9 +71,10 @@ SEARCH_MIN = 2
 SEARCH_MAX = 80
 PLACE_MAX = 120
 MAX_RADIUS_KM = 250.0
-MAX_VISITOR_LATITUDE = 85.0
 EARTH_RADIUS_KM = 6371.0088
-KM_PER_DEGREE = math.pi * EARTH_RADIUS_KM / 180
+# Never accepted in a URL: a visitor's position and what they typed (often a home postcode).
+BODY_ONLY_PARAMS = ("q", "lat", "lng", "radius_km")
+SEARCH_PARAMS = (*BODY_ONLY_PARAMS, "country", "region", "city", "level", "programme", "page", "per_page")
 
 
 def directory_enabled() -> bool:
@@ -76,9 +91,13 @@ def _clean_text(value, field, limit):
         return None
     if not isinstance(value, str):
         raise ValueError(f"{field} must be a string")
+    if len(value) > limit * RAW_TEXT_FACTOR:
+        raise ValueError(f"{field} must be at most {limit} characters")
     decoded = value
-    while (next_decoded := unescape(decoded)) != decoded:
-        decoded = next_decoded
+    for _ in range(MAX_ENTITY_PASSES):
+        decoded = unescape(decoded)
+    if unescape(decoded) != decoded:
+        raise ValueError(f"{field} must be plain text")
     cleaned = " ".join(unescape(sanitize_plain_text(decoded)).split())
     if len(cleaned) > limit:
         raise ValueError(f"{field} must be at most {limit} characters")
@@ -98,7 +117,10 @@ def _postcode(value):
 def _coordinate(value, field, bound):
     if value is None:
         return None
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{field} must be a number")
+    # An int is compared as an int: a huge JSON integer must not be converted to a float first.
+    if isinstance(value, float) and not math.isfinite(value):
         raise ValueError(f"{field} must be a number")
     if abs(value) > bound:
         raise ValueError(f"{field} must be between {-bound} and {bound}")
@@ -176,6 +198,19 @@ def apply_directory_values(revision, values) -> None:
         return
     for field in DIRECTORY_FIELDS:
         setattr(revision, field, values[field])
+
+
+def settle_directory_on_approval(revision, previous) -> None:
+    """While the flag is off the reviewer cannot see these fields, so an approval never publishes them.
+
+    The approved revision keeps the location that was already approved (or none); a
+    club's unseen edit is dropped rather than promoted, and must be sent again once
+    the directory (and its review card) is on.
+    """
+    if directory_enabled():
+        return
+    for field in DIRECTORY_FIELDS:
+        setattr(revision, field, getattr(previous, field) if previous is not None else None)
 
 
 def revision_directory(revision) -> dict:
@@ -257,8 +292,25 @@ def open_opportunity_counts(program_ids) -> dict[int, int] | None:
     }
 
 
-def public_directory_block(program, revision) -> dict:
-    """Additive block on the public club page: approved location/offering + squad count."""
+def is_listed(program) -> bool:
+    """Whether this club is in the directory right now (the list's own predicate, for one club)."""
+    return (
+        db.session.query(ClubProgram.id)
+        .join(FundingLeague, FundingLeague.id == ClubProgram.funding_league_id)
+        .filter(ClubProgram.id == program.id, directory_eligibility())
+        .first()
+        is not None
+    )
+
+
+def public_directory_block(program, revision) -> dict | None:
+    """Additive block on the public club page: approved location/offering + squad count.
+
+    ``None`` for a club that is not listed (no verified manager any more, say): its
+    page may still exist for other reasons, but it serves no directory data.
+    """
+    if not is_listed(program):
+        return None
     return {
         "venue": _venue(revision),
         "club_level": revision.club_level if revision else None,
@@ -298,13 +350,24 @@ def club_card(program, revision, league_name, *, squad_count=0, distance_km=None
     }
 
 
-def directory_eligibility():
-    """Who may appear: approved, not hidden, listed league, active claim-verified manager.
+def _console_league():
+    """SQL twin of ``club_console_bridge.is_console_league``."""
+    return sa.and_(
+        FundingLeague.name == CONSOLE_LEAGUE_NAME,
+        FundingLeague.country == CONSOLE_LEAGUE_COUNTRY,
+        FundingLeague.region == CONSOLE_LEAGUE_REGION,
+    )
 
-    Same public base as ``GET /api/programs/<slug>`` (so every card has a page to
-    open, and the unlisted console league stays unlisted) plus the manager check.
-    The emergency hold is the ``emergency_hidden`` column A1's
-    ``club_publication_hold`` helpers derive from, read in the same statement.
+
+def directory_eligibility():
+    """Who may appear: approved, not hidden, active claim-verified manager.
+
+    A club under a real funding league also needs that league approved. A
+    console-local club sits on the reserved console league, which is never
+    "approved" as a funding league; those are the clubs being onboarded, so the
+    league check does not apply to them. The emergency hold is the
+    ``emergency_hidden`` column A1's ``club_publication_hold`` helpers derive
+    from, read in the same statement. Needs ``FundingLeague`` joined.
     """
     verified_manager = sa.exists(
         sa.select(ClubProgramManager.id)
@@ -326,7 +389,7 @@ def directory_eligibility():
     return sa.and_(
         ClubProgram.platform_status == "approved",
         ClubProgram.emergency_hidden.is_(False),
-        FundingLeague.registry_status == "approved",
+        sa.or_(FundingLeague.registry_status == "approved", _console_league()),
         verified_manager,
     )
 
@@ -411,9 +474,40 @@ def _codes_arg(args, name, allowed):
     return [code for code in allowed if code in codes]
 
 
+def search_args_from_body(data) -> dict:
+    """The JSON body of ``POST /api/club-directory/search`` as the flat mapping ``parse_search`` reads."""
+    if not isinstance(data, dict):
+        raise ValueError("the search must be a JSON object")
+    args = {}
+    for name in SEARCH_PARAMS:
+        value = data.get(name)
+        if value is None:
+            continue
+        if isinstance(value, list) and name in ("level", "programme"):
+            if any(not isinstance(item, str) for item in value):
+                raise ValueError(f"{name} must be a list of codes")
+            value = ",".join(value)
+        if isinstance(value, bool) or not isinstance(value, (str, int, float)):
+            raise ValueError(f"{name} must be text or a number")
+        if isinstance(value, int) and abs(value) > 10**9:
+            raise ValueError(f"{name} is out of range")
+        args[name] = value if isinstance(value, str) else repr(value)
+    return args
+
+
+def refuse_url_search_terms(args) -> None:
+    """``GET /api/programs`` never takes a position or search words: a URL ends up in logs and history."""
+    present = [name for name in BODY_ONLY_PARAMS if args.get(name) is not None]
+    if present:
+        raise ValueError(
+            f"{', '.join(present)} cannot be sent in the URL; send the search in the body of "
+            "POST /api/club-directory/search"
+        )
+
+
 def parse_search(args) -> dict:
-    """Validate the public query string. Raises ``ValueError`` with a caller-safe message."""
-    latitude = _float_arg(args, "lat", -MAX_VISITOR_LATITUDE, MAX_VISITOR_LATITUDE)
+    """Validate one search (query string or body mapping). Raises ``ValueError`` with a caller-safe message."""
+    latitude = _float_arg(args, "lat", -90.0, 90.0)
     longitude = _float_arg(args, "lng", -180.0, 180.0)
     if (latitude is None) != (longitude is None):
         raise ValueError("lat and lng must be supplied together")
@@ -435,21 +529,28 @@ def parse_search(args) -> dict:
     }
 
 
-def _squared_degrees(revision, latitude, longitude):
-    """Portable (no SQL trig) squared distance in degrees from the visitor to a venue.
+def _sqlite_trig() -> None:
+    """SQLite (tests, local dev) may be built without maths functions; Postgres always has them."""
+    if db.session.get_bind().dialect.name != "sqlite":
+        return
+    raw = db.session.connection().connection
+    for name, function in (("sin", math.sin), ("cos", math.cos)):
+        # NULL in, NULL out, as the built-ins do (a club with no pin has no coordinates).
+        raw.create_function(name, 1, lambda value, f=function: None if value is None else f(value), deterministic=True)
 
-    Local flat-earth projection with the east-west scale taken at the mid
-    latitude, cos(lat0 + d/2) ~ cos(lat0) - sin(lat0) * d/2. Within the largest
-    allowed radius this is within a fraction of a percent of the great-circle
-    distance; further away it still orders near before far.
+
+def _haversine_term(revision, latitude, longitude):
+    """SQL ``hav(d / R)`` from the visitor to a venue: the exact great-circle haversine term.
+
+    It rises with distance over the whole globe, so it orders nearest-first and
+    bounds a radius (``<= sin(r / 2R) ** 2``) without a square root or arcsine,
+    and ``sin`` squared of half the longitude gap needs no antimeridian case.
     """
-    lat0 = math.radians(latitude)
-    delta_lat = revision.latitude - latitude
-    raw_lng = sa.func.abs(revision.longitude - longitude)
-    delta_lng = sa.case((raw_lng > 180, 360 - raw_lng), else_=raw_lng)
-    scale = math.cos(lat0) - math.sin(lat0) * delta_lat * (math.pi / 360)
-    east = delta_lng * scale
-    return delta_lat * delta_lat + east * east
+    half = math.pi / 360
+    sin_lat = sa.func.sin((revision.latitude - latitude) * half)
+    sin_lng = sa.func.sin((revision.longitude - longitude) * half)
+    cos_lat = sa.func.cos(revision.latitude * (math.pi / 180))
+    return sin_lat * sin_lat + math.cos(math.radians(latitude)) * cos_lat * sin_lng * sin_lng
 
 
 def haversine_km(lat1, lng1, lat2, lng2) -> float:
@@ -464,7 +565,7 @@ def search(params) -> dict:
     """Run one bounded directory page. ``params`` comes from ``parse_search``."""
     revision = aliased(ClubProgramProfileRevision)
     query = (
-        db.session.query(ClubProgram, revision, FundingLeague.name)
+        db.session.query(ClubProgram, revision, FundingLeague)
         .join(FundingLeague, FundingLeague.id == ClubProgram.funding_league_id)
         .outerjoin(revision, revision.id == _approved_revision_id())
         .filter(directory_eligibility())
@@ -487,7 +588,8 @@ def search(params) -> dict:
         )
     for key, column in (("country", ClubProgram.country), ("region", ClubProgram.region), ("city", ClubProgram.city)):
         if params[key]:
-            query = query.filter(sa.func.lower(column) == params[key].lower())
+            # Both sides are folded by the database, so one collation decides (İstanbul matches İstanbul).
+            query = query.filter(sa.func.lower(column) == sa.func.lower(params[key]))
     if params["levels"]:
         query = query.filter(revision.club_level.in_(params["levels"]))
     if params["programmes"]:
@@ -497,15 +599,17 @@ def search(params) -> dict:
     latitude, longitude = params["latitude"], params["longitude"]
     order = [sa.func.lower(ClubProgram.name), ClubProgram.id]
     if latitude is not None:
-        squared = _squared_degrees(revision, latitude, longitude)
+        _sqlite_trig()
+        distance = _haversine_term(revision, latitude, longitude)
         if params["radius_km"] is not None:
             query = query.filter(
                 revision.latitude.isnot(None),
                 revision.longitude.isnot(None),
-                squared <= (params["radius_km"] / KM_PER_DEGREE) ** 2,
+                distance <= math.sin(params["radius_km"] / (2 * EARTH_RADIUS_KM)) ** 2,
             )
         has_pin = sa.and_(revision.latitude.isnot(None), revision.longitude.isnot(None))
-        order = [sa.case((has_pin, 0), else_=1), squared, *order]
+        # Nearest first; name then id settle ties, so pages never repeat or skip a club.
+        order = [sa.case((has_pin, 0), else_=1), distance, *order]
 
     page, per_page = params["page"], params["per_page"]
     total = query.order_by(None).count()
@@ -515,7 +619,7 @@ def search(params) -> dict:
     opportunities = open_opportunity_counts(program_ids)
 
     clubs = []
-    for program, approved, league_name in rows:
+    for program, approved, league in rows:
         distance_km = None
         if latitude is not None and approved is not None and approved.latitude is not None:
             if approved.longitude is not None:
@@ -523,7 +627,7 @@ def search(params) -> dict:
         card = club_card(
             program,
             approved,
-            league_name,
+            None if is_console_league(league) else league.name,
             squad_count=squads.get(program.id, 0),
             distance_km=distance_km,
         )

@@ -1,13 +1,16 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  buildDirectoryQuery,
+  DIRECTORY_SEARCH_ENDPOINT,
+  DIRECTORY_URL_PARAMS,
+  buildDirectorySearch,
   clubDirectoryFromFeatures,
   clubMeta,
   clubPlace,
   coarseCoordinate,
   directoryForm,
   directoryPayload,
+  directorySearchRequest,
   directorySummary,
   distanceLabel,
   distanceUnit,
@@ -19,6 +22,7 @@ import {
   resetClubDirectoryFlag,
   scaleBar,
 } from '../src/lib/club-directory.js'
+import { sanitizeUrl } from '../src/lib/track.js'
 
 test('the flag reads only an explicit true, caches success and never caches failure', async () => {
   assert.equal(clubDirectoryFromFeatures({ club_directory: true }), true)
@@ -38,20 +42,51 @@ test('the flag reads only an explicit true, caches success and never caches fail
   resetClubDirectoryFlag()
 })
 
-test('a visitor position is only ever sent rounded to two decimals', () => {
+test('a visitor position is only ever sent rounded to two decimals, in the request body', () => {
   assert.equal(coarseCoordinate(50.791234), 50.79)
   assert.equal(coarseCoordinate(-1.0667), -1.07)
-  const query = buildDirectoryQuery({ position: { latitude: 50.791234, longitude: -1.062345 }, radiusKm: 40 })
-  assert.equal(query, 'lat=50.79&lng=-1.06&radius_km=40')
-  assert.equal(buildDirectoryQuery({ radiusKm: 40 }), '')
-  assert.equal(buildDirectoryQuery({ position: { latitude: Number.NaN, longitude: 1 } }), '')
+  const body = buildDirectorySearch({ position: { latitude: 50.791234, longitude: -1.062345 }, radiusKm: 40 })
+  assert.deepEqual(body, { lat: 50.79, lng: -1.06, radius_km: 40 })
+  assert.deepEqual(buildDirectorySearch({ radiusKm: 40 }), {})
+  assert.deepEqual(buildDirectorySearch({ position: { latitude: Number.NaN, longitude: 1 } }), {})
 })
 
-test('query building maps filters to API codes and ignores unknown values', () => {
-  assert.equal(buildDirectoryQuery({ q: '  po16 ', offering: 'girls_women', level: 'semi_pro', page: 2, perPage: 20 }),
-    'q=po16&programme=women%2Cgirls&level=semi_pro&page=2&per_page=20')
-  assert.equal(buildDirectoryQuery({ q: 'a', offering: 'robots', level: 'galactic', page: 1 }), '')
-  assert.equal(new URLSearchParams(buildDirectoryQuery({ q: 'x'.repeat(200) })).get('q').length, 80)
+test('search building maps filters to API codes and ignores unknown values', () => {
+  assert.deepEqual(buildDirectorySearch({ q: '  po16 ', offering: 'girls_women', level: 'semi_pro', page: 2, perPage: 20 }),
+    { q: 'po16', programme: ['women', 'girls'], level: 'semi_pro', page: 2, per_page: 20 })
+  assert.deepEqual(buildDirectorySearch({ q: 'a', offering: 'robots', level: 'galactic', page: 1 }), {})
+  assert.equal(buildDirectorySearch({ q: 'x'.repeat(200) }).q.length, 80)
+})
+
+// RB1-1: a URL is written to the server's access log; the search must never be in one.
+test('the search request carries the position and search words in a POST body, never in its URL', () => {
+  const [endpoint, options] = directorySearchRequest({
+    q: 'AB12 3CD', offering: 'youth', level: 'amateur', position: { latitude: 50.791234, longitude: -1.062345 }, radiusKm: 40, page: 3, perPage: 20,
+  })
+  assert.equal(endpoint, '/club-directory/search')
+  assert.equal(endpoint, DIRECTORY_SEARCH_ENDPOINT)
+  assert.equal(options.method, 'POST')
+  assert.equal(options.referrerPolicy, 'no-referrer')
+  assert.deepEqual(JSON.parse(options.body), {
+    q: 'AB12 3CD', programme: ['boys', 'girls'], level: 'amateur', lat: 50.79, lng: -1.06, radius_km: 40, page: 3, per_page: 20,
+  })
+  for (const leak of ['?', 'AB12', '50.79', 'lat', 'q=']) assert.equal(endpoint.includes(leak), false)
+  assert.deepEqual(DIRECTORY_URL_PARAMS, ['for', 'level'])
+})
+
+// RB1-2: analytics stores the page path; a directory search (often a home postcode) must not be in it.
+test('analytics paths and referrers drop everything on /clubs except the shareable filters', () => {
+  assert.equal(sanitizeUrl('/clubs?q=AB12+3CD'), '/clubs')
+  assert.equal(sanitizeUrl('/clubs?for=youth&q=AB12%203CD&lat=50.79&lng=-1.06&radius_km=40&level=amateur&postcode=AB12'), '/clubs?for=youth&level=amateur')
+  assert.equal(sanitizeUrl('/clubs/?near=AB12'), '/clubs/')
+  assert.equal(sanitizeUrl('/CLUBS?q=AB12'), '/CLUBS')
+  assert.equal(sanitizeUrl('https://app.example/clubs?q=AB12+3CD&level=amateur#q=AB12'), 'https://app.example/clubs?level=amateur')
+  assert.equal(sanitizeUrl('/clubs?level=amateur'), '/clubs?level=amateur')
+  assert.equal(sanitizeUrl('/clubs'), '/clubs')
+  // Other pages keep their behaviour: only the long-standing secret params are removed.
+  assert.equal(sanitizeUrl('/search?q=midfielder'), '/search?q=midfielder')
+  assert.equal(sanitizeUrl('/verify?token=abc&next=1'), '/verify?next=1')
+  assert.equal(sanitizeUrl('/clubs-archive?q=keep'), '/clubs-archive?q=keep')
 })
 
 test('distances use miles only where people do, and say so when unknown', () => {

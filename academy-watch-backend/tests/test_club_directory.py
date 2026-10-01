@@ -1,10 +1,15 @@
 """Clubs near you (p2b1): public directory, moderated location fields, flag-off parity."""
 
 import json
-from datetime import UTC, date, datetime
+import math
+import time
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
+from urllib.parse import parse_qsl
 
 import pytest
+import test_club_console_bridge as console_bridge
 from alembic.config import Config
 from alembic.script import ScriptDirectory
 from flask import Flask
@@ -31,6 +36,9 @@ from src.services.club_console_bridge import (
     CONSOLE_LEAGUE_NAME,
     CONSOLE_LEAGUE_REGION,
 )
+
+# The real claim-bridge fixture (its own app, users and local club), for the onboarding test below.
+bridge_app = console_bridge.bridge_app
 
 ADMIN_KEY = "club-directory-admin-key"
 ADMIN_EMAIL = "club-directory-admin@example.com"
@@ -199,6 +207,32 @@ def _pin(lat, lng, **extra):
     return {"latitude": lat, "longitude": lng, "geocode_source": "club_entered", **extra}
 
 
+SEARCH_URL = "/api/club-directory/search"
+
+
+def _search(client, query="", **body):
+    """A search with a position or search words: always the POST body, never the URL."""
+    return client.post(SEARCH_URL, json={**dict(parse_qsl(query, keep_blank_values=True)), **body})
+
+
+def _console_league_row():
+    league = FundingLeague(
+        name=CONSOLE_LEAGUE_NAME,
+        country=CONSOLE_LEAGUE_COUNTRY,
+        region=CONSOLE_LEAGUE_REGION,
+        level="recreational",
+        age_bands=[],
+        gender_program="both",
+        season_calendar="calendar_year",
+        data_tier="self_reported",
+        registry_status="proposed",
+        admission_state="closed",
+    )
+    db.session.add(league)
+    db.session.flush()
+    return league
+
+
 def _names(response):
     assert response.status_code == 200, response.get_json()
     return [club["name"] for club in response.get_json()["clubs"]]
@@ -233,8 +267,12 @@ def _same_response(first, second):
         first.status_code == second.status_code
         and first.data == second.data
         and first.content_type == second.content_type
-        and first.headers.get("Allow") == second.headers.get("Allow")
+        and _allow(first) == _allow(second)
     )
+
+
+def _allow(response):
+    return sorted(method.strip() for method in response.headers.get("Allow", "").split(",") if method.strip())
 
 
 def test_flag_off_directory_answers_exactly_like_an_unrouted_path(app, client):
@@ -248,13 +286,20 @@ def test_flag_off_directory_answers_exactly_like_an_unrouted_path(app, client):
         return "spa shell", 200
 
     _club(_league(), "Harbour City FC")
-    for method in ("get", "head", "post", "options"):
+    for method in ("get", "head", "post", "put", "patch", "delete", "options"):
         assert _same_response(
             getattr(client, method)("/api/programs"), getattr(client, method)("/api/programs-that-never-existed")
         ), method
+        assert _same_response(
+            getattr(client, method)(SEARCH_URL), getattr(client, method)("/api/club-directory/never-existed")
+        ), method
     assert client.get("/api/programs").data == b"spa shell"
     assert served[-1] == "api/programs"
-    assert "Harbour" not in client.get("/api/programs?q=harbour&lat=1&lng=1").get_data(as_text=True)
+    assert client.get("/api/programs?q=harbour&lat=1&lng=1").data == b"spa shell"
+    refused = _search(client, "q=harbour&lat=1&lng=1")
+    assert refused.status_code == 405
+    assert _allow(refused) == ["GET", "HEAD", "OPTIONS"]
+    assert "Harbour" not in refused.get_data(as_text=True)
     main_source = Path(__file__).resolve().parent.parent.joinpath("src", "main.py").read_text()
     assert '@app.route("/<path:path>")\ndef serve(path):' in main_source
 
@@ -265,8 +310,13 @@ def test_flag_off_directory_is_a_plain_404_without_a_catch_all(client):
         assert _same_response(
             getattr(client, method)("/api/programs"), getattr(client, method)("/api/programs-that-never-existed")
         ), method
+    for method in ("get", "head", "post", "put", "patch", "delete", "options"):
+        assert _same_response(
+            getattr(client, method)(SEARCH_URL), getattr(client, method)("/api/club-directory/never-existed")
+        ), method
     assert client.get("/api/programs").status_code == 404
     assert client.get("/api/programs?q=harbour&lat=1&lng=1").status_code == 404
+    assert _search(client, "q=harbour&lat=1&lng=1").status_code == 404
 
 
 def test_flag_off_payloads_carry_no_directory_keys(client):
@@ -353,26 +403,87 @@ def test_only_eligible_clubs_are_listed(client, on):
     _club(league, "Unverified Claim Town", claim="pending")
     _club(league, "Revoked Claim Town", claim="revoked")
     _club(_league("Proposed League", registry_status="proposed"), "Proposed League Town")
-    console = FundingLeague(
-        name=CONSOLE_LEAGUE_NAME,
-        country=CONSOLE_LEAGUE_COUNTRY,
-        region=CONSOLE_LEAGUE_REGION,
-        level="recreational",
-        age_bands=[],
-        gender_program="both",
-        season_calendar="calendar_year",
-        data_tier="self_reported",
-        registry_status="proposed",
-        admission_state="closed",
-    )
-    db.session.add(console)
-    db.session.flush()
-    _club(console, "Console Only Town")
+    _club(_league("Rejected League", registry_status="rejected"), "Rejected League Town")
 
     response = client.get("/api/programs")
     assert _names(response) == ["Harbour City FC"]
     assert response.get_json()["total"] == 1
     assert response.headers["Cache-Control"] == "no-store"
+
+
+def test_console_local_club_is_listed_but_a_real_unapproved_league_is_not(client, on):
+    """Console clubs are the ones being onboarded: the funding-league check only binds real leagues."""
+    console = _console_league_row()
+    listed = _club(console, "Console Local Town", directory={"venue_name": "Rec Ground", **_pin(50.8, -1.1)})
+    _club(_league("Proposed League", registry_status="proposed"), "Proposed League Town", directory=_pin(50.8, -1.1))
+    # A console club still needs everything else.
+    _club(console, "Console Unmanaged Town", manager=None)
+    _club(console, "Console Revoked Town", manager="revoked")
+    _club(console, "Console Unverified Town", claim="pending")
+    _club(console, "Console Hidden Town", hidden=True)
+    _club(console, "Console Pending Town", status="pending")
+
+    body = client.get("/api/programs").get_json()
+    assert [club["name"] for club in body["clubs"]] == ["Console Local Town"]
+    assert body["total"] == 1
+    card = body["clubs"][0]
+    assert set(card) == CARD_KEYS
+    # The reserved league is plumbing, not a public league name.
+    assert card["league"] is None
+    assert CONSOLE_LEAGUE_NAME not in json.dumps(body)
+    assert _names(_search(client, "lat=50.8&lng=-1.1&radius_km=5")) == ["Console Local Town"]
+
+    # Every card opens: the listed console club has its page, with the same league rule.
+    page = client.get(f"/api/programs/{listed.slug}")
+    assert page.status_code == 200
+    program = page.get_json()["program"]
+    assert program["league"] is None
+    assert program["directory"]["venue"]["name"] == "Rec Ground"
+    assert CONSOLE_LEAGUE_NAME not in page.get_data(as_text=True)
+    for slug in ("proposed-league-town", "console-unmanaged-town", "console-revoked-town", "console-hidden-town"):
+        assert client.get(f"/api/programs/{slug}").status_code == 404, slug
+
+
+def test_console_local_club_page_stays_private_while_the_flag_is_off(client):
+    program = _club(_console_league_row(), "Console Local Town", directory=_pin(50.8, -1.1))
+    assert client.get(f"/api/programs/{program.slug}").status_code == 404
+
+
+@pytest.mark.parametrize("cause", ["manager", "claim"])
+def test_losing_standing_removes_directory_data_from_the_club_page(client, on, cause):
+    """RB1-3: the detail page uses the list's eligibility; a known slug is not a way around removal."""
+    program = _club(
+        _league(),
+        "Harbour City FC",
+        directory={"venue_name": "Private After Revocation", "club_level": "amateur", **_pin(51.5, -0.1)},
+    )
+    assert client.get(f"/api/programs/{program.slug}").get_json()["program"]["directory"]["venue"]["latitude"] == 51.5
+    if cause == "manager":
+        ClubProgramManager.query.filter_by(program_id=program.id).one().status = "revoked"
+    else:
+        ClubProgramClaim.query.filter_by(program_id=program.id).one().status = "rejected"
+    db.session.commit()
+
+    assert client.get("/api/programs").get_json()["total"] == 0
+    detail = client.get(f"/api/programs/{program.slug}")
+    # The legacy registry page of a club in an approved league is unchanged; its directory data is gone.
+    assert detail.status_code == 200
+    assert detail.get_json()["program"]["directory"] is None
+    text = detail.get_data(as_text=True)
+    assert "Private After Revocation" not in text and "51.5" not in text and "amateur" not in text
+
+
+@pytest.mark.parametrize("cause", ["manager", "claim"])
+def test_console_local_club_page_is_gone_once_standing_is_lost(client, on, cause):
+    program = _club(_console_league_row(), "Console Local Town", directory=_pin(51.5, -0.1))
+    assert client.get(f"/api/programs/{program.slug}").status_code == 200
+    if cause == "manager":
+        ClubProgramManager.query.filter_by(program_id=program.id).one().status = "revoked"
+    else:
+        ClubProgramClaim.query.filter_by(program_id=program.id).one().status = "revoked"
+    db.session.commit()
+    assert client.get("/api/programs").get_json()["total"] == 0
+    assert client.get(f"/api/programs/{program.slug}").status_code == 404
 
 
 def test_us_club_without_payments_setup_is_still_listed(client, on):
@@ -390,10 +501,10 @@ def test_hidden_club_disappears_and_returns_on_lift(client, on):
 
     program.emergency_hidden = True
     db.session.commit()
-    for query in ("", "?q=harbour", "?lat=50.8&lng=-1.1", "?lat=50.8&lng=-1.1&radius_km=10", "?city=Harbour%20City"):
-        response = client.get(f"/api/programs{query}")
-        assert "Harbour City FC" not in _names(response), query
-        assert "harbour-city-fc" not in response.get_data(as_text=True), query
+    for query in ("", "q=harbour", "lat=50.8&lng=-1.1", "lat=50.8&lng=-1.1&radius_km=10", "city=Harbour City"):
+        for response in (_search(client, query), client.get("/api/programs?city=Harbour%20City")):
+            assert "Harbour City FC" not in _names(response), query
+            assert "harbour-city-fc" not in response.get_data(as_text=True), query
     assert client.get("/api/programs").get_json()["total"] == 1
     assert client.get(f"/api/programs/{program.slug}").status_code == 404
 
@@ -463,8 +574,11 @@ def test_card_is_an_exact_allowlist_and_never_carries_people(client, on):
     )
     db.session.commit()
 
-    for path in ("/api/programs", "/api/programs?lat=50.8&lng=-1.1&radius_km=25", "/api/programs?q=quayside"):
-        response = client.get(path)
+    for response in (
+        client.get("/api/programs"),
+        _search(client, "lat=50.8&lng=-1.1&radius_km=25"),
+        _search(client, "q=quayside"),
+    ):
         body = response.get_json()
         assert set(body) == {"clubs", "page", "per_page", "total", "has_more", "filters"}
         (card,) = body["clubs"]
@@ -492,7 +606,7 @@ def test_card_is_an_exact_allowlist_and_never_carries_people(client, on):
             "legal_name",
             "Association",
         ):
-            assert private not in text, (path, private)
+            assert private not in text, private
 
     public = client.get(f"/api/programs/{program.slug}").get_json()["program"]
     assert public["directory"] == {
@@ -550,8 +664,8 @@ def test_location_is_promoted_only_by_admin_approval(client, on):
     (card,) = client.get("/api/programs").get_json()["clubs"]
     assert card["venue"] is None and card["club_level"] is None and card["gender_programs"] == []
     assert card["age_groups"] == ["U12"]
-    assert _names(client.get("/api/programs?lat=51.5&lng=-0.14&radius_km=50")) == []
-    assert _names(client.get("/api/programs?q=quayside")) == []
+    assert _names(_search(client, "lat=51.5&lng=-0.14&radius_km=50")) == []
+    assert _names(_search(client, "q=quayside")) == []
     assert _names(client.get("/api/programs?level=semi_pro")) == []
     assert client.get(f"/api/programs/{program.slug}").get_json()["program"]["directory"]["venue"] is None
 
@@ -566,7 +680,7 @@ def test_location_is_promoted_only_by_admin_approval(client, on):
     assert review.status_code == 200
     assert review.get_json()["revision"]["directory"]["postcode"] == "SW1A 1AA"
 
-    (card,) = client.get("/api/programs?lat=51.5&lng=-0.14&radius_km=50").get_json()["clubs"]
+    (card,) = _search(client, "lat=51.5&lng=-0.14&radius_km=50").get_json()["clubs"]
     assert card["venue"] == {
         "name": "Quayside Park",
         "postcode": "SW1A 1AA",
@@ -576,7 +690,7 @@ def test_location_is_promoted_only_by_admin_approval(client, on):
     assert card["club_level"] == "semi_pro"
     assert card["gender_programs"] == ["men", "women", "girls"]
     assert card["age_groups"] == ["U12", "U14"]
-    assert _names(client.get("/api/programs?q=quayside")) == ["Harbour City FC"]
+    assert _names(_search(client, "q=quayside")) == ["Harbour City FC"]
 
 
 def test_rejected_location_is_never_public(client, on):
@@ -727,16 +841,16 @@ def _seed_region():
 
 def test_text_search_is_escaped_and_covers_place_fields(client, on):
     _seed_region()
-    assert _names(client.get("/api/programs?q=harbour")) == ["Harbour City FC"]
-    assert _names(client.get("/api/programs?q=QUAYSIDE")) == ["Harbour City FC"]
-    assert _names(client.get("/api/programs?q=hc1")) == ["Harbour City FC"]
-    assert _names(client.get("/api/programs?q=north%20shore")) == ["Northgate Rovers"]
+    assert _names(_search(client, "q=harbour")) == ["Harbour City FC"]
+    assert _names(_search(client, "q=QUAYSIDE")) == ["Harbour City FC"]
+    assert _names(_search(client, "q=hc1")) == ["Harbour City FC"]
+    assert _names(_search(client, "q=north%20shore")) == ["Northgate Rovers"]
     # LIKE wildcards are literal text, not patterns.
-    assert _names(client.get("/api/programs?q=%25%25")) == []
-    assert _names(client.get("/api/programs?q=__")) == []
-    assert _names(client.get("/api/programs?q=100%25_")) == ["100%_Real FC"]
-    assert _names(client.get("/api/programs?q=%5C%5C")) == []
-    assert _names(client.get("/api/programs?q=%27%20OR%201%3D1%20--")) == []
+    assert _names(_search(client, "q=%25%25")) == []
+    assert _names(_search(client, "q=__")) == []
+    assert _names(_search(client, "q=100%25_")) == ["100%_Real FC"]
+    assert _names(_search(client, "q=%5C%5C")) == []
+    assert _names(_search(client, "q=%27%20OR%201%3D1%20--")) == []
 
 
 def test_place_filters_are_exact_and_case_insensitive(client, on):
@@ -770,7 +884,7 @@ def test_offering_filters(client, on):
 
 def test_distance_sort_and_distance_unavailable(client, on):
     _seed_region()
-    body = client.get("/api/programs?lat=50.80&lng=-1.10").get_json()
+    body = _search(client, "lat=50.80&lng=-1.10").get_json()
     names = [club["name"] for club in body["clubs"]]
     assert names[:3] == ["Harbour City FC", "Millbrook Athletic", "Northgate Rovers"]
     # Clubs with no approved coordinates come last, by name, with no distance.
@@ -785,13 +899,13 @@ def test_distance_sort_and_distance_unavailable(client, on):
 
 def test_radius_keeps_only_pinned_clubs_in_range(client, on):
     _seed_region()
-    assert _names(client.get("/api/programs?lat=50.80&lng=-1.10&radius_km=5")) == ["Harbour City FC"]
-    assert _names(client.get("/api/programs?lat=50.80&lng=-1.10&radius_km=20")) == [
+    assert _names(_search(client, "lat=50.80&lng=-1.10&radius_km=5")) == ["Harbour City FC"]
+    assert _names(_search(client, "lat=50.80&lng=-1.10&radius_km=20")) == [
         "Harbour City FC",
         "Millbrook Athletic",
     ]
-    assert _names(client.get("/api/programs?lat=50.80&lng=-1.10&radius_km=100&programme=boys")) == ["Northgate Rovers"]
-    assert _names(client.get("/api/programs?lat=-33.9&lng=151.2&radius_km=250")) == []
+    assert _names(_search(client, "lat=50.80&lng=-1.10&radius_km=100&programme=boys")) == ["Northgate Rovers"]
+    assert _names(_search(client, "lat=-33.9&lng=151.2&radius_km=250")) == []
 
 
 @pytest.mark.parametrize(
@@ -803,18 +917,21 @@ def test_radius_keeps_only_pinned_clubs_in_range(client, on):
         ((-33.9, 151.2), (-35.2, 149.1)),
         ((35.0, 179.5), (35.5, -179.4)),
         ((1.0, 103.8), (-0.5, 102.9)),
+        ((85.0, 0.0), (85.0, 25.0)),
+        ((89.5, 10.0), (89.5, -170.0)),
+        ((-89.0, 40.0), (-89.5, -100.0)),
     ],
 )
 def test_sql_radius_agrees_with_great_circle_distance(client, on, origin, target):
-    """The trig-free SQL distance tracks haversine to well under 1% inside the allowed radius."""
+    """Radius membership is the great-circle distance itself: 10 m either side of it flips the answer."""
     _club(_league(), "Probe Town", directory=_pin(*target))
     true_km = club_directory.haversine_km(*origin, *target)
     assert true_km < club_directory.MAX_RADIUS_KM
-    inside = f"/api/programs?lat={origin[0]}&lng={origin[1]}&radius_km={true_km * 1.005:.3f}"
-    outside = f"/api/programs?lat={origin[0]}&lng={origin[1]}&radius_km={true_km * 0.995:.3f}"
-    assert _names(client.get(inside)) == ["Probe Town"]
-    assert _names(client.get(outside)) == []
-    assert client.get(inside).get_json()["clubs"][0]["distance_km"] == pytest.approx(true_km, abs=0.06)
+    inside = _search(client, lat=origin[0], lng=origin[1], radius_km=round(true_km + 0.01, 3))
+    outside = _search(client, lat=origin[0], lng=origin[1], radius_km=round(true_km - 0.01, 3))
+    assert _names(inside) == ["Probe Town"]
+    assert _names(outside) == []
+    assert inside.get_json()["clubs"][0]["distance_km"] == pytest.approx(true_km, abs=0.06)
 
 
 def test_pagination_is_bounded(client, on):
@@ -847,7 +964,8 @@ def test_pagination_is_bounded(client, on):
         "lat=50",
         "lng=1",
         "lat=abc&lng=1",
-        "lat=86&lng=1",
+        "lat=91&lng=1",
+        "lat=-90.5&lng=1",
         "lat=50&lng=181",
         "lat=nan&lng=1",
         "lat=inf&lng=1",
@@ -861,9 +979,11 @@ def test_pagination_is_bounded(client, on):
     ],
 )
 def test_bad_queries_are_rejected(client, on, query):
-    response = client.get(f"/api/programs?{query}")
+    response = _search(client, query)
     assert response.status_code == 400, query
     assert set(response.get_json()) == {"error"}
+    if not any(name in query for name in ("q=", "lat=", "lng=", "radius_km=")):
+        assert client.get(f"/api/programs?{query}").status_code == 400, query
 
 
 def test_approved_revision_resolution_matches_the_detail_page(client, on):
@@ -890,9 +1010,35 @@ def test_approved_revision_resolution_matches_the_detail_page(client, on):
     assert len(client.get("/api/programs").get_json()["clubs"]) == 1
 
 
-def test_directory_rate_limit_is_declared():
-    source = Path(club_directory.__file__).parent.parent.joinpath("routes", "club_directory.py").read_text()
-    assert '@limiter.limit("60 per minute"' in source
+def test_directory_rate_limit_is_one_budget_across_both_routes(monkeypatch):
+    monkeypatch.setenv(FLAG, "true")
+    probe = Flask("club-directory-rate-limit")
+    probe.config.update(TESTING=True, RATELIMIT_ENABLED=True, RATELIMIT_STORAGE_URI="memory://")
+    was_enabled = limiter.enabled
+    limiter.enabled = True
+    try:
+        limiter.init_app(probe)
+        probe.register_blueprint(club_directory_bp, url_prefix="/api")
+        monkeypatch.setattr(club_directory, "search", lambda params: {"clubs": []})
+        with probe.app_context():
+            limiter.reset()
+        caller = {"REMOTE_ADDR": "192.0.2.42"}
+        http = probe.test_client()
+        codes = [
+            (
+                http.get("/api/programs", environ_base=caller)
+                if index % 2
+                else http.post(SEARCH_URL, json={"lat": 1, "lng": 1}, environ_base=caller)
+            ).status_code
+            for index in range(61)
+        ]
+        assert codes[:60] == [200] * 60
+        assert codes[60] == 429
+        assert http.get("/api/programs", environ_base={"REMOTE_ADDR": "192.0.2.43"}).status_code == 200
+    finally:
+        with probe.app_context():
+            limiter.reset()
+        limiter.enabled = was_enabled
 
 
 # ---------------------------------------------------------------------------
@@ -912,3 +1058,417 @@ def test_p2b1_chains_from_p2a2_and_guards_its_ddl():
     for column in club_directory.DIRECTORY_FIELDS:
         assert f'"{column}"' in source
         assert hasattr(ClubProgramProfileRevision, column)
+
+
+# ---------------------------------------------------------------------------
+# RB1 regressions (adversarial review of PR #1114) + fix round 1 decisions
+# ---------------------------------------------------------------------------
+
+
+def test_position_and_search_words_are_refused_in_a_url_and_taken_in_the_body(client, on):
+    _seed_region()
+    for query in ("q=harbour", "lat=50.8&lng=-1.1", "lat=50.8&lng=-1.1&radius_km=10", "radius_km=10", "lng=1"):
+        refused = client.get(f"/api/programs?{query}")
+        assert refused.status_code == 400, query
+        assert "POST /api/club-directory/search" in refused.get_json()["error"]
+        assert "Harbour" not in refused.get_data(as_text=True)
+
+    # Native JSON numbers and lists, as the web app sends them.
+    body = client.post(
+        SEARCH_URL,
+        json={"q": "oo", "lat": 50.8, "lng": -1.1, "radius_km": 20, "programme": ["women", "girls"], "per_page": 5},
+    )
+    assert body.status_code == 200
+    assert body.headers["Cache-Control"] == "no-store"
+    payload = body.get_json()
+    assert [club["name"] for club in payload["clubs"]] == ["Millbrook Athletic"]
+    # Nothing about the visitor is echoed back.
+    assert set(payload) == {"clubs", "page", "per_page", "total", "has_more", "filters"}
+    assert _names(client.post(SEARCH_URL, json={})) == _names(client.get("/api/programs"))
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        ["lat", 1],
+        "lat=1",
+        {"lat": True, "lng": 1},
+        {"lat": {"value": 1}, "lng": 1},
+        {"lat": 10**400, "lng": 1},
+        {"q": ["harbour"]},
+        {"level": [1]},
+        {"page": 10**12},
+    ],
+)
+def test_malformed_search_bodies_are_a_400(client, on, body):
+    response = client.post(SEARCH_URL, json=body)
+    assert response.status_code == 400, body
+    assert set(response.get_json()) == {"error"}
+
+
+def test_search_body_is_bounded(client, on):
+    assert client.post(SEARCH_URL, json={"q": "x" * 5000}).status_code == 413
+    assert client.post(SEARCH_URL, data="{", content_type="application/json").status_code == 400
+    refused = client.get(SEARCH_URL)
+    assert refused.status_code == 405 and _allow(refused) == ["OPTIONS", "POST"]
+    assert _allow(client.options(SEARCH_URL)) == ["OPTIONS", "POST"]
+
+
+def test_a_visitor_search_never_reaches_the_access_log(app, client, on):
+    """RB1-1: replay the real request through gunicorn's own access-log formatter (deployment default format)."""
+    glogging = pytest.importorskip("gunicorn.glogging")
+    from gunicorn.config import Config as GunicornConfig
+
+    _seed_region()
+    seen = []
+    inner = app.wsgi_app
+
+    def recording(environ, start_response):
+        seen.append(environ)
+        return inner(environ, start_response)
+
+    app.wsgi_app = recording
+    try:
+        found = client.post(SEARCH_URL, json={"q": "HC1 2AB", "lat": 50.79, "lng": -1.06, "radius_km": 40})
+    finally:
+        app.wsgi_app = inner
+    assert found.status_code == 200 and found.get_json()["total"] == 1
+
+    environ = dict(seen[-1])
+    # Gunicorn logs the request line from RAW_URI: the path plus the query string, never the body.
+    environ["RAW_URI"] = environ["PATH_INFO"] + (f"?{environ['QUERY_STRING']}" if environ["QUERY_STRING"] else "")
+    config = GunicornConfig()
+    config.set("accesslog", "-")
+    dockerfile = Path(__file__).resolve().parent.parent.joinpath("Dockerfile").read_text()
+    assert '"--access-logfile", "-"' in dockerfile and "access-logformat" not in dockerfile
+    atoms = glogging.Logger(config).atoms(
+        SimpleNamespace(status="200 OK", sent=len(found.data), headers=list(found.headers)), [], environ, timedelta()
+    )
+    line = config.access_log_format % atoms
+    assert f'"POST {SEARCH_URL} HTTP/1.1" 200' in line
+    for private in ("50.79", "-1.06", "lat", "lng", "radius", "HC1", "2AB"):
+        assert private not in line, line
+
+
+def test_directory_search_terms_are_never_stored_in_product_analytics(app, client):
+    """RB1-2: the server drops them even from a client that still sends them."""
+    from src.models.product_event import ProductEvent
+    from src.routes.events import events_bp
+
+    app.register_blueprint(events_bp, url_prefix="/api")
+    sent = client.post(
+        "/api/events",
+        json={
+            "events": [
+                {"name": "pageview", "path": "/clubs?q=AB12+3CD", "session_id": "synthetic-session"},
+                {
+                    "name": "pageview",
+                    "path": "/clubs?for=youth&q=AB12%203CD&lat=50.79&lng=-1.06&radius_km=40&level=amateur&postcode=AB12",
+                    "referrer": "https://app.example/clubs/?q=AB12+3CD&level=amateur#q=AB12",
+                    "session_id": "synthetic-session",
+                },
+                {"name": "pageview", "path": "/search?q=midfielder", "referrer": "https://app.example/x?q=1"},
+            ]
+        },
+    )
+    assert sent.status_code == 202 and sent.get_json()["accepted"] == 3
+    rows = ProductEvent.query.order_by(ProductEvent.id).all()
+    assert [row.path for row in rows] == ["/clubs", "/clubs?for=youth&level=amateur", "/search?q=midfielder"]
+    assert rows[1].referrer == "https://app.example/clubs/?level=amateur"
+    assert rows[2].referrer == "https://app.example/x?q=1"
+    stored = json.dumps([[row.path, row.referrer, row.props] for row in rows])
+    for private in ("AB12", "3CD", "50.79", "1.06", "radius"):
+        assert private not in stored
+
+
+def test_an_approval_while_the_flag_is_off_never_publishes_unseen_location_edits(client, on, monkeypatch):
+    """RB1-4: on -> club edits -> off -> admin approves what they can see -> on."""
+    program = _club(_league(), "Harbour City FC", directory={"venue_name": "Old Approved Ground", **_pin(51.0, -1.0)})
+    saved = client.put(
+        f"/api/club/{program.id}/profile",
+        json=_profile_body(
+            summary="A new summary the reviewer can read.",
+            directory={"venue_name": "Never Shown To Reviewer", "latitude": 52.5, "longitude": 1.25},
+        ),
+        headers=_headers(_manager_email(program)),
+    )
+    revision_id = saved.get_json()["pending"]["id"]
+
+    monkeypatch.setenv(FLAG, "false")
+    listed = client.get("/api/admin/funding/profile-revisions", headers=_admin_headers()).get_json()["revisions"]
+    assert len(listed) == 1 and "directory" not in listed[0]
+    approved = client.post(
+        f"/api/admin/funding/programs/{program.id}/profile-revisions/{revision_id}/review",
+        json={"decision": "approve", "reason": "Reviewed the displayed profile."},
+        headers=_admin_headers(),
+    )
+    assert approved.status_code == 200 and "directory" not in approved.get_json()["revision"]
+
+    monkeypatch.setenv(FLAG, "true")
+    card = client.get("/api/programs").get_json()["clubs"][0]
+    assert card["venue"] == {"name": "Old Approved Ground", "postcode": None, "latitude": 51.0, "longitude": -1.0}
+    page = client.get(f"/api/programs/{program.slug}").get_json()["program"]
+    assert page["directory"]["venue"]["name"] == "Old Approved Ground"
+    # The visible part of the revision was approved as usual.
+    assert page["program_provided"]["summary"] == "A new summary the reviewer can read."
+    assert "Never Shown" not in json.dumps(
+        client.get(f"/api/club/{program.id}/profile", headers=_headers(_manager_email(program))).get_json()
+    )
+
+
+def test_a_flag_off_approval_publishes_no_location_when_none_was_approved_before(client, on, monkeypatch):
+    program = _club(_league(), "Harbour City FC")
+    saved = client.put(
+        f"/api/club/{program.id}/profile",
+        json=_profile_body(directory={**DIRECTORY_INPUT, "venue_name": "Never Shown To Reviewer"}),
+        headers=_headers(_manager_email(program)),
+    )
+    monkeypatch.setenv(FLAG, "false")
+    review = client.post(
+        f"/api/admin/funding/programs/{program.id}/profile-revisions/{saved.get_json()['pending']['id']}/review",
+        json={"decision": "approve", "reason": "Reviewed the displayed profile."},
+        headers=_admin_headers(),
+    )
+    assert review.status_code == 200
+    monkeypatch.setenv(FLAG, "true")
+    card = client.get("/api/programs").get_json()["clubs"][0]
+    assert (card["venue"], card["club_level"], card["gender_programs"]) == (None, None, [])
+
+
+def test_club_text_decoding_cost_is_bounded(client, on):
+    """RB1-5: 400 kB of nested entities used to take 11 s and be accepted; now it is refused at once."""
+    program = _club(_league(), "Harbour City FC")
+    headers = _headers(_manager_email(program))
+
+    def put(venue_name):
+        return client.put(
+            f"/api/club/{program.id}/profile", json=_profile_body(directory={"venue_name": venue_name}), headers=headers
+        )
+
+    started = time.perf_counter()
+    oversized = put("&" + "amp;" * 100000 + "lt;")
+    elapsed = time.perf_counter() - started
+    assert oversized.status_code == 400 and "venue_name" in oversized.get_json()["fields"]
+    assert elapsed < 1.0, elapsed
+
+    # Short enough to pass the size bound, but nested deeper than is ever decoded.
+    nested = put("&" + "amp;" * 40 + "lt;b")
+    assert nested.status_code == 400 and "plain text" in nested.get_json()["fields"]["venue_name"]
+    assert ClubProgramProfileRevision.query.filter_by(program_id=program.id, status="pending").count() == 0
+
+    started = time.perf_counter()
+    for _ in range(50):
+        with pytest.raises(ValueError):
+            club_directory._clean_text("&" + "amp;" * 119 + "lt;", "venue_name", club_directory.VENUE_NAME_MAX)
+    assert time.perf_counter() - started < 1.0
+
+    ordinary = put("Smith &amp; Sons Park")
+    assert ordinary.status_code == 200
+    assert ordinary.get_json()["pending"]["directory"]["venue_name"] == "Smith & Sons Park"
+
+
+def test_radius_membership_is_great_circle_at_high_latitude(client, on):
+    """RB1-6: visitor (85, 0), club (85, 25) is 240.4 km away; a 241 km radius used to return nothing."""
+    _club(_league(), "Arctic Town", directory=_pin(85, 25))
+    true_km = club_directory.haversine_km(85, 0, 85, 25)
+    assert 240 < true_km < 241
+    inside = _search(client, lat=85, lng=0, radius_km=241).get_json()
+    assert (inside["total"], inside["clubs"][0]["distance_km"]) == (1, round(true_km, 1))
+    assert _search(client, lat=85, lng=0, radius_km=240).get_json()["total"] == 0
+    assert _search(client, lat=90, lng=0, radius_km=250).status_code == 200
+
+
+def test_nearest_first_is_great_circle_over_any_distance(client, on):
+    """RB1-6: over the pole (85, 180) is nearer than (74, 0); the flat projection listed it second."""
+    league = _league()
+    _club(league, "Across The Pole", directory=_pin(85, 180))
+    _club(league, "Down The Meridian", directory=_pin(74, 0))
+    _club(league, "Far Side", directory=_pin(-40, 175))
+    _club(league, "No Pin Town")
+    clubs = _search(client, lat=85, lng=0).get_json()["clubs"]
+    assert [club["name"] for club in clubs] == ["Across The Pole", "Down The Meridian", "Far Side", "No Pin Town"]
+    distances = [club["distance_km"] for club in clubs[:3]]
+    assert distances == sorted(distances)
+    assert distances[:2] == [1112.0, 1223.1]
+    assert clubs[3]["distance_km"] is None
+
+
+def test_nearest_first_pages_are_stable_and_complete(client, on):
+    league = _league()
+    pins = [(50.80, -1.10), (50.80, -1.10), (50.80, -1.10), (50.9, -1.0), (35.0, 179.9), (35.0, -179.9), (-60, 20)]
+    for index, pin in enumerate(pins):
+        _club(league, f"Pinned {index}", directory=_pin(*pin))
+    _club(league, "Unpinned B")
+    _club(league, "Unpinned A")
+    origin = {"lat": 50.80, "lng": -1.10}
+    everything = _search(client, per_page=50, **origin).get_json()
+    assert everything["total"] == 9
+    expected = [club["id"] for club in everything["clubs"]]
+    measured = [club["distance_km"] for club in everything["clubs"][:7]]
+    assert measured == sorted(measured)
+    assert [club["name"] for club in everything["clubs"][:3]] == ["Pinned 0", "Pinned 1", "Pinned 2"]
+    assert [club["name"] for club in everything["clubs"][7:]] == ["Unpinned A", "Unpinned B"]
+
+    paged = []
+    for page in range(1, 6):
+        body = _search(client, per_page=2, page=page, **origin).get_json()
+        assert body["total"] == 9 and body["has_more"] is (page < 5)
+        paged.extend(club["id"] for club in body["clubs"])
+    assert paged == expected
+    assert len(set(paged)) == 9
+    # The same request twice gives the same page.
+    assert (
+        _search(client, per_page=2, page=2, **origin).get_json()
+        == _search(client, per_page=2, page=2, **origin).get_json()
+    )
+
+
+def test_the_sql_distance_term_is_the_haversine_term(client, on):
+    """The value ordered and bounded in SQL equals hav(d/R) of the distance shown to people."""
+    program = _club(_league(), "Probe Town", directory=_pin(-33.86, 151.21))
+    revision = db.session.get(ClubProgramProfileRevision, program.approved_profile_revision_id)
+    club_directory._sqlite_trig()
+    for origin in ((51.5, -0.12), (-33.9, 151.2), (89.9, -30.0), (-89.9, 0.0), (0.0, -28.79)):
+        term = db.session.query(club_directory._haversine_term(ClubProgramProfileRevision, *origin)).filter(
+            ClubProgramProfileRevision.id == revision.id
+        )
+        shown = club_directory.haversine_km(*origin, -33.86, 151.21)
+        assert term.scalar() == pytest.approx(math.sin(shown / (2 * club_directory.EARTH_RADIUS_KM)) ** 2, rel=1e-9)
+
+
+@pytest.mark.parametrize("pin", [{"latitude": 85.0}, {"longitude": 25.0}])
+def test_the_database_refuses_a_half_populated_pin(app, pin):
+    """RB1-7: a CHECK accepts UNKNOWN, so the populated branch must say NOT NULL on both sides."""
+    from sqlalchemy.exc import IntegrityError
+
+    program = _club(_league(), "Harbour City FC", directory=_pin(50.8, -1.1))
+    revision = db.session.get(ClubProgramProfileRevision, program.approved_profile_revision_id)
+    revision.latitude = pin.get("latitude")
+    revision.longitude = pin.get("longitude")
+    with pytest.raises(IntegrityError):
+        db.session.commit()
+    db.session.rollback()
+    revision.latitude = revision.longitude = None
+    db.session.commit()
+    revision.latitude, revision.longitude = 91.0, 0.0
+    with pytest.raises(IntegrityError):
+        db.session.commit()
+    db.session.rollback()
+
+
+def test_the_migration_and_model_agree_on_the_both_or_neither_pin_check():
+    backend = Path(__file__).resolve().parent.parent
+    migration = backend.joinpath("migrations", "versions", "p2b1_club_directory.py").read_text()
+    model = backend.joinpath("src", "models", "funding.py").read_text()
+    for source in (migration, model):
+        assert "latitude IS NOT NULL AND longitude IS NOT NULL AND" in source
+    # An earlier draft of the constraint is replaced, not left in place.
+    assert "REPLACED_CHECKS" in migration and "drop_constraint" in migration
+
+
+@pytest.mark.parametrize(
+    ("directory", "field"),
+    [
+        ({"latitude": 10**400, "longitude": 1}, "latitude"),
+        ({"latitude": 1, "longitude": -(10**400)}, "longitude"),
+        ({"latitude": 10**20, "longitude": 10**20}, "latitude"),
+    ],
+)
+def test_a_huge_json_integer_is_a_validation_error_not_a_500(client, on, directory, field):
+    """RB1-8: it used to raise OverflowError out of the route."""
+    program = _club(_league(), "Harbour City FC")
+    response = client.put(
+        f"/api/club/{program.id}/profile",
+        json=_profile_body(directory=directory),
+        headers=_headers(_manager_email(program)),
+    )
+    assert response.status_code == 400
+    assert response.get_json()["error"] == "validation_failed"
+    assert field in response.get_json()["fields"]
+
+
+def test_exact_place_filters_match_non_ascii_names(client, on):
+    """RB1-9: the stored and the requested name are folded by the same engine (Python folds İ differently)."""
+    league = _league()
+    _club(league, "Bosphorus FC", city="İstanbul", region="Marmara", country="Türkiye")
+    _club(league, "Harbour City FC")
+    assert _names(client.get("/api/programs", query_string={"city": "İstanbul"})) == ["Bosphorus FC"]
+    assert _names(client.get("/api/programs", query_string={"country": "Türkiye"})) == ["Bosphorus FC"]
+    assert _names(client.post(SEARCH_URL, json={"city": "İstanbul", "region": "MARMARA"})) == ["Bosphorus FC"]
+    assert _names(client.get("/api/programs", query_string={"city": "Istanbul"})) == []
+
+
+@pytest.mark.parametrize("role", ["coach", "analyst", "viewer"])
+def test_all_squads_scoped_staff_cannot_read_or_edit_the_club_profile(client, on, monkeypatch, role):
+    """A2 (RA2V5): "all squads" widens a scoped role's squad list, never its capabilities."""
+    from src.models.club_access import ClubAccessGrant
+
+    monkeypatch.setenv("CLUB_STAFF_ACCESS_ENABLED", "true")
+    program = _club(_league(), "Harbour City FC", directory={"venue_name": "Quayside Park", **_pin(50.8, -1.1)})
+    user = UserAccount(email=f"{role}@staff.example", display_name=role, display_name_lower=f"{role} staff")
+    db.session.add(user)
+    db.session.flush()
+    db.session.add(
+        ClubAccessGrant(program_id=program.id, user_account_id=user.id, role=role, all_squads=True, status="active")
+    )
+    db.session.commit()
+    headers = _headers(user.email)
+    edit = client.put(
+        f"/api/club/{program.id}/profile",
+        json=_profile_body(directory={"venue_name": "Injected Ground", "latitude": 1.5, "longitude": 1.5}),
+        headers=headers,
+    )
+    assert edit.status_code == 403
+    assert client.get(f"/api/club/{program.id}/profile", headers=headers).status_code == 403
+    assert ClubProgramProfileRevision.query.filter_by(program_id=program.id, status="pending").count() == 0
+    assert client.get("/api/programs").get_json()["clubs"][0]["venue"]["name"] == "Quayside Park"
+
+
+def test_an_invited_manager_edits_the_location_but_only_into_review(client, on, monkeypatch):
+    from src.models.club_access import ClubAccessGrant
+
+    monkeypatch.setenv("CLUB_STAFF_ACCESS_ENABLED", "true")
+    program = _club(_league(), "Harbour City FC", directory={"venue_name": "Quayside Park"})
+    user = UserAccount(email="invited@staff.example", display_name="Invited", display_name_lower="invited staff")
+    db.session.add(user)
+    db.session.flush()
+    db.session.add(
+        ClubAccessGrant(
+            program_id=program.id, user_account_id=user.id, role="manager", all_squads=True, status="active"
+        )
+    )
+    db.session.commit()
+    saved = client.put(
+        f"/api/club/{program.id}/profile",
+        json=_profile_body(directory={"venue_name": "New Ground"}),
+        headers=_headers(user.email),
+    )
+    assert saved.status_code == 200
+    assert saved.get_json()["pending"]["directory"]["venue_name"] == "New Ground"
+    assert client.get("/api/programs").get_json()["clubs"][0]["venue"]["name"] == "Quayside Park"
+
+
+def test_a_club_onboarded_through_the_real_claim_bridge_is_listed(bridge_app, monkeypatch):
+    """The orchestrator's case end to end: official claim -> admin approves -> console club -> in the directory."""
+    monkeypatch.setenv(FLAG, "true")
+    bridge_app.register_blueprint(club_directory_bp, url_prefix="/api")
+    http = bridge_app.test_client()
+    official_claim = console_bridge._submit_claim(
+        http, console_bridge.LOCAL_EMAIL, {"local_club_id": bridge_app.bridge["local_club_id"]}
+    )
+    assert http.get("/api/programs").get_json()["total"] == 0
+
+    console_bridge._review(http, official_claim.id, "approve")
+    program = ClubProgram.query.one()
+    assert program.league.name == CONSOLE_LEAGUE_NAME and program.league.registry_status != "approved"
+    listing = http.get("/api/programs").get_json()
+    assert [(club["name"], club["league"], club["city"]) for club in listing["clubs"]] == [
+        ("Harbour Juniors", None, "Kobe")
+    ]
+    page = http.get(f"/api/programs/{program.slug}")
+    assert page.status_code == 200 and page.get_json()["program"]["league"] is None
+    assert CONSOLE_LEAGUE_NAME not in page.get_data(as_text=True) + json.dumps(listing)
+
+    console_bridge._review(http, official_claim.id, "revoke")
+    assert http.get("/api/programs").get_json()["total"] == 0
+    assert http.get(f"/api/programs/{program.slug}").status_code == 404

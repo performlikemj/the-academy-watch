@@ -1145,6 +1145,9 @@ def review_profile_revision(program_id: int, revision_id: int):
     try:
         decision, reason = _review_values()
         now = datetime.now(UTC).replace(tzinfo=None)
+        if decision == "approve":
+            # p2-b1: with the directory off the reviewer was not shown its fields, so they are not promoted.
+            club_directory.settle_directory_on_approval(revision, approved_revision_for(revision.program))
         revision.status = "approved" if decision == "approve" else "rejected"
         revision.reviewed_by = getattr(g, "user_email", None)
         revision.review_reason = reason
@@ -1233,14 +1236,21 @@ def _approved_revision(program):
 
 
 def _public_program_by_slug(slug):
-    """Return only programs admitted through an approved public league."""
+    """Return only programs admitted through an approved public league.
+
+    p2-b1: while the club directory is on, a club listed there also has its page
+    (a console-local club has no approved league; its card must still open).
+    """
+    admitted = FundingLeague.registry_status == "approved"
+    if club_directory.directory_enabled():
+        admitted = or_(admitted, club_directory.directory_eligibility())
     return (
         ClubProgram.query.join(FundingLeague, ClubProgram.funding_league_id == FundingLeague.id)
         .filter(
             ClubProgram.slug == slug,
             ClubProgram.platform_status == "approved",
             ClubProgram.emergency_hidden.is_(False),
-            FundingLeague.registry_status == "approved",
+            admitted,
         )
         .first()
     )
@@ -1299,9 +1309,12 @@ def public_program(slug):
         if program.team_profile
         else None
     )
-    # --- p2-b1 begin --- approved location/offering + aggregate squad count (key absent while off)
+    # --- p2-b1 begin --- approved location/offering + aggregate squad count (key absent while off;
+    # null for a club the directory does not list, e.g. one whose manager was revoked)
     if club_directory.directory_enabled():
         payload["directory"] = club_directory.public_directory_block(program, revision)
+        if is_console_league(program.league):
+            payload["league"] = None  # the reserved console league is not a public league
     # --- p2-b1 end ---
     return jsonify({"program": payload})
 

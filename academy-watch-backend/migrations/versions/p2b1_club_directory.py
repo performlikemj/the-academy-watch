@@ -30,9 +30,15 @@ CHECKS = (
     ),
     (
         "ck_club_program_revisions_coordinates",
-        "(latitude IS NULL AND longitude IS NULL) OR (latitude BETWEEN -90 AND 90 AND longitude BETWEEN -180 AND 180)",
+        # Both or neither. The NOT NULLs matter: with one side NULL a bare range test is UNKNOWN,
+        # and a CHECK accepts UNKNOWN.
+        "(latitude IS NULL AND longitude IS NULL) OR "
+        "(latitude IS NOT NULL AND longitude IS NOT NULL AND "
+        "latitude BETWEEN -90 AND 90 AND longitude BETWEEN -180 AND 180)",
     ),
 )
+# Recreated on every run: an earlier draft of this migration created it without the NOT NULLs.
+REPLACED_CHECKS = ("ck_club_program_revisions_coordinates",)
 
 
 def _check_exists(name):
@@ -43,7 +49,11 @@ def upgrade():
     for name, column_type in COLUMNS:
         add_column_safe(TABLE, sa.Column(name, column_type, nullable=True))
     for name, condition in CHECKS:
-        if not _check_exists(name):
+        exists = _check_exists(name)
+        if exists and name in REPLACED_CHECKS:
+            op.drop_constraint(name, TABLE, type_="check")
+            exists = False
+        if not exists:
             op.create_check_constraint(name, TABLE, condition)
 
 

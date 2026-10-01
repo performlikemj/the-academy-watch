@@ -1,4 +1,4 @@
-/* global document */
+/* global document, window */
 import { expect, test } from '@playwright/test'
 
 // Synthetic API data only (Clubs near you, dark behind CLUB_DIRECTORY_ENABLED).
@@ -16,19 +16,26 @@ const CLUBS = [
 ]
 const program = { id: 7, name: 'Synthetic Staff Club', slug: 'synthetic-staff-club', platform_status: 'approved', brand: { primary_color: '#0F3D2E', accent_color: '#CFAE62' } }
 
-async function mock(page, { flag, clubs = CLUBS, seen = [], onSave } = {}) {
+// `seen` = every API URL requested; `searches` = each directory search body; `events` = analytics events sent.
+async function mock(page, { flag, clubs = CLUBS, seen = [], searches = [], events = [], onSave, failing = false } = {}) {
   await page.route('**/api/**', async (route) => {
     const url = new URL(route.request().url())
     const reply = (json) => route.fulfill({ json })
     seen.push(url.pathname + url.search)
     if (url.pathname === '/api/features') return reply(flag ? { contact_rail: false, club_directory: true } : { contact_rail: false })
     if (url.pathname === '/api/meta/data-mode') return reply({ api_football_frozen: false })
-    if (url.pathname === '/api/programs') {
+    if (url.pathname === '/api/events') {
+      events.push(...(route.request().postDataJSON()?.events || []))
+      return route.fulfill({ status: 202, json: { accepted: 1 } })
+    }
+    if (url.pathname === '/api/club-directory/search' && route.request().method() === 'POST') {
+      const search = route.request().postDataJSON() || {}
+      searches.push(search)
+      if (failing) return route.fulfill({ status: 503, json: { error: 'synthetic_unavailable' } })
       let rows = clubs
-      const programme = url.searchParams.get('programme')
-      if (programme) rows = rows.filter((row) => row.gender_programs.some((code) => programme.split(',').includes(code)))
-      if (url.searchParams.get('q')) rows = rows.filter((row) => row.name.toLowerCase().includes(url.searchParams.get('q').toLowerCase()))
-      if (url.searchParams.get('lat')) rows = rows.map((row, index) => ({ ...row, distance_km: row.venue ? 3.2 + index * 8 : null }))
+      if (search.programme) rows = rows.filter((row) => row.gender_programs.some((code) => search.programme.includes(code)))
+      if (search.q) rows = rows.filter((row) => row.name.toLowerCase().includes(search.q.toLowerCase()))
+      if (search.lat !== undefined) rows = rows.map((row, index) => ({ ...row, distance_km: row.venue ? 3.2 + index * 8 : null }))
       return reply({ clubs: rows, page: 1, per_page: 20, total: rows.length, has_more: false, filters: { levels: [], programmes: [] } })
     }
     if (url.pathname === '/api/programs/synthetic-alpha-fc') {
@@ -67,12 +74,12 @@ test('flag off: /clubs is still the teaser and the directory API is never called
   await expect(page.getByText('Tell me when it opens.')).toBeVisible()
   await expect(page.getByText('Find a club · coming soon')).toBeVisible()
   await expect(page.getByTestId('club-count')).toHaveCount(0)
-  expect(seen.some((path) => path.startsWith('/api/programs'))).toBe(false)
+  expect(seen.some((path) => path.startsWith('/api/programs') || path.startsWith('/api/club-directory'))).toBe(false)
 })
 
 test('flag on: lists verified clubs, filters, searches and opens a club page', async ({ page }) => {
-  const seen = []
-  await mock(page, { flag: true, seen })
+  const searches = []
+  await mock(page, { flag: true, searches })
   await page.goto('/clubs')
   await expect(page.getByTestId('club-count')).toHaveText('3 verified clubs')
   await expect(page.getByTestId('club-row')).toHaveCount(3)
@@ -86,14 +93,15 @@ test('flag on: lists verified clubs, filters, searches and opens a club page', a
 
   await page.getByRole('button', { name: 'Girls & women' }).click()
   await expect(page.getByTestId('club-count')).toHaveText('2 verified clubs')
-  expect(seen.at(-1)).toContain('programme=women%2Cgirls')
+  expect(searches.at(-1).programme).toEqual(['women', 'girls'])
   await expect(page).toHaveURL(/for=girls_women/)
   await page.getByRole('button', { name: 'Girls & women' }).click()
 
   await page.getByRole('searchbox').fill('gamma')
   await page.getByRole('search').getByRole('button', { name: 'Search' }).click()
   await expect(page.getByTestId('club-count')).toHaveText('1 verified club')
-  expect(seen.at(-1)).toContain('q=gamma')
+  expect(searches.at(-1).q).toBe('gamma')
+  expect(page.url()).not.toContain('gamma')
 
   await page.getByRole('searchbox').fill('nowhere at all')
   await page.getByRole('search').getByRole('button', { name: 'Search' }).click()
@@ -107,27 +115,62 @@ test('flag on: lists verified clubs, filters, searches and opens a club page', a
   await expect(page.getByRole('link', { name: 'All clubs' })).toBeVisible()
 })
 
-test('flag on: location is sent coarse, never put in the URL, and missing pins say so', async ({ browser }) => {
+test('flag on: location is sent coarse in the request body, never in any URL, and missing pins say so', async ({ browser }) => {
   const context = await browser.newContext({ geolocation: { latitude: 50.791234, longitude: -1.062345 }, permissions: ['geolocation'], locale: 'en-GB' })
   const page = await context.newPage()
   const seen = []
-  await mock(page, { flag: true, seen })
+  const searches = []
+  // Everything the browser asks any server for, mocked or not: this is what an access log would record.
+  const requested = []
+  page.on('request', (request) => requested.push(request.url()))
+  await mock(page, { flag: true, seen, searches })
   await page.goto('/clubs')
   await expect(page.getByTestId('club-row')).toHaveCount(3)
   await page.getByRole('button', { name: 'Use my location' }).click()
   await expect(page.getByText('Nearest first')).toBeVisible()
   await expect(page.getByTestId('club-row').first()).toContainText('2.0 mi')
   await expect(page.getByTestId('club-row').nth(2)).toContainText('Distance unavailable')
-  const located = seen.filter((path) => path.includes('lat='))
+  const located = searches.filter((search) => search.lat !== undefined)
   expect(located.length).toBeGreaterThan(0)
-  for (const path of located) expect(path).toMatch(/lat=50\.79&lng=-1\.06(&|$)/)
-  expect(page.url()).not.toContain('50.79')
+  for (const search of located) expect([search.lat, search.lng]).toEqual([50.79, -1.06])
   await page.getByLabel('Distance').selectOption({ label: '25 mi' })
-  await expect.poll(() => seen.at(-1)).toContain('radius_km=40')
+  await expect.poll(() => searches.at(-1).radius_km).toBe(40)
+  expect(page.url()).not.toContain('50.79')
+  for (const url of [...requested, ...seen]) {
+    expect(url).not.toMatch(/50\.79|-1\.06|[?&](lat|lng|radius_km|q)=/)
+  }
   await page.getByRole('button', { name: 'Stop using my location' }).click()
   await expect(page.getByRole('button', { name: 'Use my location' })).toBeVisible()
-  await expect.poll(() => seen.at(-1)).not.toContain('lat=')
+  await expect.poll(() => searches.at(-1).lat).toBeUndefined()
   await context.close()
+})
+
+// RB1-2 (the reviewer's probe, reversed): a postcode search used to land in the pageview path.
+test('flag on: a postcode search stays out of the page URL, request URLs and product analytics', async ({ page }) => {
+  const events = []
+  const searches = []
+  const requested = []
+  page.on('request', (request) => requested.push(request.url()))
+  await mock(page, { flag: true, events, searches })
+  await page.goto('/clubs?q=ZZ99+9ZZ&level=amateur')
+  await expect(page.getByTestId('club-count')).toBeVisible()
+  // A search carried in an old link is neither run nor left in the address bar.
+  await expect(page).toHaveURL(/\/clubs\?level=amateur$/)
+  expect(searches.every((search) => search.q === undefined)).toBe(true)
+
+  await page.getByRole('searchbox').fill('AB12 3CD')
+  await page.getByRole('search').getByRole('button', { name: 'Search' }).click()
+  await expect.poll(() => searches.at(-1)?.q).toBe('AB12 3CD')
+  await page.getByRole('button', { name: 'Youth' }).click()
+  await expect(page).toHaveURL(/for=youth/)
+  expect(page.url()).not.toMatch(/AB12|3CD/)
+
+  // Analytics did fire for this page (so the check below is not vacuous) and flushes on its 5 s timer.
+  await expect.poll(() => events.some((event) => event.name === 'pageview' && /^\/clubs\?.*for=youth/.test(event.path || '')), { timeout: 15000 }).toBe(true)
+  expect(events.filter((event) => event.name === 'pageview' && (event.path || '').startsWith('/clubs')).length).toBeGreaterThan(1)
+  expect(JSON.stringify(events)).not.toMatch(/AB12|3CD|ZZ99|9ZZ/)
+  // Apart from the old link this test itself opened, no request URL carries a search.
+  for (const url of requested.filter((item) => !item.includes('/clubs?q=ZZ99'))) expect(url).not.toMatch(/AB12|3CD|ZZ99|[?&]q=/)
 })
 
 test('flag on: phone layout has no sideways scroll, with and without clubs', async ({ page }) => {
@@ -142,6 +185,54 @@ test('flag on: phone layout has no sideways scroll, with and without clubs', asy
   await expect(page.getByTestId('club-empty')).toContainText('No verified clubs are listed yet.')
   await expect(page.getByRole('button', { name: 'I’m interested' }).or(page.getByRole('button', { name: "I'm interested" }))).toBeVisible()
   await noSideScroll(page)
+})
+
+// The reviewer's passing browser probes (RB1), kept as regressions.
+for (const mode of ['denied', 'unavailable']) {
+  test(`flag on: location ${mode} says so and leaves the list and the town search working`, async ({ page }) => {
+    await page.addInitScript((kind) => Object.defineProperty(navigator, 'geolocation', {
+      value: kind === 'unavailable' ? undefined : { getCurrentPosition: (_ok, fail) => fail({ code: 1 }) }, configurable: true,
+    }), mode)
+    const searches = []
+    await mock(page, { flag: true, searches })
+    await page.goto('/clubs')
+    await page.getByRole('button', { name: 'Use my location' }).click()
+    await expect(page.getByText(mode === 'unavailable'
+      ? 'This browser can’t share a location. Search by town or postcode instead.'
+      : 'We couldn’t get your location. Search by town or postcode instead.')).toBeVisible()
+    await expect(page.getByTestId('club-row')).toHaveCount(3)
+    expect(searches.every((search) => search.lat === undefined)).toBe(true)
+  })
+}
+
+test('flag on: club-supplied text renders literally, with no injected element and no sideways scroll', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.addInitScript(() => { window.directoryInjected = false })
+  const injection = '<img src=x onerror="window.directoryInjected=true">'
+  const hostile = club(9, 'Synthetic Hostile', {
+    name: `${injection}${'A'.repeat(140)}`,
+    venue: { name: `${injection}${'B'.repeat(70)}`, postcode: 'TT1 1AA', latitude: 51.5, longitude: -0.1 },
+  })
+  await mock(page, { flag: true, clubs: [hostile] })
+  await page.goto('/clubs')
+  await expect(page.getByTestId('club-row')).toHaveCount(1)
+  await expect(page.getByTestId('club-row')).toContainText(injection)
+  expect(await page.evaluate(() => window.directoryInjected)).toBe(false)
+  await expect(page.getByTestId('club-row').locator('img')).toHaveCount(0)
+  await noSideScroll(page)
+  await page.getByTestId('club-plot').getByRole('button').focus()
+  await page.keyboard.press('Enter')
+  await expect(page.getByTestId('selected-club')).toContainText(injection)
+})
+
+test('flag on: a failed load offers a retry that recovers', async ({ page }) => {
+  await mock(page, { flag: true, failing: true })
+  await page.goto('/clubs')
+  await expect(page.getByText('We couldn’t load the clubs.')).toBeVisible()
+  await page.unroute('**/api/**')
+  await mock(page, { flag: true })
+  await page.getByRole('button', { name: 'Try again', exact: true }).click()
+  await expect(page.getByTestId('club-row')).toHaveCount(3)
 })
 
 for (const flag of [false, true]) {

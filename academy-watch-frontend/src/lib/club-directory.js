@@ -63,21 +63,33 @@ export function coarseCoordinate(value) {
   return Math.round(Number(value) * 100) / 100
 }
 
-export function buildDirectoryQuery({ q, offering, level, position, radiusKm, page, perPage } = {}) {
-  const params = new URLSearchParams()
+// The one place a search goes: the JSON body of this POST. A URL ends up in server logs, browser
+// history and analytics, so what a visitor typed and where they are never go in one.
+export const DIRECTORY_SEARCH_ENDPOINT = '/club-directory/search'
+
+// The only /clubs page-URL params: shareable filters that say nothing about the visitor.
+export const DIRECTORY_URL_PARAMS = ['for', 'level']
+
+export function buildDirectorySearch({ q, offering, level, position, radiusKm, page, perPage } = {}) {
+  const body = {}
   const term = String(q || '').trim()
-  if (term.length >= 2) params.set('q', term.slice(0, 80))
+  if (term.length >= 2) body.q = term.slice(0, 80)
   const filter = OFFERING_FILTERS.find((item) => item.id === offering)
-  if (filter) params.set('programme', filter.programmes.join(','))
-  if (LEVELS.includes(level)) params.set('level', level)
+  if (filter) body.programme = [...filter.programmes]
+  if (LEVELS.includes(level)) body.level = level
   if (position && Number.isFinite(position.latitude) && Number.isFinite(position.longitude)) {
-    params.set('lat', String(coarseCoordinate(position.latitude)))
-    params.set('lng', String(coarseCoordinate(position.longitude)))
-    if (Number.isFinite(radiusKm) && radiusKm > 0) params.set('radius_km', String(radiusKm))
+    body.lat = coarseCoordinate(position.latitude)
+    body.lng = coarseCoordinate(position.longitude)
+    if (Number.isFinite(radiusKm) && radiusKm > 0) body.radius_km = radiusKm
   }
-  if (page > 1) params.set('page', String(page))
-  if (perPage) params.set('per_page', String(perPage))
-  return params.toString()
+  if (page > 1) body.page = page
+  if (perPage) body.per_page = perPage
+  return body
+}
+
+export function directorySearchRequest(search) {
+  // No Referer either: gunicorn logs it, and an old link may still carry a search in the page URL.
+  return [DIRECTORY_SEARCH_ENDPOINT, { method: 'POST', referrerPolicy: 'no-referrer', body: JSON.stringify(buildDirectorySearch(search)) }]
 }
 
 // Miles where people measure a drive to training in miles; kilometres everywhere else.

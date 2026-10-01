@@ -7,11 +7,12 @@ import { InterestSignup } from '@/components/interest/InterestSignup'
 import {
   LEVEL_LABELS,
   LEVELS,
+  DIRECTORY_URL_PARAMS,
   OFFERING_FILTERS,
   RADIUS_OPTIONS_KM,
-  buildDirectoryQuery,
   clubMeta,
   clubPlace,
+  directorySearchRequest,
   distanceUnit,
   hasPin,
   initials,
@@ -210,18 +211,13 @@ function NoPinsPanel() {
 
 export function ClubDirectory() {
   const [searchParams, setSearchParams] = useSearchParams()
-  const q = searchParams.get('q') || ''
   const offering = OFFERING_FILTERS.some((item) => item.id === searchParams.get('for')) ? searchParams.get('for') : ''
   const level = LEVELS.includes(searchParams.get('level')) ? searchParams.get('level') : ''
 
-  const [draft, setDraft] = useState(q)
-  const [syncedQ, setSyncedQ] = useState(q)
-  if (syncedQ !== q) {
-    // The URL changed under us (back/forward, clear): bring the box with it.
-    setSyncedQ(q)
-    setDraft(q)
-  }
-  // The visitor's position lives in memory only: never in the URL, storage or our database.
+  // What the visitor typed (often a home postcode) and where they are live in memory only:
+  // never in the page URL, a request URL, storage, analytics or our database.
+  const [q, setQ] = useState('')
+  const [draft, setDraft] = useState('')
   const [position, setPosition] = useState(null)
   const [locating, setLocating] = useState('idle')
   const [radiusKm, setRadiusKm] = useState(0)
@@ -236,8 +232,7 @@ export function ClubDirectory() {
       ? { ...current, status: 'loading' }
       : { ...current, status: 'loading-more' }))
     try {
-      const query = buildDirectoryQuery({ q, offering, level, position, radiusKm, page, perPage: PER_PAGE })
-      const data = await APIService.request(`/programs?${query}`)
+      const data = await APIService.request(...directorySearchRequest({ q, offering, level, position, radiusKm, page, perPage: PER_PAGE }))
       if (request !== requestRef.current) return
       setState((current) => ({
         status: 'ready',
@@ -257,6 +252,13 @@ export function ClubDirectory() {
     return () => clearTimeout(timer)
   }, [load])
 
+  // An old or hand-made link may carry a search in the URL: take it out of the address bar.
+  useEffect(() => {
+    const kept = new URLSearchParams()
+    for (const name of DIRECTORY_URL_PARAMS) if (searchParams.get(name)) kept.set(name, searchParams.get(name))
+    if (kept.toString() !== searchParams.toString()) setSearchParams(kept, { replace: true })
+  }, [searchParams, setSearchParams])
+
   const { clubs } = state
   const pinned = useMemo(() => clubs.filter(hasPin), [clubs])
   const selected = clubs.find((club) => club.id === selectedId) || pinned[0] || null
@@ -270,7 +272,7 @@ export function ClubDirectory() {
 
   const submit = (event) => {
     event.preventDefault()
-    setParam('q', draft.trim())
+    setQ(draft.trim())
   }
 
   const locate = () => {
@@ -299,6 +301,7 @@ export function ClubDirectory() {
   const clearAll = () => {
     setRadiusKm(0)
     setDraft('')
+    setQ('')
     setSearchParams(new URLSearchParams(), { replace: true })
   }
 
