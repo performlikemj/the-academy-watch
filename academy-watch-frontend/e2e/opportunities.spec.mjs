@@ -6,8 +6,8 @@ import path from 'node:path'
 // Clearly synthetic browser fixtures; the app has no fixture/fallback data path.
 const oid = '00000000-0000-4000-8000-000000000001'
 const aid = '00000000-0000-4000-8000-000000000002'
-const opportunity = { id: oid, program_id: 7, club_name: 'Synthetic B2 Club', club_slug: 'synthetic-b2', type: 'trial', title: 'Adult development trial', description: 'A synthetic opportunity used only to check the application workflow.', instructions: 'Bring boots, shin pads and water.', venue: 'Test training ground', address: 'Test pitch', timezone: 'UTC', starts_at: '2026-10-20T10:00:00Z', ends_at: '2026-10-20T12:00:00Z', closes_at: '2026-10-18T12:00:00Z', birth_year_min: 1998, birth_year_max: 2008, gender_program: 'all', position_requirements: 'All positions', status: 'published', version: 1, coach: 'Club coaching team', application_count: 1 }
-const application = { id: aid, opportunity_id: oid, program_id: 7, opportunity_title: opportunity.title, club_name: opportunity.club_name, claim_id: 3, signed_player_id: 7001, applicant_name: 'Synthetic Adult Applicant', position: 'Midfielder', current_club: '', profile_available: true, status: 'new', status_label: 'Applied', submitted_at: '2026-10-01T10:00:00Z', retention_expires_at: '2027-01-18T10:00:00Z', version: 1, reservation_state: 'none', transitions: ['rejected', 'shortlisted'], notes: [], events: [{ version: 1, created_at: '2026-10-01T10:00:00Z', reason_code: 'submitted' }] }
+const opportunity = { id: oid, program_id: 7, club_name: 'Synthetic B2 Club', club_slug: 'synthetic-b2', type: 'trial', title: 'Adult development trial', description: 'A synthetic opportunity used only to check the application workflow.', instructions: 'Bring boots, shin pads and water.', venue: 'Test training ground', address: 'Test pitch', timezone: 'Europe/London', starts_at: '2026-10-20T10:00:00Z', ends_at: '2026-10-20T12:00:00Z', closes_at: '2026-10-18T12:00:00Z', birth_year_min: 1998, birth_year_max: 2008, gender_program: 'all', position_requirements: 'All positions', status: 'published', version: 1, coach: 'Club coaching team', application_count: 1 }
+const application = { id: aid, opportunity_id: oid, program_id: 7, opportunity_title: opportunity.title, club_name: opportunity.club_name, timezone: 'Europe/London', claim_id: 3, signed_player_id: 7001, applicant_name: 'Synthetic Adult Applicant', position: 'Midfielder', current_club: '', profile_available: true, status: 'new', status_label: 'Applied', submitted_at: '2026-10-01T10:00:00Z', retention_expires_at: '2027-01-18T10:00:00Z', version: 1, reservation_state: 'none', transitions: ['rejected', 'shortlisted'], notes: [], events: [{ version: 1, created_at: '2026-10-01T10:00:00Z', reason_code: 'submitted' }] }
 
 async function fixture(page, { on = true, apps = true, empty = false, invited = false, deniedClaims = false, conflict = false } = {}) {
   await page.addInitScript(() => {
@@ -23,12 +23,13 @@ async function fixture(page, { on = true, apps = true, empty = false, invited = 
   await page.route('**/api/**', async route => {
     const req = route.request(), url = new URL(req.url()), p = url.pathname
     const reply = json => route.fulfill({ json })
-    if (p === '/api/opportunities/features') return reply({ opportunities: on, applications: on && apps })
+    if (p === '/api/opportunities/features') return on ? reply({ opportunities: on, applications: on && apps }) : route.fulfill({ status: 404, json: { error: 'Not found' } })
     if (p === '/api/opportunities') return reply({ opportunities: empty ? [] : [opportunity], has_more: false })
     if (p === `/api/opportunities/${oid}`) return reply({ opportunity })
     if (p === '/api/me/application-claims') return reply({ claims: deniedClaims ? [] : [{ claim_id: 3, signed_player_id: 7001, name: 'Synthetic Adult Applicant' }] })
     if (p === `/api/opportunities/${oid}/applications`) { requests.push(req.postDataJSON()); return route.fulfill({ status: 201, json: { application: current } }) }
     if (p === '/api/me/applications') return reply({ applications: empty ? [] : [current] })
+    if (p === `/api/club/7/applications/${aid}`) return reply({ application: current })
     if (p === `/api/me/applications/${aid}/withdraw`) { requests.push(req.postDataJSON()); current = { ...current, status: 'withdrawn', status_label: 'Withdrawn', version: current.version + 1, reservation_state: 'released' }; return reply({ application: current }) }
     if (p === `/api/me/applications/${aid}/trial-response`) { requests.push(req.postDataJSON()); current = { ...current, reservation_state: 'confirmed', version: current.version + 1 }; return reply({ application: current }) }
     if (p === '/api/club/7/opportunities' && req.method() === 'POST') { requests.push(req.postDataJSON()); return route.fulfill({ status: 201, json: { opportunity } }) }
@@ -107,7 +108,7 @@ for (const width of [1440, 390]) {
     await expect(page.getByText('Synthetic private review', { exact: true })).toBeVisible()
     await page.getByRole('button', { name: /Shortlist →/ }).click()
     await page.getByRole('button', { name: 'Invite to trial →' }).click()
-    await page.getByLabel('Trial (your local time)', { exact: true }).fill('2026-10-20T10:00')
+    await page.getByLabel('Trial (Europe/London)', { exact: true }).fill('2026-10-20T10:00')
     await page.getByLabel('Trial venue', { exact: true }).fill('Test ground')
     await page.getByRole('button', { name: 'Send trial invitation' }).click()
     await expect(page.getByRole('button', { name: 'Reschedule trial' })).toBeVisible()
@@ -117,7 +118,7 @@ for (const width of [1440, 390]) {
     await page.getByLabel('Opportunity type', { exact: true }).selectOption('position')
     await page.getByLabel('About this opportunity', { exact: true }).fill('A synthetic test vacancy only.')
     await page.getByLabel('Venue', { exact: true }).fill('Test ground')
-    await page.getByLabel('Applications close (your local time)').fill('2026-10-18T12:00')
+    await page.getByLabel(/Applications close \(/).fill('2026-10-18T12:00')
     await shot(page, `opportunity-editor-${size}`)
     await page.getByRole('dialog').evaluate(dialog => { dialog.scrollTop = 0 })
     await shot(page, `opportunity-editor-top-${size}`)
@@ -167,4 +168,64 @@ test('concurrent decision refreshes pipeline after version conflict', async ({ p
   await page.getByRole('button', { name: /Shortlist →/ }).click()
   await expect(page.getByRole('button', { name: 'Invite to trial →' })).toBeVisible()
   await expect(page.getByRole('button', { name: /Shortlist →/ })).toHaveCount(0)
+})
+
+test('legacy unsupported zones cannot crash list, detail, applicant home or club pipeline', async ({ page }) => {
+  const errors = []
+  page.on('pageerror', error => errors.push(error.message))
+  await fixture(page, { invited: true })
+  const bad = { ...opportunity, timezone: 'Factory' }
+  const badApplication = { ...application, timezone: 'posixrules', status: 'invited', reservation_state: 'pending', trial_at: '2026-10-10T17:00:00Z', trial_venue: 'Ground' }
+  await page.route('**/api/opportunities?*', route => route.fulfill({ json: { opportunities: [bad], has_more: false } }))
+  await page.route(`**/api/opportunities/${oid}`, route => route.fulfill({ json: { opportunity: bad } }))
+  await page.route('**/api/me/applications?*', route => route.fulfill({ json: { applications: [badApplication], has_more: false } }))
+  await page.route('**/api/club/7/opportunities?*', route => route.fulfill({ json: { opportunities: [bad], has_more: false } }))
+  await page.route(`**/api/club/7/opportunities/${oid}/applications?*`, route => route.fulfill({ json: { applications: [badApplication], has_more: false } }))
+  await page.goto('/opportunities')
+  await expect(page.getByRole('heading', { name: 'Open opportunities' })).toBeVisible()
+  await expect(page.getByText(/20 Oct 2026, 10:00 UTC \(UTC\)/)).toBeVisible()
+  await page.goto(`/opportunities/${oid}`)
+  await expect(page.getByRole('heading', { name: 'Take the next step.' })).toBeVisible()
+  await expect(page.getByText(/Applications close.*UTC \(UTC\)/)).toBeVisible()
+  await page.goto('/onboarding/player')
+  await expect(page.getByText(/Trial.*10 Oct 2026, 17:00 UTC \(UTC\)/)).toBeVisible()
+  await page.goto('/my-club?view=recruiting')
+  await expect(page.getByRole('button', { name: 'Synthetic Adult Applicant' })).toBeVisible()
+  await expect(page.getByText(/10 Oct 2026, 17:00 UTC \(UTC\)/)).toBeVisible()
+  expect(errors).toEqual([])
+  await shot(page, 'legacy-timezone-fallback-desktop')
+})
+
+test('opportunities render error boundary keeps app navigation and offers reload', async ({ page }) => {
+  await fixture(page)
+  await page.route('**/api/opportunities?*', route => route.fulfill({ json: { opportunities: [{ ...opportunity, type: null }], has_more: false } }))
+  await page.goto('/opportunities')
+  await expect(page.getByRole('alert').filter({ hasText: 'We could not display this opportunity.' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Reload', exact: true })).toBeVisible()
+  await expect(page.getByRole('link', { name: /Academy Watch/i }).first()).toBeVisible()
+})
+
+test('pipeline pagination and detail-only history remain usable', async ({ page }) => {
+  await fixture(page)
+  await page.route(`**/api/club/7/opportunities/${oid}/applications?*`, async route => {
+    const second = new URL(route.request().url()).searchParams.get('page') === '2'
+    const row = second ? { ...application, id: '00000000-0000-4000-8000-000000000003', applicant_name: 'Synthetic second page' } : application
+    const { notes: _notes, events: _events, ...boardRow } = row
+    return route.fulfill({ json: { applications: [boardRow], has_more: !second } })
+  })
+  await page.goto('/my-club?view=recruiting')
+  await page.getByRole('button', { name: 'Synthetic Adult Applicant' }).click()
+  await expect(page.getByText('submitted', { exact: false }).last()).toBeVisible()
+  await page.getByRole('button', { name: 'Next applications', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Synthetic second page' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Synthetic Adult Applicant' })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Previous applications', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Synthetic Adult Applicant' })).toBeVisible()
+})
+
+test('every accepted canonical IANA zone is supported by real Chromium Intl', async ({ page }) => {
+  const zones = JSON.parse(await fs.readFile(new URL('../../academy-watch-backend/src/data/opportunity_timezones.json', import.meta.url), 'utf8'))
+  expect(await page.evaluate(zones => zones.filter(timeZone => {
+    try { new Intl.DateTimeFormat('en-GB', { timeZone }).format(new Date()); return false } catch { return true }
+  }), zones)).toEqual([])
 })

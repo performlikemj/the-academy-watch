@@ -297,3 +297,142 @@ def test_rls_guarded_reapply_and_downgrade_refuses_retained_data(pg, monkeypatch
             migration.downgrade()
     db.session.commit()
     assert db.session.get(ClubOpportunity, ids["oid"])
+
+
+def merge_setup(ids, *, duplicate_claim):
+    source = db.session.get(PlayerProfileClaim, ids["claims"][0])
+    suffix = uuid4().hex[:12]
+    local = LocalPlayer(
+        display_name=f"B2 canonical {suffix}",
+        birth_date=date(2000, 1, 1),
+        birth_year=2000,
+        status="approved",
+        provenance="user",
+    )
+    db.session.add(local)
+    db.session.flush()
+    local.api_player_id = -local.id
+    target_claim = None
+    if duplicate_claim:
+        target_claim = PlayerProfileClaim(
+            local_player_id=local.id,
+            user_account_id=source.user_account_id,
+            relationship_type="player",
+            status="approved",
+        )
+        db.session.add(target_claim)
+    db.session.commit()
+    return source.local_player_id, local.id, target_claim.id if target_claim else None
+
+
+def merge_http(app, monkeypatch, source_id, target_id):
+    from src.auth import issue_user_token
+    from src.extensions import limiter
+    from src.routes.showcase import showcase_bp
+
+    monkeypatch.setenv("ADMIN_API_KEY", "b2-pg-test-key")
+    monkeypatch.setenv("ADMIN_IP_WHITELIST", "")
+    app.config["RATELIMIT_ENABLED"] = False
+    limiter.init_app(app)
+    app.register_blueprint(showcase_bp, url_prefix="/api")
+    token = issue_user_token("b2-admin@example.test", role="admin")["token"]
+    return app.test_client().post(
+        f"/api/admin/local-players/{source_id}/merge",
+        headers={"Authorization": f"Bearer {token}", "X-API-Key": "b2-pg-test-key"},
+        json={"into_local_player_id": target_id},
+    )
+
+
+@pytest.mark.parametrize("duplicate_claim", [False, True])
+def test_admin_identity_merge_repoints_application_claim_and_subject_atomically(pg, monkeypatch, duplicate_claim):
+    app, ids = pg
+    key = str(uuid4())
+    aid = submit(ids, key=key)
+    source_id, target_id, target_claim_id = merge_setup(ids, duplicate_claim=duplicate_claim)
+    response = merge_http(app, monkeypatch, source_id, target_id)
+    assert response.status_code == 200, response.get_json()
+    db.session.expire_all()
+    stored = db.session.get(OpportunityApplication, aid)
+    assert stored.signed_player_id == -target_id
+    canonical_claim = stored.claim_id
+    if duplicate_claim:
+        assert canonical_claim == target_claim_id and db.session.get(PlayerProfileClaim, ids["claims"][0]) is None
+    else:
+        assert canonical_claim == ids["claims"][0]
+    assert service.adult_claim(canonical_claim, ids["users"][0])[1] == -target_id
+    # Original request replay survives deletion of its original claim row.
+    replay, created = service.submit(
+        ids["oid"],
+        ids["users"][0],
+        dict(claim_id=ids["claims"][0], position="Midfielder", contact_consent=True, client_request_id=key),
+    )
+    assert replay.id == aid and created is False
+    with pytest.raises(service.OpportunityError, match="already_applied"):
+        service.submit(
+            ids["oid"],
+            ids["users"][0],
+            dict(claim_id=canonical_claim, position="Midfielder", contact_consent=True, client_request_id=str(uuid4())),
+        )
+    db.session.rollback()
+    # The PostgreSQL subject index enforces uniqueness regardless of claim reference.
+    with pytest.raises(sa.exc.IntegrityError):
+        with db.session.begin_nested():
+            db.session.execute(
+                sa.text("""INSERT INTO opportunity_applications
+                (id, opportunity_id, program_id, applicant_user_id, applicant_kind, claim_id, signed_player_id,
+                 status, position, current_club, contact_consent_at, submitted_at, retention_expires_at, version,
+                 client_request_id, request_hash, reservation_state)
+                SELECT :new_id, opportunity_id, program_id, applicant_user_id, applicant_kind, claim_id, signed_player_id,
+                 status, position, current_club, contact_consent_at, submitted_at, retention_expires_at, version,
+                 :request_id, request_hash, reservation_state FROM opportunity_applications WHERE id=:id"""),
+                {"new_id": str(uuid4()), "request_id": str(uuid4()), "id": aid},
+            )
+    assert OpportunityApplication.query.filter_by(opportunity_id=ids["oid"], signed_player_id=-target_id).count() == 1
+
+
+def test_admin_merge_application_collision_is_clear_409_and_full_rollback(pg, monkeypatch):
+    app, ids = pg
+    aid = submit(ids)
+    source_id, target_id, target_claim_id = merge_setup(ids, duplicate_claim=True)
+    second, _ = service.submit(
+        ids["oid"],
+        ids["users"][0],
+        dict(claim_id=target_claim_id, position="Midfielder", contact_consent=True, client_request_id=str(uuid4())),
+    )
+    db.session.commit()
+    second_id = second.id
+    event_count = ApplicationEvent.query.count()
+    response = merge_http(app, monkeypatch, source_id, target_id)
+    assert (
+        response.status_code == 409 and "retained applications to the same opportunity" in response.get_json()["error"]
+    )
+    db.session.expire_all()
+    assert db.session.get(LocalPlayer, source_id).status == "approved"
+    assert db.session.get(PlayerProfileClaim, ids["claims"][0]).local_player_id == source_id
+    assert db.session.get(OpportunityApplication, aid).signed_player_id == -source_id
+    assert db.session.get(OpportunityApplication, second_id).signed_player_id == -target_id
+    assert ApplicationEvent.query.count() == event_count
+
+
+def test_postgres_nul_and_timestamp_overflow_are_400_without_database_error(pg):
+    from src.auth import issue_user_token
+    from src.extensions import limiter
+    from src.routes.opportunities import opportunities_bp
+
+    app, ids = pg
+    app.config["RATELIMIT_ENABLED"] = False
+    limiter.init_app(app)
+    app.register_blueprint(opportunities_bp, url_prefix="/api")
+    user = db.session.get(UserAccount, ids["users"][0])
+    token = issue_user_token(user.email)["token"]
+    headers = {"Authorization": f"Bearer {token}"}
+    response = app.test_client().post(
+        f"/api/opportunities/{ids['oid']}/applications",
+        headers=headers,
+        json=dict(
+            claim_id=ids["claims"][0], position="Mid\x00field", contact_consent=True, client_request_id=str(uuid4())
+        ),
+    )
+    assert response.status_code == 400
+    assert OpportunityApplication.query.filter_by(opportunity_id=ids["oid"]).count() == 0
+    assert db.session.execute(sa.text("SELECT 1")).scalar() == 1

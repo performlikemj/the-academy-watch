@@ -35,7 +35,11 @@ def export_opportunities(user, schema):
             for r in apps
         ],
         "application_events": [
-            _serialize(r)
+            _serialize(
+                r,
+                ["application_id", "from_state", "to_state", "version", "created_at"]
+                + (["actor_user_id"] if r.actor_user_id == user.id else []),
+            )
             for r in ApplicationEvent.query.filter(
                 sa.or_(ApplicationEvent.application_id.in_(ids), ApplicationEvent.actor_user_id == user.id)
             ).all()
@@ -96,6 +100,31 @@ def erase_opportunities(user_id, schema):
 def purge_retained(*, limit=100, at=None):
     """Bounded maintenance transaction; callers commit. No lifetime signed exemption."""
     at = at or now()
+    # Oldest verification first: bounded daily sweeps eventually cover every retained identity.
+    from src.models.funding import ClubProgram
+    from src.services.opportunities import reconcile_applications
+
+    due = (
+        OpportunityApplication.query.filter(OpportunityApplication.eligibility_checked_at <= at - timedelta(days=1))
+        .order_by(OpportunityApplication.eligibility_checked_at, OpportunityApplication.id)
+        .limit(limit)
+        .all()
+    )
+    for program_id, opportunity_id in sorted({(a.program_id, a.opportunity_id) for a in due}):
+        ClubProgram.query.filter_by(id=program_id).with_for_update().first()
+        ClubOpportunity.query.filter_by(id=opportunity_id).with_for_update().first()
+        apps = (
+            OpportunityApplication.query.filter(
+                OpportunityApplication.id.in_([a.id for a in due]),
+                OpportunityApplication.opportunity_id == opportunity_id,
+            )
+            .populate_existing()
+            .order_by(OpportunityApplication.id)
+            .with_for_update()
+            .all()
+        )
+        reconcile_applications(apps, at=at, locked=True)
+    db.session.flush()
     # Same program -> opportunity -> application lock ordering as HTTP mutations.
     candidates = (
         ClubOpportunity.query.filter(
@@ -127,9 +156,8 @@ def purge_retained(*, limit=100, at=None):
         "application_notes": 0,
         "notifications": 0,
         "opportunities": 0,
+        "eligibility_checked": len(due),
     }
-    from src.models.funding import ClubProgram
-
     for candidate in candidates:
         ClubProgram.query.filter_by(id=candidate.program_id).with_for_update().first()
         row = ClubOpportunity.query.filter_by(id=candidate.id).populate_existing().with_for_update().first()
@@ -140,7 +168,13 @@ def purge_retained(*, limit=100, at=None):
             row.version += 1
         expired = (
             OpportunityApplication.query.filter(
-                OpportunityApplication.opportunity_id == row.id, OpportunityApplication.retention_expires_at <= at
+                OpportunityApplication.opportunity_id == row.id,
+                OpportunityApplication.retention_expires_at <= at,
+                sa.or_(
+                    OpportunityApplication.trial_at.is_(None),
+                    OpportunityApplication.trial_at <= at,
+                    ~OpportunityApplication.reservation_state.in_(("pending", "confirmed")),
+                ),
             )
             .order_by(OpportunityApplication.retention_expires_at, OpportunityApplication.id)
             .limit(max(0, limit - removed["applications"]))

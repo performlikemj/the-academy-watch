@@ -1,3 +1,4 @@
+import { OpportunityBoundary } from '@/pages/opportunities/OpportunityBoundary'
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { APIService } from '@/lib/api'
@@ -6,7 +7,7 @@ import { OpportunitiesTeaser } from '@/pages/teasers/OpportunitiesTeaser'
 import { errorMessage, useOpportunities, when, write } from './useOpportunities'
 import './opportunities.css'
 
-export function OpportunitiesPage() {
+function OpportunitiesPageContent() {
   const flags = useOpportunities()
   const [items, setItems] = useState([])
   const [kind, setKind] = useState('')
@@ -77,14 +78,14 @@ function AdultApplication({ opportunity }) {
       <label className="opp-field">Position<input required maxLength={80} value={position} onChange={event => setPosition(event.target.value)} /></label>
       <label className="opp-field">Current club (optional)<input maxLength={180} value={currentClub} onChange={event => setCurrentClub(event.target.value)} /></label>
       <label className="flex items-start gap-3 text-sm leading-relaxed"><input type="checkbox" required checked={consent} onChange={event => setConsent(event.target.checked)} className="mt-1" />I agree that this club may contact me about my application.</label>
-      <p className="text-xs leading-relaxed text-muted">Application details are deleted within 180 days, or 90 days after the trial or closure if sooner. You can withdraw on player home.</p>
+      <p className="text-xs leading-relaxed text-muted">Application details are deleted within 180 days and normally 90 days after the event. Closing intake keeps an invited trial’s follow-up period. You can withdraw on player home.</p>
       <button disabled={busy} className="opp-button primary">{busy ? 'Sending…' : 'Send application'}</button>
     </form>}
     {error && <p role="alert" className="opp-error">{error}</p>}
   </section>
 }
 
-export function OpportunityDetail() {
+function OpportunityDetailContent() {
   const flags = useOpportunities()
   const { opportunityId } = useParams()
   const [item, setItem] = useState(null)
@@ -105,7 +106,7 @@ export function OpportunityDetail() {
         <h1 className="opp-heading mt-4">{item.title}</h1>
         <dl className="my-10 grid border-y border-hairline sm:grid-cols-3">{[['When', `${when(item.starts_at, item.timezone)}${item.ends_at ? ` – ${when(item.ends_at, item.timezone)}` : ''}`], ['Where', [item.venue, item.address].filter(Boolean).join(' · ')], ['Who', item.birth_year_min || item.birth_year_max ? `Born ${item.birth_year_min || '…'}–${item.birth_year_max || '…'} · ${item.position_requirements}` : item.position_requirements]].map(([label, value]) => <div key={label} className="min-w-0 border-b border-hairline py-6 sm:border-b-0 sm:pr-5"><dt className="opp-label">{label}</dt><dd className="mt-3 font-serif text-2xl leading-tight">{value}</dd></div>)}</dl>
         <p className="whitespace-pre-wrap font-serif text-3xl leading-snug">{item.description}</p><p className="mt-6 whitespace-pre-wrap text-base leading-relaxed text-muted">{item.instructions}</p>
-        <div className="opp-row text-sm text-muted"><p>{item.coach}</p><p className="mt-2">Applications close {when(item.closes_at, item.timezone)} ({item.timezone})</p>{item.places_left !== undefined && <p className="mt-2">{item.places_left} places available</p>}</div>
+        <div className="opp-row text-sm text-muted"><p>{item.coach}</p><p className="mt-2">Applications close {when(item.closes_at, item.timezone)}</p></div>
       </article>
       <aside className="grid gap-8">
         {flags.applications ? <AdultApplication key={item.id} opportunity={item} /> : <section className="rounded-[10px] border border-hairline p-6"><h2 className="opp-section">Applications are coming.</h2><InterestSignup feature="player_applications" role="player" className="mt-5" /></section>}
@@ -114,3 +115,7 @@ export function OpportunityDetail() {
     </div>}
   </main>
 }
+
+export function OpportunitiesPage(props) { return <OpportunityBoundary><OpportunitiesPageContent {...props} /></OpportunityBoundary> }
+
+export function OpportunityDetail(props) { return <OpportunityBoundary><OpportunityDetailContent {...props} /></OpportunityBoundary> }

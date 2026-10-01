@@ -3,12 +3,14 @@
 import hashlib
 import json
 import os
+import unicodedata
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from uuid import UUID
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from zoneinfo import ZoneInfo
 
 import sqlalchemy as sa
-from src.models.funding import ClubProgram, ClubProgramManager, ClubSquad
+from src.models.funding import ClubProgram, ClubProgramClaim, ClubProgramManager, ClubSquad, FundingLeague
 from src.models.league import UserAccount, db
 from src.models.opportunities import (
     STATES,
@@ -25,7 +27,7 @@ from src.services.admin_audit import record_admin_event
 from src.services.club_access import club_can
 from src.services.club_publication_hold import club_publication_held
 from src.services.notification_outbox import enqueue, register_template
-from src.services.public_adult import is_public_adult
+from src.services.public_adult import is_public_adult, public_adult_ids
 
 TRANSITIONS = {
     "new": {"shortlisted", "rejected"},
@@ -45,6 +47,56 @@ LABELS = {
     "withdrawn": "Withdrawn",
 }
 RESERVED = ("pending", "confirmed")
+TIMEZONES = frozenset(json.loads((Path(__file__).parents[1] / "data/opportunity_timezones.json").read_text()))
+EVENT_HORIZON_DAYS = 90
+
+
+def format_time(value, timezone):
+    """Notification counterpart of lib/opportunity-time.js; always label the zone."""
+    if value is None:
+        return "Date to be arranged"
+    zone = timezone if timezone in TIMEZONES else "UTC"
+    local = value.replace(tzinfo=UTC).astimezone(ZoneInfo(zone))
+    return f"{local:%d %b %Y, %H:%M} {local:%Z} ({zone})"
+
+
+def public_club_eligibility():
+    """B1 directory_eligibility semantics amended on BUS 10:49; no B1 schema dependency."""
+    from src.services.club_console_bridge import CONSOLE_LEAGUE_COUNTRY, CONSOLE_LEAGUE_NAME, CONSOLE_LEAGUE_REGION
+
+    manager = sa.exists(
+        sa.select(ClubProgramManager.id)
+        .join(
+            ClubProgramClaim,
+            sa.and_(
+                ClubProgramClaim.id == ClubProgramManager.source_claim_id,
+                ClubProgramClaim.program_id == ClubProgramManager.program_id,
+                ClubProgramClaim.user_account_id == ClubProgramManager.user_account_id,
+            ),
+        )
+        .where(
+            ClubProgramManager.program_id == ClubProgram.id,
+            ClubProgramManager.status == "active",
+            ClubProgramClaim.status == "approved",
+        )
+        .correlate(ClubProgram)
+    )
+    league = sa.exists(
+        sa.select(FundingLeague.id)
+        .where(
+            FundingLeague.id == ClubProgram.funding_league_id,
+            sa.or_(
+                FundingLeague.registry_status == "approved",
+                sa.and_(
+                    FundingLeague.name == CONSOLE_LEAGUE_NAME,
+                    FundingLeague.country == CONSOLE_LEAGUE_COUNTRY,
+                    FundingLeague.region == CONSOLE_LEAGUE_REGION,
+                ),
+            ),
+        )
+        .correlate(ClubProgram)
+    )
+    return sa.and_(ClubProgram.platform_status == "approved", ClubProgram.emergency_hidden.is_(False), manager, league)
 
 
 class OpportunityError(ValueError):
@@ -72,6 +124,8 @@ def integer(value, key, *, minimum=1, maximum=2147483647, nullable=False):
 def text(value, key, limit, *, required=True):
     if not isinstance(value, str) or len(value.strip()) > limit or (required and not value.strip()):
         raise OpportunityError(f"invalid_{key}")
+    if any(unicodedata.category(char) in {"Cc", "Cs"} and char not in "\n\r\t" for char in value):
+        raise OpportunityError(f"invalid_{key}", 400)
     return value.strip()
 
 
@@ -83,8 +137,8 @@ def timestamp(value, key, *, nullable=False):
         if result.tzinfo is None:
             raise ValueError()
         return result.astimezone(UTC).replace(tzinfo=None)
-    except (ValueError, TypeError, AttributeError):
-        raise OpportunityError(f"invalid_{key}") from None
+    except (ValueError, TypeError, AttributeError, OverflowError):
+        raise OpportunityError(f"invalid_{key}", 400) from None
 
 
 def iso(value):
@@ -92,7 +146,7 @@ def iso(value):
 
 
 def operational(program_id, *, lock=False):
-    query = ClubProgram.query.filter_by(id=program_id).populate_existing()
+    query = ClubProgram.query.filter_by(id=program_id).filter(public_club_eligibility()).populate_existing()
     program = (query.with_for_update() if lock else query).first()
     if not program or program.platform_status != "approved" or club_publication_held(program_id):
         raise OpportunityError("Not found", 404)
@@ -119,14 +173,21 @@ def opportunity(oid, program_id=None, *, lock=False, public=False):
 
 
 def reservations(oid):
-    return OpportunityApplication.query.filter(
-        OpportunityApplication.opportunity_id == oid, OpportunityApplication.reservation_state.in_(RESERVED)
-    ).count()
+    apps = (
+        OpportunityApplication.query.filter(
+            OpportunityApplication.opportunity_id == oid, OpportunityApplication.reservation_state.in_(RESERVED)
+        )
+        .order_by(OpportunityApplication.id)
+        .with_for_update()
+        .all()
+    )
+    eligible = reconcile_applications(apps)
+    return len(eligible)
 
 
-def opportunity_dict(row, *, private=False):
-    program = db.session.get(ClubProgram, row.program_id)
-    squad = db.session.get(ClubSquad, row.squad_id) if row.squad_id else None
+def opportunity_dict(row, *, private=False, program=None, squad=None, reserved=None, application_count=None):
+    program = program or db.session.get(ClubProgram, row.program_id)
+    squad = squad or (db.session.get(ClubSquad, row.squad_id) if row.squad_id else None)
     data = {
         key: getattr(row, key)
         for key in (
@@ -156,22 +217,64 @@ def opportunity_dict(row, *, private=False):
     )
     for key in ("starts_at", "ends_at", "closes_at", "published_at"):
         data[key] = iso(getattr(row, key))
-    reserved = reservations(row.id) if applications_enabled() or private else 0
-    if private or (reserved and row.capacity is not None):
+    reserved = (reservations(row.id) if reserved is None else reserved) if private else 0
+    if private:
         data.update(
             capacity=row.capacity, places_left=max(0, row.capacity - reserved) if row.capacity is not None else None
         )
     if private:
-        data["application_count"] = OpportunityApplication.query.filter_by(opportunity_id=row.id).count()
+        data["application_count"] = (
+            OpportunityApplication.query.filter_by(opportunity_id=row.id).count()
+            if application_count is None
+            else application_count
+        )
     return data
+
+
+def opportunity_page(rows, program):
+    ids = [r.id for r in rows]
+    reserved = (
+        (
+            OpportunityApplication.query.filter(
+                OpportunityApplication.opportunity_id.in_(ids), OpportunityApplication.reservation_state.in_(RESERVED)
+            )
+            .order_by(OpportunityApplication.id)
+            .with_for_update()
+            .all()
+        )
+        if ids
+        else []
+    )
+    eligible = reconcile_applications(reserved)
+    counts = (
+        dict(
+            db.session.query(OpportunityApplication.opportunity_id, sa.func.count(OpportunityApplication.id))
+            .filter(OpportunityApplication.opportunity_id.in_(ids))
+            .group_by(OpportunityApplication.opportunity_id)
+            .all()
+        )
+        if ids
+        else {}
+    )
+    squads = {s.id: s for s in ClubSquad.query.filter(ClubSquad.id.in_([r.squad_id for r in rows if r.squad_id])).all()}
+    return [
+        opportunity_dict(
+            r,
+            private=True,
+            program=program,
+            squad=squads.get(r.squad_id),
+            reserved=sum(a.opportunity_id == r.id and a.id in eligible for a in reserved),
+            application_count=counts.get(r.id, 0),
+        )
+        for r in rows
+    ]
 
 
 def public_query(program_id=None):
     q = ClubOpportunity.query.join(ClubProgram, ClubProgram.id == ClubOpportunity.program_id).filter(
         ClubOpportunity.status == "published",
         ClubOpportunity.closes_at > now(),
-        ClubProgram.platform_status == "approved",
-        ClubProgram.emergency_hidden.is_(False),
+        public_club_eligibility(),
     )
     return q.filter(ClubOpportunity.program_id == program_id) if program_id else q
 
@@ -250,9 +353,13 @@ def save_opportunity(program_id, actor_id, data, oid=None):
             "venue",
             "address",
             "closes_at",
+            "title",
+            "description",
+            "instructions",
+            "capacity",
         }
         if set(data) & locked:
-            raise OpportunityError("eligibility_and_schedule_locked", 409)
+            raise OpportunityError("advertised_terms_locked", 409)
     for key, limit in {
         "title": 180,
         "description": 6000,
@@ -286,19 +393,23 @@ def save_opportunity(program_id, actor_id, data, oid=None):
             if not isinstance(data[key], str) or data[key] not in values:
                 raise OpportunityError(f"invalid_{key}")
             setattr(row, key, data[key])
-    try:
-        ZoneInfo(row.timezone)
-    except (ZoneInfoNotFoundError, ValueError):
-        raise OpportunityError("invalid_timezone") from None
+    if row.timezone not in TIMEZONES:
+        raise OpportunityError("invalid_timezone", 400)
     if not row.title or not row.description or not row.venue or row.closes_at is None or row.closes_at <= now():
         raise OpportunityError("required_opportunity_details")
-    if row.closes_at > row.created_at + timedelta(days=365):
+    if row.closes_at > row.created_at + timedelta(days=EVENT_HORIZON_DAYS):
         raise OpportunityError("deadline_too_far")
     if row.type != "position" and row.starts_at is None:
         raise OpportunityError("event_date_required")
-    if row.starts_at and (row.starts_at < row.closes_at or row.starts_at > row.created_at + timedelta(days=365)):
+    if row.starts_at and (
+        row.starts_at < row.closes_at or row.starts_at > row.created_at + timedelta(days=EVENT_HORIZON_DAYS)
+    ):
         raise OpportunityError("invalid_event_dates")
-    if row.ends_at and (not row.starts_at or row.ends_at <= row.starts_at):
+    if row.ends_at and (
+        not row.starts_at
+        or row.ends_at <= row.starts_at
+        or row.ends_at > row.created_at + timedelta(days=EVENT_HORIZON_DAYS)
+    ):
         raise OpportunityError("invalid_event_dates")
     if row.birth_year_min and row.birth_year_max and row.birth_year_min > row.birth_year_max:
         raise OpportunityError("invalid_age_band")
@@ -333,9 +444,9 @@ def close_opportunity(program_id, actor_id, oid, data):
     if integer(data.get("expected_version"), "expected_version") != row.version:
         raise OpportunityError("version_conflict", 409)
     target = data.get("status", "closed")
-    if not isinstance(target, str) or target not in {"closed", "cancelled"} or row.status == "cancelled":
+    if not isinstance(target, str) or target not in {"closed", "cancelled"} or row.status in {"closed", "cancelled"}:
         raise OpportunityError("invalid_status")
-    row.status, row.closed_at, row.updated_at = target, now(), now()
+    row.status, row.closed_at, row.updated_at = target, row.closed_at or now(), now()
     row.version += 1
     for app in (
         OpportunityApplication.query.filter_by(opportunity_id=oid)
@@ -343,7 +454,8 @@ def close_opportunity(program_id, actor_id, oid, data):
         .with_for_update()
         .all()
     ):
-        app.retention_expires_at = min(app.retention_expires_at, now() + timedelta(days=90))
+        follow_up = max(now(), app.trial_at) if app.trial_at and target != "cancelled" else now()
+        app.retention_expires_at = min(app.retention_expires_at, follow_up + timedelta(days=90))
         if target == "cancelled" and app.status not in TERMINAL:
             mutate(app, actor_id, "rejected", "opportunity_cancelled")
     record_admin_event(
@@ -383,29 +495,48 @@ def adult_claim(claim_id, user_id):
 
 
 def eligible_claims(user_id):
-    items = []
-    for claim in PlayerProfileClaim.query.filter_by(
-        user_account_id=user_id, relationship_type="player", status="approved"
-    ).all():
-        try:
-            _, pid, source = adult_claim(claim.id, user_id)
-        except OpportunityError:
+    from src.models.follow import PlayerShadow
+
+    claims = (
+        PlayerProfileClaim.query.filter_by(user_account_id=user_id, relationship_type="player", status="approved")
+        .order_by(PlayerProfileClaim.id)
+        .limit(100)
+        .all()
+    )
+    ids = [c.player_api_id or -c.local_player_id for c in claims]
+    eligible = public_adult_ids(ids)
+    locals_ = {
+        r.id: r
+        for r in LocalPlayer.query.filter(
+            LocalPlayer.id.in_([c.local_player_id for c in claims if c.local_player_id])
+        ).all()
+    }
+    api_ids = [pid for pid in eligible if pid > 0]
+    api = (
+        {r.player_api_id: r for r in PlayerShadow.query.filter(PlayerShadow.player_api_id.in_(api_ids)).all()}
+        if api_ids
+        else {}
+    )
+    if api_ids:
+        api.update(
+            {r.player_api_id: r for r in TrackedPlayer.query.filter(TrackedPlayer.player_api_id.in_(api_ids)).all()}
+        )
+    result = []
+    for claim, pid in zip(claims, ids):
+        if pid not in eligible:
             continue
-        items.append(
+        source = locals_.get(claim.local_player_id) if claim.local_player_id else api.get(pid)
+        result.append(
             {
                 "claim_id": claim.id,
                 "signed_player_id": pid,
                 "name": getattr(source, "display_name", None) or getattr(source, "player_name", None) or "Your profile",
             }
         )
-    return items
+    return result
 
 
 def submit(oid, user_id, data):
-    # Lock the receiving program then opportunity for every mutation; never reverse the order.
-    initial = opportunity(oid, public=True)
-    operational(initial.program_id, lock=True)
-    row = opportunity(oid, lock=True, public=True)
     if set(data) - {"claim_id", "position", "current_club", "contact_consent", "client_request_id"}:
         raise OpportunityError("invalid_fields")
     if data.get("contact_consent") is not True:
@@ -413,7 +544,45 @@ def submit(oid, user_id, data):
     try:
         key = str(UUID(data.get("client_request_id")))
     except (ValueError, TypeError, AttributeError):
-        raise OpportunityError("invalid_client_request_id") from None
+        raise OpportunityError("invalid_client_request_id", 400) from None
+    claim_id = integer(data.get("claim_id"), "claim_id")
+    position = text(data.get("position"), "position", 80)
+    club = text(data.get("current_club", ""), "current_club", 180, required=False)
+    digest = hashlib.sha256(
+        json.dumps(
+            {
+                "opportunity_id": oid,
+                "claim_id": claim_id,
+                "position": position,
+                "current_club": club,
+                "contact_consent": True,
+            },
+            sort_keys=True,
+        ).encode()
+    ).hexdigest()
+
+    def replay():
+        existing = OpportunityApplication.query.filter_by(applicant_user_id=user_id, client_request_id=key).first()
+        if existing:
+            if existing.request_hash != digest:
+                raise OpportunityError("request_conflict", 409)
+            if existing.retention_expires_at <= now():
+                raise OpportunityError("Not found", 404)
+        return existing
+
+    existing = replay()
+    if existing:
+        return existing, False
+    # Program -> opportunity -> claim; serializes submit/replay and claim resolution with merges.
+    initial = opportunity(oid)
+    operational(initial.program_id, lock=True)
+    row = opportunity(oid, lock=True)
+    existing = replay()
+    if existing:
+        return existing, False
+    if row.status != "published" or row.closes_at <= now():
+        raise OpportunityError("Not found", 404)
+    PlayerProfileClaim.query.filter_by(id=claim_id).with_for_update().first()
     claim, pid, source = adult_claim(integer(data.get("claim_id"), "claim_id"), user_id)
     birth_date = getattr(source, "birth_date", None)
     birth_year = getattr(source, "birth_year", None) or (int(str(birth_date)[:4]) if birth_date else None)
@@ -423,25 +592,6 @@ def submit(oid, user_id, data):
         or (row.birth_year_max and birth_year > row.birth_year_max)
     ):
         raise OpportunityError("outside_age_band", 403)
-    position = text(data.get("position"), "position", 80)
-    club = text(data.get("current_club", ""), "current_club", 180, required=False)
-    digest = hashlib.sha256(
-        json.dumps(
-            {
-                "opportunity_id": oid,
-                "claim_id": claim.id,
-                "position": position,
-                "current_club": club,
-                "contact_consent": True,
-            },
-            sort_keys=True,
-        ).encode()
-    ).hexdigest()
-    existing = OpportunityApplication.query.filter_by(applicant_user_id=user_id, client_request_id=key).first()
-    if existing:
-        if existing.request_hash != digest:
-            raise OpportunityError("request_conflict", 409)
-        return existing, False
     if OpportunityApplication.query.filter_by(opportunity_id=oid, signed_player_id=pid).first():
         raise OpportunityError("already_applied", 409)
     deadline = (row.ends_at or row.starts_at or row.closes_at) + timedelta(days=90)
@@ -511,8 +661,7 @@ def transition(program_id, actor_id, aid, data):
     target = data.get("status")
     if not isinstance(target, str):
         raise OpportunityError("invalid_status")
-    if target != "rejected":
-        adult_claim(app.claim_id, app.applicant_user_id)
+    adult_claim(app.claim_id, app.applicant_user_id)
     if target == "invited" and app.status == "invited":
         reason = "rescheduled"
     elif target not in TRANSITIONS.get(app.status, set()):
@@ -527,8 +676,13 @@ def transition(program_id, actor_id, aid, data):
         if app.reservation_state not in RESERVED and row.capacity is not None and reservations(row.id) >= row.capacity:
             raise OpportunityError("trial_full", 409)
         app.trial_at = timestamp(data.get("trial_at"), "trial_at")
-        if app.trial_at <= now() or app.trial_at > app.retention_expires_at:
+        if (
+            app.trial_at <= now()
+            or app.trial_at > row.created_at + timedelta(days=EVENT_HORIZON_DAYS)
+            or app.trial_at + timedelta(days=90) > app.submitted_at + timedelta(days=180)
+        ):
             raise OpportunityError("invalid_trial_at")
+        app.retention_expires_at = max(app.retention_expires_at, app.trial_at + timedelta(days=90))
         app.trial_venue = text(data.get("trial_venue"), "trial_venue", 200)
         app.trial_instructions = text(data.get("trial_instructions", ""), "trial_instructions", 3000, required=False)
         app.reservation_state = "pending"
@@ -586,6 +740,7 @@ def applicant_action(aid, user_id, data, action):
 def add_note(program_id, actor_id, aid, data):
     recruit(program_id, actor_id)
     app = application(aid, program_id=program_id, lock=True)
+    adult_claim(app.claim_id, app.applicant_user_id)
     body = text(data.get("body"), "body", 3000)
     note = ApplicationNote(application_id=app.id, author_user_id=actor_id, body=body)
     db.session.add(note)
@@ -593,8 +748,73 @@ def add_note(program_id, actor_id, aid, data):
     return note
 
 
-def application_dict(app, *, private=False):
-    row = db.session.get(ClubOpportunity, app.opportunity_id)
+def eligible_application_claims(apps):
+    """One claim batch and canonical adult batch, regardless of page size."""
+    claims = (
+        {
+            c.id: c
+            for c in PlayerProfileClaim.query.filter(
+                PlayerProfileClaim.id.in_([a.claim_id for a in apps]),
+                PlayerProfileClaim.relationship_type == "player",
+                PlayerProfileClaim.status == "approved",
+            )
+            .populate_existing()
+            .all()
+        }
+        if apps
+        else {}
+    )
+    public_ids = public_adult_ids([c.player_api_id or -c.local_player_id for c in claims.values()])
+    return {
+        a.id: claims[a.claim_id]
+        for a in apps
+        if a.claim_id in claims
+        and claims[a.claim_id].user_account_id == a.applicant_user_id
+        and (claims[a.claim_id].player_api_id or -claims[a.claim_id].local_player_id) == a.signed_player_id
+        and a.signed_player_id in public_ids
+    }
+
+
+def system_close_ineligible(app, *, at=None):
+    """Only the system may close an unavailable identity. No intent or copied text."""
+    at = at or now()
+    if app.status not in TERMINAL:
+        previous = app.status
+        app.status, app.version = "rejected", app.version + 1
+        event(app, None, previous, "profile_unavailable")
+    app.reservation_state = "released"
+    app.trial_at = app.trial_venue = app.trial_instructions = None
+    app.retention_expires_at = min(app.retention_expires_at, at + timedelta(days=7))
+
+
+def reconcile_applications(apps, *, at=None, locked=False):
+    if apps and not locked:
+        ClubProgram.query.filter(ClubProgram.id.in_({a.program_id for a in apps})).order_by(
+            ClubProgram.id
+        ).with_for_update().all()
+        ClubOpportunity.query.filter(ClubOpportunity.id.in_({a.opportunity_id for a in apps})).order_by(
+            ClubOpportunity.program_id, ClubOpportunity.id
+        ).with_for_update().all()
+        OpportunityApplication.query.filter(OpportunityApplication.id.in_({a.id for a in apps})).order_by(
+            OpportunityApplication.id
+        ).populate_existing().with_for_update().all()
+    eligible = eligible_application_claims(apps)
+    for app in apps:
+        app.eligibility_checked_at = at or now()
+        if app.id not in eligible:
+            system_close_ineligible(app, at=at)
+    return eligible
+
+
+def application_dict(app, *, private=False, row=None, program=None, source=None, history=True):
+    if private:
+        try:
+            _, _, live_source = adult_claim(app.claim_id, app.applicant_user_id)
+            source = source or live_source
+        except OpportunityError:
+            return None
+    row = row or db.session.get(ClubOpportunity, app.opportunity_id)
+    program = program or db.session.get(ClubProgram, app.program_id)
     data = {
         key: getattr(app, key)
         for key in (
@@ -613,40 +833,77 @@ def application_dict(app, *, private=False):
         )
     }
     data.update(
-        status_label=LABELS[app.status],
-        opportunity_title=row.title,
-        club_name=db.session.get(ClubProgram, app.program_id).name,
+        status_label=LABELS[app.status], opportunity_title=row.title, club_name=program.name, timezone=row.timezone
     )
     for key in ("submitted_at", "withdrawn_at", "trial_at", "retention_expires_at"):
         data[key] = iso(getattr(app, key))
     if private:
-        try:
-            _, _, source = adult_claim(app.claim_id, app.applicant_user_id)
-            data["applicant_name"] = (
-                getattr(source, "display_name", None) or getattr(source, "player_name", None) or "Adult applicant"
-            )
-            data["profile_available"] = True
-        except OpportunityError:
-            data["applicant_name"], data["profile_available"] = "Profile unavailable", False
-        data["notes"] = [
-            {"id": n.id, "body": n.body, "created_at": iso(n.created_at)}
-            for n in ApplicationNote.query.filter_by(application_id=app.id).order_by(ApplicationNote.created_at).all()
-        ]
-        data["events"] = [
-            {
-                "from_state": e.from_state,
-                "to_state": e.to_state,
-                "reason_code": e.reason_code,
-                "version": e.version,
-                "created_at": iso(e.created_at),
-            }
-            for e in ApplicationEvent.query.filter_by(application_id=app.id).order_by(ApplicationEvent.version).all()
-        ]
-        data["transitions"] = sorted(TRANSITIONS.get(app.status, set()))
+        data.update(
+            applicant_name=getattr(source, "display_name", None)
+            or getattr(source, "player_name", None)
+            or "Adult applicant",
+            profile_available=True,
+            transitions=sorted(TRANSITIONS.get(app.status, set())),
+        )
+        if history:
+            data["notes"] = [
+                {"id": n.id, "body": n.body, "created_at": iso(n.created_at)}
+                for n in ApplicationNote.query.filter_by(application_id=app.id)
+                .order_by(ApplicationNote.created_at)
+                .all()
+            ]
+            data["events"] = [
+                {
+                    "from_state": e.from_state,
+                    "to_state": e.to_state,
+                    "reason_code": e.reason_code,
+                    "version": e.version,
+                    "created_at": iso(e.created_at),
+                }
+                for e in ApplicationEvent.query.filter_by(application_id=app.id)
+                .order_by(ApplicationEvent.version)
+                .all()
+            ]
     return data
 
 
+def application_page(apps, *, row, program):
+    eligible = reconcile_applications(apps, locked=True)
+    local_ids = {c.local_player_id for c in eligible.values() if c.local_player_id}
+    api_ids = {c.player_api_id for c in eligible.values() if c.player_api_id}
+    sources = {-r.id: r for r in LocalPlayer.query.filter(LocalPlayer.id.in_(local_ids)).all()} if local_ids else {}
+    if api_ids:
+        from src.models.follow import PlayerShadow
+
+        sources.update(
+            {r.player_api_id: r for r in PlayerShadow.query.filter(PlayerShadow.player_api_id.in_(api_ids)).all()}
+        )
+        sources.update(
+            {r.player_api_id: r for r in TrackedPlayer.query.filter(TrackedPlayer.player_api_id.in_(api_ids)).all()}
+        )
+    # Eligibility already checked in a batch: avoid the scalar serializer's repeat reads.
+    result = []
+    for app in apps:
+        if app.id not in eligible:
+            continue
+        data = application_dict(app, row=row, program=program)
+        source = sources.get(
+            -eligible[app.id].local_player_id if eligible[app.id].local_player_id else app.signed_player_id
+        )
+        data.update(
+            applicant_name=getattr(source, "display_name", None)
+            or getattr(source, "player_name", None)
+            or "Adult applicant",
+            profile_available=True,
+            transitions=sorted(TRANSITIONS.get(app.status, set())),
+        )
+        result.append(data)
+    return result
+
+
 def notify(app):
+    if not applications_enabled():
+        return
     recipients = {app.applicant_user_id}
     from src.models.club_access import ClubAccessGrant
 
@@ -696,10 +953,12 @@ def notification_render(intent, user):
     app = db.session.get(OpportunityApplication, intent.payload["application_id"])
     if user.id != app.applicant_user_id:
         link = base + "/my-club?view=recruiting"
+    row = db.session.get(ClubOpportunity, app.opportunity_id)
+    trial = f" Trial: {format_time(app.trial_at, row.timezone)}." if app.trial_at else ""
     return {
         "subject": "Your application update",
-        "html": f'<p>An application has an update. Sign in to view the next step.</p><p><a href="{link}">View update</a></p>',
-        "text": f"An application has an update. Sign in to view the next step: {link}",
+        "html": f'<p>An application has an update. Sign in to view the next step.{trial}</p><p><a href="{link}">View update</a></p>',
+        "text": f"An application has an update. Sign in to view the next step.{trial} {link}",
     }
 
 

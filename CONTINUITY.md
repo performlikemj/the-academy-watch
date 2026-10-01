@@ -32,7 +32,7 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
 
 ## State
 
-- **Now (2026-10-01):** Phase 2 B2 delivered as draft #1113, stacked #1109; integration/review owns merge and rollout. See `ledgers/CONTINUITY_p2-b2.md`.
+- **Now (2026-10-01):** Phase 2 B2 RB2 fix round 1 in progress for draft #1113; all 14 review findings, foreground gates and delivery. See `ledgers/CONTINUITY_p2-b2.md`.
 
 ### Done
 - **2026-10-01 P2 B2:** draft PR #1113 to main, stacked #1109 (A2 ef005e35); public opportunities, adult approved-self-claim applications, private recruiting, append-only events/outbox, retention/export/erasure. 57 focused backend +13 real HTTP +47 browser +193 Node pass; full pytest3535 pass/54 skip/4 expected migration-head failures per orchestrator; Ruff/lint/build pass. p2b2->p2b1 placeholder scratch-only; migration/SQL reapply and empty rollback verified; 14 reviewed PNGs. Own servers/aw_p2_b2/env/scratch cleaned. Hand-back `~/codex-runs/aw-redesign/logs/B2.final.md`.

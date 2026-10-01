@@ -2,7 +2,7 @@
 
 import sqlalchemy as sa
 from alembic import op
-from migrations._migration_helpers import create_index_safe, table_exists
+from migrations._migration_helpers import add_column_safe, create_index_safe, table_exists
 
 revision = "p2b2"
 down_revision = "p2b1"
@@ -112,6 +112,13 @@ def upgrade():
             sa.CheckConstraint("version > 0", name="ck_application_version"),
             sa.UniqueConstraint("applicant_user_id", "client_request_id", name="uq_application_request"),
         )
+    add_column_safe(
+        "opportunity_applications",
+        sa.Column("eligibility_checked_at", sa.DateTime(), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
+    )
+    create_index_safe(
+        "ix_application_eligibility", "opportunity_applications", ["eligibility_checked_at"], unique=False
+    )
     create_index_safe(
         "ix_application_applicant", "opportunity_applications", ["applicant_user_id", "submitted_at"], unique=False
     )

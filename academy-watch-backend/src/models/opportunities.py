@@ -71,6 +71,7 @@ class OpportunityApplication(db.Model):
         sa.Index("uq_application_subject", "opportunity_id", "signed_player_id", unique=True),
         sa.Index("ix_application_applicant", "applicant_user_id", "submitted_at"),
         sa.Index("ix_application_retention", "retention_expires_at"),
+        sa.Index("ix_application_eligibility", "eligibility_checked_at"),
     )
     id = db.Column(db.String(36), primary_key=True, default=uid)
     opportunity_id = db.Column(db.String(36), db.ForeignKey("club_opportunities.id"), nullable=False)
@@ -84,6 +85,7 @@ class OpportunityApplication(db.Model):
     current_club = db.Column(db.String(180), nullable=False, default="")
     contact_consent_at = db.Column(db.DateTime, nullable=False)
     submitted_at = db.Column(db.DateTime, nullable=False, default=now)
+    eligibility_checked_at = db.Column(db.DateTime, nullable=False, default=now)
     withdrawn_at = db.Column(db.DateTime)
     retention_expires_at = db.Column(db.DateTime, nullable=False)
     version = db.Column(db.Integer, nullable=False, default=1)

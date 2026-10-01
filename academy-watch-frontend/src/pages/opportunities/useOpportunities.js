@@ -13,10 +13,7 @@ export function useOpportunities() {
   return flags
 }
 
-export function when(value, timezone = 'UTC') {
-  if (!value) return 'Date to be arranged'
-  return new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeStyle: 'short', timeZone: timezone }).format(new Date(value))
-}
+export { when } from '@/lib/opportunity-time'
 
 export function errorMessage(error) {
   const code = error?.body?.error || error?.message || ''
