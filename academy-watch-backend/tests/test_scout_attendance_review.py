@@ -1,3 +1,4 @@
+# ruff: noqa: F811
 """RC4 probes reversed into assertions: lifecycle, trust, bounded reads and JSON."""
 
 from datetime import timedelta
