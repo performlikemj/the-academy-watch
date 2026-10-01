@@ -33,3 +33,16 @@
 - Delivery: implementation `0d5c879556b0fccec225498dd29aca2b257ab96a` pushed to fix/scout-adults-only; inline SHA reply https://github.com/performlikemj/the-academy-watch/pull/1116#discussion_r4151312336 . Final-head re-review command: `gh pr comment 1116 --body "@codex review"`.
 - Hand-back: `~/codex-runs/aw-redesign/logs/N3F1.final.md`; full gate log `N3F1.pytest.log`. No frontend/iOS/dependency changes; no servers, local/shared/prod DB, temporary env or provider sends used. Foreground commands only.
 - Next: Codex/lead PR review; no merge/deploy.
+
+## Fix round 2 — PR #1116
+
+- State: implemented and validated; started from confirmed local/remote head a6a3efd55c8d0a3d9a4fb435d162d028f2d0c80b.
+- Finding: hidden retained rows exhaust raw 50/list and 200/watchlist caps.
+- Scope: count visible rows with batched eligibility; preserve payload fields and all retained/reappearing rows, even above caps; block further additions at/above visible caps.
+- Gates: requested capacity/count/reactivation/query-bound regressions; Ruff/format and full pytest; push, inline SHA reply and @codex review; no merge.
+- Next: implement and validate; hand-back ~/codex-runs/aw-redesign/logs/N3F2.final.md.
+- Done: shared `_visible_follows` predicate for list payload/count and capacity; watchlist capacity batches saved IDs. Existing field names/retention preserved; duplicate checks reuse the loaded follows.
+- Validation: focused adults-only/follow-graph/watchlist 143 passed in15.47s. Five new cases cover 50/200 hidden rows +201 additions, visible payloads, reactivation above cap, idempotent watchlist, mixed non-player cap; capacity eligibility exactly one batch/six SQL queries with1 or50/200 rows.
+- Next: full pytest and Ruff/format gates, then push/review delivery.
+- Gates: FINAL full pytest3288 passed/47 skipped/116 warnings in261.13s; Ruff check + format533 clean; diff whitespace clean. Full log ~/codex-runs/aw-redesign/logs/N3F2.pytest.log. No frontend/iOS/dependency changes.
+- Next: commit/push, inline finding4151336631 SHA reply, final-head @codex review and hand-back; no merge.

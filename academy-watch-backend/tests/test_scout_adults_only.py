@@ -321,6 +321,125 @@ def test_follow_player_eligibility_is_batched_before_resolution(desk, monkeypatc
     assert calls == [desk.ids, desk.ids]  # fresh ordinary reads recheck once per list
 
 
+def _seed_hidden_capacity(desk, source, count):
+    Follow.query.delete()
+    ScoutWatchlistEntry.query.delete()
+    hidden_ids = set(range(20000, 20000 + count))
+    for pid in hidden_ids:
+        db.session.add(
+            TrackedPlayer(
+                player_api_id=pid,
+                player_name=f"Hidden fixture {pid}",
+                team_id=desk.team.id,
+                birth_date="2015-01-01" if pid % 2 else None,
+                age=40,
+                is_active=True,
+            )
+        )
+        if source == "list":
+            db.session.add(
+                Follow(list_id=desk.follow_list.id, kind="player", selector={"player_api_id": pid}, label="Saved")
+            )
+        else:
+            db.session.add(ScoutWatchlistEntry(user_account_id=desk.user.id, player_api_id=pid, note="Retained note"))
+    db.session.commit()
+    return hidden_ids
+
+
+@pytest.mark.parametrize("source,hidden_count", [("list", 1), ("list", 50), ("watchlist", 1), ("watchlist", 200)])
+def test_hidden_capacity_allows_add_with_bounded_eligibility_sql(client, desk, monkeypatch, source, hidden_count):
+    from src.routes import scout
+
+    hidden_ids = _seed_hidden_capacity(desk, source, hidden_count)
+    batches = []
+    queries = []
+    check = scout.public_adult_ids
+
+    def count_query(conn, cursor, statement, parameters, context, executemany):
+        queries.append(statement)
+
+    def counted_check(ids):
+        ids = set(ids)
+        batches.append(ids)
+        sa.event.listen(db.engine, "before_cursor_execute", count_query)
+        try:
+            return check(ids)
+        finally:
+            sa.event.remove(db.engine, "before_cursor_execute", count_query)
+
+    monkeypatch.setattr(scout, "public_adult_ids", counted_check)
+    path = f"/api/scout/lists/{desk.follow_list.id}/follows" if source == "list" else "/api/scout/watchlist"
+    payload = {"kind": "player", "selector": {"player_api_id": 1800}} if source == "list" else {"player_api_id": 1800}
+    response = client.post(path, json=payload, headers=desk.headers)
+    assert response.status_code == 201, response.get_json()
+    assert batches == [hidden_ids]  # one capacity evaluation, independent of row count
+    assert len(queries) == 6  # source evidence and holds, never six queries per row
+
+    if source == "list":
+        body = client.get("/api/scout/lists", headers=desk.headers).get_json()["lists"][0]
+        assert body["follow_count"] == len(body["follows"]) == 1
+        assert body["follows"][0]["selector"]["player_api_id"] == 1800
+        body = client.patch(
+            f"/api/scout/lists/{desk.follow_list.id}", json={"is_active": False}, headers=desk.headers
+        ).get_json()["list"]
+        assert body["follow_count"] == len(body["follows"]) == 1
+        assert desk.follow_list.follows.count() == hidden_count + 1
+    else:
+        body = client.get("/api/scout/watchlist", headers=desk.headers).get_json()
+        assert [entry["player_api_id"] for entry in body["entries"]] == [1800]
+        assert client.get("/api/scout/watchlist/ids", headers=desk.headers).get_json()["player_ids"] == [1800]
+        assert ScoutWatchlistEntry.query.count() == hidden_count + 1
+
+    # Fresh requests must see changed evidence. Reactivation may exceed the cap:
+    # every saved row and note reappears, and only further additions are blocked.
+    TrackedPlayer.query.filter(TrackedPlayer.player_api_id.in_(hidden_ids)).update({"birth_date": "2000-01-01"})
+    db.session.commit()
+    if source == "list":
+        body = client.get("/api/scout/lists", headers=desk.headers).get_json()["lists"][0]
+        assert body["follow_count"] == len(body["follows"]) == hidden_count + 1
+        assert {f["selector"]["player_api_id"] for f in body["follows"]} == hidden_ids | {1800}
+        payload["selector"]["player_api_id"] = 1801
+    else:
+        entries = client.get("/api/scout/watchlist", headers=desk.headers).get_json()["entries"]
+        assert {entry["player_api_id"] for entry in entries} == hidden_ids | {1800}
+        assert all(entry["note"] == "Retained note" for entry in entries if entry["player_api_id"] in hidden_ids)
+        assert set(
+            client.get("/api/scout/watchlist/ids", headers=desk.headers).get_json()["player_ids"]
+        ) == hidden_ids | {1800}
+        payload["player_api_id"] = 1801
+    response = client.post(path, json=payload, headers=desk.headers)
+    assert response.status_code == (409 if hidden_count > 1 else 201), response.get_json()
+    if source == "watchlist" and hidden_count == 200:
+        # An existing entry remains idempotent even above the visible cap.
+        response = client.post(path, json={"player_api_id": 1800}, headers=desk.headers)
+        assert response.status_code == 200
+        assert ScoutWatchlistEntry.query.count() == 201
+
+
+def test_nonplayer_follows_consume_visible_capacity(client, desk):
+    hidden_ids = _seed_hidden_capacity(desk, "list", 50)
+    db.session.add_all(
+        Follow(
+            list_id=desk.follow_list.id,
+            kind="geo",
+            selector={"countries": [f"Fixture country {index}"], "match": "playing_in"},
+            label="Saved geography",
+        )
+        for index in range(49)
+    )
+    db.session.commit()
+    path = f"/api/scout/lists/{desk.follow_list.id}/follows"
+    response = client.post(path, json={"kind": "player", "selector": {"player_api_id": 1800}}, headers=desk.headers)
+    assert response.status_code == 201
+    body = client.get("/api/scout/lists", headers=desk.headers).get_json()["lists"][0]
+    assert body["follow_count"] == len(body["follows"]) == 50
+    response = client.post(
+        path, json={"kind": "query", "selector": {"scout_args": {"position": "Attacker"}}}, headers=desk.headers
+    )
+    assert response.status_code == 409
+    assert desk.follow_list.follows.count() == len(hidden_ids) + 50
+
+
 def test_gol_rechecks_cached_frames_and_all_player_relations(app, desk):
     from src.services.gol_dataframes import DataFrameCache
     from src.services.gol_player_lookup import GolPlayerLookup

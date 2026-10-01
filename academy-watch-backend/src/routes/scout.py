@@ -1726,7 +1726,8 @@ def scout_watchlist_add():
                 return neutral_player_not_found()
             return jsonify({"error": "No active tracked player with that id"}), 404
 
-        if ScoutWatchlistEntry.query.filter_by(user_account_id=user.id).count() >= WATCHLIST_LIMIT:
+        watched_ids = db.session.query(ScoutWatchlistEntry.player_api_id).filter_by(user_account_id=user.id).all()
+        if len(public_adult_ids(row[0] for row in watched_ids)) >= WATCHLIST_LIMIT:
             return jsonify({"error": f"watchlist limit reached ({WATCHLIST_LIMIT})"}), 409
 
         entry = ScoutWatchlistEntry(user_account_id=user.id, player_api_id=player_api_id)
@@ -2152,6 +2153,19 @@ def _follow_read_payload(follow, name_map, team_map, unavailable_player_ids=None
     return payload
 
 
+def _visible_follows(follows, adult_player_ids=None):
+    """Match saved-read visibility and capacity with one batched eligibility check.
+
+    Hidden rows remain stored; reappearing rows are never truncated to the cap.
+    Collection reads supply eligibility shared across all their lists.
+    """
+    if adult_player_ids is None:
+        adult_player_ids = public_adult_ids(
+            (f.selector or {}).get("player_api_id") for f in follows if f.kind == "player"
+        )
+    return [f for f in follows if f.kind != "player" or (f.selector or {}).get("player_api_id") in adult_player_ids]
+
+
 def _follow_list_payload(
     follow_list,
     follows=None,
@@ -2169,11 +2183,7 @@ def _follow_list_payload(
     if follows is None:
         follows = follow_list.follows.order_by(Follow.created_at.asc(), Follow.id.asc()).all()
         name_map, team_map, unavailable_player_ids = _follow_label_maps(follows)
-    if adult_player_ids is None:
-        adult_player_ids = public_adult_ids(
-            (f.selector or {}).get("player_api_id") for f in follows if f.kind == "player"
-        )
-    follows = [f for f in follows if f.kind != "player" or (f.selector or {}).get("player_api_id") in adult_player_ids]
+    follows = _visible_follows(follows, adult_player_ids)
     return {
         "id": follow_list.id,
         "name": follow_list.name,
@@ -2406,11 +2416,12 @@ def scout_list_add_follow(list_id):
         if kind == "player" and is_player_suppressed(clean_selector["player_api_id"]):
             return neutral_player_not_found()
 
-        if follow_list.follows.count() >= MAX_FOLLOWS_PER_LIST:
+        follows = follow_list.follows.all()
+        if len(_visible_follows(follows)) >= MAX_FOLLOWS_PER_LIST:
             return jsonify({"error": f"follow limit reached for this list ({MAX_FOLLOWS_PER_LIST})"}), 409
 
-        for follow in follow_list.follows.filter(Follow.kind == kind).all():
-            if follow.selector == clean_selector:
+        for follow in follows:
+            if follow.kind == kind and follow.selector == clean_selector:
                 return jsonify({"error": "this follow already exists in the list"}), 409
 
         note = payload.get("note")
