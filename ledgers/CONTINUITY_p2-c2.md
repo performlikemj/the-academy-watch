@@ -8,9 +8,9 @@
 - Own port5202 and scratch aw_c2f1/aw_c2f1_pre; foreground only; clean own resources.
 
 ## State
-- In progress (fix round 1): RC2 F1–F16 implemented; final full flags-OFF/backend/PG/browser gates running foreground.
-- Fix gates: final focused102 pass1 optional C1 skip; PG56 plus final rerun pending; query/failure-download4 pass (SQL10/11/12/14 at1/25/100 clips); exact real-app98 dark-method/path pairs/zeroSQL; modern browser242 pass4skip. OSV547/Node219/lint0errors192warnings/build pass; Ruff598 clean.
-- Full gate: initial4342 pass88skip with6 local SSL-required radar fixture errors; final flags-OFF rerun uses DB_SSLMODE=disable against own scratch DB. Unfiltered browser gate running to document legacy fixture failures.
+- Complete (fix round 1): all RC2 F1–F16 FIXED; final application d2c9750f verified; delivery/cleanup below.
+- Fix gates: final focused102 pass1 optional C1 skip; PG57 pass; query/failure-download4 pass (SQL10/11/12/14 at1/25/100 clips); exact real-app98 dark-method/path pairs/zeroSQL; modern browser242 pass4skip. OSV547/Node219/lint0errors192warnings/build pass; Ruff598 clean.
+- Full gate: final flags-OFF4343 pass94skip0fail149warnings (1054.65s), DB_SSLMODE=disable corrected local SSL-only fixture errors. Unfiltered browser240pass20fail5skip16serial-not-run:18 historical legacy/live-fixture failures +2 C4 fixed1s initialization races under parallel load; same C4 file4/4 pass with normal worker setting (and included in modern242-pass suite).
 - Fix migration: p2c1 copied verbatim c11e36f; p2c2 6a641362 (C4 copied); whole public schema upgrade == preapply twice (38ffed21), RLS4/guards7; empty downgrade/re-upgrade pass.
 - Integration: latest main/B2 784b1490/55b1d3ac and B3 46a4274f included; C2 application/test bytes preserved by release refresh.
 - Fix policy: raw-independent revoke; 60s single-clip redirects; verified club key; preview-ready approvals; institutional staff keys survive erasure; pending14d per current user task. BUS conflicts with14d; optional direct user clarification pending.
@@ -24,7 +24,8 @@
 - Evidence: fix round19 refreshed/reviewed desktop/mobile synthetic-fixture PNGs in ~/codex-runs/aw-redesign/shots/C2; full logs under C2F1.*.
 - Limit: broad legacy browser suite still fails obsolete frozen routes and live email/admin fixtures; current offline suite is green. No provider sends or production data changes.
 - Rollout: apply real C1 then C2 schema before deployment; build/schedule independent ffmpeg worker and existing outbox before enabling. Native views are I1, sharing these APIs.
-- Delivery: implementation/checks complete; review URL, ready transition and resource cleanup recorded in external C2.final.md/BUS. No further repository changes required for PR publication.
+- Delivery: final C2F1 per-finding hand-back/logs and19 shots outside repo; PR1122 remains open/unmerged. Latest main/B2/B3 included; C1 c11e36f verified unchanged at C1 final hand-back.
+- Cleanup: own Vite5202 stopped; own aw_c2f1/aw_c2f1_pre and generated/temp outputs removed before delivery. Existing dependencies retained; no provider sends/deploy/merge. Independent dual review is orchestrator next step.
 
 ## Acceptance / checks
 - Both keys required; revoke removes lists+bytes immediately; minors/unknown ages/private matches blocked.
