@@ -144,11 +144,24 @@ def subject_publication_held(subject) -> bool:
 
 
 def held_subject_ids(signed_ids):
-    """One correlated hold query for an already bounded candidate page."""
+    """One correlated hold query over a bounded candidate relation.
+
+    PostgreSQL uses one array bind, avoiding thousands of Python SQL nodes on
+    the small production CPU. SQLite uses the equivalent VALUES CTE.
+    """
     ids = sorted(set(signed_ids))
     if not ids:
         return set()
-    candidates = sa.union_all(*(sa.select(sa.literal(pid).label("signed_id")) for pid in ids)).subquery()
+    if db.session.get_bind().dialect.name == "postgresql":
+        from sqlalchemy.dialects.postgresql import ARRAY
+
+        candidates = (
+            sa.func.unnest(sa.bindparam("hold_ids", ids, type_=ARRAY(sa.Integer)))
+            .table_valued("signed_id")
+            .render_derived(name="hold_candidates")
+        )
+    else:
+        candidates = sa.values(sa.column("signed_id", sa.Integer)).data([(pid,) for pid in ids]).cte("hold_candidates")
     return set(
         db.session.execute(
             sa.select(candidates.c.signed_id).where(subject_publication_hold_filter(candidates.c.signed_id))

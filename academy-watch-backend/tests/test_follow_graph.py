@@ -83,6 +83,7 @@ def seeded(app):
         position="Attacker",
         nationality="England",
         age=19,
+        birth_date=f"{date.today().year - 19}-01-01",
         team_id=parent.id,
         status="on_loan",
         current_club_api_id=901,
@@ -97,6 +98,7 @@ def seeded(app):
         position="Goalkeeper",
         nationality="Japan",
         age=18,
+        birth_date=f"{date.today().year - 18}-01-01",
         team_id=parent.id,
         status="first_team",
         data_depth="full_stats",
@@ -107,6 +109,7 @@ def seeded(app):
         player_name="Danny Ghost",
         position="Defender",
         age=20,
+        birth_date=f"{date.today().year - 20}-01-01",
         team_id=parent.id,
         status="released",
         is_active=False,
@@ -152,6 +155,7 @@ def seeded(app):
     shadow = PlayerShadow(
         player_api_id=2001,
         player_name="Shadow Prospect",
+        birth_date=date(2000, 1, 1),
         position="Midfielder",
         nationality="Argentina",
         current_club_name="Boca",
@@ -636,7 +640,7 @@ class TestShadow:
         assert resp.status_code == 403
         assert "worldwide follow limit" in resp.get_json()["error"]
 
-    def test_mint_offline_falls_back_to_seed(self, client, seeded, monkeypatch):
+    def test_offline_seed_cannot_establish_adult_age(self, client, seeded, monkeypatch):
         class _Broken:
             def get_player_profile(self, pid):
                 raise RuntimeError("no api")
@@ -652,10 +656,8 @@ class TestShadow:
             },
             headers=_headers(),
         )
-        assert resp.status_code == 201
-        shadow = PlayerShadow.query.filter_by(player_api_id=7777).one()
-        assert shadow.player_name == "Seeded Name"
-        assert shadow.current_club_name == "Seed FC"
+        assert resp.status_code == 404
+        assert PlayerShadow.query.filter_by(player_api_id=7777).first() is None
 
     def test_player_search_found(self, client, seeded, monkeypatch):
         class _Found:

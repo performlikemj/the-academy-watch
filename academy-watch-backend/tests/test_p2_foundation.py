@@ -544,7 +544,7 @@ def test_adult_filter_constant_query_count_and_default_pagination(foundation_app
     finally:
         event.remove(db.engine, "before_cursor_execute", capture)
     assert len(rows) == min(size, 100)
-    assert len(statements) == 8
+    assert len(statements) == 6  # candidate/output reads + four narrow policy queries
     assert sum("club_programs.emergency_hidden" in statement for statement in statements) == 1
     assert page.get_execution_options()["p2_adult_next_cursor"] == (20099 if size > 100 else None)
     if size > 100:
