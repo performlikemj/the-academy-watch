@@ -24,6 +24,17 @@ const SENSITIVE_PARAMS = [
     'refresh_token', 'jwt', 'password', 'pwd', 'session', 'session_id',
 ]
 
+// --- p2-b1 begin --- club directory: what a visitor searched for (often a home postcode) or where
+// they are is never sent to analytics. On /clubs only these shareable filter params survive.
+const DIRECTORY_PATH = '/clubs'
+const DIRECTORY_KEPT_PARAMS = ['for', 'level']
+
+function isDirectoryPath(base) {
+    const path = base.replace(/^[a-z][a-z0-9+.-]*:\/\/[^/]*/i, '').split('#')[0].replace(/\/+$/, '')
+    return path.toLowerCase() === DIRECTORY_PATH
+}
+// --- p2-b1 end ---
+
 let queue = []
 let timer = null
 
@@ -33,13 +44,23 @@ function isBrowser() {
 
 // Remove sensitive query params from a path or full URL. On any parse failure
 // the whole query string is dropped, which fails safe (never leaks a token).
-function sanitizeUrl(url) {
+export function sanitizeUrl(url) {
     if (!url) return url
     const qIndex = url.indexOf('?')
     if (qIndex === -1) return url
     const base = url.slice(0, qIndex)
     const query = url.slice(qIndex + 1)
     try {
+        // p2-b1: the club directory keeps an allowlist, everything else on the path is dropped.
+        if (isDirectoryPath(base)) {
+            const given = new URLSearchParams(query.split('#')[0])
+            const kept = new URLSearchParams()
+            for (const name of DIRECTORY_KEPT_PARAMS) {
+                if (given.has(name)) kept.set(name, given.get(name))
+            }
+            const rest = kept.toString()
+            return rest ? `${base}?${rest}` : base
+        }
         const params = new URLSearchParams(query)
         let changed = false
         for (const name of SENSITIVE_PARAMS) {
