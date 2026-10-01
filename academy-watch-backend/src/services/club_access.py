@@ -13,6 +13,9 @@ Roles follow the ClubStaff board (PHASE2 decision 2):
 - analyst — assigned squads: players, match upload/reports.
 - viewer  — assigned squads: read-only players + reports.
 
+Whole-club access is owner/manager only.  A coach/analyst/viewer granted "all squads" is still
+squad-scoped: the scope is every squad the club has at request time, behind the same gates.
+
 Claim-verified managers (``ClubProgramManager`` + approved claim) keep full
 whole-club access.  Actions that speak for the club's verified identity to a
 player or the public record (club player invitations, club-confirmed results,
@@ -107,7 +110,8 @@ class ClubAccess:
 
     @property
     def whole_club(self) -> bool:
-        return self.role not in SCOPED_ROLES or self.all_squads
+        """Owner/manager only. ``all_squads`` on a scoped role widens the squad list, never the gates."""
+        return self.role not in SCOPED_ROLES
 
     def can(self, capability: str) -> bool:
         return capability in self.capabilities
@@ -121,7 +125,7 @@ class ClubAccess:
             "role": self.role,
             "verified": self.verified,
             "whole_club": self.whole_club,
-            "all_squads": self.whole_club,
+            "all_squads": self.whole_club or self.all_squads,
             "squad_ids": sorted(self.squad_ids),
             "capabilities": sorted(self.capabilities),
         }
@@ -171,16 +175,27 @@ def resolve_club_access(user_id, program_id) -> ClubAccess | None:
     # An owner grant is inert without the verified manager grant behind it.
     if grant is None or grant.role == "owner" or not _program_operational(program_id):
         return None
+    all_squads = bool(grant.all_squads) or grant.role not in SCOPED_ROLES
     return ClubAccess(
         program_id=program_id,
         user_id=user_id,
         role=grant.role,
         verified=False,
-        all_squads=bool(grant.all_squads) or grant.role not in SCOPED_ROLES,
-        squad_ids=frozenset(grant.squad_ids),
+        all_squads=all_squads,
+        # Scoped roles with "all squads": every current squad, through the scoped gates (never whole-club).
+        squad_ids=(
+            _current_squad_ids(program_id) if all_squads and grant.role in SCOPED_ROLES else frozenset(grant.squad_ids)
+        ),
         grant_id=grant.id,
         capabilities=ROLE_CAPABILITIES[grant.role] - VERIFIED_ONLY,
     )
+
+
+def _current_squad_ids(program_id) -> frozenset:
+    """Every squad the club has right now ("all squads" is resolved per request, so new squads count)."""
+    from src.models.funding import ClubSquad
+
+    return frozenset(row[0] for row in db.session.query(ClubSquad.id).filter_by(program_id=program_id))
 
 
 def club_can(user_id, program_id, capability) -> bool:
@@ -248,7 +263,7 @@ def require_club_permission_by_method(capabilities: dict):
 
 
 # ---------------------------------------------------------------------------
-# Scope helpers — no-ops for whole-club access (and always when the flag is off)
+# Scope helpers — no-ops for owner/manager access (and always when the flag is off)
 # ---------------------------------------------------------------------------
 
 
@@ -257,7 +272,10 @@ def current_access() -> ClubAccess | None:
 
 
 def scoped_squad_ids() -> frozenset | None:
-    """None = whole club; otherwise the only squads the caller may see."""
+    """None = whole club (owner/manager); otherwise the only squads the caller may see.
+
+    For an "all squads" coach/analyst/viewer this is every current squad of the club, never None.
+    """
     access = current_access()
     if access is None or access.whole_club:
         return None
