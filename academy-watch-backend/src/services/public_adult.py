@@ -25,11 +25,12 @@ def _valid_id(pid):
     return isinstance(pid, int) and not isinstance(pid, bool) and 0 < abs(pid) <= MAX_SIGNED_PLAYER_ID
 
 
-def public_adult_ids(signed_ids, *, trusted_birth_dates=None, allow_journeys=False):
+def public_adult_ids(signed_ids, *, trusted_birth_dates=None, allow_journeys=False, ignore_publication_holds=False):
     """Load only policy columns in four set queries, regardless of candidate count.
 
     GOL alone may admit a stored journey as identity evidence. Scout discovery
     and Phase 2 keep their existing tracked/shadow/local identity universe.
+    Only reversible B2 reconciliation may ignore publication holds.
     """
     # Only server-fetched API profiles may supply additional DOB evidence.
     # Request payloads, age snapshots and caller-supplied seeds are never evidence.
@@ -117,7 +118,8 @@ def public_adult_ids(signed_ids, *, trusted_birth_dates=None, allow_journeys=Fal
             suppressed.update(local_to_subjects[row.local_player_id])
             if -row.local_player_id in ids:
                 suppressed.add(-row.local_player_id)
-    excluded = suppressed | held_subject_ids(ids)
+    # Only reversible B2 application reconciliation bypasses holds; public reads use the default.
+    excluded = suppressed | (set() if ignore_publication_holds else held_subject_ids(ids))
     today = datetime.now(UTC).date()
     eligible = set()
     for pid in ids - excluded:
