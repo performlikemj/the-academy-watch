@@ -34,6 +34,7 @@ def test_f7_real_app_dark_routes_are_unrouted(monkeypatch, method):
         f"/api/club/1/matches/1/highlights/{hid}",
         f"/api/club/1/matches/1/highlights/{hid}/preview",
         f"/api/admin/highlights/{hid}/takedown",
+        f"/api/admin/highlights/{hid}/lift",
     ]
     with app.app_context():
         statements = []

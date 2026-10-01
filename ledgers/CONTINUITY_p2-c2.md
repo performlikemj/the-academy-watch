@@ -5,10 +5,10 @@
 - Branch p2/c2-highlights from origin/p2/b3-admin; PR against main stacked on #1115, ready at end; no merge/deploy.
 - HIGHLIGHTS_ENABLED default OFF; p2c2 -> real p2c1 ancestor copied verbatim; no placeholder.
 - Reuse A1 adult/holds/outbox/audit, A2 capability+byte scope, B1 is_listed. No public minors, youth/mixed footage, raw match SAS or metadata.
-- Own port5202 and scratch aw_c2f1/aw_c2f1_pre; foreground only; clean own resources.
+- C2F2 owns foreground Vite5204 and scratch aw_c2f2/aw_c2f2_upgrade/aw_c2f2_preapply/aw_c2f2_reverse; clean own resources. Historical C2F1 resources were already cleaned.
 
 ## State
-- In progress C2F2 (full gates): review-duel union; O1 first-use autoflush first. Lead rulings: unknown senior attestation verified-manager-only, sticky admin takedown, source revocation notified/recoverable. No 14-day expiry; unanswered follows raw deadline, declined ready assets deleted immediately.
+- Complete C2F2 fixes/gates (delivery in external hand-back): review-duel union; O1 first-use autoflush first. Lead rulings: unknown senior attestation verified-manager-only, sticky admin takedown, source revocation notified/recoverable. No 14-day expiry; unanswered follows raw deadline, declined ready assets deleted immediately.
 - Complete (fix round 1): all RC2 F1–F16 FIXED; final application d2c9750f verified; delivery/cleanup below.
 - Fix gates: final focused102 pass1 optional C1 skip; PG57 pass; query/failure-download4 pass (SQL10/11/12/14 at1/25/100 clips); exact real-app98 dark-method/path pairs/zeroSQL; modern browser242 pass4skip. OSV547/Node219/lint0errors192warnings/build pass; Ruff598 clean.
 - Full gate: final flags-OFF4343 pass94skip0fail149warnings (1054.65s), DB_SSLMODE=disable corrected local SSL-only fixture errors. Unfiltered browser240pass20fail5skip16serial-not-run:18 historical legacy/live-fixture failures +2 C4 fixed1s initialization races under parallel load; same C4 file4/4 pass with normal worker setting (and included in modern242-pass suite).
@@ -29,10 +29,19 @@
 - Cleanup: own Vite5202 stopped; own aw_c2f1/aw_c2f1_pre and generated/temp outputs removed before delivery. Existing dependencies retained; no provider sends/deploy/merge. Independent dual review is orchestrator next step.
 
 ## C2F2 evidence
-- Reverse reviewed a1c5584c: new duel regressions53fail/3controls. O1 both initial classifications fail, fixed SQLite/PG pass.
-- Initial focused158pass1skip; expanded PostgreSQL159pass1skip, fresh real concurrent grant/revoke11pass. Browser lane15pass incl actual three-origin native playback with no storage CORS/token/referrer.
-- C2 migration7a523b7c; public-schema equality9660c64a; C1 7ff6c7d2 and B3 f073ecc8 copied verbatim. Latest published main784b1490/C1d9105c37/B346a4274f merged before full gates.
-- OSV547clean; Node221/lint0errors193warnings/build/Ruff-format pass. Full flags-off and modern browsers running.
+- All duel-union findings plus lead rulings FIXED. First unseeded recording review populated before session add; both classifications SQLite/PG pass. Robust normalized youth labels/upper-age unknown guards; senior attestation audited/withdrawable and verified-owner/manager-only.
+- Unanswered follows raw90-day expiry; completed declined output immediately worker-deleted; live/late attempts separately fenced. Live consent history retained; permanently broken claim/recipient keys revoked/cleaned, reversible holds preserve consent.
+- Three grants batch both initial/fresh final evidence; absolute deadline set before storage, then fresh consent/source/standing/actor checks. Cold1/21-person rosters equal SQL <=32. Concurrent PostgreSQL grant/revoke passes.
+- Preview authenticated JSON URL -> native video src; real three-origin no-CORS MP4/range test passes without bearer/referrer/Origin:null at storage. Effective real-app no-referrer. Shared features/positive schema discovery cache; dark guards retained and request cache reset.
+- Minimal recording/window takedown hold survives clip audit/subject erasure; existing duplicate windows revoked. Dual-auth admin lift by archived ID restores no old consent. Source edits still fail-closed, neutral player/club outbox, fresh pick+approval allowed. Cancelled cuts stale/retryable; staff public wording corrected.
+- Reversed reviewed a1c5584c final69 regressions:66fail/3controls; current69pass. PG166 final +10 added distinct =176 unique pass/0skip; overlapping race/SQL11 pass. Focused162 incl real C1; actual dark7 pass/105 method-path comparisons/zeroSQL, including lift.
+- Final modern Playwright269pass/5 existing opt-in skips/0fail; relevant32pass/3opt-in skips incl15 C2. OSV547 clean; Node221/lint0errors193 inherited warnings/build/Ruff-format611 pass; JS repo has no separate TypeScript gate.
+- Final full flags-OFF4574pass117skip0fail153warnings881.07s; application source freeze c2521e6b includes B3F5. Later changes only dark-lift test (targeted7pass) and docs/ledgers; Ruff/format rerun green.
+- FINAL p2c2 migration58af1d880ef55e7dccd1182ec5f827c3d5a9c9bd1aa8537ab0467d635a58acfc; preapply751d8879e46f941952d760c1373eadf5ddf57f41e7dc03f77fb0f2fa50572a37 repo/external equal. CONTRACT posted for C4 verbatim copy; supersedes early7a523 contract.
+- Whole public schema upgrade==preapply twice + guarded upgrade; normalized4b560bf86c929de7aef991b967b916a21ec7d3213a8db629dfb56e158ef997fd/RLS5/source guards7; empty downgrade/re-upgrade pass. C1 7ff6c7d2 and B3 f073ecc8 copied verbatim.
+- Latest published main784b1490/C1d9105c37/B3F551f30f5b merged before final gates; final re-fetch confirms all ancestors included. BUS re-read: no C2 ruling override.
+-23 refreshed synthetic-fixture desktop/mobile PNGs shots/C2F2 with INDEX/SHA256SUMS; affected mobile inbox/club-approved/admin-lift/three-origin captures inspected, mobile overflow checks green.
+- Own Vite5204 stopped; four owned scratch DBs/temp/browser/build/cache outputs cleaned. Final per-finding evidence/contract/gates/screenshots in external logs/C2F2.final.md and durable C2F2.report.md; exact pushed local/remote/PR SHA and BUS DONE recorded there. PR1122 remains open/unmerged; no deploy/provider sends/flag activation.
 
 ## Acceptance / checks
 - Both keys required; revoke removes lists+bytes immediately; minors/unknown ages/private matches blocked.
