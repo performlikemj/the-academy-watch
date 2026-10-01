@@ -110,6 +110,7 @@ test.describe.serial('Partner onboarding flow', () => {
   })
 
   test('journalist can update attribution and URL normalizes', async () => {
+    test.skip(true, 'legacy page hidden 2026-10-01')
     const page = journalistPage
 
     await page.goto('/settings')

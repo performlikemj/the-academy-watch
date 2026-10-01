@@ -118,6 +118,7 @@ from src.utils.background_jobs import (
 from src.utils.data_mode import api_enabled_route, api_football_frozen, newsletters_enabled_route, newsletters_frozen
 from src.utils.feature_flags import rollup_reads_enabled
 from src.utils.fixture_stats_mapper import map_player_stat_block
+from src.utils.legacy_pages import legacy_public_url
 from src.utils.newsletter_slug import compose_newsletter_public_slug
 from src.utils.player_names import resolve_player_name
 from src.utils.sanitize import (
@@ -3475,7 +3476,7 @@ def _compute_newsletter_social_meta(n: Newsletter, context: dict[str, Any]) -> d
         description = f"{team_name} weekly loan watch from The Academy Watch."
 
     canonical_slug = _newsletter_issue_slug(n)
-    canonical_url = _absolute_url(f"/newsletters/{canonical_slug}")
+    canonical_url = legacy_public_url(_absolute_url(f"/newsletters/{canonical_slug}"))
 
     team_logo = context.get("team_logo")
     cover_rel = _ensure_newsletter_cover_image(n, team_logo=team_logo)
@@ -3995,7 +3996,7 @@ def _newsletter_render_context(n: Newsletter) -> dict[str, Any]:
 
     # Generate web URL for newsletter
     canonical_slug = _newsletter_issue_slug(n)
-    web_url = _absolute_url(f"/newsletters/{canonical_slug}")
+    web_url = legacy_public_url(_absolute_url(f"/newsletters/{canonical_slug}"))
 
     commentaries = _collect_commentaries_for_newsletter(n)
     intro_commentary = []
@@ -4023,7 +4024,7 @@ def _newsletter_render_context(n: Newsletter) -> dict[str, Any]:
     twitter_takes_by_player = _build_twitter_takes_by_player(community_takes)
 
     # Submit take URL for footer
-    submit_take_url = f"{public_base_url}/submit-take" if public_base_url else None
+    submit_take_url = legacy_public_url(f"{public_base_url}/submit-take") if public_base_url else None
 
     # Flag/report URL for data corrections
     flag_base_url = f"{public_base_url}/flag" if public_base_url else None
@@ -8110,7 +8111,7 @@ def _maybe_post_to_reddit_on_publish(newsletters: list) -> list:
 
             web_url = None
             if newsletter.public_slug:
-                web_url = f"https://theacademywatch.com/newsletters/{newsletter.public_slug}"
+                web_url = legacy_public_url(f"https://theacademywatch.com/newsletters/{newsletter.public_slug}")
 
             for sub in subreddits:
                 try:
@@ -8860,7 +8861,7 @@ def admin_post_newsletter_to_reddit(newsletter_id: int):
         # Get web URL for linking back
         web_url = None
         if newsletter.public_slug:
-            web_url = f"https://theacademywatch.com/newsletters/{newsletter.public_slug}"
+            web_url = legacy_public_url(f"https://theacademywatch.com/newsletters/{newsletter.public_slug}")
 
         results = []
         for sub in subreddits:

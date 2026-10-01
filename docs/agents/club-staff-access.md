@@ -29,6 +29,15 @@ routes return 404.
   owner/manager. `/access/me` returns `whole_club: false, all_squads: true` plus the resolved
   `squad_ids` for such a grant; the web console keys "Unassigned" and "squad required" off
   `whole_club`. Never use `all_squads` as a shortcut around a scope check.
+- **The access board never has its own role table.** `GET /club/<id>/access` gives each person a
+  `permissions` list (one bool per `matrix.rows` label) from
+  `board_permissions(resolve_club_access(user, program))` — the same capabilities the guards check.
+  So an invited (unverified) manager shows no `VERIFIED_ONLY` right (deciding scout requests), and a
+  grant that currently resolves to no access shows none. Do not reintroduce a per-role matrix.
+- **A grant's squad scope is a set.** The web editor and invite form (`StaffAccess.jsx`, helpers
+  `scopeFromEntry` / `scopeBody` in `lib/staff-access.js`) hold and send the **whole** `squad_ids`
+  array ("All squads" or any subset of one or more); never initialise an editor from one element.
+  A scoped grant left with no squads is refused on save, not widened to "All squads".
 - **Match rule (`match_visible_to`):** a squad-scoped caller (coach/analyst/viewer) sees a club match
   only if ALL hold: its squad label is in their squads; it has a **grant-time `origin`** coverage
   marker; it has no `uncertain` marker; and every player it covers — today's roster plus every
@@ -116,6 +125,10 @@ upload started within the previous hour.
 regressions incl. roster-cleanup, legacy re-attestation and pre-completion byte cases),
 `test_club_staff_access_ra2v5.py` ("all squads" coach/analyst/viewer stay behind the scoped gates;
 late-created squads are in scope; owner/manager unchanged),
+`test_club_staff_access_a2f9.py` (board permissions == resolved capabilities for every role x
+verified state; multi-squad grants survive a role-only change) with
+`academy-watch-frontend/e2e/club-staff-access.spec.mjs` and `tests/staff-access-scope.test.mjs`
+(the editor sends the full squad set),
 `test_club_staff_access_coverage.py` (grant-time monotonic coverage, happy path),
 `test_video_storage_snapshot.py` (snapshot SAS against a fake Azure client) and
 `test_club_staff_access_flagoff_parity.py` (164 flag-off responses == origin/main).

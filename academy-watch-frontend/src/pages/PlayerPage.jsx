@@ -27,14 +27,13 @@ import {
     ResponsiveContainer,
     ReferenceLine,
 } from 'recharts'
-import { Loader2, ArrowLeft, User, TrendingUp, Calendar, Target, PenTool, ChevronRight, ChevronDown, Users, ExternalLink, MapPin, Flag, Star } from 'lucide-react'
+import { Loader2, ArrowLeft, User, TrendingUp, Calendar, Target, ChevronRight, ChevronDown, Users, ExternalLink, MapPin, Flag, Star } from 'lucide-react'
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible'
 import FlagDataDialog from '@/components/FlagDataDialog'
 import ContentReportDialog from '@/components/ContentReportDialog'
 import { APIService } from '@/lib/api'
 import { useAuth, useAuthUI } from '@/context/AuthContext'
 import { format } from 'date-fns'
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { SponsorStrip } from '@/components/SponsorSidebar'
 import { MatchDetailDrawer } from '@/components/MatchDetailDrawer'
 import PlayerJourneyView from '@/components/PlayerJourneyView'
@@ -136,23 +135,6 @@ for (const config of Object.values(METRIC_CONFIG)) {
 
 // Writeups are stored as HTML. Parse into an inert document (DOMParser never
 // runs scripts or loads resources) and show only its text — never the markup.
-function plainTextExcerpt(html, maxLength = 150) {
-    if (!html) return ''
-    let text = String(html)
-    if (typeof DOMParser !== 'undefined') {
-        const doc = new DOMParser().parseFromString(text, 'text/html')
-        doc.querySelectorAll('script, style, noscript, template').forEach((node) => node.remove())
-        text = doc.body?.textContent || ''
-    } else {
-        text = text.replace(/<[^>]*>/g, ' ')
-    }
-    text = text.replace(/\s+/g, ' ').trim()
-    if (text.length <= maxLength) return text
-    const cut = text.slice(0, maxLength)
-    const lastSpace = cut.lastIndexOf(' ')
-    return `${(lastSpace > maxLength * 0.6 ? cut.slice(0, lastSpace) : cut).trimEnd()}…`
-}
-
 const DEFAULT_POSITION = 'Midfielder'
 
 function AcademyStatsSection({ academyStats, defaultOpen = false }) {
@@ -290,7 +272,6 @@ export function PlayerPage() {
     const [stats, setStats] = useState([])
     const [statsMeta, setStatsMeta] = useState(null)
     const [seasonStats, setSeasonStats] = useState(null)
-    const [commentaries, setCommentaries] = useState({ commentaries: [], authors: [], total_count: 0 })
     const [loading, setLoading] = useState(true)
     const [notFound, setNotFound] = useState(false)
     const [error, setError] = useState(null)
@@ -420,7 +401,7 @@ export function PlayerPage() {
         setError(null)
         try {
             let publicStatsNotFound = false
-            const [profileData, statsData, seasonData, commentariesData, academyData] = await Promise.all([
+            const [profileData, statsData, seasonData, academyData] = await Promise.all([
                 APIService.getPublicPlayerProfile(playerId).catch(() => null),
                 APIService.getPublicPlayerStats(playerId, selectedSeason).catch((requestError) => {
                     if (requestError?.status === 404) {
@@ -430,7 +411,6 @@ export function PlayerPage() {
                     throw requestError
                 }),
                 APIService.getPublicPlayerSeasonStats(playerId, selectedSeason).catch(() => null),
-                APIService.getPlayerCommentaries(playerId).catch(() => ({ commentaries: [], authors: [], total_count: 0 })),
                 APIService.getPlayerAcademyStats(playerId).catch(() => null),
             ])
 
@@ -446,7 +426,6 @@ export function PlayerPage() {
             setStats(statRows)
             setStatsMeta(Array.isArray(statsData) ? null : statsData)
             setSeasonStats(seasonData)
-            setCommentaries(commentariesData || { commentaries: [], authors: [], total_count: 0 })
             setAcademyStats(academyData)
 
             // Use profile position as initial value (backend enriches from multiple sources)
@@ -1304,114 +1283,6 @@ export function PlayerPage() {
                             defaultOpen={stats.length === 0 && seasonStats?.stats_coverage !== 'limited'}
                         />
                     )}
-
-                    {/* Writer Coverage Section */}
-                        {commentaries.total_count > 0 && (
-                            <Card>
-                                <CardHeader>
-                                    <CardTitle className="flex items-center gap-2 text-pretty">
-                                        <PenTool className="h-5 w-5" />
-                                        Writer Coverage
-                                    </CardTitle>
-                                    <CardDescription>
-                                        {commentaries.total_count} writeup{commentaries.total_count !== 1 ? 's' : ''} from {commentaries.authors.length} journalist{commentaries.authors.length !== 1 ? 's' : ''}
-                                    </CardDescription>
-                                </CardHeader>
-                                <CardContent>
-                                    {/* Featured Authors */}
-                                    <div className="mb-6">
-                                        <h3 className="text-sm font-medium text-foreground/80 mb-3">Writers covering this player</h3>
-                                        <div className="flex flex-wrap gap-3">
-                                            {commentaries.authors.map((author) => (
-                                                <Link
-                                                    key={author.id}
-                                                    to={`/journalists/${author.id}`}
-                                                    className="flex items-center gap-2 px-3 py-2 bg-secondary hover:bg-muted rounded-lg transition-colors group"
-                                                >
-                                                    <Avatar className="h-8 w-8">
-                                                        <AvatarImage src={author.profile_image_url} alt={author.display_name} />
-                                                        <AvatarFallback className="text-xs bg-primary/10 text-primary">
-                                                            {author.display_name?.charAt(0) || 'W'}
-                                                        </AvatarFallback>
-                                                    </Avatar>
-                                                    <div className="text-left">
-                                                        <div className="text-sm font-medium text-foreground group-hover:text-primary transition-colors">
-                                                            {author.display_name}
-                                                        </div>
-                                                        <div className="text-xs text-muted-foreground">
-                                                            {author.commentary_count} writeup{author.commentary_count !== 1 ? 's' : ''}
-                                                        </div>
-                                                    </div>
-                                                    <ChevronRight className="h-4 w-4 text-muted-foreground/70 group-hover:text-primary transition-colors" />
-                                                </Link>
-                                            ))}
-                                        </div>
-                                    </div>
-
-                                    {/* Recent Writeups */}
-                                    <div>
-                                        <h3 className="text-sm font-medium text-foreground/80 mb-3">Recent writeups</h3>
-                                        <div className="space-y-3">
-                                            {commentaries.commentaries.slice(0, 5).map((commentary) => (
-                                                <Link
-                                                    key={commentary.id}
-                                                    to={`/writeups/${commentary.id}`}
-                                                    className="block p-4 bg-secondary hover:bg-muted rounded-lg transition-colors group"
-                                                >
-                                                    <div className="flex items-start gap-3">
-                                                        {commentary.author && (
-                                                            <Avatar className="h-10 w-10 flex-shrink-0">
-                                                                <AvatarImage src={commentary.author.profile_image_url} alt={commentary.author.display_name} />
-                                                                <AvatarFallback className="text-sm bg-primary/10 text-primary">
-                                                                    {commentary.author.display_name?.charAt(0) || 'W'}
-                                                                </AvatarFallback>
-                                                            </Avatar>
-                                                        )}
-                                                        <div className="flex-1 min-w-0">
-                                                            <div className="flex items-center gap-2 mb-1">
-                                                                <span className="font-medium text-foreground group-hover:text-primary transition-colors">
-                                                                    {commentary.author?.display_name || 'Anonymous'}
-                                                                </span>
-                                                                {commentary.is_premium && (
-                                                                    <Badge variant="secondary" className="text-xs bg-gold/20 text-ink border-gold/40">
-                                                                        Premium
-                                                                    </Badge>
-                                                                )}
-                                                            </div>
-                                                            {commentary.title && (
-                                                                <div className="text-sm font-medium text-foreground mb-1">{commentary.title}</div>
-                                                            )}
-                                                            <div className="text-sm text-muted-foreground line-clamp-2">
-                                                                {plainTextExcerpt(commentary.content)}
-                                                            </div>
-                                                            <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
-                                                                {commentary.newsletter && (
-                                                                    <span>{commentary.newsletter.team_name}</span>
-                                                                )}
-                                                                {commentary.created_at && (
-                                                                    <>
-                                                                        <span>·</span>
-                                                                        <span>{format(new Date(commentary.created_at), 'MMM d, yyyy')}</span>
-                                                                    </>
-                                                                )}
-                                                            </div>
-                                                        </div>
-                                                        <ChevronRight className="h-5 w-5 text-muted-foreground/70 group-hover:text-primary transition-colors flex-shrink-0" />
-                                                    </div>
-                                                </Link>
-                                            ))}
-                                        </div>
-                                        {commentaries.total_count > 5 && (
-                                            <div className="mt-4 text-center">
-                                                <span className="text-sm text-muted-foreground">
-                                                    Showing 5 of {commentaries.total_count} writeups
-                                                </span>
-                                            </div>
-                                        )}
-                                    </div>
-                                </CardContent>
-                            </Card>
-                        )}
 
                         {/* Season availability (injuries / suspensions) */}
                         <PlayerAvailability playerId={parseInt(playerId)} />

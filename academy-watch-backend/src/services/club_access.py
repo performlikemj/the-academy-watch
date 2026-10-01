@@ -192,6 +192,16 @@ def resolve_club_access(user_id, program_id) -> ClubAccess | None:
     )
 
 
+def board_permissions(access) -> list[bool]:
+    """The Staff & access board's rows for one RESOLVED access (``None`` = no access right now).
+
+    The board never derives rights from a role table of its own: it shows exactly the capabilities
+    ``resolve_club_access`` returned for that account, so verified-only rights and inert grants match.
+    """
+    capabilities = access.capabilities if access is not None else frozenset()
+    return [cap in capabilities for _, cap in BOARD_MATRIX]
+
+
 def _current_squad_ids(program_id) -> frozenset:
     """Every squad the club has right now ("all squads" is resolved per request, so new squads count)."""
     from src.models.funding import ClubSquad

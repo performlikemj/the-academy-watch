@@ -76,3 +76,30 @@ export function squadScopeLabel(entry, squads) {
   const names = (entry.squad_ids || []).map((id) => squads.find((s) => s.id === id)?.name).filter(Boolean)
   return names.length ? names.join(', ') : 'No squads'
 }
+
+// Squad scope as the access editor and invite form hold it: { all, ids }. A grant can cover several squads, so
+// `ids` is always the FULL list — never one squad. It is kept while "All squads" is ticked (or the role is
+// whole-club) so unticking brings the selection back; scopeBody decides what is actually sent.
+const sortedIds = (ids) => [...new Set((ids || []).map(Number))].sort((a, b) => a - b)
+
+export function scopeFromEntry(entry) {
+  if (!entry) return { all: true, ids: [] }
+  // A scoped grant left with no squads stays "no squads" (the owner must choose) — it is never widened to all.
+  const all = Boolean(entry.all_squads) || !SCOPED_ROLES.has(entry.role)
+  return { all, ids: all ? [] : sortedIds(entry.squad_ids) }
+}
+
+export function toggleScopeSquad(scope, squadId) {
+  const id = Number(squadId)
+  return { ...scope, ids: scope.ids.includes(id) ? scope.ids.filter((x) => x !== id) : sortedIds([...scope.ids, id]) }
+}
+
+export function scopeValid(role, scope) {
+  return !SCOPED_ROLES.has(role) || scope.all || scope.ids.length > 0
+}
+
+export function scopeBody(role, scope) {
+  return SCOPED_ROLES.has(role) && !scope.all
+    ? { all_squads: false, squad_ids: sortedIds(scope.ids) }
+    : { all_squads: true, squad_ids: [] }
+}

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { APIService } from '@/lib/api';
-import { INVITE_ROLES, ROLE_LABELS, SCOPED_ROLES, can, squadScopeLabel } from '@/lib/staff-access';
+import { INVITE_ROLES, ROLE_LABELS, SCOPED_ROLES, can, scopeBody, scopeFromEntry, scopeValid, squadScopeLabel, toggleScopeSquad } from '@/lib/staff-access';
 import { initials } from './presentation';
 import './staff-access.css';
 
@@ -16,17 +16,27 @@ const ACTIVITY = {
   owner_removed: 'Owner removed',
 };
 
-function ScopeSelect({ id, role, value, squads, onChange, disabled }) {
+// "All squads" or any subset of the club's squads (one or more). The whole selection round-trips.
+function SquadScope({ id, role, scope, squads, onChange }) {
   const scoped = SCOPED_ROLES.has(role);
-  return <select id={id} value={scoped ? value : 'all'} disabled={disabled || !scoped} onChange={e => onChange(e.target.value)}>
-    <option value="all">All squads</option>
-    {scoped && squads.map(s => <option key={s.id} value={String(s.id)}>{s.name}</option>)}
-  </select>;
+  const all = !scoped || scope.all;
+  const listed = new Set(squads.map(s => s.id));
+  const options = [...squads, ...scope.ids.filter(squadId => !listed.has(squadId)).map(squadId => ({ id: squadId, name: 'Squad no longer listed' }))];
+  const missing = !all && scope.ids.length === 0;
+  const hint = !scoped ? 'Club managers always see every squad.'
+    : all ? 'Includes squads you add later.'
+      : options.length === 0 ? 'This club has no squads yet. Choose All squads.'
+        : missing ? 'Choose at least one squad.'
+          : `${scope.ids.length} of ${options.length} ${options.length === 1 ? 'squad' : 'squads'} selected.`;
+  return <fieldset id={id} className="sa-scope" aria-describedby={`${id}-hint`}>
+    <legend>Squads</legend>
+    <div className="sa-chips">
+      <label className="sa-chip"><input type="checkbox" checked={all} disabled={!scoped} onChange={e => onChange({ ...scope, all: e.target.checked })} /><span>All squads</span></label>
+      {!all && options.map(s => <label className="sa-chip" key={s.id}><input type="checkbox" checked={scope.ids.includes(s.id)} onChange={() => onChange(toggleScopeSquad(scope, s.id))} /><span>{s.name}</span></label>)}
+    </div>
+    <p id={`${id}-hint`} className={`sa-scope-hint${missing ? ' warn' : ''}`}>{hint}</p>
+  </fieldset>;
 }
-
-const scopeBody = (role, scope) => SCOPED_ROLES.has(role) && scope !== 'all'
-  ? { all_squads: false, squad_ids: [Number(scope)] }
-  : { all_squads: true, squad_ids: [] };
 
 export function StaffAccess({ programId, squads, access, onAccessDenied }) {
   const [data, setData] = useState(null);
@@ -35,7 +45,7 @@ export function StaffAccess({ programId, squads, access, onAccessDenied }) {
   const [noticeWarn, setNoticeWarn] = useState(false);
   const [busy, setBusy] = useState(false);
   const [picked, setPicked] = useState(null);
-  const [form, setForm] = useState({ email: '', role: 'coach', scope: 'all' });
+  const [form, setForm] = useState({ email: '', role: 'coach', scope: { all: true, ids: [] } });
   const [edit, setEdit] = useState(null);
   const manage = can(access, 'access.manage');
 
@@ -71,12 +81,20 @@ export function StaffAccess({ programId, squads, access, onAccessDenied }) {
   ];
   const selected = people.find(p => p.key === picked) || people.find(p => p.kind === 'person' && p.role !== 'owner' && p.role !== 'manager') || people[0];
   const matrixRole = selected?.kind === 'invite' ? null : selected?.role;
-  const marks = matrixRole ? data.matrix.roles[matrixRole] : data.matrix.rows.map(() => false);
+  // The marks are this person's own resolved permissions from the server, not a per-role table.
+  const marks = selected?.kind === 'person' && Array.isArray(selected.permissions) ? selected.permissions : data.matrix.rows.map(() => false);
+  const invitedManager = selected?.kind === 'person' && selected.role === 'manager' && !selected.verified;
   const roleName = selected?.kind === 'invite' ? 'a pending invite' : article(ROLE_LABELS[matrixRole] || 'member');
 
+  // Refuses a scoped role with no squad ticked before anything is sent.
+  const scopeReady = (role, scope) => {
+    if (scopeValid(role, scope)) return true;
+    setNotice(''); setError(friendly('scope_required'));
+    return false;
+  };
   const pick = row => {
     setPicked(row.key);
-    setEdit(row.kind === 'person' && row.editable ? { role: row.role, scope: row.all_squads || !row.squad_ids?.length ? 'all' : String(row.squad_ids[0]) } : null);
+    setEdit(row.kind === 'person' && row.editable ? { role: row.role, scope: scopeFromEntry(row) } : null);
   };
 
   return <section className="sa-root" aria-labelledby="sa-title">
@@ -88,6 +106,7 @@ export function StaffAccess({ programId, squads, access, onAccessDenied }) {
     {manage ? <form className="sa-invite" onSubmit={e => {
       e.preventDefault();
       const email = form.email.trim();
+      if (!scopeReady(form.role, form.scope)) return;
       call('staff-invites', 'POST', { email, role: form.role, ...scopeBody(form.role, form.scope) }, out => {
         setForm({ email: '', role: form.role, scope: form.scope });
         setNoticeWarn(out?.email_sent === false);
@@ -96,7 +115,7 @@ export function StaffAccess({ programId, squads, access, onAccessDenied }) {
     }}>
       <label htmlFor="sa-email"><span>Invite by email</span><input id="sa-email" type="email" required autoComplete="off" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} placeholder="name@club.org" /></label>
       <label htmlFor="sa-role"><span>Role</span><select id="sa-role" value={form.role} onChange={e => setForm({ ...form, role: e.target.value })}>{INVITE_ROLES.map(r => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}</select></label>
-      <label htmlFor="sa-scope"><span>Squads</span><ScopeSelect id="sa-scope" role={form.role} value={form.scope} squads={squads} onChange={scope => setForm({ ...form, scope })} /></label>
+      <SquadScope id="sa-scope" role={form.role} scope={form.scope} squads={squads} onChange={scope => { setError(''); setForm({ ...form, scope }); }} />
       <button type="submit" disabled={busy}>Send invite</button>
     </form> : <p className="sa-quiet">Only the club owner can invite staff or change access. The Academy Watch confirms the owner when your club is verified.</p>}
     {notice && <p className={`sa-notice${noticeWarn ? ' warn' : ''}`} role="status">{notice}</p>}
@@ -121,12 +140,13 @@ export function StaffAccess({ programId, squads, access, onAccessDenied }) {
         </div>}
         {manage && selected?.kind === 'person' && selected.editable && edit && <form className="sa-editor" onSubmit={e => {
           e.preventDefault();
+          if (!scopeReady(edit.role, edit.scope)) return;
           call(`access/${selected.grant_id}`, 'PATCH', { role: edit.role, ...scopeBody(edit.role, edit.scope), expected_version: selected.version }, () => setNotice('Access updated. It applies straight away.'));
         }}>
           <p>Change access for <strong>{selected.display_name || selected.email}</strong></p>
           <div className="sa-editor-fields">
             <label htmlFor="sa-edit-role"><span>Role</span><select id="sa-edit-role" value={edit.role} onChange={e => setEdit({ ...edit, role: e.target.value })}>{INVITE_ROLES.map(r => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}</select></label>
-            <label htmlFor="sa-edit-scope"><span>Squads</span><ScopeSelect id="sa-edit-scope" role={edit.role} value={edit.scope} squads={squads} onChange={scope => setEdit({ ...edit, scope })} /></label>
+            <SquadScope id="sa-edit-scope" role={edit.role} scope={edit.scope} squads={squads} onChange={scope => { setError(''); setEdit({ ...edit, scope }); }} />
           </div>
           <div className="sa-editor-actions">
             <button type="submit" className="sa-save" disabled={busy}>Save access</button>
@@ -139,6 +159,7 @@ export function StaffAccess({ programId, squads, access, onAccessDenied }) {
         <section aria-labelledby="sa-matrix">
           <h2 id="sa-matrix">What {roleName} can do</h2>
           {data.matrix.rows.map((label, index) => <div key={label} className={`sa-perm ${marks[index] ? '' : 'off'}`}><span>{label}</span><span className="sa-mark">{marks[index] ? 'Yes' : '—'}</span></div>)}
+          {invitedManager && <p className="sa-quiet sa-matrix-note">Invited managers can’t decide on scout requests. That stays with club officials The Academy Watch has verified.</p>}
         </section>
         <section aria-labelledby="sa-activity">
           <h2 id="sa-activity" className="sa-eyebrow-heading">Recent activity</h2>

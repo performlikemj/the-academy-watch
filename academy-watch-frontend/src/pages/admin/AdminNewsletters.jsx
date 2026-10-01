@@ -275,13 +275,10 @@ export function AdminNewsletters() {
     // Get markdown content based on format
     const getMarkdownContent = useCallback(() => {
         if (!newsletterJson) return ''
-        const webUrl = newsletterJson.public_slug 
-            ? `https://theacademywatch.com/newsletters/${newsletterJson.public_slug}`
-            : null
         if (markdownFormat === 'compact') {
             return convertNewsletterToCompactMarkdown(newsletterJson)
         }
-        return convertNewsletterToMarkdown(newsletterJson, { webUrl })
+        return convertNewsletterToMarkdown(newsletterJson)
     }, [newsletterJson, markdownFormat])
 
     // Copy content to clipboard
