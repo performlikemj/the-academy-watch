@@ -550,7 +550,10 @@ def test_gol_cannot_call_unverified_web_discovery(monkeypatch):
     assert service._execute_tool("search_web", {"query": "best U18 players"})["result_type"] == "error"
 
 
-def test_paid_gol_replay_rechecks_adult_eligibility_before_returning_stored_answer(app, client, desk, monkeypatch):
+@pytest.mark.parametrize("change", ["minor", "unknown", "add_adult", "delete_tracked", "delete_shadow", "delete_local"])
+def test_paid_gol_replay_rechecks_adult_eligibility_before_returning_stored_answer(
+    app, client, desk, monkeypatch, change
+):
     from src.models.gol_credits import GolCreditLedger
     from src.routes.gol import gol_bp
     from src.services.gol_service import GolService
@@ -558,6 +561,22 @@ def test_paid_gol_replay_rechecks_adult_eligibility_before_returning_stored_answ
     app.register_blueprint(gol_bp, url_prefix="/api")
     monkeypatch.setenv("BILLING_ENABLED", "1")
     monkeypatch.setenv("GOL_FREE_ALLOWANCE", "10")
+    pid = 1800
+    model = TrackedPlayer
+    if change == "delete_shadow":
+        pid = 9900
+        model = PlayerShadow
+        db.session.add(PlayerShadow(player_api_id=pid, player_name="Stored adult", birth_date=date(2000, 1, 1)))
+    elif change == "delete_local":
+        model = LocalPlayer
+        local = LocalPlayer(
+            display_name="Stored adult", status="approved", provenance="community", birth_date=date(2000, 1, 1)
+        )
+        db.session.add(local)
+        db.session.flush()
+        local.api_player_id = pid = -local.id
+    db.session.commit()
+    assert public_adult_ids([pid]) == {pid}
     # A model-free initial answer containing a currently eligible adult.
     monkeypatch.setattr(GolService, "__init__", lambda self, **kwargs: None)
     monkeypatch.setattr(
@@ -565,7 +584,8 @@ def test_paid_gol_replay_rechecks_adult_eligibility_before_returning_stored_answ
         "chat",
         lambda *args: iter(
             [
-                {"event": "token", "data": {"content": "Desk player 1800"}},
+                # Prose-only answers have no reliable referenced-ID inventory.
+                {"event": "token", "data": {"content": "Stored adult"}},
                 {"event": "done", "data": {}},
             ]
         ),
@@ -573,13 +593,54 @@ def test_paid_gol_replay_rechecks_adult_eligibility_before_returning_stored_answ
     payload = {"message": "List a player", "client_msg_id": "n3_replay_adult"}
     response = client.post("/api/gol/chat", json=payload, headers=desk.headers)
     assert response.status_code == 200
-    assert "Desk player 1800" in response.get_data(as_text=True)
+    assert "Stored adult" in response.get_data(as_text=True)
     replay = client.post("/api/gol/chat", json=payload, headers=desk.headers)
     assert replay.status_code == 200
-    assert "Desk player 1800" in replay.get_data(as_text=True)
-    TrackedPlayer.query.filter_by(player_api_id=1800).update({"birth_date": "2015-01-01"})
+    assert "Stored adult" in replay.get_data(as_text=True)
+    if change.startswith("delete_"):
+        column = model.api_player_id if model is LocalPlayer else model.player_api_id
+        model.query.filter(column == pid).delete()
+    elif change == "add_adult":
+        db.session.add(
+            TrackedPlayer(
+                player_api_id=9900, player_name="Unrelated adult", team_id=desk.team.id, birth_date="2000-01-01"
+            )
+        )
+    else:
+        TrackedPlayer.query.filter_by(player_api_id=pid).update(
+            {"birth_date": "2015-01-01" if change == "minor" else None}
+        )
     db.session.commit()
+    if change != "add_adult":
+        assert public_adult_ids([pid]) == set()
     replay = client.post("/api/gol/chat", json=payload, headers=desk.headers)
     assert replay.status_code == 409
-    assert "Desk player 1800" not in replay.get_data(as_text=True)
+    assert replay.get_json() == {"error": "client_msg_id_reused"}
+    assert "Stored adult" not in replay.get_data(as_text=True)
     assert GolCreditLedger.query.filter_by(client_msg_id="n3_replay_adult", kind="debit").count() == 1
+
+
+@pytest.mark.parametrize("additional,expected_queries", [(0, 9), (490, 9), (491, 15)])
+def test_gol_policy_revision_queries_are_batched(app, desk, additional, expected_queries):
+    from src.services.public_adult import scout_adult_policy_revision
+
+    db.session.add_all(
+        TrackedPlayer(
+            player_api_id=10000 + index, player_name="Batch adult", team_id=desk.team.id, birth_date="2000-01-01"
+        )
+        for index in range(additional)
+    )
+    db.session.commit()
+    statements = []
+
+    def count_query(conn, cursor, statement, parameters, context, executemany):
+        statements.append(statement)
+
+    sa.event.listen(db.engine, "before_cursor_execute", count_query)
+    try:
+        revision = scout_adult_policy_revision()
+    finally:
+        sa.event.remove(db.engine, "before_cursor_execute", count_query)
+    assert len(revision) == 64
+    assert len(statements) == expected_queries
+    print(f"GOL policy revision: {10 + additional} known IDs, {len(statements)} SQL queries")

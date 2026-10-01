@@ -152,9 +152,11 @@ def public_adult_profile_ids(profiles):
 def scout_adult_policy_revision():
     """Bind stored GOL replays to current eligibility, including legacy answers.
 
-    A newly added eligible adult does not invalidate existing answers. A change
-    to the excluded set does, so an old replay cannot restore a player after a
-    DOB correction, suppression or hold. Versioning rejects pre-policy replays.
+    Stored prose does not reliably carry referenced IDs, so hash both the known
+    universe and excluded set. Removals, DOB corrections, suppression and holds
+    invalidate answers; additions also invalidate as a conservative trade-off.
+    Versioning rejects older replays. Uses three ID queries plus at most six
+    eligibility queries per 500 IDs, with no extra queries for the universe hash.
     """
     ids = {
         pid
@@ -169,7 +171,8 @@ def scout_adult_policy_revision():
     for offset in range(0, len(ordered), 500):
         eligible.update(public_adult_ids(ordered[offset : offset + 500]))
     excluded = ",".join(str(pid) for pid in sorted(ids - eligible))
-    return sha256(f"scout-adults-v1:{excluded}".encode()).hexdigest()
+    known = ",".join(str(pid) for pid in ordered)
+    return sha256(f"scout-adults-v2:{known}:{excluded}".encode()).hexdigest()
 
 
 def is_public_adult(subject) -> bool:

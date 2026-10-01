@@ -49,3 +49,16 @@
 - Delivery: implementation aa459860e79f60e4c6a83804dfd575e7bd1cf759 pushed to fix/scout-adults-only; inline SHA reply https://github.com/performlikemj/the-academy-watch/pull/1116#discussion_r4151453446 . Final-head re-review command: `gh pr comment 1116 --body "@codex review"`.
 - Hand-back: ~/codex-runs/aw-redesign/logs/N3F2.final.md. Foreground commands only; no servers, persistent DB, provider sends or temporary env used. No frontend/native/dependency restore required.
 - Next: Codex/lead PR review; no merge/deploy.
+
+## Fix round 3 — PR #1116
+
+- State: in-progress; pulled branch, confirmed head63d76987.
+- Finding: eligible player deletion leaves excluded-only revision unchanged, replay exposes erased name.
+- Decision: stored prose/token answers have no reliable ID inventory; authorized fallback hashes current known-ID universe AND excluded set, version2. Additions also invalidate; no extra source queries.
+- Gates: deletion/no-extra-debit across tracked/shadow/local identities, addition trade-off, minors/unknown exclusion, measured batched query counts; Ruff/format + full pytest.
+- Next: implement, validate, push, inline SHA reply + @codex review; hand-back ~/codex-runs/aw-redesign/logs/N3F3.final.md. No merge.
+- Done: version2 revision hashes sorted known IDs + excluded IDs using existing source queries; opaque stored prose cannot replay after tracked/shadow/local removal.
+- Validation: focused adults-only55 pass in8.84s; new cases cover deletion of all3 identity sources, unknown DOB, addition invalidation and500/501 batch boundary. Revision SQL:10/500 known IDs=9,501=15 (3 universe +6/500); zero added queries, no per-row DB work.
+- Next: full pytest, final Ruff/format, commit/push and review delivery.
+- Gates: FINAL full pytest3330 passed/47 skipped/121 warnings in247.39s; Ruff check + format535 clean; whitespace clean. Full log ~/codex-runs/aw-redesign/logs/N3F3.pytest.log.
+- Next: commit/push, inline finding4151487274 SHA reply + final-head @codex review, hand-back. No frontend/native/dependency restore or persistent DB/provider access.
