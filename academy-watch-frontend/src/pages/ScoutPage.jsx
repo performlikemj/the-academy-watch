@@ -31,9 +31,8 @@ import { STATUS_BADGE_CLASSES } from '../lib/theme-constants'
 
 const AGE_PRESETS = [
   { key: 'all', label: 'All ages', params: {} },
-  { key: 'u18', label: 'U18', params: { max_age: 18 } },
-  { key: 'u21', label: 'U21', params: { max_age: 21 } },
-  { key: 'u23', label: 'U23', params: { max_age: 23 } },
+  { key: 'u21', label: 'U21', params: { max_age: 20 } },
+  { key: 'u23', label: 'U23', params: { max_age: 22 } },
 ]
 
 const SOURCE_FILTERS = [

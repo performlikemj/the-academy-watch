@@ -97,11 +97,14 @@ def gol_chat():
                     return jsonify({"error": "invalid_history"}), 400
         history = [GolService._sanitize_history_entry(entry) for entry in history]
     try:
+        from src.services.public_adult import scout_adult_policy_revision
+
         canonical = json.dumps(
             {
                 "message": " ".join(message.split()).casefold(),
                 "history": history if metered else [],
                 "session_id": session_id if metered else "",
+                "scout_adult_policy": scout_adult_policy_revision() if metered else "scout-adults-v1",
             },
             sort_keys=True,
             separators=(",", ":"),
