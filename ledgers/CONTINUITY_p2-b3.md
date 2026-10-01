@@ -13,8 +13,8 @@
 - Done: four pages/backend flows, standing/audit, case intake/actions/outbox, authoritative cash/deployment views, tests, 14 reviewed screenshots and schema-only SQL.
 - Done: latest A2 ef005e35 stack (includes c576762e snapshots); only B3 marked additive shared blocks, permitted narrow standing hooks.
 - Done: draft PR #1115 to main, stacked on #1109: https://github.com/performlikemj/the-academy-watch/pull/1115
-- Now: RB3V fix round 2 complete (all 3 MED/6 LOW fixed); latest A2 30ae5f4a incl main/N2 merged. Prior RB3 fix round 1 complete; all 6 MED/10 LOW fixed and safe policy defaults implemented. Hand-back `~/codex-runs/aw-redesign/logs/B3F1.final.md`; push/PR #1115, no merge.
-- Next: orchestrator adversarial review and integration; four head pins updated there, B1/B2 precede p2b3. No flag switch-on authorized.
+- Now: B3F3 complete (RB3V2 two LOWs fixed; all gates green); prior RB3V fix round 2 complete (all 3 MED/6 LOW fixed); latest A2 30ae5f4a incl main/N2 merged. Prior RB3 fix round 1 complete; all 6 MED/10 LOW fixed and safe policy defaults implemented. Hand-back `~/codex-runs/aw-redesign/logs/B3F1.final.md`; push/PR #1115, no merge.
+- Next: orchestrator review/integration; four head pins now p2b3 per12:50, B1/B2 precede B3. No flag switch-on authorized.
 
 ## Validation
 - OSV: no findings; frozen restore, no lockfile changes.
@@ -62,10 +62,17 @@
 - Decisions for MJ updated: deletion+same-email re-registration bypasses account-level suspension; whether to retain an address marker needs a policy/retention decision. Existing cancellation/ownership/whole-player-hide defaults retained.
 - Delivery: fix2efda789 + latest A2 merge09056eb7 + real prerequisite/docs commit aa87d572 pushed; PR body verified with final gates/Decisions for MJ. Report ~/codex-runs/aw-redesign/logs/B3F2.final.md; no merge. Closing ledger-only commit follows.
 
-## B3 fix round 3 — in progress
+## B3 fix round 3 — complete
 - RB3V2 READY; fix two LOWs: real-app dark-method parity and early refund metadata backfill.
 - Set four migration-head tests to p2b3 per orchestrator12:50; refresh origin A2/main and compare local B1/B2 prerequisite bytes.
-- Next: regression tests, full foreground gates, push PR1115, hand-back B3F3.final.md; no merge.
+- Next: orchestrator review/integration; merge order B1 → B2 → B3, no lane PR merge.
 - Milestone: both LOWs fixed; 88 new real-app/receipt regressions pass. Dark map preserves SPA, Allow/405 and sibling routes; metadata backfill repairs new and already-deduplicated receipts.
 - Base: main812be68d merged as ac37fbfd; A2 30ae5f4a already included. B1 14b26fbc/B2 ec569859 migration bytes unchanged; no re-copy needed. All four pins p2b3.
 - Gates: OSV no findings/frozen deps unchanged; Ruff+format568 clean, Node205, lint0err185warn/build and Playwright13 pass. Full/PG running; initial fixture missing ADMIN_API_KEY corrected (88/88 pass).
+- Dedicated PostgreSQL gate16/16 pass (incl legacy/modern/GOL early-refund backfill); real-app88/88 pass under default and hashseed37. Full corrected suite running without failures.
+- Cleanup: own frontend stopped; browser reports/temp PR snapshot removed; aw_p2_b3 dropped and absence count0 verified.
+- Final foreground gates: full pytest3721 pass/66 skip/0 fail; PG16 pass; real-app88 pass (also hashseed37); Node205; Playwright13; Ruff/format568; OSV/lint0err185warn/build pass. No separate JS typecheck script.
+- Initial full/combined runs found only missing ADMIN_API_KEY in the new positive-route fixture; corrected fixture and full/dedicated PG gates pass. Logs retain attempts and final results.
+- Final refresh: main9f329ea5 (A2 squash) merged8e099b92; latest A2d1eb66ad mergedcf12ab26. Both merge trees equal first parent49206302, no implementation change after gates; B3 standing guards and p2b3 pins retained.
+- Final local prerequisites: B1 14b26fbc/B2 5cd45b0b migrations byte-identical (same SHA256 as prior round); neither re-copied. No schema/lockfile changes.
+- Delivery: fix3242113a; PR1115 body includes exact merge order B1 → B2 → B3 and final gates. Hand-back ~/codex-runs/aw-redesign/logs/B3F3.final.md; no merge/deploy/flag changes/provider sends. Cleaned owned foreground services/aw_p2_b3/temp/browser outputs.
