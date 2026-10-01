@@ -6,10 +6,12 @@ visitor is, or what they typed, goes in the body of
 browser history, analytics).
 """
 
+import json
+
 from flask import Blueprint, abort, current_app, jsonify, request
 from src.extensions import limiter
 from src.services import club_directory
-from werkzeug.exceptions import MethodNotAllowed
+from werkzeug.exceptions import MethodNotAllowed, RequestEntityTooLarge
 
 club_directory_bp = Blueprint("club_directory", __name__)
 
@@ -77,10 +79,22 @@ def search_programs():
         return response
     if request.method != "POST":
         raise MethodNotAllowed(valid_methods=SEARCH_METHODS)
-    if (request.content_length or 0) > MAX_SEARCH_BODY_BYTES:
+    # A hard cap on the stream itself: a chunked body announces no length, so a Content-Length check alone is no limit.
+    # Werkzeug cuts a chunked stream off at the cap without saying so, so the cap sits one byte past the limit: at most
+    # 2049 bytes are ever read, and reaching the 2049th is what "too large" means.
+    request.max_content_length = MAX_SEARCH_BODY_BYTES + 1
+    try:
+        raw = request.get_data(cache=False)
+    except RequestEntityTooLarge:
+        raw = None
+    if raw is None or len(raw) > MAX_SEARCH_BODY_BYTES:
         return jsonify({"error": "the search is too large"}), 413
     try:
-        params = club_directory.parse_search(club_directory.search_args_from_body(request.get_json(silent=True)))
+        data = json.loads(raw) if request.is_json else None
+    except (ValueError, RecursionError):
+        data = None
+    try:
+        params = club_directory.parse_search(club_directory.search_args_from_body(data))
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
     return _page(params)
