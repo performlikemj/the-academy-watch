@@ -8,6 +8,7 @@
 - Own ports5151/5202 and scratch aw_p2_c2; foreground only; clean own resources.
 
 ## State
+- In progress (fix round 1): RC2 F1–F16; foreground gates and scratch database configurable; preserve raw-independent takedown and verified-staff-only safe default.
 - Complete: private tables, source fences, capability routes, independent consent, standalone worker+private bytes, outbox, erasure/export and dark web mounts.
 - Complete: dependency cut B1811fabca/B216540e03/B3d49ec794/N3adea5177; main B1 squash e82bb4e3 refreshed with byte-identical application/test tree.
 - Complete: recording-date DOB checks prevent childhood/unknown/future footage; independent clips survive raw expiry; UTC SQL/ORM guards fence source/date/identity changes and delayed cleanup.
