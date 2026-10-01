@@ -35,7 +35,7 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
 
 - **Now (2026-10-02):** C2F3 RC2V2 union fixes implemented; final governed verification/push pending on PR #1122. Current main/B3/C1F3 integrated; new context-review/grouped-notice p2c2 CONTRACT posted. See ledgers/CONTINUITY_p2-c2.md. No merge.
 
-- **Now (2026-10-02 C2F3):** RC2V2 union fix round in progress; eight groups, Serious bridge-retention and overlap takedown first. Final gates/push pending; see ledgers/CONTINUITY_p2-c2.md.
+- **Now (2026-10-02 C2F3):** Eight RC2V2 groups fixed and regression/source review complete. Exact-head gates and push outcome are authoritative in external logs/C2F3.final.md; see ledgers/CONTINUITY_p2-c2.md. No merge.
 
 ### Done
 - **2026-10-01 C1 history:** C1F2 REVIEW-DUEL union FIXED; current main784b1490/B3F5 51f30f5b integrated. Final flags-OFF pytest4451pass108skip0fail; contact/regressions49/PG7=177pass, modern browser262pass5skip/lane30/live1, Node221, Ruff598/OSV/lint-build green. Owned resources cleaned; exact delivery SHA/per-item hand-back in external logs/C1F2.final.md. PR1121 remains unmerged for review.

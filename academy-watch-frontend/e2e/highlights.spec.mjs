@@ -322,6 +322,8 @@ test('native preview plays across page, authenticated API and storage origins wi
 
 
 test('feature hook recovers after a failed read and refreshes after shared TTL', async ({ page }) => {
+  // The shared cache captures Date.now at construction: install before module load.
+  await page.clock.install()
   let reads = 0
   await page.route('**/api/**', route => {
     if (new URL(route.request().url()).pathname === '/api/features') {
@@ -344,7 +346,6 @@ test('feature hook recovers after a failed read and refreshes after shared TTL',
   })
   await expect(page.locator('#feature-probe')).toContainText('"enabled":true')
   expect(reads).toBe(2)
-  await page.clock.install()
   await page.clock.fastForward(16000)
   await page.evaluate(async () => {
     const { default: React } = await import('/node_modules/.vite/deps/react.js')
