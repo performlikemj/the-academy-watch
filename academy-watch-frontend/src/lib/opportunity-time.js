@@ -1,10 +1,15 @@
 import zones from './opportunity-timezones.json' with { type: 'json' }
+import aliases from './opportunity-timezone-aliases.json' with { type: 'json' }
 const TIMEZONES = new Set(zones)
+
+export function canonicalTimezone(zone) {
+  return TIMEZONES.has(zone) ? aliases[zone] || zone : 'UTC'
+}
 
 // Every opportunity/application date uses this formatter, including defensive legacy-zone fallback.
 export function when(value, timezone = 'UTC') {
   if (!value) return 'Date to be arranged'
-  timezone = TIMEZONES.has(timezone) ? timezone : 'UTC'
+  timezone = canonicalTimezone(timezone)
   let date
   try { date = new Date(value) } catch { return 'Date to be arranged' }
   if (!Number.isFinite(date.getTime())) return 'Date to be arranged'
@@ -18,6 +23,7 @@ export function when(value, timezone = 'UTC') {
 
 export function localInput(value, timezone) {
   if (!value || !TIMEZONES.has(timezone)) return ''
+  timezone = canonicalTimezone(timezone)
   try {
     const parts = Object.fromEntries(new Intl.DateTimeFormat('en-GB', {
       timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit',

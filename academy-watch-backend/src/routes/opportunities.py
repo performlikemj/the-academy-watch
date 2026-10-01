@@ -115,8 +115,9 @@ def club_opportunities(program_id):
     program = service.operational(program_id, lock=True)
     if request.method == "POST":
         row = service.save_opportunity(program_id, g.user_id, payload())
+        result = service.opportunity_dict(row, private=True)
         db.session.commit()
-        return jsonify(opportunity=service.opportunity_dict(row, private=True)), 201
+        return jsonify(opportunity=result), 201
     page = page_number()
     rows = (
         ClubOpportunity.query.filter_by(program_id=program_id)
@@ -137,8 +138,9 @@ def club_opportunities(program_id):
 @limiter.limit("60/hour", key_func=key)
 def edit(program_id, opportunity_id):
     row = service.save_opportunity(program_id, g.user_id, payload(), str(opportunity_id))
+    result = service.opportunity_dict(row, private=True)
     db.session.commit()
-    return jsonify(opportunity=service.opportunity_dict(row, private=True))
+    return jsonify(opportunity=result)
 
 
 @opportunities_bp.post("/club/<int:program_id>/opportunities/<uuid:opportunity_id>/close")
@@ -147,8 +149,9 @@ def edit(program_id, opportunity_id):
 @limiter.limit("60/hour", key_func=key)
 def close(program_id, opportunity_id):
     row = service.close_opportunity(program_id, g.user_id, str(opportunity_id), payload())
+    result = service.opportunity_dict(row, private=True)
     db.session.commit()
-    return jsonify(opportunity=service.opportunity_dict(row, private=True))
+    return jsonify(opportunity=result)
 
 
 @opportunities_bp.get("/me/application-claims")

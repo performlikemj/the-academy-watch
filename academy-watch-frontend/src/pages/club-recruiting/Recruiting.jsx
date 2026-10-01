@@ -1,4 +1,4 @@
-import { fromLocalInput, localInput } from '@/lib/opportunity-time'
+import { canonicalTimezone, fromLocalInput, localInput } from '@/lib/opportunity-time'
 import { OpportunityBoundary } from '@/pages/opportunities/OpportunityBoundary'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ComingSoon } from '@/components/interest/ComingSoon'
@@ -13,7 +13,7 @@ const FIELDS = [['title', 'Title', 'text', true], ['description', 'About this op
 
 function OpportunityEditor({ programId, squads, item, onClose, onSaved }) {
   const ref = useRef(null)
-  const [values, setValues] = useState(() => ({ type: 'trial', status: 'draft', gender_program: 'all', timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, position_requirements: 'All positions', ...item, ...Object.fromEntries(['starts_at', 'ends_at', 'closes_at'].map(key => [key, localInput(item?.[key], item?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone)])) }))
+  const [values, setValues] = useState(() => ({ type: 'trial', status: 'draft', gender_program: 'all', timezone: canonicalTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone), position_requirements: 'All positions', ...item, ...Object.fromEntries(['starts_at', 'ends_at', 'closes_at'].map(key => [key, localInput(item?.[key], item?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone)])) }))
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const locked = Boolean(item?.application_count)
@@ -130,8 +130,9 @@ function RecruitingContent({ program, squads = [] }) {
     {current && <div className="mb-8 flex flex-wrap gap-3">{!['closed', 'cancelled'].includes(current.status) && <><button className="opp-button" onClick={() => setEditor({ item: current })}>Edit opportunity</button><button disabled={busy} className="opp-button" onClick={() => close('closed')}>Close applications</button><button disabled={busy} className="opp-button" onClick={() => close('cancelled')}>Cancel opportunity</button></>}{current.capacity != null && <p className="self-center text-sm text-muted">{current.places_left} of {current.capacity} trial places available</p>}</div>}
     {!opportunities.length && <p className="py-8 text-muted">Create a draft opportunity, then publish when your club is ready.</p>}
     {current && flags.applications && <><div className="opp-board">{STAGES.map(([key, title]) => { const rows = applications.filter(a => a.status === key); return <section key={key}><div className="flex items-baseline justify-between gap-3 border-b border-ink pb-3"><h2 className="font-serif text-[26px]">{title}</h2><span className="opp-label">{rows.length}</span></div>{rows.length ? rows.map(row => <Candidate key={`${row.id}:${row.version}`} row={row} programId={program.id} onChanged={loadApplications} />) : <p className="py-6 text-xs text-muted">No applicants here yet.</p>}</section> })}</div><details className="mt-10 border-t border-hairline pt-5"><summary className="cursor-pointer text-sm">Decisions &amp; withdrawals ({applications.filter(a => ['signed', 'rejected', 'withdrawn'].includes(a.status)).length})</summary><div className="mt-5 grid gap-5 sm:grid-cols-2">{applications.filter(a => ['signed', 'rejected', 'withdrawn'].includes(a.status)).map(row => <div key={row.id}><p className="opp-label">{row.status_label}</p><Candidate row={row} programId={program.id} onChanged={loadApplications} /></div>)}</div></details></>}
+    {current?.temporarily_unavailable_reservations > 0 && <p className="mb-6 text-sm text-muted">{current.temporarily_unavailable_reservations} {current.temporarily_unavailable_reservations === 1 ? 'place reserved — applicant temporarily unavailable' : 'places reserved — applicants temporarily unavailable'}</p>}
     {current && !flags.applications && <p className="py-8 text-muted">Adult applications are coming soon.</p>}
-    <p className="mt-10 border-t border-hairline pt-5 text-sm leading-relaxed text-muted">Adults apply with approved self-claims. Applicant details stay inside Club Home and are retained for up to 180 days. Parent and guardian applications are coming soon. Signing is recorded after a separate adult enrollment; it creates no public profile or consent.</p>
+    <p className="mt-10 border-t border-hairline pt-5 text-sm leading-relaxed text-muted">Adults apply with approved self-claims. Applicant details stay inside Club Home and are retained for up to 180 days. Reserved places remain reserved while an applicant is temporarily unavailable. Parent and guardian applications are coming soon. Signing is recorded after a separate adult enrollment; it creates no public profile or consent.</p>
     <div className="mt-5 flex gap-3">{appPage > 1 && <button className="opp-button" onClick={() => setAppPage(appPage - 1)}>Previous applications</button>}{appMore && <button className="opp-button" onClick={() => setAppPage(appPage + 1)}>Next applications</button>}</div>
     {editor && <OpportunityEditor key={editor.item?.id || 'new'} item={editor.item} programId={program.id} squads={squads} onClose={() => setEditor(null)} onSaved={load} />}
   </section>
