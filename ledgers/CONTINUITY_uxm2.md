@@ -5,9 +5,9 @@
 - Constraints: staging read-only; foreground commands; no dependencies/migrations; preserve A2 scope/viewer redaction/minor privacy; no UXM1-owned edits without BUS agreement; draft PR, no merge.
 - Sources: DESIGN §§3/6–9; BUS tail; SUX.product-bugs.md; CLAUDE.md; docs/agents/{frontend,backend,invariants,club-staff-access}.md; PHASE2 decision 2.
 - Done: instructions/evidence read; START/CLAIM posted; live read-only staging reproduction recorded in external logs/uxm2/staging-readonly.json; OSV clean + frozen dependency restore; first scoped fixes implemented.
-- Status: in-progress (UXM2F1 review fixes).
-- Now: RUXM2 findings F1–F7 being corrected with regression coverage.
-- Next: foreground full gates, real-backend results browser check, main refresh/push #1123, hand-back/cleanup; no merge.
+- Status: complete (UXM2F1 review fixes; verification/merge pending).
+- Now: F1–F7 corrected; final combined gates green; delivering updated draft #1123.
+- Next: independent review of updated draft #1123; no merge authorized.
 - Decision: orchestrator BUS 14:29 explicitly authorizes in-scope Coach’s brief writes via players.manage OR feedback; implemented with member scope/redacted response; viewers and analysts denied.
 - Gates: Ruff check/format pass (553 files); Node 210 pass; lint 0 errors/181 inherited warnings; build pass. Relevant Playwright 93 pass/1 expected skip + trust desk 1 pass. Final UXM2 20 pass; correction suite 4 pass on isolated rerun after one fixed-delay harness startup flake. Full offline pytest 3645 pass/50 skip/146 warnings (675.74s). No standalone typecheck script/config in this JavaScript frontend; build passes.
 
@@ -35,3 +35,10 @@
 - UXM2F1: reviewed RUXM2; process blocker moot at pushed2876de18. Restore main escaped result storage, one decode at read; reuse invitation subject names; whole-club brief-name validation with generic scoped hints; retain Scout Pro/grandfather card; sort mutations; reserve launcher space only once where present.
 
 - UXM2F1 milestone: F1–F7 fixes implemented; focused backend21 (incl flag-off parity), UXM2 browser33 at390/1440, Node219, Ruff/format558, lint0errors/181 inherited warnings, build pass. OSV547 clean; matching deps reused. Real Flask/SQLite duplicate409/new201/totals270 observed; completing browser assertions. Main moved to784b1490 (B2 #1113); integrate before final gates.
+
+- Main refreshed: merged784b1490 (B2 #1113) cleanly in3705f94c; no migration applied/authored. Final combined foreground gates running; superseded early pytest runs stopped. Main sanitizer/key/grouping retained; display helper reverses only Bleach amp/lt/gt in a single pass to preserve literal named entities.
+
+- Final combined milestone: Ruff/format571, Node225, lint0errors/186 inherited B2 warnings, build pass; relevant Playwright140pass/1existing skip includes real Flask/SQLite results (409 duplicate, 201 literal entities, one competition cell, totals3apps/270min/3goals after reload). Both own5161/5211 stopped; generated dist/browser outputs removed; pre-existing matching deps retained. Fullpytest is the remaining gate. Remote main still784b1490.
+
+- UXM2F1 final gates at code3705f94c: full CI-mode pytest4096pass/69skip/147warnings (967.45s), Node225, relevant Playwright140pass/1existing billing-build skip incl real-backend results, Ruff/format571, lint0errors/186 inherited warnings/build. All foreground. Main784b1490 current at final fetch; fix932cce09 preserved byte-for-byte across merge (16 blobs; external proof). No source changes after gates.
+- UXM2F1 cleanup: own5161/5211 stopped and absent; SQLite fixture discarded in memory; no PostgreSQL DB created; generated build/browser outputs and Python/test/lint/Vite caches removed. Pre-existing matching node_modules retained. Report: ~/codex-runs/aw-redesign/logs/UXM2F1.final.md.

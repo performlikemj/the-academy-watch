@@ -1060,7 +1060,7 @@ CONTINUITY.md
 
 ## Active Ledgers
 
-- UXM2F1 review fixes in progress on draft PR #1123 (RUXM2 F1–F7): `ledgers/CONTINUITY_uxm2.md` (P-13 club/P-17–22/P-25; branch `fix/staging-ux-club-misc`).
+- UXM2F1 fixes complete on draft PR #1123 (F1–F7; pytest4096/Node225/browser140; cleaned; independent review next): `ledgers/CONTINUITY_uxm2.md` (P-13 club/P-17–22/P-25; branch `fix/staging-ux-club-misc`).
 
 | Ledger | Status | Owner | Blockers |
 |--------|--------|-------|----------|

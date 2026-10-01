@@ -112,6 +112,7 @@ Log one-liner in CONTINUITY.md's "Trivial Log" section.
 
 > Agents: Add patterns here when you discover reusable conventions.
 
+- Result opponent/competition storage and fixture keys use `sanitize_plain_text` as on main. Decode only at JSON/display boundaries with `utils.sanitize.display_plain_text` (one pass over Bleach amp/lt/gt escapes; preserve literal user entities). Never decode stored keys or rollup grouping labels.
 - Club console, billing, verification and admin dates use frontend `src/lib/display-date.js`: en-GB display, date-only values keep their calendar day, naive Flask ISO timestamps are UTC. Use `withTime` when the view needs a timestamp.
 - Coach's brief writes require `players.manage` OR `feedback` with member squad scope; other player management stays `players.manage`. Write responses use `member_view` and validate briefs against all club names and use generic name errors for scoped callers.
 
