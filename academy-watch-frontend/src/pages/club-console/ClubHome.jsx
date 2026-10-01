@@ -12,7 +12,7 @@ import { PitchMap, PlayerCard } from './PitchMap';
 import { initials, positionGroup, countLabel } from './presentation';
 import { clubSurfaceColors } from './club-colors';
 import { StaffAccess } from './StaffAccess';
-import { can } from '@/lib/staff-access';
+import { can, clubViewAllowed } from '@/lib/staff-access';
 import './club-home.css';
 export function ClubHome({
   program,
@@ -49,22 +49,8 @@ export function ClubHome({
   // access === null: flag off or a claim-verified manager — every control stays exactly as before.
   const allow = capability => can(access, capability);
   const wholeClub = !access || access.whole_club !== false;
-  const staffScreen = allow('staff.directory') || (staffAccessEnabled && allow('access.view'));
-  const viewAllowed = {
-    today: true,
-    map: allow('players.view'),
-    squad: allow('players.view'),
-    player: allow('players.view'),
-    matches: allow('matches.view'),
-    recruiting: allow('recruiting'),
-    introductions: allow('contact'),
-    branding: allow('branding'),
-    profile: allow('branding'),
-    squads: allow('players.manage'),
-    roster: allow('players.manage'),
-    staff: staffScreen,
-    affiliations: !access || access.verified
-  };
+  const viewAllowed = clubViewAllowed(access, staffAccessEnabled);
+  const staffScreen = viewAllowed.staff;
   const squads = map?.squads || [];
   const staff = map?.staff || [];
   const club = map?.program || program;
