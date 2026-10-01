@@ -119,6 +119,8 @@ for (const width of [1440, 390]) {
     await page.getByLabel('Venue', { exact: true }).fill('Test ground')
     await page.getByLabel('Applications close (your local time)').fill('2026-10-18T12:00')
     await shot(page, `opportunity-editor-${size}`)
+    await page.getByRole('dialog').evaluate(dialog => { dialog.scrollTop = 0 })
+    await shot(page, `opportunity-editor-top-${size}`)
     await page.getByRole('button', { name: 'Save opportunity', exact: true }).click()
     await expect(page.getByRole('dialog')).toHaveCount(0)
     expect(requests.some(r => r.status === 'shortlisted' && r.expected_version === 1)).toBe(true)
