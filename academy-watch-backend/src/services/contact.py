@@ -187,6 +187,12 @@ def routing_mode_for_claim(claim, *, platform_belief: str | None = None) -> str:
         session = object_session(claim) or db.session
         local = session.get(LocalPlayer, claim.local_player_id)
         signed_id = local.api_player_id if local else None
+        if local and local.provenance == "club":
+            from src.services.club_player_publication import live_publication
+
+            publication = live_publication(local.id)
+            # Player's free-agent attestation cannot remove the origin club key.
+            return ROUTING_CLUB_INCLUDED if publication and publication.claim_id == claim.id else ROUTING_CLUB_NOTIFIED
         if (
             not signed_id
             or signed_id >= 0
@@ -215,6 +221,10 @@ def routing_mode_for_claim(claim, *, platform_belief: str | None = None) -> str:
 
 
 def messaging_is_open(contact_request: ContactRequest) -> bool:
+    from src.services.club_player_publication import club_request_available
+
+    if not club_request_available(contact_request):
+        return False
     session = object_session(contact_request)
     if session is not None:
         # Same row lock as relationship withdrawal; callers retain commit ownership.

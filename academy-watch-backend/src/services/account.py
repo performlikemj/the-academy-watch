@@ -509,6 +509,9 @@ def build_account_export(user: UserAccount) -> dict:
 
     foundation_export.update(export_opportunities(user, schema))
     # --- p2-b2 end ---
+    from src.services.club_player_publication_account import export_publications
+
+    foundation_export.update(export_publications(user, schema))
     normalized_email = (user.email or "").strip().lower()
     subscriptions = []
     if normalized_email:
@@ -1043,6 +1046,9 @@ def delete_account(user: UserAccount) -> AccountDeletionEvent:
         "forfeited_credits": 0,
     }
 
+    from src.services.club_player_publication_account import erase_publications
+
+    counts.update(erase_publications(user_id, email, _SchemaView()))
     counts["pilot"] = _erase_pilot_rows(_SchemaView(), user_id, claim_ids, tombstone.id)
 
     # Break the sole indirect FK that cannot point at a UserAccount tombstone.

@@ -103,6 +103,7 @@ import { ListsPage } from '@/pages/ListsPage'
 import { MyClub } from '@/pages/MyClub'
 import { LocalPlayerPage } from '@/pages/LocalPlayerPage'
 import { LocalPlayerCreate } from '@/pages/LocalPlayerCreate'
+import { PlayerPublications } from '@/pages/PlayerPublications'
 import { PlayerOnboarding } from '@/pages/PlayerOnboarding'
 import { PricingPage } from '@/pages/PricingPage'
 import { AccountBillingPage } from '@/pages/AccountBillingPage'
@@ -4169,6 +4170,9 @@ function AppRoutes() {
       <Route path="/scout/lists" element={<ListsPage />} />
       <Route path="/scout/verification" element={<ScoutVerificationPage />} />
       <Route path="/introductions" element={<IntroductionsPage />} />
+      <Route path="/player-publications" element={<RequireAuth><PlayerPublications /></RequireAuth>} />
+      <Route path="/player-publication-invite" element={<PlayerPublications mode="invite" />} />
+      <Route path="/club-publications/:programId" element={<RequireAuth><PlayerPublications mode="club" /></RequireAuth>} />
       <Route path="/my-club" element={<MyClub />} />
       <Route path="/staff-invite" element={<StaffInviteAccept />} />
       <Route path="/pricing" element={<PricingPage />} />
@@ -4204,6 +4208,7 @@ function AppRoutes() {
         <Route path="video" element={<AdminVideo />} />
         <Route path="video/:matchId" element={<AdminVideoMatch />} />
         <Route path="showcase" element={<AdminShowcase />} />
+        <Route path="player-publications" element={<PlayerPublications mode="admin" />} />
         <Route path="trust" element={<AdminTrust />} />
         <Route path="local-clubs" element={<AdminLocalClubs />} />
         <Route path="funding" element={<AdminFunding />} />

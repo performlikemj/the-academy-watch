@@ -1779,8 +1779,12 @@ def _local_player_publication_held(player):
 def _local_player_visible_to_context(player: LocalPlayer, auth_context) -> bool:
     if _local_player_publication_held(player):
         return False
-    if player.provenance == "club" or _local_player_is_suppressed(player):
+    if _local_player_is_suppressed(player):
         return False
+    if player.provenance == "club":
+        from src.services.public_adult import is_public_adult
+
+        return is_public_adult(-player.id)
     user = auth_context["user"] if auth_context else None
     # Minor academy records are club-private even after an identity moderator
     # approves the row. Their claimant may still manage it.
@@ -4184,6 +4188,10 @@ def admin_merge_local_player(lp_id: int):
         if target is None or target.status in ("merged", "rejected"):
             return jsonify({"error": "merge target must be an active local player"}), 400
 
+        if source.provenance == "club" or target.provenance == "club":
+            return jsonify(
+                error="Club-origin identity requires a private identity review; publication consent cannot transfer"
+            ), 409
         now = datetime.now(UTC)
         claims = _merge_local_player_claims(source.id, target.id)
         profiles = _merge_local_player_profiles(source.id, target.id, now)
@@ -4977,6 +4985,8 @@ def admin_link_local_player_api(lp_id: int):
         player = LocalPlayer.query.filter_by(id=lp_id).with_for_update().first()
         if player is None:
             return jsonify({"error": "local player not found"}), 404
+        if player.provenance == "club":
+            return jsonify(error="Club-origin publication consent cannot transfer to another identity"), 409
         payload, payload_error = _json_object_or_400()
         if payload_error:
             return payload_error

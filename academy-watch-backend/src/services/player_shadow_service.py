@@ -295,6 +295,35 @@ def search_players(q, api_client=None):
         if len(results) >= MAX_SEARCH_RESULTS:
             break
 
+    from src.services.club_player_publication import enabled, local_publication_filter
+
+    if enabled():
+        from src.models.showcase import LocalPlayer
+        from src.services.public_adult import public_adult_ids
+
+        locals_ = (
+            LocalPlayer.query.filter(
+                LocalPlayer.provenance == "club",
+                LocalPlayer.display_name.ilike(f"%{query}%"),
+                local_publication_filter(LocalPlayer),
+            )
+            .order_by(LocalPlayer.display_name)
+            .limit(MAX_SEARCH_RESULTS)
+            .all()
+        )
+        eligible = public_adult_ids([-p.id for p in locals_])
+        results.extend(
+            {
+                "player_api_id": -p.id,
+                "name": p.display_name,
+                "age": None,
+                "nationality": p.country,
+                "photo": None,
+                "club_name": p.club_name,
+            }
+            for p in locals_
+            if -p.id in eligible
+        )
     pids = [r["player_api_id"] for r in results]
     from src.services.club_publication_hold import held_subject_ids
 

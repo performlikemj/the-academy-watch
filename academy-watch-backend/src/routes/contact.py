@@ -14,6 +14,7 @@ from src.models.journey import PlayerJourney
 from src.models.league import Player, UserAccount, db
 from src.models.showcase import PlayerProfileClaim
 from src.models.trust import ScoutVerification
+from src.services.club_player_publication import club_request_available
 from src.services.club_registry import (
     active_manager_program_ids,
     active_program_manager_user_ids,
@@ -256,6 +257,16 @@ def _target_claim(player_api_id: int, *, for_update: bool = False) -> PlayerProf
         subject = resolve_player_subject(player_api_id)
         if subject is None or not subject.is_public or subject.local_player is None:
             return None
+        if subject.local_player.provenance == "club":
+            from src.services.club_player_publication import live_publication
+
+            publication = live_publication(subject.local_player.id)
+            if publication is None:
+                return None
+            query = PlayerProfileClaim.query.filter_by(id=publication.claim_id)
+            if for_update:
+                query = query.populate_existing().with_for_update()
+            return query.first()
         query = PlayerProfileClaim.query.filter_by(
             local_player_id=subject.local_player.id,
             relationship_type="player",
@@ -331,6 +342,10 @@ def _participant_role(
     if contact_request.scout_user_id == user.id:
         return "scout"
     if _is_claim_owner(contact_request, user):
+        if contact_request.club_first and (
+            contact_request.club_consent_status != "granted" or not club_request_available(contact_request)
+        ):
+            return None
         return "player"
     if _is_club_manager(contact_request, user, for_update=club_for_update):
         return "club"
@@ -367,6 +382,8 @@ def _active_request_filter():
 
 
 def _messaging_gate_error(contact_request: ContactRequest, *, sending: bool):
+    if not club_request_available(contact_request):
+        return jsonify(error="contact request unavailable"), 404
     if contact_request.routing_mode == ROUTING_CLUB_INCLUDED and contact_request.club_consent_status == "declined":
         return jsonify({"error": "club consent was declined", "code": "club_consent_declined"}), 409
     if contact_request.status != "accepted":
@@ -556,6 +573,9 @@ def create_contact_request():
             )
         contact_request = ContactRequest(
             scout_user_id=user.id,
+            club_first=bool(
+                player_api_id < 0 and resolve_player_subject(player_api_id).local_player.provenance == "club"
+            ),
             player_api_id=player_api_id,
             claim_id=claim.id,
             message=message,
@@ -610,6 +630,9 @@ def create_contact_request():
                     },
                     created_at=now,
                 )
+            from src.services.club_player_publication_account import intro_notice
+
+            intro_notice(contact_request)
             db.session.commit()
         except IntegrityError:
             db.session.rollback()
@@ -647,7 +670,7 @@ def create_contact_request():
                 except Exception:
                     db.session.rollback()
                     logger.exception("Failed to record club notice audit for request %s", contact_request.id)
-        elif routing_mode == ROUTING_CLUB_INCLUDED:
+        elif routing_mode == ROUTING_CLUB_INCLUDED and not contact_request.club_first:
             try:
                 send_club_consent_notice(contact_request)
             except Exception:
@@ -814,6 +837,13 @@ def list_contact_requests():
                 status="approved",
             )
             query = ContactRequest.query.filter(ContactRequest.claim_id.in_(claim_ids))
+            from src.services.club_player_publication import enabled, publication_local_ids
+
+            allowed = ContactRequest.club_consent_status == "granted"
+            allowed = (
+                and_(allowed, (-ContactRequest.player_api_id).in_(publication_local_ids())) if enabled() else False
+            )
+            query = query.filter(or_(ContactRequest.club_first.is_(False), allowed))
             if related_user_ids:
                 query = query.filter(ContactRequest.scout_user_id.notin_(related_user_ids))
         elif box == "club":
@@ -859,6 +889,11 @@ def _respond_to_request(request_id: str, action: str):
         contact_request = ContactRequest.query.filter_by(id=request_id).populate_existing().with_for_update().first()
         if contact_request is None:
             return jsonify({"error": "contact request not found"}), 404
+        if contact_request.club_first and (
+            contact_request.club_consent_status != "granted" or not club_request_available(contact_request)
+        ):
+            db.session.rollback()
+            return jsonify(error="contact request not found"), 404
         if _lock_claim_owner(contact_request, user) is None:
             db.session.rollback()
             return jsonify({"error": "Only the player claim owner can respond"}), 403
@@ -913,6 +948,10 @@ def _apply_club_consent(
     if action == "decline":
         contact_request.status = "declined"
         contact_request.responded_at = now
+    if action == "grant" and contact_request.club_first:
+        from src.services.club_player_publication_account import intro_notice
+
+        intro_notice(contact_request, player=True)
     event_type = "club_consent_granted" if action == "grant" else "club_consent_declined"
     add_audit_event(
         contact_request,
@@ -944,6 +983,9 @@ def set_club_consent(request_id: str):
         if contact_request.status not in ACTIVE_REQUEST_STATUSES:
             db.session.rollback()
             return jsonify({"error": f"club consent cannot change a {contact_request.status} request"}), 409
+        if contact_request.club_first and not club_request_available(contact_request):
+            db.session.rollback()
+            return jsonify(error="contact request not found"), 404
         if contact_request.club_consent_status != "pending":
             db.session.rollback()
             return jsonify({"error": "club consent has already been decided"}), 409
@@ -1249,3 +1291,23 @@ def report_contact_outcome(request_id: str):
 
 
 __all__ = ["contact_bp"]
+
+
+@contact_bp.post("/contact/requests/<string:request_id>/revoke")
+@require_contact_rail
+@require_user_auth
+def revoke_club_origin_request(request_id):
+    contact = ContactRequest.query.filter_by(id=request_id, club_first=True).with_for_update().first()
+    user = _current_user_account()
+    if contact is None or user is None or not _is_participant(contact, user, club_for_update=True):
+        db.session.rollback()
+        return jsonify(error="contact request not found"), 404
+    if contact.status not in ACTIVE_REQUEST_STATUSES:
+        db.session.rollback()
+        return jsonify(error="request_closed"), 409
+    contact.status = "withdrawn"
+    if _is_club_manager(contact, user):
+        contact.club_consent_status = "declined"
+    add_audit_event(contact, "withdrawn", actor_user_id=user.id)
+    db.session.commit()
+    return jsonify(contact_request=_contact_request_payload(contact))

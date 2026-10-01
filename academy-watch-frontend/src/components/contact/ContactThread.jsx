@@ -130,6 +130,11 @@ export function ContactThread({ request, onRequestChange, canReportOutcome = tru
           {request.latest_outcome ? <Badge variant="outline">Outcome: {outcomeLabel(request.latest_outcome.stage)}</Badge> : null}
         </div>
         <p className="rounded-lg border border-border bg-secondary/30 p-3 text-sm text-foreground/90">{request.message}</p>
+        {request.club_first && ['pending', 'accepted'].includes(request.status) && <Button variant="outline" onClick={async () => {
+          setError(null)
+          try { const result = await APIService.request(`/contact/requests/${request.id}/revoke`, { method: 'POST', body: '{}' }); onRequestChange?.(result.contact_request) }
+          catch (err) { setError(err?.body?.error || err.message || 'Permission could not be revoked.') }
+        }}>Revoke introduction permission</Button>}
         {state.note ? <p className="text-xs text-muted-foreground">{state.note}</p> : null}
       </div>
 

@@ -16,6 +16,7 @@ from src.models.funding import ClubProgram, FundingLeague
 from src.models.league import Newsletter, Team, TeamProfile, db
 from src.models.showcase import LocalPlayer
 from src.models.tracked_player import TrackedPlayer
+from src.services.club_player_publication import local_publication_filter
 from src.services.club_publication_hold import held_subject_ids
 from src.services.player_suppression import public_player_visible_filter
 from src.services.public_player_subject import resolve_public_adult_subject
@@ -100,7 +101,7 @@ def _player_candidate_ids() -> list[int]:
     )
     local_ids = sa.select(LocalPlayer.api_player_id.label("player_api_id")).where(
         LocalPlayer.status == "approved",
-        LocalPlayer.provenance != "club",
+        local_publication_filter(LocalPlayer),
         LocalPlayer.merged_into_local_player_id.is_(None),
         LocalPlayer.api_player_id < 0,
         LocalPlayer.api_player_id == -LocalPlayer.id,
@@ -300,6 +301,16 @@ def _without_held_urls(xml: bytes) -> bytes:
     held = set()
     for offset in range(0, len(ids), 100):
         held.update(held_subject_ids(ids[offset : offset + 100]))
+    from src.services.public_adult import public_adult_ids
+
+    club_ids = {
+        p.api_player_id or -p.id
+        for p in LocalPlayer.query.filter(
+            LocalPlayer.provenance == "club",
+            sa.or_(LocalPlayer.api_player_id.in_(ids), LocalPlayer.id.in_([-i for i in ids if i < 0])),
+        ).all()
+    }
+    held.update(club_ids - public_adult_ids(club_ids))
     held_programs = (
         set(
             db.session.execute(

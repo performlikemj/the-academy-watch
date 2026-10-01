@@ -185,6 +185,13 @@ app.register_blueprint(video_bp, url_prefix="/api")
 app.register_blueprint(ops_bp, url_prefix="/api")
 app.register_blueprint(season_rollup_bp, url_prefix="/api")
 app.register_blueprint(share_bp)
+# --- p2-c1 begin ---
+from src.routes.club_player_publication import publication_bp
+from src.services.club_player_publication_account import register_publication_notifications
+
+app.register_blueprint(publication_bp, url_prefix="/api")
+register_publication_notifications()
+# --- p2-c1 end ---
 
 csp = {
     "default-src": ["'self'"],

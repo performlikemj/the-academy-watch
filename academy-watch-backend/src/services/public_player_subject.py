@@ -33,6 +33,11 @@ def resolve_public_adult_subject(signed_id) -> PlayerSubject | None:
         return None
 
     if signed_id < 0:
+        if subject.local_player and subject.local_player.provenance == "club":
+            from src.services.public_adult import is_public_adult
+
+            if not is_public_adult(signed_id):
+                return None
         if is_local_player_suppressed(-signed_id) or subject.is_minor:
             return None
         return subject

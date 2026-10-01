@@ -58,6 +58,17 @@ def public_adult_ids(signed_ids, *, ignore_publication_holds=False):
             row.player_api_id: row
             for row in PlayerJourney.query.filter(PlayerJourney.player_api_id.in_(positive)).populate_existing().all()
         }
+    if local_ids:
+        shadows.update(
+            {
+                row.player_api_id: row
+                for row in PlayerShadow.query.filter(
+                    PlayerShadow.player_api_id.in_(ids), PlayerShadow.is_active.is_(True)
+                )
+                .populate_existing()
+                .all()
+            }
+        )
     local_to_subjects = defaultdict(set)
     for pid, rows in locals_by_subject.items():
         for local in rows:
@@ -76,6 +87,16 @@ def public_adult_ids(signed_ids, *, ignore_publication_holds=False):
             suppressed.update(local_to_subjects[row.local_player_id])
             if -row.local_player_id in ids:
                 suppressed.add(-row.local_player_id)
+    from src.services.club_player_publication import enabled, publication_local_ids
+
+    published = set()
+    if enabled() and any(row.provenance == "club" for row in locals_):
+        published = {
+            id_
+            for (id_,) in LocalPlayer.query.with_entities(LocalPlayer.id)
+            .filter(LocalPlayer.id.in_([row.id for row in locals_]), LocalPlayer.id.in_(publication_local_ids()))
+            .all()
+        }
     # Only reversible B2 application reconciliation bypasses holds; public reads use the default.
     excluded = suppressed | (set() if ignore_publication_holds else held_subject_ids(ids))
     today = datetime.now(UTC).date()
@@ -88,13 +109,17 @@ def public_adult_ids(signed_ids, *, ignore_publication_holds=False):
                 and local.api_player_id == pid
                 and local.status == "approved"
                 and local.merged_into_local_player_id is None
-                and local.provenance != "club"
+                and (local.provenance != "club" or local.id in published)
                 for local in local_rows
             ):
                 continue
         elif not (any(row.data_source != "owning-club" for row in tracked[pid]) or pid in shadows):
             continue
-        if any(local.provenance == "club" or local_player_is_minor(local, today=today) for local in local_rows):
+        if any(
+            (local.provenance == "club" and (pid > 0 or local.id not in published))
+            or local_player_is_minor(local, today=today)
+            for local in local_rows
+        ):
             continue
         sources = list(local_rows) + tracked[pid]
         sources += [row for row in (shadows.get(pid), journeys.get(pid)) if row is not None]
