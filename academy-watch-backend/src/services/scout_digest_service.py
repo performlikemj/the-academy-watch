@@ -26,6 +26,7 @@ from src.models.scout_watchlist import ScoutWatchlistEntry
 from src.models.showcase import without_minor_local_bridge
 from src.models.tracked_player import TrackedPlayer
 from src.services.player_suppression import public_player_visible_filter
+from src.services.public_adult import cached_public_adult_ids
 
 logger = logging.getLogger(__name__)
 
@@ -172,12 +173,15 @@ def _load_snapshot(entry) -> dict | None:
 
 def _player_state(player_api_id: int, cache: dict, api_client=None) -> dict:
     """Memoised per run — many users watch the same players, so stats and
-    injuries are computed once per player.
+    injuries and adult eligibility (including exclusions) are computed once
+    per player. Eligibility has its own namespace and guards cached states.
 
     Returns a dict with ``kind`` in {tracked, shadow, none}. A tracked player
     NEVER goes through the shadow branch (compute_stats stays authoritative);
     only players with no active tracked row fall back to a PlayerShadow.
     """
+    if player_api_id not in cached_public_adult_ids([player_api_id], cache):
+        return {"kind": "none", "tracked": None, "shadow": None, "stats": None, "absences": None}
     if player_api_id in cache:
         return cache[player_api_id]
     tracked_player = _preferred_tracked_player(player_api_id)
@@ -440,7 +444,7 @@ def _build_list_updates(user: UserAccount, lists, cache: dict, api_client=None, 
     updates = []
     seen = set(seen) if seen else set()
     for follow_list in lists:
-        resolved = resolve_list(follow_list, limit=follow_list.player_cap)
+        resolved = resolve_list(follow_list, limit=follow_list.player_cap, eligibility_cache=cache)
         cards = []
         for item in resolved:
             pid = item["player_api_id"]
@@ -496,7 +500,8 @@ def send_scout_digests(
     omits it and retains its existing per-send behavior. ``report_job_metrics``
     adds scheduled-run-only processed-user and delivery-error counts. Scheduled
     callers may pass a run-owned ``enrichment_cache`` to reuse player state
-    across cursor pages; omission preserves the fresh per-call cache.
+    and adult eligibility across cursor pages; omission preserves the fresh
+    per-call cache. Never reuse it across runs.
     """
     from src.utils.data_mode import require_newsletters_enabled
 

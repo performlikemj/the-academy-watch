@@ -87,6 +87,7 @@ def seeded_players(scout_app):
             position="Attacker",
             nationality="England",
             age=19,
+            birth_date=f"{date.today().year - 19}-01-01",
             team_id=parent.id,
             status="on_loan",
             current_club_api_id=901,
@@ -102,6 +103,7 @@ def seeded_players(scout_app):
             position="Midfielder",
             nationality="Brazil",
             age=21,
+            birth_date=f"{date.today().year - 21}-01-01",
             team_id=parent.id,
             status="on_loan",
             current_club_api_id=901,
@@ -117,6 +119,7 @@ def seeded_players(scout_app):
             position="Goalkeeper",
             nationality="Japan",
             age=18,
+            birth_date=f"{date.today().year - 18}-01-01",
             team_id=parent.id,
             status="on_loan",
             current_club_api_id=902,
@@ -131,6 +134,7 @@ def seeded_players(scout_app):
             position="Attacker",
             nationality="England",
             age=19,
+            birth_date=f"{date.today().year - 19}-01-01",
             team_id=loan_club.id,
             status="on_loan",
             current_club_api_id=901,
@@ -145,6 +149,7 @@ def seeded_players(scout_app):
             player_name="Danny Ghost",
             position="Defender",
             age=20,
+            birth_date=f"{date.today().year - 20}-01-01",
             team_id=parent.id,
             status="released",
             is_active=False,
@@ -417,6 +422,7 @@ class TestLocalPlayerUniverse:
                 player_name="Legacy Negative",
                 position="Attacker",
                 age=21,
+                birth_date=f"{date.today().year - 21}-01-01",
                 team_id=parent.id,
                 status="academy",
                 is_active=True,
@@ -611,6 +617,7 @@ def returned_loanee(scout_app):
             position="Midfielder",
             nationality="England",
             age=20,
+            birth_date=f"{date.today().year - 20}-01-01",
             team_id=parent.id,
             status="first_team",
             current_club_api_id=33,  # journey flipped current club back to the parent
@@ -848,6 +855,7 @@ def current_situation_seeded(scout_app):
             position="Midfielder",
             nationality="Netherlands",
             age=20,
+            birth_date=f"{date.today().year - 20}-01-01",
             team_id=dortmund.id,
             status="sold",  # academy-relative: Dortmund sold him
             current_club_api_id=910,
@@ -996,7 +1004,7 @@ class TestAgeDerivationAndOwningClubExclusion:
     def test_age_filter_derives_from_birth_date_when_age_is_null(self, scout_client, age_seeded):
         resp = scout_client.get("/api/scout/players?max_age=18")
         data = resp.get_json()
-        assert [p["player_id"] for p in data["players"]] == [3001]
+        assert data["players"] == []  # the DOB establishes a minor, so never listed
 
     def test_birth_date_beats_stale_stored_age(self, scout_client, age_seeded):
         # Stored age says 17, birth_date says 24 — birth_date wins.
@@ -1009,15 +1017,15 @@ class TestAgeDerivationAndOwningClubExclusion:
         assert 3002 in ids
 
     def test_payload_age_is_derived_from_birth_date(self, scout_client, age_seeded):
-        resp = scout_client.get("/api/scout/players?search=Teen")
+        resp = scout_client.get("/api/scout/players?search=Stale")
         players = resp.get_json()["players"]
-        assert players and players[0]["age"] == 17
+        assert players and players[0]["age"] == 24
 
     def test_owning_club_rows_never_surface_in_browse(self, scout_client, age_seeded):
         resp = scout_client.get("/api/scout/players")
         ids = {p["player_id"] for p in resp.get_json()["players"]}
         assert 3003 not in ids
-        assert ids == {3001, 3002}
+        assert ids == {3002}
 
     def test_owning_club_rows_never_surface_in_leaderboards(self, scout_client, age_seeded):
         resp = scout_client.get("/api/scout/leaderboards")
@@ -1049,6 +1057,7 @@ def phase_seeded(scout_app):
             player_name="Gary Gloves",
             position="Goalkeeper",
             age=20,
+            birth_date=f"{date.today().year - 20}-01-01",
             team_id=parent.id,
             status="on_loan",
             data_depth="full_stats",
@@ -1059,6 +1068,7 @@ def phase_seeded(scout_app):
             player_name="Kenny Keeper",
             position="Goalkeeper",
             age=19,
+            birth_date=f"{date.today().year - 19}-01-01",
             team_id=parent.id,
             status="on_loan",
             data_depth="full_stats",
@@ -1069,6 +1079,7 @@ def phase_seeded(scout_app):
             player_name="Terry Tackler",
             position="Defender",
             age=21,
+            birth_date=f"{date.today().year - 21}-01-01",
             team_id=parent.id,
             status="on_loan",
             data_depth="full_stats",
