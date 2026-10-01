@@ -6,7 +6,7 @@ from weakref import WeakKeyDictionary
 
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
-from src.models.funding import ClubRosterMember
+from src.models.funding import ClubRosterMember, ClubSquad
 from src.models.highlights import (
     HighlightConsentEvent,
     HighlightFootageReview,
@@ -50,6 +50,7 @@ MATCH_FIELDS = {
 @sa.event.listens_for(Session, "before_flush")
 def invalidate_sources(session, flush_context, instances):
     matches = set()
+    changed_contexts = set()
     for row in session.dirty | session.deleted:
         state = sa.inspect(row)
         if not state.persistent:
@@ -64,14 +65,33 @@ def invalidate_sources(session, flush_context, instances):
                 and row.blob_etag is None
                 and changed <= {"blob_path", "blob_etag"}
             )
+            if changed & {"match_date", "squad_id", "finalized_at"}:
+                changed_contexts.add(row.id)
             if ordinary_expiry:
                 continue  # independent rendered assets survive the raw-footage retention sweep
             if row in session.deleted or any(state.attrs[key].history.has_changes() for key in MATCH_FIELDS):
                 matches.add(row.id)
+        elif isinstance(row, ClubSquad):
+            if row in session.deleted or any(
+                state.attrs[key].history.has_changes() for key in ("name", "kind", "age_limit")
+            ):
+                changed_contexts.update(
+                    session.connection()
+                    .execute(sa.select(VideoMatch.id).where(VideoMatch.squad_id == row.id))
+                    .scalars()
+                )
+                matches.update(changed_contexts)
         elif isinstance(row, HighlightFootageReview):
             if row in session.deleted or any(
                 state.attrs[key].history.has_changes()
-                for key in ("classification", "source_etag", "source_snapshot", "reviewed_at", "squad_adult_attested")
+                for key in (
+                    "classification",
+                    "source_etag",
+                    "source_snapshot",
+                    "reviewed_at",
+                    "squad_adult_attested",
+                    "source_context",
+                )
             ):
                 matches.add(row.video_match_id)
         elif isinstance(row, ClubRosterMember):
@@ -103,8 +123,16 @@ def invalidate_sources(session, flush_context, instances):
     connection.execute(
         sa.select(VideoMatch.id).where(VideoMatch.id.in_(matches)).order_by(VideoMatch.id).with_for_update()
     )
+    if changed_contexts:
+        connection.execute(
+            sa.update(HighlightFootageReview)
+            .where(HighlightFootageReview.video_match_id.in_(changed_contexts))
+            .values(source_context=None)
+        )
     rows = connection.execute(
-        sa.select(PlayerHighlight.id, PlayerHighlight.version, PlayerHighlight.source_version)
+        sa.select(
+            PlayerHighlight.id, PlayerHighlight.version, PlayerHighlight.source_version, PlayerHighlight.player_decision
+        )
         .where(PlayerHighlight.video_match_id.in_(matches), PlayerHighlight.revoked_at.is_(None))
         .order_by(PlayerHighlight.id)
         .with_for_update()
@@ -166,7 +194,7 @@ def invalidate_sources(session, flush_context, instances):
             for row in rows
         ],
     )
-    notify_source_changes(connection, ids)
+    notify_source_changes(connection, [row.id for row in rows if row.player_decision != "private"])
 
 
 def notify_source_changes(connection, ids):
@@ -186,16 +214,25 @@ def notify_source_changes(connection, ids):
         .subquery()
     )
     recipients = sa.union(
-        sa.select(PlayerHighlight.id, PlayerHighlight.version, PlayerHighlight.recipient_user_id.label("uid")).where(
-            PlayerHighlight.id.in_(ids), PlayerHighlight.recipient_user_id.is_not(None)
-        ),
-        sa.select(PlayerHighlight.id, PlayerHighlight.version, managers.c.user_account_id)
+        sa.select(
+            PlayerHighlight.id,
+            PlayerHighlight.version,
+            PlayerHighlight.video_match_id,
+            PlayerHighlight.recipient_user_id.label("uid"),
+        ).where(PlayerHighlight.id.in_(ids), PlayerHighlight.recipient_user_id.is_not(None)),
+        sa.select(
+            PlayerHighlight.id, PlayerHighlight.version, PlayerHighlight.video_match_id, managers.c.user_account_id
+        )
         .join(managers, managers.c.program_id == PlayerHighlight.program_id)
         .where(PlayerHighlight.id.in_(ids)),
     )
+    event = str(uuid4())
+    grouped = {}
+    for hid, version, mid, uid in connection.execute(recipients):
+        grouped.setdefault((mid, uid), (hid, version))
     values = [
         dict(
-            dedupe_key=f"highlight_source:{hid}:{version}:{uid}",
+            dedupe_key=f"highlight_source:{mid}:{event}:{uid}",
             recipient_user_id=uid,
             event_type="highlight_source_changed",
             entity_type="user_account",
@@ -203,7 +240,7 @@ def notify_source_changes(connection, ids):
             template="highlight_source_changed",
             payload={"highlight_id": hid, "version": version},
         )
-        for hid, version, uid in connection.execute(recipients)
+        for (mid, uid), (hid, version) in grouped.items()
     ]
     if values:
         connection.execute(sa.insert(NotificationOutbox), values)

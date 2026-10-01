@@ -12,7 +12,7 @@ from src.models.highlights import (
     now,
 )
 from src.models.league import UserAccount, db
-from src.models.showcase import PlayerProfileClaim
+from src.models.showcase import LocalPlayer, PlayerProfileClaim
 from src.models.video import VideoMatch
 from src.services import highlights
 
@@ -20,8 +20,12 @@ AUDIT_DAYS = 90
 
 
 def permanent_key_missing(row):
-    claim = db.session.get(PlayerProfileClaim, row.claim_id) if row.claim_id else None
-    recipient = db.session.get(UserAccount, row.recipient_user_id) if row.recipient_user_id else None
+    claim = db.session.get(PlayerProfileClaim, row.claim_id, populate_existing=True) if row.claim_id else None
+    recipient = (
+        db.session.get(UserAccount, row.recipient_user_id, populate_existing=True) if row.recipient_user_id else None
+    )
+    if claim and claim.local_player_id is not None:
+        db.session.get(LocalPlayer, claim.local_player_id, populate_existing=True)
     return bool(
         not row.recipient_user_id
         or not recipient
@@ -30,8 +34,7 @@ def permanent_key_missing(row):
         or claim.status != "approved"
         or claim.relationship_type != "player"
         or claim.user_account_id != row.recipient_user_id
-        or (row.player_api_id is not None and claim.player_api_id != row.player_api_id)
-        or (row.local_player_id is not None and claim.local_player_id != row.local_player_id)
+        or not highlights.claim_subject_matches(claim, row.signed_id)
     )
 
 
@@ -40,10 +43,22 @@ def sweep_highlights(*, limit=100):
         raise ValueError("invalid_limit")
     audit = now() - timedelta(days=AUDIT_DAYS)
     # Select ids first, then lock in the same match -> highlight order as writers.
+    signed_id = sa.func.coalesce(PlayerHighlight.player_api_id, -PlayerHighlight.local_player_id)
+    subject_matches = sa.case(
+        (
+            PlayerProfileClaim.local_player_id.is_not(None),
+            sa.and_(
+                LocalPlayer.api_player_id == signed_id,
+                LocalPlayer.merged_into_local_player_id.is_(None),
+            ),
+        ),
+        else_=PlayerProfileClaim.player_api_id == signed_id,
+    )
     due = (
         db.session.query(PlayerHighlight.id, PlayerHighlight.video_match_id)
         .outerjoin(VideoMatch, VideoMatch.id == PlayerHighlight.video_match_id)
         .outerjoin(PlayerProfileClaim, PlayerProfileClaim.id == PlayerHighlight.claim_id)
+        .outerjoin(LocalPlayer, LocalPlayer.id == PlayerProfileClaim.local_player_id)
         .outerjoin(UserAccount, UserAccount.id == PlayerHighlight.recipient_user_id)
         .filter(
             PlayerHighlight.revoked_at.is_(None),
@@ -54,14 +69,7 @@ def sweep_highlights(*, limit=100):
                 PlayerProfileClaim.status != "approved",
                 PlayerProfileClaim.relationship_type != "player",
                 PlayerProfileClaim.user_account_id != PlayerHighlight.recipient_user_id,
-                sa.and_(
-                    PlayerHighlight.player_api_id.is_not(None),
-                    PlayerProfileClaim.player_api_id.is_distinct_from(PlayerHighlight.player_api_id),
-                ),
-                sa.and_(
-                    PlayerHighlight.local_player_id.is_not(None),
-                    PlayerProfileClaim.local_player_id.is_distinct_from(PlayerHighlight.local_player_id),
-                ),
+                subject_matches.is_not(True),
                 sa.and_(
                     PlayerHighlight.player_decision != "approve",
                     sa.or_(

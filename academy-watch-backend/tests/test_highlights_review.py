@@ -136,6 +136,17 @@ def test_f2_youth_names_always_private(world, name):
 def test_f2_structured_squad_data_first(world, kind, age, allowed):
     world["squad"].kind, world["squad"].age_limit = kind, age
     db.session.commit()
+    if allowed:
+        # Changing the attested squad context requires a fresh verified review.
+        client = world["app"].test_client()
+        assert (
+            client.post(
+                f"{club_base(world)}/highlight-review",
+                headers=headers(world["manager"]),
+                json={"classification": "adult_only", "all_visible_people_adults": True},
+            ).status_code
+            == 200
+        )
     assert (pick(world).status_code == 201) == allowed
 
 

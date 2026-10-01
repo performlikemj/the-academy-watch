@@ -66,3 +66,13 @@
 - Final schema equality from actual upgraded B3/C1 parent: d6726bb7/RLS5/guards7/empty rollback pass; C2 migration58af1d88 and preapply751d8879 unchanged, C4 verbatim copy checked.23 final refreshed/inspected screenshots retained.
 - Resume owns only remaining aw_c2f2 scratch; no dev server is running. Drop it and remove owned temp/generated artifacts after the remaining governed gate. No merge/deploy/provider/flag actions.
 - Resume targeted governed first-review classifications + completed unanswered raw-expiry deletion:3pass66deselected (resume-targeted.log). No source changes. Final cached full/style/unit/build gates run after this ledger commit; exact results and pushed SHA are recorded in the external delivery ledger/hand-back.
+
+## C2F3 — RC2V2 union (2026-10-02)
+- State: in-progress at38512c3d; all four reports read.
+- Scope: X1 bridge retention; X2/O2 overlap holds; O1 youth normalization; O3 finalized/context-bound review; O4 unique pinned owner; O5 narrow tracklets; O6 grouped neutral source notices; X3/O7 flags/media retry.
+- Next: reverse probes, targeted tests, main/B3/C1F3 integration and verbatim migrations, final four gov gates/PG/Playwright/schema equality, screenshots, push + hand-back.
+- Serious reverse probes:4fail on38512c3d; first green4 pending broader verification (raw-expired harness now obtains the newly required context review).
+- New backend regression selection78pass3PG-onlyskip; broadened run117pass plus missing imported fixture (Ruff removed unused pytest fixture import) and1 old squad-context expectation; both harness issues corrected.
+- Implementation: shared claim subject resolution; active interval holds with batched reads; NFKC/youth/ambiguous digits; finalized context review with fail-closed context invalidation; unique pinned self-owner; referenced tracklets; grouped player+manager notices excluding declined; shared feature cache and native media retry.
+- New source_context column, squad context SQL guard and notification SQL changed; final preapply/upgrade equality and CONTRACT pending.
+- Final gates delayed until code committed/integrated. Governor waiting at high shared load is normal; no retry/bypass.

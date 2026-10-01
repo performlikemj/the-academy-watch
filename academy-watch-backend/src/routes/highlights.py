@@ -206,21 +206,26 @@ def review_recording(program_id, match_id):
     new_review = row is None
     if new_review:
         row = HighlightFootageReview(video_match_id=match.id)
-    attested = data.get("squad_adult_attested") is True
+    squad = db.session.get(service.ClubSquad, match.squad_id) if match.squad_id else None
+    kind = service.squad_classification(squad)
+    attested = classification == "adult_only" and kind == "unknown" and data.get("squad_adult_attested") is True
+    context = service.review_context(match)
     same_source = (
         row.classification == classification
         and row.source_etag == match.blob_etag
         and row.source_snapshot == match.scoped_snapshot
         and row.squad_adult_attested == attested
+        and row.source_context == context
     )
     if classification == "adult_only":
+        if match.status != "finalized":
+            return jsonify(error="finalized_recording_required"), 422
         reason = service.recording_date_error(match)
         if reason:
             return jsonify(error=reason), 422
-        squad = db.session.get(service.ClubSquad, match.squad_id) if match.squad_id else None
-        if service.squad_classification(squad) == "youth":
+        if kind == "youth":
             return jsonify(error="youth_recording_private"), 422
-        if service.squad_classification(squad) == "unknown" and not attested:
+        if kind == "unknown" and not attested:
             return jsonify(error="senior_squad_attestation_required"), 422
     if same_source:
         return jsonify(classification=classification)
@@ -234,6 +239,7 @@ def review_recording(program_id, match_id):
     row.source_snapshot = match.scoped_snapshot or row.source_snapshot or "withdrawn"
     row.reviewer_user_id = g.user_id
     row.squad_adult_attested = attested
+    row.source_context = context
     row.reviewed_at = now()
     if new_review:
         db.session.add(row)
@@ -494,7 +500,11 @@ def admin_takedown(highlight_id):
     service.revoke(row, g.user_id, "admin_takedown")
     if row.video_match_id:
         for sibling in (
-            PlayerHighlight.query.filter_by(video_match_id=row.video_match_id, start_s=row.start_s, end_s=row.end_s)
+            PlayerHighlight.query.filter(
+                PlayerHighlight.video_match_id == row.video_match_id,
+                PlayerHighlight.start_s < row.end_s,
+                PlayerHighlight.end_s > row.start_s,
+            )
             .order_by(PlayerHighlight.id)
             .with_for_update()
         ):

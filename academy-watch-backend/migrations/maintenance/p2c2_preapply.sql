@@ -1,4 +1,5 @@
 BEGIN;
+SET LOCAL lock_timeout = '5s';
 CREATE TABLE IF NOT EXISTS player_highlights (
 	id VARCHAR(36) NOT NULL, 
 	program_id INTEGER NOT NULL, 
@@ -103,6 +104,7 @@ CREATE INDEX IF NOT EXISTS ix_player_highlights_program_id ON player_highlights 
 CREATE INDEX IF NOT EXISTS ix_highlight_consent_events_highlight_id ON highlight_consent_events (highlight_id);
 CREATE INDEX IF NOT EXISTS ix_highlight_render_jobs_highlight_id ON highlight_render_jobs (highlight_id);
 CREATE INDEX IF NOT EXISTS ix_highlight_render_jobs_status ON highlight_render_jobs (status);
+ALTER TABLE public.highlight_footage_reviews ADD COLUMN IF NOT EXISTS source_context VARCHAR(64);
 ALTER TABLE public.player_highlights ADD COLUMN IF NOT EXISTS admin_taken_down BOOLEAN NOT NULL DEFAULT false;
 
 UPDATE public.player_highlights SET admin_taken_down=true WHERE revoke_reason='admin_takedown';
@@ -123,14 +125,17 @@ INSERT INTO public.highlight_takedowns(id,video_match_id,start_s,end_s) SELECT i
 
 -- Schema-only, idempotent source-version fencing. Included verbatim by p2c2 and preapply.
 CREATE OR REPLACE FUNCTION public.p2c2_invalidate_match(mid integer) RETURNS void LANGUAGE plpgsql AS $$
-DECLARE changed RECORD;
+DECLARE changed RECORD; notice_ids varchar[] := ARRAY[]::varchar[]; event_key text := md5(random()::text || clock_timestamp()::text);
 BEGIN
  -- All writers serialize on the match before touching consent rows.
  PERFORM id FROM public.video_matches WHERE id=mid FOR UPDATE;
  FOR changed IN
-  UPDATE public.player_highlights SET player_decision='pending',approved_source_version=NULL,
-   revoked_at=timezone('UTC',now()),revoke_reason='source_changed',render_status='stale',version=version+1,source_version=source_version+1
-   WHERE video_match_id=mid AND revoked_at IS NULL RETURNING id,version,source_version
+  WITH previous AS MATERIALIZED (
+   SELECT id,player_decision FROM public.player_highlights WHERE video_match_id=mid AND revoked_at IS NULL ORDER BY id FOR UPDATE
+  )
+  UPDATE public.player_highlights h SET player_decision='pending',approved_source_version=NULL,
+   revoked_at=timezone('UTC',now()),revoke_reason='source_changed',render_status='stale',version=h.version+1,source_version=h.source_version+1
+   FROM previous WHERE h.id=previous.id RETURNING h.id,h.version,h.source_version,previous.player_decision
  LOOP
   INSERT INTO public.highlight_consent_events(highlight_id,action,version,source_version,created_at)
    VALUES(changed.id,'source_changed',changed.version,changed.source_version,timezone('UTC',now()));
@@ -139,22 +144,24 @@ BEGIN
    FROM (SELECT output_blob_path AS path FROM public.player_highlights WHERE id=changed.id
          UNION SELECT blob_path FROM public.highlight_render_jobs WHERE highlight_id=changed.id) assets
    WHERE path IS NOT NULL;
-  INSERT INTO public.notification_outbox(dedupe_key,recipient_user_id,event_type,entity_type,entity_id,template,payload)
-   SELECT 'highlight_source:'||changed.id||':'||changed.version||':'||uid,uid,
-    'highlight_source_changed','user_account',uid::text,'highlight_source_changed',
-    json_build_object('highlight_id',changed.id,'version',changed.version)
-   FROM (
-    SELECT recipient_user_id AS uid FROM public.player_highlights WHERE id=changed.id
-    UNION
-    SELECT m.user_account_id FROM public.club_program_managers m
-    JOIN public.player_highlights h ON h.program_id=m.program_id AND h.id=changed.id
-    JOIN public.club_program_claims c ON c.id=m.source_claim_id AND c.program_id=m.program_id AND c.user_account_id=m.user_account_id
-    WHERE m.status='active' AND c.status='approved'
-   ) recipients WHERE uid IS NOT NULL
-   ON CONFLICT(dedupe_key) DO NOTHING;
+  IF changed.player_decision <> 'private' THEN notice_ids := array_append(notice_ids,changed.id); END IF;
   UPDATE public.highlight_render_jobs SET status='cancelled',lease_token=NULL
    WHERE highlight_id=changed.id AND status IN ('queued','running');
  END LOOP;
+ INSERT INTO public.notification_outbox(dedupe_key,recipient_user_id,event_type,entity_type,entity_id,template,payload)
+ SELECT 'highlight_source:'||mid||':'||event_key||':'||uid,uid,
+  'highlight_source_changed','user_account',uid::text,'highlight_source_changed',
+  json_build_object('highlight_id',id,'version',version)
+ FROM (
+  SELECT DISTINCT ON (uid) uid,id,version FROM (
+   SELECT recipient_user_id AS uid,id,version FROM public.player_highlights WHERE id=ANY(notice_ids)
+   UNION
+   SELECT m.user_account_id,h.id,h.version FROM public.club_program_managers m
+   JOIN public.player_highlights h ON h.program_id=m.program_id AND h.id=ANY(notice_ids)
+   JOIN public.club_program_claims c ON c.id=m.source_claim_id AND c.program_id=m.program_id AND c.user_account_id=m.user_account_id
+   WHERE m.status='active' AND c.status='approved'
+  ) recipients WHERE uid IS NOT NULL ORDER BY uid,id
+ ) grouped ON CONFLICT(dedupe_key) DO NOTHING;
 END $$;
 CREATE OR REPLACE FUNCTION public.p2c2_source_guard() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE mid integer;
@@ -177,6 +184,19 @@ BEGIN
    THEN RETURN NEW; END IF;
   IF TG_OP='INSERT' THEN RETURN NEW; END IF;
   mid=OLD.id;
+  IF TG_OP='UPDATE' AND (NEW.match_date,NEW.squad_id,NEW.finalized_at) IS DISTINCT FROM (OLD.match_date,OLD.squad_id,OLD.finalized_at) THEN
+   UPDATE public.highlight_footage_reviews SET source_context=NULL WHERE video_match_id=mid AND source_context IS NOT NULL;
+  END IF;
+ ELSIF TG_TABLE_NAME='club_squads' THEN
+  IF TG_OP='INSERT' THEN RETURN NEW; END IF;
+  IF TG_OP='UPDATE' AND (NEW.name,NEW.kind,NEW.age_limit) IS NOT DISTINCT FROM (OLD.name,OLD.kind,OLD.age_limit) THEN RETURN NEW; END IF;
+  FOR mid IN SELECT id FROM public.video_matches WHERE squad_id=OLD.id ORDER BY id FOR UPDATE
+  LOOP
+   UPDATE public.highlight_footage_reviews SET source_context=NULL WHERE video_match_id=mid AND source_context IS NOT NULL;
+   PERFORM public.p2c2_invalidate_match(mid);
+  END LOOP;
+  IF TG_OP='DELETE' THEN RETURN OLD; END IF;
+  RETURN NEW;
  ELSIF TG_TABLE_NAME='club_roster_members' THEN
   IF TG_OP='INSERT' THEN RETURN NEW; END IF;
   IF TG_OP='UPDATE' AND (NEW.player_api_id,NEW.local_player_id,NEW.program_id,NEW.squad_id) IS NOT DISTINCT FROM
@@ -197,11 +217,11 @@ BEGIN
 END $$;
 DO $$ DECLARE source_table text;
 BEGIN
- FOREACH source_table IN ARRAY ARRAY['video_matches','video_roster_entries','video_tracklets','video_player_reports','highlight_footage_reviews','club_roster_members']
+ FOREACH source_table IN ARRAY ARRAY['video_matches','video_roster_entries','video_tracklets','video_player_reports','highlight_footage_reviews','club_roster_members','club_squads']
  LOOP
   EXECUTE format('DROP TRIGGER IF EXISTS p2c2_source_guard ON public.%I',source_table);
   EXECUTE format('CREATE TRIGGER p2c2_source_guard %s INSERT OR UPDATE OR DELETE ON public.%I FOR EACH ROW EXECUTE FUNCTION public.p2c2_source_guard()',
-                 CASE WHEN source_table IN ('club_roster_members','video_matches') THEN 'BEFORE' ELSE 'AFTER' END, source_table);
+                 CASE WHEN source_table IN ('club_roster_members','video_matches','club_squads') THEN 'BEFORE' ELSE 'AFTER' END, source_table);
  END LOOP;
 END $$;
 

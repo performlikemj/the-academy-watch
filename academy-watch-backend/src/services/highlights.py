@@ -5,6 +5,7 @@ import json
 import math
 import os
 import re
+import unicodedata
 from collections import defaultdict
 from functools import wraps
 
@@ -88,7 +89,13 @@ def prepare_reads(rows, *, matches=(), candidates=False):
 
     match_ids = {row.video_match_id for row in rows if row.video_match_id} | {match.id for match in matches}
     program_ids = {row.program_id for row in rows} | {match.club_program_id for match in matches}
-    evidence = {"models": defaultdict(dict), "rosters": defaultdict(list), "listed": set(), "eligible": {}}
+    evidence = {
+        "models": defaultdict(dict),
+        "rosters": defaultdict(list),
+        "listed": set(),
+        "eligible": {},
+        "holds": defaultdict(list),
+    }
     g.highlight_evidence = evidence
 
     def remember(*objects):
@@ -153,8 +160,15 @@ def prepare_reads(rows, *, matches=(), candidates=False):
         .all()
     ):
         remember(claim, user, local)
-    for track in VideoTracklet.query.filter(VideoTracklet.video_match_id.in_(match_ids)).populate_existing():
+    tracks = VideoTracklet.query.filter(VideoTracklet.video_match_id.in_(match_ids))
+    if not candidates:
+        tracks = tracks.filter(VideoTracklet.id.in_({row.tracklet_id for row in rows if row.tracklet_id}))
+    for track in tracks.populate_existing():
         remember(track)
+    for hold in HighlightTakedown.query.filter(
+        HighlightTakedown.video_match_id.in_(match_ids), HighlightTakedown.lifted_at.is_(None)
+    ).populate_existing():
+        evidence["holds"][hold.video_match_id].append(hold)
     evidence["adults"] = public_adult_ids(ids)
     # A single narrow UNION adds historical DOB evidence without per-source queries.
     dates, years = defaultdict(list), defaultdict(list)
@@ -196,22 +210,50 @@ def squad_classification(squad):
         return "unknown"
     if squad.age_limit is not None and squad.age_limit <= 18:
         return "youth"
-    # Dots, underscores and Unicode dashes are common in youth team labels.
-    label = re.sub(r"[\W_]+", " ", squad.name or "", flags=re.UNICODE)
-    if re.search(r"\b(?:youth|academy|juniors?|colts|minis|boys|girls|kids|school\w*)\b", label, re.I):
+    label = re.sub(r"[\W_]+", " ", unicodedata.normalize("NFKC", squad.name or ""), flags=re.UNICODE)
+    if re.search(
+        r"\b(?:youth|academy|juniors?|colts|minis|boys|girls|kids|school\w*|scholars|sixteens|eighteens|teens|juvenil|cadete|jugend|freshm[ae]n|sophomores|primary|secondary|jv)\b",
+        label,
+        re.I,
+    ):
         return "youth"
-    if re.search(r"\b(?:19|20)\d{2}\b|\bunder\s+[a-z]+|\byear\s+\d+", label, re.I):
+    if re.search(r"(?<!\d)(?:19|20)\d{2}(?!\d)|\bunder\s+[a-z]+", label, re.I):
         return "youth"
-    label_limits = [int(m[1]) for m in re.finditer(r"\b(?:u|under|sub)\s*(\d{1,2})(?!\d)", label, re.I)]
+    label_limits = [
+        int(m[1])
+        for pattern in (
+            r"\b(?:u|under|sub|o|jo|mo|age|aged|yr|year|grade|j|p|f)\s*(\d{1,2})(?!\d)",
+            r"(?<!\d)(\d{1,2})\s*(?:u\b|s\b|(?:and\s+)?under\b)",
+        )
+        for m in re.finditer(pattern, label, re.I)
+    ]
     if any(age <= 18 for age in label_limits):
         return "youth"
-    # An upper age bound never establishes a minimum age.
-    if squad.kind == "age_group" or squad.age_limit is not None or label_limits:
+    # An upper age bound or ambiguous numbered name never establishes seniority.
+    if squad.kind == "age_group" or squad.age_limit is not None or label_limits or re.search(r"\d", label):
         return "unknown"
     return "adult" if squad.kind in {"first_team", "reserves"} else "unknown"
 
 
+def review_context(match):
+    squad = lookup(ClubSquad, match.squad_id) if match.squad_id else None
+    return digest(
+        [
+            match.match_date,
+            match.squad_id,
+            match.finalized_at,
+            [squad.name, squad.kind, squad.age_limit] if squad else None,
+        ]
+    )
+
+
+def review_matches_context(review, match):
+    return bool(review and match.status in {"finalized", "expired"} and review.source_context == review_context(match))
+
+
 def recording_block_reason(match, *, frozen_etag=None):
+    if match.status not in {"finalized", "expired"}:
+        return "finalized_recording_required"
     if recording_date_error(match):
         return recording_date_error(match)
     squad = lookup(ClubSquad, match.squad_id) if match.squad_id else None
@@ -223,6 +265,7 @@ def recording_block_reason(match, *, frozen_etag=None):
         return "senior_squad_attestation_required"
     if not (
         review
+        and review_matches_context(review, match)
         and review.classification == "adult_only"
         and review.source_etag == (frozen_etag or match.blob_etag)
         and review.source_snapshot == match.scoped_snapshot
@@ -254,6 +297,11 @@ def own_claim(claim, signed_id, user_id=None):
         else is_account_active(claim.user_account_id)
     ):
         return False
+    return claim_subject_matches(claim, signed_id)
+
+
+def claim_subject_matches(claim, signed_id):
+    """Resolve the pinned subject independently of reversible account standing."""
     if claim.local_player_id is not None:
         local = lookup(LocalPlayer, claim.local_player_id)
         return bool(local and local.api_player_id == signed_id and local.merged_into_local_player_id is None)
@@ -347,6 +395,7 @@ def _adult_recording(match, *, frozen_etag=None):
     review = lookup(HighlightFootageReview, match.id)
     if not (
         review
+        and review_matches_context(review, match)
         and review.classification == "adult_only"
         and review.source_etag == etag
         and review.source_snapshot == match.scoped_snapshot
@@ -520,6 +569,8 @@ def eligible(row):
         and (row.program_id in evidence["listed"] if evidence is not None else is_listed(program))
         and (row.signed_id in evidence["adults"] if evidence is not None else is_public_adult(row.signed_id))
         and own_claim(claim, row.signed_id, row.recipient_user_id)
+        and claim_for_subject(row.signed_id) is claim
+        and not window_held(row.video_match_id, row.start_s, row.end_s)
         and current_source(row)
     )
     if evidence is not None:
@@ -589,6 +640,20 @@ def queue_cut(row):
         row.render_status = "queued"
 
 
+def window_held(match_id, start_s, end_s):
+    evidence = read_evidence()
+    if evidence is not None:
+        return any(hold.start_s < end_s and hold.end_s > start_s for hold in evidence["holds"].get(match_id, []))
+    return bool(
+        HighlightTakedown.query.filter(
+            HighlightTakedown.video_match_id == match_id,
+            HighlightTakedown.lifted_at.is_(None),
+            HighlightTakedown.start_s < end_s,
+            HighlightTakedown.end_s > start_s,
+        ).first()
+    )
+
+
 def pick(match, data, actor):
     # Program+match lock serializes picks/caps and source editing on this match.
     db.session.refresh(match, with_for_update=True)
@@ -605,12 +670,7 @@ def pick(match, data, actor):
     if selected is None:
         raise ValueError("reviewed_window_required")
     track, window = selected
-    if HighlightTakedown.query.filter_by(
-        video_match_id=match.id,
-        start_s=window["start_s"],
-        end_s=window["end_s"],
-        lifted_at=None,
-    ).first():
+    if window_held(match.id, window["start_s"], window["end_s"]):
         raise ValueError("highlight_admin_taken_down")
     member = lookup(ClubRosterMember, entry.club_roster_member_id)
     pid = member_subject(member)

@@ -17,7 +17,7 @@ function Preview({ row }) {
     finally { setBusy(false) }
   }
   return <div className="my-4">
-    {url ? <video src={url} controls preload="metadata" aria-label={`Preview ${row.title}`} /> : <button className="hl-button" onClick={load} disabled={busy}>{busy ? 'Loading clip…' : 'Preview short clip'}</button>}
+    {url ? <video src={url} controls preload="metadata" onError={() => { setUrl(null); setError('This preview link is unavailable. Preview the short clip again to get a fresh link.') }} aria-label={`Preview ${row.title}`} /> : <button className="hl-button" onClick={load} disabled={busy}>{busy ? 'Loading clip…' : 'Preview short clip'}</button>}
     {error && <p role="alert" className="hl-error mt-3">{error}</p>}
   </div>
 }

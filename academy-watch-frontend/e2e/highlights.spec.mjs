@@ -319,3 +319,63 @@ test('native preview plays across page, authenticated API and storage origins wi
     await rm(dir,{recursive:true,force:true})
   }
 })
+
+
+test('feature hook recovers after a failed read and refreshes after shared TTL', async ({ page }) => {
+  let reads = 0
+  await page.route('**/api/**', route => {
+    if (new URL(route.request().url()).pathname === '/api/features') {
+      reads++
+      return reads === 1 ? route.fulfill({ status: 503, json: { error: 'temporary' } }) : route.fulfill({ json: { highlights: reads === 2 } })
+    }
+    return route.fulfill({ json: {} })
+  })
+  await page.goto('/highlight-approvals')
+  await expect(page).toHaveURL(/\/$/)
+  await page.evaluate(async () => {
+    const { APIService } = await import('/src/lib/api.js')
+    await APIService.getFeatures()
+    const { default: React } = await import('/node_modules/.vite/deps/react.js')
+    const { default: DOM } = await import('/node_modules/.vite/deps/react-dom_client.js')
+    const { useHighlightsState } = await import('/src/components/highlights/useHighlights.js')
+    function Probe() { return React.createElement('p', { id: 'feature-probe' }, JSON.stringify(useHighlightsState())) }
+    const host = document.createElement('div'); document.body.append(host)
+    DOM.createRoot(host).render(React.createElement(Probe))
+  })
+  await expect(page.locator('#feature-probe')).toContainText('"enabled":true')
+  expect(reads).toBe(2)
+  await page.clock.install()
+  await page.clock.fastForward(16000)
+  await page.evaluate(async () => {
+    const { default: React } = await import('/node_modules/.vite/deps/react.js')
+    const { default: DOM } = await import('/node_modules/.vite/deps/react-dom_client.js')
+    const { useHighlightsState } = await import('/src/components/highlights/useHighlights.js')
+    function Probe() { return React.createElement('p', { id: 'feature-expired-probe' }, JSON.stringify(useHighlightsState())) }
+    const host = document.createElement('div'); document.body.append(host)
+    DOM.createRoot(host).render(React.createElement(Probe))
+  })
+  await expect(page.locator('#feature-expired-probe')).toContainText('"loaded":true')
+  await expect(page.locator('#feature-expired-probe')).toContainText('"enabled":false')
+  expect(reads).toBe(3)
+})
+
+for (const width of [1440, 390]) {
+  test(`native media error offers a fresh short preview at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 })
+    await fixture(page)
+    let grants = 0
+    await page.route(`**/api/me/highlight-requests/${id}/preview?transport=url`, route => {
+      grants++
+      return route.fulfill({ json: { url: `/synthetic-preview-${grants}.mp4` } })
+    })
+    await page.route('**/synthetic-preview-*.mp4', route => route.fulfill({ status: 403, body: 'expired' }))
+    await page.goto('/highlight-approvals')
+    await page.getByRole('button', { name: 'Preview short clip' }).click()
+    await expect(page.getByRole('alert')).toContainText('Preview the short clip again')
+    await expect(page.getByRole('button', { name: 'Preview short clip' })).toBeEnabled()
+    await shot(page, `preview-expired-retry-${width}`)
+    await page.getByRole('button', { name: 'Preview short clip' }).click()
+    await expect.poll(() => grants).toBe(2)
+    await expect(page.getByRole('alert')).toBeVisible()
+  })
+}
