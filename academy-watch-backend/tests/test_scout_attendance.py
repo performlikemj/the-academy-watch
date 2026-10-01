@@ -413,9 +413,7 @@ def test_real_spa_dark_methods_headers_and_body_parity(client, c4, club_app, mon
             assert response.data == baseline.data
             for header in ("Cache-Control", "Content-Type"):
                 assert response.headers.get(header) == baseline.headers.get(header)
-            assert set(response.headers.get("Allow", "").split(", ")) == set(
-                baseline.headers.get("Allow", "").split(", ")
-            )
+            assert response.headers.get("Allow") == baseline.headers.get("Allow")
 
 
 def test_closed_event_cannot_be_accepted_but_history_remains(client, c4):

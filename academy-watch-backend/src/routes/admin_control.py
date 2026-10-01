@@ -105,6 +105,8 @@ def hide_dark_control_routes():
                 ):
                     continue
                 copied = candidate.empty()
+                # C4 integration: preserve Werkzeug method iteration for exact dark Allow parity.
+                copied.methods = candidate.methods
                 # Flask adds this attribute after Werkzeug constructs the rule.
                 copied.provide_automatic_options = getattr(candidate, "provide_automatic_options", False)
                 visible_rules.append(copied)

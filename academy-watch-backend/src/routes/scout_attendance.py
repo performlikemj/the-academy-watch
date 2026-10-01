@@ -4,7 +4,8 @@ import json
 import re
 from functools import wraps
 
-from flask import Blueprint, g, jsonify, request
+from flask import Blueprint, current_app, g, jsonify, request
+from flask.globals import request_ctx
 from sqlalchemy.exc import IntegrityError
 from src.auth import require_user_auth
 from src.extensions import limiter
@@ -16,6 +17,7 @@ from src.services.club_access import require_club_permission
 from src.services.club_directory import directory_enabled
 from src.services.club_today import summary
 from src.services.opportunity_distance import search
+from werkzeug.routing import Map
 
 scout_attendance_bp = Blueprint("scout_attendance", __name__)
 
@@ -32,9 +34,36 @@ def install(state):
             r"/api/club/\d+/(?:today|attendance/[^/]+/decision)",
         )
         if not service.enabled() and any(re.fullmatch(p, request.path) for p in paths):
-            from src.routes.club_directory import _as_before_this_route
-
-            return _as_before_this_route()
+            # Re-route through the real SPA/error handlers with the C4 rules absent.
+            rules = tuple(current_app.url_map.iter_rules())
+            cached = current_app.extensions.get("c4_dark_map")
+            if cached is None or cached[0] != rules:
+                visible = []
+                for original in rules:
+                    if original.endpoint.startswith("scout_attendance."):
+                        continue
+                    copied = original.empty()
+                    copied.methods = original.methods
+                    copied.provide_automatic_options = getattr(original, "provide_automatic_options", False)
+                    visible.append(copied)
+                original_map = current_app.url_map
+                routing = Map(
+                    visible,
+                    converters=original_map.converters,
+                    strict_slashes=original_map.strict_slashes,
+                    merge_slashes=original_map.merge_slashes,
+                    redirect_defaults=original_map.redirect_defaults,
+                    host_matching=original_map.host_matching,
+                    default_subdomain=original_map.default_subdomain,
+                )
+                current_app.extensions["c4_dark_map"] = (rules, routing)
+            else:
+                routing = cached[1]
+            request_ctx.url_adapter = routing.bind_to_environ(request.environ)
+            request.routing_exception = None
+            request.url_rule = None
+            request.view_args = None
+            request_ctx.match_request()
 
     @state.app.after_request
     def private(response):

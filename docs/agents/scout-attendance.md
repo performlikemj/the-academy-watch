@@ -41,7 +41,7 @@ checks; do not add independent player eligibility rules.
 
 Migration `p2c3 -> p2c2` is guarded schema-only DDL with RLS. C1/C2 ancestor revisions
 are verbatim copies of their owners' real revisions, not placeholders. Before code
-rollout, apply `~/codex-runs/aw-redesign/logs/p2c3_preapply.sql` after p2c2. It does not
+rollout, apply `ledgers/tooling/phase2/p2c3_preapply.sql` after p2c2 (handoff copy in the external logs). It does not
 stamp Alembic. Retained requests prohibit downgrade.
 
 Retention is the earlier of creation +180 days or event end/start/deadline +90 days.
