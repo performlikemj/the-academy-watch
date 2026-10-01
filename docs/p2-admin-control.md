@@ -97,6 +97,9 @@ Draft, stacked on A2 #1109. No production switch-on is part of this lane.
   never repeated cumulative `amount_refunded`. Unique source keys handle duplicate
   and out-of-order webhook delivery. Modern payments/truncated refunds are paged
   via Stripe read APIs; provider reads happen before the projection transaction; failures are logged and never roll back billing. Signed webhook replay repairs missing rows. Run `python -m src.jobs.reconcile_business_cash` periodically to repair the latest 50 provider events (bounded, idempotent); older gaps require signed event replay.
+- Receipt arrival/replay backfills product, scope and purchaser metadata on unmapped
+  refunds with the same payment intent and currency. Refund amounts, IDs and dates
+  remain unchanged; already-mapped refunds are retained.
 - Historical GOL grants supplement receipts only when no matching cash projection
   exists. Earlier subscription receipts/refund timestamps cannot be reconstructed
   from price/MRR or mutable cumulative settlements. Coverage is explicit in the UI.
@@ -117,8 +120,8 @@ Draft, stacked on A2 #1109. No production switch-on is part of this lane.
   anonymize purchaser/user scope in retained cash. Foundation outbox erasure handles
   account-bound pending intents. No credentials or child PII enter outbox payloads.
 - Apply A2's latest p2a2 and B1/B2 before p2b3; pre-apply on production is the
-  orchestrator's responsibility. Four shared migration-head pins remain p2a2 per BUS;
-  integration updates them once to the final chain head.
+  orchestrator's responsibility. Merge order B1 → B2 → B3. The four migration-head
+  assertions expect this branch's top revision p2b3 per BUS 12:50.
 - Schema-only SQL for orchestrator review: `~/codex-runs/aw-redesign/p2b3_preapply.sql`.
   Generated from the migration operations/constants and reapplied twice on the scratch DB.
   It changes no flags and does not stamp Alembic.
@@ -145,7 +148,7 @@ Draft, stacked on A2 #1109. No production switch-on is part of this lane.
   Reconciliation excludes case-owned suppressions and intake deduplicates by source ID.
 - **Rollback page flags/frontend while retaining the additive schema and standing guards.**
   Backend image rollback must use a compatible build that still enforces account standing
-  and auth epochs; a pre-B3 backend would lose those protections. Migration
+  and auth epochs plus retained erasure/source-sync adapters; a pre-B3 backend would lose those protections. Migration
   backfill creates retained cases on real data; destructive Alembic downgrade refuses
   them, cash/history/deployment rows and changed account standing. This is deliberate.
   Do not delete evidence or reset auth epochs to force a downgrade. Empty scratch
@@ -171,8 +174,10 @@ Draft, stacked on A2 #1109. No production switch-on is part of this lane.
 - Suspension reason stays private to administrators/audit. Account export contains
   only neutral standing and suspension date. User DTOs and generic emails include
   no suspension reason. Normal-bearer 401 bodies match the existing auth decorator.
-- Dark routes use the exact unrouted 404 response for all methods, including no
-  `Allow` or private-response header. Offset is an integer from 0 to 2147483647.
+- Dark routes match unknown paths through the real app's SPA fallback and error
+  handlers for each method, including OPTIONS and wrong-method Allow headers.
+  Disabled B3 rules are removed from a cached routing map; existing sibling tools
+  retain their handlers. Offset is an integer from 0 to 2147483647.
   Last-owner warning uses claim-verified active managers while staff access is OFF.
 - A2 `33a86d02` adds one active owner per program and locks the program before grant
   rows. Reapply the latest `p2a2_preapply.sql` to databases already stamped p2a2.
@@ -190,3 +195,49 @@ Draft, stacked on A2 #1109. No production switch-on is part of this lane.
   choice; the current behavior allows the administrator to proceed.
 - Clip safeguarding hides the whole player page, with an explicit confirmation
   warning. Per-clip suppression would need a separate visibility design.
+
+## B3F5 review-duel contracts
+
+- p2b3 migration and preapply set transaction-local `lock_timeout = '5s'` before
+  account DDL. Run `psql -X -v ON_ERROR_STOP=1 -f p2b3_preapply.sql` in a dedicated
+  connection **before deploying code**. SQLSTATE 55P03 is a failed attempt: disconnect
+  (rollback), or issue ROLLBACK interactively. Wait for the blocker to end, then retry
+  the whole repeat-safe script. Never continue deployment after a failed attempt.
+- `/admin/users/<id>/suspend` and `/restore` are fixed paths. With flags OFF, existing
+  author-permission OPTIONS retains its original Allow methods.
+- Anonymous intake has one pending/active request per player. Repeats **do not add
+  or correct contact/evidence**. The same neutral acknowledgment explains this for
+  known, unknown, first and repeated requests. Original encrypted evidence/identity
+  remains authoritative; anonymous repeats cannot change notification recipients.
+  Supplemental intake is not offered. This policy, bounded IDs, retained source sync
+  and DSR hooks are persistent privacy changes alongside account standing while OFF.
+- Lazy handover repair refreshes at most 500 discrepancies per source/pass, only
+  imported/intake cases with no decision events (received is allowed) and no owned
+  hold. It rechecks eligibility after ordered target locks. It never resets case
+  decisions or lifts a hold. Both report and suppression preapply-window changes
+  are repaired, including changes during a compatible rollback.
+- PostgreSQL target transaction locks precede case/source row locks for case actions,
+  public intake and original moderation tools. Signed/local/showcase player aliases
+  share the resolved target lock; numeric club aliases also share one key.
+  Absent-suppression inserts recover unique
+  index winners inside a savepoint for older writers. Reconciliation acquires
+  multiple target locks in sorted order. Stale case versions still return 409.
+- Each case's latest hide/restore/source-lift event records current hide intent.
+  Close retains it, including closed cases. An owner restore is refused while
+  another case still requires the hold. A nonowner can withdraw only its intent
+  from a case-owned shared hold; the physical hold remains. It cannot restore a
+  guardian's original hold. Original-tool lifts retire all case intents on that
+  target, so a historical hide cannot block a new cycle. Restore requires a
+  named confirmation and reason; `hold_requested` describes this intent in DTOs.
+- Newly case-generated suppressions use fixed contact/evidence markers; admin
+  identity/reason stays in decision/history fields. Erasure also removes old
+  generated copies using the report's source link and first hide event before
+  actor redaction, scrubs that actor's decision notes, and preserves genuine
+  requester evidence and active holds. These erasure hooks remain active OFF.
+- Hidden inventory accepts independent `program_offset` / `suppression_offset`,
+  with `program_total`, `suppression_total`, independent `*_has_more` and offsets,
+  plus bounded `limit` (default30, maximum100). Legacy `offset` sets both defaults.
+  Each UI collection shows its total and its own pager.
+- `/auth/me` reuses the role/user validated by its auth decorator, removing the
+  second decode/standing query. Each real decode still checks current persisted
+  standing/epoch; there is no request-wide or cross-request authorization cache.

@@ -71,6 +71,9 @@ END $$;
 
 
 def upgrade():
+    # Fail promptly on contention; Alembic rolls back the entire upgrade.
+    # Retry the unchanged migration after the blocking transaction has ended.
+    op.execute("SET LOCAL lock_timeout = '5s'")
     for column in (
         sa.Column("account_status", sa.String(20), nullable=False, server_default="active"),
         sa.Column("auth_epoch", sa.Integer(), nullable=False, server_default="0"),

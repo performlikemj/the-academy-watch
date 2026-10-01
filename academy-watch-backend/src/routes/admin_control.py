@@ -24,7 +24,7 @@ from src.models.trust import ContentReport, ScoutVerification
 from src.models.video import VideoMatch
 from src.services.admin_audit import record_admin_event
 from src.services.admin_control_business import money_query
-from src.services.admin_control_safety import act, case_hidden
+from src.services.admin_control_safety import act, case_hidden, case_hide_intent
 from src.utils.data_mode import api_football_frozen, newsletters_frozen
 
 admin_control_bp = Blueprint("admin_control", __name__)
@@ -67,23 +67,64 @@ def page(which):
 
 @admin_control_bp.before_app_request
 def hide_dark_control_routes():
-    # Matching independently of the method also handles Flask's method-only 405s.
-    # Match the actual rule so A1/A2 tools sharing these prefixes keep their own gates.
+    # Try the actual method first: GET can match the SPA shell for a POST-only path.
+    from flask.globals import request_ctx
     from werkzeug.exceptions import MethodNotAllowed, NotFound
-    from werkzeug.routing import RequestRedirect
+    from werkzeug.routing import Map, RequestRedirect
 
     adapter = current_app.url_map.bind_to_environ(request.environ)
     try:
-        rule, _ = adapter.match(method="GET", return_rule=True)
+        rule, _ = adapter.match(method=request.method, return_rule=True)
     except MethodNotAllowed as error:
-        rule, _ = adapter.match(method=error.valid_methods[0], return_rule=True)
+        # Do not rely on set ordering: GET/OPTIONS might select the SPA fallback.
+        for method in error.valid_methods:
+            rule, _ = adapter.match(method=method, return_rule=True)
+            if rule.endpoint.startswith("admin_control."):
+                break
+        else:
+            return
     except (NotFound, RequestRedirect):
         return
     if not rule.endpoint.startswith("admin_control."):
         return
     view = current_app.view_functions[rule.endpoint]
     if not flag_enabled(FLAGS[view.control_page]):
-        abort(404)
+        # Route as though every dark B3 rule were absent. This preserves the real
+        # app's SPA fallback, 405 body and OPTIONS Allow header, and sibling tools.
+        rules = tuple(current_app.url_map.iter_rules())
+        disabled = tuple(which for which, flag in FLAGS.items() if not flag_enabled(flag))
+        key = (rules, disabled)
+        cached = current_app.extensions.get("admin_control_dark_map")
+        if cached is None or cached[0] != key:
+            original = current_app.url_map
+            visible_rules = []
+            for candidate in rules:
+                if (
+                    candidate.endpoint.startswith("admin_control.")
+                    and current_app.view_functions[candidate.endpoint].control_page in disabled
+                ):
+                    continue
+                copied = candidate.empty()
+                # Flask adds this attribute after Werkzeug constructs the rule.
+                copied.provide_automatic_options = getattr(candidate, "provide_automatic_options", False)
+                visible_rules.append(copied)
+            visible = Map(
+                visible_rules,
+                converters=original.converters,
+                strict_slashes=original.strict_slashes,
+                merge_slashes=original.merge_slashes,
+                redirect_defaults=original.redirect_defaults,
+                host_matching=original.host_matching,
+                default_subdomain=original.default_subdomain,
+            )
+            current_app.extensions["admin_control_dark_map"] = (key, visible)
+        else:
+            visible = cached[1]
+        request_ctx.url_adapter = visible.bind_to_environ(request.environ)
+        request.routing_exception = None
+        request.url_rule = None
+        request.view_args = None
+        request_ctx.match_request()
 
 
 @admin_control_bp.after_request
@@ -368,7 +409,8 @@ def last_owner_programs(uid):
     ]
 
 
-@admin_control_bp.post("/admin/users/<int:user_id>/<action>")
+@admin_control_bp.post("/admin/users/<int:user_id>/suspend", defaults={"action": "suspend"})
+@admin_control_bp.post("/admin/users/<int:user_id>/restore", defaults={"action": "restore"})
 @page("people")
 def account_action(user_id, action):
     if action not in {"suspend", "restore"}:
@@ -425,6 +467,7 @@ def case_dict(case):
         "closed_at": iso(case.closed_at),
         "hidden": case_hidden(case),
         "owns_hold": bool(case.held_program_id or case.owned_suppression_id),
+        "hold_requested": case_hide_intent(case),
         "notification_state": case.notification_state,
         "version": case.version,
     }
@@ -490,6 +533,12 @@ def case_action(case_id):
     if not isinstance(payload, dict):
         return jsonify(error="JSON object required"), 400
     try:
+        from src.services.admin_control_safety import lock_target
+
+        snapshot = db.session.get(SafeguardingCase, case_id)
+        if snapshot is None:
+            return jsonify(error="Not found"), 404
+        lock_target(snapshot.target_type, snapshot.target_id)
         case = SafeguardingCase.query.filter_by(id=case_id).populate_existing().with_for_update().first()
         if case is None:
             return jsonify(error="Not found"), 404
@@ -510,21 +559,36 @@ def case_action(case_id):
 @page("safety")
 def hidden():
     limit, offset = pagination()
+
+    def inventory_offset(name):
+        try:
+            value = int(request.args.get(name, offset))
+        except ValueError:
+            abort(400, description="Invalid inventory offset")
+        if not 0 <= value <= 2147483647:
+            abort(400, description="Inventory offset is out of range")
+        return value
+
+    suppression_offset = inventory_offset("suppression_offset")
+    program_offset = inventory_offset("program_offset")
+    suppressions = PlayerSuppression.query.filter_by(status="active")
+    programs = ClubProgram.query.filter_by(emergency_hidden=True)
+    suppression_total, program_total = suppressions.count(), programs.count()
     return jsonify(
         suppressions=[
             {"id": row.id, "player_api_id": row.player_api_id, "local_player_id": row.local_player_id}
-            for row in PlayerSuppression.query.filter_by(status="active")
-            .order_by(PlayerSuppression.id)
-            .offset(offset)
-            .limit(limit)
+            for row in suppressions.order_by(PlayerSuppression.id).offset(suppression_offset).limit(limit)
         ],
         programs=[
             {"id": row.id, "name": row.name}
-            for row in ClubProgram.query.filter_by(emergency_hidden=True)
-            .order_by(ClubProgram.id)
-            .offset(offset)
-            .limit(limit)
+            for row in programs.order_by(ClubProgram.id).offset(program_offset).limit(limit)
         ],
+        suppression_total=suppression_total,
+        suppression_has_more=suppression_offset + limit < suppression_total,
+        suppression_offset=suppression_offset,
+        program_total=program_total,
+        program_has_more=program_offset + limit < program_total,
+        program_offset=program_offset,
         limit=limit,
         offset=offset,
     )

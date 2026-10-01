@@ -221,3 +221,72 @@ test('a report cannot restore another requester hold and keeps original evidence
     await expect(page.getByText(/Another moderation decision owns this hold/)).toBeVisible()
     await expect(page.getByRole('link', { name: 'Open existing report moderation' })).toBeVisible()
 })
+
+for (const width of [1440, 390]) {
+    test(`hidden inventory pages each complete collection independently at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: width === 390 ? 844 : 900 })
+        const reads = []
+        await mockControl(page, url => {
+            if (url.pathname.endsWith('/hidden')) {
+                const programOffset = Number(url.searchParams.get('program_offset') || 0)
+                const suppressionOffset = Number(url.searchParams.get('suppression_offset') || 0)
+                reads.push([programOffset, suppressionOffset])
+                const all = Array.from({ length: 35 }, (_, i) => i + 1)
+                return { limit: 30, program_offset: programOffset, suppression_offset: suppressionOffset,
+                    program_total: 35, suppression_total: 35,
+                    program_has_more: programOffset === 0, suppression_has_more: suppressionOffset === 0,
+                    programs: all.slice(programOffset, programOffset + 30).map(id => ({ id, name: `Fixture Club ${id}` })),
+                    suppressions: all.slice(suppressionOffset, suppressionOffset + 30).map(id => ({ id, player_api_id: 1000 + id })) }
+            }
+            return { ...empty, open_count: 0, overdue_count: 0, active_suppressions: 35, hidden_programs: 35 }
+        })
+        await page.goto('/admin/safety')
+        const players = page.getByRole('region', { name: 'Player suppressions inventory' })
+        const clubs = page.getByRole('region', { name: 'Club holds inventory' })
+        await expect(players).toContainText('35 total')
+        await expect(clubs).toContainText('35 total')
+        await players.getByRole('button', { name: 'Next', exact: true }).click()
+        await expect(players.getByText('Player 1035', { exact: true })).toBeVisible()
+        await expect(players.getByRole('button', { name: 'Next', exact: true })).toBeDisabled()
+        await expect(clubs.getByText('Fixture Club 1', { exact: true })).toBeVisible()
+        await clubs.getByRole('button', { name: 'Next', exact: true }).click()
+        await expect(clubs.getByText('Fixture Club 35', { exact: true })).toBeVisible()
+        expect(reads).toContainEqual([0, 30])
+        expect(reads).toContainEqual([30, 30])
+        expect(await page.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth)).toBe(true)
+        if (process.env.B3F5_SHOT_DIR) {
+            await page.evaluate(() => globalThis.scrollTo(0, 0))
+            await page.screenshot({ path: `${process.env.B3F5_SHOT_DIR}/inventory-${width}.png`, fullPage: true, animations: 'disabled' })
+        }
+    })
+    test(`restore case hold requires named confirmation and cancel never writes at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: width === 390 ? 844 : 900 })
+        const writes = []
+        let incident = { id: 1, target_type: 'player_profile', target_id: '321', status: 'closed', hidden: true, owns_hold: true, hold_requested: true, version: 3, notification_state: 'none' }
+        await mockControl(page, (url, request) => {
+            if (request.method() === 'POST') {
+                writes.push(request.postDataJSON())
+                incident = { ...incident, hidden: false, owns_hold: false, hold_requested: false, version: 4 }
+                return { case: incident }
+            }
+            if (url.pathname.endsWith('/hidden')) return { programs: [], suppressions: [], limit: 30, program_total: 0, suppression_total: 0 }
+            if (url.pathname === '/api/admin/safety/cases/1') return { case: incident, evidence: { statement: 'Synthetic case evidence' }, events: [] }
+            return { ...empty, total: 1, rows: [incident], open_count: 0, overdue_count: 0, active_suppressions: 1, hidden_programs: 0 }
+        })
+        await page.goto('/admin/safety')
+        await page.getByRole('button', { name: /Case 1/ }).click()
+        await page.getByLabel('Reason to restore the case hold').fill('Review complete')
+        await page.getByRole('button', { name: 'Restore case hold', exact: true }).click()
+        const dialog = page.getByRole('dialog')
+        await expect(dialog).toContainText('case 1 · player_profile 321')
+        await expect(dialog).toContainText('Review complete')
+        expect(writes).toEqual([])
+        if (process.env.B3F5_SHOT_DIR) await page.screenshot({ path: `${process.env.B3F5_SHOT_DIR}/restore-confirm-${width}.png`, animations: 'disabled' })
+        await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+        expect(writes).toEqual([])
+        await page.getByRole('button', { name: 'Restore case hold', exact: true }).click()
+        await page.getByRole('button', { name: 'Confirm restore case hold', exact: true }).click()
+        await expect.poll(() => writes).toEqual([{ action: 'restore', reason: 'Review complete', version: 3 }])
+        await expect(page.getByRole('heading', { name: 'Review the request' })).toBeVisible()
+    })
+}
