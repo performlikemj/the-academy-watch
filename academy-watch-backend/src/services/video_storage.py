@@ -16,10 +16,12 @@ import json
 import logging
 import os
 from datetime import UTC, datetime, timedelta
+from urllib.parse import quote
 
 logger = logging.getLogger(__name__)
 
 try:
+    from azure.core import MatchConditions
     from azure.storage.blob import (
         BlobSasPermissions,
         BlobServiceClient,
@@ -57,8 +59,9 @@ def _service_client() -> "BlobServiceClient":
     return BlobServiceClient.from_connection_string(conn)
 
 
-def _mint_sas(blob_path: str, permission: "BlobSasPermissions", expiry: datetime) -> str:
+def _mint_sas(blob_path: str, permission: "BlobSasPermissions", expiry: datetime, snapshot: str | None = None) -> str:
     client = _service_client()
+    extra = {"snapshot": snapshot} if snapshot else {}
     return generate_blob_sas(
         account_name=client.account_name,
         container_name=_container(),
@@ -66,6 +69,7 @@ def _mint_sas(blob_path: str, permission: "BlobSasPermissions", expiry: datetime
         account_key=client.credential.account_key,
         permission=permission,
         expiry=expiry,
+        **extra,
     )
 
 
@@ -90,14 +94,41 @@ def mint_read_sas(blob_path: str, hours: int = READ_SAS_HOURS) -> str:
     return f"{client.url}{_container()}/{blob_path}?{sas}"
 
 
-def mint_media_read_sas(blob_path: str, *, seconds: int = MEDIA_READ_SAS_MINUTES * 60) -> str:
+def mint_media_read_sas(
+    blob_path: str, *, seconds: int = MEDIA_READ_SAS_MINUTES * 60, snapshot: str | None = None
+) -> str:
     """Short read-only SAS for the browser footage redirect — never longer than the media token, and never
-    longer than the token's REMAINING life when the caller passes it (``seconds``)."""
+    longer than the token's REMAINING life when the caller passes it (``seconds``).
+
+    With ``snapshot`` the SAS is signed for, and the URL addresses, that immutable blob snapshot only
+    (club staff access: scoped staff never get a capability on the mutable base blob)."""
     ttl = max(1, min(int(seconds), MEDIA_READ_SAS_MINUTES * 60))
     expiry = datetime.now(UTC) + timedelta(seconds=ttl)
-    sas = _mint_sas(blob_path, BlobSasPermissions(read=True), expiry)
+    if snapshot:
+        sas = _mint_sas(blob_path, BlobSasPermissions(read=True), expiry, snapshot=snapshot)
+    else:
+        sas = _mint_sas(blob_path, BlobSasPermissions(read=True), expiry)
     client = _service_client()
+    if snapshot:
+        return f"{client.url}{_container()}/{blob_path}?snapshot={quote(snapshot, safe='')}&{sas}"
     return f"{client.url}{_container()}/{blob_path}?{sas}"
+
+
+def create_verified_snapshot(blob_path: str, expected_etag: str | None) -> str | None:
+    """Snapshot exactly the verified generation of a recording; returns the snapshot id or None.
+
+    The snapshot is conditional on ``expected_etag`` (If-Match), so a write that lands between
+    verification and this call yields no snapshot rather than a snapshot of unverified bytes.
+    Snapshots are read-only: no upload SAS (write/create on the base blob) can alter them."""
+    if not blob_path or not expected_etag:
+        return None
+    try:
+        blob = _service_client().get_blob_client(_container(), blob_path)
+        result = blob.create_snapshot(etag=expected_etag, match_condition=MatchConditions.IfNotModified)
+        return (result or {}).get("snapshot") or None
+    except Exception as e:  # changed since verification, auth, network — all mean "no immutable generation"
+        logger.warning("video blob snapshot failed for %s: %s", blob_path, e)
+        return None
 
 
 def verify_uploaded_blob(blob_path: str) -> dict:
@@ -156,7 +187,8 @@ def delete_blob(blob_path: str) -> bool:
     """Delete one raw-footage blob. True when it is gone afterwards (deleted now, or already absent)."""
     try:
         blob = _service_client().get_blob_client(_container(), blob_path)
-        blob.delete_blob()
+        # Recordings carry verified-generation snapshots (club staff access); retention removes them too.
+        blob.delete_blob(delete_snapshots="include")
         return True
     except Exception as e:  # auth, network — all mean "not gone"; a 404 means it was already gone
         if getattr(e, "status_code", None) == 404:

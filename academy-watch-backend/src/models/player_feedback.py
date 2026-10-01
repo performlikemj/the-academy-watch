@@ -19,7 +19,6 @@ from src.models.club_invitation import (
     effective_relationship,
     lock_context,
     relationships_enabled,
-    strict_manager,
     utcnow,
 )
 from src.models.league import UserAccount, db
@@ -259,6 +258,13 @@ def feedback_dict(session, row, *, manager=False, summary=False):
     }
     if not summary:
         result.update(body=row.body, observation_refs=row.observation_refs)
+        if manager and row.observation_refs:
+            from src.services.club_access import evidence_in_scope
+
+            # Squad-scoped staff keep the coach-written text but lose footage evidence whose
+            # source match they may not (or no longer) see.
+            if not evidence_in_scope(row.video_match_id):
+                result["observation_refs"] = []
     if row.development_action is not None:
         result.update(
             development_action=row.development_action,
@@ -303,6 +309,12 @@ def validate_reference(session, invitation, match_id, *, body, refs):
         else reports.filter_by(club_local_player_id_at_finalize=-invitation.player_api_id)
     )
     reports = reports.all()
+    if match is not None:
+        from src.services.club_access import match_bytes_in_scope
+
+        # Same rule as reads: squad-scoped staff may only cite matches they can see.
+        if not match_bytes_in_scope(match):
+            match = None
     if not match or not reports:
         raise FeedbackError("feedback_reference_unavailable", 409)
     if not refs:
@@ -334,7 +346,11 @@ def validate_reference(session, invitation, match_id, *, body, refs):
 
 
 def publish(session, invitation, author_id, data, *, rows=None):
-    if not strict_manager(session, invitation.program_id, author_id):
+    from src.services.club_access import club_actor_allowed
+
+    if not club_actor_allowed(
+        session, invitation.program_id, author_id, "feedback", subject_signed_id=invitation.player_api_id
+    ):
         raise FeedbackError("Club manager access denied", 403)
     if not effective_relationship(session, invitation):
         raise FeedbackError("club_relationship_required", 409)

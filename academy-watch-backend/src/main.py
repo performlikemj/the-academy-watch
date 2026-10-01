@@ -18,6 +18,7 @@ from werkzeug.exceptions import HTTPException
 # includes them even before a route/service imports the model directly.
 import src.models.account  # noqa: E402, F401
 import src.models.billing  # noqa: E402, F401
+import src.models.club_access  # noqa: E402, F401
 import src.models.contact  # noqa: E402, F401
 import src.models.gol_credits  # noqa: E402, F401
 import src.models.interest  # noqa: E402, F401
@@ -41,6 +42,7 @@ from src.routes.auth_routes import auth_bp
 from src.routes.billing import billing_bp
 from src.routes.blocks import blocks_bp
 from src.routes.club import club_bp
+from src.routes.club_access import club_access_bp
 from src.routes.cohort import cohort_bp
 from src.routes.community_takes import community_takes_bp
 from src.routes.contact import contact_bp
@@ -134,6 +136,7 @@ app.register_blueprint(showcase_bp, url_prefix="/api")
 app.register_blueprint(funding_bp, url_prefix="/api")
 app.register_blueprint(admin_programs_bp, url_prefix="/api")
 app.register_blueprint(club_bp, url_prefix="/api")
+app.register_blueprint(club_access_bp, url_prefix="/api")
 app.register_blueprint(feedback_bp, url_prefix="/api")
 app.register_blueprint(interest_bp, url_prefix="/api")
 app.register_blueprint(trust_bp, url_prefix="/api")

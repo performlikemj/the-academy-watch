@@ -37,8 +37,19 @@ test('contact entry points are gated on the /api/features contact_rail flag', as
   const guard = scout.indexOf('{contactRail === true ? (')
   const link = scout.indexOf('<Link to="/introductions"')
   assert.ok(guard !== -1 && link !== -1 && guard < link, 'the Introductions header button is behind the flag')
+  // Club panel: behaviour, not source shape. Only contact_rail === true shows the panel; off or
+  // still-unknown shows the unavailable state — for managers (access null) and for staff roles
+  // holding the contact capability alike.
+  const { introductionsPanelState } = await import('../src/lib/staff-access.js')
+  const withContact = { role: 'owner', verified: true, capabilities: ['contact'] }
+  for (const access of [null, withContact]) {
+    assert.equal(introductionsPanelState(access, true), 'panel', 'club panel shown when the flag is on')
+    assert.equal(introductionsPanelState(access, false), 'unavailable', 'club panel behind the flag')
+    assert.equal(introductionsPanelState(access, null), 'unavailable', 'flag not answered yet = not shown')
+  }
   const consoleSrc = await fs.readFile(consoleFile, 'utf8')
-  assert.ok(consoleSrc.includes('introductions: contactRail === true ? <ClubIntroductionsPanel'), 'club panel behind the flag')
+  assert.ok(consoleSrc.includes('useContactRail()'), 'console reads the contact rail flag')
+  assert.ok(consoleSrc.includes('introductionsPanelState(access, contactRail)'), 'club panel decided by the flag')
   assert.ok(consoleSrc.includes('Scout introductions are not enabled for this club.'), 'club shows unavailable state when disabled')
   const intro = await fs.readFile(introFile, 'utf8')
   assert.ok(intro.includes('if (contactRail === false) {'), 'the introductions page shows an unavailable card when the flag is off')

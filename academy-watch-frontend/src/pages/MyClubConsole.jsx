@@ -30,6 +30,8 @@ import { PlayerReels } from '@/components/video/PlayerReel'
 import { useAuth, useAuthUI } from '@/context/AuthContext'
 import { track } from '@/lib/track'
 import { useContactRail } from '@/hooks/useContactRail.js'
+import { useClubStaffAccess } from '@/hooks/useClubStaffAccess'
+import { can, introductionsPanelState } from '@/lib/staff-access'
 import { formatDateOnly } from '@/lib/dateOnly'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import {
@@ -127,6 +129,8 @@ const CLUB_REEL_MEDIA_SOURCE = {
 }
 
 function errorText(error, fallback) {
+  // Club staff access: a completed recording can't be overwritten in place.
+  if (error?.body?.error === 'recording_locked') return 'This recording is locked once its upload is complete. Create a new match to replace the footage.'
   return error?.body?.error || error?.message || fallback
 }
 
@@ -1127,10 +1131,24 @@ export function RosterPanel({ programId, members, systemBrief, loading, error, o
   )
 }
 
-function CreateMatchDialog({ open, onOpenChange, programId, onCreated, onAccessDenied }) {
+function CreateMatchDialog({ open, onOpenChange, programId, onCreated, onAccessDenied, chooseSquad = false, squadRequired = false }) {
   const [form, setForm] = useState(EMPTY_MATCH_FORM)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
+  // Club staff access: a match belongs to a squad so squad-scoped staff can see its footage.
+  const [squads, setSquads] = useState([])
+  const [squadId, setSquadId] = useState('')
+  useEffect(() => {
+    if (!open || !chooseSquad) return undefined
+    let live = true
+    APIService.request(`/club/${programId}/squads`).then((data) => {
+      if (!live) return
+      const rows = Array.isArray(data?.squads) ? data.squads : []
+      setSquads(rows)
+      if (squadRequired && rows.length === 1) setSquadId(String(rows[0].id))
+    }).catch(() => {})
+    return () => { live = false }
+  }, [open, chooseSquad, squadRequired, programId])
 
   const update = (field, value) => setForm((current) => ({ ...current, [field]: value }))
   const close = () => {
@@ -1145,6 +1163,7 @@ function CreateMatchDialog({ open, onOpenChange, programId, onCreated, onAccessD
     setError(null)
     try {
       const payload = Object.fromEntries(Object.entries(form).map(([key, value]) => [key, value.trim() || undefined]))
+      if (chooseSquad && squadId) payload.squad_id = Number(squadId)
       const response = await APIService.createClubMatch(programId, payload)
       onCreated(response)
       setForm(EMPTY_MATCH_FORM)
@@ -1181,11 +1200,21 @@ function CreateMatchDialog({ open, onOpenChange, programId, onCreated, onAccessD
           <PreflightSelect id="new-match-camera-view" field="camera_view" label="Camera view" value={form.camera_view} onChange={(value) => update('camera_view', value)} />
           <PreflightSelect id="new-match-camera-motion" field="camera_motion" label="Camera motion" value={form.camera_motion} onChange={(value) => update('camera_motion', value)} />
           <PreflightSelect id="new-match-pitch-lines" field="pitch_lines_visible" label="Pitch lines visible" value={form.pitch_lines_visible} onChange={(value) => update('pitch_lines_visible', value)} />
+          {chooseSquad ? (
+            <div className="space-y-2 sm:col-span-2">
+              <Label htmlFor="new-match-squad">Squad{squadRequired ? '' : ' (optional)'}</Label>
+              <select id="new-match-squad" className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={squadId} onChange={(event) => setSquadId(event.target.value)}>
+                {squadRequired ? <option value="" disabled>Choose a squad</option> : <option value="">Whole club</option>}
+                {squads.map((squad) => <option key={squad.id} value={String(squad.id)}>{squad.name}</option>)}
+              </select>
+              <p className="text-xs text-muted-foreground">Staff with access to this squad can see the footage and report. Leave it as whole club if players from more than one squad played.</p>
+            </div>
+          ) : null}
         </div>
         <InlineError>{error}</InlineError>
         <DialogFooter>
           <Button variant="ghost" onClick={close} disabled={busy}>Cancel</Button>
-          <Button onClick={submit} disabled={busy}>{busy ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Film className="mr-1.5 h-4 w-4" />}{busy ? 'Creating…' : 'Create match'}</Button>
+          <Button onClick={submit} disabled={busy || (chooseSquad && squadRequired && !squadId)}>{busy ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Film className="mr-1.5 h-4 w-4" />}{busy ? 'Creating…' : 'Create match'}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -1740,8 +1769,8 @@ export function ClubPlayerReels({ programId, match, rosterMembers, onAccessDenie
   )
 }
 
-function MatchDetail({ programId, match, uploadGrant, rosterMembers, onMatchChange, onUploadGrantChange, onAccessDenied, onRefresh, onRecordResult }) {
-  const editable = EDITABLE_MATCH_STATUSES.has(match.status)
+function MatchDetail({ programId, match, uploadGrant, rosterMembers, onMatchChange, onUploadGrantChange, onAccessDenied, onRefresh, onRecordResult, canUpload = true, canResults = true }) {
+  const editable = canUpload && EDITABLE_MATCH_STATUSES.has(match.status)
   const [form, setForm] = useState(() => matchFormValues(match))
   const dirtyFieldsRef = useRef(new Set())
   const [saving, setSaving] = useState(false)
@@ -1759,7 +1788,9 @@ function MatchDetail({ programId, match, uploadGrant, rosterMembers, onMatchChan
   const [rosterSaving, setRosterSaving] = useState(false)
   const [rosterError, setRosterError] = useState(null)
 
-  const availableMembers = useMemo(() => rosterMembers.filter((member) => member.available), [rosterMembers])
+  // Club staff access: a squad-labelled match may only list that squad's players (squad_id is absent when dark).
+  const matchSquadId = match.squad_id ?? null
+  const availableMembers = useMemo(() => rosterMembers.filter((member) => member.available && (matchSquadId === null || member.squad_id === matchSquadId)), [rosterMembers, matchSquadId])
   const selectedMemberIds = useMemo(() => new Set(matchRoster.map((entry) => entry.club_roster_member_id)), [matchRoster])
   const updateForm = (field, value) => {
     dirtyFieldsRef.current.add(field)
@@ -2010,7 +2041,7 @@ function MatchDetail({ programId, match, uploadGrant, rosterMembers, onMatchChan
           {editable ? <Button variant="outline" onClick={saveRoster} disabled={rosterSaving || availableMembers.length === 0}>{rosterSaving ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Shirt className="mr-1.5 h-4 w-4" />}{rosterSaving ? 'Saving…' : 'Save match roster'}</Button> : null}
         </section>
 
-        {editable ? (
+        {editable && canResults ? (
           <section className="space-y-3 border-t border-border pt-5" aria-labelledby={`match-${match.id}-result`}>
             <div>
               <h3 id={`match-${match.id}-result`} className="font-bold text-foreground">Record result</h3>
@@ -2034,7 +2065,7 @@ function MatchDetail({ programId, match, uploadGrant, rosterMembers, onMatchChan
           {match.status === 'uploaded' && (match.kickoff_s === null || typeof match.kickoff_s === 'undefined') ? <p className="text-sm text-gold-text">Mark and save kickoff before requesting processing.</p> : null}
           {match.job ? <p className="rounded-lg bg-secondary/60 px-3 py-2 text-sm text-muted-foreground">Admin job: {match.job.status || 'unknown'}{match.job.stage ? ` · ${match.job.stage}` : ''}{Number.isFinite(Number(match.job.progress)) ? ` · ${match.job.progress}%` : ''}</p> : null}
           <InlineError>{processError}</InlineError>
-          {match.status === 'uploaded' ? (
+          {match.status === 'uploaded' && canUpload ? (
             <Button onClick={requestProcessing} disabled={processing || match.kickoff_s === null || typeof match.kickoff_s === 'undefined' || match.processing_request_status === 'requested'}>
               {processing ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <CircleDot className="mr-1.5 h-4 w-4" />}
               {match.processing_request_status === 'requested' ? 'Processing requested' : processing ? 'Queuing…' : 'Request processing'}
@@ -2094,7 +2125,7 @@ export function ResultHistory({ programId, refreshToken, onEdit, onAccessDenied,
   )
 }
 
-export function MatchesPanel({ programId, rosterMembers, matches, loading, error, loadFailureCount, uploadGrants, onMatchesChange, onUploadGrantChange, onReload, onAccessDenied }) {
+export function MatchesPanel({ programId, rosterMembers, matches, loading, error, loadFailureCount, uploadGrants, onMatchesChange, onUploadGrantChange, onReload, onAccessDenied, canUpload = true, canResults = true, chooseSquad = false, squadRequired = false }) {
   const [createOpen, setCreateOpen] = useState(false)
   const [resultTarget, setResultTarget] = useState(null)
   const [resultRefresh, setResultRefresh] = useState(0)
@@ -2211,15 +2242,15 @@ export function MatchesPanel({ programId, rosterMembers, matches, loading, error
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div><h2 className="display text-[44px] text-foreground">Matches &amp; reports</h2><p className="mt-1 text-sm text-muted-foreground">Create, upload and queue private match analysis.</p></div>
         <div className="flex flex-wrap gap-2">
-          <Button
+          {canResults ? <Button
             variant="outline"
             onClick={() => setResultTarget({ videoMatch: null, members: resultRosterMembers(null, rosterMembers), savedResult: null })}
             disabled={!rosterMembers.some((member) => member.available)}
             aria-label="Record result without video"
           >
             <Trophy className="mr-1.5 h-4 w-4" /> Record result
-          </Button>
-          <Button onClick={() => setCreateOpen(true)}><Plus className="mr-1.5 h-4 w-4" /> Create match</Button>
+          </Button> : null}
+          {canUpload ? <Button onClick={() => setCreateOpen(true)}><Plus className="mr-1.5 h-4 w-4" /> Create match</Button> : null}
         </div>
       </div>
       {loadFailureCount > 0 ? (
@@ -2231,14 +2262,14 @@ export function MatchesPanel({ programId, rosterMembers, matches, loading, error
           </AlertDescription>
         </Alert>
       ) : null}
-      <section className="space-y-3" aria-labelledby="club-result-history">
+      {canResults ? <section className="space-y-3" aria-labelledby="club-result-history">
         <div>
           <h3 id="club-result-history" className="font-bold text-foreground">Results</h3>
           <p className="text-sm text-muted-foreground">Scores and club-confirmed lineups, including matches without video.</p>
         </div>
         <InlineError>{resultLoadError}</InlineError>
         <ResultHistory key={programId} programId={programId} refreshToken={resultRefresh} onEdit={editResult} onAccessDenied={onAccessDenied} onResultsLoaded={rememberVideoResults} />
-      </section>
+      </section> : null}
       {loading ? (
         <Card><CardContent className="flex items-center justify-center py-16 text-sm text-muted-foreground"><Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading saved matches…</CardContent></Card>
       ) : error && loadFailureCount === 0 ? (
@@ -2273,11 +2304,13 @@ export function MatchesPanel({ programId, rosterMembers, matches, loading, error
               onAccessDenied={onAccessDenied}
               onRefresh={refreshSelected}
               onRecordResult={openVideoResult}
+              canUpload={canUpload}
+              canResults={canResults}
             />
           ) : null}
         </div>
       ) : null}
-      <CreateMatchDialog open={createOpen} onOpenChange={setCreateOpen} programId={programId} onCreated={created} onAccessDenied={onAccessDenied} />
+      {canUpload ? <CreateMatchDialog open={createOpen} onOpenChange={setCreateOpen} programId={programId} onCreated={created} onAccessDenied={onAccessDenied} chooseSquad={chooseSquad} squadRequired={squadRequired} /> : null}
       {resultTarget ? (
         <RecordResultDialog
           programId={programId}
@@ -2518,6 +2551,18 @@ export function MyClubConsole({
   const program = programClaim.program
   const programId = program.id
   const contactRail = useContactRail()
+  const staffFlag = useClubStaffAccess()
+  // Invited staff arrive with their access; verified managers keep full access (null) and learn owner status below.
+  const [access, setAccess] = useState(() => programClaim.staff_access || null)
+  useEffect(() => {
+    if (staffFlag !== true || programClaim.staff_access) return undefined
+    let live = true
+    APIService.request(`/club/${programId}/access/me`).then((data) => {
+      if (live && data?.access) setAccess(data.access)
+    }).catch(() => {})
+    return () => { live = false }
+  }, [staffFlag, programId, programClaim.staff_access])
+  const allow = (capability) => can(access, capability)
   const [members, setMembers] = useState(() => (Array.isArray(initialRoster?.members) ? initialRoster.members : []))
   const [systemBrief, setSystemBrief] = useState(() => initialRoster?.system_brief || { body: null, updated_at: null, hash: null })
   const [rosterLoading, setRosterLoading] = useState(false)
@@ -2589,12 +2634,17 @@ export function MyClubConsole({
     program={{ ...program, ...initialRoster?.program }} members={members} onReload={loadRoster} onAccessDenied={onAccessDenied}
     matches={matches} matchesLoading={matchesLoading} matchesError={matchesError} rosterLoading={rosterLoading} rosterError={rosterError}
     programOptions={programOptions} onProgramChange={onProgramChange}
+    access={access} staffAccessEnabled={staffFlag === true}
     statusContent={erroredProgramCount > 0 ? <Alert><AlertDescription>{erroredProgramCount} clubs could not be checked. <Button onClick={onRetryPrograms} disabled={checkingPrograms}>Retry</Button></AlertDescription></Alert> : null}
     panels={{
-      roster: <RosterPanel programId={programId} members={members} systemBrief={systemBrief} loading={rosterLoading} error={rosterError} onMembersChange={setMembers} onSystemBriefChange={setSystemBrief} onReload={loadRoster} onAccessDenied={onAccessDenied} />,
-      matches: <MatchesPanel key={programId} programId={programId} rosterMembers={members} matches={matches} loading={matchesLoading} error={matchesError} loadFailureCount={matchesLoadFailureCount} uploadGrants={uploadGrants} onMatchesChange={setMatches} onUploadGrantChange={setGrant} onReload={loadMatches} onAccessDenied={onAccessDenied} />,
-      profile: <ClubProfile program={program} claim={programClaim} onAccessDenied={onAccessDenied} />,
-      introductions: contactRail === true ? <ClubIntroductionsPanel programId={programId} onAccessDenied={onAccessDenied} /> : <p>Scout introductions are not enabled for this club.</p>,
+      roster: allow('players.manage') && <RosterPanel programId={programId} members={members} systemBrief={systemBrief} loading={rosterLoading} error={rosterError} onMembersChange={setMembers} onSystemBriefChange={setSystemBrief} onReload={loadRoster} onAccessDenied={onAccessDenied} />,
+      matches: <MatchesPanel key={programId} programId={programId} rosterMembers={members} matches={matches} loading={matchesLoading} error={matchesError} loadFailureCount={matchesLoadFailureCount} uploadGrants={uploadGrants} onMatchesChange={setMatches} onUploadGrantChange={setGrant} onReload={loadMatches} onAccessDenied={onAccessDenied} canUpload={allow('matches.upload')} canResults={allow('results')} chooseSquad={staffFlag === true} squadRequired={Boolean(access && access.whole_club === false)} />,
+      profile: allow('branding') && <ClubProfile program={program} claim={programClaim} onAccessDenied={onAccessDenied} />,
+      introductions: {
+        panel: <ClubIntroductionsPanel programId={programId} onAccessDenied={onAccessDenied} />,
+        unavailable: <p>Scout introductions are not enabled for this club.</p>,
+        hidden: null,
+      }[introductionsPanelState(access, contactRail)],
       affiliations: moderationContent || <p>No affiliations need review.</p>,
     }} moderationCount={moderationCount}
   />

@@ -15,6 +15,7 @@ export function PitchMap({
   onOpenSquad,
   onStaff,
   onTemplate,
+  staffAccessEnabled = false,
   busy,
   loading
 }) {
@@ -76,9 +77,9 @@ export function PitchMap({
         <h3>Every club starts with its people</h3>
         <p>Build your club map with squads and the staff who lead them.</p>
         <div>
-          <button className="ch-btn accent" disabled={busy} onClick={onTemplate}>Use standard squads</button>
-          <button className="ch-btn outline" onClick={onStaff}>
-            <Plus size={16} />{' Add staff'}</button>
+          {onTemplate && <button className="ch-btn accent" disabled={busy} onClick={onTemplate}>Use standard squads</button>}
+          {onStaff && <button className="ch-btn outline" onClick={onStaff}>
+            <Plus size={16} />{' Add staff'}</button>}
         </div>
       </div> : <div className="ch-tree-scroll" tabIndex={0} aria-label="Scroll club map horizontally">
         <div className="ch-tree">
@@ -100,7 +101,7 @@ export function PitchMap({
         </div>
       </div>}
       <p className="ch-pitch-note">
-        <LockKeyhole size={13} />{' Only your verified club managers can see this map.'}</p>
+        <LockKeyhole size={13} />{staffAccessEnabled ? ' Only people your club has given access can see this map.' : ' Only your verified club managers can see this map.'}</p>
     </div>
     {selected && <div className="ch-dock">
       <PlayerAvatar member={selected} />
@@ -152,7 +153,7 @@ export function PlayerCard({
     <small>{member.is_minor ? 'Private · Under 18' : 'Private club roster'}</small>
     <FilmEvidence film={member.film} />
     <button className="ch-card-action" onClick={onOpen}>Open player page <ArrowUpRight size={14} /></button>
-    <button className="ch-card-action" onClick={() => setEditing(!editing)}>Move squad / shirt number</button>
+    {onSave && <button className="ch-card-action" onClick={() => setEditing(!editing)}>Move squad / shirt number</button>}
     {editing && <form className="ch-player-edit" onSubmit={async e => {
       e.preventDefault();
       setSaving(true);

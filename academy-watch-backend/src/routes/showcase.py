@@ -1534,16 +1534,14 @@ def create_local_club():
 
 def _club_creation_program():
     """Only an authorized club request receives the program-scoped allowance."""
-    from src.services.club_registry import is_manager_of_approved_program
+    from src.services.club_access import club_can
 
     if "club_creation_program" not in request.environ:
         data = request.get_json(silent=True)
         program_id = data.get("club_program_id") if isinstance(data, dict) else None
         user = _current_user_account()
         request.environ["club_creation_program"] = (
-            program_id
-            if type(program_id) is int and user and is_manager_of_approved_program(user.id, program_id)
-            else None
+            program_id if type(program_id) is int and user and club_can(user.id, program_id, "players.manage") else None
         )
     return request.environ["club_creation_program"]
 
@@ -1565,7 +1563,7 @@ def create_local_player():
     from src.models.funding import ClubProgram
     from src.routes.club import _clean_optional, _member_dict
     from src.routes.club_home import HomeError, assign_roster, check_roster_capacity
-    from src.services.club_registry import is_manager_of_approved_program
+    from src.services.club_access import club_can
 
     try:
         user = _current_user_account()
@@ -1579,7 +1577,7 @@ def create_local_player():
         club_program_id = payload.get("club_program_id")
         roster_member = None
         if "club_program_id" in payload:
-            if type(club_program_id) is not int or not is_manager_of_approved_program(user.id, club_program_id):
+            if type(club_program_id) is not int or not club_can(user.id, club_program_id, "players.manage"):
                 return jsonify({"error": "Club manager access denied"}), 403
             db.session.query(ClubProgram).filter_by(id=club_program_id).with_for_update().one()
             check_roster_capacity(club_program_id)

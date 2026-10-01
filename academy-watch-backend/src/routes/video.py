@@ -40,7 +40,7 @@ from src.models.video import (
 )
 from src.routes.api import require_api_key
 from src.services import video_boxes, video_dev_artifacts, video_queue, video_reels, video_retention, video_storage
-from src.services.capture_meta import merge_preflight
+from src.services.capture_meta import merge_preflight, strip_server_owned
 from src.services.player_suppression import is_local_player_suppressed, is_player_suppressed
 from src.services.video_feedback import build_feedback_labels
 from src.services.video_identity import NUMBER_AGREEMENT_MIN, split_chain
@@ -91,7 +91,8 @@ def create_video_match():
             return _bad_request("match_date must be YYYY-MM-DD")
 
     try:
-        capture_meta = data.get("capture_meta")
+        # Local artifact paths are server-owned; register them only through trusted server code.
+        capture_meta = strip_server_owned(data.get("capture_meta"))
         capture_meta = merge_preflight(capture_meta, capture_meta or {})
         capture_meta = merge_preflight(capture_meta, data)
     except ValueError as exc:
@@ -134,6 +135,15 @@ def remint_upload_sas(match_id: int):
         return jsonify({"error": "retention deadline too close to issue an upload grant; create a new match"}), 409
     if not video_storage.is_configured():
         return jsonify({"error": "blob storage not configured"}), 503
+    from src.services.club_access import record_coverage
+
+    record_coverage(match)  # club matches only: re-grant snapshot (no-op for legacy matches)
+    from src.services.club_access import recording_completed, unpublish_recording
+
+    if recording_completed(match):
+        # A new write grant on a completed club recording: "replacing" until the next verified completion.
+        unpublish_recording(match)
+    db.session.commit()
     return jsonify(video_storage.mint_upload_sas(match.blob_path))
 
 
@@ -175,6 +185,12 @@ def upload_complete(match_id: int):
     if is_reattestation:
         match.processing_requested_at = None
         match.processing_requested_by_user_id = None
+    from src.services.club_access import record_coverage
+
+    record_coverage(match)  # club matches only; never creates provenance (legacy stays legacy)
+    from src.services.club_access import publish_recording
+
+    publish_recording(match)  # club matches only: verified ETag becomes readable by scoped staff
     db.session.commit()
     return jsonify(match.to_dict() | {"size_bytes": check["size_bytes"]})
 
@@ -265,6 +281,9 @@ def upsert_roster(match_id: int):
             return _bad_request(f"duplicate jersey_number {number}")
         seen_numbers.add(number)
 
+    from src.services.club_access import record_coverage
+
+    record_coverage(match)  # club matches only: snapshot rows before any are replaced or removed
     existing = {r.jersey_number: r for r in match.roster_entries}
     kept_numbers = set()
     for e in entries:
@@ -289,6 +308,7 @@ def upsert_roster(match_id: int):
             )
             db.session.delete(row)
             removed += 1
+    record_coverage(match)  # club matches only; name-only rows mark the recording uncertain
     db.session.commit()
     return jsonify(
         {
@@ -819,6 +839,7 @@ def media_token(match_id: int):
 
 def _media_match_or_error(match_id: int):
     """Validate ?token= then load the match. Returns (match, None) or (None, resp)."""
+    g.scoped_media_snapshot = None  # set below only for squad-scoped club staff
     token = request.args.get("token", "")
     if not verify_media_token(token, match_id):
         return None, (jsonify({"error": "invalid or expired media token"}), 403)
@@ -836,7 +857,32 @@ def _media_match_or_error(match_id: int):
             return None, (jsonify({"error": "match not found"}), 404)
         if match.club_program_id != club_program_id:
             return None, (jsonify({"error": "match not found"}), 404)
+        club_user_id = claims.get("club_user_id")
+        if club_user_id is not None and not _club_media_access_live(club_user_id, match):
+            # Revoked/narrowed staff access ends immediately, even mid-token.
+            return None, (jsonify({"error": "match not found"}), 404)
     return match, None
+
+
+def _club_media_access_live(club_user_id, match) -> bool:
+    from src.services.club_access import resolve_club_access
+
+    try:
+        access = resolve_club_access(int(club_user_id), match.club_program_id)
+    except (TypeError, ValueError):
+        return False
+    from src.services.club_access import match_visible_to, scoped_recording_intact
+
+    if not (access and access.can("matches.view") and match_visible_to(access, match, require_bytes=True)):
+        return False
+    if access.whole_club:
+        return True
+    # Scoped staff additionally need the stored object to still be the verified upload, and are
+    # only ever signed for the immutable snapshot of that generation (see stream_footage).
+    if not scoped_recording_intact(match):
+        return False
+    g.scoped_media_snapshot = match.scoped_snapshot
+    return True
 
 
 def _admin_or_media_token(f):
@@ -889,7 +935,11 @@ def stream_footage(match_id: int):
         remaining = media_token_remaining_seconds(request.args.get("token", ""), match_id)
         if remaining <= 0:
             return jsonify({"error": "invalid or expired media token"}), 403
-        resp = redirect(video_storage.mint_media_read_sas(match.blob_path, seconds=remaining))
+        snapshot = getattr(g, "scoped_media_snapshot", None)
+        if snapshot:  # squad-scoped club staff: the verified immutable generation only
+            resp = redirect(video_storage.mint_media_read_sas(match.blob_path, seconds=remaining, snapshot=snapshot))
+        else:
+            resp = redirect(video_storage.mint_media_read_sas(match.blob_path, seconds=remaining))
         resp.headers["Cache-Control"] = "private, no-store"  # SAS rides the Location — don't cache/leak
         resp.headers["Referrer-Policy"] = "no-referrer"
         return resp

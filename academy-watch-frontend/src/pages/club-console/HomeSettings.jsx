@@ -11,7 +11,8 @@ export function HomeSettings({
   staff,
   mutate,
   refresh,
-  onAccessDenied
+  onAccessDenied,
+  staffAccessEnabled = false
 }) {
   if (view === 'branding') return <Branding program={program} refresh={refresh} onAccessDenied={onAccessDenied} />;
   const isStaff = view === 'staff';
@@ -19,8 +20,8 @@ export function HomeSettings({
   return <section>
     <div className="ch-heading">
       <div>
-        <h2>{isStaff ? 'Staff & roles' : 'Squads & age groups'}</h2>
-        <p>{isStaff ? 'The people who shape your club. Roles do not grant login access.' : 'Build the pathway that fits your club.'}</p>
+        <h2>{isStaff ? (staffAccessEnabled ? 'Staff directory' : 'Staff & roles') : 'Squads & age groups'}</h2>
+        <p>{isStaff ? (staffAccessEnabled ? 'Names and titles for your club map. Entries here don’t give anyone access — use Staff & access above.' : 'The people who shape your club. Roles do not grant login access.') : 'Build the pathway that fits your club.'}</p>
       </div>
     </div>
     <div className="ch-settings-list">

@@ -104,6 +104,7 @@ import { IntroductionsPage } from '@/pages/IntroductionsPage'
 import { ScoutVerificationPage } from '@/pages/ScoutVerificationPage'
 import { useContactRail } from '@/hooks/useContactRail.js'
 import { ClubConsentPage } from '@/pages/ClubConsentPage'
+import { StaffInviteAccept } from '@/pages/StaffInviteAccept'
 import { FlagData } from '@/pages/FlagData'
 import { WriterLogin } from '@/pages/writer/WriterLogin'
 import { WriterDashboard } from '@/pages/writer/WriterDashboard'
@@ -4158,6 +4159,7 @@ function AppRoutes() {
       <Route path="/scout/verification" element={<ScoutVerificationPage />} />
       <Route path="/introductions" element={<IntroductionsPage />} />
       <Route path="/my-club" element={<MyClub />} />
+      <Route path="/staff-invite" element={<StaffInviteAccept />} />
       <Route path="/pricing" element={<PricingPage />} />
       <Route path="/account/billing" element={<AccountBillingPage />} />
       <Route path="/terms" element={<TermsPage />} />
