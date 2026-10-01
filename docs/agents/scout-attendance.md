@@ -14,9 +14,9 @@ checks; do not add independent player eligibility rules.
   scout; `{note, no_approach_confirmed:true}`. Note max 500; ten requests/hour and
   thirty/day per account. One event/scout pair; identical retry returns the same request.
 - Attendable events: published, listed/approved club without a publication hold, future
-  trial/open session, unexpired deadline, explicit `birth_year_max < current_year-18`.
-  This conservatively excludes the whole eighteenth-birthday year, unknown ages and
-  youth sessions. There is no access to applications, rosters or player identities.
+  trial/open session and unexpired deadline. P2R explicitly permits public youth-session
+  adverts; age bands do not grant access to applications, rosters or player identities.
+  Applicant identities remain private regardless of the session's advertised age band.
 - `GET /api/me/scout-attendance?after=<uuid>`: own retained requests, bounded cursor
   pages, fresh verification/listing/hold checks. Closed sessions stay in own history.
   `POST /api/me/scout-attendance/<uuid>/withdraw` takes `expected_version`.
@@ -34,7 +34,7 @@ checks; do not add independent player eligibility rules.
   `contact` for introductions/attendance, `matches.view` plus `match_bytes_in_scope`
   for team-sheet/analysing summaries. No applicant DTO, recording token/blob/job data.
 - `POST /api/opportunities/search`: anonymous JSON body `lat,lng,radius_km,page,type,
-  program_id,adult_sessions`; 4 kB hard streaming cap, 60 requests/minute. Uses B1's
+  program_id,event_sessions`; 4 kB hard streaming cap, 60 requests/minute. Uses B1's
   approved revision pin and haversine SQL ordering/radius before pagination. Missing
   pins return `distance_km:null`; radius excludes them. Coordinates are never accepted
   by the C4-enabled GET list; web location is memory-only and can be turned off.

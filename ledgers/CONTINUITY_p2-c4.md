@@ -2,7 +2,7 @@
 
 - Owner: /root; branch p2/c4-scout-attend, stacked on #1115; no merge/deploy.
 - State: in-progress — implementation, live local HTTP/browser and PostgreSQL race/migration checks passed; final broad gates and dependency refresh.
-- Constraints: SCOUT_ATTEND_ENABLED default OFF; p2c3 -> p2c2; scratch-only missing ancestors; no applicants exposed to scouts; adult sessions only on scout tab; approved club pins; visitor coordinates in POST bodies only.
+- Constraints: SCOUT_ATTEND_ENABLED default OFF; p2c3 -> p2c2; scratch-only missing ancestors; no applicants exposed to scouts; published trial/open-session adverts on scout tab (P2R permits youth adverts; no applicant identities); approved club pins; visitor coordinates in POST bodies only.
 - Done: inspected PHASE2/DESIGN/BUS/P2R §2, repo agent docs and N04/N08/N15/N16 mockups.
 - Done: isolated C4 backend/web flows, capability-scoped Today, POST distance, atomic outbox/audit, privacy/retention; real C1/C2 revisions copied; B3F3 integrated.
 - Now: full CI-equivalent pytest + full Playwright; latest B1/B2 fixes; review screenshots and final code.

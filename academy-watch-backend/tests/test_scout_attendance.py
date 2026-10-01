@@ -123,12 +123,10 @@ def test_unverified_revoked_suspended_denied_and_not_stored(client, c4):
     [
         {"status": "draft"},
         {"status": "closed"},
-        {"birth_year_max": now().year - 16},
-        {"birth_year_max": None},
         {"type": "position", "starts_at": None, "ends_at": None},
     ],
 )
-def test_only_published_explicit_adult_event(client, c4, changes):
+def test_only_published_event(client, c4, changes):
     post = create(
         client, c4, **{"birth_year_max": 2005, **{k: v for k, v in changes.items() if k != "status" or v != "closed"}}
     )
@@ -287,7 +285,7 @@ def test_distance_approved_pin_unknown_exclusion_and_body_only(client, c4):
     )
     db.session.commit()
     response = client.post(
-        "/api/opportunities/search", json={"lat": 35.0, "lng": 139.0, "radius_km": 50, "adult_sessions": True}
+        "/api/opportunities/search", json={"lat": 35.0, "lng": 139.0, "radius_km": 50, "event_sessions": True}
     )
     assert response.status_code == 200, response.get_json()
     assert [r["id"] for r in response.get_json()["opportunities"]] == [one["id"]]
@@ -425,3 +423,32 @@ def test_closed_event_cannot_be_accepted_but_history_remains(client, c4):
     assert client.get(f"/api/club/{c4['pid']}/today", headers=_headers("a")).get_json()["queues"]["attendance"] == []
     history = client.get("/api/me/scout-attendance", headers=c4["scout_headers"]).get_json()["attendance"]
     assert history[0]["id"] == row["id"]
+
+
+@pytest.mark.parametrize("birth_year_max", [None, now().year - 16])
+def test_youth_and_unknown_session_attendance_never_exposes_applicants(client, c4, birth_year_max):
+    post = create(client, c4, birth_year_max=birth_year_max, title="TEST ONLY youth/unknown session")
+    response = ask(client, c4, post)
+    assert response.status_code == 201
+    assert set(response.get_json()["attendance"]) <= {
+        "id",
+        "opportunity_id",
+        "program_id",
+        "title",
+        "club_name",
+        "status",
+        "version",
+        "note",
+        "created_at",
+        "updated_at",
+        "retention_expires_at",
+    }
+    assert (
+        client.get(
+            f"/api/club/{c4['pid']}/opportunities/{post['id']}/applications", headers=c4["scout_headers"]
+        ).status_code
+        == 403
+    )
+    listed = client.post("/api/opportunities/search", json={"event_sessions": True}).get_json()["opportunities"]
+    assert any(item["id"] == post["id"] for item in listed)
+    assert all("applications" not in item and "applicants" not in item for item in listed)

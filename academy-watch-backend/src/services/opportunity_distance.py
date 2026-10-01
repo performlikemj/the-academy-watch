@@ -8,11 +8,11 @@ from src.models.funding import ClubProgramProfileRevision
 from src.models.opportunities import ClubOpportunity, now
 from src.services import club_directory as directory
 from src.services import opportunities
-from src.services.scout_attendance import adult_event
+from src.services.scout_attendance import attendance_event
 
 
 def search(data):
-    allowed = {"lat", "lng", "radius_km", "page", "program_id", "type", "adult_sessions"}
+    allowed = {"lat", "lng", "radius_km", "page", "program_id", "type", "event_sessions"}
     if not isinstance(data, dict) or set(data) - allowed:
         raise ValueError("invalid search")
     params = directory.parse_search(directory.search_args_from_body(data))
@@ -23,9 +23,9 @@ def search(data):
     kind = data.get("type")
     if kind is not None and (not isinstance(kind, str) or kind not in {"trial", "open_session", "position"}):
         raise ValueError("invalid type")
-    adults = data.get("adult_sessions", False)
-    if not isinstance(adults, bool):
-        raise ValueError("adult_sessions must be boolean")
+    events = data.get("event_sessions", False)
+    if not isinstance(events, bool):
+        raise ValueError("event_sessions must be boolean")
     revision = aliased(ClubProgramProfileRevision)
     query = (
         opportunities.public_query(pid)
@@ -34,10 +34,9 @@ def search(data):
     )
     if kind:
         query = query.filter(ClubOpportunity.type == kind)
-    if adults:
+    if events:
         query = query.filter(
             ClubOpportunity.type.in_(("trial", "open_session")),
-            ClubOpportunity.birth_year_max < now().year - 18,
             sa.or_(ClubOpportunity.starts_at.is_(None), ClubOpportunity.starts_at > now()),
         )
     order = [ClubOpportunity.closes_at, ClubOpportunity.id]
@@ -60,6 +59,6 @@ def search(data):
             if lat is not None and pin and pin.latitude is not None and pin.longitude is not None
             else None
         )
-        item["scout_attendance_available"] = adult_event(row)
+        item["scout_attendance_available"] = attendance_event(row)
         result.append(item)
     return {"opportunities": result, "page": page, "has_more": len(rows) > 30}

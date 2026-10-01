@@ -37,20 +37,16 @@ def verified(user_id):
     return user
 
 
-def adult_event(row):
-    # An explicit, unambiguously adult year band. Unknown / youth session bands stay off the scout surface.
-    return (
-        row.type in {"trial", "open_session"}
-        and row.birth_year_max is not None
-        and row.birth_year_max < now().year - 18
-    )
+def attendance_event(row):
+    # P2R permits youth-session adverts; attendance never grants access to any applicant.
+    return row.type in {"trial", "open_session"}
 
 
 def visible_event(row, *, accepting=False):
     if not row or not opportunity_service.enabled("OPPORTUNITIES_ENABLED"):
         return False
     program = opportunity_service.db.session.get(opportunity_service.ClubProgram, row.program_id)
-    if not program or not is_listed(program) or club_publication_held(row.program_id) or not adult_event(row):
+    if not program or not is_listed(program) or club_publication_held(row.program_id) or not attendance_event(row):
         return False
     return (
         row.status in ({"published"} if accepting else {"published", "closed"})
