@@ -150,7 +150,7 @@
             if path == "auth/me", method == "GET" {
                 return try json([
                     "email": "phase2@fixture.invalid", "role": "user", "user_id": 7,
-                    "display_name": "Reuben Castellane", "display_name_confirmed": true,
+                    "display_name": ProcessInfo.processInfo.arguments.contains("-reviewLongName") ? "Alexanderthegreat Castellane" : "Reuben Castellane", "display_name_confirmed": true,
                     "is_journalist": false,
                     "is_curator": false, "is_verified_scout": false,
                 ])

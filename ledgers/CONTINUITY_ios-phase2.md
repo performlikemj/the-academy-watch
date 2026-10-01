@@ -117,3 +117,5 @@
 - Source frozen before final cached backend/full/lint/frontend gates, full unit/offline and Release. Exact receipts/counts, light/dark screenshot index, resource cleanup and pushed SHA are authoritative in external `I1F3.final.md`; no migration changes/preapply contract needed.
 - Release dependency: `/opportunities/<id>#parent-interest` app link is retained; UXB #1124 must ship its web anchor/focus implementation before the app build.
 - Question for MJ (design, not defect): keep the approved N17 “Other states you will see” legend in the live thread?
+
+- Final visual inspection found the long-name DEBUG fixture was overwritten by auth/me refresh; fixture now preserves it and the390pt test asserts the actual name. Runtime source unchanged; final gates run on the revised committed head.

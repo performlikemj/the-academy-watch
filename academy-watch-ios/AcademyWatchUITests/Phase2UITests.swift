@@ -104,6 +104,7 @@ final class Phase2UITests: XCTestCase {
             XCTAssertTrue(waiting.waitForExistence(timeout: 10))
             let needs = app.staticTexts["Needs you"]
             XCTAssertTrue(needs.waitForExistence(timeout: 10))
+            XCTAssertTrue(greeting.label.contains(longName ? "Alexanderthegreat" : "Reuben"))
             XCTAssertGreaterThan(greeting.frame.height, 100)
             XCTAssertLessThanOrEqual(greeting.frame.maxY, waiting.frame.minY)
             XCTAssertLessThanOrEqual(waiting.frame.maxY, needs.frame.minY)
