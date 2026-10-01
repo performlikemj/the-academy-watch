@@ -427,8 +427,21 @@ for (const [width, height, size] of [[1440, 900, 'desktop'], [390, 844, 'mobile'
       await page.goto('/')
       await page.waitForLoadState('networkidle')
       expect(evidence.calls.filter(p => p === '/api/me/application-claims')).toHaveLength(1)
+      let showOwner
+      if (url.includes('local-players')) {
+        const waiting = new Promise(resolve => { showOwner = resolve })
+        await page.route('**/api/local-players/9/showcase', async route => { await waiting; await route.fallback() })
+      }
       evidence.recover()
       await navigate(page, url)
+      if (showOwner) {
+        await expect.poll(() => evidence.claimsReads.filter(value => !new URL(value).search).length).toBe(2)
+        // Opening the menu proves the recovery was published before summary mount.
+        const recoveredMenu = await menu(page)
+        await expect(recoveredMenu.getByText('My profile', { exact: true })).toBeVisible()
+        await page.keyboard.press('Escape')
+        showOwner()
+      }
       if (url.includes('onboarding')) await expect(page.getByRole('heading', { name: 'Your next step.' })).toBeVisible()
       else await normalContent(page, url, true)
       const opened = await menu(page)
@@ -493,7 +506,7 @@ for (const [width, height, size] of [[1440, 900, 'desktop'], [390, 844, 'mobile'
       await page.reload()
       if (url.includes('onboarding')) await expect(page.getByRole('heading', { name: 'Are you a player?' })).toBeVisible()
       else await expect(page.getByRole('heading', { name: 'Your next chapter.' })).toBeVisible()
-      expect(evidence.calls.filter(p => p === '/api/me/application-claims')).toHaveLength(url.includes('onboarding') ? 4 : 5)
+      expect(evidence.calls.filter(p => p === '/api/me/application-claims')).toHaveLength(4)
     })
     test('UXBF4 overlapping home and owner summary arrivals share a pending claims read', async ({ page }) => {
       const evidence = await fixture(page, { claims: [] })

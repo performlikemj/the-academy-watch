@@ -14,6 +14,7 @@ export function OpportunityStateProvider({ children }) {
   // on request results (which would cause automatic retry loops after failures).
   useLayoutEffect(() => { current.current = { flags, profiles } })
   const arrivals = useRef({ features: null, profiles: null })
+  const profilesArrival = useRef(null)
   const enable = useCallback((revalidateClaims = false, arrival) => {
     setRequested(true)
     const { flags: latestFlags, profiles: latestProfiles } = current.current
@@ -21,7 +22,16 @@ export function OpportunityStateProvider({ children }) {
     const freshProfiles = arrivals.current.profiles !== arrival
     arrivals.current = { features: arrival, profiles: arrival }
     if (latestFlags.error && freshFeatures) latestFlags.retry(true)
-    if (latestProfiles.error ? freshProfiles : revalidateClaims) latestProfiles.retry(true)
+    // Back/forward navigation can reuse a history key on a later visit.
+    if (freshProfiles) profilesArrival.current = null
+    // A read already pending on arrival, or recovery started by navigation,
+    // also satisfies a summary that mounts after its own profile data loads.
+    if (latestProfiles.loading || latestProfiles.refreshing) profilesArrival.current = arrival
+    const refreshProfiles = latestProfiles.error ? freshProfiles : revalidateClaims && profilesArrival.current !== arrival
+    if (refreshProfiles && latestFlags.applications) {
+      profilesArrival.current = arrival
+      latestProfiles.retry(true)
+    }
   }, [])
   return <OpportunityStateContext.Provider value={{ flags, profiles, enable }}>{children}</OpportunityStateContext.Provider>
 }
