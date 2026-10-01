@@ -47,7 +47,7 @@ function OpportunitiesPageContent() {
 }
 
 function AdultApplication({ opportunity }) {
-  const [claims, setClaims] = useState(null)
+  const [claims, setClaims] = useState(() => APIService.userToken ? null : [])
   const [claimId, setClaimId] = useState('')
   const [position, setPosition] = useState('')
   const [currentClub, setCurrentClub] = useState('')
@@ -57,6 +57,7 @@ function AdultApplication({ opportunity }) {
   const [done, setDone] = useState(false)
   const [requestKey] = useState(() => crypto.randomUUID())
   useEffect(() => {
+    if (!APIService.userToken) return
     let active = true
     APIService.request('/me/application-claims').then(data => {
       if (active) { setClaims(data.claims); setClaimId(String(data.claims[0]?.claim_id || '')) }

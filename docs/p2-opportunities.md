@@ -6,6 +6,7 @@
 
 ## Public opportunities
 
+- Signed-out list/detail visitors use public reads only. The adult application panel starts with empty claims and skips `/api/me/application-claims` when signed out; desktop/mobile Playwright interception checks both direct detail visits and list-to-detail navigation for zero authenticated requests and zero 401 responses.
 - `GET /api/opportunities?program_id=&type=&page=`: 30 per page, `has_more`; trial/open_session/position filters. `program_id` must be in 1..2147483647; malformed/out-of-range values return 400 `invalid_program_id`. `GET /api/opportunities/<uuid>` returns a published, unexpired opportunity for a publicly listable club. Eligibility matches B1’s `directory_eligibility()` as amended on BUS 10:49: approved, non-hidden, active manager with an approved matching source claim; a real funding league must be approved, while the synthetic console league may remain unlisted/proposed.
 - Youth sessions can be advertised, but these DTOs never contain applicant identities, staff account email, claim/proof/private feedback or applicant counts. Coach attribution is “Club coaching team.”
 - Capacity and places left are always absent from public DTOs, including after invitations; the public response never reveals a derived invited-applicant count. Reservations are pending/confirmed invitations; applications alone consume no capacity.

@@ -69,6 +69,56 @@ async function shot(page, name) {
 
 for (const width of [1440, 390]) {
   const size = width === 390 ? 'mobile' : 'desktop'
+  for (const entry of ['list', 'detail']) {
+    test(`anonymous visitor on opportunity ${entry} makes zero authenticated requests or 401s at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: width === 390 ? 844 : 900 })
+      await page.addInitScript(() => localStorage.clear())
+      const authenticatedRequests = []
+      const unauthorizedResponses = []
+      const publicRequests = []
+      page.on('response', response => { if (response.status() === 401) unauthorizedResponses.push(response.url()) })
+      // Deny everything except the public reads needed by these pages and the shell.
+      await page.route('**/api/**', route => {
+        const req = route.request(), p = new URL(req.url()).pathname
+        const publicReplies = {
+          '/api/meta/data-mode': { api_football_frozen: false },
+          '/api/sync-status': { syncing: false },
+          '/api/features': {},
+          '/api/opportunities/features': { opportunities: true, applications: true },
+          '/api/opportunities': { opportunities: [opportunity], has_more: false },
+          [`/api/opportunities/${oid}`]: { opportunity },
+        }
+        if (req.method() !== 'GET' || req.headers().authorization || !Object.hasOwn(publicReplies, p)) {
+          authenticatedRequests.push(`${req.method()} ${p}`)
+          return route.fulfill({ status: 401, json: { error: 'Sign in required' } })
+        }
+        publicRequests.push(p)
+        return route.fulfill({ json: publicReplies[p] })
+      })
+      if (entry === 'list') {
+        await page.goto('/opportunities')
+        await expect(page.getByRole('heading', { name: 'Open opportunities' })).toBeVisible()
+        await expect(page.getByRole('link', { name: /Synthetic B2 Club.*Adult development trial/ })).toBeVisible()
+        await page.waitForLoadState('networkidle')
+        expect(authenticatedRequests).toEqual([])
+        expect(unauthorizedResponses).toEqual([])
+        expect(publicRequests).toContain('/api/opportunities')
+        await page.getByRole('link', { name: /Synthetic B2 Club.*Adult development trial/ }).click()
+      } else {
+        await page.goto(`/opportunities/${oid}`)
+      }
+      await expect(page.getByRole('heading', { name: 'Take the next step.' })).toBeVisible()
+      await expect(page.getByText('Sign in and claim your adult player profile to apply.')).toBeVisible()
+      await expect(page.getByRole('link', { name: 'Find my profile' })).toBeVisible()
+      await expect(page.getByRole('button', { name: 'Send application' })).toHaveCount(0)
+      await expect(page.getByText('Checking your profiles…')).toHaveCount(0)
+      await expect(page.getByRole('alert')).toHaveCount(0)
+      await page.waitForLoadState('networkidle')
+      expect(publicRequests).toContain(`/api/opportunities/${oid}`)
+      expect(authenticatedRequests).toEqual([])
+      expect(unauthorizedResponses).toEqual([])
+    })
+  }
   test(`public opportunities and adult submission at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: width === 390 ? 844 : 900 })
     const requests = await fixture(page)
