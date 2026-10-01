@@ -16,6 +16,7 @@ from src.models.highlights import (
     HighlightConsentEvent,
     HighlightFootageReview,
     HighlightRenderJob,
+    HighlightTakedown,
     PlayerHighlight,
     now,
 )
@@ -604,11 +605,11 @@ def pick(match, data, actor):
     if selected is None:
         raise ValueError("reviewed_window_required")
     track, window = selected
-    if PlayerHighlight.query.filter_by(
+    if HighlightTakedown.query.filter_by(
         video_match_id=match.id,
         start_s=window["start_s"],
         end_s=window["end_s"],
-        admin_taken_down=True,
+        lifted_at=None,
     ).first():
         raise ValueError("highlight_admin_taken_down")
     member = lookup(ClubRosterMember, entry.club_roster_member_id)

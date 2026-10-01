@@ -140,6 +140,8 @@ Log one-liner in CONTINUITY.md's "Trivial Log" section.
 
 - Phase 2 highlights use reviewed immutable adult-only match snapshots and server reel windows; public lists/bytes recheck both keys via `services/highlights.py`. Separate `highlight_worker` performs bounded cuts and delayed private cleanup; never mint raw-match SAS or run ffmpeg in Flask. Source guards revoke consent even while dark. C2 revocation authorizes program/match ownership without raw-storage checks; GET evidence is batched per request, never reused across requests or worker commits. Institutional club reviews survive staff anonymization; only verified staff exercise the club key. Standalone read redirects expire after 60s; no raw/container capability.
 
+- C2 grants pin absolute expiry before eligibility/storage and rebuild batched evidence after I/O; web previews request authenticated URL JSON then use native video transport across origins. Sticky moderation holds contain only recording/window keys and survive clip audit purge/subject erasure; lifting requires fresh club and player consent.
+
 ## Quality Bar
 
 Before marking work complete:

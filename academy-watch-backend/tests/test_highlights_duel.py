@@ -176,6 +176,14 @@ def test_o11_age_upper_bound_needs_senior_attestation(world, age_limit):
         )
     )
     assert response.status_code == 200
+    from src.models.p2_foundation import AdminActionEvent
+
+    audit = (
+        AdminActionEvent.query.filter_by(action="highlight_recording_review")
+        .order_by(AdminActionEvent.id.desc())
+        .first()
+    )
+    assert audit.event_metadata["squad_adult_attested"] is True
     row = ready(world)
     assert approve(world, row).status_code == 200
     assert highlights.public(row)
@@ -295,6 +303,7 @@ def test_o5_reversible_hold_preserves_approved_asset(world):
 def test_o6_admin_takedown_sticky_until_admin_lift(world, monkeypatch):
     row = ready(world)
     assert approve(world, row).status_code == 200
+    hid = row.id
     admin = world["manager"]
     admin.is_admin = True
     world["app"].config["API_KEY"] = "duel-admin-key"
@@ -307,16 +316,16 @@ def test_o6_admin_takedown_sticky_until_admin_lift(world, monkeypatch):
         "X-API-Key": "duel-admin-key",
     }
     client = world["app"].test_client()
-    assert client.post(f"/api/admin/highlights/{row.id}/takedown", headers=auth).status_code == 200
+    assert client.post(f"/api/admin/highlights/{hid}/takedown", headers=auth).status_code == 200
     assert pick(world, title="Changed title").status_code == 422
     row.revoked_at = now() - timedelta(days=91)
     db.session.commit()
-    assert sweep_highlights()["highlights"] == 0
+    assert sweep_highlights()["highlights"] == 1
     assert pick(world).status_code == 422
-    assert client.post(f"/api/admin/highlights/{row.id}/lift", headers=headers(world["player"])).status_code != 200
-    assert client.post(f"/api/admin/highlights/{row.id}/lift", headers=auth).status_code == 200
+    assert client.post(f"/api/admin/highlights/{hid}/lift", headers=headers(world["player"])).status_code != 200
+    assert client.post(f"/api/admin/highlights/{hid}/lift", headers=auth).status_code == 200
     fresh = ready(world)
-    assert fresh.id != row.id and fresh.player_decision == "pending"
+    assert fresh.id != hid and fresh.player_decision == "pending"
     assert approve(world, fresh).status_code == 200
 
 
@@ -474,3 +483,55 @@ def test_o7_real_app_effective_no_referrer(world, monkeypatch, audience):
         assert response.status_code == 302
         assert response.headers["Referrer-Policy"] == "no-referrer"
     db._app_engines[app] = previous
+
+
+def test_o6_minimal_hold_survives_erasure_and_admin_can_lift_archived_id(world, monkeypatch):
+    from src.auth import issue_user_token
+    from src.models.highlights import HighlightTakedown
+    from src.services.account import _SchemaView
+    from src.services.highlights_account import erase_highlights
+
+    row = ready(world)
+    assert approve(world, row).status_code == 200
+    hid = row.id
+    monkeypatch.setenv("ADMIN_API_KEY", "duel-admin-key")
+    auth = {
+        "Authorization": "Bearer " + issue_user_token(world["manager"].email, role="admin")["token"],
+        "X-API-Key": "duel-admin-key",
+    }
+    client = world["app"].test_client()
+    assert client.post(f"/api/admin/highlights/{hid}/takedown", headers=auth).status_code == 200
+    erase_highlights(world["player"].id, _SchemaView())
+    db.session.commit()
+    assert PlayerHighlight.query.filter_by(id=hid).count() == 0
+    hold = db.session.get(HighlightTakedown, hid)
+    assert hold and hold.lifted_at is None
+    assert pick(world, title="New title after erasure").status_code == 422
+    assert client.post(f"/api/admin/highlights/{hid}/lift", headers=auth).status_code == 200
+    fresh = ready(world)
+    assert fresh.player_decision == "pending" and approve(world, fresh).status_code == 200
+
+
+def test_o6_existing_duplicate_window_also_loses_both_grants(world, monkeypatch):
+    from src.auth import issue_user_token
+
+    first = ready(world)
+    assert approve(world, first).status_code == 200
+    response = pick(world, title="Other title for same footage")
+    assert response.status_code == 201
+    second = db.session.get(PlayerHighlight, response.json["id"])
+    claimed = worker.claim_next()
+    assert worker.finish(*claimed, output_etag="other", output_size=20)
+    assert approve(world, second).status_code == 200
+    monkeypatch.setenv("ADMIN_API_KEY", "duel-admin-key")
+    auth = {
+        "Authorization": "Bearer " + issue_user_token(world["manager"].email, role="admin")["token"],
+        "X-API-Key": "duel-admin-key",
+    }
+    assert (
+        world["app"].test_client().post(f"/api/admin/highlights/{first.id}/takedown", headers=auth).status_code == 200
+    )
+    db.session.refresh(first)
+    db.session.refresh(second)
+    assert first.revoked_at and second.revoked_at
+    assert not highlights.public(first) and not highlights.public(second)

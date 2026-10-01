@@ -229,6 +229,9 @@ def ready(world):
     assert response.status_code == 201, response.json
     row = db.session.get(PlayerHighlight, response.json["id"])
     claimed = claim_next()
+    while claimed and db.session.get(HighlightRenderJob, claimed[0]).kind == "highlight_delete":
+        assert finish(*claimed)
+        claimed = claim_next()
     assert claimed
     assert finish(*claimed, output_etag="clip-v1", output_size=20)
     return row

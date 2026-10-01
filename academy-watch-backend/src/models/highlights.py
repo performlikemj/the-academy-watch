@@ -119,3 +119,20 @@ class HighlightRenderJob(db.Model):
             "status IN ('queued','running','succeeded','failed','cancelled')", name="ck_highlight_job_status"
         ),
     )
+
+
+class HighlightTakedown(db.Model):
+    """Minimal recording-window moderation hold; survives subject erasure."""
+
+    __tablename__ = "highlight_takedowns"
+    id = db.Column(db.String(36), primary_key=True)
+    video_match_id = db.Column(db.Integer, db.ForeignKey("video_matches.id", ondelete="CASCADE"), nullable=False)
+    start_s = db.Column(db.Float, nullable=False)
+    end_s = db.Column(db.Float, nullable=False)
+    lifted_at = db.Column(db.DateTime)
+    __table_args__ = (
+        db.Index("ix_highlight_takedown_window", "video_match_id", "start_s", "end_s"),
+        db.CheckConstraint(
+            "start_s >= 0 AND end_s > start_s AND end_s-start_s <= 60", name="ck_highlight_takedown_range"
+        ),
+    )

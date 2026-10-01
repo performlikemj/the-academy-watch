@@ -7,6 +7,7 @@ from src.models.highlights import (
     HighlightConsentEvent,
     HighlightFootageReview,
     HighlightRenderJob,
+    HighlightTakedown,
     PlayerHighlight,
     now,
 )
@@ -96,7 +97,7 @@ def sweep_highlights(*, limit=100):
                 expired += 1
         db.session.commit()
     terminal = (
-        PlayerHighlight.query.filter(PlayerHighlight.revoked_at < audit, PlayerHighlight.admin_taken_down.is_(False))
+        PlayerHighlight.query.filter(PlayerHighlight.revoked_at < audit)
         .order_by(PlayerHighlight.revoked_at, PlayerHighlight.id)
         .limit(limit)
         .all()
@@ -116,7 +117,6 @@ def sweep_highlights(*, limit=100):
         .filter(
             HighlightConsentEvent.created_at < audit,
             PlayerHighlight.revoked_at < audit,
-            PlayerHighlight.admin_taken_down.is_(False),
         )
         .order_by(HighlightConsentEvent.id)
         .limit(limit)
@@ -169,10 +169,26 @@ def sweep_highlights(*, limit=100):
                 queue_cleanup(job.blob_path)
         db.session.delete(job)
     db.session.commit()
+    holds = (
+        db.session.query(HighlightTakedown.id, HighlightTakedown.video_match_id)
+        .filter(HighlightTakedown.lifted_at < audit)
+        .order_by(HighlightTakedown.id)
+        .limit(limit)
+        .all()
+    )
+    purged_holds = 0
+    for hid, mid in holds:
+        VideoMatch.query.filter_by(id=mid).with_for_update().first()
+        hold = HighlightTakedown.query.filter_by(id=hid).populate_existing().with_for_update().first()
+        if hold and hold.lifted_at and hold.lifted_at < audit:
+            db.session.delete(hold)
+            purged_holds += 1
+        db.session.commit()
     return {
         "expired": expired,
         "highlights": len(terminal),
         "events": len(events),
         "reviews": len(reviews),
         "jobs": len(jobs),
+        "takedowns": purged_holds,
     }

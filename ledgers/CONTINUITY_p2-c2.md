@@ -8,7 +8,7 @@
 - Own port5202 and scratch aw_c2f1/aw_c2f1_pre; foreground only; clean own resources.
 
 ## State
-- In progress C2F2: review-duel union; O1 first-use autoflush first. Lead rulings: unknown senior attestation verified-manager-only, sticky admin takedown, source revocation notified/recoverable. No 14-day expiry; unanswered follows raw deadline, declined ready assets deleted immediately.
+- In progress C2F2 (full gates): review-duel union; O1 first-use autoflush first. Lead rulings: unknown senior attestation verified-manager-only, sticky admin takedown, source revocation notified/recoverable. No 14-day expiry; unanswered follows raw deadline, declined ready assets deleted immediately.
 - Complete (fix round 1): all RC2 F1–F16 FIXED; final application d2c9750f verified; delivery/cleanup below.
 - Fix gates: final focused102 pass1 optional C1 skip; PG57 pass; query/failure-download4 pass (SQL10/11/12/14 at1/25/100 clips); exact real-app98 dark-method/path pairs/zeroSQL; modern browser242 pass4skip. OSV547/Node219/lint0errors192warnings/build pass; Ruff598 clean.
 - Full gate: final flags-OFF4343 pass94skip0fail149warnings (1054.65s), DB_SSLMODE=disable corrected local SSL-only fixture errors. Unfiltered browser240pass20fail5skip16serial-not-run:18 historical legacy/live-fixture failures +2 C4 fixed1s initialization races under parallel load; same C4 file4/4 pass with normal worker setting (and included in modern242-pass suite).
@@ -27,6 +27,12 @@
 - Rollout: apply real C1 then C2 schema before deployment; build/schedule independent ffmpeg worker and existing outbox before enabling. Native views are I1, sharing these APIs.
 - Delivery: final C2F1 per-finding hand-back/logs and19 shots outside repo; PR1122 remains open/unmerged. Latest main/B2/B3 included; C1 c11e36f verified unchanged at C1 final hand-back.
 - Cleanup: own Vite5202 stopped; own aw_c2f1/aw_c2f1_pre and generated/temp outputs removed before delivery. Existing dependencies retained; no provider sends/deploy/merge. Independent dual review is orchestrator next step.
+
+## C2F2 evidence
+- Reverse reviewed a1c5584c: new duel regressions53fail/3controls. O1 both initial classifications fail, fixed SQLite/PG pass.
+- Initial focused158pass1skip; expanded PostgreSQL159pass1skip, fresh real concurrent grant/revoke11pass. Browser lane15pass incl actual three-origin native playback with no storage CORS/token/referrer.
+- C2 migration7a523b7c; public-schema equality9660c64a; C1 7ff6c7d2 and B3 f073ecc8 copied verbatim. Latest published main784b1490/C1d9105c37/B346a4274f merged before full gates.
+- OSV547clean; Node221/lint0errors193warnings/build/Ruff-format pass. Full flags-off and modern browsers running.
 
 ## Acceptance / checks
 - Both keys required; revoke removes lists+bytes immediately; minors/unknown ages/private matches blocked.

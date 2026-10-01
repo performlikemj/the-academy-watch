@@ -107,6 +107,20 @@ ALTER TABLE public.player_highlights ADD COLUMN IF NOT EXISTS admin_taken_down B
 
 UPDATE public.player_highlights SET admin_taken_down=true WHERE revoke_reason='admin_takedown';
 
+CREATE TABLE IF NOT EXISTS public.highlight_takedowns (
+	id VARCHAR(36) NOT NULL, 
+	video_match_id INTEGER NOT NULL, 
+	start_s FLOAT NOT NULL, 
+	end_s FLOAT NOT NULL, 
+	lifted_at TIMESTAMP WITHOUT TIME ZONE, 
+	PRIMARY KEY (id), 
+	CONSTRAINT ck_highlight_takedown_range CHECK (start_s >= 0 AND end_s > start_s AND end_s-start_s <= 60), 
+	FOREIGN KEY(video_match_id) REFERENCES video_matches (id) ON DELETE CASCADE
+);
+ALTER TABLE public.highlight_takedowns ENABLE ROW LEVEL SECURITY;
+CREATE INDEX IF NOT EXISTS ix_highlight_takedown_window ON highlight_takedowns (video_match_id,start_s,end_s);
+INSERT INTO public.highlight_takedowns(id,video_match_id,start_s,end_s) SELECT id,video_match_id,start_s,end_s FROM public.player_highlights WHERE admin_taken_down=true AND video_match_id IS NOT NULL ON CONFLICT(id) DO NOTHING;
+
 -- Schema-only, idempotent source-version fencing. Included verbatim by p2c2 and preapply.
 CREATE OR REPLACE FUNCTION public.p2c2_invalidate_match(mid integer) RETURNS void LANGUAGE plpgsql AS $$
 DECLARE changed RECORD;

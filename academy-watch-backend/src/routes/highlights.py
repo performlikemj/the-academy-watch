@@ -10,7 +10,7 @@ from sqlalchemy.exc import DBAPIError
 from src.auth import require_api_key, require_user_auth
 from src.extensions import limiter
 from src.models.funding import ClubProgram, ClubProgramClaim, ClubProgramManager
-from src.models.highlights import HighlightFootageReview, PlayerHighlight, now
+from src.models.highlights import HighlightFootageReview, HighlightTakedown, PlayerHighlight, now
 from src.models.league import db
 from src.models.video import VideoMatch
 from src.services import highlights as service
@@ -243,7 +243,7 @@ def review_recording(program_id, match_id):
         "video_match",
         match.id,
         "All visible people reviewed" if classification == "adult_only" else "Recording kept private",
-        meta={"program_id": program_id, "adult_only": classification == "adult_only"},
+        meta={"program_id": program_id, "adult_only": classification == "adult_only", "squad_adult_attested": attested},
     )
     db.session.commit()
     return jsonify(classification=classification)
@@ -483,7 +483,23 @@ def clip_response(row, *, expires_at, audience, program_id=None, match_id=None):
 def admin_takedown(highlight_id):
     row = locked_row(highlight_id)
     row.admin_taken_down = True
+    if row.video_match_id:
+        hold = db.session.get(HighlightTakedown, row.id)
+        if hold is None:
+            db.session.add(
+                HighlightTakedown(id=row.id, video_match_id=row.video_match_id, start_s=row.start_s, end_s=row.end_s)
+            )
+        else:
+            hold.lifted_at = None
     service.revoke(row, g.user_id, "admin_takedown")
+    if row.video_match_id:
+        for sibling in (
+            PlayerHighlight.query.filter_by(video_match_id=row.video_match_id, start_s=row.start_s, end_s=row.end_s)
+            .order_by(PlayerHighlight.id)
+            .with_for_update()
+        ):
+            if sibling.id != row.id:
+                service.revoke(sibling, g.user_id, "admin_window_hold")
     record_admin_event(g.user, "highlight_takedown", "player_highlight", row.id, "Admin withdrew clip publication")
     db.session.commit()
     return jsonify(id=row.id, revoked=True)
@@ -494,14 +510,28 @@ def admin_takedown(highlight_id):
 @require_api_key
 @require_user_auth
 def admin_lift(highlight_id):
-    row = locked_row(highlight_id)
-    row.admin_taken_down = False
-    if row.revoke_reason == "admin_takedown":
-        row.revoke_reason = "admin_lift"
-    service.event(row, g.user_id, "admin_lift")
-    record_admin_event(g.user, "highlight_takedown_lift", "player_highlight", row.id, "Admin lifted clip takedown")
+    valid_id(highlight_id)
+    hold = db.session.get(HighlightTakedown, highlight_id)
+    row = db.session.get(PlayerHighlight, highlight_id)
+    mid = hold.video_match_id if hold else row.video_match_id if row else None
+    if not hold and not row:
+        abort(404)
+    if mid:
+        VideoMatch.query.filter_by(id=mid).with_for_update().first()
+    if hold:
+        hold = HighlightTakedown.query.filter_by(id=highlight_id).populate_existing().with_for_update().one()
+        hold.lifted_at = now()
+    if row:
+        row = PlayerHighlight.query.filter_by(id=highlight_id).populate_existing().with_for_update().one()
+        row.admin_taken_down = False
+        if row.revoke_reason == "admin_takedown":
+            row.revoke_reason = "admin_lift"
+        service.event(row, g.user_id, "admin_lift")
+    record_admin_event(
+        g.user, "highlight_takedown_lift", "player_highlight", highlight_id, "Admin lifted clip takedown"
+    )
     db.session.commit()
-    return jsonify(id=row.id, revoked=True)
+    return jsonify(id=highlight_id, revoked=True)
 
 
 @highlights_bp.get("/highlights/<highlight_id>/clip")

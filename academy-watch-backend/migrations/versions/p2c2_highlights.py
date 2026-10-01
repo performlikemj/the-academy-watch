@@ -18,9 +18,11 @@ TABLES = {
     "highlight_consent_events": "CREATE TABLE highlight_consent_events (\n\tid SERIAL NOT NULL, \n\thighlight_id VARCHAR(36) NOT NULL, \n\tactor_user_id INTEGER, \n\taction VARCHAR(30) NOT NULL, \n\tversion INTEGER NOT NULL, \n\tsource_version INTEGER NOT NULL, \n\tcreated_at TIMESTAMP WITHOUT TIME ZONE NOT NULL, \n\tPRIMARY KEY (id), \n\tFOREIGN KEY(highlight_id) REFERENCES player_highlights (id) ON DELETE CASCADE, \n\tFOREIGN KEY(actor_user_id) REFERENCES user_accounts (id) ON DELETE SET NULL\n)",
     "highlight_footage_reviews": "CREATE TABLE highlight_footage_reviews (\n\tvideo_match_id INTEGER NOT NULL, \n\treviewer_user_id INTEGER, \n\tclassification VARCHAR(20) NOT NULL, \n\tsource_etag VARCHAR(100) NOT NULL, \n\tsource_snapshot VARCHAR(64) NOT NULL, \n\treviewed_at TIMESTAMP WITHOUT TIME ZONE NOT NULL, \n\tPRIMARY KEY (video_match_id), \n\tCONSTRAINT ck_highlight_footage_review CHECK (classification IN ('adult_only','private')), \n\tFOREIGN KEY(video_match_id) REFERENCES video_matches (id) ON DELETE CASCADE, \n\tFOREIGN KEY(reviewer_user_id) REFERENCES user_accounts (id) ON DELETE SET NULL\n)",
     "highlight_render_jobs": "CREATE TABLE highlight_render_jobs (\n\tid VARCHAR(36) NOT NULL, \n\thighlight_id VARCHAR(36), \n\tkind VARCHAR(30) NOT NULL, \n\tsource_version INTEGER, \n\tstatus VARCHAR(20) DEFAULT 'queued' NOT NULL, \n\tattempt INTEGER DEFAULT '0' NOT NULL, \n\tlease_token VARCHAR(36), \n\tlease_expires_at TIMESTAMP WITHOUT TIME ZONE, \n\tblob_path VARCHAR(500), \n\terror_code VARCHAR(40), \n\tcreated_at TIMESTAMP WITHOUT TIME ZONE NOT NULL, \n\tcompleted_at TIMESTAMP WITHOUT TIME ZONE, \n\tPRIMARY KEY (id), \n\tCONSTRAINT ck_highlight_job_kind CHECK (kind IN ('highlight_cut','highlight_delete')), \n\tCONSTRAINT ck_highlight_job_status CHECK (status IN ('queued','running','succeeded','failed','cancelled')), \n\tFOREIGN KEY(highlight_id) REFERENCES player_highlights (id) ON DELETE SET NULL\n)",
+    "highlight_takedowns": "CREATE TABLE highlight_takedowns (\n\tid VARCHAR(36) NOT NULL, \n\tvideo_match_id INTEGER NOT NULL, \n\tstart_s FLOAT NOT NULL, \n\tend_s FLOAT NOT NULL, \n\tlifted_at TIMESTAMP WITHOUT TIME ZONE, \n\tPRIMARY KEY (id), \n\tCONSTRAINT ck_highlight_takedown_range CHECK (start_s >= 0 AND end_s > start_s AND end_s-start_s <= 60), \n\tFOREIGN KEY(video_match_id) REFERENCES video_matches (id) ON DELETE CASCADE\n)",
 }
 
 INDEXES = [
+    "CREATE INDEX IF NOT EXISTS ix_highlight_takedown_window ON highlight_takedowns (video_match_id,start_s,end_s)",
     "CREATE INDEX IF NOT EXISTS ix_player_highlights_local_player_id ON player_highlights (local_player_id)",
     "CREATE INDEX IF NOT EXISTS ix_player_highlights_recipient_user_id ON player_highlights (recipient_user_id)",
     "CREATE INDEX IF NOT EXISTS ix_player_highlights_video_match_id ON player_highlights (video_match_id)",
@@ -48,6 +50,9 @@ def upgrade():
         "ALTER TABLE public.player_highlights ADD COLUMN IF NOT EXISTS admin_taken_down BOOLEAN NOT NULL DEFAULT false"
     )
     op.execute("UPDATE public.player_highlights SET admin_taken_down=true WHERE revoke_reason='admin_takedown'")
+    op.execute(
+        "INSERT INTO public.highlight_takedowns(id,video_match_id,start_s,end_s) SELECT id,video_match_id,start_s,end_s FROM public.player_highlights WHERE admin_taken_down=true AND video_match_id IS NOT NULL ON CONFLICT(id) DO NOTHING"
+    )
     for sql in INDEXES:
         op.execute(sql)
     op.execute(SOURCE_GUARDS)
