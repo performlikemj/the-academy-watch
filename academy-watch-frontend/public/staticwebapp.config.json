@@ -4,6 +4,17 @@
     "exclude": ["/assets/*", "/*.ico", "/*.png", "/*.webmanifest", "/robots.txt"]
   },
   "routes": [
+    { "route": "/dream-team", "redirect": "/", "statusCode": 301 },
+    { "route": "/academy", "redirect": "/", "statusCode": 301 },
+    { "route": "/academy/*", "redirect": "/", "statusCode": 301 },
+    { "route": "/teams", "redirect": "/", "statusCode": 301 },
+    { "route": "/teams/*", "redirect": "/", "statusCode": 301 },
+    { "route": "/newsletters", "redirect": "/", "statusCode": 301 },
+    { "route": "/newsletters/*", "redirect": "/", "statusCode": 301 },
+    { "route": "/journalists", "redirect": "/", "statusCode": 301 },
+    { "route": "/journalists/*", "redirect": "/", "statusCode": 301 },
+    { "route": "/writeups/*", "redirect": "/", "statusCode": 301 },
+    { "route": "/submit-take", "redirect": "/", "statusCode": 301 },
     { "route": "/assets/*", "headers": { "Cache-Control": "public, max-age=31536000, immutable" } }
   ],
   "globalHeaders": {
@@ -11,7 +22,6 @@
     "X-Frame-Options": "DENY"
   }
 }
-
 
 
 

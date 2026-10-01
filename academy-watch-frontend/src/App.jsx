@@ -4066,7 +4066,7 @@ function AppWithRouter() {
           onClearRecent={globalSearch.clearRecentSearches}
         />
         <PlayerOnboardingPrompt />
-        {(isLegacyPublicRoute(location.pathname) || location.state?.legacyPublicRedirect) && !LEGACY_PUBLIC_PAGES ? <meta name="robots" content="noindex, nofollow" /> : null}
+        {isLegacyPublicRoute(location.pathname) && !LEGACY_PUBLIC_PAGES ? <meta name="robots" content="noindex, nofollow" /> : null}
         <main>
           <AppRoutes />
         </main>
@@ -4093,7 +4093,7 @@ function AppWithRouter() {
 }
 
 function LegacyPublicRedirect() {
-  return <Navigate to="/" replace state={{ legacyPublicRedirect: true }} />
+  return <Navigate to="/" replace />
 }
 
 // Inline legacy pages remain in this file; external pages above are lazy imports.

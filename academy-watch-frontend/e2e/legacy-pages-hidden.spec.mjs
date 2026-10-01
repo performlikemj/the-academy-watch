@@ -48,13 +48,39 @@ for (const pattern of LEGACY_PUBLIC_ROUTES) {
     await page.goto(`${legacyPath}?legacy=1`)
     await expect(page).toHaveURL(/\/$/)
     await expect(page.getByRole('heading', { level: 1 })).toContainText('Every player deserves')
-    await expect(page.locator('meta[name="robots"]')).toHaveAttribute('content', 'noindex, nofollow')
+    await expect(page.locator('meta[name="robots"]')).toHaveCount(0)
     expect(requests.filter((url) => /^\/api\/(teams|newsletters|journalists|cohorts|commentaries|community-takes|public-formations)(\/|$)/.test(url))).toEqual([])
     await page.getByRole('link', { name: 'Explore players', exact: true }).click()
     await expect(page).toHaveURL(/\/scout$/)
     await expect(page.locator('meta[name="robots"]')).toHaveCount(0)
   })
 }
+
+test('in-app legacy navigation returns to home without noindex', async ({ page }) => {
+  await mockApi(page, [])
+  await page.goto('/')
+  await expect(page.getByRole('heading', { level: 1 })).toContainText('Every player deserves')
+  for (const pattern of LEGACY_PUBLIC_ROUTES) {
+    await page.evaluate((pathname) => {
+      globalThis.history.pushState(null, '', pathname)
+      globalThis.dispatchEvent(new globalThis.PopStateEvent('popstate'))
+    }, pattern.replace(/:[^/]+/g, '42'))
+    await expect(page).toHaveURL(/\/$/)
+    await expect(page.getByRole('heading', { level: 1 })).toContainText('Every player deserves')
+    await expect(page.locator('meta[name="robots"]')).toHaveCount(0)
+    expect(await page.evaluate(() => globalThis.history.state?.usr?.legacyPublicRedirect)).toBeUndefined()
+  }
+})
+
+test('home ignores redirect state left by an older client', async ({ page }) => {
+  await mockApi(page, [])
+  await page.addInitScript(() => {
+    globalThis.history.replaceState({ usr: { legacyPublicRedirect: true }, key: 'old-redirect', idx: 0 }, '', '/')
+  })
+  await page.goto('/')
+  await expect(page.getByRole('heading', { level: 1 })).toContainText('Every player deserves')
+  await expect(page.locator('meta[name="robots"]')).toHaveCount(0)
+})
 
 for (const width of [1440, 390]) {
   for (const [slug, route, heading] of [
@@ -69,6 +95,7 @@ for (const width of [1440, 390]) {
       await mockApi(page, requests)
       await page.goto(route)
       await expect(page.getByRole('heading', { level: 1 })).toContainText(heading)
+      await expect(page.locator('meta[name="robots"]')).toHaveCount(0)
       const hrefs = await page.locator('a[href]').evaluateAll((anchors) => anchors.map((anchor) => anchor.getAttribute('href')))
       expect(hrefs.filter(isLegacyPublicRoute)).toEqual([])
       await expect(page.getByText('Writer Coverage', { exact: true })).toHaveCount(0)
