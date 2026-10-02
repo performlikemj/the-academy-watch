@@ -20,5 +20,5 @@ numpy==2.4.6                # if umap-learn/numba reject this, drop to numpy~=2.
 
 # footage download tooling (download_footage.py only — not needed on the GPU box
 # if you fetch footage elsewhere and scp it over)
-gdown==5.2.0                # SoccerTrack v2 Drive mirror (CC BY 4.0)
-yt-dlp==2026.6.9            # CC-licensed footage only — script enforces per-video license check
+gdown==5.2.2                # SoccerTrack v2 Drive mirror (CC BY 4.0)
+yt-dlp==2026.7.4            # CC-licensed footage only — script enforces per-video license check

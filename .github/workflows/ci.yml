@@ -200,3 +200,29 @@ jobs:
           tests/test_contact_lock_review_postgres.py tests/test_contact_lock_review_pairs_postgres.py
           tests/test_contact_lock_matrix_postgres.py
           -k 'not inventory_action_pair'
+      - name: PostgreSQL analysis loader regression
+        env:
+          GOL_POSTGRES_URL: postgresql+psycopg://postgres:postgres@localhost:5432/aw_sbxf2
+        run: |
+          python - <<'PY'
+          import os
+          import sqlalchemy as sa
+          url = sa.engine.make_url(os.environ['GOL_POSTGRES_URL'])
+          assert url.database == 'aw_sbxf2' and url.host == 'localhost'
+          engine = sa.create_engine(url.set(database='postgres'), isolation_level='AUTOCOMMIT')
+          with engine.connect() as connection:
+              connection.execute(sa.text('CREATE DATABASE aw_sbxf2'))
+          engine.dispose()
+          PY
+          python scripts/gol_postgres_fixture.py
+          python -m flask --app scripts.gol_postgres_fixture db upgrade
+          python -m pytest -q tests/test_gol_dataframes.py
+          python - <<'PY'
+          import os
+          import sqlalchemy as sa
+          url = sa.engine.make_url(os.environ['GOL_POSTGRES_URL'])
+          engine = sa.create_engine(url.set(database='postgres'), isolation_level='AUTOCOMMIT')
+          with engine.connect() as connection:
+              connection.execute(sa.text('DROP DATABASE aw_sbxf2'))
+          engine.dispose()
+          PY
