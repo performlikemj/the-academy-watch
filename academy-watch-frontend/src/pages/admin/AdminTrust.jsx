@@ -1,3 +1,4 @@
+import { formatDisplayDate } from '@/lib/display-date'
 import { useEffect, useState } from 'react'
 import { APIService } from '@/lib/api'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -77,12 +78,7 @@ function title(value) {
 }
 
 function formatDate(value, withTime = false) {
-    if (!value) return '—'
-    const date = new Date(value)
-    if (Number.isNaN(date.getTime())) return '—'
-    return withTime
-        ? date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
-        : date.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+    return formatDisplayDate(value, { fallback: '—', withTime })
 }
 
 function StatusBadge({ status, className = '' }) {

@@ -1,3 +1,4 @@
+import { formatDisplayDate } from '@/lib/display-date'
 import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -45,13 +46,8 @@ const COVERAGE_STATUS_STYLES = {
     denied: 'bg-red-50 text-red-800 border-red-200',
 }
 
-function formatDate(iso) {
-    if (!iso) return '—'
-    try {
-        return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
-    } catch {
-        return iso
-    }
+function formatDate(value) {
+    return formatDisplayDate(value, { fallback: '—' })
 }
 
 export function AdminUsers() {

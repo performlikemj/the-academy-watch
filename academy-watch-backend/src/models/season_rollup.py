@@ -27,6 +27,7 @@ spurious drop/create (the exact failure the D2 drift fixes guarded against).
 
 from sqlalchemy.dialects.postgresql import JSONB
 from src.models.league import db
+from src.utils.sanitize import display_plain_text
 
 # BigInteger surrogate PK that still works under the SQLite test harness (SQLite
 # only aliases INTEGER PRIMARY KEY to rowid) — mirrors ProductEvent.
@@ -80,6 +81,9 @@ class PlayerSeasonCell(db.Model):
     )
 
     def to_dict(self):
+        detail = self.detail
+        if self.source in {"club", "user"} and detail and "competition" in detail:
+            detail = {**detail, "competition": display_plain_text(detail["competition"])}
         return {
             "id": self.id,
             "player_api_id": self.player_api_id,
@@ -99,7 +103,7 @@ class PlayerSeasonCell(db.Model):
                 "goals_conceded": self.goals_conceded,
                 "avg_rating": float(self.avg_rating) if self.avg_rating is not None else None,
             },
-            "detail": self.detail,
+            "detail": detail,
             "synced_at": self.synced_at.isoformat() if self.synced_at else None,
         }
 

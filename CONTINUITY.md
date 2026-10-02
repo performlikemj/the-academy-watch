@@ -32,6 +32,13 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
 
 ## State
 
+- **UXM2F4 (2026-10-02):** five RUXM2V3 Coach’s-brief fixes implemented at source2dfdf6d6 plus final JSON-format correction; main ee16572f merged preserving B3/UXM1. Targeted109/worker→UI3/PG17/one Playwright39 pass;12 inspected shots; no migration/dependencies. Final-head cached gates, delivery SHA and completion state authoritative in `~/codex-runs/aw-redesign/logs/UXM2F4.final.md`; draft #1123, no merge. See `ledgers/CONTINUITY_uxm2.md`.
+
+- **UXM2F3 (2026-10-01):** draft1123 review-duel union + lead option1 complete at source041f372f (final browser readiness/ledger closure follows): full4131pass74skip0fail, PG13/Node225/Playwright142pass1existing skip/Ruff-format583/OSV/lint/build. Complete aliases/Latin folding, scoped visible-only save/full-inventory worker strip, refusal-only budget, real429/frozen decode. Main current,10 shots inspected, cleanup complete; delivery SHA in external `logs/UXM2F3.report.md` / `logs/UXM2F3.final.md`; independent duel next, no merge. See `ledgers/CONTINUITY_uxm2.md`.
+
+- **UXM2F2 (2026-10-01):** Review-duel union fixes/gates complete at code28a4883c on draft #1123; full4111pass70skip0fail, PG9/Node225/Playwright140pass1skip/Ruff-format571/OSV/lint/build. Stored-name inventory, neutral422/account budget, served public rollup decode; all names refused per fallback (BUS ruling absent at final reread). Cleanup complete; delivery SHA in `~/codex-runs/aw-redesign/logs/UXM2F2.final.md`; next independent duel, no merge. See `ledgers/CONTINUITY_uxm2.md`.
+
+- **Now (2026-10-01):** B2F5 local gates green after mechanical refresh onto main/B1 e82bb4e3: full flags-off4075pass69skip0fail, PG19/Node219/Playwright45/Ruff-format579/lint0err186warn/build. All36 untouched B2 blobs equal reviewed16540e03; p2b1 matches main; real dark-count omission2 pass. Push + ready #1113 + CI verification next; no merge. Hand-back `~/codex-runs/aw-redesign/logs/B2F5.final.md`; see `ledgers/CONTINUITY_p2-b2.md`.
 - **Now (N6F1):** PR1129 white-wing-only follow-up implemented; unchanged traced geometry, light ink wing contour, inline splash/tests regenerated. Final-head cached gates, browser/proof/screenshots, push and cleanup receipts in `~/codex-runs/aw-redesign/logs/N6F1.final.md`. See `ledgers/CONTINUITY_n6-web.md`; no merge.
 
 - **Now (2026-10-02 UXBF5):** Single duel-confirmed signed-out history retry fix implemented; main ee16572f/B3+UXM1 integrated; targeted48 PASS; ledger `ledgers/CONTINUITY_uxb.md`; final hand-back `~/codex-runs/aw-redesign/logs/UXBF5.final.md`. Exact final-head gates, delivery/ready/CI and cleanup recorded in external hand-back; PR1124, no merge.
@@ -1088,6 +1095,8 @@ CONTINUITY.md
 ```
 
 ## Active Ledgers
+
+- UXM2F1 fixes complete on draft PR #1123 (F1–F7; pytest4096/Node225/browser140; cleaned; independent review next): `ledgers/CONTINUITY_uxm2.md` (P-13 club/P-17–22/P-25; branch `fix/staging-ux-club-misc`).
 
 | Ledger | Status | Owner | Blockers |
 |--------|--------|-------|----------|

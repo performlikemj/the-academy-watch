@@ -339,3 +339,23 @@ def test_commentary_requires_journalist_role(client, app):
         },
     )
     assert resp.status_code == 403
+
+
+def test_loan_destinations_current_fields_and_counts(client, app):
+    parent = Team(team_id=7100, name="Synthetic Parent", country="England", season=2026)
+    destination = Team(team_id=7200, name="Synthetic Destination", country="England", season=2026)
+    db.session.add_all([parent, destination])
+    db.session.commit()
+    _make_writer("destinations@example.test")
+    for player_id in [7301, 7302]:
+        _make_loaned_player(
+            player_id=player_id, primary_team=parent, loan_team=destination, loan_team_name=destination.name
+        )
+    _make_loaned_player(player_id=7303, primary_team=parent, loan_team_name="Synthetic No-ID Destination")
+    response = client.get("/api/writer/loan-destinations", headers=_writer_headers("destinations@example.test"))
+    assert response.status_code == 200
+    assert response.json["destinations"] == [
+        {"name": destination.name, "team_id": destination.id, "player_count": 2},
+        {"name": "Synthetic No-ID Destination", "team_id": None, "player_count": 1},
+    ]
+    assert client.get("/api/writer/loan-destinations").status_code == 401
