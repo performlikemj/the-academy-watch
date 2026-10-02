@@ -138,6 +138,10 @@ Log one-liner in CONTINUITY.md's "Trivial Log" section.
 
 - Web feature consumers share `APIService.getFeatures()` through `src/lib/features.js`: cache successful bootstrap responses per page session, keep dark opportunity/application keys absent, and distinguish failed/pending flags from OFF. New dark entry points must make zero opportunity/application requests.
 
+- Web current-season reads share `lib/seasonDirectory.js` / `useSeasonDirectory`; use the server directory `display_season` for default desk labels and player label fallbacks; player totals prefer the response season, including frozen shadow history. Use `current_season` only as a last resort. Omit `season` from unpicked desk/player requests so the server retains latest-data fallbacks; carry every explicit URL/store pick into reads and player links. Retain historical URL/store overrides and frozen-mode logic; community pages have no picker, ignore stored season and keep games unfiltered; positive provider games retain the resolved totals season scope. Unpicked local/provider-linked totals also omit season, and game mutations reload the server default totals. The directory must not gate independent data reads. Short positions use `lib/positions.js::positionAbbreviation`; keep free text on player profiles.
+
+- Community global search shares the dynamic `utils/scout_discovery.py::local_players_enabled` switch with the scout desk; OFF returns provider payload/order/query work directly. ON applies canonical public-adult eligibility to all constrained candidates before ranking/capping, retaining provider relative DB order and using NFKD/casefold for community insertion.
+
 ## Quality Bar
 
 Before marking work complete:
