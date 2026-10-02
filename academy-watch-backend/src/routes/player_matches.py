@@ -14,6 +14,7 @@ from src.models.player_match_entry import PlayerMatchEntry
 from src.models.showcase import LocalPlayer, PlayerProfileClaim
 from src.services import match_lines, season_rollup_service
 from src.services.club_registry import is_manager_of_approved_program
+from src.services.contact_locks import database_conflict, lock_contact_scope
 from src.services.player_suppression import (
     hide_suppressed_player,
     is_local_player_suppressed,
@@ -254,6 +255,22 @@ def _write_claim_or_error(player_api_id: int):
     subject = _resolve_subject(player_api_id)
     if subject is None:
         return None, None, neutral_player_not_found()
+    # --- p2-c1 begin ---
+    if subject["local_player_id"] is not None:
+        from src.services.club_player_publication import enabled
+
+        local = db.session.get(LocalPlayer, subject["local_player_id"])
+        if enabled() and local.provenance == "club":
+            from src.models.club_player_publication import ClubPlayerPublication
+
+            hint = ClubPlayerPublication.query.filter_by(local_player_id=local.id).first()
+            publication = (
+                lock_contact_scope(db.session, publication_id=hint.id).publications.get(hint.id) if hint else None
+            )
+            subject = _resolve_subject(player_api_id)
+            if publication is None or subject is None or publication.recipient_user_id != g.user_id:
+                return None, None, neutral_player_not_found()
+    # --- p2-c1 end ---
     claim = _claim_for_user(subject, g.user_id, CLAIM_RELATIONSHIPS)
     if claim is None:
         if subject["is_minor"]:
@@ -426,6 +443,18 @@ def create_player_match(player_api_id: int):
             # Another identical POST may have committed after our preflight.
             # Join that winner and apply this request as the idempotent update.
             db.session.rollback()
+            # --- p2-c1 begin --- the rollback also releases the publication lock
+            from src.services.club_player_publication import enabled
+
+            if (
+                enabled()
+                and _subject["local_player_id"] is not None
+                and db.session.get(LocalPlayer, _subject["local_player_id"]).provenance == "club"
+            ):
+                _subject, _claim, error = _write_claim_or_error(player_api_id)
+                if error:
+                    return error
+            # --- p2-c1 end ---
             entry = _find_self_entry(
                 player_api_id,
                 values["match_date"],
@@ -449,8 +478,12 @@ def create_player_match(player_api_id: int):
     except ValueError as exc:
         db.session.rollback()
         return jsonify({"error": str(exc)}), 400
-    except Exception:
+    except Exception as exc:
         db.session.rollback()
+        conflict = database_conflict(exc)
+        if conflict:
+            code, status = conflict
+            return jsonify(error=code, code=code, retryable=True), status
         logger.exception("Failed to create match entry for player %s", player_api_id)
         return jsonify({"error": "Failed to save player match"}), 500
 
@@ -505,8 +538,12 @@ def update_player_match(player_api_id: int, entry_id: int):
     except ValueError as exc:
         db.session.rollback()
         return jsonify({"error": str(exc)}), 400
-    except Exception:
+    except Exception as exc:
         db.session.rollback()
+        conflict = database_conflict(exc)
+        if conflict:
+            code, status = conflict
+            return jsonify(error=code, code=code, retryable=True), status
         logger.exception("Failed to update match entry %s for player %s", entry_id, player_api_id)
         return jsonify({"error": "Failed to update player match"}), 500
 
@@ -536,8 +573,12 @@ def delete_player_match(player_api_id: int, entry_id: int):
         season_rollup_service.refresh_player(player_api_id, season, session=db.session)
         db.session.commit()
         return jsonify({"deleted": True, "season": season, "rollup_refreshed": True})
-    except Exception:
+    except Exception as exc:
         db.session.rollback()
+        conflict = database_conflict(exc)
+        if conflict:
+            code, status = conflict
+            return jsonify(error=code, code=code, retryable=True), status
         logger.exception("Failed to delete match entry %s for player %s", entry_id, player_api_id)
         return jsonify({"error": "Failed to delete player match"}), 500
 

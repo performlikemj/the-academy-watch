@@ -5,13 +5,14 @@ from uuid import UUID
 
 from flask import Blueprint, g, jsonify, request
 from sqlalchemy import case, func
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from src.auth import require_user_auth
 from src.extensions import limiter
 from src.models.league import db
 from src.models.opportunities import ApplicationEvent, ClubOpportunity, OpportunityApplication, now
 from src.services import opportunities as service
 from src.services.club_access import require_club_permission
+from src.services.contact_locks import database_conflict
 
 opportunities_bp = Blueprint("opportunities", __name__)
 
@@ -46,6 +47,13 @@ def flagged(*, applications=False):
                 else:
                     db.session.rollback()
                 return jsonify(error=exc.code), exc.status
+            except OperationalError as exc:
+                db.session.rollback()
+                conflict = database_conflict(exc)
+                if conflict:
+                    code, status = conflict
+                    return jsonify(error=code, code=code, retryable=True), status
+                raise
             except IntegrityError:
                 db.session.rollback()
                 return jsonify(error="request_conflict"), 409

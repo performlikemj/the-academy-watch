@@ -662,11 +662,13 @@ def resolve_reported_subject(player_api_id: int, session) -> dict | None:
     if player_api_id == 0:
         return None
 
+    from src.services.club_player_publication import club_local_is_eligible
+
     local = session.get(LocalPlayer, -player_api_id)
     if (
         local is None
         or local.status != "approved"
-        or local.provenance == "club"
+        or (local.provenance == "club" and not club_local_is_eligible(local))
         or (local.api_player_id is not None and local.api_player_id != player_api_id)
         or local.merged_into_local_player_id is not None
     ):
