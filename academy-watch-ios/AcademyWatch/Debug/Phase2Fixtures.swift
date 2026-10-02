@@ -154,6 +154,20 @@
                 request.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
                 ?? [:]
             func json(_ value: Any) throws -> Data { try JSONSerialization.data(withJSONObject: value) }
+            // The second synthetic account owns no records from the first one.
+            // Keep account-switch probes distinct from a shared fixture inbox.
+            if request.value(forHTTPHeaderField: "Authorization") == "Bearer fixture-auth-token-second@fixture.invalid" {
+                if method == "GET", path == "me/applications" {
+                    return try json(["applications": [], "page": requestedPage, "has_more": false])
+                }
+                if method == "GET", ["me/application-claims", "me/claims"].contains(path) {
+                    return try json(["claims": []])
+                }
+                if path.hasPrefix("me/applications/") { throw APIClientError.httpStatus(404) }
+                if method == "POST", path == "opportunities/\(Self.postId)/applications" {
+                    throw APIClientError.httpStatus(403)
+                }
+            }
             // Explicit simulator-only synthetic login: never sends an email or calls the network.
             if mode == "player-signed-out", method == "POST", path == "auth/request-code",
                 body["email"] as? String == "phase2@fixture.invalid" {
@@ -347,7 +361,7 @@
             {
                 let empty =
                     mode == "empty" || Phase2Fixtures.screen == "N06b" || Phase2Fixtures.screen == "N09b"
-                    || ["draft", "direct-home", "older-introduction"].contains(mode) || (mode == "apply" && !submitted)
+                    || ["draft", "direct-home", "older-introduction", "ineligible", "player-hub-empty"].contains(mode) || (mode == "apply" && !submitted)
                 return try json([
                     "applications": empty ? [] : reviewApplications(private: path.hasPrefix("club/")),
                     "page": requestedPage,

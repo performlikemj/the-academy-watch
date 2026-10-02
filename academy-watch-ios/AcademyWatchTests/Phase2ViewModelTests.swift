@@ -69,7 +69,7 @@ final class Phase2ViewModelTests: XCTestCase {
     func testAccountBoundaryKeepsOnlyPublicNavigationPrefix() {
         let club = Phase2BrowseRoute.club(slug: "quillmere", distance: 0.8)
         let trial = Phase2BrowseRoute.trial("trial")
-        for entry in [Phase2BrowseRoute.application(id: "private", account: "a"), .profiles(account: "a")] {
+        for entry in [Phase2BrowseRoute.applications(account: "a"), .application(id: "private", account: "a"), .profiles(account: "a")] {
             XCTAssertEqual(Phase2BrowseRoute.publicPrefix([trial, entry]), [trial])
             XCTAssertEqual(Phase2BrowseRoute.publicPrefix([club, trial, entry, trial]), [club, trial])
         }

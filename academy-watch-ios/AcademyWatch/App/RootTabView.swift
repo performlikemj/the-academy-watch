@@ -387,7 +387,7 @@ struct RootTabView: View {
                 incoming: incomingRequestsViewModel,
                 availability: contactAvailability
             )
-            .id(authManager.email ?? "signed-out")
+            .id(authManager.accountIdentity)
             .tabItem {
                 Label(role == .club && usesEditorialTabs ? "Today" : "Home", systemImage: "house")
                     .accessibilityIdentifier("tab-bar-home")
@@ -412,14 +412,14 @@ struct RootTabView: View {
             .tag(RootTab.trials)
         }
         if availableTabs.contains(.applied) {
-            NavigationStack { MyApplicationsView(client: apiClient) }.id(authManager.email ?? "signed-out").tabItem {
+            NavigationStack { MyApplicationsView(client: apiClient).phase2BrowseDestinations(client: apiClient) }.id(authManager.accountIdentity).tabItem {
                 Label("Applied", systemImage: "tray")
             }.tag(RootTab.applied)
         }
         if let membership = workspace.selected {
             if availableTabs.contains(.squads) {
                 NavigationStack { SquadQuickView(membership: membership, client: apiClient) }.id(
-                    "\(authManager.email ?? "signed-out")|\(membership.id)"
+                    "\(authManager.accountIdentity)|\(membership.id)"
                 ).tabItem {
                     Label("Squads", systemImage: "person.3")
                 }.tag(RootTab.squads)
@@ -427,12 +427,12 @@ struct RootTabView: View {
             if availableTabs.contains(.matches) {
                 NavigationStack {
                     SquadQuickView(membership: membership, client: apiClient, matchesOnly: true)
-                }.id("\(authManager.email ?? "signed-out")|\(membership.id)").tabItem { Label("Matches", systemImage: "play.rectangle") }.tag(
+                }.id("\(authManager.accountIdentity)|\(membership.id)").tabItem { Label("Matches", systemImage: "play.rectangle") }.tag(
                     RootTab.matches)
             }
             if availableTabs.contains(.recruiting) {
                 NavigationStack { RecruitingView(client: apiClient, membership: membership) }.id(
-                    "\(authManager.email ?? "signed-out")|\(membership.id)"
+                    "\(authManager.accountIdentity)|\(membership.id)"
                 ).tabItem {
                     Label("Recruiting", systemImage: "person.badge.plus")
                 }.tag(RootTab.recruiting)

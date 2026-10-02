@@ -362,8 +362,7 @@ final class ApplicationDetailViewModel: ObservableObject {
     private var accountSubscription: AnyCancellable?
     func observeAccount(_ auth: AuthManager) {
         guard accountSubscription == nil else { return }
-        accountSubscription = auth.$state
-            .map { $0.isAuthenticated ? ($0.email ?? "restoring-account") : "signed-out" }
+        accountSubscription = auth.$accountIdentity
             .removeDuplicates().dropFirst()
             .sink { [weak self] _ in self?.resetAccount() }
     }

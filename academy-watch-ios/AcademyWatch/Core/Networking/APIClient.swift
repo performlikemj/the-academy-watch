@@ -1048,9 +1048,21 @@ struct APIClient: GolAPIClientProtocol, PlayerClubAPIClientProtocol, ScoutAPICli
         return configuration
     }
 
-    /// A response belongs to the credential that sent it, including deep private navigation.
+    private enum ResponseCredentialChanged: Error { case changed }
+
+    private static func normalizedCredential(_ value: String?) -> String? {
+        value.flatMap {
+            let trimmed = $0.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+    }
+
+    /// Never decode a response sent by a superseded credential.
     private func checkResponseCredential(_ sentToken: String?) async throws {
-        guard await authSession?.accessToken() == sentToken else { throw CancellationError() }
+        try Task.checkCancellation()
+        guard Self.normalizedCredential(await authSession?.accessToken()) == sentToken else {
+            throw ResponseCredentialChanged.changed
+        }
         try Task.checkCancellation()
     }
 
@@ -1059,7 +1071,28 @@ struct APIClient: GolAPIClientProtocol, PlayerClubAPIClientProtocol, ScoutAPICli
         method: String,
         queryItems: [URLQueryItem],
         body: Data?,
-        transport: URLSession? = nil
+        transport: URLSession? = nil,
+        retryCredentialChange: Bool = true
+    ) async throws -> (data: Data, receivedAt: TimeInterval) {
+        do {
+            return try await requestDataAttempt(path: path, method: method, queryItems: queryItems,
+                                                body: body, transport: transport)
+        } catch is ResponseCredentialChanged {
+            try Task.checkCancellation()
+            // Re-authorize a read once. Writes are never replayed, and bound
+            // private clients still require their original credential.
+            guard method == "GET", retryCredentialChange else { throw CancellationError() }
+            return try await requestData(path: path, method: method, queryItems: queryItems,
+                                         body: body, transport: transport, retryCredentialChange: false)
+        }
+    }
+
+    private func requestDataAttempt(
+        path: String,
+        method: String,
+        queryItems: [URLQueryItem],
+        body: Data?,
+        transport: URLSession?
     ) async throws -> (data: Data, receivedAt: TimeInterval) {
         let url = try makeURL(path: path, queryItems: queryItems)
         var request = URLRequest(url: url)
@@ -1070,11 +1103,7 @@ struct APIClient: GolAPIClientProtocol, PlayerClubAPIClientProtocol, ScoutAPICli
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
 
-        let token = await authSession?.accessToken()
-            .flatMap { value in
-                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-                return trimmed.isEmpty ? nil : trimmed
-            }
+        let token = Self.normalizedCredential(await authSession?.accessToken())
         if let requiredCredential, token != requiredCredential {
             throw APIClientError.httpStatus(401)
         }

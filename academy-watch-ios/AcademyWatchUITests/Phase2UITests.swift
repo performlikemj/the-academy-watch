@@ -41,6 +41,134 @@ final class Phase2UITests: XCTestCase {
         }
         XCTAssertTrue(element.isHittable)
     }
+    func testHomeAllTrialsRowsOpen() { checkBrowseEntry("home-trials") }
+    func testHomeClubsRowsAndClubTrialOpen() { checkBrowseEntry("home-clubs") }
+    func testHubHomeAllTrialsRowsOpen() { checkBrowseEntry("home-trials", mode: "player-hub") }
+    func testHubHomeClubsRowsAndClubTrialOpen() { checkBrowseEntry("home-clubs", mode: "player-hub") }
+    func testAppliedEmptyBrowseTrialsRowsOpen() { checkBrowseEntry("Browse trials", mode: "apply", host: "Applied") }
+    func testAppliedEmptyClubsRowsAndClubTrialOpen() { checkBrowseEntry("Clubs near you", mode: "apply", host: "Applied") }
+    func testAppliedStillLookingRowsOpen() { checkBrowseEntry("Browse trials", host: "Applied") }
+    func testHomeSeeEveryStepStillLookingRowsOpen() { checkBrowseEntry("Browse trials", throughApplications: true) }
+    func testHubHomeApplicationsStillLookingRowsOpen() {
+        checkBrowseEntry("Browse trials", mode: "player-hub", throughApplications: true)
+    }
+    func testHomeSeeEveryStepEmptyBrowseTrialsRowsOpen() {
+        checkBrowseEntry("Browse trials", mode: "apply", throughApplications: true)
+    }
+    func testHomeSeeEveryStepEmptyClubsRowsOpen() {
+        checkBrowseEntry("Clubs near you", mode: "apply", throughApplications: true)
+    }
+    func testHubHomeApplicationsEmptyBrowseTrialsRowsOpen() {
+        checkBrowseEntry("Browse trials", mode: "player-hub-empty", throughApplications: true)
+    }
+    func testHubHomeApplicationsEmptyClubsRowsOpen() {
+        checkBrowseEntry("Clubs near you", mode: "player-hub-empty", throughApplications: true)
+    }
+    func testHomeOpeningPrivateDestinationOpens() {
+        launchBrowseFixture("apply", host: "Home")
+        let opening = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Open training'")).firstMatch
+        scrollBrowseTo(opening); tap(opening)
+        XCTAssertTrue(app.scrollViews["phase2-trial-detail"].waitForExistence(timeout: 10))
+        submitBrowseApplication()
+        XCTAssertTrue(app.buttons["Withdraw this application"].waitForExistence(timeout: 10))
+        capture("I1F8-home-opening-application")
+    }
+    private func scrollBrowseTo(_ element: XCUIElement) {
+        XCTAssertTrue(element.waitForExistence(timeout: 10))
+        let top = app.frame.minY + 70
+        for _ in 0..<12 {
+            let bottom = app.keyboards.firstMatch.exists
+                ? app.keyboards.firstMatch.frame.minY - 8 : app.tabBars.firstMatch.frame.minY - 8
+            if element.isHittable && element.frame.minY > top && element.frame.maxY < bottom { return }
+            let scroll = app.scrollViews.firstMatch
+            if element.frame.minY <= top { scroll.swipeDown() } else { scroll.swipeUp() }
+        }
+        XCTAssertTrue(element.isHittable)
+        XCTAssertGreaterThan(element.frame.minY, top)
+        XCTAssertLessThan(element.frame.maxY, app.tabBars.firstMatch.frame.minY - 8)
+    }
+    private func launchBrowseFixture(_ mode: String, host: String) {
+        app.launchArguments = ["-phase2Fixture", mode, "-initialTab", host.lowercased(),
+                               "-reviewAccountSwitch", "-reviewCapture", "-reviewAppearance", "light"]
+        app.launch()
+        XCTAssertTrue(app.tabBars.buttons[host].waitForExistence(timeout: 15))
+        tap(app.tabBars.buttons[host])
+    }
+    private func openBrowseList(_ entry: String, throughApplications: Bool = false) {
+        if throughApplications {
+            let applications = app.buttons["home-applications"]
+            scrollBrowseTo(applications); capture("I1F8-home-applications-entry"); tap(applications)
+            XCTAssertTrue(app.navigationBars["Applications"].waitForExistence(timeout: 10))
+        }
+        let button = app.buttons[entry]
+        // Footer links can be hittable beneath the editorial tab bar: require safe bounds.
+        scrollBrowseTo(button)
+        XCTAssertLessThan(button.frame.maxY, app.tabBars.firstMatch.frame.minY)
+        capture("I1F8-entry-" + entry)
+        tap(button)
+        if entry.lowercased().contains("clubs") {
+            tap(app.buttons["club-101"])
+            XCTAssertTrue(app.scrollViews["phase2-club-page"].waitForExistence(timeout: 10))
+            capture("I1F8-\(entry)-club-detail")
+            let trial = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Tuesday night' OR label CONTAINS 'Open training'")).firstMatch
+            scrollBrowseTo(trial); tap(trial)
+        } else {
+            tap(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'trial-'")).firstMatch)
+        }
+        XCTAssertTrue(app.scrollViews["phase2-trial-detail"].waitForExistence(timeout: 10))
+    }
+    private func checkBrowseEntry(_ entry: String, mode: String = "player", host: String = "Home",
+                                  throughApplications: Bool = false) {
+        launchBrowseFixture(mode, host: host)
+        openBrowseList(entry, throughApplications: throughApplications)
+        capture("I1F8-\(mode)-\(host)-\(throughApplications ? "applications-" : "")\(entry)-trial-detail")
+    }
+    func testSignOutClearsApplicationOpenedViaHomeAndApplied() { checkAlternatePrivateBoundary(switchAccount: false) }
+    func testSwitchClearsApplicationOpenedViaHomeAndApplied() { checkAlternatePrivateBoundary(switchAccount: true) }
+    func testSignOutClearsDeepProfilesOpenedViaHomeAndApplied() { checkAlternatePrivateBoundary(switchAccount: false, profiles: true) }
+    func testSwitchClearsDeepProfilesOpenedViaHomeAndApplied() { checkAlternatePrivateBoundary(switchAccount: true, profiles: true) }
+    private func submitBrowseApplication() {
+        let position = app.textFields["apply-position"]
+        scrollBrowseTo(position); tap(position); position.typeText("Central midfield\n")
+        tap(app.switches["apply-contact-consent"])
+        scrollBrowseTo(app.buttons["apply-send"]); tap(app.buttons["apply-send"])
+        XCTAssertTrue(app.staticTexts["application-sent"].waitForExistence(timeout: 10))
+        scrollBrowseTo(app.buttons["See my application"]); tap(app.buttons["See my application"])
+    }
+    private func checkAlternatePrivateBoundary(switchAccount: Bool, profiles: Bool = false) {
+        for host in ["Home", "Applied"] {
+            launchBrowseFixture(profiles ? "ineligible" : "apply", host: host)
+            openBrowseList(host == "Home" ? "home-trials" : "Browse trials")
+            if profiles {
+                scrollBrowseTo(app.buttons["Find or claim your profile"]); tap(app.buttons["Find or claim your profile"])
+                XCTAssertTrue(app.staticTexts["Your place in the game"].waitForExistence(timeout: 10))
+                tap(app.buttons["my-profiles-add"])
+                XCTAssertTrue(app.textFields["player-onboarding-name-search"].waitForExistence(timeout: 10))
+            } else {
+                submitBrowseApplication()
+                scrollBrowseTo(app.buttons["Withdraw this application"])
+                XCTAssertTrue(app.buttons["Withdraw this application"].exists)
+            }
+            tap(app.tabBars.buttons["Account"])
+            if switchAccount {
+                tap(app.buttons["fixture-account-switch"])
+                XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "identifier == 'fixture-account-identity' AND label == 'second@fixture.invalid'")).firstMatch.waitForExistence(timeout: 10))
+            } else {
+                tap(app.buttons["Sign Out"])
+                XCTAssertTrue(app.buttons["Sign In"].waitForExistence(timeout: 10))
+            }
+            tap(app.tabBars.buttons[host])
+            XCTAssertTrue(app.navigationBars[host == "Home" ? "Home" : "Applications"].waitForExistence(timeout: 10))
+            XCTAssertFalse(app.descendants(matching: .any)["phase2-application-detail"].exists)
+            XCTAssertFalse(app.buttons["Withdraw this application"].exists)
+            XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Applied as'")).firstMatch.exists)
+            XCTAssertFalse(app.descendants(matching: .any)["my-profiles"].exists)
+            XCTAssertFalse(app.textFields["player-onboarding-name-search"].exists)
+            XCTAssertFalse(app.textFields["profile-editor-position"].exists)
+            capture("I1F8-\(host)-\(profiles ? "profiles" : "application")-after-\(switchAccount ? "switch" : "signout")")
+            app.terminate()
+        }
+    }
     func testSignOutClearsPrivateApplicationOnBothPublicStacks() {
         checkPrivateBoundary(mode: "apply", switchAccount: false)
     }

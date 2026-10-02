@@ -151,6 +151,9 @@ extension EnvironmentValues {
 }
 /// Public pages survive authentication; a private entry owns every descendant below it.
 enum Phase2BrowseRoute: Hashable {
+    case clubs
+    case trials
+    case applications(account: String)
     case club(slug: String, distance: Double?)
     case trial(String)
     case application(id: String, account: String)
@@ -158,8 +161,8 @@ enum Phase2BrowseRoute: Hashable {
 
     var isPrivate: Bool {
         switch self {
-        case .application, .profiles: true
-        case .club, .trial: false
+        case .applications, .application, .profiles: true
+        case .clubs, .trials, .club, .trial: false
         }
     }
     static func publicPrefix(_ path: [Self]) -> [Self] {
@@ -168,7 +171,7 @@ enum Phase2BrowseRoute: Hashable {
 }
 
 extension AuthManager {
-    var browseAccountIdentity: String { isAuthenticated ? (email ?? "restoring-account") : "signed-out" }
+    var browseAccountIdentity: String { accountIdentity }
 }
 
 private struct Phase2BrowseDestinations: ViewModifier {
@@ -178,6 +181,14 @@ private struct Phase2BrowseDestinations: ViewModifier {
         content
             .navigationDestination(for: Phase2BrowseRoute.self) { route in
                 switch route {
+                case .clubs:
+                    ClubsNearYouView(client: client)
+                case .trials:
+                    TrialsView(client: client)
+                case let .applications(account):
+                    if account == auth.browseAccountIdentity {
+                        MyApplicationsView(client: client).id(account)
+                    }
                 case let .club(slug, distance):
                     PublicClubView(slug: slug, searchDistance: distance, client: client)
                 case let .trial(id):
@@ -399,7 +410,7 @@ struct ClubsNearYouView: View {
                 if locationOn { location.request() }
                 await model.search(filter)
             }.refreshable { await model.search(filter) }
-            .onChange(of: auth.email) { _, _ in
+            .onChange(of: auth.accountIdentity) { _, _ in
                 locationOn = false
                 location.clear()
                 hasLoaded = false
@@ -822,7 +833,7 @@ struct TrialDetailView: View {
                     if model.isLoading { WingLiftLoadingView("Loading opportunity…").padding(20) }
                     Phase2ErrorView(message: model.error, retry: reload).padding(16)
                 }
-            }
+            }.padding(.bottom, 76)
         }.background(AcademyColors.background).foregroundStyle(AcademyColors.text)
             .navigationTitle("").navigationBarTitleDisplayMode(.inline).task(id: detailContext) {
                 model.setAccount(accountIdentity)
@@ -847,7 +858,7 @@ struct TrialDetailView: View {
             .toolbarBackground(.visible, for: .navigationBar).toolbarColorScheme(
                 .dark, for: .navigationBar)
     }
-    private var accountIdentity: String { auth.isAuthenticated ? "signed-in|" + (auth.email ?? "") : "signed-out" }
+    private var accountIdentity: String { auth.accountIdentity }
     private var detailContext: String { accountIdentity + "|\(workspace.flags.applications)" }
     private func reload() {
         Task {
@@ -868,7 +879,7 @@ struct MyApplicationsView: View {
     }
     private var current: Phase2Application? { model.current }
     var body: some View {
-        Phase2Page(title: "", eyebrow: "") {
+        Phase2Page(title: "", eyebrow: "", bottomClearance: 76) {
             if !auth.isAuthenticated {
                 Text("Sign in from Account to see your applications.")
             } else {
@@ -928,11 +939,11 @@ struct MyApplicationsView: View {
                         icon: "tray", eyebrow: "0 applications")
                     HStack {
                         if workspace.flags.opportunities {
-                            NavigationLink("Browse trials") { TrialsView(client: client) }.buttonStyle(
+                            NavigationLink("Browse trials", value: Phase2BrowseRoute.trials).buttonStyle(
                                 FloodlightPillStyle())
                         }
                         if workspace.flags.directory {
-                            NavigationLink("Clubs near you") { ClubsNearYouView(client: client) }.buttonStyle(
+                            NavigationLink("Clubs near you", value: Phase2BrowseRoute.clubs).buttonStyle(
                                 FloodlightPillStyle(variant: .outline))
                         }
                     }
@@ -963,7 +974,7 @@ struct MyApplicationsView: View {
                             .font(
                                 AcademyType.subheadline
                             ).foregroundStyle(AcademyColors.mutedDark)
-                            NavigationLink("Browse trials") { TrialsView(client: client) }.font(
+                            NavigationLink("Browse trials", value: Phase2BrowseRoute.trials).font(
                                 AcademyType.subheadline
                             )
                             .underline().frame(minHeight: 44)

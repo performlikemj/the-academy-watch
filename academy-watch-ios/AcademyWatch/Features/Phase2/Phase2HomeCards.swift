@@ -63,9 +63,7 @@ struct Phase2HomeCards: View {
             }
             if role == .player {
                 if workspace.flags.applications, auth.isAuthenticated {
-                    NavigationLink {
-                        MyApplicationsView(client: client)
-                    } label: {
+                    NavigationLink(value: Phase2BrowseRoute.applications(account: auth.browseAccountIdentity)) {
                         Phase2Row(
                             eyebrow: "Needs you", title: "Applications",
                             detail: applications.applications.first(where: { $0.canRespond() }).map {
@@ -85,18 +83,14 @@ struct Phase2HomeCards: View {
                     }.buttonStyle(.plain).accessibilityIdentifier("home-introductions")
                 }
                 if workspace.flags.directory {
-                    NavigationLink {
-                        ClubsNearYouView(client: client)
-                    } label: {
+                    NavigationLink(value: Phase2BrowseRoute.clubs) {
                         Phase2Row(
                             eyebrow: "Find your next club", title: "Clubs near you",
                             detail: "Approved clubs, at your own pace.")
                     }.buttonStyle(.plain).accessibilityIdentifier("home-clubs")
                 }
                 if workspace.flags.opportunities {
-                    NavigationLink {
-                        TrialsView(client: client)
-                    } label: {
+                    NavigationLink(value: Phase2BrowseRoute.trials) {
                         Phase2Row(
                             eyebrow: "Open doors", title: "All trials",
                             detail: "Trials, open sessions and positions.")
@@ -270,7 +264,7 @@ struct Phase2PlayerHome: View {
                                     Divider()
                                 }.buttonStyle(.plain)
                             }
-                            NavigationLink("See every step") { MyApplicationsView(client: client) }
+                            NavigationLink("See every step", value: Phase2BrowseRoute.applications(account: auth.browseAccountIdentity))
                                 .font(AcademyType.subheadline.weight(.medium)).underline().frame(
                                     minHeight: 44
                                 )
@@ -287,9 +281,7 @@ struct Phase2PlayerHome: View {
                                     !applications.applications.contains { $0.opportunityId == post.id }
                                 }.prefix(2)
                             ) { post in
-                                NavigationLink {
-                                    TrialDetailView(id: post.id, client: client).phase2BrowseDestinations(client: client)
-                                } label: {
+                                NavigationLink(value: Phase2BrowseRoute.trial(post.id)) {
                                     HStack {
                                         Text(post.title).font(AcademyType.serif(20))
                                         Spacer(minLength: 8)
@@ -322,25 +314,21 @@ struct Phase2PlayerHome: View {
                     }
                     HStack(spacing: 10) {
                         if workspace.flags.directory {
-                            NavigationLink {
-                                ClubsNearYouView(client: client)
-                            } label: {
+                            NavigationLink(value: Phase2BrowseRoute.clubs) {
                                 Label("Clubs near you", systemImage: "mappin.and.ellipse")
                             }
                             .buttonStyle(FloodlightPillStyle(variant: .outline)).accessibilityIdentifier(
                                 "home-clubs")
                         }
                         if workspace.flags.opportunities {
-                            NavigationLink {
-                                TrialsView(client: client)
-                            } label: {
+                            NavigationLink(value: Phase2BrowseRoute.trials) {
                                 Label("All trials", systemImage: "flag")
                             }
                             .buttonStyle(FloodlightPillStyle(variant: .outline)).accessibilityIdentifier(
                                 "home-trials")
                         }
                     }
-                }.padding(16)
+                }.padding(16).padding(.bottom, 76)
             }
         }.background(AcademyColors.background).foregroundStyle(AcademyColors.text)
             .task(id: workspace.flags) {
