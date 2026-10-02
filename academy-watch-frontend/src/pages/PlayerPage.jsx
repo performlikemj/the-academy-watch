@@ -12,7 +12,8 @@ import { MatchLines, PlayerFacts, PlayerSeason } from '@/components/player-card/
 import { usePlayerReadView, useScopedShowcase, useSeasonTotalsRead } from '@/components/player-card/usePlayerReadView'
 import { IntroduceDialog } from '@/components/contact/IntroduceDialog'
 import { useContactRail } from '@/hooks/useContactRail.js'
-import { calendarSeason, isGoalkeeperPosition, readProblem, roleLabel, scopedValue, seasonKicker, seasonView, viewerKey } from '@/lib/player-card'
+import { useViewerKey, useViewerState } from '@/hooks/useViewerState'
+import { calendarSeason, isGoalkeeperPosition, readProblem, roleLabel, seasonKicker, seasonView, viewerKey } from '@/lib/player-card'
 import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import {
@@ -261,7 +262,19 @@ function AcademyStatsSection({ academyStats, defaultOpen = false }) {
     )
 }
 
+// Viewer change = fresh screen. Everything below holds state that belongs to
+// the person looking (watchlist marks, open dialogs, drafts, the owner's manage
+// section, pending requests). It is keyed on player + viewer, so on logout,
+// login or an account switch React remounts it and all of that state is
+// discarded; late answers to the old instance land nowhere. Keep viewer-bound
+// state inside PlayerPageBody — never in this wrapper.
 export function PlayerPage() {
+    const { playerId } = useParams()
+    const viewer = useViewerKey()
+    return <PlayerPageBody key={`${playerId}:${viewer}`} />
+}
+
+function PlayerPageBody() {
     const { api_football_frozen: apiFootballFrozen } = useDataMode()
     const { playerId } = useParams()
     const navigate = useNavigate()
@@ -287,8 +300,6 @@ export function PlayerPage() {
     const seasonStats = seasonRead.stats
     const [baseEmpty, setBaseEmpty] = useState(false)
     const [readRevision, setReadRevision] = useState(0)
-    // Opened by one viewer; never left open for the next (see `viewer` below).
-    const [introduceFor, setIntroduceFor] = useState(null)
     const contactRail = useContactRail()
     const [loading, setLoading] = useState(true)
     const [notFound, setNotFound] = useState(false)
@@ -329,17 +340,12 @@ export function PlayerPage() {
     // Watchlist state
     const auth = useAuth()
     const { openLoginModal } = useAuthUI()
-    // Watchlist membership is the viewer's own: held with the viewer it was loaded for.
+    // Watchlist membership and the open introduction form are the viewer's own.
+    // useViewerState refuses writes made for another viewer (a late answer to a
+    // request the previous viewer started).
     const viewer = viewerKey(auth?.token)
-    const [watchedState, setWatchedState] = useState({ scope: null, value: null })
-    const watchedIds = scopedValue(watchedState, viewer)
-    const setWatchedIds = useCallback((next) => {
-        setWatchedState((previous) => ({
-            scope: viewer,
-            value: typeof next === 'function' ? next(scopedValue(previous, viewer)) : next,
-        }))
-    }, [viewer])
-    const introduceOpen = introduceFor === viewer
+    const [watchedIds, setWatchedIds] = useViewerState(viewer, null)
+    const [introduceOpen, setIntroduceOpen] = useViewerState(viewer, false)
     const playerApiId = parseInt(playerId, 10)
     const isLocalPlayer = playerApiId < 0
     const isWatched = !!watchedIds?.has(playerApiId)
@@ -676,7 +682,7 @@ export function PlayerPage() {
         setIntroduceBusy(true)
         try {
             const data = await APIService.getScoutVerification()
-            if (data?.verification?.status === 'approved') setIntroduceFor(viewer)
+            if (data?.verification?.status === 'approved') setIntroduceOpen(true)
             else navigate('/scout/verification')
         } catch {
             navigate('/scout/verification')
@@ -1461,7 +1467,7 @@ export function PlayerPage() {
 
         <IntroduceDialog
             open={introduceOpen}
-            onOpenChange={(open) => setIntroduceFor(open ? viewer : null)}
+            onOpenChange={(open) => setIntroduceOpen(Boolean(open))}
             player={{ player_id: playerApiId, player_name: playerName }}
         />
 

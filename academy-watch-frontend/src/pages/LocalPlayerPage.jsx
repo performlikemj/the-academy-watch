@@ -12,7 +12,7 @@ import { useAuth } from '@/context/AuthContext'
 import { useDataMode } from '@/hooks/useDataMode'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { calendarSeason, isGoalkeeperPosition, readProblem, roleLabel, seasonKicker, seasonView } from '@/lib/player-card'
+import { calendarSeason, isGoalkeeperPosition, readProblem, roleLabel, seasonKicker, seasonView, viewerKey } from '@/lib/player-card'
 import { formatSeasonLabel } from '@/lib/seasons'
 import { track } from '@/lib/track'
 
@@ -278,7 +278,9 @@ export function LocalPlayerPage() {
 
   return (
     <LocalPlayerProfile
-      key={`${numericPlayerId}-${attempt}-${token || 'public'}`}
+      // Viewer change = fresh screen: keyed on player + viewer, so everything the
+      // profile holds for one viewer is discarded for the next.
+      key={`${numericPlayerId}-${attempt}-${viewerKey(token)}`}
       numericPlayerId={numericPlayerId}
       onPublicConfirmed={handlePublicConfirmed}
       onRetry={() => setAttempt((value) => value + 1)}

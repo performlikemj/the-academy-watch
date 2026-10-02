@@ -426,7 +426,19 @@ export function ClaimantClubRelationships({ signedId, token, local, profile, onC
   </section>
 }
 
-export function ShowcaseSection({
+// Viewer change = fresh screen. The manage section holds unsaved drafts (video
+// URL/title, claim message, profile and game forms, photo and club pickers),
+// open dialogs, timers and in-flight saves. It is keyed on player + viewer, so
+// on logout, login or an account switch React remounts it: none of the previous
+// viewer's drafts, dialogs or pending callbacks reach the next. Same-viewer
+// re-renders and refreshes keep their drafts exactly as before.
+export function ShowcaseSection(props) {
+  const { token } = useAuth()
+  const scope = showcaseScope({ local: Boolean(props.local), playerApiId: props.playerApiId, token })
+  return <ShowcaseSectionBody key={scope} {...props} />
+}
+
+function ShowcaseSectionBody({
   playerApiId,
   canonicalPlayerApiId,
   playerName,

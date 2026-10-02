@@ -208,6 +208,17 @@ export function scopedValue(entry, scope) {
   return entry && scope != null && entry.scope === scope ? entry.value : null
 }
 
+// One write to a viewer-bound state entry `{ scope, value }`.
+// `writer` is the viewer the setter was made for; `current` is the viewer on
+// screen now. A write from another viewer — a mutation started by A that
+// answers or fails after the switch to B — changes nothing: it can neither
+// show A's value to B nor throw away what B has already loaded.
+export function viewerStateWrite(previous, { writer, current, next, initial = null }) {
+  if (writer !== current) return previous
+  const base = previous && previous.scope === writer ? previous.value : initial
+  return { scope: writer, value: typeof next === 'function' ? next(base) : next }
+}
+
 // Season totals read: the same rule as the match lines. `scopeKey` is player +
 // viewer + season; a failure keeps the last good totals of the SAME scope.
 export function totalsReadState({ good, settled, scopeKey, requestKey }) {

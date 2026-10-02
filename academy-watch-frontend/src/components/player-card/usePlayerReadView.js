@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '@/context/AuthContext'
 import { APIService } from '@/lib/api'
 import {
@@ -100,8 +100,15 @@ export function useScopedShowcase({ playerApiId, local = false }) {
   const { token } = useAuth()
   const scope = playerApiId == null || playerApiId === '' ? null : showcaseScope({ local, playerApiId, token })
   const [entry, setEntry] = useState({ scope: null, value: null })
+  const currentScopeRef = useRef(scope)
+  useLayoutEffect(() => {
+    currentScopeRef.current = scope
+  }, [scope])
   const accept = useCallback((value, loadedScope) => {
-    setEntry({ scope: loadedScope ?? null, value: value || null })
+    // An answer for a scope that is no longer on screen is dropped; it must not
+    // replace what the current viewer has already loaded.
+    if (loadedScope == null || loadedScope !== currentScopeRef.current) return
+    setEntry({ scope: loadedScope, value: value || null })
   }, [])
   return [scopedValue(entry, scope), accept, scope]
 }

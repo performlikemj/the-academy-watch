@@ -18,9 +18,10 @@ import { SeasonSelect } from '@/components/ui/SeasonSelect'
 import { IntroduceDialog } from '@/components/contact/IntroduceDialog'
 import { ProvenanceChip } from '@/components/SelfReportedBadge'
 import { useContactRail } from '@/hooks/useContactRail.js'
+import { useViewerKey, useViewerState } from '@/hooks/useViewerState'
 import { ScoutSurface, ScoutHeader, deskPillClass } from '@/components/scout/ScoutDesk'
 import { PlayerCard } from '@/components/player-card/PlayerCard'
-import { cardLine, isProviderSourced, scopedValue, viewerKey } from '@/lib/player-card'
+import { cardLine, isProviderSourced, viewerKey } from '@/lib/player-card'
 import { cn } from '@/lib/utils'
 import { seasonStore } from '@/lib/seasonStore'
 import { formatSeasonLabel, withSeasonParam } from '@/lib/seasons'
@@ -514,7 +515,18 @@ function CompareDialog({ open, onOpenChange, playerIds, season, seasonOverride, 
   )
 }
 
+// Viewer change = fresh screen. The desk holds state that belongs to the person
+// looking (watchlist marks, the open introduction form and its draft, the
+// compare selection, the search text). It is keyed on the viewer, so on logout,
+// login or an account switch React remounts it and all of that is discarded;
+// late answers to the old instance land nowhere. Keep viewer-bound state inside
+// ScoutDeskBody — never in this wrapper.
 export function ScoutPage() {
+  const viewer = useViewerKey()
+  return <ScoutDeskBody key={viewer} />
+}
+
+function ScoutDeskBody() {
   const { api_football_frozen: frozen } = useDataMode()
   const [players, setPlayers] = useState([])
   const [total, setTotal] = useState(0)
@@ -564,20 +576,12 @@ export function ScoutPage() {
     : verificationState?.token === auth.token ? verificationState.status : 'loading'
   const verifiedScout = scoutVerification === 'approved'
   const canIntroduce = scoutVerification !== 'unverified'
-  const [introduceState, setIntroduceState] = useState({ scope: null, value: null })
   // Watchlist membership and an open introduction belong to the viewer who
-  // loaded or opened them; a logout or account switch withholds both at once.
+  // loaded or opened them. useViewerState refuses writes made for another
+  // viewer (a late answer to a request the previous viewer started).
   const viewer = viewerKey(auth?.token)
-  const [watchedState, setWatchedState] = useState({ scope: null, value: null })
-  const watchedIds = scopedValue(watchedState, viewer)
-  const introducePlayer = scopedValue(introduceState, viewer)
-  const setIntroducePlayer = useCallback((player) => setIntroduceState({ scope: viewer, value: player }), [viewer])
-  const setWatchedIds = useCallback((next) => {
-    setWatchedState((previous) => ({
-      scope: viewer,
-      value: typeof next === 'function' ? next(scopedValue(previous, viewer)) : next,
-    }))
-  }, [viewer])
+  const [watchedIds, setWatchedIds] = useViewerState(viewer, null)
+  const [introducePlayer, setIntroducePlayer] = useViewerState(viewer, null)
   const [exporting, setExporting] = useState(false)
   const [searchParams, setSearchParams] = useSearchParams()
   const requestedSource = searchParams.get('source')

@@ -55,3 +55,13 @@
   kept for the same player/viewer/season. When totals are missing or failed but the provider's match rows loaded,
   totals are built from those rows; "No matches recorded yet" is never shown while a read has failed.
 - Request counts unchanged (`~/codex-runs/aw-redesign/logs/PCF2.request-counts.md`). Hand-back `logs/PCF2.final.md`.
+
+## Fix round PCF3 (2026-10-03, after verification duel RPCV3 at 9f912b4e: Opus READY, codex FIX)
+- Class closed by construction: `PlayerPage`, `ScoutPage`, `ShowcaseSection` and `LocalPlayerPage` are thin wrappers
+  keying their body on player + viewer; a viewer change remounts it, discarding drafts (video URL/title, claim form,
+  everything else), dialogs, timers and pending callbacks of the previous viewer.
+- Late mutation results from the old viewer are ignored: remount, plus `useViewerState` (a setter made for one viewer
+  does nothing once another is on screen) for watch marks and the introduction form; `useScopedShowcase` drops answers
+  for a scope that is no longer on screen.
+- `tests/viewer-boundary.test.mjs` pins the wrappers; rule written into `docs/agents/frontend.md`.
+- Request counts unchanged. Hand-back `~/codex-runs/aw-redesign/logs/PCF3.final.md`.

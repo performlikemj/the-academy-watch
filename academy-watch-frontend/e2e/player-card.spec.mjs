@@ -1055,6 +1055,229 @@ test('scout desk cards: watch state and an open introduction do not survive logo
   await expect(cards.filter({ hasText: 'Tamsin Holloway' }).getByRole('button', { name: 'Watch Tamsin Holloway' })).toHaveAttribute('aria-pressed', 'false')
 })
 
+// ---- PCF3: a viewer change is a fresh screen -------------------------------
+// The page bodies, the manage section and the scout desk are keyed on player +
+// viewer: on a switch they remount, so drafts, dialogs and pending callbacks of
+// the previous viewer are discarded by construction.
+
+async function claimsByViewer(page, byToken) {
+  await page.route('**/api/me/claims', (route) => route.fulfill({ json: { claims: byToken[bearer(route)] || [] } }))
+}
+
+const ownerClaim = (id, relationship, playerApiId) => ({ id, status: 'approved', relationship_type: relationship, player_api_id: playerApiId })
+
+test('unsaved video draft: typed by A, never offered to B, to A after logout, or after logging back in', async ({ page }) => {
+  // The reviewer's probe, reversed. A and B both manage player 42 (player and agent claims).
+  await signIn(page)
+  await installApiMocks(page)
+  await claimsByViewer(page, { 'mock-user-token': [ownerClaim(9, 'player', 42)], 'token-b': [ownerClaim(10, 'agent', 42)] })
+  await page.clock.setFixedTime(TODAY)
+  await page.setViewportSize(VIEWPORTS[0])
+  await page.goto('/players/42')
+  const url = page.getByPlaceholder('https://youtube.com/watch?v=…')
+  const title = page.getByPlaceholder('e.g. Hat-trick vs. City U21')
+
+  await page.getByRole('button', { name: 'Add video', exact: true }).click()
+  await url.fill('https://youtube.com/watch?v=private-a-draft')
+  await title.fill('Private title typed by A')
+  // Same viewer: the draft survives closing and reopening the dialog, as before.
+  await page.getByRole('dialog').getByRole('button', { name: 'Cancel' }).click()
+  await page.getByRole('button', { name: 'Add video', exact: true }).click()
+  await expect(url).toHaveValue('https://youtube.com/watch?v=private-a-draft')
+  await expect(title).toHaveValue('Private title typed by A')
+  await watchForText(page, 'Private title typed by A')
+
+  // Switch to B with the dialog still open.
+  await changeViewer(page, 'token-b')
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Add video', exact: true }).click()
+  await expect(url).toHaveValue('')
+  await expect(title).toHaveValue('')
+  await title.fill('Typed by B')
+  await page.getByRole('dialog').getByRole('button', { name: 'Cancel' }).click()
+
+  // Logout, then A signs in again: a fresh screen each time, nobody's draft.
+  await changeViewer(page, null)
+  await expect(page.getByRole('button', { name: 'Add video', exact: true })).toHaveCount(0)
+  await changeViewer(page, 'mock-user-token')
+  await page.getByRole('button', { name: 'Add video', exact: true }).click()
+  await expect(url).toHaveValue('')
+  await expect(title).toHaveValue('')
+  expect(await page.locator('input, textarea').evaluateAll((fields) => fields.map((field) => field.value).filter((value) => /typed by|private-a-draft/i.test(value)))).toEqual([])
+})
+
+test('unsaved claim draft (relationship, club, message) is not offered to the next viewer', async ({ page }) => {
+  await signIn(page)
+  await installApiMocks(page)
+  await page.clock.setFixedTime(TODAY)
+  await page.setViewportSize(VIEWPORTS[0])
+  await page.goto('/players/42')
+  await page.getByRole('button', { name: 'Claim this profile' }).click()
+  let dialog = page.getByRole('dialog')
+  await dialog.getByPlaceholder('Anything that helps us verify your claim').fill('A: I am his agent, call me on my private number')
+  await dialog.getByRole('combobox').first().click()
+  await page.getByRole('option', { name: 'Agent' }).click()
+  await expect(dialog.getByRole('combobox').first()).toContainText('Agent')
+
+  await changeViewer(page, 'token-b')
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Claim this profile' }).click()
+  dialog = page.getByRole('dialog')
+  await expect(dialog.getByPlaceholder('Anything that helps us verify your claim')).toHaveValue('')
+  await expect(dialog.getByRole('combobox').first()).toContainText('Player')
+  await expect(page.getByText('private number')).toHaveCount(0)
+})
+
+test('other drafts on the player page (introduction message, report details) do not cross a viewer switch', async ({ page }) => {
+  await signIn(page)
+  await installApiMocks(page, { verification: { status: 'approved' } })
+  await page.clock.setFixedTime(TODAY)
+  await page.setViewportSize(VIEWPORTS[0])
+  await page.goto('/players/-12')
+
+  await page.getByRole('button', { name: 'Report', exact: true }).click()
+  await page.getByPlaceholder('Share what the moderation team should review.').fill('A: private report details')
+  await page.keyboard.press('Escape')
+  await page.getByRole('button', { name: 'Ask for an introduction' }).click()
+  await page.getByLabel('Message to Kofi Asante-Reid').fill('A: private introduction draft')
+
+  await changeViewer(page, 'token-b')
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Ask for an introduction' }).click()
+  await expect(page.getByLabel('Message to Kofi Asante-Reid')).toHaveValue('')
+  await page.keyboard.press('Escape')
+  await page.getByRole('button', { name: 'Report', exact: true }).click()
+  await expect(page.getByPlaceholder('Share what the moderation team should review.')).toHaveValue('')
+})
+
+test('the community page manage section starts fresh for the next viewer', async ({ page }) => {
+  await signIn(page)
+  await installApiMocks(page)
+  await claimsByViewer(page, {
+    'mock-user-token': [{ id: 9, status: 'approved', relationship_type: 'player', local_player_id: 16 }],
+    'token-b': [{ id: 10, status: 'approved', relationship_type: 'guardian', local_player_id: 16 }],
+  })
+  await page.clock.setFixedTime(TODAY)
+  await page.setViewportSize(VIEWPORTS[0])
+  await page.goto('/local-players/16')
+  await page.getByRole('button', { name: 'Add video', exact: true }).click()
+  await page.getByPlaceholder('e.g. Hat-trick vs. City U21').fill('Private title typed by A')
+
+  await changeViewer(page, 'token-b')
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Add video', exact: true }).click()
+  await expect(page.getByPlaceholder('e.g. Hat-trick vs. City U21')).toHaveValue('')
+  await expect(page.getByPlaceholder('https://youtube.com/watch?v=…')).toHaveValue('')
+})
+
+test('scout desk: search text, compare selection and introduction draft are gone after login, switch and logout', async ({ page }) => {
+  await page.setViewportSize(VIEWPORTS[0])
+  await installApiMocks(page, { verification: { status: 'approved' } })
+  await page.goto('/scout')
+  const search = page.getByRole('textbox', { name: 'Search players' })
+
+  // Login: what the anonymous visitor typed is not carried into the account.
+  await search.fill('typed while signed out')
+  await page.evaluate(() => localStorage.setItem('academyWatch.playerOnboardingPromptDismissed.v1', 'true'))
+  await changeViewer(page, 'mock-user-token')
+  await expect(search).toHaveValue('')
+
+  // Account switch: A's search, compare tray and introduction draft.
+  await search.fill('typed by A')
+  await page.getByRole('group', { name: 'Show players as' }).getByRole('button', { name: 'Cards' }).click()
+  const kofi = page.getByTestId('player-card').filter({ hasText: 'Kofi Asante-Reid' })
+  await kofi.getByRole('button', { name: 'Compare Kofi Asante-Reid' }).click()
+  await expect(page.getByText('1 of 4 selected')).toBeVisible()
+  await kofi.getByRole('button', { name: 'Introduce yourself to Kofi Asante-Reid' }).click()
+  await page.getByLabel('Message to Kofi Asante-Reid').fill('A: private introduction draft')
+  await changeViewer(page, 'token-b')
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(search).toHaveValue('')
+  await expect(page.getByText('1 of 4 selected')).toHaveCount(0)
+  await kofi.getByRole('button', { name: 'Introduce yourself to Kofi Asante-Reid' }).click()
+  await expect(page.getByLabel('Message to Kofi Asante-Reid')).toHaveValue('')
+  await page.keyboard.press('Escape')
+
+  // Logout.
+  await search.fill('typed by B')
+  await changeViewer(page, null)
+  await expect(search).toHaveValue('')
+})
+
+// A mutation started by A that answers after the switch must not touch B.
+for (const outcome of [503, 200]) {
+  test(`player page: A's held watchlist removal ${outcome === 200 ? 'succeeds' : 'fails'} after the switch — B's "On your watchlist" stays`, async ({ page }) => {
+    let release
+    const held = new Promise((resolve) => { release = resolve })
+    await signIn(page)
+    await installApiMocks(page)
+    await page.route('**/api/scout/watchlist/ids', (route) => route.fulfill({ json: { player_ids: [-12] } }))
+    await page.route('**/api/scout/watchlist/-12', async (route) => {
+      await held
+      return route.fulfill({ status: outcome, json: outcome === 200 ? { removed: true } : { error: 'temporarily unavailable' } })
+    })
+    await page.clock.setFixedTime(TODAY)
+    await page.setViewportSize(VIEWPORTS[0])
+    await page.goto('/players/-12')
+    await page.getByRole('button', { name: 'On your watchlist' }).click()
+    await expect(page.getByRole('button', { name: 'Add to watchlist' })).toBeVisible()
+
+    await changeViewer(page, 'token-b')
+    const watching = page.getByRole('button', { name: 'On your watchlist' })
+    await expect(watching).toHaveAttribute('aria-pressed', 'true')
+    release()
+    await page.waitForTimeout(700)
+
+    await expect(watching).toHaveAttribute('aria-pressed', 'true')
+    await expect(page.getByRole('button', { name: 'Add to watchlist' })).toHaveCount(0)
+  })
+}
+
+test('player page: A\'s held watchlist removal fails after logout and after logging in again — nothing changes', async ({ page }) => {
+  let release
+  const held = new Promise((resolve) => { release = resolve })
+  await signIn(page)
+  await installApiMocks(page)
+  await page.route('**/api/scout/watchlist/ids', (route) => route.fulfill({ json: { player_ids: [-12] } }))
+  await page.route('**/api/scout/watchlist/-12', async (route) => { await held; return route.fulfill({ status: 503, json: { error: 'temporarily unavailable' } }) })
+  await page.clock.setFixedTime(TODAY)
+  await page.setViewportSize(VIEWPORTS[0])
+  await page.goto('/players/-12')
+  await page.getByRole('button', { name: 'On your watchlist' }).click()
+
+  await changeViewer(page, null)
+  await expect(page.getByRole('button', { name: 'Add to watchlist' })).toHaveAttribute('aria-pressed', 'false')
+  // Signs in again before the old request answers: the fresh read says "watched"; the old failure must not undo it.
+  await changeViewer(page, 'mock-user-token')
+  await expect(page.getByRole('button', { name: 'On your watchlist' })).toHaveAttribute('aria-pressed', 'true')
+  release()
+  await page.waitForTimeout(700)
+  await expect(page.getByRole('button', { name: 'On your watchlist' })).toHaveAttribute('aria-pressed', 'true')
+})
+
+test('scout desk: A\'s held watchlist removal fails after the switch — B\'s cards keep their "Watching"', async ({ page }) => {
+  let release
+  const held = new Promise((resolve) => { release = resolve })
+  await signIn(page)
+  await page.setViewportSize(VIEWPORTS[1])
+  await installApiMocks(page)
+  await page.route('**/api/scout/watchlist/ids', (route) => route.fulfill({ json: { player_ids: [-15, -19] } }))
+  await page.route('**/api/scout/watchlist/-15', async (route) => { await held; return route.fulfill({ status: 503, json: { error: 'temporarily unavailable' } }) })
+  await page.goto('/scout')
+  const reuben = page.getByTestId('player-card').filter({ hasText: 'Reuben Castellane' })
+  const tamsin = page.getByTestId('player-card').filter({ hasText: 'Tamsin Holloway' })
+  await reuben.getByRole('button', { name: 'Unwatch Reuben Castellane' }).click()
+  await expect(reuben.getByRole('button', { name: 'Watch Reuben Castellane' })).toHaveAttribute('aria-pressed', 'false')
+
+  await changeViewer(page, 'token-b')
+  await expect(reuben.getByRole('button', { name: 'Unwatch Reuben Castellane' })).toHaveAttribute('aria-pressed', 'true')
+  release()
+  await page.waitForTimeout(700)
+
+  await expect(reuben.getByRole('button', { name: 'Unwatch Reuben Castellane' })).toHaveAttribute('aria-pressed', 'true')
+  await expect(tamsin.getByRole('button', { name: 'Unwatch Tamsin Holloway' })).toHaveAttribute('aria-pressed', 'true')
+})
+
 // ---- PCF2: a failed season-totals read is not an empty season --------------
 
 test('provider totals fail on first load: an error with a retry, totals built from the match log, never "No matches"', async ({ page }) => {
