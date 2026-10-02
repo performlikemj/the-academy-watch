@@ -349,7 +349,11 @@ for (const [width, height, size] of [[1440, 900, 'desktop'], [390, 844, 'mobile'
     })
     // Client-side route changes retain the shared provider and its cached state.
     const navigate = async (page, url) => {
-      await page.evaluate(value => { history.pushState({}, '', value); dispatchEvent(new PopStateEvent('popstate')) }, url)
+      await page.evaluate(value => {
+        const idx = (history.state?.idx ?? 0) + 1
+        history.pushState({ usr: null, key: crypto.randomUUID(), idx }, '', value)
+        dispatchEvent(new PopStateEvent('popstate'))
+      }, url)
       await expect(page).toHaveURL(new RegExp(url + '$'))
     }
     const menu = async page => {
@@ -367,6 +371,50 @@ for (const [width, height, size] of [[1440, 900, 'desktop'], [390, 844, 'mobile'
       else await expect(page.getByRole('heading', { name: 'Adult trial', exact: true })).toBeVisible()
       await expect(page.getByRole('alert')).toHaveCount(0)
     }
+    for (const on of [true, false]) for (const url of destinations.slice(0, 3)) for (const direction of ['back', 'forward']) test(`UXBF5 signed-out history ${direction} recovers ${url} flags ${on}`, async ({ page }) => {
+      const evidence = await fixture(page, { role: 'visitor', on, featuresStatus: 500, retrySuccess: true })
+      if (direction === 'forward') await page.addInitScript(value => {
+        // Seed a real prior entry without mounting Home's independent feature reader.
+        history.replaceState({ usr: null, key: 'uxbf5-home', idx: 0 }, '', '/')
+        history.pushState({ usr: null, key: 'uxbf5-failed', idx: 1 }, '', value)
+      }, url)
+      await page.goto(url)
+      await expect(page.getByRole('alert')).toHaveText('Could not load opportunities. Please try again later.')
+      await page.waitForLoadState('networkidle')
+      const initialReads = evidence.calls.filter(p => p === '/api/features').length
+      expect(initialReads).toBeGreaterThan(0)
+      const firstKey = await page.evaluate(() => history.state?.key ?? 'default')
+      evidence.recover()
+      if (direction === 'back') await page.getByRole('link', { name: 'The Academy Watch logo The Academy Watch' }).click()
+      else await page.goBack()
+      await expect(page).toHaveURL(/\/$/)
+      await expect(page.getByRole('heading', { name: /Every player deserves to be/ })).toBeVisible()
+      await page.waitForLoadState('networkidle')
+      expect(await page.evaluate(() => history.state?.key ?? 'default')).not.toBe(firstKey)
+      // Signed-out Home only moves the arrival marker; it must stay lazy.
+      expect(evidence.calls.filter(p => p === '/api/features')).toHaveLength(initialReads)
+      if (direction === 'back') await page.goBack()
+      else await page.goForward()
+      await expect(page).toHaveURL(new RegExp(url + '$'))
+      expect(await page.evaluate(() => history.state?.key ?? 'default')).toBe(firstKey)
+      await normalContent(page, url, on)
+      await page.waitForLoadState('networkidle')
+      expect(evidence.calls.filter(p => p === '/api/features')).toHaveLength(initialReads + 1)
+      if (direction === 'back') await page.goForward()
+      else await page.goBack()
+      await expect(page).toHaveURL(/\/$/)
+      await expect(page.getByRole('heading', { name: /Every player deserves to be/ })).toBeVisible()
+      await page.waitForLoadState('networkidle')
+      expect(evidence.calls.filter(p => p === '/api/features')).toHaveLength(initialReads + 1)
+      if (direction === 'back') await page.goBack()
+      else await page.goForward()
+      await normalContent(page, url, on)
+      await page.waitForLoadState('networkidle')
+      expect(evidence.calls.filter(p => p === '/api/features')).toHaveLength(initialReads + 1)
+      expect(evidence.calls.filter(p => p.startsWith('/api/me/'))).toEqual([])
+      if (!on) expect(businessCalls(evidence.calls)).toEqual([])
+      await shot(page, `history-${direction}-recovered-${url.includes('programs') ? 'club' : url === '/opportunities' ? 'list' : 'detail'}-${on ? 'on' : 'off'}`, size)
+    })
     for (const on of [true, false]) for (const url of destinations) test(`UXBF4 startup failure recovers on navigation to ${url} flags ${on ? 'ON' : 'OFF'}`, async ({ page }) => {
       const evidence = await fixture(page, { on, featuresStatus: 500, retrySuccess: true })
       await page.goto('/')

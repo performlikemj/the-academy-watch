@@ -36,10 +36,15 @@ export function useOpportunityFlags(enabled) {
 }
 
 export function useOpportunities(enabled = true) {
-  const { flags, enable } = useContext(OpportunityStateContext)
+  const { flags, enable, observeArrival } = useContext(OpportunityStateContext)
   const { key, pathname } = useLocation()
   const arrival = `${key}:${pathname}`
-  useEffect(() => { if (enabled) enable(false, arrival) }, [enabled, enable, arrival])
+  // Navigation reports every visit, including signed-out pages with no consumer.
+  // Observing an arrival never enables a request.
+  useEffect(() => {
+    observeArrival(arrival)
+    if (enabled) enable(false, arrival)
+  }, [enabled, enable, observeArrival, arrival])
   return enabled ? flags : unavailable
 }
 

@@ -70,3 +70,14 @@
 - Coordination correction: pending/recovered read satisfies the same arrival’s late-mounted summary; reset the refresh marker on route transitions so return/back navigation still revalidates. Delayed owner-metadata regression makes the race deterministic; isolated candidate20/24 exposed reusable-history-key marker case, now fixed. Changed-file lint zero warnings; targeted final correction checks running.
 - Final correction targeted24 PASS1.5m: delayed owner-summary mount makes exactly one shared recovery read, approval/removal revalidate after return navigation, overlap shares pending reads, persistent failures bounded, auth clearing/late-answer guards pass. Changed-file lint zero warnings.
 - Current main33bf30bd freshly fetched/already merged; B3 f073ecc8 migration matches main byte-for-byte, no UXBF4 migration/preapply/dependency changes. Final corrected head gets all four cached gates/PG22/combined189-case browser once; final delivery record remains external so no documentation-only commit changes that tested head.
+
+## UXBF5 fix round (2026-10-02)
+
+- Status: in-progress; reviewed942c0f2f, PR1124, no lower stack.
+- Scope: only RUXBV5-X1=O1 signed-out failed-bootstrap Back/Forward recovery.
+- Now: reverse independent probes into list/detail/club history regressions,390/1440,flags ON/OFF; give navigation helper real keys.
+- Next: marker-only tracking on every route transition, merge origin/main preserving UXM1 and delimited UXB blocks; final four cached gates/PG/lane browser/screenshots, push, ready, CI.
+- Constraints: foreground/governor, lazy bootstrap/one retry per arrival/shared success cache/token clearing/zero dark business reads; no migration/dependency changes.
+- Reverse-probe milestone: reviewed code fails all12 Back-return cases at the expected normal-content assertion; first bootstrap remains the only read. Added Forward-return coverage (24 total); Navigation reports every arrival, including disabled signed-out consumers, to a marker-only provider callback; enable also observes arrivals for shared claims coordination.
+- Candidate diagnostics: synthetic SPA history tests initially traversed again before Home committed (networkidle is already satisfied on SPA routes); require the actual Home heading. Club bootstrap can have an independent initial read, so assert exactly one additional recovery read relative to settled failure. Diagnostic real logo/Home/Back detailed trace passes. Temporary instrumentation removed.
+- Stable reverse proof: all24 final history regressions FAIL on reviewed942c0f2f after Home commits (2s assertion timeout); exact same24 pass with the fix. Focused48 PASS1.5m, changed-file lint0 errors/warnings. No backend production edits.

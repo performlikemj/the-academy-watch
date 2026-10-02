@@ -15,7 +15,15 @@ export function OpportunityStateProvider({ children }) {
   useLayoutEffect(() => { current.current = { flags, profiles } })
   const arrivals = useRef({ features: null, profiles: null })
   const profilesArrival = useRef(null)
+  const routeArrival = useRef(null)
+  const observeArrival = useCallback(arrival => {
+    if (routeArrival.current === arrival) return
+    routeArrival.current = arrival
+    arrivals.current = { features: null, profiles: null }
+    profilesArrival.current = null
+  }, [])
   const enable = useCallback((revalidateClaims = false, arrival) => {
+    observeArrival(arrival)
     setRequested(true)
     const { flags: latestFlags, profiles: latestProfiles } = current.current
     const freshFeatures = arrivals.current.features !== arrival
@@ -32,6 +40,6 @@ export function OpportunityStateProvider({ children }) {
       profilesArrival.current = arrival
       latestProfiles.retry(true)
     }
-  }, [])
-  return <OpportunityStateContext.Provider value={{ flags, profiles, enable }}>{children}</OpportunityStateContext.Provider>
+  }, [observeArrival])
+  return <OpportunityStateContext.Provider value={{ flags, profiles, enable, observeArrival }}>{children}</OpportunityStateContext.Provider>
 }
