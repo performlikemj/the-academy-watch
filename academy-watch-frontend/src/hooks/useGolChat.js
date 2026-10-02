@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { APIService } from '@/lib/api'
 import { createSseParser } from '@/lib/sse'
-import { GOL_MAINTENANCE_MESSAGE } from '@/lib/gol-maintenance'
+import { GOL_MAINTENANCE_MESSAGE, maintenanceRetryAt } from '@/lib/gol-maintenance'
 
 /**
  * Build API history from messages, including tool-call context.
@@ -27,7 +27,7 @@ function finiteBalance(value) {
   return Number.isFinite(value) ? value : null
 }
 
-export function useGolChat(identityKey, initialUsage = {}, creditUiLit = false) {
+export function useGolChat(identityKey, initialUsage = {}, creditUiLit = false, panelOpen = false) {
   const initialFreeQuestions = finiteBalance(initialUsage.freeQuestionsRemaining)
   const initialCreditBalance = finiteBalance(initialUsage.creditBalance)
   const [messages, setMessages] = useState([])
@@ -44,6 +44,11 @@ export function useGolChat(identityKey, initialUsage = {}, creditUiLit = false) 
   const [failedAttempt, setFailedAttempt] = useState(null)
   const [creditsExhausted, setCreditsExhausted] = useState(false)
   const [maintenance, setMaintenance] = useState(false)
+  const [suggestions, setSuggestions] = useState([])
+  const [isCheckingAvailability, setIsCheckingAvailability] = useState(false)
+  const [retryAt, setRetryAt] = useState(0)
+  const retryAtRef = useRef(0)
+  const availabilityRef = useRef(null)
   const abortRef = useRef(null)
   const requestEpochRef = useRef(0)
   const previousIdentityRef = useRef(identityKey)
@@ -76,6 +81,12 @@ export function useGolChat(identityKey, initialUsage = {}, creditUiLit = false) 
     requestEpochRef.current += 1
     abortRef.current?.abort()
     abortRef.current = null
+    availabilityRef.current = null
+    retryAtRef.current = 0
+    setRetryAt(0)
+    setMaintenance(false)
+    setSuggestions([])
+    setIsCheckingAvailability(false)
     setMessages([])
     setIsStreaming(false)
     setSessionId(crypto.randomUUID())
@@ -100,6 +111,51 @@ export function useGolChat(identityKey, initialUsage = {}, creditUiLit = false) 
     requestEpochRef.current += 1
     abortRef.current?.abort()
   }, [])
+
+  const enterMaintenance = useCallback((retryAfter = 60) => {
+    const deadline = maintenanceRetryAt(retryAfter)
+    retryAtRef.current = deadline
+    setRetryAt(deadline)
+    setMaintenance(true)
+  }, [])
+
+  const recheckAvailability = useCallback(() => {
+    if (Date.now() < retryAtRef.current) return Promise.resolve(false)
+    if (availabilityRef.current) return availabilityRef.current
+    const epoch = requestEpochRef.current
+    setIsCheckingAvailability(true)
+    const pending = APIService.getGolSuggestions().then(data => {
+      if (epoch !== requestEpochRef.current) return false
+      setSuggestions(data.suggestions || [])
+      if (data.maintenance === true) {
+        enterMaintenance(data.retry_after ?? 60)
+        return false
+      }
+      retryAtRef.current = 0
+      setRetryAt(0)
+      setMaintenance(false)
+      return true
+    }).catch(() => {
+      if (epoch === requestEpochRef.current) setSuggestions([
+        "Which Big 6 academy is producing the most first-team players?",
+        "Show me all academy players from Arsenal",
+        "Who are the top-performing academy players this season?",
+        "Tell me about Chelsea’s academy pipeline",
+      ])
+      return false
+    }).finally(() => {
+      if (availabilityRef.current === pending) {
+        availabilityRef.current = null
+        setIsCheckingAvailability(false)
+      }
+    })
+    availabilityRef.current = pending
+    return pending
+  }, [enterMaintenance])
+
+  useEffect(() => {
+    if (panelOpen && identityKey) recheckAvailability()
+  }, [panelOpen, identityKey, sessionId, recheckAvailability])
 
   const runAttempt = useCallback(async ({ content, history, clientMsgId, replaceMessageIds = [] }) => {
     const requestEpoch = ++requestEpochRef.current
@@ -175,7 +231,8 @@ export function useGolChat(identityKey, initialUsage = {}, creditUiLit = false) 
         try { body = errorText ? JSON.parse(errorText) : null } catch { /* non-JSON response */ }
 
         if (response.status === 503 && body?.error === 'maintenance') {
-          setMaintenance(true)
+          enterMaintenance(response.headers.get('Retry-After') ?? 60)
+          setFailedAttempt({ content, history, clientMsgId, messageIds: [userMsg.id, assistantMsg.id] })
           updateAssistant((message) => ({ ...message, content: GOL_MAINTENANCE_MESSAGE, maintenance: true, toolCall: null }))
           return
         }
@@ -244,8 +301,8 @@ export function useGolChat(identityKey, initialUsage = {}, creditUiLit = false) 
         } else if (type === 'error') {
           if (data.error === 'maintenance') {
             terminalError = true
-            setMaintenance(true)
-            setFailedAttempt(null)
+            enterMaintenance(data.retry_after ?? 60)
+            setFailedAttempt({ content, history, clientMsgId, messageIds: [userMsg.id, assistantMsg.id] })
             updateAssistant((message) => ({ ...message, content: GOL_MAINTENANCE_MESSAGE, maintenance: true, dataCards: [], hiddenHistory: [], toolCall: null }))
           } else failAttempt()
         } else if (type === 'done') {
@@ -302,7 +359,7 @@ export function useGolChat(identityKey, initialUsage = {}, creditUiLit = false) 
         setIsStreaming(false)
       }
     }
-  }, [creditUiLit, sessionId, updateUsage])
+  }, [creditUiLit, sessionId, updateUsage, enterMaintenance])
 
   const sendMessage = useCallback((content) => maintenance ? undefined : runAttempt({
     content,
@@ -326,7 +383,10 @@ export function useGolChat(identityKey, initialUsage = {}, creditUiLit = false) 
   return {
     messages,
     maintenance,
-    onMaintenanceChange: setMaintenance,
+    suggestions,
+    recheckAvailability,
+    isCheckingAvailability,
+    retryAt,
     isStreaming,
     sendMessage,
     retryFailedMessage,

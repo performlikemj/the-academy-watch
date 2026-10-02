@@ -186,4 +186,4 @@ Before marking work complete:
 
 - GOL loader compatibility checks use the real psycopg/PostgreSQL path with all selected frames; Numeric columns explicitly retain pandas float coercion, while exact finite Decimal values are accepted at the plain-data boundary. Keep builtin names in the reviewed classification inventory.
 
-- GOL operational availability uses `services/gol_availability.py` at request time; unavailable selected-provider credentials share the maintenance response. Web pre-send state uses the existing suggestions read, preserving the shared feature bootstrap request count.
+- GOL operational availability uses `services/gol_availability.py` at request time; unavailable selected-provider credentials share the maintenance response. Fresh paused questions write nothing; existing same-account debits retain reservation/replay/lease recovery/refund. Web availability rechecks belong to `useGolChat` through the existing suggestions read; respect retry deadlines, reset on Clear, and preserve the shared feature bootstrap request count.

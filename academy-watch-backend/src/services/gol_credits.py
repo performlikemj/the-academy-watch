@@ -69,6 +69,13 @@ def _latest_debit(user_id: int, client_msg_id: str) -> GolCreditLedger | None:
     )
 
 
+def has_question_debit(user, client_msg_id: str) -> bool:
+    """Read-only hint; reservation still owns validation, locking and recovery."""
+    return db.session.query(
+        GolCreditLedger.query.filter_by(user_account_id=user.id, client_msg_id=client_msg_id, kind="debit").exists()
+    ).scalar()
+
+
 def _has_reversal(row_id: int) -> bool:
     return GolCreditLedger.query.filter_by(kind="reversal", debit_id=row_id).first() is not None
 
