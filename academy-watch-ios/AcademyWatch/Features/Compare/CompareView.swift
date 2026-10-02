@@ -47,7 +47,7 @@ struct CompareView: View {
     @ViewBuilder
     private var content: some View {
         if viewModel.isLoading, viewModel.players.isEmpty {
-            CleatLoader("Comparing players…")
+            WingLiftLoadingView("Comparing players…")
                 .tint(AcademyColors.accent)
         } else if let message = viewModel.errorMessage, viewModel.players.isEmpty {
             ContentUnavailableView {
@@ -450,7 +450,7 @@ private struct ComparePlayerHeader: View {
                             .resizable()
                             .scaledToFill()
                     case .empty:
-                        CleatLoader()
+                        WingLiftLoadingView()
                             .tint(AcademyColors.accent)
                     case .failure:
                         photoPlaceholder

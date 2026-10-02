@@ -107,7 +107,7 @@ struct ContentReportSheet: View {
                     HStack {
                         Spacer()
                         if viewModel.isSubmitting {
-                            CleatLoader()
+                            WingLiftLoadingView()
                         }
                         Text(viewModel.isSubmitting ? "Submitting…" : "Submit report")
                             .fontWeight(.semibold)

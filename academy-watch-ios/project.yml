@@ -35,7 +35,7 @@ targets:
         LSRequiresIPhoneOS: true
         UILaunchScreen:
           UIColorName: LaunchBackground
-          UIImageName: LaunchCleat
+          UIImageName: LaunchBoot
           UIImageRespectsSafeAreaInsets: false
     settings:
       base:

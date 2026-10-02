@@ -70,7 +70,7 @@ struct PlayerOnboardingView: View {
                 Task { await viewModel.search() }
             } label: {
                 HStack {
-                    if viewModel.isLoading { CleatLoader().controlSize(.small) }
+                    if viewModel.isLoading { WingLiftLoadingView().controlSize(.small) }
                     Label("Find my profile", systemImage: "magnifyingglass")
                 }
                 .frame(maxWidth: .infinity)
@@ -282,7 +282,7 @@ struct LocalPlayerCreateView: View {
                         }
                     } label: {
                         HStack {
-                            if viewModel.isSubmitting { CleatLoader().controlSize(.small) }
+                            if viewModel.isSubmitting { WingLiftLoadingView().controlSize(.small) }
                             Text(viewModel.isSubmitting ? "Submitting…" : "Submit for review")
                         }
                         .frame(maxWidth: .infinity)

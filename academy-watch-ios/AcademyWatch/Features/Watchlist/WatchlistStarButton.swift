@@ -23,7 +23,7 @@ struct WatchlistStarButton: View {
         Button(action: toggleWatchlist) {
             Group {
                 if isPending {
-                    CleatLoader()
+                    WingLiftLoadingView()
                         .controlSize(.small)
                         .tint(AcademyColors.accent)
                 } else {

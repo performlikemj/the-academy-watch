@@ -68,8 +68,8 @@
                 RootTabView(launchArguments: ["-initialTab", chosenTab.rawValue])
             } else {
                 switch screen {
-                case "loader-green", "loader-claret", "loader-navy", "loader-gold", "loader-still":
-                    CleatLoader(phase: screen == "loader-claret" ? 1 : screen == "loader-navy" ? 2 : screen == "loader-gold" ? 3 : 0,
+                case "loader-green", "loader-claret", "loader-navy", "loader-gold", "loader-tangerine", "loader-sky", "loader-still":
+                    WingLiftLoadingView(phase: screen == "loader-claret" ? 1 : screen == "loader-navy" ? 2 : screen == "loader-gold" ? 3 : screen == "loader-tangerine" ? 4 : screen == "loader-sky" ? 5 : 0,
                                 reduceMotionOverride: screen == "loader-still")
                         .frame(maxWidth: .infinity, maxHeight: .infinity).background(AcademyColors.background)
                 case "post-empty", "post-error":

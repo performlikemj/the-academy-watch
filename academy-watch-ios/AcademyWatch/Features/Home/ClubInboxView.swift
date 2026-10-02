@@ -68,7 +68,7 @@ struct ClubInboxView: View {
                     "You choose which invitations to accept. Joining connects your profile to the club's roster and lets the club send you private feedback. It doesn't change your contract status."
                 )
                 .font(AcademyType.subheadline).foregroundStyle(AcademyColors.secondaryText)
-                if model.busy { CleatLoader("Updating invitations…") }
+                if model.busy { WingLiftLoadingView("Updating invitations…") }
                 if model.unavailable {
                     ContentUnavailableView(
                         "Club connections aren't available yet", systemImage: "envelope",
@@ -259,7 +259,7 @@ struct PlayerFeedbackListView: View {
                 Text("Private notes from your club. Your acknowledgment lets your coach know you've read them.")
                     .foregroundStyle(AcademyColors.secondaryText)
             }.listRowBackground(AcademyColors.background)
-            if model.busy { CleatLoader("Loading feedback…") }
+            if model.busy { WingLiftLoadingView("Loading feedback…") }
             if let error = model.error {
                 Text(error).foregroundStyle(AcademyColors.secondaryText)
                 Button("Refresh") { Task { await model.load(playerID: playerID) } }
@@ -307,7 +307,7 @@ struct PlayerFeedbackDetailView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                if model.busy { CleatLoader("Updating feedback…") }
+                if model.busy { WingLiftLoadingView("Updating feedback…") }
                 if let row = model.detail {
                     Label("PRIVATE CLUB FEEDBACK", systemImage: "lock.fill").font(AcademyType.caption.weight(.medium)).foregroundStyle(
                         AcademyColors.accent)

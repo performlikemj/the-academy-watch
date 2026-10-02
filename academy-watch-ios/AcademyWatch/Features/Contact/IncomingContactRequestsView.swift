@@ -16,7 +16,7 @@ struct IncomingContactRequestsView: View {
             AcademyColors.background.ignoresSafeArea()
 
             if viewModel.isLoading, !viewModel.hasLoaded {
-                CleatLoader("Checking your introductions…")
+                WingLiftLoadingView("Checking your introductions…")
                     .tint(AcademyColors.accent)
             } else if let error = viewModel.errorMessage, viewModel.requests.isEmpty {
                 ContentUnavailableView {
@@ -161,7 +161,7 @@ struct IncomingContactRequestsView: View {
                 }
 
                 if viewModel.isLoadingMore {
-                    CleatLoader("Loading more…")
+                    WingLiftLoadingView("Loading more…")
                         .frame(maxWidth: .infinity)
                         .padding()
                 }
@@ -262,7 +262,7 @@ private struct IncomingContactRequestCard: View {
                         .tint(AcademyColors.primaryFill)
                         .accessibilityIdentifier("accept-contact-request")
                 } else if isResponding {
-                    CleatLoader()
+                    WingLiftLoadingView()
                         .controlSize(.small)
                     Text(request.status == .accepted ? "Accepting…" : "Declining…")
                         .font(AcademyType.subheadline.weight(.semibold))

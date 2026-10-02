@@ -74,7 +74,7 @@ private struct PlayerListPicker: View {
     @ViewBuilder
     private var content: some View {
         if viewModel.isLoading, viewModel.lists.isEmpty {
-            CleatLoader("Loading lists…")
+            WingLiftLoadingView("Loading lists…")
                 .tint(AcademyColors.accent)
         } else if availableLists.isEmpty {
             ContentUnavailableView {
@@ -135,7 +135,7 @@ private struct PlayerListPicker: View {
                                     .foregroundStyle(AcademyColors.good)
                                     .labelStyle(.titleAndIcon)
                             } else if isPending {
-                                CleatLoader()
+                                WingLiftLoadingView()
                                     .controlSize(.small)
                             } else {
                                 Image(systemName: "plus.circle")

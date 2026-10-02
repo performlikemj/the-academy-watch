@@ -31,7 +31,7 @@ struct RecruitingView: View {
             if membership.access.canRecruit && workspace.flags.opportunities {
                 Button("Post a trial") { editorDestination = EditorDestination(post: nil) }
                     .buttonStyle(FloodlightPillStyle()).accessibilityIdentifier("recruiting-create")
-                if model.isLoading { CleatLoader("Loading recruiting…") }
+                if model.isLoading { WingLiftLoadingView("Loading recruiting…") }
                 Phase2ErrorView(message: model.error, retry: reload)
                 ForEach(model.posts) { post in
                     if workspace.flags.applications {
@@ -135,7 +135,7 @@ struct RecruitingPipelineView: View {
                     .accessibilityIdentifier("pipeline-edit-post")
             }
             Rectangle().fill(AcademyColors.text).frame(height: 1)
-            if model.isLoading { CleatLoader("Loading applicants…") }
+            if model.isLoading { WingLiftLoadingView("Loading applicants…") }
             Phase2ErrorView(message: model.error, retry: reload)
             Phase2ErrorView(message: error)
             List {
@@ -326,7 +326,7 @@ struct RecruitingApplicantView: View {
     }
     var body: some View {
         Phase2Page(title: "", eyebrow: "") {
-            if model.isBusy { CleatLoader("Updating applicant…") }
+            if model.isBusy { WingLiftLoadingView("Updating applicant…") }
             Phase2ErrorView(message: model.error, retry: { Task { await model.load() } })
             if let application = model.application {
                 HStack(spacing: 14) {
@@ -584,7 +584,7 @@ struct SquadQuickView: View {
                     ForEach(model.squads) { squad in Text(squad.name).tag(Optional(squad.id)) }
                 }.pickerStyle(.menu).accessibilityIdentifier("squad-picker")
             }
-            if model.isLoading { CleatLoader("Loading your squads…") }
+            if model.isLoading { WingLiftLoadingView("Loading your squads…") }
             Phase2ErrorView(
                 message: model.error, retry: { Task { await model.load(programId: membership.id) } })
             Rectangle().fill(AcademyColors.text).frame(height: 1)
@@ -675,7 +675,7 @@ struct StaffAccessView: View {
             Text("Who can sign in, and which squads they see. Owner only.").font(AcademyType.subheadline)
                 .foregroundStyle(
                     AcademyColors.secondaryText)
-            if model.isBusy { CleatLoader("Updating access…") }
+            if model.isBusy { WingLiftLoadingView("Updating access…") }
             Phase2ErrorView(message: model.error, retry: { Task { await model.load() } })
             if let notice = model.notice {
                 Text(notice).font(AcademyType.subheadline).accessibilityIdentifier("staff-notice")

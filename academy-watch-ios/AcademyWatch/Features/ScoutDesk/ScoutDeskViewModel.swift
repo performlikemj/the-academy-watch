@@ -126,18 +126,18 @@ final class ScoutDeskViewModel: ObservableObject {
         isShowingCachedLeaderboards && isLoadingLeaderboards
     }
 
-    var shouldShowCleatLoadingCard: Bool {
+    var shouldShowLogoLoadingCard: Bool {
         isLoadingInitial && players.isEmpty && !hasCompletedFirstLoad
     }
 
     var shouldShowInlineInitialLoader: Bool {
-        isLoadingInitial && players.isEmpty && !shouldShowCleatLoadingCard
+        isLoadingInitial && players.isEmpty && !shouldShowLogoLoadingCard
     }
 
     func initialLoadFeedback(
         atUptime uptime: TimeInterval = ProcessInfo.processInfo.systemUptime
     ) -> ScoutInitialLoadFeedback? {
-        guard shouldShowCleatLoadingCard,
+        guard shouldShowLogoLoadingCard,
               let initialLoadStartedAt
         else { return nil }
 

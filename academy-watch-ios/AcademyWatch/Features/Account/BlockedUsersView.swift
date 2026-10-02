@@ -73,7 +73,7 @@ struct BlockedUsersView: View {
             AcademyColors.background.ignoresSafeArea()
 
             if viewModel.isLoading, viewModel.users.isEmpty {
-                CleatLoader("Loading blocked users…")
+                WingLiftLoadingView("Loading blocked users…")
             } else if viewModel.users.isEmpty, let error = viewModel.errorMessage {
                 ContentUnavailableView {
                     Label("Blocked users unavailable", systemImage: "person.crop.circle.badge.exclamationmark")

@@ -101,7 +101,7 @@ struct ClubOnboardingView: View {
                 Button {
                     Task { await viewModel.searchClubs() }
                 } label: {
-                    if viewModel.isSearching { CleatLoader().controlSize(.small) }
+                    if viewModel.isSearching { WingLiftLoadingView().controlSize(.small) }
                     else { Image(systemName: "magnifyingglass") }
                 }
                 .buttonStyle(FloodlightPillStyle(variant: .outline))
@@ -154,7 +154,7 @@ struct ClubOnboardingView: View {
                 Task { await viewModel.submit() }
             } label: {
                 HStack {
-                    if viewModel.isSubmitting { CleatLoader().controlSize(.small) }
+                    if viewModel.isSubmitting { WingLiftLoadingView().controlSize(.small) }
                     Text(viewModel.isSubmitting ? "Submitting…" : "Submit club claim")
                 }
                 .frame(maxWidth: .infinity)
@@ -227,7 +227,7 @@ struct ClubOnboardingView: View {
     @ViewBuilder
     private var claimsSection: some View {
         if viewModel.isLoading, viewModel.claims.isEmpty {
-            CleatLoader("Loading your club claims…")
+            WingLiftLoadingView("Loading your club claims…")
                 .frame(maxWidth: .infinity)
         } else if !viewModel.claims.isEmpty {
             VStack(alignment: .leading, spacing: 11) {

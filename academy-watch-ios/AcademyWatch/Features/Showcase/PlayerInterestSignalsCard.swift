@@ -67,7 +67,7 @@ struct PlayerInterestSignalsCard: View {
 
     private var loadingContent: some View {
         HStack(spacing: 10) {
-            CleatLoader()
+            WingLiftLoadingView()
                 .tint(AcademyColors.accent)
             Text("Checking your profile interest…")
                 .font(AcademyType.subheadline)

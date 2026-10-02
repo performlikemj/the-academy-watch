@@ -70,7 +70,7 @@ struct PlayerClaimSectionView: View {
     private var content: some View {
         if isAuthenticated, viewModel.isLoading, !viewModel.hasLoaded {
             HStack(spacing: 10) {
-                CleatLoader()
+                WingLiftLoadingView()
                     .tint(AcademyColors.accent)
                 Text("Checking your claim status…")
                     .font(AcademyType.subheadline)
@@ -175,7 +175,7 @@ struct PlayerClaimSectionView: View {
 
                 if viewModel.isLoadingOwnerProfile {
                     HStack(spacing: 8) {
-                        CleatLoader().controlSize(.small)
+                        WingLiftLoadingView().controlSize(.small)
                         Text("Loading the moderated profile…")
                             .font(AcademyType.caption)
                             .foregroundStyle(AcademyColors.secondaryText)
@@ -287,7 +287,7 @@ struct PlayerClaimSectionView: View {
         } label: {
             if viewModel.isSubmitting {
                 HStack(spacing: 8) {
-                    CleatLoader().tint(AcademyColors.onPrimary)
+                    WingLiftLoadingView().tint(AcademyColors.onPrimary)
                     Text("Submitting…")
                 }
             } else {

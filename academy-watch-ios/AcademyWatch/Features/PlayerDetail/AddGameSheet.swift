@@ -322,7 +322,7 @@ struct AddGameSheet: View {
             }
         } label: {
             HStack {
-                if viewModel.isSubmitting { CleatLoader().controlSize(.small) }
+                if viewModel.isSubmitting { WingLiftLoadingView().controlSize(.small) }
                 Text(viewModel.isSubmitting ? "Saving…" : "Save game")
             }
             .frame(maxWidth: .infinity)

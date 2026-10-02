@@ -93,7 +93,7 @@ struct PlayerTakedownRequestSheet: View {
                     HStack {
                         Spacer()
                         if viewModel.state == .submitting {
-                            CleatLoader()
+                            WingLiftLoadingView()
                         }
                         Text(submitButtonTitle)
                             .fontWeight(.semibold)

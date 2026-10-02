@@ -273,7 +273,7 @@ struct MyProfilesView: View {
                 Text("Your place in the game").font(AcademyType.title2)
                 Text("Your claims stay here while they're reviewed. Come back any time to see what's next.")
                     .foregroundStyle(AcademyColors.secondaryText)
-                if model.isLoading { CleatLoader("Checking your profiles…") }
+                if model.isLoading { WingLiftLoadingView("Checking your profiles…") }
                 if let error = model.error {
                     Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(
                         AcademyColors.danger)

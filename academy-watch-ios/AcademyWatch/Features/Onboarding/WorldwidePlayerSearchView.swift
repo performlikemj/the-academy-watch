@@ -86,7 +86,7 @@ struct WorldwidePlayerSearchView: View {
                 Task { await viewModel.search() }
             } label: {
                 if viewModel.isSearching {
-                    CleatLoader().controlSize(.small)
+                    WingLiftLoadingView().controlSize(.small)
                 } else {
                     Image(systemName: "magnifyingglass")
                 }
@@ -143,7 +143,7 @@ struct WorldwidePlayerSearchView: View {
                     }
                 } label: {
                     if viewModel.pendingPlayerID == player.playerApiId {
-                        CleatLoader().controlSize(.small)
+                        WingLiftLoadingView().controlSize(.small)
                     } else {
                         Label("Add", systemImage: "plus")
                     }

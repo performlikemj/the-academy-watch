@@ -6,11 +6,11 @@ struct AcademyWatchApp: App {
     private let onboardingFixture = OnboardingFixtureDestination.fromLaunchArguments(
         ProcessInfo.processInfo.arguments
     )
-    private let cleatFixtureElapsedSeconds = CleatLoader.fixtureElapsedSeconds(
+    private let logoFixtureElapsedSeconds = WingLiftLoadingView.fixtureElapsedSeconds(
         from: ProcessInfo.processInfo.arguments
     )
-    private let cleatFixtureReducesMotion = ProcessInfo.processInfo.arguments.contains(
-        "-cleatFixtureReduceMotion"
+    private let logoFixtureReducesMotion = ProcessInfo.processInfo.arguments.contains(
+        "-logoFixtureReduceMotion"
     )
     #endif
     private let initialPhase = ScoutPhase.fromLaunchArguments(ProcessInfo.processInfo.arguments)
@@ -43,7 +43,7 @@ struct AcademyWatchApp: App {
             UserDefaults.standard.set(Phase2Fixtures.isClubExperience ? "club" : "player", forKey: ExperienceRole.storageKey)
             return
         }
-        if FloodlightPreview.isActive { return }
+        if FloodlightPreview.isActive || logoFixtureElapsedSeconds != nil { return }
         do {
             try ExperienceRole.applySimulatorLaunchArguments(ProcessInfo.processInfo.arguments)
             _ = try PlayerClubExperienceFixtures.mode(from: ProcessInfo.processInfo.arguments)
@@ -81,10 +81,10 @@ struct AcademyWatchApp: App {
 
     @ViewBuilder private var normalRoot: some View {
         #if DEBUG
-        if let cleatFixtureElapsedSeconds {
-            CleatLoader(
-                feedback: ScoutInitialLoadFeedback(elapsedSeconds: cleatFixtureElapsedSeconds),
-                reduceMotionOverride: cleatFixtureReducesMotion
+        if let logoFixtureElapsedSeconds {
+            WingLiftLoadingView(
+                feedback: ScoutInitialLoadFeedback(elapsedSeconds: logoFixtureElapsedSeconds),
+                reduceMotionOverride: logoFixtureReducesMotion
             )
         } else if let onboardingFixture {
             OnboardingEvidenceRoot(destination: onboardingFixture)

@@ -87,7 +87,7 @@ final class Phase2UITests: XCTestCase {
         launch("detail-error", tab: "trials")
         tap(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'trial-'")).firstMatch)
         XCTAssertTrue(app.staticTexts["The service could not load this information. Please try again later."].waitForExistence(timeout: 10))
-        XCTAssertFalse(app.descendants(matching: .any)["cleat-loader"].exists)
+        XCTAssertFalse(app.descendants(matching: .any)["logo-loader"].exists)
         XCTAssertFalse(app.staticTexts["Loading opportunity…"].exists)
         XCTAssertTrue(app.buttons["Try again"].exists)
         capture("I1F4-trial-read-finished")
@@ -641,8 +641,8 @@ final class Phase2UITests: XCTestCase {
             for screen in ["loader-green", "loader-claret", "loader-navy", "loader-gold", "loader-still"] {
                 app.launchArguments = ["-phase2Preview", screen, "-reviewCapture", "-AppleInterfaceStyle", style]
                 app.launch()
-                XCTAssertTrue(app.otherElements["cleat-loader"].waitForExistence(timeout: 15))
-                XCTAssertEqual(app.otherElements["cleat-loader"].label, "Loading")
+                XCTAssertTrue(app.otherElements["logo-loader"].waitForExistence(timeout: 15))
+                XCTAssertEqual(app.otherElements["logo-loader"].label, "Loading")
                 capture("round2-\(screen)-\(style.lowercased())")
                 app.terminate()
             }

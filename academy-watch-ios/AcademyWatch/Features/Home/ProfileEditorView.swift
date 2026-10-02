@@ -119,7 +119,7 @@ struct ProfileEditorView: View {
             Section {
                 Text("Make this profile yours. Photos and highlights are reviewed before they appear publicly.")
                     .foregroundStyle(AcademyColors.secondaryText)
-                if model.busy { CleatLoader("Updating your profile…") }
+                if model.busy { WingLiftLoadingView("Updating your profile…") }
                 if let error = model.error {
                     Text(error).foregroundStyle(AcademyColors.danger)
                     if !model.loaded { Button("Try again") { Task { await model.load() } } }
@@ -227,7 +227,7 @@ struct ProfileEditorView: View {
                     photoItem = nil
                 }.disabled(photoBusy)
             }
-            if photoBusy { CleatLoader("Preparing your photo…") }
+            if photoBusy { WingLiftLoadingView("Preparing your photo…") }
             if let photoError { Text(photoError).foregroundStyle(AcademyColors.danger) }
             if let photoNotice { Text(photoNotice).foregroundStyle(AcademyColors.good) }
             ForEach(model.showcase?.photos ?? []) { photo in

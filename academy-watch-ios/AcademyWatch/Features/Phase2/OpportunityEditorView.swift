@@ -27,7 +27,7 @@ struct OpportunityEditorView: View {
       title: model.post == nil ? "A place for someone new." : model.post!.title,
       eyebrow: "Recruiting · \(model.post?.status.capitalized ?? "New opportunity")"
     ) {
-      if !model.ready && model.isBusy { CleatLoader("Loading editor…") }
+      if !model.ready && model.isBusy { WingLiftLoadingView("Loading editor…") }
       if let notice = model.notice {
         Text(notice).font(AcademyType.body).accessibilityIdentifier("post-notice")
       }
@@ -130,7 +130,7 @@ struct OpportunityEditorView: View {
           .disabled(!model.canSave).accessibilityIdentifier("post-cancel")
         }
       }
-      if model.isBusy && model.ready { CleatLoader("Saving…") }
+      if model.isBusy && model.ready { WingLiftLoadingView("Saving…") }
     }
     .navigationTitle(model.post == nil ? "Post a trial" : "Edit opportunity")
     .toolbar {

@@ -127,7 +127,7 @@ struct FloodlightPreviewRoot: View {
     @ViewBuilder private var content: some View {
         switch screen {
         case "scout", "scout-empty", "scout-error": RootTabView(launchArguments: ["-initialTab", "scoutDesk"])
-        case "loading": CleatLoader(feedback: ScoutInitialLoadFeedback(elapsedSeconds: 10), reduceMotionOverride: true)
+        case "loading": WingLiftLoadingView(feedback: ScoutInitialLoadFeedback(elapsedSeconds: 10), reduceMotionOverride: true)
         case "player", "player-error", "season": NavigationStack { PlayerDetailView(playerID: 900001, apiClient: client) }
         case "compare": NavigationStack { CompareView(playerIDs: [900001,900002], apiClient: client) }
         case "watchlist", "watchlist-empty", "watchlist-error": RootTabView(launchArguments: ["-initialTab", "watchlist"])
