@@ -40,7 +40,7 @@ from src.models.player_fan import PlayerFan
 from src.models.player_match_entry import PlayerMatchEntry
 from src.models.product_event import ProductEvent
 from src.models.scout_watchlist import ScoutWatchlistEntry
-from src.models.showcase import PlayerProfileClaim, PlayerShowcaseProfile
+from src.models.showcase import PlayerClubAffiliation, PlayerProfileClaim, PlayerShowcaseMedia, PlayerShowcaseProfile
 from src.models.trust import ContentReport, ScoutVerification
 from src.services import season_rollup_service
 from src.services.club_registry import active_manager_program_ids, program_is_operational
@@ -628,6 +628,44 @@ def build_account_export(user: UserAccount) -> dict:
         ],
         "showcase_claims": [claim.to_dict() for claim in claims],
         "showcase_profiles": [_showcase_profile_dict(profile, own_claim_ids) for profile in profiles],
+        "showcase_media": [
+            {
+                "id": row.id,
+                "player_api_id": row.player_api_id,
+                "local_player_id": row.local_player_id,
+                "kind": row.kind,
+                "blob_path": row.blob_path,
+                "public_url": row.public_url,
+                "content_type": row.content_type,
+                "size_bytes": row.size_bytes,
+                "is_primary": bool(row.is_primary),
+                "sort_order": row.sort_order,
+                "status": row.status,
+                "reviewed_at": _iso(row.reviewed_at),
+                "created_at": _iso(row.created_at),
+                "updated_at": _iso(row.updated_at),
+            }
+            for row in PlayerShowcaseMedia.query.filter_by(uploaded_by_user_id=user.id)
+            .order_by(PlayerShowcaseMedia.created_at, PlayerShowcaseMedia.id)
+            .all()
+        ],
+        "showcase_affiliations": [
+            {
+                "id": row.id,
+                "player_api_id": row.player_api_id,
+                "local_player_id": row.local_player_id,
+                "local_club_id": row.local_club_id,
+                "team_api_id": row.team_api_id,
+                "season": row.season,
+                "status": row.status,
+                "reviewed_at": _iso(row.reviewed_at),
+                "created_at": _iso(row.created_at),
+                "updated_at": _iso(row.updated_at),
+            }
+            for row in PlayerClubAffiliation.query.filter_by(created_by_user_id=user.id)
+            .order_by(PlayerClubAffiliation.created_at, PlayerClubAffiliation.id)
+            .all()
+        ],
         "submitted_links": [
             _submitted_link_dict(row)
             for row in PlayerLink.query.filter_by(user_id=user.id)
