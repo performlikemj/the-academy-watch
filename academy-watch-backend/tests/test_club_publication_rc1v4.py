@@ -1,5 +1,5 @@
 # ruff: noqa: F811, F401
-"""C1F5: reverse the final duel's search, title, outcome and contention probes."""
+"""C1F5/C1F6: reverse the final duel's search, title, outcome and contention probes."""
 
 from datetime import date
 from types import SimpleNamespace
@@ -220,3 +220,42 @@ def test_introduction_database_contention_is_retryable(client, env, monkeypatch,
     assert response.status_code == status, response.json
     assert response.json == {"error": "publication_conflict" if status == 409 else "publication_busy"}
     assert ContactRequest.query.count() == 0
+
+
+@pytest.mark.parametrize("route", ["club-consent", "link", "revoke"])
+@pytest.mark.parametrize("sqlstate,status", [("40P01", 409), ("40001", 409), ("55P03", 503)])
+def test_contact_consent_and_revoke_contention_rolls_back(client, env, monkeypatch, route, sqlstate, status):
+    import src.routes.contact as routes
+    from src.services.contact import issue_club_consent_token
+
+    published(client, env)
+    cid = introduction(client, env)
+    before = ContactAuditEvent.query.filter_by(contact_request_id=cid).count()
+    original = routes.program_is_operational
+
+    def contention(*args, **kwargs):
+        if kwargs.get("for_update"):
+            # A write before the failure must be rolled back with the lock transaction.
+            db.session.get(ContactRequest, cid).club_consent_note = "private uncommitted fixture"
+            db.session.flush()
+            raise OperationalError("private SQL", {}, SimpleNamespace(sqlstate=sqlstate))
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(routes, "program_is_operational", contention)
+    if route == "link":
+        url = "/api/contact/club-consent/" + issue_club_consent_token(cid, "grant")
+        headers = {}
+    else:
+        url = f"/api/contact/requests/{cid}/{route}"
+        headers = _headers("a")
+    response = client.post(url, headers=headers, json={"action": "grant"})
+    assert response.status_code == status, response.json
+    assert response.json == {"error": "publication_conflict" if status == 409 else "publication_busy"}
+    db.session.expire_all()
+    contact = db.session.get(ContactRequest, cid)
+    assert contact.status == "pending" and contact.club_consent_status == "pending"
+    assert contact.club_consent_note is None
+    assert ContactAuditEvent.query.filter_by(contact_request_id=cid).count() == before
+    monkeypatch.setattr(routes, "program_is_operational", original)
+    retry = client.post(url, headers=headers, json={"action": "grant"})
+    assert retry.status_code == 200, retry.json

@@ -425,3 +425,36 @@ for (const available of [true, false]) {
     await shot(page, `sent-public-title-${available ? 'available' : 'unavailable'}`, 'mobile')
   })
 }
+
+
+for (const clubFirst of [true, false]) {
+  for (const [name, title] of [['long', 'X'.repeat(clubFirst ? 120 : 80)], ['realistic', 'Oluwaseun Adebayo-Williams Junior']]) {
+    test(`390px ${clubFirst ? 'club-first' : 'ordinary'} ${name} introduction title fits`, async ({ page }) => {
+      await page.setViewportSize({ width: 390, height: 844 })
+      await fixture(page)
+      const contact = {
+        id: 'width-fixture', player_api_id: -23, club_first: clubFirst, status: 'pending',
+        routing_mode: clubFirst ? 'club_included' : 'direct', club_consent_status: clubFirst ? 'pending' : null,
+        messaging_open: false, message: 'Synthetic introduction', created_at: '2026-10-01T12:00:00',
+        participants: { scout: { display_name: 'Synthetic scout' }, player: { display_name: clubFirst ? 'Unavailable' : title } },
+        ...(clubFirst ? { public_profile: { player_api_id: -23, display_name: title } } : {}),
+      }
+      await page.route('**/api/features', route => route.fulfill({ json: { contact_rail: true, club_player_publication: clubFirst } }))
+      await page.route('**/api/contact/**', route => {
+        const url = new URL(route.request().url())
+        return route.fulfill({ json: url.pathname === '/api/contact/requests'
+          ? { requests: url.searchParams.get('box') === 'sent' ? [contact] : [], total: 1 }
+          : { contact_request: contact, messages: [] } })
+      })
+      await page.goto('/introductions')
+      await page.getByRole('button', { name: new RegExp(title) }).click()
+      const thread = page.getByTestId('contact-thread')
+      await expect(thread).toContainText(title)
+      if (clubFirst) await expect(thread.getByRole('link', { name: title })).toHaveAttribute('href', '/players/-23')
+      const widths = await thread.evaluate(el => ({ page: document.documentElement.scrollWidth, thread: el.scrollWidth, available: el.clientWidth }))
+      expect(widths.page).toBeLessThanOrEqual(390)
+      expect(widths.thread).toBeLessThanOrEqual(widths.available)
+      await shot(page, `introduction-${clubFirst ? 'club-first' : 'ordinary'}-${name}`, 'mobile')
+    })
+  }
+}

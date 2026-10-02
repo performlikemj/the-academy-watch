@@ -5,7 +5,7 @@ import os
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, timedelta
 from pathlib import Path
-from threading import Barrier
+from threading import Barrier, Event, local
 from uuid import uuid4
 
 import pytest
@@ -881,3 +881,268 @@ def test_postgres_export_owned_photos_and_affiliations_while_dark(pg, monkeypatc
     assert affiliations[0]["season"] == f"export-{ids['adult']}"
     assert not {"uploaded_by_user_id", "created_by_user_id", "reviewed_by"} & media[0].keys()
     assert not {"uploaded_by_user_id", "created_by_user_id", "reviewed_by"} & affiliations[0].keys()
+
+
+def test_postgres_expiry_creation_waits_first(pg, monkeypatch):
+    import src.routes.contact as routes
+    from src.auth import issue_user_token
+    from src.extensions import limiter
+    from src.models.contact import ContactRequest
+    from src.models.trust import ScoutVerification
+
+    app, ids = pg
+    monkeypatch.setenv("CONTACT_RAIL_ENABLED", "true")
+    app.config["RATELIMIT_ENABLED"] = False
+    limiter.init_app(app)
+    app.register_blueprint(routes.contact_bp, url_prefix="/api")
+    pubid = make_consented(ids)
+    row = Publication.query.filter_by(id=pubid).with_for_update().one()
+    service.review(row, "reviewer", {"action": "approve", "expected_version": row.version, "reason": "probe"})
+    db.session.add(
+        ScoutVerification(
+            user_account_id=ids["owner"],
+            full_name="Synthetic scout",
+            organization="Fixture",
+            role_title="Scout",
+            statement="Fixture",
+            status="approved",
+        )
+    )
+    old = ContactRequest(
+        scout_user_id=ids["owner"],
+        player_api_id=-ids["local"],
+        claim_id=row.claim_id,
+        status="pending",
+        club_first=True,
+        routing_mode="club_included",
+        club_program_id=ids["program"],
+        club_consent_status="pending",
+        message="Expired fixture",
+        expires_at=service.now() - timedelta(days=1),
+    )
+    db.session.add(old)
+    db.session.commit()
+    old_id = old.id
+    token = issue_user_token(db.session.get(UserAccount, ids["owner"]).email)["token"]
+    db.session.commit()
+    db.session.remove()
+
+    r_held, b_held = Event(), Event()
+    own = local()
+    original_manager, original_expire = routes.is_active_program_manager, routes._expire_visible_rows
+
+    def manager(*args, **kwargs):
+        result = original_manager(*args, **kwargs)
+        if getattr(own, "consenting", False):
+            r_held.set()  # club consent now owns the request row
+            assert b_held.wait(10)  # Creation is about to expire the old row.
+        return result
+
+    def expire(query):
+        if getattr(own, "creating", False):
+            b_held.set()
+        return original_expire(query)
+
+    monkeypatch.setattr(routes, "is_active_program_manager", manager)
+    monkeypatch.setattr(routes, "_expire_visible_rows", expire)
+
+    def consent():
+        own.consenting = True
+        with app.test_client() as client:
+            response = client.post(
+                f"/api/contact/requests/{old_id}/club-consent",
+                headers={"Authorization": "Bearer " + token},
+                json={"action": "grant"},
+            )
+            return response.status_code, response.json
+
+    def create():
+        own.creating = True
+        assert r_held.wait(10)
+        with app.test_client() as client:
+            response = client.post(
+                "/api/contact/requests",
+                headers={"Authorization": "Bearer " + token},
+                json={"player_api_id": -ids["local"], "message": "Second introduction"},
+            )
+            body = response.json or {}
+            return response.status_code, {k: body.get(k) for k in ("error", "code")}
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        a, b = pool.submit(consent), pool.submit(create)
+        consent_result, create_result = a.result(30), b.result(30)
+    assert consent_result == (409, {"error": "contact request has expired", "code": "request_expired"}), consent_result
+    assert create_result[0] == 201, create_result
+    db.session.expire_all()
+    assert db.session.get(ContactRequest, old_id).status == "expired"
+    assert ContactRequest.query.filter_by(player_api_id=-ids["local"], status="pending").count() == 1
+
+
+def test_postgres_expiry_consent_waits_first(pg, monkeypatch):
+    import src.routes.contact as routes
+    from src.auth import issue_user_token
+    from src.extensions import limiter
+    from src.models.contact import ContactRequest
+    from src.models.trust import ScoutVerification
+
+    app, ids = pg
+    monkeypatch.setenv("CONTACT_RAIL_ENABLED", "true")
+    app.config["RATELIMIT_ENABLED"] = False
+    limiter.init_app(app)
+    app.register_blueprint(routes.contact_bp, url_prefix="/api")
+    pubid = make_consented(ids)
+    row = Publication.query.filter_by(id=pubid).with_for_update().one()
+    service.review(row, "reviewer", {"action": "approve", "expected_version": row.version, "reason": "probe"})
+    db.session.add(
+        ScoutVerification(
+            user_account_id=ids["owner"],
+            full_name="Synthetic scout",
+            organization="Fixture",
+            role_title="Scout",
+            statement="Fixture",
+            status="approved",
+        )
+    )
+    old = ContactRequest(
+        scout_user_id=ids["owner"],
+        player_api_id=-ids["local"],
+        claim_id=row.claim_id,
+        status="pending",
+        club_first=True,
+        routing_mode="club_included",
+        club_program_id=ids["program"],
+        club_consent_status="pending",
+        message="Expired fixture",
+        expires_at=service.now() - timedelta(days=1),
+    )
+    db.session.add(old)
+    db.session.commit()
+    old_id = old.id
+    token = issue_user_token(db.session.get(UserAccount, ids["owner"]).email)["token"]
+    db.session.commit()
+    db.session.remove()
+
+    r_held, b_held = Event(), Event()
+    own = local()
+    original_manager, original_expire = routes.is_active_program_manager, routes._expire_visible_rows
+
+    def manager(*args, **kwargs):
+        result = original_manager(*args, **kwargs)
+        if getattr(own, "consenting", False):
+            r_held.set()  # club consent owns the request row and now goes for the program lock
+        return result
+
+    def expire(query):
+        if getattr(own, "creating", False):
+            b_held.set()
+            assert r_held.wait(10)
+            import time
+
+            time.sleep(0.5)
+        return original_expire(query)
+
+    monkeypatch.setattr(routes, "is_active_program_manager", manager)
+    monkeypatch.setattr(routes, "_expire_visible_rows", expire)
+
+    def consent():
+        own.consenting = True
+        assert b_held.wait(10)
+        with app.test_client() as client:
+            response = client.post(
+                f"/api/contact/requests/{old_id}/club-consent",
+                headers={"Authorization": "Bearer " + token},
+                json={"action": "grant"},
+            )
+            return response.status_code, response.json
+
+    def create():
+        own.creating = True
+        with app.test_client() as client:
+            response = client.post(
+                "/api/contact/requests",
+                headers={"Authorization": "Bearer " + token},
+                json={"player_api_id": -ids["local"], "message": "Second introduction"},
+            )
+            body = response.json or {}
+            return response.status_code, {k: body.get(k) for k in ("error", "code")}
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        a, b = pool.submit(consent), pool.submit(create)
+        consent_result, create_result = a.result(30), b.result(30)
+    assert consent_result == (409, {"error": "contact request has expired", "code": "request_expired"}), consent_result
+    assert create_result[0] == 201, create_result
+    db.session.expire_all()
+    assert db.session.get(ContactRequest, old_id).status == "expired"
+    assert ContactRequest.query.filter_by(player_api_id=-ids["local"], status="pending").count() == 1
+
+
+@pytest.mark.parametrize("route", ["club-consent", "link", "revoke"])
+def test_postgres_contact_decision_timeout_releases_all_locks(pg, monkeypatch, route):
+    import src.routes.contact as routes
+    from src.auth import issue_user_token
+    from src.extensions import limiter
+    from src.models.contact import ContactAuditEvent, ContactRequest
+    from src.services.contact import issue_club_consent_token
+
+    app, ids = pg
+    monkeypatch.setenv("CONTACT_RAIL_ENABLED", "true")
+    app.config["RATELIMIT_ENABLED"] = False
+    limiter.init_app(app)
+    app.register_blueprint(routes.contact_bp, url_prefix="/api")
+    pubid = make_consented(ids)
+    row = Publication.query.filter_by(id=pubid).with_for_update().one()
+    service.review(row, "reviewer", {"action": "approve", "expected_version": row.version, "reason": "Timeout fixture"})
+    old = ContactRequest(
+        scout_user_id=ids["owner"],
+        player_api_id=-ids["local"],
+        claim_id=row.claim_id,
+        status="pending",
+        club_first=True,
+        routing_mode="club_included",
+        club_program_id=ids["program"],
+        club_consent_status="pending",
+        message="Synthetic request",
+        expires_at=service.now() + timedelta(days=1),
+    )
+    db.session.add(old)
+    db.session.commit()
+    cid = old.id
+    token = issue_user_token(db.session.get(UserAccount, ids["owner"]).email)["token"]
+    if route == "link":
+        url = "/api/contact/club-consent/" + issue_club_consent_token(cid, "grant")
+        headers = {}
+    else:
+        url = f"/api/contact/requests/{cid}/{route}"
+        headers = {"Authorization": "Bearer " + token}
+    db.session.commit()
+    engine = db.engine
+    db.session.remove()
+    original = routes._locked_club_contact_request
+
+    def bounded_lock(*args, **kwargs):
+        db.session.execute(sa.text("SET LOCAL lock_timeout = '100ms'"))
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(routes, "_locked_club_contact_request", bounded_lock)
+    with engine.connect() as blocker:
+        transaction = blocker.begin()
+        blocker.execute(sa.text("SELECT id FROM contact_requests WHERE id=:id FOR UPDATE"), {"id": cid})
+        with app.test_client() as client:
+            response = client.post(url, headers=headers, json={"action": "grant"})
+        assert response.status_code == 503 and response.json == {"error": "publication_busy"}, response.json
+        with engine.begin() as checker:
+            checker.execute(
+                sa.text("SELECT id FROM club_programs WHERE id=:id FOR UPDATE NOWAIT"), {"id": ids["program"]}
+            )
+            checker.execute(
+                sa.text("SELECT id FROM club_player_publications WHERE id=:id FOR UPDATE NOWAIT"), {"id": pubid}
+            )
+        transaction.rollback()
+    db.session.expire_all()
+    contact = db.session.get(ContactRequest, cid)
+    assert contact.status == "pending" and contact.club_consent_status == "pending"
+    assert ContactAuditEvent.query.filter_by(contact_request_id=cid).count() == 0
+    db.session.remove()
+    with app.test_client() as client:
+        response = client.post(url, headers=headers, json={"action": "grant"})
+    assert response.status_code == 200, response.json

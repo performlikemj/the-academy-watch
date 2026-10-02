@@ -11,6 +11,9 @@
 - Own local aw_p2_c1 and foreground ports5150/5201; no provider sends/prod writes.
 
 ## State
+- Now C1F6: both RC1XV items implemented on fix/c1-followup; O-1 expiry before first program lock + ordered consent/link/revoke + neutral rollback409/503; X-1/N1 shared grid/shrink/wrap with links retained. Final validation/delivery status in external ~/codex-runs/aw-redesign/logs/C1F6.final.md; follow-up duel next, no merge.
+- Done C1F6 reversed probes: actual PG2 FAIL with club500/40P01; Chromium4 new width FAIL,4 inherited390px controls PASS. After fix targetedPG10/backend25/browser4 PASS; all four new mobile screenshots inspected.
+- Constraint C1F6: c7cf6c11 remains reviewed base; origin/main merge specifically forbidden by brief. Current origin/p2/c1-club-publication=c7cf6c11; reviewed mainee16572f/lowerB351f30f5b remain ancestors. Migration172d6c0a/preapply498fa9cb unchanged; no schema/CONTRACT change.
 - Now C1F5: separate fix/c1-followup at reviewed c7cf6c11; X1 lock order/DB conflicts, X2 rendered contrast, O1 safe public title, O2 search membership/cap, O3 granted+accepted outcomes, O4 own media/affiliation export (separate commit).
 - Constraint C1F5: no origin/main merge; specific reviewed-base instruction supersedes generic merge line. No migration expected; release branch untouched.
 - Done C1F5 O4: six reversed export probes FAIL before fix; owned local/provider pending/approved/rejected photos + affiliations portable without other account/reviewer identities. Export/erasure14 PASS; inherited fix separate commit.

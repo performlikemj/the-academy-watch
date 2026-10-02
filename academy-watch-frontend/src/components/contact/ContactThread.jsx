@@ -145,10 +145,10 @@ export function ContactThread({ request, onRequestChange, canReportOutcome = fal
   }
 
   return (
-    <div className="space-y-4" data-testid="contact-thread">
+    <div className="min-w-0 space-y-4" data-testid="contact-thread">
       <div className="space-y-1">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-sm font-semibold text-foreground">
+          <span className="min-w-0 max-w-full [overflow-wrap:anywhere] text-sm font-semibold text-foreground">
             {participantName(request, 'scout')} ↔ {request.club_first && request.public_profile ? (
               <Link className="underline underline-offset-4" to={`/players/${request.public_profile.player_api_id}`}>{participantName(request, 'player')}</Link>
             ) : participantName(request, 'player')}
@@ -204,7 +204,7 @@ export function ContactThread({ request, onRequestChange, canReportOutcome = fal
 
           {canReportOutcome ? (
           <div className="space-y-2 rounded-lg border border-dashed border-border p-3">
-            <p className="text-sm font-semibold text-foreground">Record the outcome</p>
+            <p className="min-w-0 max-w-full [overflow-wrap:anywhere] text-sm font-semibold text-foreground">Record the outcome</p>
             <div className="flex flex-wrap items-center gap-2">
               <Select value={stage} onValueChange={setStage}>
                 <SelectTrigger className="w-48" aria-label="Outcome stage"><SelectValue placeholder="Choose a stage" /></SelectTrigger>
