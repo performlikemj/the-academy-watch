@@ -1129,7 +1129,7 @@ def test_postgres_contact_decision_timeout_releases_all_locks(pg, monkeypatch, r
         blocker.execute(sa.text("SELECT id FROM contact_requests WHERE id=:id FOR UPDATE"), {"id": cid})
         with app.test_client() as client:
             response = client.post(url, headers=headers, json={"action": "grant"})
-        assert response.status_code == 503 and response.json == {"error": "publication_busy"}, response.json
+        assert response.status_code == 503 and response.json == {"error": "contact_busy"}, response.json
         with engine.begin() as checker:
             checker.execute(
                 sa.text("SELECT id FROM club_programs WHERE id=:id FOR UPDATE NOWAIT"), {"id": ids["program"]}

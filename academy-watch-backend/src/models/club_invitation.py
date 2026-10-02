@@ -167,18 +167,14 @@ def governed_member_available(session, member):
 
 def lock_context(session, *, claim_id, program_id, account_ids):
     """Stable lock order shared by invitations and local attestation moderation."""
-    from src.models.funding import ClubProgram
-    from src.models.showcase import PlayerProfileClaim
+    from src.services.contact_locks import lock_contact_scope
 
+    scope = lock_contact_scope(session, program_id=program_id, claim_id=claim_id)
+    # Account locks follow the contact scope, never precede program locks.
     session.query(UserAccount).filter(UserAccount.id.in_(sorted({v for v in account_ids if v is not None}))).order_by(
         UserAccount.id
     ).populate_existing().with_for_update().all()
-    claim = session.query(PlayerProfileClaim).filter_by(id=claim_id).populate_existing().with_for_update().first()
-    program = (
-        session.query(ClubProgram).filter_by(id=program_id).populate_existing().with_for_update().first()
-        if program_id
-        else None
-    )
+    claim, program = scope.claims.get(claim_id), scope.programs.get(program_id)
     return claim, program
 
 
@@ -406,16 +402,19 @@ def revoke_relationship(session, invitation, claim, now):
             profile.pending_club_program_id = None
             profile.pending_current_club_name = None
             # Retain the pending claim/status so review must revalidate the withdrawn selection.
-    contacts = (
+    from src.services.contact_locks import lock_contact_scope
+
+    candidates = (
         session.query(ContactRequest)
         .filter_by(claim_id=claim.id, club_program_id=invitation.program_id, routing_mode="club_included")
         .filter(ContactRequest.status.in_(["pending", "accepted"]))
         .order_by(ContactRequest.id)
-        .populate_existing()
-        .with_for_update()
         .all()
     )
+    contacts = lock_contact_scope(session, request_id=[r.id for r in candidates]).requests.values()
     for contact in contacts:
+        if contact.status not in ("pending", "accepted"):
+            continue
         contact.status = "declined"
         contact.club_consent_status = "declined"
         contact.club_consent_at = now

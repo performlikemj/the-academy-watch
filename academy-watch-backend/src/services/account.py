@@ -1086,6 +1086,51 @@ def delete_account(user: UserAccount) -> AccountDeletionEvent:
     if claim_ids:
         contact_filters.append(ContactRequest.claim_id.in_(claim_ids))
 
+    from src.services.contact_locks import lock_contact_scope
+
+    schema = _SchemaView()
+    publication_ids = []
+    if schema.has_table("club_player_publications"):
+        from src.models.club_player_publication import ClubPlayerPublication
+
+        publication_ids = [
+            r.id
+            for r in ClubPlayerPublication.query.filter(
+                or_(
+                    ClubPlayerPublication.recipient_user_id == user_id,
+                    ClubPlayerPublication.recipient_email == email,
+                    ClubPlayerPublication.creator_user_id == user_id,
+                    ClubPlayerPublication.association_confirmed_by == user_id,
+                )
+            ).all()
+        ]
+    request_ids = [r.id for r in ContactRequest.query.filter(or_(*contact_filters)).all()]
+    # Club relationships can name programs absent from the profile claim.
+    # Resolve those before C/R; pilot erasure later invokes lock_context.
+    program_ids = set()
+    if schema.has_table("club_invitations"):
+        from src.models.club_invitation import ClubInvitation
+
+        program_ids.update(
+            r.program_id
+            for r in ClubInvitation.query.filter(
+                or_(
+                    ClubInvitation.recipient_user_id == user_id,
+                    ClubInvitation.created_by_user_id == user_id,
+                    ClubInvitation.claim_id.in_(claim_ids),
+                )
+            ).all()
+        )
+    for table_name in ("club_program_managers", "club_program_claims", "club_staff_grants"):
+        if schema.has_table(table_name) and {"program_id", "user_account_id"} <= schema.columns(table_name):
+            table = sa.table(table_name, sa.column("program_id"), sa.column("user_account_id"))
+            program_ids.update(
+                db.session.execute(sa.select(table.c.program_id).where(table.c.user_account_id == user_id)).scalars()
+            )
+    lock_contact_scope(
+        db.session, program_id=program_ids, claim_id=claim_ids, request_id=request_ids, publication_id=publication_ids
+    )
+
     counts = {
         "deleted": {
             "watchlist_entries": 0,

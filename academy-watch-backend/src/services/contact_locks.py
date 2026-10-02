@@ -18,9 +18,7 @@ class _ScopeChanged(Exception):
 
 
 def database_conflict(exc, *, family="contact"):
-    state = getattr(getattr(exc, "orig", None), "sqlstate", None) or getattr(
-        getattr(exc, "orig", None), "pgcode", None
-    )
+    state = getattr(getattr(exc, "orig", None), "sqlstate", None) or getattr(getattr(exc, "orig", None), "pgcode", None)
     if state in {"40P01", "40001"}:
         return f"{family}_conflict", 409
     if state == "55P03":
@@ -36,6 +34,20 @@ def _retry():
 def _forget_locks(session, transaction):
     if transaction.parent is None:
         session.info.pop("contact_scope_locks", None)
+
+
+@event.listens_for(Session, "after_transaction_create")
+def _remember_savepoint(session, transaction):
+    if transaction.nested:
+        transaction._contact_scope_before = [
+            set(ids) for ids in session.info.get("contact_scope_locks", [set() for _ in range(4)])
+        ]
+
+
+@event.listens_for(Session, "after_soft_rollback")
+def _restore_savepoint(session, transaction):
+    if transaction.nested:
+        session.info["contact_scope_locks"] = transaction._contact_scope_before
 
 
 @dataclass
@@ -76,43 +88,77 @@ def lock_contact_scope(session, *, program_id=None, publication_id=None, claim_i
     )
     wanted = [_ids(v) for v in (program_id, publication_id, claim_id, request_id)]
 
+    held = session.info.setdefault("contact_scope_locks", [set() for _ in models])
+
     def hints(index):
         model = models[index]
-        return {
-            row[0]: tuple(row)
-            for row in session.query(*(getattr(model, key) for key in fields[index]))
-            .filter(model.id.in_(wanted[index]))
-            .all()
-        } if wanted[index] else {}
+        result = (
+            {
+                row[0]: tuple(row)
+                for row in session.query(*(getattr(model, key) for key in fields[index]))
+                .filter(model.id.in_(wanted[index]))
+                .all()
+            }
+            if wanted[index]
+            else {}
+        )
+        for id_ in wanted[index] & held[index]:
+            if index == 0:
+                # Narrow registry schemas intentionally expose only program policy
+                # columns. Re-loading a garbage-collected ORM row must not read
+                # every modern program column; its immutable ID needs no overlay.
+                continue
+            row = session.get(model, id_)
+            if row is not None:
+                result[id_] = tuple(getattr(row, key) for key in fields[index])
+        return result
 
     with session.no_autoflush:
-        # A request may pin an older claim; include both its club and the claim's
-        # current club. An explicitly supplied publication is resolved first.
-        pubs = hints(1)
-        if pubs:
-            local_ids = {r[2] for r in pubs.values()}
-            wanted[3].update(
-                r[0] for r in session.query(ContactRequest.id)
-                .filter(ContactRequest.player_api_id.in_([-i for i in local_ids])).all()
-            )
-        requests = hints(3)
-        wanted[0].update(r[1] for r in requests.values() if r[1] is not None)
-        wanted[2].update(r[2] for r in requests.values() if r[2] is not None)
-        club_locals = {-r[4] for r in requests.values() if r[3] and r[4] < 0}
-        if club_locals:
-            wanted[1].update(
-                r[0] for r in session.query(ClubPlayerPublication.id)
-                .filter(ClubPlayerPublication.local_player_id.in_(club_locals)).all()
-            )
+        # Resolve the transitive batch before any lock. A publication can close
+        # older claims' threads; a request can pin a different club from its claim.
+        while True:
+            before = [set(ids) for ids in wanted]
+            requests = hints(3)
+            wanted[0].update(r[1] for r in requests.values() if r[1] is not None)
+            wanted[2].update(r[2] for r in requests.values() if r[2] is not None)
+            club_locals = {-r[4] for r in requests.values() if r[3] and r[4] < 0}
+            claims = hints(2)
+            from src.models.showcase import LocalPlayer
+            from src.services.club_player_publication import enabled
+
+            if enabled():
+                local_ids = {r[2] for r in claims.values() if r[2] is not None}
+                if local_ids:
+                    club_locals.update(
+                        r[0]
+                        for r in session.query(LocalPlayer.id)
+                        .filter(LocalPlayer.id.in_(local_ids), LocalPlayer.provenance == "club")
+                        .all()
+                    )
+            if club_locals:
+                wanted[1].update(
+                    r[0]
+                    for r in session.query(ClubPlayerPublication.id)
+                    .filter(ClubPlayerPublication.local_player_id.in_(club_locals))
+                    .all()
+                )
             pubs = hints(1)
-        wanted[0].update(r[1] for r in pubs.values())
-        wanted[2].update(r[3] for r in pubs.values() if r[3] is not None)
-        claims = hints(2)
-        wanted[0].update(r[1] for r in claims.values() if r[1] is not None)
+            if pubs:
+                local_ids = {r[2] for r in pubs.values()}
+                wanted[3].update(
+                    r[0]
+                    for r in session.query(ContactRequest.id)
+                    .filter(ContactRequest.player_api_id.in_([-i for i in local_ids]))
+                    .all()
+                )
+            wanted[0].update(r[1] for r in pubs.values())
+            wanted[2].update(r[3] for r in pubs.values() if r[3] is not None)
+            wanted[0].update(r[1] for r in claims.values() if r[1] is not None)
+            if wanted == before:
+                break
         snapshots = (hints(0), pubs, claims, requests)
         # Resolve missing IDs too: deletion is a normal unavailable target, but
         # a changed binding is contention and must retry the whole transaction.
-        held = session.info.setdefault("contact_scope_locks", [set() for _ in models])
         result = ContactScope()
         for index, (model, output) in enumerate(zip(models, vars(result).values(), strict=True)):
             new = wanted[index] - held[index]

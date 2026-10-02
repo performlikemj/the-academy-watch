@@ -13,6 +13,7 @@ from src.models.league import UserAccount, db
 from src.models.showcase import LocalPlayer, PlayerProfileClaim, local_player_is_minor
 from src.services import club_player_publication as service
 from src.services.club_access import require_club_permission
+from src.services.contact_locks import lock_contact_scope
 
 publication_bp = Blueprint("club_player_publication", __name__)
 
@@ -124,7 +125,9 @@ def user():
 
 
 def row(id_, **scope):
-    result = Publication.query.filter_by(id=id_, **scope).populate_existing().with_for_update().first()
+    result = lock_contact_scope(db.session, publication_id=id_).publications.get(id_)
+    if result and any(getattr(result, key) != value for key, value in scope.items()):
+        result = None
     if result is None:
         raise service.PublicationError("publication_unavailable", 404)
     return result

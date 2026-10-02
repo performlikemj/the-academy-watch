@@ -153,7 +153,7 @@ export function ContactThread({ request, onRequestChange, canReportOutcome = fal
               <Link className="underline underline-offset-4" to={`/players/${request.public_profile.player_api_id}`}>{participantName(request, 'player')}</Link>
             ) : participantName(request, 'player')}
           </span>
-          {request.participants?.club ? <Badge variant="outline">via {participantName(request, 'club')}</Badge> : null}
+          {request.participants?.club ? <Badge variant="outline" className="min-w-0 max-w-full whitespace-normal [overflow-wrap:anywhere]">via {participantName(request, 'club')}</Badge> : null}
           <Badge variant="secondary">{request.status}</Badge>
           {request.latest_outcome ? <Badge variant="outline">Outcome: {outcomeLabel(request.latest_outcome.stage)}</Badge> : null}
         </div>

@@ -11,6 +11,9 @@
 - Own local aw_p2_c1 and foreground ports5150/5201; no provider sends/prod writes.
 
 ## State
+- Done C1F7 controls: real PostgreSQL30/30 inventory actions succeed in isolated valid states; boundary matrix268 and new scope-gap/savepoint/reviewer controls pass; final AST/retry/publication79 PASS. Hidden legacy namespace claim lock now uses helper. Final candidate is frozen for cached4 gates + PG1457 + browser48; pushed SHA/results recorded in external logs/C1F7.final.md.
+- Done C1F7 targeted: ordinary inherited fix isolated554dc114; static/retry36, focused ordinary85, PG expiry/timeout8 and invitation/timeout5, browser390px8 PASS. Both migration hashes unchanged. Full PostgreSQL matrix running; cached final-head4 gates, final PG/browser and push pending.
+- Now C1F7: audit 23 inventoried rows (19 original + invitations/opportunities/merge/single-row paths); use ONE P→U→C→R helper with unlocked scope hints and locked revalidation. Ordinary live change isolated; no main merge/p2 branch push/migration.
 - Now C1F6: both RC1XV items implemented on fix/c1-followup; O-1 expiry before first program lock + ordered consent/link/revoke + neutral rollback409/503; X-1/N1 shared grid/shrink/wrap with links retained. Final validation/delivery status in external ~/codex-runs/aw-redesign/logs/C1F6.final.md; follow-up duel next, no merge.
 - Done C1F6 reversed probes: actual PG2 FAIL with club500/40P01; Chromium4 new width FAIL,4 inherited390px controls PASS. After fix targetedPG10/backend25/browser4 PASS; all four new mobile screenshots inspected.
 - Constraint C1F6: c7cf6c11 remains reviewed base; origin/main merge specifically forbidden by brief. Current origin/p2/c1-club-publication=c7cf6c11; reviewed mainee16572f/lowerB351f30f5b remain ancestors. Migration172d6c0a/preapply498fa9cb unchanged; no schema/CONTRACT change.

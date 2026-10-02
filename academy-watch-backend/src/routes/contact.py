@@ -14,7 +14,6 @@ from src.models.journey import PlayerJourney
 from src.models.league import Player, UserAccount, db
 from src.models.showcase import PlayerProfileClaim
 from src.models.trust import ScoutVerification
-from src.services.contact_locks import database_conflict, lock_contact_scope
 from src.services.club_player_publication import club_request_available
 from src.services.club_registry import (
     active_manager_program_ids,
@@ -48,6 +47,7 @@ from src.services.contact import (
     send_club_courtesy_notice,
     utcnow,
 )
+from src.services.contact_locks import database_conflict, lock_contact_scope
 from src.services.player_subject import resolve_player_subject
 from src.services.player_suppression import (
     active_local_suppression_exists,
@@ -305,7 +305,14 @@ def _lock_verified_scout(user: UserAccount) -> ScoutVerification | None:
 def _lock_claim_owner(contact_request: ContactRequest, user: UserAccount) -> PlayerProfileClaim | None:
     # The complete scope was locked before R by the participant/request loader.
     claim = db.session.get(PlayerProfileClaim, contact_request.claim_id) if contact_request.claim_id else None
-    return claim if claim and claim.user_account_id == user.id and claim.relationship_type == "player" and claim.status == "approved" else None
+    return (
+        claim
+        if claim
+        and claim.user_account_id == user.id
+        and claim.relationship_type == "player"
+        and claim.status == "approved"
+        else None
+    )
 
 
 def _is_claim_owner(contact_request: ContactRequest, user: UserAccount) -> bool:
@@ -410,7 +417,11 @@ def _participant_request(request_id: str, user: UserAccount, *, club_for_update:
     contact_request = lock_contact_scope(db.session, request_id=request_id).requests.get(request_id)
     if contact_request is None or not _is_participant(contact_request, user, club_for_update=club_for_update):
         return None, (jsonify({"error": "contact request not found"}), 404)
-    if request_can_expire(contact_request) and contact_request.expires_at is not None and contact_request.expires_at <= utcnow():
+    if (
+        request_can_expire(contact_request)
+        and contact_request.expires_at is not None
+        and contact_request.expires_at <= utcnow()
+    ):
         _expire_authorized_request(contact_request)
         # Expiry commits. Reacquire before subsequent authorization or writes.
         contact_request = lock_contact_scope(db.session, request_id=request_id).requests.get(request_id)
@@ -431,15 +442,14 @@ def _expire_visible_rows(query) -> bool:
             ContactRequest.expires_at <= utcnow(),
         )
         .order_by(ContactRequest.id.asc())
-        .populate_existing()
-        .with_for_update()
         .all()
     )
+    due = list(lock_contact_scope(db.session, request_id=[r.id for r in due]).requests.values())
     changed = False
     checked_at = utcnow()
     for row in due:
         changed = expire_if_due(row, now=checked_at) or changed
-    if changed:
+    if due:
         db.session.commit()
     return changed
 
@@ -718,7 +728,7 @@ def create_contact_request():
         return jsonify({"error": str(exc)}), 400
     except OperationalError as exc:
         db.session.rollback()
-        
+
         conflict = database_conflict(exc)
         if conflict:
             code, status = conflict
@@ -1121,7 +1131,7 @@ def set_club_consent(request_id: str):
         return jsonify({"error": str(exc)}), 400
     except OperationalError as exc:
         db.session.rollback()
-        
+
         conflict = database_conflict(exc)
         if conflict:
             code, status = conflict
@@ -1209,7 +1219,7 @@ def public_club_consent(token: str):
         )
     except OperationalError as exc:
         db.session.rollback()
-        
+
         conflict = database_conflict(exc)
         if conflict:
             code, status = conflict
@@ -1480,7 +1490,7 @@ def revoke_club_origin_request(request_id):
         return jsonify(contact_request=_contact_request_payload(contact, viewer_user_id=user.id))
     except OperationalError as exc:
         db.session.rollback()
-        
+
         conflict = database_conflict(exc)
         if conflict:
             code, status = conflict

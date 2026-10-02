@@ -74,6 +74,7 @@ from src.services.club_access import (
 from src.services.club_player_authority import club_authorized_player_ids, club_has_authority_over_player
 from src.services.club_registry import is_manager_of_approved_program
 from src.services.coach_brief import MAX_BRIEF_CHARS, MAX_BRIEF_LINE_CHARS, MAX_BRIEF_LINES, brief_payload
+from src.services.contact_locks import database_conflict
 from src.services.player_identity import retained_shadow_identity_exists
 from src.services.player_subject import PlayerSubject, resolve_player_subject
 from src.services.player_suppression import is_local_player_suppressed, is_player_suppressed
@@ -1295,6 +1296,10 @@ def _result_transaction(view):
             raise
         except Exception as error:
             db.session.rollback()
+            conflict = database_conflict(error)
+            if conflict:
+                code, status = conflict
+                return jsonify(error=code, code=code, retryable=True), status
             sqlstate = getattr(getattr(error, "orig", None), "sqlstate", None)
             if sqlstate in {"40001", "40P01"}:
                 return jsonify(error="retry_conflict"), 409
@@ -2381,15 +2386,20 @@ def _invitation_operation(operation, *, share=False):
         return _invitation_database_error(error)
     except Exception as error:
         db.session.rollback()
+        conflict = database_conflict(error)
+        if conflict:
+            code, status = conflict
+            return jsonify(error=code, code=code, retryable=True), status
         logger.error("Invitation operation failed (%s)", type(error).__name__)
         return jsonify({"error": "invitation_operation_failed"}), 500
 
 
 def _invitation_database_error(error):
     db.session.rollback()
-    code = getattr(getattr(error, "orig", None), "sqlstate", None)
-    if code in {"40001", "40P01"}:
-        return jsonify({"error": "retry_conflict"}), 409
+    conflict = database_conflict(error)
+    if conflict:
+        code, status = conflict
+        return jsonify(error=code, code=code, retryable=True), status
     logger.error("Invitation transaction failed (%s)", type(error).__name__)
     return jsonify({"error": "invitation_operation_failed"}), 500
 

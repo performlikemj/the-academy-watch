@@ -6,6 +6,7 @@ import sqlalchemy as sa
 from src.models.club_player_publication import ClubPlayerPublication as Publication
 from src.models.league import db
 from src.services.club_player_publication import enabled
+from src.services.contact_locks import lock_contact_scope
 
 
 def purge_invited_emails(*, limit=100, at=None):
@@ -101,7 +102,8 @@ def erase_publications(user_id, email, schema):
         sa.or_(Publication.recipient_user_id == user_id, Publication.recipient_email == email)
     ).all()
     ids = [r.id for r in rows]
-    for row in rows:
+    scope = lock_contact_scope(db.session, publication_id=ids)
+    for row in scope.publications.values():
         revoke(row)
     from src.models.p2_foundation import NotificationOutbox
 

@@ -218,7 +218,7 @@ def test_introduction_database_contention_is_retryable(client, env, monkeypatch,
         "/api/contact/requests", headers=_headers("scout"), json={"player_api_id": -env["local"], "message": "Fixture"}
     )
     assert response.status_code == status, response.json
-    assert response.json == {"error": "publication_conflict" if status == 409 else "publication_busy"}
+    assert response.json == {"error": "contact_conflict" if status == 409 else "contact_busy"}
     assert ContactRequest.query.count() == 0
 
 
@@ -250,7 +250,7 @@ def test_contact_consent_and_revoke_contention_rolls_back(client, env, monkeypat
         headers = _headers("a")
     response = client.post(url, headers=headers, json={"action": "grant"})
     assert response.status_code == status, response.json
-    assert response.json == {"error": "publication_conflict" if status == 409 else "publication_busy"}
+    assert response.json == {"error": "contact_conflict" if status == 409 else "contact_busy"}
     db.session.expire_all()
     contact = db.session.get(ContactRequest, cid)
     assert contact.status == "pending" and contact.club_consent_status == "pending"

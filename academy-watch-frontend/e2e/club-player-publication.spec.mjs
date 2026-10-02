@@ -436,7 +436,7 @@ for (const clubFirst of [true, false]) {
         id: 'width-fixture', player_api_id: -23, club_first: clubFirst, status: 'pending',
         routing_mode: clubFirst ? 'club_included' : 'direct', club_consent_status: clubFirst ? 'pending' : null,
         messaging_open: false, message: 'Synthetic introduction', created_at: '2026-10-01T12:00:00',
-        participants: { scout: { display_name: 'Synthetic scout' }, player: { display_name: clubFirst ? 'Unavailable' : title } },
+        participants: { scout: { display_name: 'Synthetic scout' }, player: { display_name: clubFirst ? 'Unavailable' : title }, club: { display_name: 'Wendleshire United Football Academy Adults' } },
         ...(clubFirst ? { public_profile: { player_api_id: -23, display_name: title } } : {}),
       }
       await page.route('**/api/features', route => route.fulfill({ json: { contact_rail: true, club_player_publication: clubFirst } }))
@@ -450,6 +450,11 @@ for (const clubFirst of [true, false]) {
       await page.getByRole('button', { name: new RegExp(title) }).click()
       const thread = page.getByTestId('contact-thread')
       await expect(thread).toContainText(title)
+      const clubBadge = thread.getByText('via Wendleshire United Football Academy Adults', { exact: true })
+      await expect(clubBadge).toBeVisible()
+      const badgeBounds = await clubBadge.boundingBox()
+      expect(badgeBounds.x).toBeGreaterThanOrEqual(0)
+      expect(badgeBounds.x + badgeBounds.width).toBeLessThanOrEqual(390)
       if (clubFirst) await expect(thread.getByRole('link', { name: title })).toHaveAttribute('href', '/players/-23')
       const widths = await thread.evaluate(el => ({ page: document.documentElement.scrollWidth, thread: el.scrollWidth, available: el.clientWidth }))
       expect(widths.page).toBeLessThanOrEqual(390)

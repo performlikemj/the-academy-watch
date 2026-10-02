@@ -39,6 +39,7 @@ from src.services.club_access import (
     scoped_signed_player_ids,
     scoped_squad_ids,
 )
+from src.services.contact_locks import database_conflict
 from src.services.public_player_subject import resolve_public_adult_subject, user_owns_subject
 from werkzeug.exceptions import HTTPException
 
@@ -84,6 +85,10 @@ def transaction(view):
             raise
         except Exception as error:
             db.session.rollback()
+            conflict = database_conflict(error)
+            if conflict:
+                code, status = conflict
+                return jsonify(error=code, code=code, retryable=True), status
             code = getattr(getattr(error, "orig", None), "sqlstate", None)
             if isinstance(error, IntegrityError) or code in {"40001", "40P01"}:
                 return jsonify(error="retry_conflict"), 409
