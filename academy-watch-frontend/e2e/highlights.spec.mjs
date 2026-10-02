@@ -157,6 +157,12 @@ test('recipient preview gets authenticated standalone URL only', async ({ page }
     reads += 1
     return route.fulfill({ json: { url: 'https://storage.example.test/highlights/standalone.mp4' } })
   })
+  // Keep native media decoding deterministic; the synthetic hostname must never
+  // race this transport assertion by failing DNS and triggering Preview.onError.
+  await page.route('https://storage.example.test/highlights/standalone.mp4', route => {
+    expect(route.request().headers().authorization).toBeUndefined()
+    return route.fulfill({ path: path.resolve('public/media/dribble.mp4'), contentType: 'video/mp4' })
+  })
   const fullMatchReads = []
   page.on('request', req => { if (/media-token|footage|sas/.test(req.url())) fullMatchReads.push(req.url()) })
   await page.goto('/highlight-approvals')
