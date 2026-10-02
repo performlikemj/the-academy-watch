@@ -15,6 +15,7 @@ from src.models.highlights import HighlightRenderJob, PlayerHighlight, now, uuid
 from src.models.league import db
 from src.models.video import VideoMatch
 from src.services import highlights, highlights_storage, video_storage
+from src.services.highlights_retention import log_disabled, retention_enabled
 
 MAX_ATTEMPTS = 3
 LEASE_SECONDS = 900  # greater than bounded download + cut + upload
@@ -109,14 +110,20 @@ def cut_file(source, destination, start_s, end_s):
 
 
 def claim_next():
+    kinds = []
+    if retention_enabled():
+        kinds.append("highlight_delete")
+    if highlights.enabled():
+        kinds.append("highlight_cut")
+    if not kinds:
+        log_disabled()
+        return None
     # Bounded scan: exhausted leases must not hide the next healthy job.
     for _ in range(20):
         candidate = (
             HighlightRenderJob.query.outerjoin(PlayerHighlight, PlayerHighlight.id == HighlightRenderJob.highlight_id)
             .filter(
-                HighlightRenderJob.kind.in_(
-                    ("highlight_cut", "highlight_delete") if highlights.enabled() else ("highlight_delete",)
-                ),
+                HighlightRenderJob.kind.in_(kinds),
                 HighlightRenderJob.created_at <= now(),
                 (HighlightRenderJob.status == "queued")
                 | ((HighlightRenderJob.status == "running") & (HighlightRenderJob.lease_expires_at < now())),
@@ -215,7 +222,7 @@ def finish(job_id, lease, *, output_etag=None, output_size=None, error=None):
 
 def queue_cleanup(path, *, delayed=True):
     # Reclaimed/cancelled attempts can finish uploading late; wait beyond their lease.
-    if path:
+    if highlights_storage.is_output_path(path):
         db.session.add(
             HighlightRenderJob(
                 kind="highlight_delete",
@@ -225,9 +232,37 @@ def queue_cleanup(path, *, delayed=True):
         )
 
 
+def owned_output(path):
+    """Only an exact recorded attempt blob; never raw footage or a prefix capability."""
+    if not highlights_storage.is_output_path(path):
+        return False
+    recorded = (
+        PlayerHighlight.query.filter_by(output_blob_path=path).first()
+        or HighlightRenderJob.query.filter_by(blob_path=path).first()
+    )
+    return bool(recorded and not VideoMatch.query.filter_by(blob_path=path).first())
+
+
+def delete_output(path):
+    if not retention_enabled():
+        log_disabled()
+        return False
+    allowed = owned_output(path)
+    db.session.commit()  # ownership reads end before storage I/O
+    if not retention_enabled():
+        log_disabled()
+        return False
+    return bool(allowed and video_storage.delete_blob(path))
+
+
 def cleanup_output(path):
+    if not retention_enabled():
+        log_disabled()
+        return
+    if not owned_output(path):
+        return
     try:
-        removed = video_storage.delete_blob(path)
+        removed = delete_output(path)
     except Exception:
         removed = False
     if not removed:
@@ -262,11 +297,16 @@ class SourceBatch:
 
 def run_one(job_id, lease, *, source_batch=None):
     job = db.session.get(HighlightRenderJob, job_id)
+    if job is None:
+        return False
     output_path = job.blob_path
     if job.kind == "highlight_delete":
+        if not retention_enabled():
+            log_disabled()
+            return False
         db.session.commit()
         try:
-            ok = video_storage.delete_blob(output_path)
+            ok = delete_output(output_path)
         except Exception:
             ok = False
         finish(job_id, lease, error=None if ok else "storage_delete_failed")
@@ -307,16 +347,40 @@ def run_one(job_id, lease, *, source_batch=None):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--limit", type=int, default=5)
+    parser.add_argument("--dry-run", action="store_true", help="print proposed retention/deletes; change nothing")
     args = parser.parse_args()
     if not 1 <= args.limit <= 20:
         parser.error("limit must be 1..20")
+    if not args.dry_run and not retention_enabled() and not highlights.enabled():
+        log_disabled()
+        return
     from src.main import app
 
     with app.app_context():
         completed = 0
         from src.services.highlights_retention import sweep_highlights
 
-        retention = sweep_highlights(limit=100)
+        retention = sweep_highlights(limit=100, dry_run=args.dry_run)
+        if args.dry_run:
+            jobs = (
+                HighlightRenderJob.query.filter(
+                    HighlightRenderJob.kind == "highlight_delete",
+                    HighlightRenderJob.created_at <= now(),
+                    (HighlightRenderJob.status == "queued")
+                    | ((HighlightRenderJob.status == "running") & (HighlightRenderJob.lease_expires_at < now())),
+                )
+                .order_by(HighlightRenderJob.created_at, HighlightRenderJob.id)
+                .limit(args.limit)
+            )
+            print(
+                json.dumps(
+                    {
+                        "dry_run": True,
+                        "would_delete_blobs": [job.blob_path for job in jobs if owned_output(job.blob_path)],
+                    }
+                )
+            )
+            return
         with tempfile.TemporaryDirectory(prefix="aw-highlight-batch-") as directory:
             batch = SourceBatch(directory)
             for _ in range(args.limit):

@@ -1,5 +1,7 @@
-"""Flag-independent, bounded preview, consent and job retention. Run daily via the cut worker."""
+"""Bounded highlight-only retention, separately enabled at go-live with MJ's go."""
 
+import json
+import os
 from datetime import timedelta
 
 import sqlalchemy as sa
@@ -17,6 +19,22 @@ from src.models.video import VideoMatch
 from src.services import highlights
 
 AUDIT_DAYS = 90
+COUNT_KEYS = ("expired", "highlights", "events", "reviews", "jobs", "takedowns")
+
+
+def retention_enabled():
+    return os.getenv("HIGHLIGHT_RETENTION_SWEEP_ENABLED", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def log_disabled():
+    print("highlight retention/deletion disabled: HIGHLIGHT_RETENTION_SWEEP_ENABLED is OFF (dry-run; no changes)")
+
+
+def preview_paths(row):
+    paths = {job.blob_path for job in HighlightRenderJob.query.filter_by(highlight_id=row.id) if job.blob_path}
+    if row.output_blob_path:
+        paths.add(row.output_blob_path)
+    return paths
 
 
 def permanent_key_missing(row):
@@ -38,9 +56,13 @@ def permanent_key_missing(row):
     )
 
 
-def sweep_highlights(*, limit=100):
+def sweep_highlights(*, limit=100, dry_run=False):
     if not 1 <= limit <= 500:
         raise ValueError("invalid_limit")
+    if not retention_enabled() and not dry_run:
+        log_disabled()
+        return dict.fromkeys(COUNT_KEYS, 0)
+    plan = {"revoke": [], "delete_rows": {}, "queue_cleanup": set()}
     audit = now() - timedelta(days=AUDIT_DAYS)
     # Select ids first, then lock in the same match -> highlight order as writers.
     signed_id = sa.func.coalesce(PlayerHighlight.player_api_id, -PlayerHighlight.local_player_id)
@@ -90,20 +112,30 @@ def sweep_highlights(*, limit=100):
     )
     expired = 0
     for hid, mid in due:
-        if mid:
+        if mid and not dry_run:
             VideoMatch.query.filter_by(id=mid).with_for_update().first()
-        row = PlayerHighlight.query.filter_by(id=hid).populate_existing().with_for_update().first()
+        query = PlayerHighlight.query.filter_by(id=hid).populate_existing()
+        row = query.first() if dry_run else query.with_for_update().first()
         if row and not row.revoked_at and permanent_key_missing(row):
-            highlights.revoke(row, None, "consent_key_removed")
+            if dry_run:
+                plan["revoke"].append(row.id)
+                plan["queue_cleanup"].update(preview_paths(row))
+            else:
+                highlights.revoke(row, None, "consent_key_removed")
             expired += 1
         elif row and not row.revoked_at and row.player_decision != "approve":
             match = db.session.get(VideoMatch, mid) if mid else None
             uploaded = (match.uploaded_at or match.created_at) if match else None
             deadline = (match.expires_at or (uploaded + timedelta(days=90) if uploaded else None)) if match else None
             if not match or match.status == "expired" or not deadline or deadline <= now():
-                highlights.revoke(row, None, "request_expired", immediate_ready=True)
+                if dry_run:
+                    plan["revoke"].append(row.id)
+                    plan["queue_cleanup"].update(preview_paths(row))
+                else:
+                    highlights.revoke(row, None, "request_expired", immediate_ready=True)
                 expired += 1
-        db.session.commit()
+        if not dry_run:
+            db.session.commit()
     terminal = (
         PlayerHighlight.query.filter(PlayerHighlight.revoked_at < audit)
         .order_by(PlayerHighlight.revoked_at, PlayerHighlight.id)
@@ -111,6 +143,9 @@ def sweep_highlights(*, limit=100):
         .all()
     )
     for row in terminal:
+        if dry_run:
+            plan["queue_cleanup"].update(preview_paths(row))
+            continue
         if row.video_match_id:
             VideoMatch.query.filter_by(id=row.video_match_id).with_for_update().first()
         # Queues all durable attempt paths even on SQLite (PG cascade trigger is the backstop).
@@ -129,25 +164,27 @@ def sweep_highlights(*, limit=100):
         .order_by(HighlightConsentEvent.id)
         .limit(limit)
     ]
-    if events:
+    if events and not dry_run:
         HighlightConsentEvent.query.filter(HighlightConsentEvent.id.in_(events)).delete(synchronize_session=False)
+    # Dry-run must account for the revocations it proposed without mutating rows.
+    live_review_clip = sa.select(PlayerHighlight.id).where(
+        PlayerHighlight.video_match_id == HighlightFootageReview.video_match_id,
+        PlayerHighlight.revoked_at.is_(None),
+    )
+    if dry_run:
+        live_review_clip = live_review_clip.where(PlayerHighlight.id.notin_(plan["revoke"]))
     # Keep only source-bound institutional reviews that still have a live clip.
     reviews = [
         mid
         for (mid,) in db.session.query(HighlightFootageReview.video_match_id)
         .filter(
             HighlightFootageReview.reviewed_at < audit,
-            ~sa.exists(
-                sa.select(PlayerHighlight.id).where(
-                    PlayerHighlight.video_match_id == HighlightFootageReview.video_match_id,
-                    PlayerHighlight.revoked_at.is_(None),
-                )
-            ),
+            ~sa.exists(live_review_clip),
         )
         .order_by(HighlightFootageReview.video_match_id)
         .limit(limit)
     ]
-    if reviews:
+    if reviews and not dry_run:
         HighlightFootageReview.query.filter(HighlightFootageReview.video_match_id.in_(reviews)).delete(
             synchronize_session=False
         )
@@ -168,15 +205,21 @@ def sweep_highlights(*, limit=100):
         if job.kind == "highlight_delete" and job.status == "failed":
             continue
         if job.kind == "highlight_cut" and job.blob_path:
-            live = (
-                PlayerHighlight.query.filter_by(output_blob_path=job.blob_path)
-                .filter(PlayerHighlight.revoked_at.is_(None))
-                .first()
+            live_query = PlayerHighlight.query.filter_by(output_blob_path=job.blob_path).filter(
+                PlayerHighlight.revoked_at.is_(None)
             )
+            if dry_run:
+                live_query = live_query.filter(PlayerHighlight.id.notin_(plan["revoke"]))
+            live = live_query.first()
             if not live:
-                queue_cleanup(job.blob_path)
-        db.session.delete(job)
-    db.session.commit()
+                if dry_run:
+                    plan["queue_cleanup"].add(job.blob_path)
+                else:
+                    queue_cleanup(job.blob_path)
+        if not dry_run:
+            db.session.delete(job)
+    if not dry_run:
+        db.session.commit()
     holds = (
         db.session.query(HighlightTakedown.id, HighlightTakedown.video_match_id)
         .filter(HighlightTakedown.lifted_at < audit)
@@ -186,13 +229,16 @@ def sweep_highlights(*, limit=100):
     )
     purged_holds = 0
     for hid, mid in holds:
+        if dry_run:
+            purged_holds += 1
+            continue
         VideoMatch.query.filter_by(id=mid).with_for_update().first()
         hold = HighlightTakedown.query.filter_by(id=hid).populate_existing().with_for_update().first()
         if hold and hold.lifted_at and hold.lifted_at < audit:
             db.session.delete(hold)
             purged_holds += 1
         db.session.commit()
-    return {
+    result = {
         "expired": expired,
         "highlights": len(terminal),
         "events": len(events),
@@ -200,3 +246,24 @@ def sweep_highlights(*, limit=100):
         "jobs": len(jobs),
         "takedowns": purged_holds,
     }
+    if dry_run:
+        from src.services.highlights_storage import is_output_path
+
+        plan["delete_rows"] = {
+            "player_highlights": [row.id for row in terminal],
+            "highlight_consent_events": sorted(
+                set(events)
+                | {
+                    event.id
+                    for event in HighlightConsentEvent.query.filter(
+                        HighlightConsentEvent.highlight_id.in_([row.id for row in terminal])
+                    )
+                }
+            ),
+            "highlight_footage_reviews": reviews,
+            "highlight_render_jobs": [job.id for job in jobs],
+            "highlight_takedowns": [hid for hid, _ in holds],
+        }
+        plan["queue_cleanup"] = sorted(path for path in plan["queue_cleanup"] if is_output_path(path))
+        print(json.dumps({"dry_run": True, "would": plan}))
+    return result

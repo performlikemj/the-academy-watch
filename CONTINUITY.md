@@ -31,6 +31,7 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
   an unconditional development step.
 
 ## State
+- **Now (2026-10-02 C2F6):** dark-retention implementation complete on PR1122: production-shaped PostgreSQL27 pass, separate default-OFF kill switch/dry-run, exact owned-blob deletion guards and explicit go-live checklist. Final-head gate/push/cleanup receipts authoritative in external `logs/C2F6.final.md` and `logs/C2F6.sweeper-answer.md`; see `ledgers/CONTINUITY_p2-c2.md`.
 - **Now (2026-10-02 C2F5):** RC2V4 O1/X1 source fixes complete; structural withdrawal retained with staff copy, migrations frozen. Candidate gates/PG green; inherited fake-storage browser race corrected. Exact final verification/push/cleanup tracked in external logs/C2F5.final.md; see `ledgers/CONTINUITY_p2-c2.md`.
 - **Now (2026-10-02 C1F4):** Current lower-lane c7cf6c11 integrated in C2F4; nine-item union and inherited showcase erasure preserved. C1 exact delivery follows its external hand-back.
 - **Now (2026-10-02 C2F4):** RC2V3 union implemented; main ee16572f/current C1F4 integrated, O3 preservation/permanent unsafe guards and checked legacy transition green. New p2c2 CONTRACT/schema equality posted. Candidate gates found two inherited fresh-review fixture assumptions; corrected PostgreSQL2pass. Final verification/push/cleanup record: external logs/C2F4.final.md; see `ledgers/CONTINUITY_p2-c2.md`. PR1122 remains unmerged.

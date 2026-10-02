@@ -1,5 +1,6 @@
 """Private storage adapter. App reads only bounded standalone outputs; worker owns source access."""
 
+import re
 import time
 from pathlib import Path
 
@@ -7,6 +8,10 @@ from src.services import video_storage
 
 MAX_OUTPUT_BYTES = 30 * 1024 * 1024
 MAX_SOURCE_BYTES = 12 * 1024**3
+
+
+def is_output_path(path):
+    return isinstance(path, str) and bool(re.fullmatch(r"highlights/[a-f0-9-]{36}/[a-f0-9-]{36}\.mp4", path))
 
 
 def download_source(blob_path, snapshot, etag, destination):
@@ -48,9 +53,7 @@ def upload_output(blob_path, file_path):
 
 def output_read_url(blob_path, etag, *, expires_at):
     """One immutable attempt blob, read only, 60 seconds. Never a raw/container grant."""
-    import re
-
-    if not etag or not re.fullmatch(r"highlights/[a-f0-9-]{36}/[a-f0-9-]{36}\.mp4", blob_path):
+    if not etag or not is_output_path(blob_path):
         raise ValueError("invalid_output")
     client = video_storage._service_client().get_blob_client(video_storage._container(), blob_path)
     if client.get_blob_properties(timeout=5).etag != etag:

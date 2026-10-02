@@ -42,7 +42,12 @@ from src.workers.highlight_worker import claim_next, finish
 @pytest.fixture
 def world(monkeypatch):
     monkeypatch.setenv("PLAYER_SUPPRESSION_ENCRYPTION_KEY", "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=")
-    for flag in ("HIGHLIGHTS_ENABLED", "P2_FOUNDATION_ENABLED", "CLUB_STAFF_ACCESS_ENABLED"):
+    for flag in (
+        "HIGHLIGHTS_ENABLED",
+        "HIGHLIGHT_RETENTION_SWEEP_ENABLED",
+        "P2_FOUNDATION_ENABLED",
+        "CLUB_STAFF_ACCESS_ENABLED",
+    ):
         monkeypatch.setenv(flag, "1")
     app = Flask(__name__)
     app.config.update(
@@ -595,7 +600,9 @@ def test_cleanup_runs_with_flag_off_and_retries_failure(world, monkeypatch):
     from src.workers import highlight_worker as worker
 
     monkeypatch.setenv("HIGHLIGHTS_ENABLED", "0")
-    job = HighlightRenderJob(kind="highlight_delete", blob_path="highlights/test/attempt.mp4")
+    from src.models.highlights import uuid4
+
+    job = HighlightRenderJob(kind="highlight_delete", blob_path=f"highlights/{uuid4()}/{uuid4()}.mp4")
     db.session.add(job)
     db.session.commit()
     claim = worker.claim_next()
