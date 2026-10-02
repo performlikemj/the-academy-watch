@@ -69,7 +69,7 @@ for (const width of [1440, 390]) {
       await page.setViewportSize({ width, height: width === 390 ? 844 : 900 })
       await mountLoader(page, surface)
       await expect(page.getByRole('status', { name: 'Loading', exact: true })).toBeVisible()
-      await expect(page.locator('.cleat-loader svg')).toHaveAttribute('stroke-width', '2')
+      await expect(page.locator('.cleat-loader svg')).toHaveAttribute('data-brand-logo', 'academy-watch-winged-boot')
       const frames = await page.locator('.cleat-body').evaluate(element => {
         const animation = element.getAnimations()[0]
         animation.pause()
@@ -90,14 +90,14 @@ for (const width of [1440, 390]) {
       expect(transition[1]).not.toBe(transition[2])
       const phases = ['green', 'claret', 'navy', 'black-gold', 'orange', 'sky']
       for (const [index, phase] of phases.entries()) {
-        await page.locator('.cleat-body,.cleat-accent,.cleat-details').evaluateAll((elements, time) => {
+        await page.locator('.cleat-body,.cleat-accent').evaluateAll((elements, time) => {
           for (const element of elements) { const animation = element.getAnimations()[0]; animation.pause(); animation.currentTime = time }
         }, index * 1200)
         await expect(page.locator('.cleat-accent')).toHaveCSS('fill', index === 3 ? 'rgb(207, 174, 98)' : frames[index].fill)
-        await expect(page.locator('.cleat-details')).toHaveCSS('stroke', index >= 4 ? 'rgb(14, 19, 17)' : 'rgb(243, 240, 232)')
+        await expect(page.locator('.cleat-wing')).toHaveCSS('fill', surface === 'night' ? 'rgb(243, 240, 232)' : 'rgb(14, 19, 17)')
         await screenshot(page, `loader-${surface}-${size}-phase-${phase}`)
       }
-      await page.locator('.cleat-body,.cleat-accent,.cleat-details').evaluateAll(elements => {
+      await page.locator('.cleat-body,.cleat-accent').evaluateAll(elements => {
         for (const element of elements) element.getAnimations()[0].currentTime = 0
       })
       await screenshot(page, `loader-${surface}-${size}`)
@@ -139,11 +139,11 @@ test('reduced motion keeps both React and boot loaders still green', async ({ pa
   await page.goto('/')
   await expect(page.getByRole('status', { name: 'Loading' })).toBeVisible()
   expect(await page.locator('.cleat-body').evaluate(element => ({ fill: getComputedStyle(element).fill, opacity: getComputedStyle(element).fillOpacity, animations: element.getAnimations().length }))).toEqual({ fill: 'rgb(15, 61, 46)', opacity: '1', animations: 0 })
-  expect(await page.locator('.cleat-body,.cleat-accent,.cleat-details').evaluateAll(elements => elements.every(element => element.getAnimations().length === 0))).toBe(true)
+  expect(await page.locator('.cleat-body,.cleat-accent').evaluateAll(elements => elements.every(element => element.getAnimations().length === 0))).toBe(true)
   await page.unroute('**/src/main.jsx*')
   await mountLoader(page, 'night')
   expect(await page.locator('.cleat-accent').evaluate(element => ({ fill: getComputedStyle(element).fill, animations: element.getAnimations().length }))).toEqual({ fill: 'rgb(15, 61, 46)', animations: 0 })
-  await expect(page.locator('.cleat-details')).toHaveCSS('stroke', 'rgb(243, 240, 232)')
+  await expect(page.locator('.cleat-wing')).toHaveCSS('fill', 'rgb(243, 240, 232)')
 })
 
 test('club saved zone wins over browser; editing retains the post zone', async ({ page }) => {

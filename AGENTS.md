@@ -110,6 +110,8 @@ Log one-liner in CONTINUITY.md's "Trivial Log" section.
 
 ## Codebase Patterns
 
+- Web loader brand contours in `src/lib/academy-watch-logo.js` are generated from the unchanged iOS `LaunchBoot@3x.png` by `academy-watch-frontend/scripts/trace-loader-logo.py`; never redraw them. `LOGO_COLOUR_VARIANT` in `cleat-loader.js` is the one-line A/B choice; wings stay still. The browser proof input is checked by `scripts/verify-loader-logo.py`.
+
 - Web loader primitives live in `academy-watch-frontend/src/lib/cleat-loader.js`; after edits run `node academy-watch-frontend/scripts/sync-cleat-splash.mjs` to refresh the request-free inline boot snapshot. The Node parity test protects both copies.
 
 > Agents: Add patterns here when you discover reusable conventions.

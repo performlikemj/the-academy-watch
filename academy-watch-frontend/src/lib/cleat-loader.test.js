@@ -1,13 +1,15 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
-import { CLEAT_BOOT, CLEAT_CSS, CLEAT_SVG, CLUB_PALETTE, CLUB_COLOUR_MS, CLUB_TRANSITION_MS } from './cleat-loader.js'
+import { CLEAT_BOOT, CLEAT_CSS, CLEAT_SVG, CLUB_PALETTE, CLUB_COLOUR_MS, CLUB_TRANSITION_MS, LOGO_COLOUR_VARIANT, logoSvg } from './cleat-loader.js'
 
 test('boot splash uses the shared SVG and palette with no asset request', () => {
   const html = fs.readFileSync(new URL('../../index.html', import.meta.url), 'utf8')
   assert.ok(html.includes(CLEAT_BOOT))
   assert.ok(html.includes(CLEAT_CSS))
-  assert.ok(CLEAT_SVG.includes('stroke-width="2"'))
+  assert.match(CLEAT_SVG, /data-brand-logo="academy-watch-winged-boot"/)
+  for (const part of ['body', 'sole', 'wing']) assert.ok(CLEAT_SVG.includes(`data-brand-part="${part}"`))
+  assert.doesNotMatch(CLEAT_SVG, /M20 47 Q20|M22 58 L33|M23 47 Q34/)
   assert.doesNotMatch(CLEAT_BOOT, /<img|<image|<use|href=|src=/)
   assert.match(CLEAT_BOOT, /role="status" aria-live="polite" aria-label="Loading"/)
 })
@@ -24,10 +26,11 @@ test('club cycle advances every 1.2 seconds, includes black/gold and returns to 
   assert.doesNotMatch(CLEAT_CSS, /fill-opacity/)
 })
 
-test('reduced motion cancels both animations and forces a still green boot', () => {
+test('reduced motion cancels every colour animation and forces a still green boot', () => {
   const reduced = CLEAT_CSS.slice(CLEAT_CSS.indexOf('@media(prefers-reduced-motion:reduce)'))
   assert.match(reduced, /\.cleat-loader \.cleat-body,\.cleat-loader \.cleat-accent\{animation:none;fill:#0F3D2E\}/)
-  assert.match(reduced, /\.cleat-details\{animation:none;stroke:#F3F0E8\}/)
+  assert.doesNotMatch(CLEAT_CSS, /transform:|rotate|translate|cleat-laces/)
+  assert.match(CLEAT_CSS, /\.cleat-wing:not\(\.cleat-body\)\{fill:currentColor\}/)
 })
 
 test('contextual page loading messages suppress the shared visual caption', () => {
@@ -37,4 +40,11 @@ test('contextual page loading messages suppress the shared visual caption', () =
     assert.equal(contextual.length, file.includes('App') ? 4 : 1)
     for (const match of contextual) assert.match(match[1], /caption=\{false\}/)
   }
+})
+
+test('A defaults to neutral still wings; B reuses the same brand paths with club fill', () => {
+  assert.equal(LOGO_COLOUR_VARIANT, 'A')
+  assert.match(logoSvg('A'), /class="cleat-wing"/)
+  assert.match(logoSvg('B'), /class="cleat-wing cleat-body"/)
+  assert.deepEqual([...logoSvg('A').matchAll(/ d="([^"]+)"/g)].map(m => m[1]), [...logoSvg('B').matchAll(/ d="([^"]+)"/g)].map(m => m[1]))
 })
