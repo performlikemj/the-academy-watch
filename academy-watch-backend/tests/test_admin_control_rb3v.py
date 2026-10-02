@@ -306,7 +306,9 @@ def test_report_hide_syncs_sibling_without_taking_requesters_hold_ownership(cont
     assert source.status == "active" and sibling.status == "investigating" and sibling.first_action_at is not None
     assert case.owned_suppression_id is None
     assert client.get(f"/api/admin/safety/cases/{case.id}", headers=headers()).json["case"]["owns_hold"] is False
-    assert action(client, case, "restore").status_code == 400
+    assert action(client, case, "restore").status_code == 200
+    detail = client.get(f"/api/admin/safety/cases/{case.id}", headers=headers()).json["case"]
+    assert detail["hidden"] is True and detail["hold_requested"] is False and detail["owns_hold"] is False
     assert source.status == "active" and sibling.status == "investigating"
     assert source.request_statement == "Guardian original evidence"
     reconcile_safety_boot(control_app)

@@ -737,6 +737,14 @@ def admin_list_contact_requests():
             )
             for row in rows
         ]
+        from src.routes.admin_control import flag_enabled
+
+        if flag_enabled("ADMIN_SAFETY_ENABLED"):
+            from src.services.admin_control_names import player_names
+
+            names = player_names(row.ContactRequest.player_api_id for row in rows)
+            for payload in requests_payload:
+                payload["player_name"] = names.get(payload["player_api_id"], payload["player_name"])
         return jsonify(
             {
                 "requests": requests_payload,
@@ -765,6 +773,14 @@ def admin_get_contact_request(request_id: str):
         verification = _verification_by_scout([contact_request.scout_user_id]).get(contact_request.scout_user_id)
         payload = _contact_request_payload(contact_request)
         payload.update(_admin_contact_request_payload(row, verification, created_metadata))
+        from src.routes.admin_control import flag_enabled
+
+        if flag_enabled("ADMIN_SAFETY_ENABLED"):
+            from src.services.admin_control_names import player_names
+
+            payload["player_name"] = player_names([contact_request.player_api_id]).get(
+                contact_request.player_api_id, payload["player_name"]
+            )
         payload["audit_events"] = [
             {
                 "event_type": event.event_type,

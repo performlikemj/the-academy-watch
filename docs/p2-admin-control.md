@@ -26,7 +26,7 @@ Draft, stacked on A2 #1109. No production switch-on is part of this lane.
 
 ## People and suspension
 
-- GET `/api/admin/people?q=&role=all|players|clubs|scouts|admins&limit=&offset=`;
+- GET `/api/admin/people?q=&role=all|players|clubs|scouts|admins&standing=all|active|suspended&sort=name|name_desc|newest|standing&limit=&offset=`;
   GET `/api/admin/people/<id>`.
 - Roles are derived from current writer/editor/curator flags, approved player/guardian
   claims, claim-backed managers, live A2 access and scout-verification state. Admin
@@ -165,8 +165,8 @@ Draft, stacked on A2 #1109. No production switch-on is part of this lane.
   Requester statement/contact/reason remain the source; admin reasons live in case
   history and moderation notes. Hide/restore synchronize linked sibling cases.
   A report that activates another requester's pending takedown does not own it:
-  restore is refused there; review/lift through the original request's moderation
-  tool. This preserves the requester's hold and updates its case/action time.
+  it can withdraw its own hide intent while leaving that requester's physical hold
+  in place; review/lift the physical hold through the original moderation tool. This preserves the requester's hold and updates its case/action time.
 - Stripe 15 provider objects/list pages are normalized recursively via `to_dict()`
   at the projection boundary. Subscription emails send before cash provider reads.
   Signed real webhooks cover invoice paid, individual refunds, replay and reversed
@@ -225,8 +225,8 @@ Draft, stacked on A2 #1109. No production switch-on is part of this lane.
 - Each case's latest hide/restore/source-lift event records current hide intent.
   Close retains it, including closed cases. An owner restore is refused while
   another case still requires the hold. A nonowner can withdraw only its intent
-  from a case-owned shared hold; the physical hold remains. It cannot restore a
-  guardian's original hold. Original-tool lifts retire all case intents on that
+  from any shared hold, including guardian and original-tool holds; the physical
+  hold remains. It cannot lift a guardian's original hold. Original-tool lifts retire all case intents on that
   target, so a historical hide cannot block a new cycle. Restore requires a
   named confirmation and reason; `hold_requested` describes this intent in DTOs.
 - Newly case-generated suppressions use fixed contact/evidence markers; admin
@@ -241,3 +241,32 @@ Draft, stacked on A2 #1109. No production switch-on is part of this lane.
 - `/auth/me` reuses the role/user validated by its auth decorator, removing the
   second decode/standing query. Each real decode still checks current persisted
   standing/epoch; there is no request-wide or cross-request authorization cache.
+
+## B3X control-room follow-up
+
+- Original player-hold lifts retire related report cases' hide intents and clear
+  ownership, but never decide/close the reports or queue review-complete notices.
+  Only a suppression-sourced case closes from that suppression's decision. Source
+  synchronization stays active while Safety is OFF to preserve retained histories.
+- Nonowners can withdraw their case intent whenever the target remains hidden.
+  Restore has independent reason/error state; an empty final inventory/case page
+  retains Previous. Holds still require a separate authorized physical lift.
+- The public acknowledgment confirms receipt and repeats the no-overwrite caveat;
+  first/repeat/unknown and local/provider requests still receive identical replies.
+- Admin names use stored, narrow batched lookups only. Safety gates Trust list/detail
+  enrichment; People gates Showcase claims. Public/user/export serializers are
+  unchanged, and held/private names are only available through dual admin auth.
+- People defaults to case-insensitive name order with a stable id tie-breaker.
+  Standing/sort are allowlisted, search wildcards escaped, and page limits retained.
+  Only suspended-account admin detail exposes the reason, actor and UTC date.
+  Self-service exports, normal DTOs and neutral auth failures omit reason/actor.
+- GET `/api/admin/control/overview` is available when any existing B3 page flag is
+  enabled. It counts each enabled page's queues plus the legacy inbox, with exact
+  database counts and no disabled-page queries. Its total is queue items: a report
+  and its case can require separate decisions. Overdue cases are a subset. Failures
+  show unavailable instead of zero. All flags OFF retains existing dashboard reads.
+- Business-enabled overview subscription count/MRR and Business paying-club count
+  share `status = active`. Trialing and past due do not contribute to paying MRR;
+  past due is separate. Total subscriptions include scouts and clubs, while Business
+  labels the club-only count. Legacy billing summary retains its OFF contract.
+- No schema, dependency, production flag or provider-send change in B3X.
