@@ -123,7 +123,9 @@ function RecruitingContent({ program, squads = [] }) {
     catch (err) { setError(errorMessage(err)) }
     finally { setBusy(false) }
   }
-  if (!flags.loaded || !flags.opportunities) return <ComingSoon feature="recruiting" role="club" image="/media/club-match.webp" title="The next player. The right place." lede="Trials and applications will have a home here. Join the list to hear when recruiting opens." bullets={['Share the opportunities your club is ready to offer.', 'Keep applications and next steps together.', 'Build a clearer path into your squads.']} />
+  if (flags.error) return <p role="alert" className="p2-opportunities py-8">{flags.error}</p>
+  if (!flags.loaded) return <p role="status" className="p2-opportunities py-8">Loading opportunities…</p>
+  if (!flags.opportunities) return <ComingSoon feature="recruiting" role="club" image="/media/club-match.webp" title="The next player. The right place." lede="Trials and applications will have a home here. Join the list to hear when recruiting opens." bullets={['Share the opportunities your club is ready to offer.', 'Keep applications and next steps together.', 'Build a clearer path into your squads.']} />
   return <section className="p2-opportunities" aria-label="Recruiting">
     <header className="flex flex-wrap items-end justify-between gap-6"><div><p className="opp-label">Recruiting</p><h1 className="opp-heading mt-3">{current?.title || 'Your next player.'}</h1>{current && <p className="mt-4 text-sm text-muted">{when(current.starts_at, current.timezone)} · {current.venue} · {current.status}</p>}</div><button className="opp-button primary" onClick={() => setEditor({ item: null })}>+ New opportunity</button></header>
     {error && <p className="opp-error" role="alert">{error}</p>}

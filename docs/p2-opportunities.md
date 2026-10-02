@@ -2,7 +2,7 @@
 
 - Ships dark: `OPPORTUNITIES_ENABLED=false`, `APPLICATIONS_ENABLED=false` by default. Applications require both flags. Rollout also requires A1's `P2_FOUNDATION_ENABLED` for notification enqueue/dispatch; A2's staff flag controls its existing permission resolver. No deployment or flag enablement is part of this PR.
 - Stacked on #1109. Migration `p2b2` extends B1's `p2b1`. The four new tables have guarded DDL and RLS. The real B1 migration is included verbatim from B1 `14b26fbc` so a clean checkout has the complete graph; no placeholder is committed. The B1 directory feature still belongs to #1114 and must precede B2 deployment.
-- `/api/opportunities/features` returns neutral 404 before auth for every HTTP method while both flags are OFF; the frontend treats 404 as OFF. Otherwise it returns the effective B2 booleans (60/min/IP). The existing `/api/features` payload is unchanged. OFF preserves the opportunity, recruiting and application teasers; new business APIs return neutral 404 before authentication.
+- `/api/opportunities/features` returns neutral 404 before auth for every HTTP method while both flags are OFF; the frontend treats 404 as OFF. Otherwise it returns the effective B2 booleans (60/min/IP). Web entry points share the existing `/api/features` bootstrap: `opportunities: true` is present only when opportunities are enabled, and `applications: true` only when both flags are enabled; both keys are absent while dark. The older feature endpoint remains available for clients. OFF preserves the opportunity, recruiting and application teasers; new business APIs return neutral 404 before authentication.
 
 ## Public opportunities
 
@@ -25,7 +25,7 @@
 
 ## Adults only
 
-- `GET /api/me/application-claims` returns only currently eligible approved self-claims. `POST /api/opportunities/<uuid>/applications` requires `claim_id`, position, optional current club, explicit `contact_consent=true`, and UUID `client_request_id`.
+- `GET /api/me/application-claims` returns only currently eligible approved self-claims, with an owner profile path. Optional `?opportunity_id=<uuid>` adds the signed-in applicant’s retained application and an `outside_age_band` hint using the submission rule; it requires a currently public posting and validates the optional UUID before querying. An expired own duplicate sets only `application_unavailable: true`, with `application: null`, until privacy purge removes it; no expired details are returned. This context never enters a public DTO. `POST /api/opportunities/<uuid>/applications` requires `claim_id`, position, optional current club, explicit `contact_consent=true`, and UUID `client_request_id`.
 - The claim must belong to the authenticated applicant, have `relationship_type=player`, and be approved. A1's `public_adult.is_public_adult` rechecks identity/age/bridge/suppression/publication holds. Unknown/ambiguous age, club-private identities and guardian/agent claims cannot apply. The opportunity age band is rechecked.
 - Profile attachment is a signed subject/claim reference, with only a live eligible display name shown inside the club pipeline. No owner DTO or proof, private feedback, photo or unapproved highlight snapshot is copied. Every club board/detail read freshly batches the adult/claim/hold checks. Ineligible subjects disappear entirely from club responses (detail returns neutral 404; board omits them), with no subject ID, claim ID, position, current club, notes or events. Staff notes and every transition, including rejection, require current adult eligibility. A system-only close records a neutral actor-less event, releases reservations, clears the cancelled invitation, and shortens retention to at most seven days. Applicant reads also clear stale invitation state. Club-origin publication is C1's prerequisite.
 - One application per opportunity/resolved subject while retained, enforced by the PostgreSQL unique index on `(opportunity_id, signed_player_id)`, independently of claim IDs. Local bridges (including graduates linked to a provider identity) resolve to the canonical signed subject before eligibility, duplicate detection and serialization. Identity merges re-point application subject and claim together inside the admin merge transaction before deleting source claims. Colliding retained application histories block the merge with a clear 409 and full rollback; resolve retention/erasure first. The original request hash remains unchanged for retries. Replaying the same client key/hash returns the same result even after intake closes or the source claim is merged away; changed requests conflict. Withdrawal is terminal. A fresh application can be submitted once old data has expired and been purged.
@@ -63,3 +63,20 @@
 - Final B2F4 refresh includes main/N3 `adea5177`. Shared `public_adult_ids` retains N3 trusted upstream DOB/journey controls and the B2 reconciliation-only hold bypass; public reads use its default hold enforcement. Combined full pytest3954 passed/69 skipped/zero failures; PG19/Node211/Playwright32/Ruff-format/lint/build pass.
 
 - Native editor private DTOs include `created_at` and the server-derived `trial_invite_deadline`; neither field is public. Backend-only release commit `8305283b` is independent of the review-only native PR.
+
+## UXB staging polish
+
+- Club pages use the public opportunity list filtered by program; flag off keeps the original teaser, on with no results shows a quiet empty state.
+- Approved adult self-claimants lead with their profile and applications on player home. Account links require applications enabled and an eligible self-claim. The existing owner-only showcase mount supplies a compact application summary; signed-out pages make no application calls.
+- Opportunity detail shows retained status/trial next steps or an age-band note before offering the form. Submission rules and uniqueness stay unchanged.
+- `whenRange` collapses same-day ranges in the opportunity zone, labels that zone once, and retains both offsets across a DST change. Single timestamps still use `when`. Club new-application emails have a club-facing subject and the same neutral payload.
+- Private posting lists put published rows first, then closed/cancelled, then drafts; each group sorts by latest posting update or application event before pagination, with deterministic tie breakers.
+- Regression evidence: `tests/test_opportunities_uxb.py`, `e2e/uxb.spec.mjs`, `lib/opportunity-time-uxb.test.js`; hand-back `~/codex-runs/aw-redesign/logs/UXB.final.md`.
+
+## UXBF1 review fixes
+
+- Shared bootstrap caches one successful public response per page session; failed responses remain unavailable/unknown and retryable. Dark club/home/owner entry points issue zero opportunity/application requests. Pending flags and claims show a neutral loading state.
+- Owner summary additionally requires a currently eligible adult self-claim. Player home keeps profile + applications first, with find/create below them.
+- Opportunity profile selector remains available across applied/age/form states. Profile changes reset submission fields and idempotency key; completed results stay attached to their claim. A raced `409 already_applied` links to player home instead of leaving the form.
+- `/opportunities/<uuid>#parent-interest` scrolls to and focuses the parents-and-guardians sign-up section after detail loading. It collects the adult's own email only.
+- `e2e/uxbf1.spec.mjs` runs deterministic owner/visitor/scout/other-player, dark-request, loading, profile-switching, long-input, retained-duplicate and anchor cases in CI (including drafts) at desktop/mobile widths. Real staging persona tests remain complementary opt-in coverage.
