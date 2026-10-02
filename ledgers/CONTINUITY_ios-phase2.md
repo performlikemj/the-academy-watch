@@ -130,3 +130,4 @@
 - Read both independent findings and both cross-examinations. No refutations; N17 legend is MJ design question, UXB1124 parent anchor remains dependency.
 - Iteration: targeted xcodebuild only; final full offline/unit + one Release. Governed foreground commands, owned-resource cleanup, no merge.
 - Targeted models:59 pass/0 fail (`I1F4/targeted-models3.xcresult`). Two earlier compiles caught test-only helper/typecheck errors; corrected. Seven behaviour UI regressions queued under machine governor; no second invocation.
+- Integrated current main919be8af (UXM1/N5/clock-test fix); conflicts only AGENTS.md/CONTINUITY.md resolved preserving both histories. Lower A2d1eb66ad/B1d0a63c49/B255b1d3ac/B351f30f5b already included; no new migration/native ancestor change.

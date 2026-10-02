@@ -40,7 +40,7 @@ test('the component talks to the three thread endpoints through APIService', asy
 
 test('the thread pages through every message and hides the outcome form when the viewer cannot report', async () => {
   const src = await fs.readFile(componentFile, 'utf8')
-  assert.ok(src.includes('export function ContactThread({ request, onRequestChange, canReportOutcome = true })'), 'canReportOutcome prop, default on')
+  assert.ok(src.includes("export function ContactThread({ request, onRequestChange, canReportOutcome = false, viewerRole = 'scout' })"), 'outcome form defaults off until a permitted viewer opts in')
   assert.ok(src.includes('APIService.getContactMessages(requestId, { limit: PAGE, offset })'), 'messages are fetched page by page')
   assert.ok(src.includes('if (more.length < PAGE) break'), 'fetching stops at the first short page')
   const guard = src.indexOf('{canReportOutcome ? (')
@@ -65,4 +65,10 @@ test('a send or outcome that completes after switching threads never touches the
   assert.ok(src.includes('const reportedFor = requestId'), 'an outcome report remembers its thread')
   assert.ok(src.includes('if (reportedFor !== requestIdRef.current) return'), 'a stale outcome result is discarded')
   assert.ok(src.includes('    setSending(false)\n    setReporting(false)\n    load()'), 'in-flight flags reset when the thread changes')
+})
+
+test('player sees their own pending action and club consent', () => {
+  assert.equal(describeThreadState({status: 'pending'}, 'player').note, 'Waiting for you to accept.')
+  assert.equal(describeThreadState({status: 'pending', routing_mode: 'club_included', club_consent_status: 'pending'}, 'player').note,
+    'Waiting for you to accept and the club to allow the introduction.')
 })

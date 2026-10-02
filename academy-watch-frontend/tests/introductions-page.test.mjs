@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 
-import { statusLabel, counterpartName, canWithdraw, canRespond, previewText, upsertRequest, canDecideConsent, fetchAllRequests } from '../src/lib/introductions.js'
+import { statusLabel, counterpartName, canWithdraw, canRespond, previewText, upsertRequest, canDecideConsent, fetchAllRequests, defaultIntroductionBox } from '../src/lib/introductions.js'
 
 const pageFile = new URL('../src/pages/IntroductionsPage.jsx', import.meta.url)
 const appFile = new URL('../src/App.jsx', import.meta.url)
@@ -35,7 +35,7 @@ test('the page lists both boxes, acts through APIService, mounts ContactThread, 
   assert.ok(page.includes('APIService.acceptContactRequest(request.id)'))
   assert.ok(page.includes('APIService.declineContactRequest(request.id)'))
   assert.ok(page.includes('APIService.withdrawContactRequest(request.id)'))
-  assert.ok(page.includes('<ContactThread request={selected} onRequestChange={applyUpdate} />'))
+  assert.ok(page.includes("<ContactThread request={selected} onRequestChange={applyUpdate} viewerRole={box === 'sent' ? 'scout' : 'player'} canReportOutcome={box === 'sent'} />"))
   const app = await fs.readFile(appFile, 'utf8')
   assert.ok(app.includes('<Route path="/introductions" element={<IntroductionsPage />} />'))
   assert.ok(app.includes("import { IntroductionsPage } from '@/pages/IntroductionsPage'"))
@@ -81,5 +81,11 @@ test('an action that finishes after switching boxes never writes its error or cl
   assert.ok(page.includes('const actionSeq = useRef(0)'), 'actions are sequenced')
   assert.ok(page.includes('if (seq !== actionSeq.current) return'), 'a stale action error is discarded')
   assert.ok(page.includes('if (seq === actionSeq.current) setBusyId(null)'), 'a stale action does not clear the new box\'s busy flag')
-  assert.ok(page.includes('    actionSeq.current += 1\n    setSelectedId(null)\n    setActionError(null)\n    setBusyId(null)\n    load(box)'), 'switching boxes resets action state')
+  assert.ok(page.includes('    actionSeq.current += 1\n    setSelectedId(null)\n    setActionError(null)\n    setBusyId(null)'), 'switching boxes resets action state')
+})
+
+ test('received introductions choose the receiving role by default', () => {
+  assert.equal(defaultIntroductionBox({ sent: [], inbox: [{ id: 'received' }] }), 'inbox')
+  assert.equal(defaultIntroductionBox({ sent: [{ id: 'sent' }], inbox: [] }), 'sent')
+  assert.equal(defaultIntroductionBox({ sent: [{ id: 'sent' }], inbox: [{ id: 'received' }] }), 'inbox')
 })
