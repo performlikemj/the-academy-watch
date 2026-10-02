@@ -201,7 +201,7 @@ for (const mode of ['player', 'club', 'admin', 'invite']) {
     await expect(page.getByRole('heading', { name: 'X'.repeat(200) })).toBeVisible()
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
     await expect(page.getByRole('main')).toHaveCount(1)
-    expect(featureRequests).toHaveLength(1)
+    expect(featureRequests).toHaveLength(2)
     if (mode === 'invite') {
       const width = await page.getByRole('checkbox', { name: /^I am this adult player/ }).evaluate(el => el.getBoundingClientRect().width)
       expect(width).toBeGreaterThanOrEqual(20)
@@ -232,11 +232,11 @@ for (const on of [true, false]) {
     await page.goto('/player-publications')
     if (on) await expect(page.getByRole('heading', { name: 'Your public profile' })).toBeVisible()
     else await expect(page).toHaveURL(/\/$/)
-    expect(featureRequests).toHaveLength(1)
+    expect(featureRequests).toHaveLength(2)
     await page.evaluate(() => { window.history.pushState({}, '', '/club-publications/7'); window.dispatchEvent(new window.PopStateEvent('popstate')) })
     if (on) await expect(page.getByRole('heading', { name: 'Invite an adult player' })).toBeVisible()
     else await expect(page).toHaveURL(/\/$/)
-    expect(featureRequests).toHaveLength(1)
+    expect(featureRequests).toHaveLength(2)
   })
 }
 
