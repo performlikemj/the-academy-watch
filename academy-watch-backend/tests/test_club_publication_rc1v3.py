@@ -72,15 +72,29 @@ def test_never_granted_response_identity(client, env, action):
 
 
 def test_every_contact_serializer_call_identifies_viewer():
-    source = Path(__file__).parents[1] / "src/routes/contact.py"
-    calls = [
-        node
-        for node in ast.walk(ast.parse(source.read_text()))
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "_contact_request_payload"
-    ]
-    assert len(calls) >= 11
-    assert all(any(k.arg == "viewer_user_id" for k in call.keywords) for call in calls), [
-        call.lineno for call in calls if not any(k.arg == "viewer_user_id" for k in call.keywords)
+    calls = []
+    for source in (Path(__file__).parents[1] / "src").rglob("*.py"):
+        tree = ast.parse(source.read_text())
+        names = {"_contact_request_payload"}
+        names.update(
+            alias.asname or alias.name
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ImportFrom)
+            for alias in node.names
+            if alias.name == "_contact_request_payload"
+        )
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and (
+                (isinstance(node.func, ast.Name) and node.func.id in names)
+                or (isinstance(node.func, ast.Attribute) and node.func.attr == "_contact_request_payload")
+            ):
+                calls.append((source, node))
+    assert len(calls) >= 12
+    assert any(source.name == "club_player_profile.py" for source, _ in calls)
+    assert not [
+        f"{source}:{call.lineno}"
+        for source, call in calls
+        if not any(keyword.arg == "viewer_user_id" for keyword in call.keywords)
     ]
 
 

@@ -222,7 +222,9 @@ def profile_payload(member, *, match_filter=None, match_dto=None):
             if contacts:
                 result["scout_interest"] = {
                     "locked": False,
-                    "requests": [_contact_request_payload(r) for r in contacts],
+                    # --- p2-c1 begin ---
+                    "requests": [_contact_request_payload(r, viewer_user_id=g.user_id) for r in contacts],
+                    # --- p2-c1 end ---
                 }
     if member.note:
         result["note"] = member.note
