@@ -348,7 +348,7 @@ for (const [legacy, canonical] of [['Asia/Calcutta', 'Asia/Kolkata'], ['Europe/K
       await fixture(page)
       await page.goto('/my-club?view=recruiting')
       await page.getByRole('button', { name: 'New opportunity' }).click()
-      await expect(page.getByLabel('Time zone (for example Europe/London)')).toHaveValue(canonical)
+      await expect(page.getByRole('combobox', { name: 'Time zone', exact: true })).toContainText(canonical)
     } finally { await context.close() }
   })
 }

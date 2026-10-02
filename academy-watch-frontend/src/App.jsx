@@ -1,3 +1,4 @@
+import { CleatLoader } from '@/components/CleatLoader'
 import { useState, useEffect, useMemo, useCallback, useRef, Fragment, lazy, Suspense } from 'react'
 import { BrowserRouter as Router, Routes, Route, Link, Navigate, useLocation, useParams, useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button.jsx'
@@ -409,7 +410,7 @@ function HistoricalNewslettersPage() {
               <CardContent>
                 {loading ? (
                   <div className="text-center py-8">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
+                    <CleatLoader />
                   </div>
                 ) : (
                   <div className="space-y-4">
@@ -1070,7 +1071,7 @@ function SubscribePage() {
             <CardContent>
               {loading ? (
                 <div className="text-center py-8">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
+                  <CleatLoader />
                 </div>
               ) : (
                 <div className="space-y-4">
@@ -1549,7 +1550,7 @@ function TeamsPage() {
             </div>
           ) : (isCL ? clLoading : loading) ? (
             <div className="flex items-center justify-center py-16">
-              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground/70" />
+              <CleatLoader />
             </div>
           ) : isCL ? (
             <div>
@@ -2468,7 +2469,7 @@ function NewslettersPage() {
 
           {loading ? (
             <div className="text-center py-12">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
+              <CleatLoader caption={false} />
               <p className="mt-4 text-muted-foreground">Loading newsletters...</p>
             </div>
           ) : newsletters.length === 0 ? (
@@ -3268,7 +3269,7 @@ function SettingsPage() {
 
         {loading ? (
           <div className="text-center py-12">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
+            <CleatLoader caption={false} />
             <p className="mt-4 text-muted-foreground">Loading your preferences…</p>
           </div>
         ) : (
@@ -3752,7 +3753,7 @@ function ManagePage() {
 
         {status === 'loading' && (
           <div className="text-center py-12">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
+            <CleatLoader caption={false} />
             <p className="mt-4 text-muted-foreground">Loading…</p>
           </div>
         )}
@@ -3909,7 +3910,7 @@ function StatsPage() {
 
         {loading ? (
           <div className="text-center py-12">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
+            <CleatLoader caption={false} />
             <p className="mt-4 text-muted-foreground">Loading statistics...</p>
           </div>
         ) : stats ? (
@@ -4145,7 +4146,7 @@ function AppRoutes() {
   return (
     <Routes>
       {LEGACY_PUBLIC_ROUTES.map((path, index) => (
-        <Route key={path} path={LEGACY_PUBLIC_PAGES ? path.replace(':id', path.startsWith('/academy/') ? ':cohortId' : path.startsWith('/newsletters/') ? ':newsletterId' : ':id') : path} element={LEGACY_PUBLIC_PAGES ? <Suspense fallback={null}>{legacyPublicElements[index]}</Suspense> : <LegacyPublicRedirect />} />
+        <Route key={path} path={LEGACY_PUBLIC_PAGES ? path.replace(':id', path.startsWith('/academy/') ? ':cohortId' : path.startsWith('/newsletters/') ? ':newsletterId' : ':id') : path} element={LEGACY_PUBLIC_PAGES ? <Suspense fallback={<CleatLoader className="min-h-[65vh]" />}>{legacyPublicElements[index]}</Suspense> : <LegacyPublicRedirect />} />
       ))}
       <Route path="/" element={<HomePage />} />
       <Route path="/clubs" element={<ClubsPage />} />

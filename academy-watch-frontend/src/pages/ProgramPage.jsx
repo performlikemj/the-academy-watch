@@ -1,3 +1,4 @@
+import { CleatLoader } from '@/components/CleatLoader'
 import { useEffect, useState } from 'react'
 import { ClubOpportunities } from '@/pages/opportunities/ClubOpportunities'
 import { Link, useParams } from 'react-router-dom'
@@ -110,9 +111,8 @@ function ProgramPageContent({ slug }) {
 
     if (loading) {
         return (
-            <div className="flex min-h-[65vh] items-center justify-center gap-3 text-muted-foreground" role="status">
-                <Loader2 className="h-5 w-5 animate-spin motion-reduce:animate-none" />
-                <span className="eyebrow">Loading club</span>
+            <div className="flex min-h-[65vh] items-center justify-center gap-3 text-muted-foreground">
+                <CleatLoader />
             </div>
         )
     }

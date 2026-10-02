@@ -48,6 +48,28 @@ def client(app):
     return app.test_client()
 
 
+@pytest.fixture(
+    params=[
+        datetime(2026, 10, 1, 23, 59, 59, tzinfo=UTC),
+        datetime(2026, 10, 2, 0, 0, 1, tzinfo=UTC),
+        datetime(2026, 10, 2, 12, tzinfo=UTC),
+    ],
+    ids=["before-utc-midnight", "after-utc-midnight", "utc-noon"],
+)
+def frozen_now(request, monkeypatch):
+    """Keep date inputs and their validators on one clock across UTC midnight."""
+    fixed_now = request.param
+
+    class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return fixed_now.astimezone(tz) if tz is not None else fixed_now.replace(tzinfo=None)
+
+    monkeypatch.setattr(player_matches_routes, "datetime", FrozenDateTime)
+    monkeypatch.setattr(season_rollup_service, "datetime", FrozenDateTime)
+    return fixed_now
+
+
 def _user(email: str) -> tuple[UserAccount, dict]:
     stem = email.split("@", 1)[0].replace(".", "-")
     user = UserAccount(
@@ -586,9 +608,9 @@ def test_stranger_minor_writes_are_neutral_like_unknown_subjects(client, subject
     assert db.session.get(PlayerMatchEntry, entry.id) is not None
 
 
-def test_positive_minor_boundary_is_strictly_under_eighteen(client):
+def test_positive_minor_boundary_is_strictly_under_eighteen(client, frozen_now):
     reporter, _ = _user("age-boundary-reporter@example.com")
-    today = datetime.now(UTC).date()
+    today = frozen_now.date()
 
     def _birthday(years_ago):
         try:
@@ -672,10 +694,13 @@ def test_adult_list_filters_and_paginates(client):
         ({"opponent": "   "}, "opponent"),
         ({"home_away": "somewhere"}, "home_away"),
         ({"match_date": "1969-12-31"}, "1970-01-01"),
-        ({"match_date": (datetime.now(UTC).date() + timedelta(days=2)).isoformat()}, "future"),
+        ({"match_date": None}, "future"),
     ],
 )
-def test_write_validation_rejects_invalid_values(client, monkeypatch, change, expected_fragment):
+def test_write_validation_rejects_invalid_values(client, monkeypatch, frozen_now, change, expected_fragment):
+    if expected_fragment == "future":
+        # Compute after the validator clock is pinned, never during collection.
+        change = {"match_date": (frozen_now.date() + timedelta(days=2)).isoformat()}
     owner, headers = _user(f"validation-{expected_fragment}-{len(str(change))}@example.com")
     player_id = 8000 + owner.id
     _shadow(player_id)
@@ -688,7 +713,7 @@ def test_write_validation_rejects_invalid_values(client, monkeypatch, change, ex
     assert PlayerMatchEntry.query.filter_by(player_api_id=player_id).count() == 0
 
 
-def test_match_date_bounds_include_epoch_and_one_day_of_utc_slack(client, monkeypatch):
+def test_match_date_bounds_include_epoch_and_one_day_of_utc_slack(client, monkeypatch, frozen_now):
     owner, headers = _user("date-bound-owner@example.com")
     _shadow(8999)
     _claim(owner, player_api_id=8999)
@@ -697,7 +722,7 @@ def test_match_date_bounds_include_epoch_and_one_day_of_utc_slack(client, monkey
         "refresh_player",
         lambda *a, **k: {"cells": 1, "totals": 1},
     )
-    tomorrow = (datetime.now(UTC).date() + timedelta(days=1)).isoformat()
+    tomorrow = (frozen_now.date() + timedelta(days=1)).isoformat()
 
     epoch = client.post(
         "/api/players/8999/matches",
