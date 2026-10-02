@@ -33,7 +33,10 @@ test('the dialog posts through APIService and the desk mounts it only for contac
   assert.ok(scout.includes("import { IntroduceDialog } from '@/components/contact/IntroduceDialog'"))
   assert.ok(scout.includes('{contactRail === true && player.contactable ? ('))
   assert.ok(scout.includes('<IntroduceDialog'))
-  assert.ok(scout.includes('const [introducePlayer, setIntroducePlayer] = useState(null)'))
+  // The open dialog belongs to the viewer who opened it: it is held with that
+  // viewer's scope so a logout or account switch closes it at once.
+  assert.ok(scout.includes('const introducePlayer = scopedValue(introduceState, viewer)'))
+  assert.ok(scout.includes('const setIntroducePlayer = useCallback((player) => setIntroduceState({ scope: viewer, value: player }), [viewer])'))
 })
 
 test('a send that lands after the dialog closed or moved to another player is ignored', async () => {
