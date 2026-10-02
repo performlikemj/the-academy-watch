@@ -51,3 +51,24 @@ test('maintenance switch for the assistant keeps the available conversation enab
   assert.ok(!html.includes(GOL_MAINTENANCE_MESSAGE))
   assert.doesNotMatch(html, /<input[^>]*disabled=""/)
 })
+
+test('maintenance leaves a failed charged question recovery control visible', () => {
+  const html = renderToStaticMarkup(React.createElement(GolChatWindow, {
+    messages: [{ id: 'failed', role: 'assistant', content: 'The answer was interrupted before it finished.' }],
+    maintenance: true, canRetry: true, accessState: 'available', creditUiLit: true,
+    freeQuestionsRemaining: 2, creditBalance: 7,
+  }))
+  assert.match(html, />Retry<\/button>/)
+  assert.match(html, /<input[^>]*disabled=""/)
+})
+
+test('a maintenance response hides Retry until availability recovers', () => {
+  const messages = [{ id: 'paused', role: 'assistant', content: GOL_MAINTENANCE_MESSAGE, maintenance: true }]
+  for (const maintenance of [true, false]) {
+    const html = renderToStaticMarkup(React.createElement(GolChatWindow, {
+      messages, maintenance, canRetry: true, accessState: 'available', creditUiLit: true,
+      freeQuestionsRemaining: 3, creditBalance: 7,
+    }))
+    assert.equal(/>Retry<\/button>/.test(html), !maintenance)
+  }
+})

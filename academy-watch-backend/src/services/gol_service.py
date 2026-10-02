@@ -577,132 +577,165 @@ class GolService:
         content_buffer = ""
         tool_calls_buffer = {}
 
-        for chunk in response:
-            delta = chunk.choices[0].delta if chunk.choices else None
-            if not delta:
-                continue
+        try:
+            try:
+                for chunk in response:
+                    # Each provider chunk reads only the process environment, never SQL.
+                    # A timed cache could forward tokens after a maintenance transition.
+                    if assistant_under_maintenance():
+                        raise GolMaintenance
+                    delta = chunk.choices[0].delta if chunk.choices else None
+                    if not delta:
+                        continue
 
-            finish_reason = chunk.choices[0].finish_reason
+                    finish_reason = chunk.choices[0].finish_reason
 
-            # Text content
-            if delta.content:
-                content_buffer += delta.content
-                yield {"event": "token", "data": {"content": delta.content}}
+                    # Text content
+                    if delta.content:
+                        content_buffer += delta.content
+                        yield {"event": "token", "data": {"content": delta.content}}
 
-            # Tool calls
-            if delta.tool_calls:
-                for tc in delta.tool_calls:
-                    idx = tc.index
-                    if idx not in tool_calls_buffer:
-                        tool_calls_buffer[idx] = {
-                            "id": "",
-                            "function": {"name": "", "arguments": ""},
-                        }
-                    if tc.id:
-                        tool_calls_buffer[idx]["id"] = tc.id
-                    if tc.function:
-                        if tc.function.name:
-                            tool_calls_buffer[idx]["function"]["name"] += tc.function.name
-                        if tc.function.arguments:
-                            tool_calls_buffer[idx]["function"]["arguments"] += tc.function.arguments
+                    # Yielding suspends us: recheck before accepting this chunk's finish.
+                    if assistant_under_maintenance():
+                        raise GolMaintenance
 
-            # Handle finish
-            if finish_reason == "tool_calls":
-                # Build the assistant message with tool_calls
-                assistant_tool_calls = []
-                for idx in sorted(tool_calls_buffer.keys()):
-                    tc = tool_calls_buffer[idx]
-                    assistant_tool_calls.append(
-                        {
-                            "id": tc["id"],
-                            "type": "function",
-                            "function": tc["function"],
-                        }
-                    )
+                    # Tool calls
+                    if delta.tool_calls:
+                        for tc in delta.tool_calls:
+                            idx = tc.index
+                            if idx not in tool_calls_buffer:
+                                tool_calls_buffer[idx] = {
+                                    "id": "",
+                                    "function": {"name": "", "arguments": ""},
+                                }
+                            if tc.id:
+                                tool_calls_buffer[idx]["id"] = tc.id
+                            if tc.function:
+                                if tc.function.name:
+                                    tool_calls_buffer[idx]["function"]["name"] += tc.function.name
+                                if tc.function.arguments:
+                                    tool_calls_buffer[idx]["function"]["arguments"] += tc.function.arguments
 
-                messages.append(
-                    {
-                        "role": "assistant",
-                        "content": content_buffer or None,
-                        "tool_calls": assistant_tool_calls,
-                    }
-                )
+                    # Handle finish
+                    if finish_reason == "tool_calls":
+                        # Build the assistant message with tool_calls
+                        assistant_tool_calls = []
+                        for idx in sorted(tool_calls_buffer.keys()):
+                            tc = tool_calls_buffer[idx]
+                            assistant_tool_calls.append(
+                                {
+                                    "id": tc["id"],
+                                    "type": "function",
+                                    "function": tc["function"],
+                                }
+                            )
 
-                for idx in sorted(tool_calls_buffer.keys()):
-                    tc = tool_calls_buffer[idx]
-                    func_name = tc["function"]["name"]
-                    try:
-                        args = json.loads(tc["function"]["arguments"])
-                    except json.JSONDecodeError:
-                        args = {}
+                        messages.append(
+                            {
+                                "role": "assistant",
+                                "content": content_buffer or None,
+                                "tool_calls": assistant_tool_calls,
+                            }
+                        )
 
-                    yield {"event": "tool_call", "data": {"name": func_name}}
+                        for idx in sorted(tool_calls_buffer.keys()):
+                            tc = tool_calls_buffer[idx]
+                            func_name = tc["function"]["name"]
+                            try:
+                                args = json.loads(tc["function"]["arguments"])
+                            except json.JSONDecodeError:
+                                args = {}
 
-                    # Execute tool
-                    result = self._execute_tool(func_name, args)
-                    if result.get("error") == "maintenance":
-                        yield {"event": "error", "data": maintenance_payload()}
+                            yield {"event": "tool_call", "data": {"name": func_name}}
+
+                            # Execute tool
+                            result = self._execute_tool(func_name, args)
+                            if result.get("error") == "maintenance":
+                                yield {"event": "error", "data": maintenance_payload()}
+                                yield {"event": "done", "data": {}}
+                                return
+
+                            if assistant_under_maintenance():
+                                raise GolMaintenance
+
+                            # Only emit data card for successful results
+                            if result.get("result_type") != "error":
+                                try:
+                                    json.dumps(result)  # Pre-validate serialization
+                                except TypeError as ser_err:
+                                    logger.error(
+                                        "data_card serialization failed: %s | result_type=%s keys=%s",
+                                        ser_err,
+                                        result.get("result_type"),
+                                        list(result.keys()),
+                                    )
+                                    for k, v in result.items():
+                                        if not isinstance(v, (str, int, float, bool, list, dict, type(None))):
+                                            logger.error("  key=%s type=%s", k, type(v).__name__)
+                                    result = {"result_type": "error", "error": "Result could not be serialized"}
+                                yield {"event": "data_card", "data": {"type": "analysis_result", "payload": result}}
+
+                            # Sanitize error details before sending to LLM
+                            llm_result = (
+                                self._sanitize_for_llm(result) if result.get("result_type") == "error" else result
+                            )
+
+                            # Add tool result to messages for LLM context
+                            try:
+                                tool_content = json.dumps(llm_result)
+                            except TypeError as ser_err:
+                                logger.error(
+                                    "LLM tool result serialization failed: %s | result_type=%s",
+                                    ser_err,
+                                    llm_result.get("result_type"),
+                                )
+                                tool_content = json.dumps(
+                                    {"result_type": "error", "error": "Result could not be serialized"}
+                                )
+                            messages.append(
+                                {
+                                    "role": "tool",
+                                    "tool_call_id": tc["id"],
+                                    "content": tool_content,
+                                }
+                            )
+
+                        # Emit history entries so the frontend can replay them next turn
+                        history_entries = [
+                            {
+                                "role": "assistant",
+                                "content": content_buffer or None,
+                                "tool_calls": assistant_tool_calls,
+                            },
+                        ]
+                        for idx in sorted(tool_calls_buffer.keys()):
+                            tc = tool_calls_buffer[idx]
+                            # Find the matching tool message we appended
+                            for msg in reversed(messages):
+                                if msg.get("role") == "tool" and msg.get("tool_call_id") == tc["id"]:
+                                    history_entries.append(msg)
+                                    break
+                        if assistant_under_maintenance():
+                            raise GolMaintenance
+                        yield {"event": "history_entries", "data": {"entries": history_entries}}
+
+                        # Continue with next completion round
+                        yield from self._run_completion(messages, depth + 1)
+                        return
+
+                    if finish_reason == "stop":
                         yield {"event": "done", "data": {}}
                         return
 
-                    # Only emit data card for successful results
-                    if result.get("result_type") != "error":
-                        try:
-                            json.dumps(result)  # Pre-validate serialization
-                        except TypeError as ser_err:
-                            logger.error(
-                                "data_card serialization failed: %s | result_type=%s keys=%s",
-                                ser_err,
-                                result.get("result_type"),
-                                list(result.keys()),
-                            )
-                            for k, v in result.items():
-                                if not isinstance(v, (str, int, float, bool, list, dict, type(None))):
-                                    logger.error("  key=%s type=%s", k, type(v).__name__)
-                            result = {"result_type": "error", "error": "Result could not be serialized"}
-                        yield {"event": "data_card", "data": {"type": "analysis_result", "payload": result}}
-
-                    # Sanitize error details before sending to LLM
-                    llm_result = self._sanitize_for_llm(result) if result.get("result_type") == "error" else result
-
-                    # Add tool result to messages for LLM context
-                    try:
-                        tool_content = json.dumps(llm_result)
-                    except TypeError as ser_err:
-                        logger.error(
-                            "LLM tool result serialization failed: %s | result_type=%s",
-                            ser_err,
-                            llm_result.get("result_type"),
-                        )
-                        tool_content = json.dumps({"result_type": "error", "error": "Result could not be serialized"})
-                    messages.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": tc["id"],
-                            "content": tool_content,
-                        }
-                    )
-
-                # Emit history entries so the frontend can replay them next turn
-                history_entries = [
-                    {"role": "assistant", "content": content_buffer or None, "tool_calls": assistant_tool_calls},
-                ]
-                for idx in sorted(tool_calls_buffer.keys()):
-                    tc = tool_calls_buffer[idx]
-                    # Find the matching tool message we appended
-                    for msg in reversed(messages):
-                        if msg.get("role") == "tool" and msg.get("tool_call_id") == tc["id"]:
-                            history_entries.append(msg)
-                            break
-                yield {"event": "history_entries", "data": {"entries": history_entries}}
-
-                # Continue with next completion round
-                yield from self._run_completion(messages, depth + 1)
-                return
-
-            if finish_reason == "stop":
-                yield {"event": "done", "data": {}}
-                return
+                # Also classify a transition coinciding with iterator exhaustion.
+                if assistant_under_maintenance():
+                    raise GolMaintenance
+            finally:
+                close = getattr(response, "close", None)
+                if callable(close):
+                    close()
+        except GolMaintenance:
+            yield {"event": "error", "data": maintenance_payload()}
 
     @staticmethod
     def _sanitize_for_llm(result: dict) -> dict:

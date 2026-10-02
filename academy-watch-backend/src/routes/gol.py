@@ -26,7 +26,7 @@ from src.services.gol_credits import (
     QuestionRecoveryExhausted,
     balances,
     finish_execution,
-    has_question_debit,
+    has_recoverable_question_debit,
     reserve_question,
 )
 from src.services.scout_entitlements import decoded_bearer_role
@@ -81,7 +81,7 @@ def gol_chat():
             and decoded_bearer_role() != "admin"
             and isinstance(existing_id, str)
             and _CLIENT_MSG_ID_RE.fullmatch(existing_id)
-            and has_question_debit(g.user, existing_id)
+            and has_recoverable_question_debit(g.user, existing_id)
         ):
             return _maintenance_response()
 

@@ -5,11 +5,12 @@ import path from 'node:path'
 
 const message = 'The assistant is under maintenance. Back soon.'
 
-async function fixture(page, { billing = true, early = true, theme = 'light' } = {}) {
+async function fixture(page, { billing = true, early = true, theme = 'light', interrupted = false } = {}) {
   const calls = []
   const errors = []
   const submissions = []
   let healthy = false
+  let paused = early
   const retryAfter = '60'
   page.on('pageerror', error => errors.push(error.message))
   await page.addInitScript(({ theme }) => {
@@ -30,9 +31,14 @@ async function fixture(page, { billing = true, early = true, theme = 'light' } =
     calls.push(p)
     const reply = json => route.fulfill({ json })
     if (p === '/api/auth/me') return reply({ email: 'test@example.com', role: 'user', account_role: 'scout', user_id: 42, display_name: 'Test Scout', display_name_confirmed: true, scout_tier: 'free', scout_pro: { enabled: billing, features: { gol_chat: true, free_questions_remaining: 3, credit_balance: 7 } } })
-    if (p === '/api/gol/suggestions') return reply(early && !healthy ? { suggestions: [], maintenance: true, error: 'maintenance', message, retryable: true, retry_after: Number(retryAfter) } : { suggestions: ['Compare academy pathways'] })
+    if (p === '/api/gol/suggestions') return reply(paused && !healthy ? { suggestions: [], maintenance: true, error: 'maintenance', message, retryable: true, retry_after: Number(retryAfter) } : { suggestions: ['Compare academy pathways'] })
     if (p === '/api/gol/chat') {
       submissions.push(route.request().postDataJSON())
+      if (interrupted && submissions.length === 1) {
+        paused = true
+        return route.fulfill({ contentType: 'text/event-stream', body: 'event: usage\ndata: {"free_questions_remaining":2,"credit_balance":7,"debited":true}\n\n' })
+      }
+      if (interrupted && !healthy) return route.fulfill({ contentType: 'text/event-stream', body: `event: error\ndata: ${JSON.stringify({ error: 'maintenance', message, retryable: true, retry_after: 60 })}\n\nevent: usage\ndata: {"free_questions_remaining":3,"credit_balance":7,"refunded":true}\n\n` })
       return healthy
         ? route.fulfill({ contentType: 'text/event-stream', body: 'event: replace\ndata: {"content":"Recovered answer"}\n\nevent: done\ndata: {}\n\n' })
         : route.fulfill({ status: 503, headers: { 'Retry-After': retryAfter }, json: { error: 'maintenance', message, retryable: true } })
@@ -44,6 +50,40 @@ async function fixture(page, { billing = true, early = true, theme = 'light' } =
     return reply({})
   })
   return { calls, errors, submissions, resume: () => { healthy = true } }
+}
+
+for (const width of [390, 1440]) {
+  test(`a charged interrupted question recovers while maintenance is showing at ${width}`, async ({ page }) => {
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 900 })
+    const evidence = await fixture(page, { early: false, interrupted: true })
+    await page.goto('/settings')
+    await page.getByRole('button', { name: 'Open GOL Assistant chat' }).click()
+    await expect(page.getByRole('button', { name: 'Compare academy pathways' })).toBeVisible()
+    await page.getByRole('textbox', { name: 'Ask GOL' }).fill('Recover my held question')
+    await page.getByRole('button', { name: 'Send message' }).click()
+    await expect(page.getByText('The answer was interrupted before it finished. Please try again.', { exact: true })).toBeVisible()
+    await expect(page.getByText('2 free questions left', { exact: true })).toBeVisible()
+    const featuresBefore = evidence.calls.filter(p => p === '/api/features').length
+    await page.getByRole('button', { name: 'Close', exact: true }).click()
+    await page.getByRole('button', { name: 'Open GOL Assistant chat' }).click()
+    await expect(page.getByRole('status').filter({ hasText: message })).toBeVisible()
+    await expect(page.getByRole('textbox', { name: 'Ask GOL' })).toBeDisabled()
+    await expect(page.getByRole('button', { name: 'Retry', exact: true })).toBeVisible()
+    if (process.env.GOLM_SCREENSHOTS) {
+      await fs.mkdir(process.env.GOLM_SCREENSHOTS, { recursive: true })
+      await page.waitForTimeout(400)
+      await page.screenshot({ path: path.join(process.env.GOLM_SCREENSHOTS, `held-question-${width}.png`), fullPage: true })
+    }
+    await page.getByRole('button', { name: 'Retry', exact: true }).click()
+    await expect(page.getByText('3 free questions left', { exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Retry', exact: true })).toHaveCount(0)
+    await expect(page.getByRole('textbox', { name: 'Ask GOL' })).toBeDisabled()
+    expect(evidence.submissions).toHaveLength(2)
+    expect(evidence.submissions[1]).toEqual(evidence.submissions[0])
+    expect(evidence.calls.filter(p => p === '/api/features')).toHaveLength(featuresBefore)
+    expect(evidence.errors).toEqual([])
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  })
 }
 
 for (const width of [390, 1440]) {

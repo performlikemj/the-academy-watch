@@ -552,6 +552,29 @@ test('maintenance honours Retry-After and preserves the exact question for recov
   assert.equal(chat().messages[1].content, 'Recovered answer')
 })
 
+test('an interrupted charged question remains recoverable when availability reports maintenance', async () => {
+  const requests = []
+  const chat = mountChat(async (...args) => {
+    requests.push(args)
+    return requests.length === 1
+      ? streamResponse(frame('usage', { free_questions_remaining: 2, debited: true }))
+      : streamResponse(frame('error', { error: 'maintenance', retry_after: 60 })
+        + frame('usage', { free_questions_remaining: 3, refunded: true }))
+  }, { getGolSuggestions: async () => ({ maintenance: true, retry_after: 60, suggestions: [] }) })
+  await chat().sendMessage('Held question')
+  assert.equal(chat().freeQuestionsRemaining, 2)
+  assert.equal(chat().canRetry, true)
+  await chat().recheckAvailability()
+  assert.equal(chat().maintenance, true)
+  assert.equal(chat().canRetry, true)
+  await chat().retryFailedMessage()
+  assert.deepEqual(requests[1].slice(0, 4), requests[0].slice(0, 4))
+  assert.equal(chat().freeQuestionsRemaining, 3)
+  assert.equal(chat().canRetry, true)
+  assert.equal(chat().maintenance, true)
+  assert.equal(chat().messages[1].maintenance, true)
+})
+
 test('availability recheck recovers without clearing the conversation; Clear resets maintenance', async () => {
   let available = false
   let calls = 0

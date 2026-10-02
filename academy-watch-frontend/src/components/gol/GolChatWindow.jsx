@@ -54,6 +54,8 @@ export function GolChatWindow({
   // Mount the live region empty, including when reopening an unavailable panel.
   const [announceMaintenance, setAnnounceMaintenance] = useState(false)
   const [readyRetryAt, setReadyRetryAt] = useState(0)
+  // A non-maintenance failure may still hold a credit; Retry recovers its same ID.
+  const showRetry = canRetry && (!maintenance || !messages.at(-1)?.maintenance)
   const retryWaiting = retryAt > readyRetryAt
   useEffect(() => {
     const timer = setTimeout(() => setAnnounceMaintenance(Boolean(maintenance)), 0)
@@ -183,7 +185,7 @@ export function GolChatWindow({
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                {canRetry && !maintenance ? (
+                {showRetry ? (
                   <Button size="sm" variant="ghost" onClick={retryFailedMessage} disabled={isStreaming}>
                     <RotateCcw className="mr-1.5 h-3.5 w-3.5" />Retry
                   </Button>
@@ -204,13 +206,13 @@ export function GolChatWindow({
                     ? `${freeQuestionsRemaining} free question${freeQuestionsRemaining === 1 ? '' : 's'} left`
                     : `Credits: ${creditBalance}`}
                 </span>
-                {canRetry && !maintenance ? (
+                {showRetry ? (
                   <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={retryFailedMessage} disabled={isStreaming}>
                     <RotateCcw className="mr-1.5 h-3.5 w-3.5" />Retry
                   </Button>
                 ) : null}
               </div>
-            ) : creditUiLit && canRetry && !maintenance ? (
+            ) : creditUiLit && showRetry ? (
               <div className="flex justify-end">
                 <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={retryFailedMessage} disabled={isStreaming}>
                   <RotateCcw className="mr-1.5 h-3.5 w-3.5" />Retry

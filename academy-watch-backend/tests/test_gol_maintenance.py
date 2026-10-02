@@ -11,6 +11,7 @@ from src.auth import issue_user_token
 from src.extensions import limiter
 from src.models.gol_credits import GolChatExecution, GolCreditLedger
 from src.models.league import UserAccount, db
+from src.models.product_event import ProductEvent
 from src.routes import gol
 from src.services import gol_service
 from src.services.gol_availability import (
@@ -22,6 +23,160 @@ from src.services.gol_availability import (
 from src.services.gol_credits import balances
 
 _REAL_GOL_SERVICE = gol_service.GolService
+
+
+@pytest.mark.parametrize("state", ["switch", "missing"])
+@pytest.mark.parametrize("ending", ["text", "empty", "eof", "final_token"])
+def test_active_provider_stream_stops_and_refunds(app, monkeypatch, state, ending):
+    user, headers, body = _metered_question(app, monkeypatch)
+    body = {**body, "client_msg_id": "active-stream-question"}
+    closed = Mock()
+
+    def chunk(text, finish=None):
+        return SimpleNamespace(
+            choices=[SimpleNamespace(delta=SimpleNamespace(content=text, tool_calls=None), finish_reason=finish)]
+        )
+
+    def stream():
+        try:
+            yield chunk("Before ", "stop" if ending == "final_token" else None)
+            _pause(monkeypatch, state)
+            if ending == "text":
+                yield chunk("AFTER SWITCH", "stop")
+            elif ending == "empty":
+                yield SimpleNamespace(choices=[])
+            if ending != "eof":
+                pytest.fail("provider stream was consumed past maintenance")
+        finally:
+            closed()
+
+    provider = Mock()
+    provider.chat.completions.create.return_value = stream()
+    monkeypatch.setattr(gol_service, "OpenAI", Mock(return_value=provider))
+    monkeypatch.setattr(gol_service, "GolService", _REAL_GOL_SERVICE)
+    response = app.test_client().post("/api/gol/chat", json=body, headers=headers)
+    assert response.status_code == 200
+    if ending == "final_token":
+        frames = iter(response.response)
+        prefix = [next(frames), next(frames)]  # Usage and the token, before accepting its stop.
+        _pause(monkeypatch, state)
+        text = b"".join(prefix + list(frames)).decode()
+    else:
+        text = response.text
+    assert '"error": "maintenance"' in text
+    assert "Before " in text
+    assert "AFTER SWITCH" not in text
+    assert "event: done" not in text
+    assert '"refunded": true' in text
+    closed.assert_called_once()
+    execution = GolChatExecution.query.filter_by(client_msg_id=body["client_msg_id"]).one()
+    assert execution.status == "failed"
+    assert not execution.response_text
+    assert GolCreditLedger.query.filter_by(kind="reversal", debit_id=execution.debit_id).count() == 1
+    assert balances(user)["free_questions_remaining"] == 2
+    monkeypatch.setenv("GOL_MAINTENANCE", "false")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-not-a-real-key")
+    provider.chat.completions.create.return_value = iter([chunk("Recovered answer", "stop")])
+    retry = app.test_client().post("/api/gol/chat", json=body, headers=headers)
+    assert "Recovered answer" in retry.text
+    assert "event: done" in retry.text
+    assert GolChatExecution.query.filter_by(client_msg_id=body["client_msg_id"], attempt=2).one().status == "completed"
+    assert GolCreditLedger.query.filter_by(kind="reversal").count() == 1
+    assert balances(user)["free_questions_remaining"] == 1
+
+
+@pytest.mark.parametrize("state", ["switch", "missing"])
+@pytest.mark.parametrize("role", ["user", "admin"])
+def test_unmetered_active_stream_refuses_completion(app, monkeypatch, state, role):
+    user = UserAccount(email="unmetered@example.com", display_name="Test", display_name_lower="test")
+    db.session.add(user)
+    db.session.commit()
+    headers = {"Authorization": f"Bearer {issue_user_token(user.email, role=role)['token']}"}
+    closed = Mock()
+
+    def stream():
+        try:
+            yield SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        delta=SimpleNamespace(content="Before", tool_calls=None),
+                        finish_reason=None,
+                    )
+                ]
+            )
+            _pause(monkeypatch, state)
+            yield SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        delta=SimpleNamespace(content="AFTER SWITCH", tool_calls=None),
+                        finish_reason="stop",
+                    )
+                ]
+            )
+        finally:
+            closed()
+
+    provider = Mock()
+    provider.chat.completions.create.return_value = stream()
+    monkeypatch.setattr(gol_service, "OpenAI", Mock(return_value=provider))
+    response = app.test_client().post("/api/gol/chat", json={"message": "Hello"}, headers=headers)
+    assert '"error": "maintenance"' in response.text
+    assert "AFTER SWITCH" not in response.text
+    assert "event: done" not in response.text
+    assert GolChatExecution.query.count() == GolCreditLedger.query.count() == 0
+    closed.assert_called_once()
+
+
+@pytest.mark.parametrize("state", ["switch", "missing"])
+@pytest.mark.parametrize("failed_state", ["refunded", "withheld"])
+@pytest.mark.parametrize("exhausted", [False, True])
+def test_failed_question_retries_during_maintenance_write_nothing(app, monkeypatch, state, failed_state, exhausted):
+    user, headers, body = _metered_question(app, monkeypatch)
+    execution = GolChatExecution.query.one()
+    execution.status = "failed"
+    debit = GolCreditLedger.query.filter_by(kind="debit").one()
+    if failed_state == "refunded":
+        db.session.add(
+            GolCreditLedger(
+                user_account_id=user.id,
+                bucket=debit.bucket,
+                kind="reversal",
+                delta=1,
+                debit_id=debit.id,
+                idempotency_key=f"refund:{debit.id}",
+                client_msg_id=debit.client_msg_id,
+                attempt=debit.attempt,
+            )
+        )
+    else:
+        debit.note += ";refund_withheld=true"
+    db.session.commit()
+    if exhausted:
+        monkeypatch.setenv("GOL_FREE_ALLOWANCE", "0")
+    _pause(monkeypatch, state)
+    before = balances(user)
+    counts = (GolCreditLedger.query.count(), GolChatExecution.query.count(), ProductEvent.query.count())
+    statements = []
+
+    def capture(conn, cursor, statement, parameters, context, executemany):
+        if statement.lstrip().split()[0].upper() in {"INSERT", "UPDATE", "DELETE", "REPLACE"}:
+            statements.append(statement)
+
+    provider = Mock(side_effect=AssertionError("provider construction"))
+    monkeypatch.setattr(gol_service, "OpenAI", provider)
+    event.listen(db.engine, "before_cursor_execute", capture)
+    try:
+        for _ in range(3):
+            response = app.test_client().post("/api/gol/chat", json=body, headers=headers)
+            assert response.status_code == 503
+            assert response.json == maintenance_payload()
+            assert response.headers["Retry-After"] == "60"
+        assert statements == []
+    finally:
+        event.remove(db.engine, "before_cursor_execute", capture)
+    assert (GolCreditLedger.query.count(), GolChatExecution.query.count(), ProductEvent.query.count()) == counts
+    assert balances(user) == before
+    provider.assert_not_called()
 
 
 @pytest.fixture
@@ -184,9 +339,8 @@ def test_maintenance_stops_completion_at_tool_entry(app, monkeypatch):
 
     service.client.chat.completions.create.return_value = stream()
     events = list(service._run_completion([]))
-    assert events[-2:] == [
+    assert events == [
         {"event": "error", "data": maintenance_payload()},
-        {"event": "done", "data": {}},
     ]
     service.df_cache.get_frames.assert_not_called()
     service.client.chat.completions.create.assert_called_once()

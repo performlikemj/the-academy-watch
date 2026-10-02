@@ -31,6 +31,7 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
   an unconditional development step.
 
 ## State
+- **Now (GOLMF2):** PR1135 review union implemented: active stream shutdown/refund, write-free refunded/failed retries, paused web recovery and ledger correction; targeted backend96/hook57 PASS, main58ccb8c6 included. Final gated delivery receipts in external logs/GOLMF2.final.md. See ledgers/CONTINUITY_golm.md.
 - **Now (GOLMF1):** PR1135 operational-control review fixes: existing debit recovery, browser rechecks/retry deadline/Clear and live status, CI spec and tracked ledger. Main58ccb8c6 integrated; focused backend76/hook54 PASS. Final-head validation/delivery receipts in external logs/GOLMF1.final.md. See ledgers/CONTINUITY_golm.md.
 - **Now (2026-10-03 SBXF2):** PR1132 follow-up implemented: SQL loader/scalar compatibility, builtin inventory, resident idioms and size hint. Targeted529 PASS; final-head gates/delivery authoritative in external logs/SBXF2.final.md. See ledgers/CONTINUITY_sbx.md.
 - **Now (2026-10-03 SBXF1):** PR1132 usability/performance review union implemented; capability boundary retained, generic public corpus and external private controls; final-head governed gates/push/CI delivery is authoritative in external logs/SBXF1.final.md. See ledgers/CONTINUITY_sbx.md.
