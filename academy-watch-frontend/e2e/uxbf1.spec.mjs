@@ -4,7 +4,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 
 // Other features can independently report a failed shared bootstrap.
-const applicationAlerts = page => page.getByRole('alert').filter({ hasText: /Could not load opportunities|Could not check your profiles/ })
+const applicationAlerts = page => page.getByRole('alert').filter({ hasNotText: 'We could not check highlight availability.' })
 
 const oid = 'f9c683d7-2c0f-57ba-ae18-3a2544fa7c96'
 const opportunity = { id: oid, program_id: 7, club_name: 'Synthetic UXBF1 Club', club_slug: 'synthetic-uxbf1', type: 'trial', title: 'Adult trial', description: 'Synthetic review regression opportunity.', instructions: 'Bring boots.', venue: 'Test pitch', timezone: 'UTC', starts_at: '2026-10-20T10:00:00Z', ends_at: '2026-10-20T12:00:00Z', closes_at: '2026-10-18T12:00:00Z', gender_program: 'all', position_requirements: 'All positions', status: 'published' }
