@@ -44,7 +44,7 @@ async function recruitingFixture(page, { saved, locked = false, itemZone = 'Euro
     const req = route.request(), p = new URL(req.url()).pathname
     const reply = json => route.fulfill({ json })
     if (p.startsWith('/api/club/7/opportunities') && ['POST', 'PATCH'].includes(req.method())) { writes.push(req.postDataJSON()); return reply({ opportunity }) }
-    if (p === '/api/opportunities/features') return reply({ opportunities: true, applications: true })
+    if (p === '/api/features' || p === '/api/opportunities/features') return reply({ opportunities: true, applications: true })
     if (p === '/api/club/7/opportunities') return reply({ opportunities: [opportunity], has_more: false })
     if (p.endsWith('/applications')) return reply({ applications: [], has_more: false })
     if (p === '/api/funding/claims/me') return reply({ claims: [{ id: 51, status: 'approved', relationship_type: 'club_official', program }] })

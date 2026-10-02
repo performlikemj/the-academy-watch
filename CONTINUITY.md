@@ -32,7 +32,7 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
 
 ## State
 
-- **Now (N6):** replace withdrawn redraw with faithfully traced brand winged boot; proof/variants/gates/ready PR. See `ledgers/CONTINUITY_n6-web.md`.
+- **Now (N6):** winged brand-logo trace implemented, A default/B comparison; proof IoU0.98106. Exact final verification/push/ready PR receipts in `~/codex-runs/aw-redesign/logs/N6.final.md`. See `ledgers/CONTINUITY_n6-web.md`.
 
 - **Now (2026-10-02 UXBF5):** Single duel-confirmed signed-out history retry fix implemented; main ee16572f/B3+UXM1 integrated; targeted48 PASS; ledger `ledgers/CONTINUITY_uxb.md`; final hand-back `~/codex-runs/aw-redesign/logs/UXBF5.final.md`. Exact final-head gates, delivery/ready/CI and cleanup recorded in external hand-back; PR1124, no merge.
 

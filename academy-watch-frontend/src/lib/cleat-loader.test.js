@@ -1,6 +1,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
+import { createHash } from 'node:crypto'
+import { LOGO_SOURCE_SHA256 } from './academy-watch-logo.js'
 import { CLEAT_BOOT, CLEAT_CSS, CLEAT_SVG, CLUB_PALETTE, CLUB_COLOUR_MS, CLUB_TRANSITION_MS, LOGO_COLOUR_VARIANT, logoSvg } from './cleat-loader.js'
 
 test('boot splash uses the shared SVG and palette with no asset request', () => {
@@ -47,4 +49,9 @@ test('A defaults to neutral still wings; B reuses the same brand paths with club
   assert.match(logoSvg('A'), /class="cleat-wing"/)
   assert.match(logoSvg('B'), /class="cleat-wing cleat-body"/)
   assert.deepEqual([...logoSvg('A').matchAll(/ d="([^"]+)"/g)].map(m => m[1]), [...logoSvg('B').matchAll(/ d="([^"]+)"/g)].map(m => m[1]))
+})
+
+test('trace provenance matches the unchanged launch brand source', () => {
+  const source = fs.readFileSync(new URL('../../../academy-watch-ios/AcademyWatch/Assets.xcassets/LaunchBoot.imageset/LaunchBoot@3x.png', import.meta.url))
+  assert.equal(createHash('sha256').update(source).digest('hex'), LOGO_SOURCE_SHA256)
 })
