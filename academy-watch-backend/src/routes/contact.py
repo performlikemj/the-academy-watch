@@ -14,6 +14,7 @@ from src.models.journey import PlayerJourney
 from src.models.league import Player, UserAccount, db
 from src.models.showcase import PlayerProfileClaim
 from src.models.trust import ScoutVerification
+from src.services.contact_locks import database_conflict, lock_contact_scope
 from src.services.club_player_publication import club_request_available
 from src.services.club_registry import (
     active_manager_program_ids,
@@ -266,7 +267,10 @@ def _target_claim(player_api_id: int, *, for_update: bool = False) -> PlayerProf
                 return None
             query = PlayerProfileClaim.query.filter_by(id=publication.claim_id)
             if for_update:
-                query = query.populate_existing().with_for_update()
+                candidate = query.first()
+                if candidate is None:
+                    return None
+                lock_contact_scope(db.session, claim_id=candidate.id)
             return query.first()
         query = PlayerProfileClaim.query.filter_by(
             local_player_id=subject.local_player.id,
@@ -281,8 +285,11 @@ def _target_claim(player_api_id: int, *, for_update: bool = False) -> PlayerProf
         ).filter(without_active_suppression(PlayerProfileClaim.player_api_id))
     query = query.order_by(PlayerProfileClaim.reviewed_at.desc(), PlayerProfileClaim.id.desc())
     if for_update:
-        query = query.populate_existing().with_for_update()
-    return query.first()
+        candidate = query.first()
+        if candidate is None:
+            return None
+        lock_contact_scope(db.session, claim_id=candidate.id)
+    return query.populate_existing().first()
 
 
 def _lock_verified_scout(user: UserAccount) -> ScoutVerification | None:
@@ -296,17 +303,9 @@ def _lock_verified_scout(user: UserAccount) -> ScoutVerification | None:
 
 
 def _lock_claim_owner(contact_request: ContactRequest, user: UserAccount) -> PlayerProfileClaim | None:
-    return (
-        PlayerProfileClaim.query.filter_by(
-            id=contact_request.claim_id,
-            user_account_id=user.id,
-            relationship_type="player",
-            status="approved",
-        )
-        .populate_existing()
-        .with_for_update()
-        .first()
-    )
+    # The complete scope was locked before R by the participant/request loader.
+    claim = db.session.get(PlayerProfileClaim, contact_request.claim_id) if contact_request.claim_id else None
+    return claim if claim and claim.user_account_id == user.id and claim.relationship_type == "player" and claim.status == "approved" else None
 
 
 def _is_claim_owner(contact_request: ContactRequest, user: UserAccount) -> bool:
@@ -408,20 +407,13 @@ def _expire_authorized_request(contact_request: ContactRequest) -> bool:
 
 
 def _participant_request(request_id: str, user: UserAccount, *, club_for_update: bool = False):
-    contact_request = db.session.get(ContactRequest, request_id)
-    if contact_request is None or not _is_participant(
-        contact_request,
-        user,
-        club_for_update=club_for_update,
-    ):
+    contact_request = lock_contact_scope(db.session, request_id=request_id).requests.get(request_id)
+    if contact_request is None or not _is_participant(contact_request, user, club_for_update=club_for_update):
         return None, (jsonify({"error": "contact request not found"}), 404)
-    if (
-        request_can_expire(contact_request)
-        and contact_request.expires_at is not None
-        and contact_request.expires_at <= utcnow()
-    ):
-        contact_request = ContactRequest.query.filter_by(id=request_id).populate_existing().with_for_update().first()
+    if request_can_expire(contact_request) and contact_request.expires_at is not None and contact_request.expires_at <= utcnow():
         _expire_authorized_request(contact_request)
+        # Expiry commits. Reacquire before subsequent authorization or writes.
+        contact_request = lock_contact_scope(db.session, request_id=request_id).requests.get(request_id)
     return contact_request, None
 
 
@@ -499,6 +491,8 @@ def create_contact_request():
         matching = ContactRequest.query.filter_by(scout_user_id=user.id, player_api_id=player_api_id)
         # Finish request-row cleanup before owning any program/publication lock.
         _expire_visible_rows(matching)
+        if not club_first:
+            lock_contact_scope(db.session, claim_id=claim.id)
         # --- p2-c1 begin ---
         if club_first:
             # Match invitation's program → publication → claim order. Expiry may
@@ -517,7 +511,10 @@ def create_contact_request():
         if _lock_verified_scout(user) is None:
             db.session.rollback()
             return jsonify({"error": "Scout verification is required", "code": "scout_not_verified"}), 403
-        claim = _target_claim(player_api_id, for_update=True)
+        claim = _target_claim(player_api_id)
+        if claim is not None:
+            locked = lock_contact_scope(db.session, claim_id=claim.id).claims.get(claim.id)
+            claim = locked if locked and locked.status == "approved" and locked.relationship_type == "player" else None
         if claim is None:
             db.session.rollback()
             return _player_not_claimable()
@@ -721,8 +718,7 @@ def create_contact_request():
         return jsonify({"error": str(exc)}), 400
     except OperationalError as exc:
         db.session.rollback()
-        from src.services.club_player_publication import database_conflict
-
+        
         conflict = database_conflict(exc)
         if conflict:
             code, status = conflict
@@ -731,6 +727,10 @@ def create_contact_request():
         return jsonify(_safe_error_payload(exc, "Failed to create contact request")), 500
     except Exception as exc:
         db.session.rollback()
+        conflict = database_conflict(exc)
+        if conflict:
+            code, status = conflict
+            return jsonify(error=code, code=code, retryable=True), status
         logger.exception("Failed to create contact request")
         return jsonify(_safe_error_payload(exc, "Failed to create contact request")), 500
 
@@ -801,6 +801,10 @@ def admin_list_contact_requests():
         )
     except Exception as exc:
         db.session.rollback()
+        conflict = database_conflict(exc)
+        if conflict:
+            code, status = conflict
+            return jsonify(error=code, code=code, retryable=True), status
         logger.exception("Failed to list contact requests for admin oversight")
         return jsonify(_safe_error_payload(exc, "Failed to list admin contact requests")), 500
 
@@ -835,6 +839,10 @@ def admin_get_contact_request(request_id: str):
         return jsonify({"request": payload})
     except Exception as exc:
         db.session.rollback()
+        conflict = database_conflict(exc)
+        if conflict:
+            code, status = conflict
+            return jsonify(error=code, code=code, retryable=True), status
         logger.exception("Failed to load contact request %s for admin oversight", request_id)
         return jsonify(_safe_error_payload(exc, "Failed to load admin contact request")), 500
 
@@ -960,6 +968,10 @@ def list_contact_requests():
         )
     except Exception as exc:
         db.session.rollback()
+        conflict = database_conflict(exc)
+        if conflict:
+            code, status = conflict
+            return jsonify(error=code, code=code, retryable=True), status
         logger.exception("Failed to list contact requests")
         return jsonify(_safe_error_payload(exc, "Failed to list contact requests")), 500
 
@@ -969,7 +981,7 @@ def _respond_to_request(request_id: str, action: str):
         user = _current_user_account()
         if user is None:
             return jsonify({"error": "auth context missing email"}), 401
-        contact_request = ContactRequest.query.filter_by(id=request_id).populate_existing().with_for_update().first()
+        contact_request = lock_contact_scope(db.session, request_id=request_id).requests.get(request_id)
         if contact_request is None:
             return jsonify({"error": "contact request not found"}), 404
         if contact_request.club_first and (
@@ -998,6 +1010,10 @@ def _respond_to_request(request_id: str, action: str):
         return jsonify({"contact_request": _contact_request_payload(contact_request, viewer_user_id=user.id)})
     except Exception as exc:
         db.session.rollback()
+        conflict = database_conflict(exc)
+        if conflict:
+            code, status = conflict
+            return jsonify(error=code, code=code, retryable=True), status
         logger.exception("Failed to %s contact request %s", action, request_id)
         return jsonify(_safe_error_payload(exc, f"Failed to {action} contact request")), 500
 
@@ -1046,26 +1062,8 @@ def _apply_club_consent(
 
 
 def _locked_club_contact_request(request_id):
-    """For C1 mutations acquire program → publication → request, then revalidate."""
-    query = ContactRequest.query.filter_by(id=request_id)
-    hint = query.with_entities(
-        ContactRequest.club_first, ContactRequest.player_api_id, ContactRequest.club_program_id
-    ).first()
-    if hint is not None and hint.club_first:
-        from src.services.club_player_publication import lock_introduction_publication
-
-        if hint.player_api_id >= 0 or lock_introduction_publication(-hint.player_api_id, hint.club_program_id) is None:
-            return None
-    row = query.populate_existing().with_for_update().first()
-    if (
-        hint is not None
-        and row is not None
-        and (
-            row.club_first != hint.club_first
-            or row.player_api_id != hint.player_api_id
-            or row.club_program_id != hint.club_program_id
-        )
-    ):
+    row = lock_contact_scope(db.session, request_id=request_id).requests.get(request_id)
+    if row is not None and row.club_first and not club_request_available(row):
         return None
     return row
 
@@ -1123,8 +1121,7 @@ def set_club_consent(request_id: str):
         return jsonify({"error": str(exc)}), 400
     except OperationalError as exc:
         db.session.rollback()
-        from src.services.club_player_publication import database_conflict
-
+        
         conflict = database_conflict(exc)
         if conflict:
             code, status = conflict
@@ -1133,6 +1130,10 @@ def set_club_consent(request_id: str):
         return jsonify(_safe_error_payload(exc, "Failed to set club consent")), 500
     except Exception as exc:
         db.session.rollback()
+        conflict = database_conflict(exc)
+        if conflict:
+            code, status = conflict
+            return jsonify(error=code, code=code, retryable=True), status
         logger.exception("Failed to set club consent for request %s", request_id)
         return jsonify(_safe_error_payload(exc, "Failed to set club consent")), 500
 
@@ -1208,16 +1209,19 @@ def public_club_consent(token: str):
         )
     except OperationalError as exc:
         db.session.rollback()
-        from src.services.club_player_publication import database_conflict
-
+        
         conflict = database_conflict(exc)
         if conflict:
             code, status = conflict
             return jsonify(error=code), status
         logger.exception("Failed to process public club consent link")
         return _invalid_consent_link()
-    except Exception:
+    except Exception as exc:
         db.session.rollback()
+        conflict = database_conflict(exc)
+        if conflict:
+            code, status = conflict
+            return jsonify(error=code, code=code, retryable=True), status
         logger.exception("Failed to process public club consent link")
         return _invalid_consent_link()
 
@@ -1230,7 +1234,7 @@ def withdraw_contact_request(request_id: str):
         user = _current_user_account()
         if user is None:
             return jsonify({"error": "auth context missing email"}), 401
-        contact_request = ContactRequest.query.filter_by(id=request_id).populate_existing().with_for_update().first()
+        contact_request = lock_contact_scope(db.session, request_id=request_id).requests.get(request_id)
         if contact_request is None:
             return jsonify({"error": "contact request not found"}), 404
         if contact_request.scout_user_id != user.id:
@@ -1247,6 +1251,10 @@ def withdraw_contact_request(request_id: str):
         return jsonify({"contact_request": _contact_request_payload(contact_request, viewer_user_id=user.id)})
     except Exception as exc:
         db.session.rollback()
+        conflict = database_conflict(exc)
+        if conflict:
+            code, status = conflict
+            return jsonify(error=code, code=code, retryable=True), status
         logger.exception("Failed to withdraw contact request %s", request_id)
         return jsonify(_safe_error_payload(exc, "Failed to withdraw contact request")), 500
 
@@ -1282,6 +1290,10 @@ def list_contact_messages(request_id: str):
         )
     except Exception as exc:
         db.session.rollback()
+        conflict = database_conflict(exc)
+        if conflict:
+            code, status = conflict
+            return jsonify(error=code, code=code, retryable=True), status
         logger.exception("Failed to list messages for contact request %s", request_id)
         return jsonify(_safe_error_payload(exc, "Failed to list contact messages")), 500
 
@@ -1356,6 +1368,10 @@ def create_contact_message(request_id: str):
         return jsonify({"error": str(exc)}), 400
     except Exception as exc:
         db.session.rollback()
+        conflict = database_conflict(exc)
+        if conflict:
+            code, status = conflict
+            return jsonify(error=code, code=code, retryable=True), status
         logger.exception("Failed to send message for contact request %s", request_id)
         return jsonify(_safe_error_payload(exc, "Failed to send contact message")), 500
 
@@ -1426,6 +1442,10 @@ def report_contact_outcome(request_id: str):
         return jsonify({"error": str(exc)}), 400
     except Exception as exc:
         db.session.rollback()
+        conflict = database_conflict(exc)
+        if conflict:
+            code, status = conflict
+            return jsonify(error=code, code=code, retryable=True), status
         logger.exception("Failed to report outcome for contact request %s", request_id)
         return jsonify(_safe_error_payload(exc, "Failed to report contact outcome")), 500
 
@@ -1460,8 +1480,7 @@ def revoke_club_origin_request(request_id):
         return jsonify(contact_request=_contact_request_payload(contact, viewer_user_id=user.id))
     except OperationalError as exc:
         db.session.rollback()
-        from src.services.club_player_publication import database_conflict
-
+        
         conflict = database_conflict(exc)
         if conflict:
             code, status = conflict
@@ -1470,5 +1489,9 @@ def revoke_club_origin_request(request_id):
         return jsonify(_safe_error_payload(exc, "Failed to revoke contact request")), 500
     except Exception as exc:
         db.session.rollback()
+        conflict = database_conflict(exc)
+        if conflict:
+            code, status = conflict
+            return jsonify(error=code, code=code, retryable=True), status
         logger.exception("Failed to revoke contact request %s", request_id)
         return jsonify(_safe_error_payload(exc, "Failed to revoke contact request")), 500

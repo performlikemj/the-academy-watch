@@ -115,7 +115,9 @@ def program_is_operational(program_id: int | None, *, for_update: bool = False) 
         .limit(1)
     )
     if for_update:
-        statement = statement.with_for_update()
+        from src.services.contact_locks import lock_contact_scope
+
+        lock_contact_scope(db.session, program_id=program_id)
     return db.session.execute(statement).scalar() is not None
 
 

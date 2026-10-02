@@ -228,7 +228,11 @@ def messaging_is_open(contact_request: ContactRequest) -> bool:
     session = object_session(contact_request)
     if session is not None:
         # Same row lock as relationship withdrawal; callers retain commit ownership.
-        session.refresh(contact_request, with_for_update=True)
+        from src.services.contact_locks import lock_contact_scope
+
+        locked = lock_contact_scope(session, request_id=contact_request.id).requests.get(contact_request.id)
+        if locked is None:
+            return False
     if contact_request.status != "accepted":
         return False
     return contact_request.routing_mode != ROUTING_CLUB_INCLUDED or contact_request.club_consent_status == "granted"
