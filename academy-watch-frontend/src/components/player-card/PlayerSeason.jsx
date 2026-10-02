@@ -20,14 +20,18 @@ import {
 export function PlayerFacts({ facts }) {
   if (!facts?.length) return null
   return (
-    <dl className="pc pc-facts" style={{ '--pc-fact-cols': Math.min(facts.length, 6) }} data-testid="player-facts">
-      {facts.map((fact) => (
-        <div className="pc-fact" key={fact.label}>
-          <dt>{fact.label}</dt>
-          <dd>{fact.email ? <a href={`mailto:${fact.value}`}>{fact.value}</a> : fact.value}</dd>
-        </div>
-      ))}
-    </dl>
+    <div className="pc pc-facts-wrap">
+      <dl className="pc-facts" style={{ '--pc-fact-cols': Math.min(facts.length, 6) }} data-testid="player-facts">
+        {facts.map((fact) => (
+          <div className="pc-fact" key={fact.label}>
+            <dt>{fact.label}</dt>
+            <dd>{fact.email ? <a href={`mailto:${fact.value}`}>{fact.value}</a> : fact.value}</dd>
+          </div>
+        ))}
+      </dl>
+      {/* These details are the player's own, not confirmed by anyone. */}
+      <p className="pc-facts-note" data-testid="player-facts-note">Self-reported by the player</p>
+    </div>
   )
 }
 
@@ -213,25 +217,48 @@ export function PlayerSeason({
   clubColors,
   control = null,
   loading = false,
+  // The match read failed. `stale` = the last good data is still on screen.
+  error = false,
+  stale = false,
+  onRetry,
+  // The server left the oldest seasons out (very long careers).
+  truncated = false,
+  kicker = 'This season',
 }) {
   const summary = summarizeSeason({ lines, totals, provider, goalkeeper, frozen, minutesKnown })
   const label = formatSeasonLabel(season)
   const [lead, ...rest] = summary.tiles
+  const failedEmpty = error && !stale && summary.source === 'none'
 
   return (
-    <section className="pc pc-section" style={clubColorStyle(clubColors)} aria-labelledby="pc-season-title" data-testid="player-season" data-source={summary.source}>
+    <section className="pc pc-section" style={clubColorStyle(clubColors)} aria-labelledby="pc-season-title" data-testid="player-season" data-source={failedEmpty ? 'error' : summary.source}>
       <div className="pc-section-head">
         <div>
-          <div className="pc-kicker">This season</div>
+          <div className="pc-kicker">{kicker}</div>
           <h2 className="pc-season-title" id="pc-season-title">{label}<span className="pc-sr"> Totals</span></h2>
         </div>
         {control}
       </div>
 
-      {summary.source === 'none' ? (
+      {error ? (
+        <div className="pc-notice" role="alert" data-testid="season-error">
+          <p>
+            {stale
+              ? 'The latest matches could not be loaded. Showing what was loaded before.'
+              : summary.source === 'none'
+                ? 'The matches could not be loaded. This is a loading problem — it does not mean nothing has been recorded.'
+                : 'The matches entered by the club or the player could not be loaded.'}
+          </p>
+          {onRetry ? <button type="button" className="pc-pill pc-pill--outline" onClick={onRetry}>Try again</button> : null}
+        </div>
+      ) : null}
+
+      {failedEmpty ? null : summary.source === 'none' ? (
         <div className="pc-empty" data-testid="season-empty" aria-busy={loading || undefined}>
-          <p className="pc-empty-title">{loading ? 'Loading the season…' : 'No matches recorded yet'}</p>
-          {loading ? null : (
+          <p className="pc-empty-title">{loading ? 'Loading the season…' : truncated ? 'This season is not shown here' : 'No matches recorded yet'}</p>
+          {loading ? null : truncated ? (
+            <p className="pc-empty-text">Only the most recent seasons of a very long record are listed.</p>
+          ) : (
             <p className="pc-empty-text">
               Nothing has been entered for {label}. When the club confirms a match, or {playerName} adds one, it appears here with where it came from.
             </p>
@@ -251,6 +278,7 @@ export function PlayerSeason({
             <span>
               {summary.sentence}
               {summary.avgRating != null ? ` Average rating ${summary.avgRating}.` : ''}
+              {truncated ? ' Only the most recent seasons are listed.' : ''}
             </span>
           </p>
         </>

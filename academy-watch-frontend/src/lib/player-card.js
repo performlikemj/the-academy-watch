@@ -137,6 +137,68 @@ export function resolveSeason({ picked, statsSeason, provider, seasons }) {
   return fromStats
 }
 
+// Everything the season block needs, decided in one place from ONE picked
+// season. Provider totals are used only when they describe the season being
+// shown — a response for another season (e.g. still in flight after a pick)
+// is never printed under this season's heading.
+export function seasonView({ picked, stats, seasons, fallbackSeason } = {}) {
+  const anyProvider = providerTotals(stats)
+  const statsSeason = seasonStartOf(stats?.season)
+  const season = resolveSeason({
+    picked,
+    statsSeason: statsSeason ?? fallbackSeason,
+    provider: anyProvider && statsSeason != null ? anyProvider : null,
+    seasons,
+  })
+  const entry = (Array.isArray(seasons) ? seasons : []).find((item) => item.season === season) || null
+  return {
+    season,
+    provider: anyProvider && statsSeason === season ? anyProvider : null,
+    statsMatchSeason: statsSeason === season,
+    lines: entry?.lines || [],
+    totals: entry?.totals || null,
+  }
+}
+
+// What the read view may show for the match lines, given the last good answer
+// and how the latest request ended. A failed read is never an empty season:
+// the last good data for the SAME player and viewer stays, flagged as an error.
+const NO_SEASONS = Object.freeze([])
+
+export function linesReadState({ good, settled, subjectKey, requestKey }) {
+  const hasLines = subjectKey != null && good?.subjectKey === subjectKey
+  const isSettled = settled?.requestKey === requestKey
+  return {
+    hasLines,
+    seasons: hasLines ? good.seasons : NO_SEASONS,
+    truncated: hasLines && good.truncated === true,
+    linesLoading: !hasLines && !isSettled,
+    linesError: isSettled && settled.failed === true,
+  }
+}
+
+// Football season that contains a date: August to July, as the server's
+// current_stats_season() does. Used only to word the heading.
+export function calendarSeason(date = new Date()) {
+  return date.getMonth() >= 7 ? date.getFullYear() : date.getFullYear() - 1
+}
+
+export function seasonKicker(season, currentSeason) {
+  return Number.isInteger(season) && season === currentSeason ? 'This season' : 'Season'
+}
+
+const PROVIDER_SOURCES = new Set(['api', 'api_football', 'fixtures', 'journey', 'apss', 'shadow'])
+
+// True only when a list row's figures are known to come from the provider.
+// Club- or player-entered figures are counted differently on the player's page
+// (one line per match), so a list must not print them as counters.
+export function isProviderSourced(provenance) {
+  const raw = typeof provenance === 'string'
+    ? provenance
+    : provenance?.source_category || provenance?.source || provenance?.primary_source
+  return PROVIDER_SOURCES.has(String(raw || '').trim().toLowerCase().replaceAll('-', '_'))
+}
+
 function minutesTile(totals, matchCount) {
   const minutes = count(totals.minutes)
   const appearances = count(totals.appearances)
@@ -228,12 +290,13 @@ function disciplineTile(totals) {
   }
 }
 
-function grainSentence(totals) {
+function grainSentence(totals, lines = []) {
   const matches = count(totals.matches)
   const confirmed = count(totals.club_confirmed)
   const selfOnly = count(totals.self_reported_only)
   const parts = [`Built from ${plural(matches, 'match', 'matches')}. ${confirmed} confirmed by the club, ${selfOnly} only reported by the player.`]
   if (count(totals.differing) > 0) parts.push("Where the two reports differ, the club's figures are used.")
+  if (lines.some((line) => line?.shared_slot)) parts.push('Entries that share a date and opponent are listed separately and each is counted.')
   return parts.join(' ')
 }
 
@@ -271,7 +334,7 @@ export function summarizeSeason({ lines = [], totals = null, provider = null, go
   return {
     source: usingProvider ? 'provider' : 'grain',
     tiles,
-    sentence: usingProvider ? providerSentence(provider, { frozen, lineCount }) : grainSentence(totals),
+    sentence: usingProvider ? providerSentence(provider, { frozen, lineCount }) : grainSentence(totals, Array.isArray(lines) ? lines : []),
     confirmed: !usingProvider && count(totals.club_confirmed) > 0,
     avgRating: usingProvider && known(provider.avg_rating) ? Number(provider.avg_rating) : null,
   }
@@ -343,6 +406,12 @@ export function lineSummary(line, { goalkeeper = false } = {}) {
 
 // Source wording. Neutral by design: a difference is stated, never judged.
 export function lineSource(line) {
+  // Several entries share this date and opponent and could not be paired:
+  // each is listed and counted, and the page says so rather than guessing.
+  if (line?.shared_slot) {
+    const confirmed = line.confirmation === 'club_confirmed'
+    return { mark: confirmed ? 'Club-confirmed' : 'Self-reported', confirmed, note: 'One of several entries for this date and opponent' }
+  }
   if (line?.confirmation === 'club_confirmed') {
     if (line.self_report === 'matches') return { mark: 'Club-confirmed', confirmed: true, note: "Matches the player's own report" }
     if (line.self_report === 'differs') return { mark: 'Club-confirmed', confirmed: true, lead: 'Club figures shown', note: "Differs from the player's report" }

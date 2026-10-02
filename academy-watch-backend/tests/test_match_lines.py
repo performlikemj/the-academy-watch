@@ -1,5 +1,6 @@
 """Merged match lines: one line per match, totals built from exactly those lines."""
 
+import random
 from datetime import date, datetime
 
 from src.services.match_lines import (
@@ -49,6 +50,7 @@ def test_self_and_club_reports_of_one_match_become_one_club_line():
     line = lines[0]
     assert (line["confirmation"], line["self_report"]) == ("club_confirmed", "matches")
     assert (line["match_date"], line["minutes"], line["season"]) == ("2025-09-20", 90, 2025)
+    assert line["shared_slot"] is False
     # The line never carries who reported it or an entry id.
     assert not {"id", "reported_by_user_id", "source", "status", "note"} & set(line)
 
@@ -112,14 +114,121 @@ def test_disputed_and_unconfirmed_club_rows_are_left_out():
     assert season_totals(lines)["matches"] == 0
 
 
-def test_two_claimants_reporting_one_match_count_once_using_the_latest():
-    older = _entry(1, goals=1, updated_at=datetime(2025, 9, 21, 9, 0))
-    newer = _entry(2, goals=2, updated_at=datetime(2025, 9, 22, 9, 0))
-    lines = merge_match_lines([newer, older])
+def _rows_represented(lines) -> int:
+    """A paired line stands for two rows (club + own); every other line for one."""
+    return sum(2 if line["self_report"] is not None else 1 for line in lines)
+
+
+def test_two_claimants_reporting_one_match_stay_two_lines_and_both_count():
+    player = _entry(1, minutes=45, goals=1)
+    guardian = _entry(2, minutes=45, goals=1, opponent="skerraby  united")
+    lines = merge_match_lines([guardian, player])
+
+    assert len(lines) == 2
+    assert [line["key"] for line in lines] == ["2025-09-20|skerraby united|own-1", "2025-09-20|skerraby united|own-2"]
+    assert {(line["confirmation"], line["self_report"], line["shared_slot"]) for line in lines} == {
+        ("self_reported", None, True)
+    }
+    totals = season_totals(lines)
+    assert (totals["matches"], totals["minutes"], totals["goals"], totals["self_reported_only"]) == (2, 90, 2, 2)
+
+
+def test_a_double_header_keeps_both_club_rows():
+    first = _entry(1, "club", minutes=45)
+    second = _entry(2, "club", minutes=60, result_for=0, result_against=2)
+    lines = merge_match_lines([second, first])
+
+    assert [(line["key"], line["minutes"]) for line in lines] == [
+        ("2025-09-20|skerraby united|club-1", 45),
+        ("2025-09-20|skerraby united|club-2", 60),
+    ]
+    assert all(line["confirmation"] == "club_confirmed" and line["shared_slot"] for line in lines)
+    totals = season_totals(lines)
+    assert (totals["matches"], totals["minutes"], totals["club_confirmed"]) == (2, 105, 2)
+
+
+def test_ambiguous_groups_are_never_paired_and_never_lose_a_row():
+    two_own_one_club = merge_match_lines([_entry(1, minutes=45), _entry(2, minutes=50), _entry(3, "club", minutes=74)])
+    one_own_two_club = merge_match_lines(
+        [_entry(1, minutes=90), _entry(2, "club", minutes=45), _entry(3, "club", minutes=60)]
+    )
+
+    for lines, minutes in ((two_own_one_club, 169), (one_own_two_club, 195)):
+        assert len(lines) == 3
+        assert {line["self_report"] for line in lines} == {None}
+        assert all(line["shared_slot"] for line in lines)
+        assert len({line["key"] for line in lines}) == 3
+        assert season_totals(lines)["minutes"] == minutes
+    assert sum(line["confirmation"] == "club_confirmed" for line in two_own_one_club) == 1
+    assert sum(line["confirmation"] == "club_confirmed" for line in one_own_two_club) == 2
+
+
+def test_an_unambiguous_pair_is_not_marked_as_sharing_a_slot():
+    paired, alone = merge_match_lines([_entry(1), _entry(2, "club"), _entry(3, match_date=date(2025, 9, 27))])[::-1]
+
+    assert (paired["self_report"], paired["shared_slot"], alone["shared_slot"]) == ("matches", False, False)
+    assert paired["key"] == "2025-09-20|skerraby united"
+
+
+def test_property_totals_equal_the_lines_and_every_undisputed_row_is_represented():
+    rng = random.Random(1131)
+    opponents = ["Skerraby United", "skerraby  united ", "Skerraby Utd", "Durnsea", "Pellowick Town"]
+    for _case in range(2000):
+        entries = []
+        for entry_id in range(1, rng.randint(0, 14) + 1):
+            source = rng.choice(["self", "club"])
+            entries.append(
+                _entry(
+                    entry_id,
+                    source,
+                    status=rng.choice(["disputed", None, None, None, None])
+                    or ("club_confirmed" if source == "club" else "self_reported"),
+                    season=2025,
+                    match_date=date(2025, 9, rng.randint(1, 4)),
+                    opponent=rng.choice(opponents),
+                    minutes=rng.choice([0, 30, 45, 90]),
+                    goals=rng.randint(0, 2),
+                    assists=rng.randint(0, 2),
+                    yellows=rng.randint(0, 1),
+                    reds=rng.randint(0, 1),
+                    saves=rng.choice([None, 0, 3]),
+                    goals_conceded=rng.choice([None, 0, 2]),
+                )
+            )
+        lines = merge_match_lines(entries)
+        totals = season_totals(lines)
+
+        assert _rows_represented(lines) == sum(entry["status"] != "disputed" for entry in entries)
+        assert len({line["key"] for line in lines}) == len(lines)
+        assert totals["matches"] == len(lines)
+        for field in ("minutes", "goals", "assists"):
+            assert totals[field] == sum(line[field] for line in lines)
+        for field in ("yellows", "reds"):
+            assert (totals[field] or 0) == sum(line[field] for line in lines)
+        for field in ("saves", "goals_conceded"):
+            assert (totals[field] or 0) == sum(line[field] or 0 for line in lines)
+        assert totals["club_confirmed"] + totals["self_reported_only"] == len(lines)
+        # A pair exists only where the slot holds exactly one club row and one own row.
+        for line in lines:
+            if line["self_report"] is not None:
+                slot = [
+                    entry
+                    for entry in entries
+                    if entry["status"] != "disputed"
+                    and (entry["match_date"].isoformat(), opponent_key(entry["opponent"]))
+                    == tuple(line["key"].split("|"))
+                ]
+                assert sorted(entry["source"] for entry in slot) == ["club", "self"]
+
+
+def test_a_datetime_is_read_as_its_own_written_calendar_day():
+    late_kick_off = datetime(2025, 9, 20, 23, 30)
+    lines = merge_match_lines([_entry(1, match_date=late_kick_off), _entry(2, "club")])
 
     assert len(lines) == 1
-    assert lines[0]["goals"] == 2
-    assert season_totals(lines)["goals"] == 2
+    assert lines[0]["match_date"] == "2025-09-20"
+    # The next calendar day is a different match, however close the clock times are.
+    assert len(merge_match_lines([_entry(1, match_date=datetime(2025, 9, 21, 0, 15)), _entry(2, "club")])) == 2
 
 
 def test_competition_label_falls_back_to_the_players_when_the_club_left_it_blank():

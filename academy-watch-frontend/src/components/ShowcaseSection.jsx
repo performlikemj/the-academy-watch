@@ -437,6 +437,8 @@ export function ShowcaseSection({
   // (hero, facts strip, match lines). Visitors then only get the sections
   // left here; the owner's manage view is unchanged.
   readSectionsElsewhere = false,
+  // Hands the loaded showcase to the page so its read view never asks twice.
+  onShowcaseChange,
 }) {
   const { token } = useAuth()
   const { logout, openLoginModal } = useAuthUI()
@@ -460,6 +462,23 @@ export function ShowcaseSection({
   const [loadedSubjectKey, setLoadedSubjectKey] = useState(null)
   const { api_football_frozen: frozen } = useDataMode()
   const [myClaims, setMyClaims] = useState([])
+  const signedSubjectId = Number(playerApiId)
+  const myClaim = myClaims.find((claim) => {
+    const apiClaimMatches = !local && Number(claim.player_api_id) === signedSubjectId
+    const localClaimId = Number(claim.local_player_id)
+    const localClaimMatches = local
+      ? localClaimId === signedSubjectId || String(claim.player_api_id) === matchPlayerApiId
+      : signedSubjectId < 0 && (
+          localClaimId === signedSubjectId || localClaimId === Math.abs(signedSubjectId)
+        )
+    return apiClaimMatches || localClaimMatches
+  })
+  // When the page shows games in its own read view, the raw rows are only
+  // needed by the owner's manage block — so they are requested only once the
+  // viewer is known to be the owner.
+  const rawGamesWanted = !readSectionsElsewhere
+    || (!loading && loadedSubjectKey === subjectKey && myClaim?.status === 'approved')
+  const onShowcaseChangeRef = useRef(onShowcaseChange)
 
   // User/club-fed game rows. Signed ids stay strings at this boundary so a
   // local player's reserved leading minus is never lost to numeric coercion.
@@ -491,6 +510,10 @@ export function ShowcaseSection({
   const [gameDeleteBusy, setGameDeleteBusy] = useState(false)
   const [gameDeleteError, setGameDeleteError] = useState(null)
   const optimisticGameIdRef = useRef(0)
+
+  useLayoutEffect(() => {
+    onShowcaseChangeRef.current = onShowcaseChange
+  }, [onShowcaseChange])
 
   useLayoutEffect(() => {
     gamesQueryKeyRef.current = gamesQueryKey
@@ -629,6 +652,7 @@ export function ShowcaseSection({
   useEffect(() => clearAllCloseTimers, [clearAllCloseTimers])
 
   useEffect(() => {
+    if (!rawGamesWanted) return undefined
     let cancelled = false
     const replaceRequestId = gamesReplaceRequestRef.current + 1
     gamesReplaceRequestRef.current = replaceRequestId
@@ -670,7 +694,7 @@ export function ShowcaseSection({
         setGamesLoadedKey(gamesQueryKey)
       })
     return () => { cancelled = true }
-  }, [gamesQueryKey, matchPlayerApiId, matchSeason])
+  }, [gamesQueryKey, matchPlayerApiId, matchSeason, rawGamesWanted])
 
   useEffect(() => {
     let cancelled = false
@@ -744,9 +768,12 @@ export function ShowcaseSection({
         if (cancelled) return
         setShowcase(sc || null)
         setMyClaims(claimsArr)
+        onShowcaseChangeRef.current?.(sc || null, subjectKey)
       })
       .catch(() => {
-        if (!cancelled) setError(true)
+        if (cancelled) return
+        setError(true)
+        onShowcaseChangeRef.current?.(null, subjectKey)
       })
       .finally(() => {
         if (!cancelled) {
@@ -801,6 +828,7 @@ export function ShowcaseSection({
       if (activeSubjectRef.current !== subject) return
       setShowcase(sc || null)
       setMyClaims(claimsArr)
+      onShowcaseChangeRef.current?.(sc || null, subject)
     } catch {
       // best-effort refresh
     }
@@ -831,17 +859,6 @@ export function ShowcaseSection({
   const verified = !local && Array.isArray(showcase.verified_footage) ? showcase.verified_footage : []
   const claimStatus = showcase.claim_status // 'unclaimed' | 'claimed'
 
-  const signedSubjectId = Number(playerApiId)
-  const myClaim = myClaims.find((claim) => {
-    const apiClaimMatches = !local && Number(claim.player_api_id) === signedSubjectId
-    const localClaimId = Number(claim.local_player_id)
-    const localClaimMatches = local
-      ? localClaimId === signedSubjectId || String(claim.player_api_id) === matchPlayerApiId
-      : signedSubjectId < 0 && (
-          localClaimId === signedSubjectId || localClaimId === Math.abs(signedSubjectId)
-        )
-    return apiClaimMatches || localClaimMatches
-  })
   const isOwner = myClaim?.status === 'approved'
   const canViewInterestSignals = isOwner
     && myClaim?.relationship_type === 'player'

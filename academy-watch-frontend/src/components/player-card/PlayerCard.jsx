@@ -62,6 +62,8 @@ export function PlayerCard({
   minutes,
   clubColors,
   action,
+  // Small icon controls for the surface the card sits on (e.g. compare, introduce).
+  extras = null,
 }) {
   const counters = cardCounters({ appearances, minutes })
   return (
@@ -78,10 +80,15 @@ export function PlayerCard({
         </div>
         {line ? <p className="pc-card-line">{line}</p> : null}
         <div className="pc-card-foot">
-          <div className="pc-card-counts">
-            {counters.map((counter) => (
-              <span key={counter.unit}><b>{counter.value}</b> {counter.unit}</span>
-            ))}
+          <div className="pc-card-foot-start">
+            {counters.length ? (
+              <div className="pc-card-counts">
+                {counters.map((counter) => (
+                  <span key={counter.unit}><b>{counter.value}</b> {counter.unit}</span>
+                ))}
+              </div>
+            ) : null}
+            {extras ? <div className="pc-card-extras">{extras}</div> : null}
           </div>
           {action ? (
             <button

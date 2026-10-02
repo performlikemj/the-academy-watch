@@ -20,7 +20,7 @@ import { ProvenanceChip } from '@/components/SelfReportedBadge'
 import { useContactRail } from '@/hooks/useContactRail.js'
 import { ScoutSurface, ScoutHeader, deskPillClass } from '@/components/scout/ScoutDesk'
 import { PlayerCard } from '@/components/player-card/PlayerCard'
-import { cardLine } from '@/lib/player-card'
+import { cardLine, isProviderSourced } from '@/lib/player-card'
 import { cn } from '@/lib/utils'
 import { seasonStore } from '@/lib/seasonStore'
 import { formatSeasonLabel, withSeasonParam } from '@/lib/seasons'
@@ -69,13 +69,6 @@ function initialResultView() {
     // Storage can be unavailable in privacy-restricted browser contexts.
   }
   return window.matchMedia?.('(max-width: 767px)').matches ? 'cards' : 'table'
-}
-
-function isClubConfirmed(provenance) {
-  const source = typeof provenance === 'string'
-    ? provenance
-    : provenance?.source_category || provenance?.source || provenance?.primary_source
-  return ['club', 'club_confirmed'].includes(String(source || '').trim().toLowerCase().replaceAll('-', '_'))
 }
 
 const ASC_DEFAULT_SORTS = new Set(['name', 'age', 'goals_conceded', 'conceded_per90'])
@@ -957,7 +950,7 @@ export function ScoutPage() {
                     type="button"
                     onClick={() => changeResultView(option.value)}
                     aria-pressed={resultView === option.value}
-                    className={`h-9 rounded-full px-4 text-[13px] transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                    className={`h-11 rounded-full px-4 text-[13px] transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
                       resultView === option.value ? 'bg-chalk text-night' : 'text-[#C9CFCB] hover:text-chalk'
                     }`}
                   >
@@ -1049,6 +1042,12 @@ export function ScoutPage() {
                 {players.map((player) => {
                   const watched = !!watchedIds?.has(player.player_id)
                   const clubName = player.loan_team_name || player.primary_team_name || null
+                  const selected = compareIds.includes(String(player.player_id))
+                  // The desk's figures come from the season rollup, which counts club- and
+                  // player-entered matches differently from the player's page (one line per
+                  // match). Until both read the same merged lines, a card prints counters
+                  // only when they are the provider's — the same totals the page shows.
+                  const providerFigures = isProviderSourced(player.provenance)
                   return (
                     <li key={player.id}>
                       <PlayerCard
@@ -1058,15 +1057,44 @@ export function ScoutPage() {
                         clubName={clubName}
                         role={player.position ? positionAbbreviation(player.position) : null}
                         line={cardLine({ position: player.position, clubName })}
-                        confirmed={isClubConfirmed(player.provenance)}
-                        appearances={player.appearances}
-                        minutes={player.minutes_played}
+                        appearances={providerFigures ? player.appearances : null}
+                        minutes={providerFigures ? player.minutes_played : null}
                         action={{
                           label: watched ? 'Watching' : 'Watch',
                           pressed: watched,
                           ariaLabel: watched ? `Unwatch ${player.player_name}` : `Watch ${player.player_name}`,
                           onClick: () => toggleWatch(player),
                         }}
+                        extras={(
+                          <>
+                            <button
+                              type="button"
+                              className="pc-icon"
+                              aria-pressed={selected}
+                              aria-label={`Compare ${player.player_name}`}
+                              title={selected ? 'Remove from comparison' : 'Add to comparison'}
+                              disabled={!selected && compareIds.length >= 4}
+                              onClick={() => toggleCompare(player.player_id)}
+                            >
+                              <GitCompareArrows className="h-4 w-4" aria-hidden="true" />
+                            </button>
+                            {contactRail === true && player.contactable ? (auth?.token && !canIntroduce ? (
+                              <Link to="/scout/verification" className="pc-icon" aria-label="Get verified to introduce yourself" title="Get verified to introduce yourself">
+                                <Send className="h-4 w-4" aria-hidden="true" />
+                              </Link>
+                            ) : (
+                              <button
+                                type="button"
+                                className="pc-icon"
+                                aria-label={`Introduce yourself to ${player.player_name}`}
+                                title="Introduce yourself"
+                                onClick={() => (auth?.token ? setIntroducePlayer(player) : openLoginModal())}
+                              >
+                                <Send className="h-4 w-4" aria-hidden="true" />
+                              </button>
+                            )) : null}
+                          </>
+                        )}
                       />
                     </li>
                   )

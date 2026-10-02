@@ -723,6 +723,32 @@ def test_lines_view_merges_sources_per_match_and_totals_those_lines(client):
     assert client.get("/api/players/7101/matches?view=lines&source=club").status_code == 400
 
 
+def test_lines_view_never_drops_a_row_when_a_slot_is_ambiguous(client):
+    """Reviewers' probe: a double-header and a second own row used to vanish."""
+    first_club, _headers = _user("lines-club-a@example.com")
+    second_club, _headers = _user("lines-club-b@example.com")
+    owner, _headers = _user("lines-two-rows@example.com")
+    _shadow(8101)
+    for reporter, minutes in ((first_club, 45), (second_club, 60)):
+        row = _entry(8101, reporter, match_date=date(2025, 9, 1), source="club", status="club_confirmed")
+        row.minutes = minutes
+    for opponent in ("Town", "town"):
+        row = _entry(8101, owner, match_date=date(2025, 9, 8), opponent=opponent)
+        row.minutes = 45
+    db.session.commit()
+
+    raw = client.get("/api/players/8101/matches").get_json()
+    season = client.get("/api/players/8101/matches?view=lines").get_json()["seasons"][0]
+
+    assert raw["total"] == 4
+    assert len(season["lines"]) == 4
+    assert season["totals"]["matches"] == 4
+    assert season["totals"]["minutes"] == 195 == sum(row["minutes"] for row in raw["matches"])
+    assert (season["totals"]["club_confirmed"], season["totals"]["self_reported_only"]) == (2, 2)
+    assert all(line["shared_slot"] and line["self_report"] is None for line in season["lines"])
+    assert len({line["key"] for line in season["lines"]}) == 4
+
+
 def test_lines_view_keeps_the_minor_and_unknown_subject_rules_of_the_list(client):
     guardian, guardian_headers = _user("lines-guardian@example.com")
     stranger, stranger_headers = _user("lines-stranger@example.com")

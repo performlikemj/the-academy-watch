@@ -12,7 +12,7 @@ import { useAuth } from '@/context/AuthContext'
 import { useDataMode } from '@/hooks/useDataMode'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { isGoalkeeperPosition, providerTotals, resolveSeason, roleLabel } from '@/lib/player-card'
+import { calendarSeason, isGoalkeeperPosition, roleLabel, seasonKicker, seasonView } from '@/lib/player-card'
 import { formatSeasonLabel } from '@/lib/seasons'
 import { track } from '@/lib/track'
 
@@ -58,16 +58,18 @@ function MissingState() {
 }
 
 function LocalPlayerProfile({ numericPlayerId, onPublicConfirmed, onRetry }) {
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const seasonParam = searchParams.get('season')
+  // The URL holds the ONE picked season: it drives the totals request, the
+  // heading, the lines and the picker. No pick = the server's default season.
   const season = /^\d{4}$/.test(seasonParam || '') ? Number(seasonParam) : undefined
   const [player, setPlayer] = useState(null)
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
   const [error, setError] = useState(null)
-  const [seasonStats, setSeasonStats] = useState(null)
+  const [seasonStatsState, setSeasonStatsState] = useState({ key: null, value: null })
   const [seasonStatsRevision, setSeasonStatsRevision] = useState(0)
-  const [pickedSeason, setPickedSeason] = useState(season)
+  const [showcase, setShowcase] = useState(null)
   const { api_football_frozen: frozen } = useDataMode()
   const signedPlayerApiId = `-${String(numericPlayerId)}`
   const canonicalPlayerApiId = player?.api_player_id == null
@@ -75,13 +77,16 @@ function LocalPlayerProfile({ numericPlayerId, onPublicConfirmed, onRetry }) {
     : String(player.api_player_id)
   const matchPlayerApiId = canonicalPlayerApiId ?? signedPlayerApiId
   const read = usePlayerReadView({
-    // Nothing is requested until the profile itself has loaded as visible.
-    playerApiId: player ? String(numericPlayerId) : null,
-    local: true,
-    // The canonical id is only known once the player has loaded.
+    // Nothing is requested until the profile itself has loaded as visible
+    // (the canonical id is only known then). The showcase comes from
+    // ShowcaseSection, which loads it once for the page.
     matchPlayerApiId: player ? matchPlayerApiId : null,
+    showcase,
     revision: seasonStatsRevision,
   })
+  const seasonStatsKey = `${matchPlayerApiId}:${season ?? 'default'}:${seasonStatsRevision}`
+  const seasonStatsLoaded = seasonStatsState.key === seasonStatsKey
+  const seasonStats = seasonStatsState.value
 
   useEffect(() => {
     let cancelled = false
@@ -114,13 +119,13 @@ function LocalPlayerProfile({ numericPlayerId, onPublicConfirmed, onRetry }) {
     let cancelled = false
     APIService.getPublicPlayerSeasonStats(matchPlayerApiId, season)
       .then((response) => {
-        if (!cancelled) setSeasonStats(response || null)
+        if (!cancelled) setSeasonStatsState({ key: seasonStatsKey, value: response || null })
       })
       .catch(() => {
-        if (!cancelled) setSeasonStats(null)
-    })
+        if (!cancelled) setSeasonStatsState({ key: seasonStatsKey, value: null })
+      })
     return () => { cancelled = true }
-  }, [matchPlayerApiId, player, season, seasonStatsRevision])
+  }, [matchPlayerApiId, player, season, seasonStatsKey])
 
   if (loading) return <LoadingState />
   if (notFound) return <MissingState />
@@ -151,10 +156,15 @@ function LocalPlayerProfile({ numericPlayerId, onPublicConfirmed, onRetry }) {
 
   // Totals are the provider's when it really has them, otherwise exactly the
   // merged match lines for the season shown. The two are never added together.
-  const provider = providerTotals(seasonStats)
-  const viewSeason = resolveSeason({ picked: pickedSeason, statsSeason: seasonStats?.season, provider, seasons: read.seasons })
-  const seasonEntry = read.seasons.find((entry) => entry.season === viewSeason) || null
-  const seasonLines = seasonEntry?.lines || []
+  const view = seasonView({ picked: season, stats: seasonStats, seasons: read.seasons })
+  const { season: viewSeason, provider, lines: seasonLines, totals: seasonLineTotals } = view
+  const pickSeason = (next) => {
+    setSearchParams((previous) => {
+      const params = new URLSearchParams(previous)
+      params.set('season', String(next))
+      return params
+    }, { replace: true })
+  }
   const goalkeeper = isGoalkeeperPosition(player.position)
   const seasonChoices = [...new Set([...read.seasons.map((entry) => entry.season), viewSeason])]
     .filter((value) => Number.isInteger(value))
@@ -203,17 +213,22 @@ function LocalPlayerProfile({ numericPlayerId, onPublicConfirmed, onRetry }) {
         <PlayerSeason
           season={viewSeason}
           lines={seasonLines}
-          totals={seasonEntry?.totals || null}
+          totals={seasonLineTotals}
           provider={provider}
           minutesKnown={seasonStats?.stats_coverage !== 'limited'}
           goalkeeper={goalkeeper}
           frozen={frozen}
           playerName={player.display_name}
-          loading={!read.linesLoaded}
+          loading={read.linesLoading || !seasonStatsLoaded}
+          error={read.linesError}
+          stale={read.hasLines}
+          onRetry={read.retry}
+          truncated={read.truncated}
+          kicker={seasonKicker(viewSeason, calendarSeason())}
           control={seasonChoices.length > 1 ? (
             <label className="pc-season-pick">
               Season
-              <select value={viewSeason ?? ''} onChange={(event) => setPickedSeason(Number(event.target.value))}>
+              <select value={viewSeason ?? ''} onChange={(event) => pickSeason(Number(event.target.value))}>
                 {seasonChoices.map((value) => <option key={value} value={value}>{formatSeasonLabel(value)}</option>)}
               </select>
             </label>
@@ -224,6 +239,7 @@ function LocalPlayerProfile({ numericPlayerId, onPublicConfirmed, onRetry }) {
         <ShowcaseSection
           local
           readSectionsElsewhere
+          onShowcaseChange={setShowcase}
           playerApiId={String(numericPlayerId)}
           canonicalPlayerApiId={canonicalPlayerApiId}
           playerName={player.display_name}

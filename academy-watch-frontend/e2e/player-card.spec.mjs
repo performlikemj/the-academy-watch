@@ -56,6 +56,7 @@ function line(matchDate, opponent, overrides = {}) {
     goals_conceded: null,
     confirmation: 'club_confirmed',
     self_report: 'matches',
+    shared_slot: false,
     ...overrides,
   }
 }
@@ -139,19 +140,19 @@ const players = {
   // The approved mockup, exactly: one club-confirmed match that matches the player's own report.
   '-12': {
     name: 'Kofi Asante-Reid', position: 'Right-back', age: 25,
-    showcase: { profile: kofiProfile, photos: [photo(1, '/fixture-photos/portrait.svg', { is_primary: true })], affiliations: [quillmere], claim_status: 'claimed' },
+    showcase: { profile: kofiProfile, photos: [photo(1, '/fixture-photos/portrait.svg', { is_primary: true })], affiliations: [quillmere], claim_status: 'claimed', contactable: true },
     lines: [line('2026-09-20', 'Skerraby United')],
   },
   // State D: no approved photo.
   '-13': {
     name: 'Kofi Asante-Reid', position: 'Right-back', age: 25,
-    showcase: { profile: kofiProfile, photos: [], affiliations: [quillmere], claim_status: 'claimed' },
+    showcase: { profile: kofiProfile, photos: [], affiliations: [quillmere], claim_status: 'claimed', contactable: true },
     lines: [line('2026-09-20', 'Skerraby United')],
   },
   // No matches yet, no photo, unclaimed and unconfirmed.
   '-14': {
     name: 'Olu Adeyemi-Clarke', position: 'Winger', age: 22,
-    showcase: { profile: { positions: 'LW, RW', preferred_foot: 'left' }, photos: [], affiliations: [], claim_status: 'unclaimed' },
+    showcase: { profile: { positions: 'LW, RW', preferred_foot: 'left' }, photos: [], affiliations: [], claim_status: 'unclaimed', contactable: false },
     lines: [],
   },
   // A full season with mixed sources.
@@ -159,14 +160,14 @@ const players = {
     name: 'Reuben Castellane', position: 'Midfielder', age: 23,
     showcase: {
       profile: { ...kofiProfile, positions: 'CM, DM', bio: 'Central midfielder. Signed from the summer open trial.', height_cm: 181, languages: 'English' },
-      photos: [photo(1, '/fixture-photos/portrait.svg', { is_primary: true })], affiliations: [quillmere], claim_status: 'claimed',
+      photos: [photo(1, '/fixture-photos/portrait.svg', { is_primary: true })], affiliations: [quillmere], claim_status: 'claimed', contactable: true,
     },
     lines: fullSeason(),
   },
   // The two reports of one match differ; another is only self-reported.
   '-16': {
     name: 'Kofi Asante-Reid', position: 'Right-back', age: 25,
-    showcase: { profile: kofiProfile, photos: [photo(1, '/fixture-photos/portrait.svg', { is_primary: true })], affiliations: [quillmere], claim_status: 'claimed' },
+    showcase: { profile: kofiProfile, photos: [photo(1, '/fixture-photos/portrait.svg', { is_primary: true })], affiliations: [quillmere], claim_status: 'claimed', contactable: true },
     lines: [
       line('2026-09-27', 'Durnsea Juniors', { home_away: 'away', result_for: 1, result_against: 1, minutes: 74, yellows: 1, self_report: 'differs' }),
       line('2026-09-20', 'Skerraby United'),
@@ -180,7 +181,7 @@ const players = {
       profile: { ...kofiProfile, positions: 'Attacking midfielder, Second striker, Left winger', languages: 'English, Yoruba, French, Portuguese', nationality_secondary: 'Nigeria', bio: 'Plays between the lines.' },
       photos: [photo(1, '/fixture-photos/portrait.svg', { is_primary: true })],
       affiliations: [{ ...quillmere, club_name: 'Quillmere Athletic & Wendleshire Community Sports Association' }],
-      claim_status: 'claimed',
+      claim_status: 'claimed', contactable: true,
     },
     lines: [
       line('2026-09-20', 'Greaveholme-under-Lyne Wanderers Reserves & Development', {
@@ -199,7 +200,7 @@ const players = {
         photo(1, '/fixture-photos/portrait.svg', { is_primary: true }), photo(2, '/fixture-photos/second.svg'), photo(3, '/fixture-photos/third.svg'),
         { id: 4, kind: 'photo', status: 'pending', public_url: null }, { id: 5, kind: 'photo', status: 'approved', public_url: null },
       ],
-      affiliations: [quillmere], claim_status: 'claimed',
+      affiliations: [quillmere], claim_status: 'claimed', contactable: true,
     },
     lines: [line('2026-09-20', 'Skerraby United')],
   },
@@ -208,7 +209,7 @@ const players = {
     name: 'Tamsin Holloway', position: 'Goalkeeper', age: 27,
     showcase: {
       profile: { positions: 'GK', preferred_foot: 'right', height_cm: 191, contract_status: 'under_contract', languages: 'English' },
-      photos: [photo(1, '/fixture-photos/portrait.svg', { is_primary: true })], affiliations: [quillmere], claim_status: 'claimed',
+      photos: [photo(1, '/fixture-photos/portrait.svg', { is_primary: true })], affiliations: [quillmere], claim_status: 'claimed', contactable: true,
     },
     lines: [
       line('2026-09-27', 'Durnsea Juniors', { home_away: 'away', result_for: 0, result_against: 2, saves: 6, goals_conceded: 2, self_report: null }),
@@ -220,26 +221,70 @@ const players = {
   // White test photo: text over the hero photo must stay readable.
   '-20': {
     name: 'Kofi Asante-Reid', position: 'Right-back', age: 25,
-    showcase: { profile: kofiProfile, photos: [photo(1, '/fixture-photos/white.svg', { is_primary: true })], affiliations: [quillmere], claim_status: 'claimed' },
+    showcase: { profile: kofiProfile, photos: [photo(1, '/fixture-photos/white.svg', { is_primary: true })], affiliations: [quillmere], claim_status: 'claimed', contactable: true },
     lines: [line('2026-09-20', 'Skerraby United')],
+  },
+  // Two seasons of own entries.
+  '-21': {
+    name: 'Jago Penrose', position: 'Winger', age: 24,
+    showcase: { profile: { positions: 'LW' }, photos: [], affiliations: [], claim_status: 'claimed', contactable: true },
+    lines: [
+      line('2026-09-13', 'Pellowick Town', { confirmation: 'self_reported', self_report: null, minutes: 61 }),
+      line('2025-10-04', 'Marrowby Colts', { season: 2025, confirmation: 'self_reported', self_report: null, minutes: 30 }),
+    ],
+  },
+  // A community profile linked to the provider identity 4242 below.
+  '-22': {
+    name: 'Linked Prospect', position: 'Midfielder', age: 22, linkedTo: 4242,
+    showcase: { profile: null, photos: [], affiliations: [], claim_status: 'unclaimed', contactable: false },
+    lines: [],
+  },
+  // Only an older season, and a profile claimed by a guardian (not the player).
+  '-23': {
+    name: 'Nabil Ferhane', position: 'Attacking midfield', age: 21,
+    showcase: { profile: { positions: 'AM' }, photos: [], affiliations: [], claim_status: 'claimed', contactable: false },
+    lines: [line('2024-10-05', 'Marrowby Colts', { season: 2024, confirmation: 'self_reported', self_report: null })],
+  },
+  // A double-header: two club results on one date against one opponent, and
+  // two own entries on another. Nothing is paired, nothing is dropped.
+  '-24': {
+    name: 'Emeka Nwosu-Clarke', position: 'Centre-back', age: 20,
+    showcase: { profile: { positions: 'CB' }, photos: [], affiliations: [quillmere], claim_status: 'claimed', contactable: true },
+    lines: [
+      line('2026-09-27', 'Hallowfen Rovers', { key: '2026-09-27|hallowfen rovers|club-1', minutes: 45, result_for: 1, result_against: 0, self_report: null, shared_slot: true }),
+      line('2026-09-27', 'Hallowfen Rovers', { key: '2026-09-27|hallowfen rovers|club-2', minutes: 60, result_for: 0, result_against: 2, self_report: null, shared_slot: true }),
+      line('2026-09-20', 'Skerraby United', { key: '2026-09-20|skerraby united|own-1', minutes: 45, confirmation: 'self_reported', self_report: null, shared_slot: true }),
+      line('2026-09-20', 'Skerraby United', { key: '2026-09-20|skerraby united|own-2', minutes: 45, confirmation: 'self_reported', self_report: null, shared_slot: true }),
+    ],
+  },
+  // Provider identity with totals this season only, and one own entry the season before.
+  4242: {
+    name: 'Linked Prospect', position: 'Midfielder', age: 22, provider: true, providerSeasons: [2026],
+    showcase: { profile: null, photos: [], affiliations: [], claim_status: 'unclaimed', contactable: false },
+    lines: [line('2025-10-04', 'Marrowby Colts', { season: 2025, confirmation: 'self_reported', self_report: null, minutes: 30 })],
   },
   // Provider-tracked player: provider totals stay, the club's own lines are listed, never added.
   42: {
     name: 'Test Prospect', position: 'Midfielder', age: 19, provider: true,
-    showcase: { profile: null, photos: [], affiliations: [], claim_status: 'unclaimed' },
+    showcase: { profile: null, photos: [], affiliations: [], claim_status: 'unclaimed', contactable: false },
     lines: [line('2026-09-20', 'Skerraby United', { self_report: null })],
   },
 }
 
+// What /scout/players returns today. For club- or player-entered seasons the
+// rollup counts the club's rows only, so these figures can differ from the
+// player's page (Reuben: 15 club rows here, 22 matches on his page) — which is
+// why the card must not print them. Provider-sourced rows keep their counters.
 const scoutRows = [
   { id: 1, player_id: -12, player_name: 'Kofi Asante-Reid', position: 'Right-back', primary_team_name: 'Quillmere Athletic', appearances: 1, minutes_played: 90, provenance: { source: 'club' }, player_photo: null },
-  { id: 2, player_id: -15, player_name: 'Reuben Castellane', position: 'Midfielder', primary_team_name: 'Quillmere Athletic', appearances: 21, minutes_played: 1692, provenance: { source: 'club' }, player_photo: '/fixture-photos/portrait.svg' },
-  { id: 3, player_id: -14, player_name: 'Olu Adeyemi-Clarke', position: 'Winger', primary_team_name: null, appearances: 0, minutes_played: 0, provenance: { source: 'self' }, player_photo: null },
+  { id: 2, player_id: -15, player_name: 'Reuben Castellane', position: 'Midfielder', primary_team_name: 'Quillmere Athletic', appearances: 15, minutes_played: 1238, provenance: { source: 'club' }, player_photo: '/fixture-photos/portrait.svg' },
+  { id: 3, player_id: -14, player_name: 'Olu Adeyemi-Clarke', position: 'Winger', primary_team_name: null, appearances: 0, minutes_played: 0, provenance: { source: 'self' }, player_photo: null, contactable: false },
   { id: 4, player_id: -17, player_name: 'Maximilian-Alexander Oluwaseun Featherstonehaugh-Abernathy', position: 'Attacking midfielder', primary_team_name: 'Quillmere Athletic & Wendleshire Community Sports Association', appearances: 2, minutes_played: 180, provenance: { source: 'self' }, player_photo: null },
-  { id: 5, player_id: -19, player_name: 'Tamsin Holloway', position: 'Goalkeeper', primary_team_name: 'Quillmere Athletic', appearances: 4, minutes_played: 360, provenance: { source: 'club' }, player_photo: null },
+  { id: 5, player_id: -19, player_name: 'Tamsin Holloway', position: 'Goalkeeper', primary_team_name: 'Quillmere Athletic', appearances: 3, minutes_played: 270, provenance: { source: 'club' }, player_photo: null },
+  { id: 6, player_id: 42, player_name: 'Test Prospect', position: 'Midfielder', primary_team_name: 'Test Academy', appearances: 30, minutes_played: 2412, provenance: { primary_source: 'journey' }, player_photo: null, contactable: false },
 ].map((row) => ({ nationality: 'England', age: 24, status: null, recent_form: [], goals: 0, assists: 0, contactable: true, ...row }))
 
-async function installApiMocks(page, { frozen = false, contactRail = true, watched = [] } = {}) {
+async function installApiMocks(page, { frozen = false, contactRail = true, watched = [], linesStatus = () => 200, verification = null, claims = [], rawMatches = [], gate = null } = {}) {
   const calls = []
   await page.route('**/fixture-photos/*', (route) => {
     const body = PHOTOS[new URL(route.request().url()).pathname]
@@ -253,6 +298,8 @@ async function installApiMocks(page, { frozen = false, contactRail = true, watch
     if (pathname === '/api/features') return route.fulfill({ json: { contact_rail: contactRail } })
     if (pathname === '/api/meta/data-mode') return route.fulfill({ json: { api_football_frozen: frozen, newsletters_frozen: frozen } })
     if (pathname === '/api/scout/watchlist/ids') return route.fulfill({ json: { player_ids: watched } })
+    if (pathname === '/api/scout/verification') return route.fulfill({ json: { verification } })
+    if (pathname === '/api/me/claims') return route.fulfill({ json: { claims } })
     if (pathname === '/api/scout/players') return route.fulfill({ json: { season: 2026, players: scoutRows, total: scoutRows.length, total_pages: 1 } })
     if (pathname === '/api/scout/leaderboards') return route.fulfill({ json: { season: 2026, leaderboards: {} } })
 
@@ -261,7 +308,7 @@ async function installApiMocks(page, { frozen = false, contactRail = true, watch
       const player = players[`-${local[1]}`]
       if (!player) return route.fulfill({ status: 404, json: { error: 'local player not found' } })
       if (!local[2]) {
-        return route.fulfill({ json: { player: { id: Number(local[1]), display_name: player.name, position: player.position, birth_year: 2001, city: 'Quillmere', country: 'England', club_name: 'Quillmere Athletic', status: 'approved', api_player_id: null } } })
+        return route.fulfill({ json: { player: { id: Number(local[1]), display_name: player.name, position: player.position, birth_year: 2001, city: 'Quillmere', country: 'England', club_name: 'Quillmere Athletic', status: 'approved', api_player_id: player.linkedTo ?? null } } })
       }
       if (local[2] === '/showcase') return route.fulfill({ json: { local_player_id: Number(local[1]), reel: [], verified_footage: [], ...player.showcase } })
     }
@@ -275,8 +322,12 @@ async function installApiMocks(page, { frozen = false, contactRail = true, watch
       if (resource === 'showcase') return route.fulfill({ json: { player_api_id: Number(id), reel: [], verified_footage: [], ...player.showcase } })
       if (resource === 'followers/count') return route.fulfill({ json: { fans: 6, following: false, share_url: `https://example.test/players/${id}` } })
       if (resource === 'matches') {
-        if (url.searchParams.get('view') === 'lines') return route.fulfill({ json: { view: 'lines', seasons: seasonsOf(player.lines), truncated: false } })
-        return route.fulfill({ json: { matches: [], total: 0, page: 1, per_page: 100 } })
+        if (url.searchParams.get('view') === 'lines') {
+          const status = linesStatus()
+          if (status !== 200) return route.fulfill({ status, json: { error: 'Failed to load player matches' } })
+          return route.fulfill({ json: { view: 'lines', seasons: seasonsOf(player.lines), truncated: false } })
+        }
+        return route.fulfill({ json: { matches: rawMatches, total: rawMatches.length, page: 1, per_page: 100 } })
       }
       if (resource === 'stats') {
         return route.fulfill({ json: player.provider
@@ -286,17 +337,20 @@ async function installApiMocks(page, { frozen = false, contactRail = true, watch
       if (resource === 'season-stats') {
         const provider = { appearances: 30, minutes: 2412, goals: 6, assists: 4, yellows: 3, reds: 0, avg_rating: 7.12 }
         const grain = totalsOf(player.lines.filter((entry) => entry.confirmation === 'club_confirmed'))
-        const base = player.provider
+        const asked = Number(url.searchParams.get('season') || 2026)
+        if (gate) await gate(asked)
+        const providerHasSeason = player.provider && (!player.providerSeasons || player.providerSeasons.includes(asked))
+        const base = providerHasSeason
           ? { ...provider, source: 'season-rollup', provenance: { primary_source: 'journey', reconcile_flag: null } }
           // What the rollup says today for a community player: the club's rows only.
           : { appearances: grain.appearances, minutes: grain.minutes, goals: grain.goals, assists: grain.assists, source: 'season-rollup', provenance: { primary_source: 'club' } }
         const separated = frozen ? {
-          public_match_data: player.provider
+          public_match_data: providerHasSeason
             ? { available: true, as_of: '2026-09-28T09:00:00+00:00', totals: provider }
             : { available: true, as_of: null, totals: { appearances: 0, minutes: 0, goals: 0, assists: 0 } },
           club_verified: { available: grain.matches > 0, totals: grain },
         } : {}
-        return route.fulfill({ json: { player_id: Number(id), season: '2026/2027', clubs: [], ...base, ...separated } })
+        return route.fulfill({ json: { player_id: Number(id), season: `${asked}/${asked + 1}`, clubs: [], ...base, ...separated } })
       }
     }
     return route.fulfill({ json: {} })
@@ -310,7 +364,18 @@ async function shot(page, name) {
   await page.screenshot({ path: path.join(SHOTS, `${name}.png`), fullPage: true })
 }
 
+async function signIn(page) {
+  await page.addInitScript(() => {
+    localStorage.setItem('academy_watch_user_token', 'mock-user-token')
+    localStorage.setItem('academyWatch.playerOnboardingPromptDismissed.v1', 'true')
+  })
+}
+
+// "This season" is worded from today's date; pin it so the fixtures stay current.
+const TODAY = new Date('2026-10-03T12:00:00Z')
+
 async function openPlayer(page, id, viewport, options) {
+  await page.clock.setFixedTime(TODAY)
   await page.setViewportSize({ width: viewport.width, height: viewport.height })
   const calls = await installApiMocks(page, options)
   await page.goto(`/players/${id}`)
@@ -479,15 +544,15 @@ for (const viewport of VIEWPORTS) {
         page.getByRole('button', { name: 'Show all 22 matches' }),
         page.getByRole('button', { name: 'Follow', exact: true }),
       ]
+      targets.push(page.getByRole('button', { name: 'Share', exact: true }))
       for (const target of targets) {
         await expect(target).toBeVisible()
-        const box = await target.boundingBox()
-        expect(box.height).toBeGreaterThanOrEqual(40)
+        expect((await target.boundingBox()).height).toBeGreaterThanOrEqual(44)
       }
-      for (const target of targets.slice(0, 3)) expect((await target.boundingBox()).height).toBeGreaterThanOrEqual(44)
     })
 
     test('the community player page uses the same read view', async ({ page }) => {
+      await page.clock.setFixedTime(TODAY)
       await page.setViewportSize({ width: viewport.width, height: viewport.height })
       await installApiMocks(page)
       await page.goto('/local-players/16')
@@ -503,7 +568,7 @@ for (const viewport of VIEWPORTS) {
 
     test('the scout desk can show players as cards (photo and no-photo states)', async ({ page }) => {
       await page.setViewportSize({ width: viewport.width, height: viewport.height })
-      await page.addInitScript(() => localStorage.setItem('academy_watch_user_token', 'mock-scout-token'))
+      await signIn(page)
       await installApiMocks(page, { watched: [-15] })
       await page.goto('/scout')
       const view = page.getByRole('group', { name: 'Show players as' })
@@ -513,19 +578,41 @@ for (const viewport of VIEWPORTS) {
         await view.getByRole('button', { name: 'Cards' }).click()
       }
 
+      for (const name of ['Cards', 'Table']) {
+        expect((await view.getByRole('button', { name }).boundingBox()).height).toBeGreaterThanOrEqual(44)
+      }
       const cards = page.getByTestId('player-card')
       await expect(cards).toHaveCount(scoutRows.length)
       const kofi = cards.filter({ hasText: 'Kofi Asante-Reid' })
       await expect(kofi.getByRole('link', { name: 'Kofi Asante-Reid' })).toHaveAttribute('href', '/players/-12')
-      await expect(kofi.getByRole('img', { name: 'Club-confirmed' })).toBeVisible()
       await expect(kofi).toContainText('Right-back at Quillmere Athletic.')
-      await expect(kofi).toContainText('1 app')
-      await expect(kofi).toContainText('90 min')
-      // A player with no matches shows no zero counters.
-      await expect(cards.filter({ hasText: 'Olu Adeyemi-Clarke' })).not.toContainText(/\b0\b/)
+      // Club- and player-entered seasons: no apps/minutes on the card (the desk's
+      // figures and the player's page are counted differently until they share one source).
+      for (const name of ['Kofi Asante-Reid', 'Reuben Castellane', 'Tamsin Holloway', 'Olu Adeyemi-Clarke']) {
+        const card = cards.filter({ hasText: name })
+        await expect(card).not.toContainText(/\bapps?\b/)
+        await expect(card).not.toContainText(/\bmin\b/)
+        await expect(card.getByRole('img', { name: 'Club-confirmed' })).toHaveCount(0)
+      }
+      // Provider-sourced figures are the same totals the player's page shows.
+      const provider = cards.filter({ hasText: 'Test Prospect' })
+      await expect(provider).toContainText('30 apps')
+      await expect(provider).toContainText('2,412 min')
       await expect(cards.filter({ hasText: 'Reuben Castellane' }).getByRole('button', { name: 'Unwatch Reuben Castellane' })).toHaveAttribute('aria-pressed', 'true')
       const watch = kofi.getByRole('button', { name: 'Watch Kofi Asante-Reid' })
       expect((await watch.boundingBox()).height).toBeGreaterThanOrEqual(44)
+      // The table's compare and introduce actions are on the card too.
+      const compare = kofi.getByRole('button', { name: 'Compare Kofi Asante-Reid' })
+      const introduce = kofi.getByRole('link', { name: 'Get verified to introduce yourself' })
+      for (const control of [compare, introduce]) {
+        const box = await control.boundingBox()
+        expect(Math.min(box.width, box.height)).toBeGreaterThanOrEqual(44)
+      }
+      await expect(introduce).toHaveAttribute('href', '/scout/verification')
+      await expect(cards.filter({ hasText: 'Olu Adeyemi-Clarke' }).getByRole('link', { name: /introduce/i })).toHaveCount(0)
+      await compare.click()
+      await expect(compare).toHaveAttribute('aria-pressed', 'true')
+      await expect(page.getByText('1 of 4 selected')).toBeVisible()
       await expectNoSidewaysScroll(page)
       await page.evaluate(() => document.fonts.ready)
       await shot(page, `11-scout-desk-cards-${viewport.name}`)
@@ -594,11 +681,13 @@ test('Compare from a player page fills the scout desk tray with that player', as
   await expect(page.getByRole('dialog')).toHaveCount(0)
 })
 
-test('asking for an introduction needs a claimed profile and the contact rail', async ({ page }) => {
-  await openPlayer(page, -14, VIEWPORTS[0])
-  await expect(page.getByRole('button', { name: /introduction/i })).toHaveCount(0)
-
-  await page.unrouteAll({ behavior: 'ignoreErrors' })
+test('asking for an introduction: only the player\'s own claim, and only verified scouts reach the form', async ({ page }) => {
+  // Unclaimed, and claimed only by a guardian: no invitation at all.
+  for (const id of [-14, -23]) {
+    await openPlayer(page, id, VIEWPORTS[0])
+    await expect(page.getByRole('button', { name: /introduction/i })).toHaveCount(0)
+    await page.unrouteAll({ behavior: 'ignoreErrors' })
+  }
   await openPlayer(page, -12, VIEWPORTS[0], { contactRail: false })
   await expect(page.getByRole('button', { name: /introduction/i })).toHaveCount(0)
 
@@ -608,6 +697,184 @@ test('asking for an introduction needs a claimed profile and the contact rail', 
   // Signed out: the existing sign-in prompt, never the message form.
   await expect(page.getByRole('heading', { name: 'Sign in to The Academy Watch' })).toBeVisible()
 })
+
+test('a signed-in visitor who is not a verified scout is sent to verification', async ({ page }) => {
+  await signIn(page)
+  const calls = await openPlayer(page, -12, VIEWPORTS[0], { verification: { status: 'pending' } })
+  // Verification is only asked for when the button is used, not on every page view.
+  expect(calls.filter((call) => call.includes('/api/scout/verification'))).toEqual([])
+  await page.getByRole('button', { name: 'Ask for an introduction' }).click()
+
+  await expect(page).toHaveURL(/\/scout\/verification$/)
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+})
+
+test('a verified scout gets the introduction form', async ({ page }) => {
+  await signIn(page)
+  await openPlayer(page, -12, VIEWPORTS[0], { verification: { status: 'approved' } })
+  await page.getByRole('button', { name: 'Ask for an introduction' }).click()
+
+  await expect(page.getByRole('dialog').getByRole('heading', { name: 'Introduce yourself to Kofi Asante-Reid' })).toBeVisible()
+})
+
+test('a failed match read is an error with a retry, never an empty season', async ({ page }) => {
+  let status = 500
+  await openPlayer(page, -16, VIEWPORTS[0], { linesStatus: () => status })
+
+  const error = page.getByTestId('season-error')
+  await expect(error).toContainText('The matches could not be loaded.')
+  await expect(page.getByTestId('player-season')).toHaveAttribute('data-source', 'error')
+  await expect(page.getByText('No matches recorded yet')).toHaveCount(0)
+  await expect(page.getByText(/Nothing has been entered/)).toHaveCount(0)
+  await expect(page.locator('[data-testid^="season-tile-"]')).toHaveCount(0)
+  await shot(page, '14-read-failed-1440')
+
+  status = 200
+  await error.getByRole('button', { name: 'Try again' }).click()
+  await expect(page.getByTestId('match-line')).toHaveCount(3)
+  await expect(page.getByTestId('season-error')).toHaveCount(0)
+  await expect(page.getByTestId('season-tile-minutes')).toContainText('254')
+})
+
+test('a provider-tracked player whose club lines fail to load keeps the provider totals and says so', async ({ page }) => {
+  await openPlayer(page, 42, VIEWPORTS[0], { linesStatus: () => 503 })
+
+  await expect(page.getByTestId('season-tile-minutes')).toContainText('2,412')
+  await expect(page.getByTestId('season-error')).toContainText('The matches entered by the club or the player could not be loaded.')
+})
+
+test('a double-header and two own entries are all listed and all counted', async ({ page }) => {
+  for (const viewport of VIEWPORTS) {
+    await page.unrouteAll({ behavior: 'ignoreErrors' })
+    await openPlayer(page, -24, viewport)
+    const rows = page.getByTestId(viewport.width < 900 ? 'match-card' : 'match-line')
+
+    await expect(rows).toHaveCount(4)
+    await expect(rows.filter({ hasText: 'Hallowfen Rovers' })).toHaveCount(2)
+    await expect(rows.filter({ hasText: 'Skerraby United' })).toHaveCount(2)
+    await expect(rows.filter({ hasText: 'One of several entries for this date and opponent' })).toHaveCount(4)
+    await expect(page.getByTestId('season-tile-minutes')).toContainText('195')
+    await expect(page.getByTestId('season-tile-appearances')).toContainText('4')
+    await expect(page.getByTestId('season-source')).toContainText('Built from 4 matches. 2 confirmed by the club, 2 only reported by the player.')
+    await expect(page.getByTestId('season-source')).toContainText('Entries that share a date and opponent are listed separately and each is counted.')
+    await expectNoSidewaysScroll(page)
+    await shot(page, `13-double-header-${viewport.name}`)
+  }
+})
+
+test('the community page picker: one picked season drives the URL, the request, the heading and the totals', async ({ page }) => {
+  await page.clock.setFixedTime(TODAY)
+  await page.setViewportSize(VIEWPORTS[0])
+  const calls = await installApiMocks(page)
+  await page.goto('/local-players/21')
+  await expect(page.getByRole('heading', { name: '2026/27 Totals' })).toBeVisible()
+  await expect(page.getByTestId('player-season')).toContainText('This season')
+  await expect(page.getByTestId('season-tile-minutes')).toContainText('61')
+
+  await page.locator('.pc-season-pick select').selectOption('2025')
+
+  await expect(page).toHaveURL(/\/local-players\/21\?season=2025$/)
+  await expect(page.getByRole('heading', { name: '2025/26 Totals' })).toBeVisible()
+  await expect(page.getByTestId('season-tile-minutes')).toContainText('30')
+  await expect(page.getByTestId('match-line')).toHaveCount(1)
+  await expect(page.getByTestId('match-line')).toContainText('Marrowby Colts')
+  await expect(page.getByTestId('player-season')).not.toContainText('This season')
+  expect(calls.some((call) => call.includes('/api/players/-21/season-stats?season=2025'))).toBe(true)
+
+  // A shared link opens on the same season.
+  await page.reload()
+  await expect(page.getByRole('heading', { name: '2025/26 Totals' })).toBeVisible()
+  await expect(page.locator('.pc-season-pick select')).toHaveValue('2025')
+})
+
+test('provider totals of another season are never shown under the picked season', async ({ page }) => {
+  // Reviewer's probe: provider-linked profile, current season 2,412 minutes, one 30-minute entry in 2025/26.
+  let release
+  const held = new Promise((resolve) => { release = resolve })
+  await page.clock.setFixedTime(TODAY)
+  await page.setViewportSize(VIEWPORTS[0])
+  await installApiMocks(page, { gate: (season) => (season === 2025 ? held : null) })
+  await page.goto('/local-players/22')
+  await expect(page.getByRole('heading', { name: '2026/27 Totals' })).toBeVisible()
+  await expect(page.getByTestId('season-tile-minutes')).toContainText('2,412')
+
+  await page.locator('.pc-season-pick select').selectOption('2025')
+
+  // While the totals for 2025/26 are still on their way, the 2026/27 figure is not relabelled.
+  await expect(page.getByRole('heading', { name: '2025/26 Totals' })).toBeVisible()
+  await expect(page.getByText('2,412')).toHaveCount(0)
+  release()
+  await expect(page.getByTestId('season-tile-minutes')).toContainText('30')
+  await expect(page.getByTestId('player-season')).toHaveAttribute('data-source', 'grain')
+  await expect(page.getByText('2,412')).toHaveCount(0)
+})
+
+test('an older season is not headed "This season"; self-reported facts say so', async ({ page }) => {
+  await openPlayer(page, -23, VIEWPORTS[0])
+
+  await expect(page.getByRole('heading', { name: '2024/25 Totals' })).toBeVisible()
+  await expect(page.getByTestId('player-season').locator('.pc-kicker')).toHaveText('Season')
+  await expect(page.getByTestId('player-facts-note')).toHaveText('Self-reported by the player')
+})
+
+test('phones show the explanation under the match cards', async ({ page }) => {
+  await openPlayer(page, -12, VIEWPORTS[1])
+
+  await expect(page.getByText("One card per match. Where the club has confirmed, the club's figures are shown.")).toBeVisible()
+})
+
+test('season tiles keep their figures inside the tile between 900 and 1100 px', async ({ page }) => {
+  for (const width of [900, 960, 1024, 1099, 1100]) {
+    await page.unrouteAll({ behavior: 'ignoreErrors' })
+    await openPlayer(page, -15, { width, height: 900 })
+    const overflow = await page.locator('[data-testid^="season-tile-"]').evaluateAll((tiles) => tiles.map((tile) => {
+      const style = getComputedStyle(tile)
+      const inner = tile.getBoundingClientRect().right - parseFloat(style.paddingRight) - parseFloat(style.borderRightWidth)
+      const value = tile.querySelector('.pc-tile-value')
+      const range = document.createRange()
+      range.selectNodeContents(value)
+      return Math.round(range.getBoundingClientRect().right - inner)
+    }))
+    expect(Math.max(...overflow), `tile text past the padding at ${width}px`).toBeLessThanOrEqual(0)
+    await expectNoSidewaysScroll(page)
+  }
+})
+
+// One showcase read per page, and the raw match rows only for the owner (the
+// only viewer who still sees them). Vite dev runs React StrictMode, which
+// mounts every effect twice, so "once" is 2 here; exact production counts are
+// in logs/PCF1.request-counts.md.
+for (const [label, path, id, claim] of [
+  ['PlayerPage', '/players/-16', '-16', { player_api_id: -16 }],
+  ['LocalPlayerPage', '/local-players/16', '-16', { local_player_id: 16 }],
+]) {
+  for (const viewer of ['anonymous', 'scout', 'owner']) {
+    test(`${label} request cost — ${viewer}`, async ({ page }) => {
+      if (viewer !== 'anonymous') await signIn(page)
+      await page.clock.setFixedTime(TODAY)
+      await page.setViewportSize(VIEWPORTS[0])
+      const calls = await installApiMocks(page, {
+        verification: { status: 'approved' },
+        claims: viewer === 'owner' ? [{ id: 9, status: 'approved', relationship_type: 'player', ...claim }] : [],
+      })
+      await page.goto(path)
+      await expect(page.getByTestId('match-line')).toHaveCount(3)
+      if (viewer === 'owner') await expect(page.getByRole('button', { name: 'Add a game', exact: true })).toBeEnabled()
+      await page.waitForLoadState('networkidle')
+
+      const count = (test) => calls.filter(test).length
+      const showcase = count((call) => /\/showcase$/.test(call))
+      const lines = count((call) => call.includes(`/api/players/${id}/matches?view=lines`))
+      const raw = count((call) => call.includes(`/api/players/${id}/matches?`) && !call.includes('view=lines'))
+      expect(showcase).toBeGreaterThanOrEqual(1)
+      expect(showcase).toBeLessThanOrEqual(2)
+      expect(lines).toBeLessThanOrEqual(2)
+      if (viewer === 'owner') expect(raw).toBeGreaterThanOrEqual(1)
+      else expect(raw).toBe(0)
+      expect(count((call) => call.includes('/api/scout/verification'))).toBe(0)
+    })
+  }
+}
 
 // Before/after proof: replays responses captured read-only from staging for one
 // player, with the match lines produced by the real server merge function.

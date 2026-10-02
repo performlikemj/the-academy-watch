@@ -33,3 +33,15 @@
 - List payloads carry no approved showcase photo or bio, so desk cards show initials (or the small provider
   headshot at its own size) and "Position at Club".
 - iOS still shows the old rows; it needs `?view=lines` and the same wording rules.
+
+## Fix round PCF1 (2026-10-03, after REVIEW-DUEL RPCV-X / RPCV-O at a7d73c65)
+- Rows are never dropped: a club row and an own row pair only when they are the only two rows for that date and
+  opponent; every other shape keeps each row as its own counted line (`shared_slot: true`).
+- Scout-desk cards print no apps/minutes unless the figures are the provider's; no tick; compare + introduce on the card.
+- Showcase is read once (ShowcaseSection hands it up); raw match rows are requested only for the owner. Anonymous and
+  scout page loads make the same number of requests as main (`~/codex-runs/aw-redesign/logs/PCF1.request-counts.md`).
+- Community page: the URL `?season=` is the one picked season; provider totals of another season are never shown.
+- A failed match read is an error with Try again; last good data is kept on a failed refresh; `truncated` is carried.
+- Showcase payload gained `contactable` (the player's own approved claim — the scout desk's rule) for the
+  "Ask for an introduction" button; unverified users are sent to verification. No contact rule changed.
+- Hand-back: `~/codex-runs/aw-redesign/logs/PCF1.final.md`.

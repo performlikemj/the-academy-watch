@@ -12,7 +12,7 @@ import { MatchLines, PlayerFacts, PlayerSeason } from '@/components/player-card/
 import { usePlayerReadView } from '@/components/player-card/usePlayerReadView'
 import { IntroduceDialog } from '@/components/contact/IntroduceDialog'
 import { useContactRail } from '@/hooks/useContactRail.js'
-import { isGoalkeeperPosition, providerTotals, resolveSeason, roleLabel } from '@/lib/player-card'
+import { calendarSeason, isGoalkeeperPosition, roleLabel, seasonKicker, seasonView } from '@/lib/player-card'
 import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import {
@@ -286,7 +286,17 @@ export function PlayerPage() {
     const [error, setError] = useState(null)
     // The read view asks for nothing until the page itself is known to be public.
     const readSubject = playerId && !loading && !notFound && !error ? String(playerId) : null
-    const read = usePlayerReadView({ playerApiId: readSubject, matchPlayerApiId: readSubject, revision: readRevision })
+    // ShowcaseSection loads the showcase once and hands it up; the read view never asks again.
+    const [showcaseState, setShowcaseState] = useState({ id: null, value: null })
+    const handleShowcaseChange = useCallback((value) => {
+        setShowcaseState({ id: String(playerId), value })
+    }, [playerId])
+    const read = usePlayerReadView({
+        matchPlayerApiId: readSubject,
+        showcase: showcaseState.id === String(playerId) ? showcaseState.value : null,
+        revision: readRevision,
+    })
+    const [introduceBusy, setIntroduceBusy] = useState(false)
     const [position, setPosition] = useState(DEFAULT_POSITION)
     const [selectedMetrics, setSelectedMetrics] = useState([])
     
@@ -619,24 +629,42 @@ export function PlayerPage() {
 
     // Read view: totals are the provider's when it really has them, otherwise exactly
     // the merged match lines for the season shown. The two are never added together.
-    const provider = providerTotals(seasonStats)
-    const viewSeason = resolveSeason({
+    // One picked season decides the heading, the lines, the totals and which
+    // provider response may be shown (never another season's).
+    const view = seasonView({
         picked: selectedSeason == null ? undefined : Number(selectedSeason),
-        statsSeason: resolvedSeason ?? defaultSeason,
-        provider,
+        stats: seasonStats,
         seasons: read.seasons,
+        fallbackSeason: resolvedSeason ?? defaultSeason,
     })
-    const seasonEntry = read.seasons.find((entry) => entry.season === viewSeason) || null
-    const seasonLines = seasonEntry?.lines || []
+    const { season: viewSeason, provider, lines: seasonLines, totals: seasonLineTotals } = view
     const goalkeeper = position === 'Goalkeeper' || isGoalkeeperPosition(profile?.position)
     const heroClubName = read.confirmedBy
         || profile?.loan_team_name
         || profile?.current_club_name
         || profile?.parent_team_name
         || null
-    // Same target set as the scout desk: players with an approved claim. The
-    // server still decides who may actually send (verified scouts only).
-    const canAskIntroduction = contactRail === true && read.claimed
+    // Same target set as the scout desk: the player's own approved claim.
+    const canAskIntroduction = contactRail === true && read.contactable
+    // As on the desk: signed out -> sign in; not a verified scout -> verification;
+    // verified -> the message form. The server still decides who may send.
+    const handleAskIntroduction = async () => {
+        if (!auth?.token) {
+            openLoginModal()
+            return
+        }
+        if (introduceBusy) return
+        setIntroduceBusy(true)
+        try {
+            const data = await APIService.getScoutVerification()
+            if (data?.verification?.status === 'approved') setIntroduceOpen(true)
+            else navigate('/scout/verification')
+        } catch {
+            navigate('/scout/verification')
+        } finally {
+            setIntroduceBusy(false)
+        }
+    }
 
     if (loading) {
         return (
@@ -747,7 +775,8 @@ export function PlayerPage() {
                                 <button
                                     type="button"
                                     className="pc-pill pc-pill--lg pc-pill--outline"
-                                    onClick={() => (auth?.token ? setIntroduceOpen(true) : openLoginModal())}
+                                    onClick={handleAskIntroduction}
+                                    disabled={introduceBusy}
                                 >
                                     <span className="min-[900px]:hidden">Introduction</span>
                                     <span className="hidden min-[900px]:inline">Ask for an introduction</span>
@@ -797,13 +826,18 @@ export function PlayerPage() {
                         <PlayerSeason
                             season={viewSeason}
                             lines={seasonLines}
-                            totals={seasonEntry?.totals || null}
+                            totals={seasonLineTotals}
                             provider={provider}
                             minutesKnown={seasonStats?.stats_coverage !== 'limited'}
                             goalkeeper={goalkeeper}
                             frozen={apiFootballFrozen}
                             playerName={playerName}
-                            loading={!read.linesLoaded}
+                            loading={read.linesLoading}
+                            error={read.linesError}
+                            stale={read.hasLines}
+                            onRetry={read.retry}
+                            truncated={read.truncated}
+                            kicker={seasonKicker(viewSeason, calendarSeason())}
                             control={(
                                 <div className="flex flex-wrap items-center gap-2">
                                     {provider && provenanceText && provenanceText !== 'none' && provenanceText !== 'live-fallback' ? (
@@ -834,6 +868,7 @@ export function PlayerPage() {
 
                         <ShowcaseSection
                             readSectionsElsewhere
+                            onShowcaseChange={handleShowcaseChange}
                             playerApiId={String(playerId)}
                             playerName={playerName}
                             playerPosition={profile?.position || position}

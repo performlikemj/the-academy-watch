@@ -152,7 +152,7 @@ Log one-liner in CONTINUITY.md's "Trivial Log" section.
 
 - Match-entry date-boundary tests use the parametrized `frozen_now` fixture in `tests/test_player_match_entries.py`; it patches route and subject-resolution UTC clocks. Derive relative date inputs inside the test from that fixture, never during parametrization.
 
-- Player read views use `src/components/player-card/` with wording in `lib/player-card.js`. Match rows and their totals come merged from `GET /players/<id>/matches?view=lines` (`services/match_lines.py`): never pair self/club entries or sum match totals in a client, and never add provider totals to match-line totals. `ShowcaseSection` stays the owner's manage surface; pages pass `readSectionsElsewhere` when they render the read view themselves.
+- Player read views use `src/components/player-card/` with wording in `lib/player-card.js`. Match rows and their totals come merged from `GET /players/<id>/matches?view=lines` (`services/match_lines.py`): never pair self/club entries or sum match totals in a client, and never add provider totals to match-line totals. A club row and an own row pair only when they are the only two rows for that date and opponent; any other shape keeps every row as its own counted line (`shared_slot`) — no row is ever dropped. List surfaces print apps/minutes only for provider-sourced figures (`isProviderSourced`) until the rollup reads the same merged lines. `ShowcaseSection` loads the showcase once and hands it up via `onShowcaseChange`; it requests raw match rows only for the owner. `ShowcaseSection` stays the owner's manage surface; pages pass `readSectionsElsewhere` when they render the read view themselves.
 
 ## Quality Bar
 

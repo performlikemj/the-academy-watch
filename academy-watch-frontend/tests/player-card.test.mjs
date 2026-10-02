@@ -7,7 +7,10 @@ import {
   confirmedClubName,
   initialsOf,
   isGoalkeeperPosition,
+  isProviderSourced,
   keeperFigure,
+  calendarSeason,
+  linesReadState,
   lineSource,
   lineSummary,
   matchDateParts,
@@ -19,6 +22,8 @@ import {
   quietFigure,
   resolveSeason,
   roleLabel,
+  seasonKicker,
+  seasonView,
   summarizeSeason,
 } from '../src/lib/player-card.js'
 
@@ -286,4 +291,97 @@ test('card text is built only from fields that exist', () => {
 test('goalkeeper detection matches the edit form', () => {
   for (const position of ['G', 'GK', 'Goalkeeper', 'keeper', 'GK / sweeper']) assert.equal(isGoalkeeperPosition(position), true)
   for (const position of ['Winger', 'Midfielder', 'CB', '', null]) assert.equal(isGoalkeeperPosition(position), false)
+})
+
+// ---- Fix round PCF1 -------------------------------------------------------
+
+const providerStats = (season, minutes) => ({
+  season: `${season}/${season + 1}`, source: 'season-rollup', provenance: { primary_source: 'journey' },
+  appearances: 30, minutes, goals: 6, assists: 4, yellows: 3, reds: 0,
+})
+
+test('a picked season never shows provider totals that belong to another season', () => {
+  // Reviewer's probe: current provider season 2026 (2,412 min), picked 2025 with one 30-minute line.
+  const seasons = [{ season: 2025, lines: [{ minutes: 30 }], totals: { matches: 1, minutes: 30 } }]
+  const stale = seasonView({ picked: 2025, stats: providerStats(2026, 2412), seasons })
+
+  assert.equal(stale.season, 2025)
+  assert.equal(stale.provider, null)
+  assert.equal(stale.totals.minutes, 30)
+  assert.equal(stale.lines.length, 1)
+
+  const fresh = seasonView({ picked: 2025, stats: providerStats(2025, 1800), seasons })
+  assert.equal(fresh.provider.minutes, 1800)
+  assert.equal(fresh.lines.length, 1)
+})
+
+test('with no pick the provider season is shown, else the newest season with lines, else the fallback', () => {
+  const seasons = [{ season: 2026, lines: [{}], totals: { matches: 1 } }, { season: 2024, lines: [{}, {}], totals: { matches: 2 } }]
+  const provider = seasonView({ stats: providerStats(2025, 900), seasons })
+  assert.deepEqual([provider.season, provider.provider.minutes, provider.lines.length], [2025, 900, 0])
+
+  const grain = seasonView({ stats: { season: '2025/2026', appearances: 0, minutes: 0, source: 'none' }, seasons })
+  assert.deepEqual([grain.season, grain.provider, grain.totals.matches], [2026, null, 1])
+
+  assert.equal(seasonView({ stats: null, seasons: [], fallbackSeason: 2025 }).season, 2025)
+  assert.equal(seasonView({ picked: 2023, stats: null, seasons }).lines.length, 0)
+})
+
+test('a failed read is never an empty season', () => {
+  const good = { subjectKey: '-12:public', seasons: [{ season: 2026 }], truncated: true }
+
+  // First load fails: an error, nothing to show, not "loading" and not "empty".
+  assert.deepEqual(
+    linesReadState({ good: { subjectKey: null, seasons: [] }, settled: { requestKey: 'r1', failed: true }, subjectKey: '-12:public', requestKey: 'r1' }),
+    { hasLines: false, seasons: [], truncated: false, linesLoading: false, linesError: true },
+  )
+  // A refresh fails: the last good data stays, flagged.
+  assert.deepEqual(
+    linesReadState({ good, settled: { requestKey: 'r2', failed: true }, subjectKey: '-12:public', requestKey: 'r2' }),
+    { hasLines: true, seasons: good.seasons, truncated: true, linesLoading: false, linesError: true },
+  )
+  // A refresh in flight: last good data, no error yet.
+  assert.equal(linesReadState({ good, settled: { requestKey: 'r1', failed: false }, subjectKey: '-12:public', requestKey: 'r2' }).linesError, false)
+  // Another viewer or another player never inherits the data.
+  for (const subjectKey of ['-12:token-a', '-13:public']) {
+    const other = linesReadState({ good, settled: { requestKey: null, failed: false }, subjectKey, requestKey: 'r1' })
+    assert.deepEqual([other.hasLines, other.seasons, other.linesLoading], [false, [], true])
+  }
+})
+
+test('entries that share a date and opponent are each listed and say so', () => {
+  assert.deepEqual(lineSource({ confirmation: 'club_confirmed', self_report: null, shared_slot: true }), {
+    mark: 'Club-confirmed', confirmed: true, note: 'One of several entries for this date and opponent',
+  })
+  assert.equal(lineSource({ confirmation: 'self_reported', shared_slot: true }).mark, 'Self-reported')
+  assert.equal(lineSource({ confirmation: 'self_reported', shared_slot: false }).note, null)
+})
+
+test('list counters are printed only for provider-sourced figures', () => {
+  for (const source of ['journey', 'fixtures', 'apss', 'shadow', 'api-football', { primary_source: 'journey' }, { source_category: 'api' }]) {
+    assert.equal(isProviderSourced(source), true)
+  }
+  for (const source of ['club', 'self', 'user', 'club_confirmed', { source: 'club' }, { source_category: 'self' }, null, undefined, '', 'none', 'live-fallback']) {
+    assert.equal(isProviderSourced(source), false)
+  }
+})
+
+test('"This season" heads only the season that contains today', () => {
+  assert.equal(calendarSeason(new Date(2026, 9, 3)), 2026)
+  assert.equal(calendarSeason(new Date(2026, 6, 31)), 2025)
+  assert.equal(calendarSeason(new Date(2026, 7, 1)), 2026)
+  assert.equal(seasonKicker(2026, 2026), 'This season')
+  assert.equal(seasonKicker(2024, 2026), 'Season')
+  assert.equal(seasonKicker(null, 2026), 'Season')
+})
+
+test('the source sentence says when entries sharing a date and opponent were kept apart', () => {
+  const totals = grainTotals({ matches: 2, appearances: 2, full_matches: 0, minutes: 105, club_confirmed: 2 })
+  const summary = summarizeSeason({ lines: [{ shared_slot: true }, { shared_slot: true }], totals })
+
+  assert.equal(
+    summary.sentence,
+    'Built from 2 matches. 2 confirmed by the club, 0 only reported by the player. Entries that share a date and opponent are listed separately and each is counted.',
+  )
+  assert.doesNotMatch(summarizeSeason({ lines: [{ shared_slot: false }], totals: grainTotals() }).sentence, /listed separately/)
 })
