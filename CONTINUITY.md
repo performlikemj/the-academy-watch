@@ -32,7 +32,7 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
 
 ## State
 
-- **Now (B3X):** O1–O5 + P13/P14/P15/P16/P26 implemented on fix/admin-control-followup; targeted43 incl3PG and browser11 pass. Final-head gates/draft delivery/cleanup receipts tracked in `ledgers/CONTINUITY_b3x.md` + external `logs/B3X.final.md`. Existing B3 flags; no migration/dependency change.
+- **Now (B3XF1):** PR1126 review-duel fix round: O1 queue parity, X1 phone wrapping, O2 id fallback, O3 honest duplicate-queue note; O4 rollout documentation. Main eddba4ac merged; all19 queue comparisons covered, targeted backend28/browser5 pass; final gates and ready delivery tracked in `ledgers/CONTINUITY_b3x.md` and external `logs/B3XF1.final.md`. No migration/dependency change.
 - **Now (2026-10-02 UXBF5):** Single duel-confirmed signed-out history retry fix implemented; main ee16572f/B3+UXM1 integrated; targeted48 PASS; ledger `ledgers/CONTINUITY_uxb.md`; final hand-back `~/codex-runs/aw-redesign/logs/UXBF5.final.md`. Exact final-head gates, delivery/ready/CI and cleanup recorded in external hand-back; PR1124, no merge.
 
 - **Now (2026-10-02 UXBF4):** Draft #1124 review union O1 Medium startup/navigation recovery + X1=O2 Small claims freshness implemented. Main33bf30bd/B3 merged; inherited migration verbatim. Final validation/delivery record: `~/codex-runs/aw-redesign/logs/UXBF4.final.md`; see `ledgers/CONTINUITY_uxb.md`.

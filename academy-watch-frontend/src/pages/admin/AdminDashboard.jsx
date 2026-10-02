@@ -383,7 +383,7 @@ function InboxPendingStrip({ overview, controlEnabled, flagsReady }) {
                 </ul>
             )}
             {controlEnabled && overview.data?.overdue_safeguarding > 0 && <p className="mt-4 text-sm text-gold">{overview.data.overdue_safeguarding} safeguarding first action overdue</p>}
-            {controlEnabled && <p className="mt-3 text-xs text-muted-dark">Counts show items in each review queue. A report and its safeguarding case can need separate decisions.</p>}
+            {controlEnabled && <p className="mt-3 text-xs text-muted-dark">Counts show items in each review queue. A report also appears as a safeguarding case; one decision clears both queues.</p>}
         </section>
     )
 }

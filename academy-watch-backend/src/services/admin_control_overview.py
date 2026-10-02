@@ -99,6 +99,10 @@ def queue_counts(enabled):
     queries = []
     for key, _, _, model, status, _ in specs:
         predicate = model.status != "closed" if status is None else model.status == status
+        if key == "local_players":
+            predicate = sa.and_(predicate, LocalPlayer.provenance != "club")
+        elif key == "showcase_media":
+            predicate = sa.and_(predicate, PlayerShowcaseMedia.kind == "photo")
         queries.append(
             sa.select(sa.literal(key).label("key"), sa.func.count().label("count")).select_from(model).where(predicate)
         )

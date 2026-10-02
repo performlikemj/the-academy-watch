@@ -366,6 +366,51 @@ test('B3X People standing/sort controls and private admin suspension context', a
 })
 
 const dashboardStats = { players: { total: 1, academy: 1, on_loan: 0, first_team: 0, released: 0 }, teams: { tracked: 1 }, newsletters: { total: 0, published: 0, drafts: 0 } }
+
+async function captureFix(page, slug) {
+    const dir = process.env.B3XF1_SHOT_DIR
+    if (!dir) return
+    const fs = await import('node:fs/promises')
+    await fs.mkdir(dir, { recursive: true })
+    await page.evaluate(() => globalThis.scrollTo(0, 0))
+    await page.screenshot({ path: `${dir}/${slug}.png`, fullPage: true, animations: 'disabled' })
+}
+
+for (const width of [1440, 390]) {
+    test(`B3XF1 unbroken suspension reason fits detail at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: width === 390 ? 844 : 900 })
+        const reason = 'R'.repeat(240)
+        const person = { id: 2, display_name: 'Pete Example', email: 'pete@example.test', account_status: 'suspended', roles: [], programs: [], approved_claims: 0, suspension: { reason, by: 'Admin Example', at: '2026-09-20T10:20:00Z' } }
+        await mockControl(page, url => url.pathname.endsWith('/people/2') ? { person } : { ...empty, rows: [person], total: 1 })
+        await page.goto('/admin/people')
+        await page.getByRole('button', { name: /Pete Example/ }).click()
+        await expect(page.getByText(reason, { exact: true })).toBeVisible()
+        const bounds = await page.getByText(reason, { exact: true }).boundingBox()
+        expect(bounds.x + bounds.width).toBeLessThanOrEqual(width)
+        expect(await page.evaluate(() => globalThis.document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
+        await captureFix(page, `unbroken-suspension-${width}`)
+    })
+
+    test(`B3XF1 unnamed hidden inventory retains provider and local ids at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: width === 390 ? 844 : 900 })
+        await mockControl(page, url => url.pathname.endsWith('/hidden') ? {
+            programs: [], program_total: 0, suppression_total: 3, limit: 30,
+            suppressions: [
+                { id: 1, player_api_id: 987654321, player_name: null },
+                { id: 2, local_player_id: 12, player_name: null },
+                { id: 3, player_api_id: 321, player_name: 'Stored Prospect' },
+            ],
+        } : { ...empty, open_count: 0, overdue_count: 0, active_suppressions: 3, hidden_programs: 0 })
+        await page.goto('/admin/safety')
+        const inventory = page.getByRole('region', { name: 'Player suppressions inventory' })
+        await expect(inventory.getByText('Player name unavailable · #987654321', { exact: true })).toBeVisible()
+        await expect(inventory.getByText('Player name unavailable · Local #12', { exact: true })).toBeVisible()
+        await expect(inventory.getByText('Stored Prospect', { exact: true })).toBeVisible()
+        expect(await page.evaluate(() => globalThis.document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
+        await captureFix(page, `unnamed-inventory-${width}`)
+    })
+}
+
 test('B3X overview shows queue workload and paying revenue from one DTO', async ({ page }) => {
     await mockControl(page, url => {
         if (url.pathname.endsWith('/dashboard-stats')) return dashboardStats
@@ -383,8 +428,15 @@ test('B3X overview shows queue workload and paying revenue from one DTO', async 
     await expect(queue.getByRole('link', { name: /Open reports/ })).toHaveAttribute('href', '/admin/trust?tab=reports')
     await expect(queue).toContainText('1 safeguarding first action overdue')
     await expect(queue.getByText('Nothing pending. Inbox zero.')).toHaveCount(0)
+    await expect(queue).toContainText('A report also appears as a safeguarding case; one decision clears both queues.')
+    await expect(queue).not.toContainText('can need separate decisions')
     await expect(page.getByTestId('revenue-summary')).toContainText('£29.00')
     await expect(page.getByTestId('revenue-summary')).not.toContainText('£70.00')
+    await captureFix(page, 'overview-1440')
+    await page.setViewportSize({ width: 390, height: 844 })
+    await expect(queue).toContainText('8 queue items')
+    expect(await page.evaluate(() => globalThis.document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
+    await captureFix(page, 'overview-390')
 })
 
 test('B3X overview failed counts stay unavailable instead of zero', async ({ page }) => {
@@ -471,6 +523,7 @@ for (const width of [1440, 390]) {
                 await page.getByRole('button', { name: /Pete Dunmore/ }).click()
                 await expect(page.getByText('Suspension reason', { exact: true })).toBeVisible()
                 await expect(page.getByText('Suspended by', { exact: true })).toBeVisible()
+                expect(await page.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth)).toBe(true)
                 await capture('people-suspended')
                 evidence.push({ route: 'people-suspended', width, text: await main.innerText() })
             }

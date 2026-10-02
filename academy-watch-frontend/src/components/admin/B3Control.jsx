@@ -68,7 +68,7 @@ export function DetailPanel({ children, title }) {
 }
 
 export function Fact({ label, children }) {
-    return <div className="flex flex-wrap justify-between gap-x-5 gap-y-1 border-t border-hairline-dark py-3 text-sm"><span className="text-muted-dark">{label}</span><span className="break-words text-right">{children ?? '—'}</span></div>
+    return <div className="flex flex-wrap justify-between gap-x-5 gap-y-1 border-t border-hairline-dark py-3 text-sm"><span className="text-muted-dark">{label}</span><span className="min-w-0 max-w-full [overflow-wrap:anywhere] text-right">{children ?? '—'}</span></div>
 }
 
 export function QuietEmpty({ children }) {
