@@ -236,7 +236,7 @@ for (const width of [1440, 390]) {
                     program_total: 35, suppression_total: 35,
                     program_has_more: programOffset === 0, suppression_has_more: suppressionOffset === 0,
                     programs: all.slice(programOffset, programOffset + 30).map(id => ({ id, name: `Fixture Club ${id}` })),
-                    suppressions: all.slice(suppressionOffset, suppressionOffset + 30).map(id => ({ id, player_api_id: 1000 + id })) }
+                    suppressions: all.slice(suppressionOffset, suppressionOffset + 30).map(id => ({ id, player_api_id: 1000 + id, player_name: `Fixture Player ${id}` })) }
             }
             return { ...empty, open_count: 0, overdue_count: 0, active_suppressions: 35, hidden_programs: 35 }
         })
@@ -246,7 +246,7 @@ for (const width of [1440, 390]) {
         await expect(players).toContainText('35 total')
         await expect(clubs).toContainText('35 total')
         await players.getByRole('button', { name: 'Next', exact: true }).click()
-        await expect(players.getByText('Player 1035', { exact: true })).toBeVisible()
+        await expect(players.getByText('Fixture Player 35', { exact: true })).toBeVisible()
         await expect(players.getByRole('button', { name: 'Next', exact: true })).toBeDisabled()
         await expect(clubs.getByText('Fixture Club 1', { exact: true })).toBeVisible()
         await clubs.getByRole('button', { name: 'Next', exact: true }).click()
@@ -442,7 +442,7 @@ for (const width of [1440, 390]) {
         if (dir) await fs.mkdir(dir, { recursive: true })
         const capture = async slug => {
             if (!dir) return
-            await page.evaluate(() => { window.scrollTo(0, 0) })
+            await page.evaluate(() => { globalThis.scrollTo(0, 0) })
             await page.screenshot({ path: `${dir}/${slug}-${width}.png`, fullPage: true, animations: 'disabled' })
         }
         const evidence = []
@@ -456,7 +456,7 @@ for (const width of [1440, 390]) {
             const main = page.locator('main').last()
             await expect(main).not.toContainText('Could not load this view.')
             await expect(main).not.toContainText('internal error')
-            expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+            expect(await page.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth)).toBe(true)
             const text = await main.innerText()
             evidence.push({ route, width, text })
             const slug = route.replace('?tab=', '-')
