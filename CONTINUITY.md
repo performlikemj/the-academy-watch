@@ -32,6 +32,9 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
 
 ## State
 
+- **Now (B3XR):** Pure PR1126 refresh of reviewed ca36e869 onto main66e85b2e; both admin imports retained in three conflicts, both histories retained. Identity proof, final-head gates/browser/screenshots, push/CI and cleanup receipts: `~/codex-runs/aw-redesign/logs/B3XR.identity.md` and `B3XR.final.md`. No new product behavior.
+
+- **Now (B3XF1):** PR1126 review-duel fix round: O1 queue parity, X1 phone wrapping, O2 id fallback, O3 honest duplicate-queue note; O4 rollout documentation. Main eddba4ac merged; all19 queue comparisons covered, targeted backend28/browser5 pass; final gates and ready delivery tracked in `ledgers/CONTINUITY_b3x.md` and external `logs/B3XF1.final.md`. No migration/dependency change.
 - **PC player card (2026-10-02):** player page read view rebuilt (hero, facts strip, season block, one line per match) on `feat/player-card`; match merge + totals live in `services/match_lines.py` behind `GET /players/<id>/matches?view=lines`; scout desk has a Cards view. No migration, flags or visibility change. Ledger `ledgers/CONTINUITY_player-card.md`; PR open, review duel next.
 
 - **UXM2F4 (2026-10-02):** five RUXM2V3 Coach’s-brief fixes implemented at source2dfdf6d6 plus final JSON-format correction; main ee16572f merged preserving B3/UXM1. Targeted109/worker→UI3/PG17/one Playwright39 pass;12 inspected shots; no migration/dependencies. Final-head cached gates, delivery SHA and completion state authoritative in `~/codex-runs/aw-redesign/logs/UXM2F4.final.md`; draft #1123, no merge. See `ledgers/CONTINUITY_uxm2.md`.

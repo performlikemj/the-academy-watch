@@ -1,3 +1,4 @@
+import { useControlTab } from '@/components/admin/B3Control'
 import { formatDisplayDate } from '@/lib/display-date'
 import { useEffect, useState } from 'react'
 import { APIService } from '@/lib/api'
@@ -388,7 +389,7 @@ function ReportsTab({ setMessage }) {
                                                     <Badge variant="secondary">{title(target.content_type || report.subject_type)}</Badge>
                                                 </div>
                                                 <p className="text-sm font-medium text-foreground">
-                                                    Target {target.id || report.subject_id || '—'}
+                                                    {target.name || `Target ${target.id || report.subject_id || '—'}`}
                                                 </p>
                                                 {target.excerpt ? (
                                                     <blockquote className="border-l-2 border-primary/40 pl-3 text-sm text-muted-foreground">“{target.excerpt}”</blockquote>
@@ -713,7 +714,7 @@ function ContactOversightTab({ setMessage }) {
 
 export function AdminTrust() {
     const [message, setMessage] = useState(null)
-    const [tab, setTab] = useState('verifications')
+    const [tab, setTab] = useControlTab('admin_safety', ['verifications', 'reports', 'contact'], 'verifications')
 
     return (
         <div className="space-y-6">

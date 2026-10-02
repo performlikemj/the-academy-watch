@@ -1,3 +1,4 @@
+import { useControlTab } from '@/components/admin/B3Control'
 import { formatDisplayDate } from '@/lib/display-date'
 import { ShowcasePhoto } from '@/components/ShowcasePhoto'
 import { useState, useEffect, useCallback, useMemo } from 'react'
@@ -221,8 +222,7 @@ function ClaimsTab({ setMessage }) {
                                             </Badge>
                                             <Badge variant="secondary">{RELATIONSHIP_LABELS[claim.relationship_type] || claim.relationship_type}</Badge>
                                             <Badge variant="outline">
-                                                {claim.player_name ? claim.player_name : `Player #${claim.player_api_id}`}
-                                                {claim.player_name ? ` · #${claim.player_api_id}` : ''}
+                                                {claim.subject_label || (claim.player_name ? `${claim.player_name} · #${claim.player_api_id}` : `Player #${claim.player_api_id}`)}
                                             </Badge>
                                         </div>
                                         <p className="text-sm font-medium text-foreground">{claimant}</p>
@@ -1232,7 +1232,7 @@ function RostersTab({ setMessage }) {
 
 export function AdminShowcase() {
     const [message, setMessage] = useState(null)
-    const [tab, setTab] = useState('claims')
+    const [tab, setTab] = useControlTab('admin_people', ['claims', 'profiles', 'rosters', 'media', 'local-players'], 'claims')
 
     return (
         <div className="space-y-6">

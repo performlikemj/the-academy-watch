@@ -357,18 +357,8 @@ def _hide(case, actor, reason):
 def _restore(case, actor, reason):
     if not (case.held_program_id or case.owned_suppression_id) and case_hide_intent(case):
         # Withdraw only this non-owner case intent; the physical hold stays.
-        subject = _player_id(case)
-        for owner in SafeguardingCase.query.filter(
-            sa.or_(SafeguardingCase.held_program_id.is_not(None), SafeguardingCase.owned_suppression_id.is_not(None))
-        ):
-            try:
-                same = _target_lock_id(owner.target_type, owner.target_id) == _target_lock_id(
-                    case.target_type, case.target_id
-                )
-            except ValueError:
-                same = False
-            if same:
-                return
+        if case_hidden(case):
+            return
         raise ValueError("This case does not own a hold; use the original moderation tool")
     if _other_hide_cases(case):
         raise ValueError("Another case still requires this target hidden, including closed cases with retained holds")
@@ -578,6 +568,15 @@ def sync_source_case(source, actor, reason, *, exclude_case_id=None):
         query = query.filter(SafeguardingCase.id != exclude_case_id)
     for case in query.order_by(SafeguardingCase.id).populate_existing().with_for_update():
         closed = source.status in {"resolved", "dismissed", "lifted", "rejected"}
+        if not report and closed and case.report_id is not None:
+            # Lifting a physical hold does not decide a report, even when that
+            # report generated the suppression. Retire only its hide intent.
+            case.owned_suppression_id = None
+            case.version += 1
+            db.session.add(
+                SafeguardingCaseEvent(case_id=case.id, action="source_lifted", actor_email=actor, reason=reason)
+            )
+            continue
         acted = source.resolved_at if report else source.decided_at
         case.first_action_at = case.first_action_at or acted or now()
         if closed:
