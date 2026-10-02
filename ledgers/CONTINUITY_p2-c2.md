@@ -145,3 +145,9 @@
 - Candidate51cd6b82 local4gates/42lane browserPASS, pushed. CI UXB18 failures were page-global alert assertions conflicting with the required highlight alert; scoped only those fixture assertions to opportunity/profile errors, targeted18PASS. Runtime unchanged.
 - CI contact173PASS, then inherited main GOL loader fixture tests/test_gol_dataframes.py:66 expectedp2c1/actualp2c2. Byte-identical to main74d3136b/58ccb8c6; backend/tests/workflow/migrations remain untouched per frontend-only scope. Separate compatibility issue recorded externally; final head/gates/browser/push/25minCI follow.
 - Final selector excludes only the independent highlight notice, preserving unavailable/other alert checks; targeted20PASS. Candidate332 backend full5374PASS/1754skip/1C1 Date-header boundary flake; isolated exact case1PASS. No backend changes. Final frontend-only source/fixture state frozen; exact final gates/browser/push/CI in external hand-back.
+
+## C2F8 — GOL loader migration head (2026-10-03)
+- Lead BUS ANSWER 08:11 authorizes only replacing the GOL test p2c1 literal with the current Alembic script head; fixture and CI workflow remain unchanged.
+- Assertion uses ScriptDirectory over the backend migrations directory, preserving the single-head check on C2 p2c2 and future migration branches.
+- Done: CI-equivalent fixture bootstrap + Flask migration upgrade on disposable localhost aw_sbxf2 reached p2c2; tests/test_gol_dataframes.py passed 2/2. Database dropped and absence verified (count=0).
+- Next: final-head backend-full/backend-lint cached gates, push, bounded 25-minute CI watch; exact SHA/results and diff stat in external logs/C2F8.final.md. No merge.
