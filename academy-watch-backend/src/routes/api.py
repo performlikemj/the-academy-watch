@@ -1773,59 +1773,6 @@ def public_player_search():
             )
             if len(results) >= 8:
                 break
-        from src.utils.scout_discovery import local_players_enabled
-
-        # The OFF path returns main's exact provider payload/order/query work.
-        from src.services.club_player_publication import enabled
-
-        if not local_players_enabled() and not enabled():
-            return jsonify(results)
-
-        if local_players_enabled():
-            from unicodedata import combining, normalize
-
-            from src.models.showcase import LocalPlayer
-
-            query = LocalPlayer.query.filter(
-                LocalPlayer.display_name.ilike(f"%{q}%"),
-                LocalPlayer.status == "approved",
-                LocalPlayer.provenance != "club",
-                LocalPlayer.api_player_id < 0,
-                LocalPlayer.merged_into_local_player_id.is_(None),
-            )
-            # Load narrow evidence for every matching ID before ranking/capping.
-            # Hidden candidates cannot exhaust a pre-eligibility LIMIT. Fetch only
-            # public display columns, rather than full profiles, for the ON merge.
-            community = (
-                filter_public_adult_query(query, LocalPlayer.api_player_id)
-                .with_entities(
-                    LocalPlayer.api_player_id, LocalPlayer.display_name, LocalPlayer.position, LocalPlayer.club_name
-                )
-                .all()
-            )
-
-            def name_key(name):
-                return "".join(char for char in normalize("NFKD", name.casefold()) if not combining(char))
-
-            # Retain the providers' database order, inserting eligible community
-            # rows with an accent-insensitive key and a stable signed-ID tie break.
-            for player in sorted(community, key=lambda p: (name_key(p.display_name), -p.api_player_id))[:8]:
-                if player.api_player_id in seen:
-                    continue
-                seen.add(player.api_player_id)
-                row = {
-                    "player_api_id": player.api_player_id,
-                    "player_name": player.display_name,
-                    "photo_url": None,
-                    "position": player.position,
-                    "team_name": None,
-                    "current_club_name": player.club_name,
-                }
-                index = next(
-                    (i for i, item in enumerate(results) if name_key(item["player_name"]) > name_key(player.display_name)),
-                    len(results),
-                )
-                results.insert(index, row)
         # --- p2-c1 begin ---
         from src.services.club_player_publication import enabled, local_publication_filter
 
@@ -1856,6 +1803,56 @@ def public_player_search():
                 if -p.id not in seen
             )
         # --- p2-c1 end ---
+        from src.utils.scout_discovery import local_players_enabled
+
+        # The OFF path returns main's exact provider payload/order/query work.
+        if not local_players_enabled():
+            return jsonify(results)
+
+        from unicodedata import combining, normalize
+
+        from src.models.showcase import LocalPlayer
+
+        query = LocalPlayer.query.filter(
+            LocalPlayer.display_name.ilike(f"%{q}%"),
+            LocalPlayer.status == "approved",
+            LocalPlayer.provenance != "club",
+            LocalPlayer.api_player_id < 0,
+            LocalPlayer.merged_into_local_player_id.is_(None),
+        )
+        # Load narrow evidence for every matching ID before ranking/capping.
+        # Hidden candidates cannot exhaust a pre-eligibility LIMIT. Fetch only
+        # public display columns, rather than full profiles, for the ON merge.
+        community = (
+            filter_public_adult_query(query, LocalPlayer.api_player_id)
+            .with_entities(
+                LocalPlayer.api_player_id, LocalPlayer.display_name, LocalPlayer.position, LocalPlayer.club_name
+            )
+            .all()
+        )
+
+        def name_key(name):
+            return "".join(char for char in normalize("NFKD", name.casefold()) if not combining(char))
+
+        # Retain the providers' database order, inserting eligible community
+        # rows with an accent-insensitive key and a stable signed-ID tie break.
+        for player in sorted(community, key=lambda p: (name_key(p.display_name), -p.api_player_id))[:8]:
+            if player.api_player_id in seen:
+                continue
+            seen.add(player.api_player_id)
+            row = {
+                "player_api_id": player.api_player_id,
+                "player_name": player.display_name,
+                "photo_url": None,
+                "position": player.position,
+                "team_name": None,
+                "current_club_name": player.club_name,
+            }
+            index = next(
+                (i for i, item in enumerate(results) if name_key(item["player_name"]) > name_key(player.display_name)),
+                len(results),
+            )
+            results.insert(index, row)
         return jsonify(results[:8])
     except Exception as e:
         return jsonify(_safe_error_payload(e, "Player search failed")), 500
@@ -13315,11 +13312,6 @@ def features():
     # Dark club staff access: the key is absent (payload unchanged) until the flag is on.
     if os.getenv("CLUB_STAFF_ACCESS_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}:
         flags["club_staff_access"] = True
-    # --- p2-b3 begin ---
-    for name in ("programs", "people", "safety", "business"):
-        if os.getenv(f"ADMIN_{name.upper()}_ENABLED", "").strip().lower() in {"1", "true", "yes", "on"}:
-            flags[f"admin_{name}"] = True
-    # --- p2-b3 end ---
     # --- p2-b1 begin --- dark club directory: key absent until the flag is on
     if os.getenv("CLUB_DIRECTORY_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}:
         flags["club_directory"] = True

@@ -531,11 +531,6 @@ def build_account_export(user: UserAccount) -> dict:
     from src.services.foundation_account import export_foundation_rows
 
     foundation_export = export_foundation_rows(user, schema)
-    # --- p2-b3 begin ---
-    from src.services.admin_control_account import export_admin_control
-
-    foundation_export.update(export_admin_control(user, schema))
-    # --- p2-b3 end ---
     # --- p2-b2 begin ---
     from src.services.opportunities_account import export_opportunities
 

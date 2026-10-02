@@ -72,12 +72,6 @@ from src.routes.trust import trust_bp
 from src.routes.video import video_bp
 
 # isort: split
-# --- p2-b3 begin ---
-from src.routes.admin_control import admin_control_bp
-from src.services.admin_control_safety import register_safety
-
-register_safety()
-# --- p2-b3 end ---
 # --- p2-b2 begin ---
 import src.models.opportunities  # noqa: E402, F401
 from src.routes.opportunities import opportunities_bp
