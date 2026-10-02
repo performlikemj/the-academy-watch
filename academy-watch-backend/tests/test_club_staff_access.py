@@ -340,7 +340,6 @@ def test_scoped_roles_denied_manager_routes(env, client, role):
     base = env["base"]
     denied = [
         ("post", "roster", {"player_api_id": 7001}),
-        ("put", f"roster/{env['m1']}/brief", {"body": "x"}),
         ("put", "system-brief", {"body": "x"}),
         ("delete", f"roster/{env['m1']}", None),
         ("patch", f"roster/{env['m1']}", {"shirt_number": 4}),

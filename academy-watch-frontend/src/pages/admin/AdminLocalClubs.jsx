@@ -1,4 +1,5 @@
 import { useControlTab } from '@/components/admin/B3Control'
+import { formatDisplayDate } from '@/lib/display-date'
 import { useEffect, useMemo, useState } from 'react'
 import { APIService } from '@/lib/api'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -100,14 +101,7 @@ function formatLabel(value) {
 }
 
 function formatDate(value) {
-    if (!value) return null
-    const date = new Date(value)
-    if (Number.isNaN(date.getTime())) return null
-    return date.toLocaleDateString(undefined, {
-        day: 'numeric',
-        month: 'short',
-        year: 'numeric',
-    })
+    return formatDisplayDate(value, { fallback: null })
 }
 
 function locationLabel(club) {

@@ -2,9 +2,10 @@ import { useCallback, useEffect, useState } from 'react';
 import { APIService } from '@/lib/api';
 import { INVITE_ROLES, ROLE_LABELS, SCOPED_ROLES, can, scopeBody, scopeFromEntry, scopeValid, squadScopeLabel, toggleScopeSquad } from '@/lib/staff-access';
 import { initials } from './presentation';
+import { formatDisplayDate } from '@/lib/display-date';
 import './staff-access.css';
 
-const shortDate = value => value ? new Date(value).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) : '';
+const shortDate = value => formatDisplayDate(value, { fallback: '' });
 const article = role => (/^[aeiou]/i.test(role) ? 'an ' : 'a ') + role.toLowerCase();
 const ACTIVITY = {
   invite_sent: 'Invite sent',
@@ -84,7 +85,7 @@ export function StaffAccess({ programId, squads, access, onAccessDenied }) {
   // The marks are this person's own resolved permissions from the server, not a per-role table.
   const marks = selected?.kind === 'person' && Array.isArray(selected.permissions) ? selected.permissions : data.matrix.rows.map(() => false);
   const invitedManager = selected?.kind === 'person' && selected.role === 'manager' && !selected.verified;
-  const roleName = selected?.kind === 'invite' ? 'a pending invite' : article(ROLE_LABELS[matrixRole] || 'member');
+  const roleName = selected?.kind === 'invite' ? (selected.status === 'expired' ? 'an expired invite' : 'a pending invite') : article(ROLE_LABELS[matrixRole] || 'member');
 
   // Refuses a scoped role with no squad ticked before anything is sent.
   const scopeReady = (role, scope) => {
@@ -127,15 +128,20 @@ export function StaffAccess({ programId, squads, access, onAccessDenied }) {
         {people.map(row => <button type="button" key={row.key} className="sa-row" aria-pressed={selected?.key === row.key} onClick={() => pick(row)}>
           <span className="sa-person">
             <span className={`sa-avatar ${row.kind === 'invite' ? 'pending' : ''}`} aria-hidden="true">{row.kind === 'invite' ? '··' : initials(row.display_name || row.email || '?')}</span>
-            <span><strong>{row.kind === 'invite' ? row.email : row.display_name || row.email}</strong><small>{row.kind === 'invite' ? `Invite sent ${shortDate(row.created_at)} · expires ${shortDate(row.expires_at)}` : row.verified ? 'Verified club official' : row.email}</small></span>
+            <span><strong>{row.kind === 'invite' ? row.email : row.display_name || row.email}</strong><small>{row.kind === 'invite' ? `Invite sent ${shortDate(row.created_at)} · ${row.status === 'expired' ? 'expired' : 'expires'} ${shortDate(row.expires_at)}` : row.verified ? 'Verified club official' : row.email}</small></span>
           </span>
-          <span className={`sa-role ${row.kind === 'invite' ? 'pending' : ''}`}>{row.kind === 'invite' ? `Pending · ${ROLE_LABELS[row.role]}` : ROLE_LABELS[row.role]}</span>
+          <span className={`sa-role ${row.kind === 'invite' ? 'pending' : ''}`}>{row.kind === 'invite' ? `${row.status === 'expired' ? 'Expired' : 'Pending'} · ${ROLE_LABELS[row.role]}` : ROLE_LABELS[row.role]}</span>
           <span className="sa-squads">{squadScopeLabel(row, squads)}</span>
         </button>)}
         {people.length === 0 && <p className="sa-quiet">No one has access yet.</p>}
 
         {manage && selected?.kind === 'invite' && <div className="sa-editor">
           <p>Invitation for <strong>{selected.email}</strong> as {ROLE_LABELS[selected.role].toLowerCase()}.</p>
+          {selected.status === 'expired' && <button type="button" className="sa-save" disabled={busy} onClick={() => call('staff-invites', 'POST', { email: selected.email, role: selected.role, ...scopeBody(selected.role, scopeFromEntry(selected)) }, out => {
+            setPicked(null);
+            setNoticeWarn(out?.email_sent === false);
+            setNotice(out?.email_sent === false ? `Invite saved for ${selected.email}, but the email didn’t send. Try again later.` : `Invite sent to ${selected.email}. The previous link no longer works.`);
+          })}>Send again</button>}
           <button type="button" className="sa-danger" disabled={busy} onClick={() => call(`staff-invites/${selected.id}/revoke`, 'POST', null, () => { setPicked(null); setNotice('Invite withdrawn. The link no longer works.'); })}>Withdraw invite</button>
         </div>}
         {manage && selected?.kind === 'person' && selected.editable && edit && <form className="sa-editor" onSubmit={e => {

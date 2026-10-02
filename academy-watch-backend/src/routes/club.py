@@ -13,8 +13,6 @@ import json
 import logging
 import math
 import os
-import re
-import unicodedata
 import uuid
 from datetime import UTC, date, datetime, timedelta
 from functools import wraps
@@ -54,6 +52,7 @@ from src.models.showcase import LocalPlayer, local_player_is_minor
 from src.models.tracked_player import TrackedPlayer
 from src.models.video import VideoMatch, VideoPlayerReport, VideoRosterEntry, VideoTracklet
 from src.services import club_directory, season_rollup_service, video_retention, video_storage
+from src.services.brief_names import brief_name_token_matches, name_tokens, stored_name_tokens
 from src.services.capture_meta import merge_preflight, strip_server_owned
 from src.services.club_access import (
     current_access,
@@ -79,7 +78,7 @@ from src.services.player_subject import PlayerSubject, resolve_player_subject
 from src.services.player_suppression import is_local_player_suppressed, is_player_suppressed
 from src.services.public_player_subject import resolve_public_adult_subject
 from src.utils.academy_window import age_from_birth_date, current_stats_season
-from src.utils.sanitize import is_safe_https_url, sanitize_plain_text
+from src.utils.sanitize import display_plain_text, is_safe_https_url, sanitize_plain_text
 
 club_bp = Blueprint("club", __name__)
 logger = logging.getLogger(__name__)
@@ -93,7 +92,6 @@ MAX_CAPTURE_META_BYTES = 8 * 1024
 MAX_CAPTURE_META_DEPTH = 4
 MAX_CAPTURE_META_KEYS = 50
 MAX_TIMELINE_SECONDS = 6 * 60 * 60
-BRIEF_NAME_TOKEN_RE = re.compile(r"[^\W\d_]{2,}")
 CLUB_EDITABLE_MATCH_STATUSES = {"created", "uploaded"}
 RESULT_COUNT_FIELDS = ("goals", "assists", "yellows", "reds")
 RESULT_OPTIONAL_COUNT_FIELDS = ("saves", "goals_conceded")
@@ -628,56 +626,39 @@ def _brief_dict(body: str | None, updated_at: datetime | None) -> dict:
     }
 
 
+BRIEF_NAME_REFUSAL = "Briefs describe behaviours, not people — remove player names."
+
+
+class BriefNameError(ValueError):
+    pass
+
+
 def _brief_name_tokens(program: ClubProgram) -> dict[str, str]:
+    scope = scoped_squad_ids()
+    if scope is None:
+        return stored_name_tokens(program.id)
+    # The scoped save answer depends exclusively on readable identities. Hidden
+    # aliases are handled by the full inventory at the worker boundary instead.
     names = []
-    for member in program.roster_members:
+    readable_members = set()
+    members = ClubRosterMember.query.filter(
+        ClubRosterMember.program_id == program.id, ClubRosterMember.squad_id.in_(scope)
+    ).all()
+    for member in members:
         subject, _ = _member_subject(member)
-        display_name = subject.get("display_name") if subject else None
-        if display_name:
-            names.append(display_name)
+        if subject:
+            names.append(subject["display_name"])
+            readable_members.add(member.id)
+    matches = VideoMatch.query.filter(VideoMatch.club_program_id == program.id, VideoMatch.squad_id.in_(scope)).all()
+    readable_matches = [match.id for match in matches if match_in_scope(match, require_bytes=True)]
     names.extend(
-        player_name
-        for (player_name,) in db.session.query(VideoRosterEntry.player_name)
-        .join(VideoMatch, VideoRosterEntry.video_match_id == VideoMatch.id)
-        .filter(VideoMatch.club_program_id == program.id)
-        .all()
-        if player_name
+        name
+        for (name,) in db.session.query(VideoRosterEntry.player_name).filter(
+            VideoRosterEntry.video_match_id.in_(readable_matches),
+            VideoRosterEntry.club_roster_member_id.in_(readable_members),
+        )
     )
-    tokens = {}
-    for name in names:
-        for token in BRIEF_NAME_TOKEN_RE.findall(name):
-            tokens.setdefault(token.casefold(), token)
-    return tokens
-
-
-def _fold_brief_name(value: str) -> str:
-    return "".join(
-        character for character in unicodedata.normalize("NFKD", value) if not unicodedata.combining(character)
-    ).casefold()
-
-
-def _is_latin_word_character(character: str) -> bool:
-    return character == "_" or character.isdigit() or unicodedata.name(character, "").startswith("LATIN ")
-
-
-def _brief_name_token_matches(token: str, line: str) -> bool:
-    folded_token = _fold_brief_name(token)
-    folded_line = _fold_brief_name(line)
-    contains_non_latin_letter = any(
-        character.isalpha() and not unicodedata.name(character, "").startswith("LATIN ") for character in token
-    )
-    if contains_non_latin_letter:
-        return folded_token in folded_line
-
-    start = 0
-    while (match_start := folded_line.find(folded_token, start)) != -1:
-        match_end = match_start + len(folded_token)
-        left_is_word = match_start > 0 and _is_latin_word_character(folded_line[match_start - 1])
-        right_is_word = match_end < len(folded_line) and _is_latin_word_character(folded_line[match_end])
-        if not left_is_word and not right_is_word:
-            return True
-        start = match_start + 1
-    return False
+    return name_tokens(names)
 
 
 def _clean_brief(body, program: ClubProgram) -> str | None:
@@ -693,14 +674,12 @@ def _clean_brief(body, program: ClubProgram) -> str | None:
         raise ValueError(f"Brief must contain at most {MAX_BRIEF_LINES} non-empty lines")
 
     name_tokens = _brief_name_tokens(program)
-    for line_number, line in lines:
+    for _line_number, line in lines:
         if len(line) > MAX_BRIEF_LINE_CHARS:
             raise ValueError(f"Brief lines must be at most {MAX_BRIEF_LINE_CHARS} characters")
         for token in name_tokens.values():
-            if _brief_name_token_matches(token, line):
-                raise ValueError(
-                    f'Briefs describe behaviours, not people — remove the name "{token}" from line {line_number}.'
-                )
+            if brief_name_token_matches(token, line):
+                raise BriefNameError(BRIEF_NAME_REFUSAL)
     return "\n".join(line for _line_number, line in lines)
 
 
@@ -1121,15 +1100,45 @@ def add_club_roster_member(program_id: int):
         return jsonify({"error": "Player is already on this club roster"}), 409
 
 
+def _brief_rate_limit_key():
+    return f"brief-account:{g.user_id}"
+
+
+def _brief_rate_rejected(limit):
+    response = jsonify(error="Too many brief updates. Try again later.")
+    response.status_code = 429
+    response.headers["Cache-Control"] = "private, no-store"
+    response.headers["Retry-After"] = str(max(1, math.ceil(limit.reset_at - datetime.now(UTC).timestamp())))
+    return response
+
+
+_brief_write_limit = limiter.shared_limit(
+    "20 per hour",
+    scope="club-roster-brief",
+    key_func=_brief_rate_limit_key,
+    on_breach=_brief_rate_rejected,
+    deduct_when=lambda response: response.status_code == 422,
+)
+
+
 @club_bp.route("/club/<int:program_id>/roster/<int:member_id>/brief", methods=["PUT"])
-@require_club_permission("players.manage")
+@require_club_permission(("players.manage", "feedback"), any_of=True)
 def set_club_roster_member_brief(program_id: int, member_id: int):
     member = ClubRosterMember.query.filter_by(id=member_id, program_id=program_id).first()
-    if member is None:
+    if (
+        member is None
+        or not member_in_scope(member)
+        or (scoped_squad_ids() is not None and _member_subject(member)[0] is None)
+    ):
         return jsonify({"error": "Member not found"}), 404
     program = db.session.get(ClubProgram, program_id)
     try:
         body = _clean_brief(_payload().get("body"), program)
+    except BriefNameError as exc:
+        # Enter the account budget only after authorized validation proves this
+        # is a name refusal. Exhaustion must not prevent clean/malformed saves.
+        with _brief_write_limit:
+            return jsonify(error=str(exc)), 422
     except ValueError as exc:
         return _bad_request(str(exc))
 
@@ -1137,7 +1146,7 @@ def set_club_roster_member_brief(program_id: int, member_id: int):
     member.brief_updated_at = datetime.now(UTC) if body is not None else None
     member.brief_updated_by_user_id = g.user_id if body is not None else None
     db.session.commit()
-    return jsonify({"member": _member_dict(member)})
+    return jsonify({"member": member_view(_member_dict(member))})
 
 
 @club_bp.route("/club/<int:program_id>/system-brief", methods=["PUT"])
@@ -1146,6 +1155,8 @@ def set_club_system_brief(program_id: int):
     program = db.session.get(ClubProgram, program_id)
     try:
         body = _clean_brief(_payload().get("body"), program)
+    except BriefNameError as exc:
+        return jsonify(error=str(exc)), 422
     except ValueError as exc:
         return _bad_request(str(exc))
 
@@ -1544,6 +1555,9 @@ def _stable_result_payloads(rows: list[ClubResult]) -> list[dict]:
             if total is not None:
                 stats[str(entry.player_api_id)] = total
         header = row.manager_dict()
+        # Old rows may contain HTML entities from the storage sanitizer; JSON carries plain text.
+        for field in ("opponent", "competition"):
+            header[field] = display_plain_text(header[field])
         video = videos.get((row.program_id, row.video_match_id))
         header["video_available"] = bool(
             video
@@ -1953,7 +1967,7 @@ def list_club_matches(program_id: int):
     scope = scoped_squad_ids()
     if scope is not None:
         query = query.filter(VideoMatch.squad_id.in_(sorted(scope)))
-    rows = query.order_by(VideoMatch.created_at.desc(), VideoMatch.id.desc()).all()
+    rows = query.order_by(VideoMatch.match_date.desc().nullslast(), VideoMatch.id.desc()).all()
     if scope is not None:
         rows = [match for match in rows if match_in_scope(match)]
     matches = []
@@ -2329,6 +2343,17 @@ def club_report_payload(match):
 
 
 @club_bp.after_request
+def _scoped_analysis_response(response):
+    # Central projection covers detail/list/writes, report (direct to_dict),
+    # reels and nested profile adapters. Whole-club/flag-off readers retain checks.
+    if response.is_json and scoped_squad_ids() is not None:
+        from src.services.brief_names import scoped_analysis_payload
+
+        response.set_data(jsonify(scoped_analysis_payload(response.get_json())).get_data())
+    return response
+
+
+@club_bp.after_request
 def _private_invitation_response(response):
     if "/invitations" in request.path or "/results" in request.path:
         response.headers["Cache-Control"] = "private, no-store"
@@ -2403,7 +2428,12 @@ def _invitation_list_response(**scope):
         limit = int(request.args.get("limit", "20"))
         signed_id = int(request.args["player_api_id"]) if "player_api_id" in request.args else None
         result = list_invitations(
-            db.session, **scope, player_api_id=signed_id, limit=limit, before=request.args.get("before")
+            db.session,
+            **scope,
+            player_api_id=signed_id,
+            limit=limit,
+            before=request.args.get("before"),
+            include_player_names=scope.get("program_id") is not None,
         )
         return jsonify(result)
     except (ValueError, InvitationError) as error:

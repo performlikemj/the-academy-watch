@@ -1,4 +1,5 @@
 import { useControlTab } from '@/components/admin/B3Control'
+import { formatDisplayDate } from '@/lib/display-date'
 import { ShowcasePhoto } from '@/components/ShowcasePhoto'
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Link } from 'react-router-dom'
@@ -100,10 +101,7 @@ const AVAILABILITY_LABELS = {
 }
 
 function formatDate(value) {
-    if (!value) return null
-    const d = new Date(value)
-    if (Number.isNaN(d.getTime())) return null
-    return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+    return formatDisplayDate(value, { fallback: null })
 }
 
 function formatBytes(value) {
