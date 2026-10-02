@@ -1,5 +1,5 @@
 import { createFeatureCache } from './feature-cache.js'
-import { loadFeatures } from './features.js'
+import { loadFeatures, peekFeatures } from './features.js'
 import {
     normalizeNewsletterIds,
     parseNewsletterId,
@@ -266,7 +266,7 @@ export class APIService {
     }
 
     static async getFeatures() {
-        return loadFeatures(() => this.request('/features'))
+        return loadFeatures(fetchFeatures)
     }
 
     static getFeaturesLive() { return sharedFeatures() }
@@ -3456,4 +3456,17 @@ export class APIService {
     }
 }
 
-const sharedFeatures = createFeatureCache(() => APIService.request('/features'))
+let lastFeaturesFetchedAt = null
+
+async function fetchFeatures() {
+    const flags = await APIService.request('/features')
+    lastFeaturesFetchedAt = Date.now()
+    return flags
+}
+
+const sharedFeatures = createFeatureCache(() => {
+    const pageFeatures = peekFeatures()
+    if (pageFeatures === null) return loadFeatures(fetchFeatures)
+    if (lastFeaturesFetchedAt !== null && Date.now() - lastFeaturesFetchedAt < 15000) return pageFeatures
+    return fetchFeatures()
+})

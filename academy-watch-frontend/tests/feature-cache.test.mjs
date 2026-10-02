@@ -23,29 +23,87 @@ test('failed feature requests can recover and are not cached', async () => {
 })
 
 
-test('API feature bootstrap stays page-session cached while live flags refresh after 15 seconds', async (t) => {
-  let calls = 0, timestamp = 0
+async function featureReaders(t, name) {
+  let timestamp = 0
   const originalNow = Date.now
   Date.now = () => timestamp
   t.after(() => { Date.now = originalNow })
-  const { APIService } = await import('../src/lib/api.js?c1-live-features')
-  const { resetFeatures } = await import('../src/lib/features.js')
+  const { APIService } = await import(`../src/lib/api.js?${name}`)
+  const { resetFeatures, peekFeatures } = await import('../src/lib/features.js')
   resetFeatures()
   t.after(resetFeatures)
-  t.mock.method(APIService, 'request', async (path) => {
-    assert.equal(path, '/features')
-    return { club_player_publication: ++calls === 1 }
+  return { APIService, peekFeatures, advanceTo: value => { timestamp = value } }
+}
+
+for (const first of ['getFeatures', 'getFeaturesLive']) {
+  test(`API feature readers share the first in-flight request with ${first} first`, async (t) => {
+    const { APIService } = await featureReaders(t, `c1-shared-${first}`)
+    let resolveFetch
+    const request = t.mock.method(APIService, 'request', path => {
+      assert.equal(path, '/features')
+      return new Promise(resolve => { resolveFetch = resolve })
+    })
+    const second = first === 'getFeatures' ? 'getFeaturesLive' : 'getFeatures'
+    const reads = [APIService[first](), APIService[second]()]
+    await new Promise(resolve => setImmediate(resolve))
+    assert.equal(request.mock.callCount(), 1)
+    const flags = { club_player_publication: false }
+    resolveFetch(flags)
+    assert.deepEqual(await Promise.all(reads), [flags, flags])
   })
+}
+
+test('live features reuse a fresh page-session value without another request', async (t) => {
+  const { APIService, advanceTo } = await featureReaders(t, 'c1-fresh-page')
+  const request = t.mock.method(APIService, 'request', async () => ({ club_player_publication: true }))
   const bootstrap = await APIService.getFeatures()
-  const live = await APIService.getFeaturesLive()
-  assert.equal(calls, 2)
-  timestamp = 14999
-  assert.deepEqual(await APIService.getFeaturesLive(), live)
-  assert.deepEqual(await APIService.getFeatures(), bootstrap)
-  assert.equal(calls, 2)
-  timestamp = 15001
-  await APIService.getFeaturesLive()
-  assert.equal(calls, 3)
-  assert.deepEqual(await APIService.getFeatures(), bootstrap)
-  assert.equal(calls, 3)
+  advanceTo(14999)
+  assert.strictEqual(await APIService.getFeaturesLive(), bootstrap)
+  assert.equal(request.mock.callCount(), 1)
+})
+
+test('live features fetch a stale page-session value while bootstrap remains cached', async (t) => {
+  const { APIService, advanceTo } = await featureReaders(t, 'c1-stale-page')
+  let enabled = true
+  const request = t.mock.method(APIService, 'request', async () => ({ club_player_publication: enabled }))
+  const bootstrap = await APIService.getFeatures()
+  enabled = false
+  advanceTo(15000)
+  assert.deepEqual(await APIService.getFeaturesLive(), { club_player_publication: false })
+  assert.equal(request.mock.callCount(), 2)
+  assert.strictEqual(await APIService.getFeatures(), bootstrap)
+  assert.equal(request.mock.callCount(), 2)
+})
+
+test('publication OFF is observed by the next 30-second live poll', async (t) => {
+  const { APIService, advanceTo } = await featureReaders(t, 'c1-next-poll')
+  let enabled = true
+  const request = t.mock.method(APIService, 'request', async () => ({ club_player_publication: enabled }))
+  const bootstrap = await APIService.getFeatures()
+  assert.deepEqual(await APIService.getFeaturesLive(), bootstrap)
+  enabled = false
+  advanceTo(14999)
+  assert.deepEqual(await APIService.getFeaturesLive(), bootstrap)
+  assert.equal(request.mock.callCount(), 1)
+  advanceTo(30000)
+  assert.deepEqual(await APIService.getFeaturesLive(), { club_player_publication: false })
+  assert.equal(request.mock.callCount(), 2)
+  assert.strictEqual(await APIService.getFeatures(), bootstrap)
+})
+
+test('failed shared bootstrap remains unknown and retries with one shared request', async (t) => {
+  const { APIService, peekFeatures } = await featureReaders(t, 'c1-failed-shared')
+  let fail = true
+  const request = t.mock.method(APIService, 'request', async () => {
+    if (fail) throw new Error('offline')
+    return { club_player_publication: false }
+  })
+  const failed = await Promise.allSettled([APIService.getFeaturesLive(), APIService.getFeatures()])
+  assert.deepEqual(failed.map(result => result.status), ['rejected', 'rejected'])
+  assert.equal(peekFeatures(), null)
+  assert.equal(request.mock.callCount(), 1)
+  fail = false
+  const recovered = await Promise.all([APIService.getFeatures(), APIService.getFeaturesLive()])
+  assert.deepEqual(recovered, [{ club_player_publication: false }, { club_player_publication: false }])
+  assert.equal(request.mock.callCount(), 2)
 })
