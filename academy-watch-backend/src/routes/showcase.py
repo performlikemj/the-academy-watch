@@ -5265,11 +5265,29 @@ def admin_list_claims():
                 return jsonify({"error": f"invalid status; one of {sorted(CLAIM_STATUSES)}"}), 400
             query = query.filter(PlayerProfileClaim.status == status)
         claims = query.order_by(PlayerProfileClaim.created_at.desc(), PlayerProfileClaim.id.desc()).all()
+        from src.routes.admin_control import flag_enabled
+
+        enriched = flag_enabled("ADMIN_PEOPLE_ENABLED")
+        names, emails = {}, {}
+        if enriched:
+            from src.services.admin_control_names import player_names, subject_id
+
+            names = player_names(subject_id(claim) for claim in claims)
+            emails = dict(
+                db.session.query(UserAccount.id, UserAccount.email).filter(
+                    UserAccount.id.in_({claim.user_account_id for claim in claims})
+                )
+            )
         out = []
         for claim in claims:
             payload = _profile_claim_dict(claim)
-            payload["player_name"] = _resolve_claim_player_name(claim)
-            payload["user_email"] = claim.user.email if claim.user else None
+            payload["player_name"] = names.get(subject_id(claim)) if enriched else _resolve_claim_player_name(claim)
+            payload["user_email"] = (
+                emails.get(claim.user_account_id) if enriched else (claim.user.email if claim.user else None)
+            )
+            if enriched:
+                identity = f"Local #{claim.local_player_id}" if claim.local_player_id else f"#{claim.player_api_id}"
+                payload["subject_label"] = f"{payload['player_name'] or 'Player name unavailable'} · {identity}"
             out.append(payload)
         return jsonify({"claims": out})
     except Exception as e:

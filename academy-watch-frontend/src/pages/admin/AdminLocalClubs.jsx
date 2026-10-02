@@ -1,3 +1,4 @@
+import { useControlTab } from '@/components/admin/B3Control'
 import { useEffect, useMemo, useState } from 'react'
 import { APIService } from '@/lib/api'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -922,7 +923,7 @@ function OfficialsTab({ setMessage }) {
 
 export function AdminLocalClubs() {
     const [message, setMessage] = useState(null)
-    const [tab, setTab] = useState('clubs')
+    const [tab, setTab] = useControlTab('admin_people', ['clubs', 'affiliations', 'officials'], 'clubs')
 
     return (
         <div className="space-y-6">

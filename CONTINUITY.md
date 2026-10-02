@@ -32,6 +32,8 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
 
 ## State
 
+- **Now (B3X):** O1–O5 + P13/P14/P15/P16/P26 implemented on fix/admin-control-followup; targeted43 incl3PG and browser11 pass. Final-head gates/draft delivery/cleanup receipts tracked in `ledgers/CONTINUITY_b3x.md` + external `logs/B3X.final.md`. Existing B3 flags; no migration/dependency change.
+
 - **Now (B3F5):** all nine duel-confirmed fixes complete on PR #1115: full flags-OFF4258/101skip/0fail, PG32, Node219, browser17, Ruff/format587, OSV547/lint0err190warn/build. Preapply twice=upgrade/lock contention verified; new CONTRACT hashes on BUS. See ledgers/CONTINUITY_p2-b3.md and logs/B3F5.final.md; review/integration next, no merge.
 
 ### Done

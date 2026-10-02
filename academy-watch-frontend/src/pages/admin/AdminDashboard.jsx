@@ -5,6 +5,7 @@ import { Link } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { AdminPageHeader, BigStat, SectionTitle, textLinkClass } from '@/components/admin/ControlRoom'
 import { APIService } from '@/lib/api'
+import { useControlFlags, useControlData } from '@/components/admin/B3Control'
 import { cn } from '@/lib/utils'
 import { fetchInboxCounts, INBOX_TABS } from './AdminInbox'
 
@@ -311,11 +312,12 @@ function prettyTabLabel(key) {
         .replace(/^\w/, (c) => c.toUpperCase())
 }
 
-function InboxPendingStrip() {
+function InboxPendingStrip({ overview, controlEnabled, flagsReady }) {
     const [counts, setCounts] = useState(null)
     const [failed, setFailed] = useState(false)
 
     useEffect(() => {
+        if (!flagsReady || controlEnabled) return
         let cancelled = false
         const load = async () => {
             try {
@@ -327,7 +329,7 @@ function InboxPendingStrip() {
         }
         load()
         return () => { cancelled = true }
-    }, [])
+    }, [controlEnabled, flagsReady])
 
     const entries = counts && typeof counts === 'object'
         ? Object.entries(counts).filter(([key, v]) => key !== 'total' && typeof v === 'number')
@@ -336,37 +338,42 @@ function InboxPendingStrip() {
         ? counts
         : entries.reduce((sum, [, v]) => sum + v, 0)
 
+    const queues = controlEnabled ? (overview.data?.queues ? [...overview.data.queues].sort((a, b) => Number(b.count > 0) - Number(a.count > 0)) : []) : entries.map(([key, count]) => ({ key, count, label: prettyTabLabel(key), href: `/admin/inbox?tab=${encodeURIComponent(key)}` }))
+    const pending = controlEnabled ? overview.data?.total : total
+    const unavailable = controlEnabled ? !!overview.error : failed
+    const loading = !flagsReady || (controlEnabled ? !overview.data : counts === null)
+
     return (
         <section data-testid="inbox-pending" aria-labelledby="inbox-heading" className="flex flex-col">
             <SectionTitle
                 title={<span id="inbox-heading">Waiting for a human</span>}
-                count={counts !== null && !failed ? `${total} pending` : null}
+                count={!loading && !unavailable ? `${pending} ${controlEnabled ? 'queue items' : 'pending'}` : null}
                 action={(
                     <Link to="/admin/inbox" data-testid="inbox-pending-link" className={cn(textLinkClass, 'hidden sm:inline')}>
                         Open review queue
                     </Link>
                 )}
             />
-            {failed ? (
+            {unavailable ? (
                 <p className="py-5 text-sm text-muted-dark">
-                    Inbox counts unavailable — open the <Link to="/admin/inbox" className="underline">Inbox</Link> directly.
+                    {controlEnabled ? 'Review' : 'Inbox'} counts unavailable — open the <Link to="/admin/inbox" className="underline">Inbox</Link> directly.
                 </p>
-            ) : counts === null ? (
+            ) : loading ? (
                 <div className="flex flex-col gap-3 pt-4">
                     {[0, 1, 2].map((i) => <Skeleton key={i} className="h-14 w-full" />)}
                 </div>
-            ) : entries.length === 0 || total === 0 ? (
+            ) : queues?.length === 0 || pending === 0 ? (
                 <p className="py-6 text-[15px] text-muted-dark">Nothing pending. Inbox zero.</p>
             ) : (
                 <ul className="flex flex-col">
-                    {entries.map(([key, value]) => (
+                    {queues.map(({ key, count: value, label, href }) => (
                         <li key={key}>
                             <Link
-                                to={`/admin/inbox?tab=${encodeURIComponent(key)}`}
+                                to={href}
                                 className="grid grid-cols-[64px_minmax(0,1fr)_auto] items-center gap-4 border-b border-hairline-dark px-1.5 py-4 text-chalk no-underline transition-colors hover:bg-chalk/[0.04] hover:no-underline sm:grid-cols-[76px_minmax(0,1fr)_auto]"
                             >
                                 <span className={cn('display text-[2.75rem] leading-[.9] tabular-nums', value > 0 ? 'text-chalk' : 'text-chalk/35')}>{value}</span>
-                                <span className="text-base">{prettyTabLabel(key)}</span>
+                                <span className="text-base">{label}</span>
                                 <span className={cn('font-mono text-[11px] uppercase tracking-[0.1em]', value > 0 ? 'text-[#E9C46A]' : 'text-[#8C9791]')}>
                                     {value > 0 ? 'Needs review' : 'Clear'}
                                 </span>
@@ -375,6 +382,8 @@ function InboxPendingStrip() {
                     ))}
                 </ul>
             )}
+            {controlEnabled && overview.data?.overdue_safeguarding > 0 && <p className="mt-4 text-sm text-gold">{overview.data.overdue_safeguarding} safeguarding first action overdue</p>}
+            {controlEnabled && <p className="mt-3 text-xs text-muted-dark">Counts show items in each review queue. A report and its safeguarding case can need separate decisions.</p>}
         </section>
     )
 }
@@ -414,6 +423,11 @@ function Funnel({ stats }) {
 export function AdminDashboard() {
     const [stats, setStats] = useState(null)
     const [revenue, setRevenue] = useState(undefined)
+    const flags = useControlFlags()
+    const flagsReady = flags !== null
+    const businessEnabled = !!flags?.admin_business
+    const controlEnabled = !!(flags?.admin_programs || flags?.admin_people || flags?.admin_safety || flags?.admin_business)
+    const overview = useControlData(controlEnabled ? '/admin/control/overview' : null)
 
     useEffect(() => {
         let cancelled = false
@@ -437,13 +451,15 @@ export function AdminDashboard() {
     }, [])
 
     useEffect(() => {
+        if (!flagsReady || businessEnabled) return
         let cancelled = false
         APIService.getAdminBillingSummary()
             .then((data) => { if (!cancelled) setRevenue(data) })
             .catch(() => { if (!cancelled) setRevenue(null) })
         return () => { cancelled = true }
-    }, [])
+    }, [flagsReady, businessEnabled])
 
+    const shownRevenue = flags?.admin_business ? overview.data?.revenue : revenue
     return (
         <div className="flex flex-col gap-11">
             <AdminPageHeader
@@ -456,22 +472,22 @@ export function AdminDashboard() {
             <Funnel stats={stats} />
 
             <div className="grid gap-12 xl:grid-cols-[minmax(0,1fr)_380px]">
-                <InboxPendingStrip />
+                <InboxPendingStrip overview={overview} controlEnabled={controlEnabled} flagsReady={flagsReady} />
 
                 <aside className="flex flex-col gap-10">
                     <OpsSnapshotStrip />
 
-                    {revenue ? (
+                    {shownRevenue ? (
                         <section data-testid="revenue-summary" aria-labelledby="revenue-heading" className="flex flex-col">
                             <div className="pb-2">
                                 <h2 id="revenue-heading" className="font-mono text-[11.5px] font-medium uppercase tracking-[0.2em] text-[#8C9791]">Revenue</h2>
                                 <p className="mt-1 text-[13px] text-[#8C9791]">Stripe subscriptions and rail health</p>
                             </div>
                             <div className="grid grid-cols-2">
-                                <StatTile label="Active subscriptions" value={revenue.active_subscriptions ?? 0} />
-                                <StatTile label="Monthly recurring revenue" value={<MonthlyRecurringRevenue summary={revenue} />} />
-                                <StatTile label="Past due" value={revenue.past_due ?? 0} ok={(revenue.past_due ?? 0) === 0} />
-                                <StatTile label="Webhook failures · 24h" value={revenue.webhook_failed_last_24h ?? 0} ok={(revenue.webhook_failed_last_24h ?? 0) === 0} />
+                                <StatTile label="Active subscriptions" value={shownRevenue.active_subscriptions ?? 0} />
+                                <StatTile label="Monthly recurring revenue" value={<MonthlyRecurringRevenue summary={shownRevenue} />} />
+                                <StatTile label="Past due" value={shownRevenue.past_due ?? 0} ok={(shownRevenue.past_due ?? 0) === 0} />
+                                <StatTile label="Webhook failures · 24h" value={shownRevenue.webhook_failed_last_24h ?? 0} ok={(shownRevenue.webhook_failed_last_24h ?? 0) === 0} />
                             </div>
                         </section>
                     ) : null}

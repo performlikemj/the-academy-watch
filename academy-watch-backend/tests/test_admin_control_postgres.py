@@ -27,7 +27,7 @@ def pg_control(monkeypatch):
     if not uri:
         pytest.skip("set P2_B3_TEST_DATABASE_URL for isolated PostgreSQL regressions")
     url = sa.engine.make_url(uri)
-    assert url.host in {"localhost", "127.0.0.1"} and url.database == "aw_p2_b3"
+    assert url.host in {"localhost", "127.0.0.1"} and url.database in {"aw_p2_b3", "aw_b3x"}
     schema = "b3f2_" + uuid4().hex
     engine = sa.create_engine(uri)
     with engine.begin() as conn:
