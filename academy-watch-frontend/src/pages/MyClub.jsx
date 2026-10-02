@@ -1,3 +1,4 @@
+import { CleatLoader } from '@/components/CleatLoader'
 import '@/styles/floodlight-player.css'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
@@ -855,8 +856,7 @@ function AuthenticatedMyClub() {
         {loading || loadedToken !== auth.token ? (
           <Card>
             <CardContent className="flex items-center justify-center py-16 text-sm text-muted-foreground">
-              <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-              Loading your clubs…
+              <CleatLoader />
             </CardContent>
           </Card>
         ) : !hasLoadedData ? (

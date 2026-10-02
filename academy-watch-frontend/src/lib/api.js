@@ -1,4 +1,5 @@
 import { createFeatureCache } from './feature-cache.js'
+import { loadFeatures } from './features.js'
 import {
     normalizeNewsletterIds,
     parseNewsletterId,
@@ -264,9 +265,11 @@ export class APIService {
         this.setDisplayNameConfirmed(false, { silent: true })
     }
 
-    static getFeatures() {
-        return sharedFeatures()
+    static async getFeatures() {
+        return loadFeatures(() => this.request('/features'))
     }
+
+    static getFeaturesLive() { return sharedFeatures() }
 
     static async getProfile() {
         const res = await this.request('/auth/me')

@@ -1,3 +1,4 @@
+import { CleatLoader } from '@/components/CleatLoader'
 import { useState, useEffect, useMemo, useCallback, useRef, Fragment, lazy, Suspense } from 'react'
 import { BrowserRouter as Router, Routes, Route, Link, Navigate, useLocation, useParams, useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button.jsx'
@@ -94,6 +95,11 @@ import { AdminFunding } from '@/pages/admin/AdminFunding'
 import { HomePage } from '@/pages/HomePage'
 import { ClubsPage } from '@/pages/clubs/ClubsPage' // p2-b1: real directory when the flag is on, the teaser otherwise
 // --- p2-b2 begin ---
+// --- uxb begin ---
+import { OpportunityStateProvider } from '@/context/OpportunityStateProvider'
+import { useApprovedPlayer } from '@/hooks/useApprovedPlayer'
+import { useOpportunities } from '@/pages/opportunities/useOpportunities'
+// --- uxb end ---
 import { OpportunitiesPage, OpportunityDetail } from '@/pages/opportunities/OpportunitiesPage'
 // --- p2-b2 end ---
 import { AdminInterest } from '@/pages/admin/AdminInterest'
@@ -406,7 +412,7 @@ function HistoricalNewslettersPage() {
               <CardContent>
                 {loading ? (
                   <div className="text-center py-8">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
+                    <CleatLoader />
                   </div>
                 ) : (
                   <div className="space-y-4">
@@ -559,6 +565,10 @@ function Navigation() {
   const location = useLocation()
   const isMobile = useIsMobile()
   const { token, isAdmin, hasApiKey, isJournalist, isCurator } = useAuth()
+  // --- uxb begin ---
+  const opportunityFlags = useOpportunities(Boolean(token))
+  const playerProfiles = useApprovedPlayer(opportunityFlags)
+  // --- uxb end ---
   const contactRail = useContactRail()
   const [drawerOpen, setDrawerOpen] = useState(false)
   const { open: openSearch } = useGlobalSearchContext()
@@ -576,6 +586,12 @@ function Navigation() {
       { path: '/my-club', label: 'My club', icon: Users },
       { path: '/scout/lists', label: 'Lists', icon: ListChecks },
     ]
+    // --- uxb begin ---
+    if (playerProfiles.length) items.push(
+      { path: playerProfiles[0].profile_path || `/players/${playerProfiles[0].signed_player_id}`, label: 'My profile', icon: UserPlus },
+      { path: '/onboarding/player#my-applications', label: 'My applications', icon: ListChecks },
+    )
+    // --- uxb end ---
     if (contactRail === true) items.push({ path: '/introductions', label: 'Introductions', icon: Send })
     items.push(
       { path: '/settings', label: 'Settings', icon: UserCog },
@@ -585,7 +601,9 @@ function Navigation() {
     if (isCurator) items.push({ path: '/curator/dashboard', label: 'Curator', icon: FileText })
     if (adminUnlocked) items.push({ path: '/admin', label: 'Admin', icon: Settings })
     return items
-  }, [adminUnlocked, contactRail, isJournalist, isCurator])
+  // --- uxb begin ---
+  }, [adminUnlocked, contactRail, isJournalist, isCurator, playerProfiles])
+  // --- uxb end ---
 
   const linkClasses = (isActive) => (
     `inline-flex items-center gap-2 rounded-full px-3 py-2 text-sm font-medium transition-colors sm:px-3 whitespace-nowrap no-underline hover:no-underline ` +
@@ -1055,7 +1073,7 @@ function SubscribePage() {
             <CardContent>
               {loading ? (
                 <div className="text-center py-8">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
+                  <CleatLoader />
                 </div>
               ) : (
                 <div className="space-y-4">
@@ -1534,7 +1552,7 @@ function TeamsPage() {
             </div>
           ) : (isCL ? clLoading : loading) ? (
             <div className="flex items-center justify-center py-16">
-              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground/70" />
+              <CleatLoader />
             </div>
           ) : isCL ? (
             <div>
@@ -2453,7 +2471,7 @@ function NewslettersPage() {
 
           {loading ? (
             <div className="text-center py-12">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
+              <CleatLoader caption={false} />
               <p className="mt-4 text-muted-foreground">Loading newsletters...</p>
             </div>
           ) : newsletters.length === 0 ? (
@@ -3253,7 +3271,7 @@ function SettingsPage() {
 
         {loading ? (
           <div className="text-center py-12">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
+            <CleatLoader caption={false} />
             <p className="mt-4 text-muted-foreground">Loading your preferences…</p>
           </div>
         ) : (
@@ -3737,7 +3755,7 @@ function ManagePage() {
 
         {status === 'loading' && (
           <div className="text-center py-12">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
+            <CleatLoader caption={false} />
             <p className="mt-4 text-muted-foreground">Loading…</p>
           </div>
         )}
@@ -3894,7 +3912,7 @@ function StatsPage() {
 
         {loading ? (
           <div className="text-center py-12">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
+            <CleatLoader caption={false} />
             <p className="mt-4 text-muted-foreground">Loading statistics...</p>
           </div>
         ) : stats ? (
@@ -4137,7 +4155,7 @@ function AppRoutes() {
   return (
     <Routes>
       {LEGACY_PUBLIC_ROUTES.map((path, index) => (
-        <Route key={path} path={LEGACY_PUBLIC_PAGES ? path.replace(':id', path.startsWith('/academy/') ? ':cohortId' : path.startsWith('/newsletters/') ? ':newsletterId' : ':id') : path} element={LEGACY_PUBLIC_PAGES ? <Suspense fallback={null}>{legacyPublicElements[index]}</Suspense> : <LegacyPublicRedirect />} />
+        <Route key={path} path={LEGACY_PUBLIC_PAGES ? path.replace(':id', path.startsWith('/academy/') ? ':cohortId' : path.startsWith('/newsletters/') ? ':newsletterId' : ':id') : path} element={LEGACY_PUBLIC_PAGES ? <Suspense fallback={<CleatLoader className="min-h-[65vh]" />}>{legacyPublicElements[index]}</Suspense> : <LegacyPublicRedirect />} />
       ))}
       <Route path="/" element={<HomePage />} />
       <Route path="/clubs" element={<ClubsPage />} />
@@ -4336,10 +4354,12 @@ function App() {
         logout: handleLogout,
         isLoginModalOpen: loginModalOpen,
       }}>
-        <Router>
-          <AppWithRouter />
-          <GolPanel />
-        </Router>
+        <OpportunityStateProvider>
+          <Router>
+            <AppWithRouter />
+            <GolPanel />
+          </Router>
+        </OpportunityStateProvider>
       </AuthUIContext.Provider>
     </AuthContext.Provider>
   )

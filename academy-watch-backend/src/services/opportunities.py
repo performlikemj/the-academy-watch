@@ -543,7 +543,20 @@ def adult_claim(claim_id, user_id):
     return claim, pid, source
 
 
-def eligible_claims(user_id):
+def outside_age_band(row, source):
+    birth_date = getattr(source, "birth_date", None)
+    birth_year = getattr(source, "birth_year", None) or (int(str(birth_date)[:4]) if birth_date else None)
+    return bool(
+        (row.birth_year_min or row.birth_year_max)
+        and (
+            not birth_year
+            or (row.birth_year_min and birth_year < row.birth_year_min)
+            or (row.birth_year_max and birth_year > row.birth_year_max)
+        )
+    )
+
+
+def eligible_claims(user_id, row=None):
     from src.models.follow import PlayerShadow
 
     claims = (
@@ -570,6 +583,19 @@ def eligible_claims(user_id):
         api.update(
             {r.player_api_id: r for r in TrackedPlayer.query.filter(TrackedPlayer.player_api_id.in_(api_ids)).all()}
         )
+    existing = {}
+    unavailable = set()
+    if row:
+        apps = OpportunityApplication.query.filter(
+            OpportunityApplication.opportunity_id == row.id,
+            OpportunityApplication.applicant_user_id == user_id,
+        ).all()
+        at = now()
+        retained = [app for app in apps if app.retention_expires_at > at]
+        reconcile_applications(retained)
+        existing = {app.signed_player_id: app for app in retained}
+        # Uniqueness still blocks expired rows until purge. Reveal no expired details.
+        unavailable = {app.signed_player_id for app in apps if app.retention_expires_at <= at}
     result = []
     for claim, pid in zip(claims, ids):
         if pid not in eligible:
@@ -579,6 +605,18 @@ def eligible_claims(user_id):
             {
                 "claim_id": claim.id,
                 "signed_player_id": pid,
+                "profile_path": f"/local-players/{claim.local_player_id}"
+                if claim.local_player_id
+                else f"/players/{pid}",
+                **(
+                    {
+                        "outside_age_band": outside_age_band(row, source),
+                        "application_unavailable": pid in unavailable,
+                        "application": application_dict(existing[pid], row=row) if pid in existing else None,
+                    }
+                    if row
+                    else {}
+                ),
                 "name": getattr(source, "display_name", None) or getattr(source, "player_name", None) or "Your profile",
             }
         )
@@ -636,13 +674,7 @@ def submit(oid, user_id, data):
         raise OpportunityError("Not found", 404)
     lock_contact_scope(db.session, program_id=initial.program_id, claim_id=claim_id)
     claim, pid, source = adult_claim(integer(data.get("claim_id"), "claim_id"), user_id)
-    birth_date = getattr(source, "birth_date", None)
-    birth_year = getattr(source, "birth_year", None) or (int(str(birth_date)[:4]) if birth_date else None)
-    if (row.birth_year_min or row.birth_year_max) and (
-        not birth_year
-        or (row.birth_year_min and birth_year < row.birth_year_min)
-        or (row.birth_year_max and birth_year > row.birth_year_max)
-    ):
+    if outside_age_band(row, source):
         raise OpportunityError("outside_age_band", 403)
     if OpportunityApplication.query.filter_by(opportunity_id=oid, signed_player_id=pid).first():
         raise OpportunityError("already_applied", 409)
@@ -1098,7 +1130,9 @@ def notification_render(intent, user):
     row = db.session.get(ClubOpportunity, app.opportunity_id)
     trial = f" Trial: {format_time(app.trial_at, row.timezone)}." if app.trial_at else ""
     return {
-        "subject": "Your application update",
+        "subject": "Your application update"
+        if user.id == app.applicant_user_id
+        else ("New player application" if intent.payload["state"] == "new" else "Club application update"),
         "html": f'<p>An application has an update. Sign in to view the next step.{trial}</p><p><a href="{link}">View update</a></p>',
         "text": f"An application has an update. Sign in to view the next step.{trial} {link}",
     }

@@ -239,6 +239,7 @@ export function ClubDirectory() {
   const [state, setState] = useState({ status: 'loading', search: null, clubs: [], total: 0, hasMore: false, page: 1 })
   const [selectedId, setSelectedId] = useState(null)
   const requestRef = useRef(0)
+  const locationRequest = useRef(0)
   const unit = useMemo(() => distanceUnit(typeof navigator === 'undefined' ? '' : navigator.language), [])
   // One object per distinct search: a new one whenever anything the visitor asked for changes.
   const search = useMemo(() => ({ q, offering, level, position, radiusKm }), [q, offering, level, position, radiusKm])
@@ -283,6 +284,7 @@ export function ClubDirectory() {
 
   const submit = (event) => {
     event.preventDefault()
+    stopLocating()
     setQ(draft.trim())
   }
 
@@ -291,25 +293,31 @@ export function ClubDirectory() {
       setLocating('unavailable')
       return
     }
+    const request = ++locationRequest.current
     setLocating('asking')
     navigator.geolocation.getCurrentPosition(
       (result) => {
+        if (request !== locationRequest.current) return
+        setDraft('')
+        setQ('')
         setPosition({ latitude: result.coords.latitude, longitude: result.coords.longitude })
         setLocating('on')
       },
-      () => setLocating('denied'),
+      () => { if (request === locationRequest.current) setLocating('denied') },
       { enableHighAccuracy: false, maximumAge: 600000, timeout: 10000 },
     )
   }
 
   const stopLocating = () => {
+    locationRequest.current += 1
     setPosition(null)
     setRadiusKm(0)
     setLocating('idle')
   }
 
-  const filtered = Boolean(q || offering || level || radiusKm)
+  const filtered = Boolean(q || offering || level || position || radiusKm)
   const clearAll = () => {
+    stopLocating()
     setRadiusKm(0)
     setDraft('')
     setQ('')
@@ -340,7 +348,7 @@ export function ClubDirectory() {
               id="club-search"
               type="search"
               value={draft}
-              onChange={(event) => setDraft(event.target.value)}
+              onChange={(event) => { stopLocating(); setDraft(event.target.value) }}
               placeholder="Town, postcode or club"
               maxLength={80}
               autoComplete="off"
@@ -385,6 +393,7 @@ export function ClubDirectory() {
           )}
         </div>
 
+        {q && <p className="mt-4 text-sm text-chalk/80" role="status">Searching for “{q}” <button className="ml-3 underline" onClick={() => { setQ(''); setDraft('') }}>Clear search</button></p>}
         <div className="mt-6 flex flex-wrap items-center gap-2.5">
           <div className="flex flex-wrap gap-2.5" role="group" aria-label="Who it’s for">
             {OFFERING_FILTERS.map((item) => (

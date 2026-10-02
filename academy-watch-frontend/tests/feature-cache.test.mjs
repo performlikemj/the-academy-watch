@@ -21,3 +21,31 @@ test('failed feature requests can recover and are not cached', async () => {
   assert.deepEqual(await read(), { club_player_publication: false })
   assert.equal(calls, 2)
 })
+
+
+test('API feature bootstrap stays page-session cached while live flags refresh after 15 seconds', async (t) => {
+  let calls = 0, timestamp = 0
+  const originalNow = Date.now
+  Date.now = () => timestamp
+  t.after(() => { Date.now = originalNow })
+  const { APIService } = await import('../src/lib/api.js?c1-live-features')
+  const { resetFeatures } = await import('../src/lib/features.js')
+  resetFeatures()
+  t.after(resetFeatures)
+  t.mock.method(APIService, 'request', async (path) => {
+    assert.equal(path, '/features')
+    return { club_player_publication: ++calls === 1 }
+  })
+  const bootstrap = await APIService.getFeatures()
+  const live = await APIService.getFeaturesLive()
+  assert.equal(calls, 2)
+  timestamp = 14999
+  assert.deepEqual(await APIService.getFeaturesLive(), live)
+  assert.deepEqual(await APIService.getFeatures(), bootstrap)
+  assert.equal(calls, 2)
+  timestamp = 15001
+  await APIService.getFeaturesLive()
+  assert.equal(calls, 3)
+  assert.deepEqual(await APIService.getFeatures(), bootstrap)
+  assert.equal(calls, 3)
+})
