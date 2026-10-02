@@ -32,7 +32,7 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
 
 ## State
 - **Now (2026-10-02 C1F4):** Current lower-lane c7cf6c11 integrated in C2F4; nine-item union and inherited showcase erasure preserved. C1 exact delivery follows its external hand-back.
-- **Now (2026-10-02 C2F4):** RC2V3 union fix round active; main ee16572f integration, O3 irreversible cosmetic rename first. See `ledgers/CONTINUITY_p2-c2.md`.
+- **Now (2026-10-02 C2F4):** RC2V3 union implemented; main ee16572f/current C1F4 integrated, O3 preservation/permanent unsafe guards and checked legacy transition green. New p2c2 CONTRACT/schema equality posted. Final verification/push/cleanup record: external logs/C2F4.final.md; see `ledgers/CONTINUITY_p2-c2.md`. PR1122 remains unmerged.
 - **Now (2026-10-02):** C1F3 RC1V2 union implemented on PR1121; main784b1490/B351f30f5b integrated; targeted/PG9/schema equality green, new migration CONTRACT posted; final-head governed gates/browser/push pending. See `ledgers/CONTINUITY_p2-c1.md`.
 
 - **Now (2026-10-02):** C2F3 RC2V2 union fixes implemented; final governed verification/push pending on PR #1122. Current main/B3/C1F3 integrated; new context-review/grouped-notice p2c2 CONTRACT posted. See ledgers/CONTINUITY_p2-c2.md. No merge.
