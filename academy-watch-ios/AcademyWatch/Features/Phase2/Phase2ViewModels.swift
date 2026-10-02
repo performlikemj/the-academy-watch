@@ -17,6 +17,7 @@ final class Phase2Workspace: ObservableObject {
     private var generation = 0
     init(client: any Phase2API) { self.client = client }
     var selected: ClubMembership? { clubs.first { $0.id == selectedClubId } ?? clubs.first }
+    var hasClubSurface: Bool { flags.staff || flags.opportunities || !clubs.isEmpty }
     func load(authenticated: Bool) async {
         generation += 1
         let request = generation
@@ -36,7 +37,7 @@ final class Phase2Workspace: ObservableObject {
             guard request == generation, !Task.isCancelled else { return }
             snapshot = next
         } catch {
-            failure = phase2Error(error)
+            failure = phase2ReadError(error)
         }
         // Public flags and private access are independent decisions. A refused
         // club never turns successfully fetched public features off.
@@ -63,7 +64,7 @@ final class Phase2Workspace: ObservableObject {
                     }
                     next.clubs = resolved
                 } catch {
-                    failure = phase2Error(error)
+                    failure = phase2ReadError(error)
                     if [401, 403, 404].contains(phase2Status(error) ?? 0) { next.clubs = [] }
                 }
             } else { next.clubs = [] }
@@ -195,6 +196,8 @@ final class TrialDetailViewModel: ObservableObject {
     private let client: any Phase2API
     private let clock: () -> Date
     private let id: String
+    private var accountIdentity: String?
+    private var accountGeneration = 0
     private var requestId = UUID().uuidString
     private var previousBody: ApplicationSubmission?
     private var generation = 0
@@ -202,6 +205,22 @@ final class TrialDetailViewModel: ObservableObject {
         self.id = id
         self.client = client
         self.clock = now
+    }
+    func setAccount(_ identity: String) {
+        guard accountIdentity != identity else { return }
+        accountIdentity = identity
+        accountGeneration += 1
+        generation += 1
+        claims = []
+        selectedClaimId = nil
+        sent = nil
+        position = ""
+        currentClub = ""
+        contactConsent = false
+        previousBody = nil
+        requestId = UUID().uuidString
+        isSending = false
+        error = nil
     }
     var canSend: Bool {
         !isSending && sent == nil && contactConsent
@@ -230,7 +249,7 @@ final class TrialDetailViewModel: ObservableObject {
             }
         } catch {
             guard request == generation, !Task.isCancelled else { return }
-            self.error = phase2Error(error)
+            self.error = phase2ReadError(error)
         }
         if request == generation { isLoading = false }
     }
@@ -247,14 +266,16 @@ final class TrialDetailViewModel: ObservableObject {
             contactConsent: contactConsent,
             clientRequestId: requestId)
         previousBody = body
+        let account = accountGeneration
         isSending = true
         error = nil
-        defer { isSending = false }
+        defer { if account == accountGeneration { isSending = false } }
         do {
             let response: ApplicationResponse = try await client.write(
                 "opportunities/\(id)/applications", body: body)
+            guard account == accountGeneration, !Task.isCancelled else { return }
             sent = response.application
-        } catch { self.error = phase2Error(error) }
+        } catch { if account == accountGeneration { self.error = phase2Error(error) } }
     }
 }
 
@@ -293,7 +314,8 @@ final class ApplicationsViewModel: ObservableObject {
                 result = try await client.read(
                     path, query: [URLQueryItem(name: "page", value: String(nextPage))])
                 guard request == generation, !Task.isCancelled else { return }
-                rows += result.applications
+                var known = Set(rows.map(\.id))
+                rows.append(contentsOf: result.applications.filter { known.insert($0.id).inserted })
                 nextPage += 1
             } while result.hasMore
             applications = rows

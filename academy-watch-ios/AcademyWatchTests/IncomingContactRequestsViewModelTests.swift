@@ -24,7 +24,7 @@ final class IncomingContactRequestsViewModelTests: XCTestCase {
     }
 
     @MainActor
-    func testApprovedPlayerOwnershipLoadsAndPaginatesInbox() async {
+    func testApprovedPlayerOwnershipLoadsCompleteInbox() async {
         let first = makeRequest(id: "request-1")
         let second = makeRequest(id: "request-2", status: .accepted)
         let client = PagingIncomingContactClient(
@@ -42,15 +42,47 @@ final class IncomingContactRequestsViewModelTests: XCTestCase {
 
         XCTAssertTrue(viewModel.hasLoaded)
         XCTAssertTrue(viewModel.ownsApprovedPlayerClaim)
-        XCTAssertEqual(viewModel.requests, [first])
-        XCTAssertTrue(viewModel.canLoadMore)
-
-        await viewModel.loadNextPage()
-
+        XCTAssertTrue(viewModel.isComplete)
         XCTAssertEqual(viewModel.requests, [first, second])
         XCTAssertFalse(viewModel.canLoadMore)
         let offsets = await client.recordedOffsets()
         XCTAssertEqual(offsets, [0, 1])
+    }
+
+    @MainActor
+    func testHomeCountsDirectNotifiedAndGrantedIntroductionsBeyondPageOne() async {
+        let direct = makeRequest(id: "direct")
+        let notified = makeRequest(id: "notified", routing: .clubNotified)
+        let granted = makeRequest(id: "older-granted", routing: .clubIncluded, consent: .granted)
+        let pending = makeRequest(id: "awaiting-club", routing: .clubIncluded, consent: .pending)
+        let declined = makeRequest(id: "club-declined", routing: .clubIncluded, consent: .declined)
+        let firstPage = (0..<30).map { makeRequest(id: "terminal-\($0)", status: .declined) }
+        let client = PagingIncomingContactClient(
+            claims: PlayerClaimsResponse(claims: [makeClaim(status: .approved)]),
+            pages: [0: firstPage, 30: [direct, notified, granted, pending, declined]], total: 35)
+        let model = IncomingContactRequestsViewModel(apiClient: client, availability: ContactFeatureAvailability())
+        await model.reload()
+        XCTAssertTrue(model.isComplete)
+        XCTAssertEqual(model.actionableRequests.map(\.id), ["direct", "notified", "older-granted"])
+        XCTAssertFalse(direct.playerActionDetail.contains("club"))
+        XCTAssertTrue(notified.playerActionDetail.contains("notified"))
+        XCTAssertTrue(granted.playerActionDetail.contains("agreed"))
+        XCTAssertEqual(direct.playerActionEyebrow, "Introduction · reply needed")
+        let offsets = await client.recordedOffsets()
+        XCTAssertEqual(offsets, [0, 30])
+    }
+
+    @MainActor
+    func testFailedLaterIntroductionPageCannotConfirmCaughtUp() async {
+        let client = PagingIncomingContactClient(
+            claims: PlayerClaimsResponse(claims: [makeClaim(status: .approved)]),
+            pages: [0: [makeRequest(status: .declined)]], total: 2, failingOffset: 1)
+        let model = IncomingContactRequestsViewModel(apiClient: client, availability: ContactFeatureAvailability(), pageSize: 1)
+        await model.reload()
+        XCTAssertFalse(model.isLoading)
+        XCTAssertFalse(model.isComplete)
+        XCTAssertNotNil(model.errorMessage)
+        XCTAssertTrue(model.requests.isEmpty)
     }
 
     @MainActor
@@ -175,16 +207,18 @@ private actor PagingIncomingContactClient: IncomingContactRequestsAPIClientProto
     let claims: PlayerClaimsResponse
     let pages: [Int: [ContactRequest]]
     let total: Int
+    let failingOffset: Int?
     private var offsets: [Int] = []
 
     init(
         claims: PlayerClaimsResponse,
         pages: [Int: [ContactRequest]],
-        total: Int
+        total: Int, failingOffset: Int? = nil
     ) {
         self.claims = claims
         self.pages = pages
         self.total = total
+        self.failingOffset = failingOffset
     }
 
     func fetchMyProfileClaims() async throws -> PlayerClaimsResponse {
@@ -196,6 +230,7 @@ private actor PagingIncomingContactClient: IncomingContactRequestsAPIClientProto
         offset: Int
     ) async throws -> ContactRequestsResponse {
         offsets.append(offset)
+        if offset == failingOffset { throw URLError(.timedOut) }
         return ContactRequestsResponse(
             requests: pages[offset] ?? [],
             box: .inbox,
@@ -332,13 +367,15 @@ private enum IncomingContactTestError: Error {
 private func makeRequest(
     id: String = "451f1c56-a815-4cb3-9f9b-f5978480ef04",
     status: ContactRequestStatus = .pending,
-    respondedAt: String? = nil
+    respondedAt: String? = nil,
+    routing: ContactRoutingMode = .direct, consent: ClubConsentStatus? = nil
 ) -> ContactRequest {
     ContactRequest(
         id: id,
         playerApiId: 403_064,
         message: "I’d like to discuss your development pathway.",
         status: status,
+        routingMode: routing, clubConsentStatus: consent,
         createdAt: "2026-07-16T14:05:00",
         respondedAt: respondedAt,
         expiresAt: "2026-07-30T14:05:00",

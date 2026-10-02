@@ -36,6 +36,7 @@ struct ContactThreadView: View {
 
             ScrollViewReader { proxy in
                 VStack(spacing: 0) {
+                    antiScamBanner.padding(.horizontal, 16).padding(.vertical, 10)
                     ScrollView {
                         LazyVStack(spacing: 14) {
                             requestSummary
@@ -69,7 +70,6 @@ struct ContactThreadView: View {
                                 }
                             }
 
-                            antiScamBanner
                             if let error = viewModel.errorMessage {
                                 Label(error, systemImage: "exclamationmark.triangle.fill")
                                     .font(AcademyType.footnote)

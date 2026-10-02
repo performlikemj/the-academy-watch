@@ -344,3 +344,26 @@ enum Phase2ReviewCapture {
         #endif
     }
 }
+
+// Fixed sRGB hero colours: small labels must meet AA against the club's actual primary.
+func phase2HeroForeground(_ raw: String?) -> Color {
+    let background = raw.flatMap { value -> UInt32? in
+        guard value.hasPrefix("#"), value.count == 7 else { return nil }
+        return UInt32(value.dropFirst(), radix: 16)
+    } ?? 0x0F3D2E
+    func luminance(_ hex: UInt32) -> Double {
+        func channel(_ shift: UInt32) -> Double {
+            let value = Double((hex >> shift) & 255) / 255
+            return value <= 0.04045 ? value / 12.92 : pow((value + 0.055) / 1.055, 2.4)
+        }
+        return 0.2126 * channel(16) + 0.7152 * channel(8) + 0.0722 * channel(0)
+    }
+    let base = luminance(background)
+    for foreground: UInt32 in [0xF3F0E8, 0x0E1311, 0xFFFFFF, 0x000000] {
+        let text = luminance(foreground)
+        if (max(base, text) + 0.05) / (min(base, text) + 0.05) >= 4.5 {
+            return Color(hex: foreground)
+        }
+    }
+    return Color.white
+}

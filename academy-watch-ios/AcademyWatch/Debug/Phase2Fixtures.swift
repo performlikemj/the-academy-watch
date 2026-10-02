@@ -25,7 +25,7 @@
                     ? "owner" : screen == "N14" ? "coach" : "player")
         }
         static var isClubExperience: Bool {
-            ["owner", "terminal", "editor", "coach", "analyst", "viewer", "recruiting", "signed", "draft", "full", "conflict", "nostaff", "membership-error", "pendingclub", "club-signed-out"].contains(resolvedMode)
+            ["owner", "terminal", "editor", "coach", "analyst", "viewer", "recruiting", "signed", "draft", "full", "conflict", "nostaff", "membership-error", "pendingclub", "club-signed-out", "club-offline"].contains(resolvedMode)
         }
         static func contactFixture(_ data: Data, messages: Bool) throws -> Data {
             guard screen == "N17" || screen == "N01" else { return data }
@@ -147,6 +147,17 @@
                 request.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
                 ?? [:]
             func json(_ value: Any) throws -> Data { try JSONSerialization.data(withJSONObject: value) }
+            // Explicit simulator-only synthetic login: never sends an email or calls the network.
+            if mode == "player-signed-out", method == "POST", path == "auth/request-code",
+                body["email"] as? String == "phase2@fixture.invalid" {
+                return try json(["message": "Offline code ready"])
+            }
+            if mode == "player-signed-out", method == "POST", path == "auth/verify-code",
+                body["email"] as? String == "phase2@fixture.invalid", body["code"] as? String == "123456" {
+                return try json(["message": "Signed in", "role": "user", "account_role": "player",
+                                 "display_name": "Reuben Castellane", "display_name_confirmed": true,
+                                 "token": "fixture-auth-token", "expires_in": 3600])
+            }
             if path == "auth/me", method == "GET" {
                 return try json([
                     "email": "phase2@fixture.invalid", "role": "user", "user_id": 7,
@@ -157,6 +168,7 @@
             }
             if path == "features" {
                 flagReads += 1
+                if mode == "club-offline" { throw URLError(.notConnectedToInternet) }
                 if mode == "foreground-failure" && flagReads > 1 { throw URLError(.timedOut) }
                 return try json(
                     ["off", "late-off"].contains(mode)
@@ -167,7 +179,7 @@
                         ])
             }
             if path == "opportunities/features" {
-                if ["off", "late-off"].contains(mode) { throw APIClientError.httpStatus(404) }
+                if ["off", "late-off", "club-offline"].contains(mode) { throw APIClientError.httpStatus(404) }
                 return try json(["opportunities": true, "applications": true])
             }
             if method == "GET", path == "me/club-access" {
@@ -264,6 +276,15 @@
                 return try json(["opportunity": value])
             }
             if path == "opportunities" || path == "club/101/opportunities", method == "GET" {
+                if mode == "paged-public" {
+                    let base = post(private: false)
+                    let rows = (0..<(requestedPage == 1 ? 30 : 1)).map { index -> [String: Any] in
+                        var row = base
+                        row["id"] = "page-\(requestedPage)-\(index)"
+                        return row
+                    }
+                    return try json(["opportunities": rows, "page": requestedPage, "has_more": requestedPage == 1])
+                }
                 return try json([
                     "opportunities": mode == "empty"
                         ? []
@@ -276,6 +297,9 @@
                     "page": requestedPage,
                     "has_more": false,
                 ])
+            }
+            if mode == "detail-error", method == "GET", path.hasPrefix("opportunities/") {
+                throw APIClientError.httpStatus(500)
             }
             if method == "GET", path.hasPrefix("opportunities/"),
                 let dto = reviewPosts(private: false).first(where: {
@@ -314,7 +338,7 @@
             {
                 let empty =
                     mode == "empty" || Phase2Fixtures.screen == "N06b" || Phase2Fixtures.screen == "N09b"
-                    || mode == "draft" || (mode == "apply" && !submitted)
+                    || ["draft", "direct-home", "older-introduction"].contains(mode) || (mode == "apply" && !submitted)
                 return try json([
                     "applications": empty ? [] : reviewApplications(private: path.hasPrefix("club/")),
                     "page": requestedPage,
@@ -452,10 +476,31 @@
                 return try json(["grant": ["id": 7]])
             }
             if method == "GET", path == "contact/requests" {
+                if ["direct-home", "older-introduction"].contains(mode), request.url?.query?.contains("box=inbox") == true {
+                    var dto = try JSONSerialization.jsonObject(with: FloodlightPreview.fixture("contact_requests_inbox")) as! [String: Any]
+                    var pending = (dto["requests"] as! [[String: Any]])[0]
+                    pending["id"] = "older-actionable"
+                    pending["routing_mode"] = mode == "direct-home" ? "direct" : "club_included"
+                    pending["club_consent_status"] = mode == "direct-home" ? NSNull() : "granted"
+                    let offset = Int(URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "offset" })?.value ?? "0") ?? 0
+                    dto["requests"] = mode == "direct-home" || offset == 30 ? [pending] : (0..<30).map { index -> [String: Any] in
+                        var row = pending; row["id"] = "terminal-\(index)"; row["status"] = "declined"; return row
+                    }
+                    dto["total"] = mode == "direct-home" ? 1 : 31
+                    dto["offset"] = offset
+                    return try json(dto)
+                }
                 return try Phase2Fixtures.contactFixture(
                     FloodlightPreview.fixture(
                         request.url?.query?.contains("box=inbox") == true
                             ? "contact_requests_inbox" : "contact_requests_sent"), messages: false)
+            }
+            if Phase2Fixtures.screen == "N17", method == "POST",
+                path.hasPrefix("contact/requests/"), path.hasSuffix("/messages"),
+                body["body"] as? String == "A new message for regression." {
+                return try json(["message": ["id": "fixture-new-message", "contact_request_id": "01010101-1111-4111-8111-010101010101",
+                                             "sender_role": "player", "sender_display_name": "Nabil Ferhane",
+                                             "body": "A new message for regression.", "created_at": "2026-10-01T12:00:00Z"]])
             }
             if method == "GET", path.hasPrefix("contact/requests/"), path.hasSuffix("/messages") {
                 return try Phase2Fixtures.contactFixture(
@@ -479,7 +524,7 @@
         private var club: [String: Any] {
             [
                 "id": 101, "slug": "quillmere-athletic", "name": "Quillmere Athletic",
-                "brand": ["primary_color": "#1F3A5F", "accent_color": "#E8B23A"], "city": "Quillmere",
+                "brand": ["primary_color": mode == "brand-grey" ? "#767676" : "#1F3A5F", "accent_color": mode == "brand-grey" ? "#8A8A8A" : "#E8B23A"], "city": "Quillmere",
                 "region": "Wendleshire", "verified": true, "is_verified_program": true,
                 "league": ["name": "Wendle & District Senior League"], "club_level": "semi_pro",
                 "gender_programs": ["men", "boys"], "squad_count": 5,

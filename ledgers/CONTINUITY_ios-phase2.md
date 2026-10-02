@@ -11,7 +11,7 @@
 
 ## State
 - Done: merged B3 + final B1/B2 dependencies; conflicts preserved owned feature blocks. Native role tabs, browse/apply/application actions, recruiting/invites/notes/signing, owner staff grants and scoped squads implemented.
-- Now: I1F3 review-duel implementation complete; final gate and pushed-SHA receipts are maintained in `~/codex-runs/aw-redesign/logs/I1F3.final.md`. Draft #1118 stays unmerged.
+- Now: I1F4 in progress; fix RI1V2 ten-item union, native regression coverage and final evidence. Draft #1118 stays unmerged.
 - Next: independent review of the I1F3 pushed head; backend8305283b through renewal; app rollout depends on UXB #1124; no fleet merge.
 
 ## Validation
@@ -123,3 +123,10 @@
 - Final-head full offline run caught the inherited first-location test assuming fresh simulator authorization after a previous run denied it. Test now resets authorization via XCTest before launch; verify twice on the reused simulator. Runtime sources unchanged. Final gates and full offline scheme run on the new test head; all prior receipts remain labelled interim.
 
 - Delivery refresh: B3 landed on main33bf30bd after the b1002027 final offline suite passed8:07. GitHub reported conflicts; merge current main and retain both AGENTS/CONTINUITY records. Only Markdown changes; all native/backend/frontend/migration blobs match b1002027. Final gates run on the new merge head; existing156 native captures remain valid for identical source.
+
+## I1F4 review-duel fix round
+
+- In progress: O1 pinned warning; X1 complete actionable introductions/routing copy; X2+N1 contrast; O2 stable-ID applications; O3 honest public counts; O4 legacy icon; O5 public navigation/auth detail reset; O6 read errors; O7 failed-read loader; O8 visible sign-in.
+- Read both independent findings and both cross-examinations. No refutations; N17 legend is MJ design question, UXB1124 parent anchor remains dependency.
+- Iteration: targeted xcodebuild only; final full offline/unit + one Release. Governed foreground commands, owned-resource cleanup, no merge.
+- Targeted models:59 pass/0 fail (`I1F4/targeted-models3.xcresult`). Two earlier compiles caught test-only helper/typecheck errors; corrected. Seven behaviour UI regressions queued under machine governor; no second invocation.

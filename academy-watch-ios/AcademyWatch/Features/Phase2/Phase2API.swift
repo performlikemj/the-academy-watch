@@ -98,3 +98,11 @@ func phase2Error(_ error: Error) -> String {
             "The service could not complete this request. Please try again later. Your draft is still here."
     }
 }
+
+func phase2ReadError(_ error: Error) -> String {
+    if error is URLError { return "Could not connect. Please try again." }
+    if phase2Status(error).map({ $0 >= 500 }) == true {
+        return "The service could not load this information. Please try again later."
+    }
+    return phase2Error(error)
+}

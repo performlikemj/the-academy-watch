@@ -150,6 +150,7 @@ extension EnvironmentValues {
 }
 struct ClubsNearYouView: View {
     @Environment(\.directoryTabActive) private var tabActive
+    @EnvironmentObject private var auth: AuthManager
     let client: APIClient
     @State private var hasLoaded = false
     @StateObject private var model: DirectoryViewModel
@@ -327,6 +328,12 @@ struct ClubsNearYouView: View {
                 if locationOn { location.request() }
                 await model.search(filter)
             }.refreshable { await model.search(filter) }
+            .onChange(of: auth.email) { _, _ in
+                locationOn = false
+                location.clear()
+                hasLoaded = false
+                if tabActive { hasLoaded = true; search() }
+            }
             .onChange(of: tabActive) { _, active in
                 if !active { location.clear(); hasLoaded = false }
                 else if !hasLoaded {
@@ -367,9 +374,7 @@ struct PublicClubView: View {
                             Phase2ClubCrest(name: club.name, brand: club.brand, size: 54)
                             VStack(alignment: .leading, spacing: 7) {
                                 Text(club.location.uppercased()).font(AcademyType.mono(10)).tracking(1.8)
-                                    .foregroundStyle(
-                                        phase2BrandColor(
-                                            club.brand?.accentColor, fallback: AcademyColors.gold))
+                                    .foregroundStyle(phase2HeroForeground(club.brand?.primaryColor))
                                 if club.isVerifiedProgram == true {
                                     Label("Verified club", systemImage: "checkmark.shield").font(
                                         AcademyType.subheadline)
@@ -379,8 +384,8 @@ struct PublicClubView: View {
                         Text(club.name).font(AcademyType.serif(42))
                         Text(club.league?.name ?? "Local club").font(AcademyType.subheadline)
                     }.padding(20).frame(maxWidth: .infinity, alignment: .leading)
-                        .foregroundStyle(heroForeground(club.brand?.primaryColor)).background(
-                            primaryColor(club.brand?.primaryColor))
+                        .foregroundStyle(phase2HeroForeground(club.brand?.primaryColor)).background(
+                            phase2BrandColor(club.brand?.primaryColor, fallback: AcademyColors.club))
                     Rectangle().fill(phase2BrandColor(club.brand?.accentColor, fallback: AcademyColors.gold))
                         .frame(
                             height: 4)
@@ -419,7 +424,7 @@ struct PublicClubView: View {
                         }
                         if workspace.flags.opportunities {
                             VStack(spacing: 0) {
-                                Phase2Section(title: "Open now", trailing: "\(posts.posts.count) open")
+                                Phase2Section(title: "Open now", trailing: "")
                                 Phase2ErrorView(
                                     message: posts.error,
                                     retry: { Task { await posts.load(programId: club.id) } })
@@ -497,27 +502,7 @@ struct PublicClubView: View {
             if workspace.flags.opportunities { await posts.load(programId: response.program.id) }
         } catch { self.error = phase2Error(error) }
     }
-    private func heroForeground(_ raw: String?) -> Color {
-        guard let raw, raw.count == 7, let hex = UInt32(raw.dropFirst(), radix: 16) else {
-            return AcademyColors.chalk
-        }
-        func luminance(_ value: UInt32) -> Double {
-            let channel = Double(value) / 255
-            return channel <= 0.04045 ? channel / 12.92 : pow((channel + 0.055) / 1.055, 2.4)
-        }
-        let light =
-            0.2126 * luminance((hex >> 16) & 255) + 0.7152 * luminance((hex >> 8) & 255) + 0.0722
-            * luminance(hex & 255)
-        return light > 0.35 ? AcademyColors.ink : AcademyColors.chalk
-    }
-    private func primaryColor(_ raw: String?) -> Color {
-        guard let raw, raw.hasPrefix("#"), raw.count == 7, let hex = UInt32(raw.dropFirst(), radix: 16)
-        else {
-            return AcademyColors.club
-        }
-        // Hero text always sits on the token night layer for readable contrast.
-        return Color(hex: hex)
-    }
+
 }
 
 struct OpportunityRow: View {
@@ -575,7 +560,7 @@ struct TrialsView: View {
             HStack {
                 Phase2Eyebrow(text: "Open opportunities")
                 Spacer()
-                Phase2Eyebrow(text: "\(model.posts.count) open")
+                Phase2Eyebrow(text: "Page \(model.page)")
             }
             if let post = model.posts.first {
                 Phase2Eyebrow(
@@ -649,8 +634,8 @@ struct TrialDetailView: View {
                         Text("\(post.typeLabel) · \(post.clubName)".uppercased()).font(AcademyType.mono(10))
                             .tracking(
                                 1.5
-                            ).foregroundStyle(AcademyColors.gold)
-                        Text(post.title).font(AcademyType.serif(28)).foregroundStyle(AcademyColors.chalk)
+                            ).foregroundStyle(phase2HeroForeground(club?.brand?.primaryColor))
+                        Text(post.title).font(AcademyType.serif(28)).foregroundStyle(phase2HeroForeground(club?.brand?.primaryColor))
                     }.padding(20).frame(maxWidth: .infinity, alignment: .leading).background(
                         phase2BrandColor(club?.brand?.primaryColor, fallback: AcademyColors.club))
                     Rectangle().fill(phase2BrandColor(club?.brand?.accentColor, fallback: AcademyColors.gold))
@@ -768,12 +753,13 @@ struct TrialDetailView: View {
                         Phase2ErrorView(message: model.error, retry: reload)
                     }.padding(16)
                 } else {
-                    CleatLoader("Loading opportunity…").padding(20)
+                    if model.isLoading { CleatLoader("Loading opportunity…").padding(20) }
                     Phase2ErrorView(message: model.error, retry: reload).padding(16)
                 }
             }
         }.background(AcademyColors.background).foregroundStyle(AcademyColors.text)
-            .navigationTitle("").navigationBarTitleDisplayMode(.inline).task {
+            .navigationTitle("").navigationBarTitleDisplayMode(.inline).task(id: detailContext) {
+                model.setAccount(accountIdentity)
                 await model.load(
                     authenticated: auth.isAuthenticated, applications: workspace.flags.applications)
                 if let post = model.post {
@@ -786,7 +772,8 @@ struct TrialDetailView: View {
                         model.currentClub = "Quillmere Athletic"
                     }
                 #endif
-            }.accessibilityIdentifier("phase2-trial-detail")
+            }.onChange(of: accountIdentity) { _, identity in model.setAccount(identity) }
+            .accessibilityIdentifier("phase2-trial-detail")
             .toolbarBackground(
                 phase2BrandColor(club?.brand?.primaryColor, fallback: AcademyColors.club),
                 for: .navigationBar
@@ -794,6 +781,8 @@ struct TrialDetailView: View {
             .toolbarBackground(.visible, for: .navigationBar).toolbarColorScheme(
                 .dark, for: .navigationBar)
     }
+    private var accountIdentity: String { auth.isAuthenticated ? "signed-in|" + (auth.email ?? "") : "signed-out" }
+    private var detailContext: String { accountIdentity + "|\(workspace.flags.applications)" }
     private func reload() {
         Task {
             await model.load(

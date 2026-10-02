@@ -56,7 +56,7 @@ struct Phase2HomeCards: View {
                     }
                 }
             }
-            if role == .club {
+            if role == .club, workspace.hasClubSurface {
                 Phase2ErrorView(
                     message: workspace.error,
                     retry: { Task { await workspace.load(authenticated: auth.isAuthenticated) } })
@@ -80,9 +80,7 @@ struct Phase2HomeCards: View {
                     } label: {
                         Phase2Row(
                             eyebrow: "Introductions",
-                            title: incoming.requests.contains {
-                                $0.clubConsentStatus == .granted && $0.status == .pending
-                            } ? "Your club said yes." : "Your conversations",
+                            title: incoming.actionableRequests.isEmpty ? "Your conversations" : "Introductions need your reply",
                             detail: "Review introductions and decide who you talk to.")
                     }.buttonStyle(.plain).accessibilityIdentifier("home-introductions")
                 }
@@ -124,24 +122,37 @@ struct Phase2PlayerHome: View {
     init(
         client: APIClient, incoming: IncomingContactRequestsViewModel,
         availability: ContactFeatureAvailability,
-        onNavigate: @escaping (RootTab) -> Void
+        onNavigate: @escaping (RootTab) -> Void,
+        onSignIn: @escaping () -> Void
     ) {
         self.client = client
         self.onNavigate = onNavigate
+        self.onSignIn = onSignIn
         self.incoming = incoming
         self.availability = availability
         _applications = StateObject(wrappedValue: ApplicationsViewModel(client: client))
         _openings = StateObject(wrappedValue: OpportunitiesViewModel(client: client))
     }
     let onNavigate: (RootTab) -> Void
+    let onSignIn: () -> Void
     private var invitations: [Phase2Application] {
         workspace.flags.applications ? applications.applications.filter { $0.canRespond() } : []
     }
     private var introductions: [ContactRequest] {
         workspace.flags.contact && !availability.isUnavailable
-            ? incoming.requests.filter { $0.clubConsentStatus == .granted && $0.status == .pending } : []
+            ? incoming.actionableRequests : []
     }
     private var waiting: Int { invitations.count + introductions.count }
+    private var waitingCopy: String {
+        guard auth.isAuthenticated else { return "Find your next step." }
+        if workspace.flags.applications && !applications.isComplete {
+            return applications.error == nil ? "Checking what needs you…" : "Applications could not be checked."
+        }
+        if workspace.flags.contact && !availability.isUnavailable && !incoming.isComplete {
+            return incoming.errorMessage == nil ? "Checking what needs you…" : "Introductions could not be checked."
+        }
+        return waiting == 0 ? "You're all caught up." : "\(waiting) \(waiting == 1 ? "thing is" : "things are") waiting on you."
+    }
     private var firstName: String {
         auth.displayName?.split(separator: " ").first.map(String.init) ?? "there"
     }
@@ -179,10 +190,7 @@ struct Phase2PlayerHome: View {
                                 AcademyColors.gold))
                             .fixedSize(horizontal: false, vertical: true).accessibilityIdentifier("home-greeting")
                         Text(
-                            !applications.isComplete && workspace.flags.applications && auth.isAuthenticated
-                                ? (applications.error == nil ? "Checking what needs you…" : "Applications could not be checked.")
-                                : waiting == 0 ? "You're all caught up."
-                                : "\(waiting) \(waiting == 1 ? "thing is" : "things are") waiting on you."
+                            waitingCopy
                         )
                         .font(AcademyType.subheadline).foregroundStyle(AcademyColors.mutedDark)
                         .fixedSize(horizontal: false, vertical: true).accessibilityIdentifier("home-waiting")
@@ -198,6 +206,15 @@ struct Phase2PlayerHome: View {
                             startPoint: .top, endPoint: .bottom)
                     }.background(AcademyColors.night)
                 VStack(alignment: .leading, spacing: 20) {
+                    if !auth.isAuthenticated {
+                        Button(action: onSignIn) {
+                            Phase2Row(eyebrow: "Your next step", title: "Sign in to get started",
+                                      detail: "Sign in with an email code to use your approved profile.")
+                        }.buttonStyle(.plain).accessibilityIdentifier("home-sign-in")
+                    }
+                    if workspace.flags.contact && auth.isAuthenticated && !availability.isUnavailable {
+                        Phase2ErrorView(message: incoming.errorMessage, retry: { Task { await incoming.reload() } })
+                    }
                     if waiting > 0 {
                         VStack(spacing: 0) {
                             Phase2Section(title: "Needs you", trailing: phase2Count(waiting, "thing"))
@@ -222,9 +239,9 @@ struct Phase2PlayerHome: View {
                                         viewModel: incoming, availability: availability, apiClient: client)
                                 } label: {
                                     homeNeed(
-                                        icon: "bubble.left", eyebrow: "Introduction · club said yes",
+                                        icon: "bubble.left", eyebrow: request.playerActionEyebrow,
                                         title: "A verified scout wants to talk",
-                                        detail: "Your club agreed. The decision is yours.")
+                                        detail: request.playerActionDetail)
                                 }.buttonStyle(.plain).accessibilityIdentifier("home-introductions")
                             }
                         }

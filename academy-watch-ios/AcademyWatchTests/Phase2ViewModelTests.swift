@@ -51,6 +51,106 @@ private actor SlowDirectoryAPI: Phase2API {
 @MainActor
 final class Phase2ViewModelTests: XCTestCase {
     private static var fixtureNow: Date { Phase2Time.date("2026-10-01T10:00:00Z")! }
+    func testShiftedApplicationPagesKeepOneRowPerStableID() async {
+        let model = ApplicationsViewModel(client: ShiftedApplicationsAPI())
+        await model.load()
+        XCTAssertTrue(model.isComplete)
+        XCTAssertEqual(model.applications.count, 31)
+        XCTAssertEqual(Set(model.applications.map(\.id)).count, 31)
+        XCTAssertEqual(model.applications.first(where: { $0.id == "newer-29" })?.status, "signed")
+        XCTAssertEqual(model.current?.id, "older-invitation")
+    }
+    func testReadFailureHasNoDraftAndLegacyClubHasNoWorkspaceErrorSurface() async {
+        let workspace = Phase2Workspace(client: RecordingPhase2API("club-offline"))
+        await workspace.load(authenticated: true)
+        XCTAssertNotNil(workspace.error)
+        XCTAssertFalse(workspace.hasClubSurface)
+        XCTAssertFalse(workspace.error?.contains("draft") ?? true)
+        let enabled = Phase2Workspace(client: RecordingPhase2API("membership-error"))
+        await enabled.load(authenticated: true)
+        XCTAssertTrue(enabled.hasClubSurface)
+        XCTAssertFalse(enabled.error?.contains("draft") ?? true)
+    }
+    func testLegacyAccountSymbolMatchesFlagsOffApp() {
+        XCTAssertEqual(RootTab.accountSymbol(editorial: false), "person.crop.circle.fill")
+        XCTAssertEqual(RootTab.accountSymbol(editorial: true), "person")
+    }
+    func testFailedTrialReadEndsLoading() async {
+        let model = TrialDetailViewModel(id: Phase2FixtureTransport.postId, client: RecordingPhase2API("detail-error"))
+        await model.load(authenticated: false, applications: true)
+        XCTAssertNil(model.post)
+        XCTAssertNotNil(model.error)
+        XCTAssertFalse(model.isLoading)
+    }
+    func testPublicTrialRevalidatesClaimsAndClearsEveryAccountBoundField() async {
+        let client = RecordingPhase2API("player")
+        let model = TrialDetailViewModel(id: Phase2FixtureTransport.postId, client: client)
+        model.setAccount("signed-out")
+        await model.load(authenticated: false, applications: true)
+        XCTAssertNotNil(model.post)
+        XCTAssertTrue(model.claims.isEmpty)
+        model.setAccount("signed-in|first")
+        await model.load(authenticated: true, applications: true)
+        XCTAssertEqual(model.selectedClaimId, 71)
+        model.position = "Midfield"; model.currentClub = "Club"; model.contactConsent = true
+        await model.apply()
+        XCTAssertNotNil(model.sent)
+        model.setAccount("signed-in|second")
+        XCTAssertNotNil(model.post)
+        XCTAssertTrue(model.claims.isEmpty)
+        XCTAssertNil(model.selectedClaimId)
+        XCTAssertNil(model.sent)
+        XCTAssertEqual(model.position, "")
+        XCTAssertEqual(model.currentClub, "")
+        XCTAssertFalse(model.contactConsent)
+        XCTAssertFalse(model.canSend)
+        await model.load(authenticated: true, applications: true)
+        XCTAssertEqual(model.claims.count, 1)
+    }
+    func testOldAccountApplicationSendCannotPopulateNewAccountDetail() async {
+        let client = SuspendedTrialSendAPI()
+        let model = TrialDetailViewModel(id: Phase2FixtureTransport.postId, client: client)
+        model.setAccount("first")
+        await model.load(authenticated: true, applications: true)
+        model.position = "Midfield"; model.contactConsent = true
+        let send = Task { await model.apply() }
+        await client.waitForSend()
+        model.setAccount("second")
+        await model.load(authenticated: true, applications: true)
+        await client.release()
+        await send.value
+        XCTAssertNil(model.sent)
+        XCTAssertFalse(model.isSending)
+        XCTAssertEqual(model.position, "")
+        XCTAssertFalse(model.contactConsent)
+    }
+
+    func testBrandHeroSmallTextMeetsAAForPermittedPrimariesInBothAppearances() {
+        func luminance(_ color: UIColor, _ traits: UITraitCollection) -> Double {
+            var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+            color.resolvedColor(with: traits).getRed(&r, green: &g, blue: &b, alpha: &a)
+            func linear(_ c: CGFloat) -> Double { c <= 0.04045 ? Double(c / 12.92) : pow(Double((c + 0.055) / 1.055), 2.4) }
+            return 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b)
+        }
+        var colours: [UInt32] = [0x767676, 0x757575, 0x747474, 0x0F3D2E]
+        for value in 0...4095 {
+            let red = UInt32((value >> 8) * 17)
+            let green = UInt32(((value >> 4) & 15) * 17)
+            let blue = UInt32((value & 15) * 17)
+            colours.append((red << 16) | (green << 8) | blue)
+        }
+        for style in [UIUserInterfaceStyle.light, .dark] {
+            let traits = UITraitCollection(userInterfaceStyle: style)
+            for primary in colours {
+                let background = luminance(UIColor(hex: primary), traits)
+                guard 1.05 / (background + 0.05) >= 4.5 else { continue } // Server-permitted primary.
+                let raw = String(format: "#%06X", primary)
+                let text = luminance(UIColor(phase2HeroForeground(raw)), traits)
+                XCTAssertGreaterThanOrEqual((max(text, background) + 0.05) / (min(text, background) + 0.05), 4.5, raw)
+            }
+        }
+    }
+
     func testClubResolutionRefusalPreservesPublicFlagsAndRemovesDeniedClub() async {
         for status in [403, 404] {
             let api = ClubResolutionAPI()
@@ -656,5 +756,43 @@ private actor PagedPlayerAPI: Phase2API {
         response["page"] = page
         response["has_more"] = page == 1
         return try JSONSerialization.data(withJSONObject: response)
+    }
+}
+
+private actor ShiftedApplicationsAPI: Phase2API {
+    let base = PagedPlayerAPI()
+    func phase2Data(path: String, method: String, query: [URLQueryItem], body: Data?) async throws -> Data {
+        let raw = try await base.phase2Data(path: path, method: method, query: query, body: body)
+        guard query.first?.value == "2" else { return raw }
+        var dto = try JSONSerialization.jsonObject(with: raw) as! [String: Any]
+        var rows = dto["applications"] as! [[String: Any]]
+        var duplicate = rows[0]
+        duplicate["id"] = "newer-29"
+        duplicate["status"] = "shortlisted"
+        rows.insert(duplicate, at: 0)
+        dto["applications"] = rows
+        return try JSONSerialization.data(withJSONObject: dto)
+    }
+}
+
+private actor SuspendedTrialSendAPI: Phase2API {
+    let fixture = Phase2FixtureTransport(mode: "player")
+    private var started = false
+    private var startWaiter: CheckedContinuation<Void, Never>?
+    private var sendWaiter: CheckedContinuation<Void, Never>?
+    func waitForSend() async {
+        if started { return }
+        await withCheckedContinuation { startWaiter = $0 }
+    }
+    func release() { sendWaiter?.resume(); sendWaiter = nil }
+    func phase2Data(path: String, method: String, query: [URLQueryItem], body: Data?) async throws -> Data {
+        if method == "POST" {
+            await withCheckedContinuation { continuation in
+                sendWaiter = continuation
+                started = true
+                startWaiter?.resume(); startWaiter = nil
+            }
+        }
+        return try await fixture.phase2Data(path: path, method: method, query: query, body: body)
     }
 }

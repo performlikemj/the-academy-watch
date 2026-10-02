@@ -29,6 +29,8 @@ enum RootTab: String, Hashable, Identifiable {
         return [.home, .scoutDesk, .watchlist, .lists, .account]
     }
 
+    static func accountSymbol(editorial: Bool) -> String { editorial ? "person" : "person.crop.circle.fill" }
+
     static func initial(
         role: ExperienceRole?,
         launchArguments: [String],
@@ -398,13 +400,13 @@ struct RootTabView: View {
     @ViewBuilder private var phase2Tabs: some View {
         if availableTabs.contains(.clubs) {
             NavigationStack { ClubsNearYouView(client: apiClient) }
-                .environment(\.directoryTabActive, selectedTab == .clubs).id(authManager.email ?? "signed-out").tabItem {
+                .environment(\.directoryTabActive, selectedTab == .clubs).tabItem {
                 Label("Clubs", systemImage: "mappin.and.ellipse")
             }
             .tag(RootTab.clubs)
         }
         if availableTabs.contains(.trials) {
-            NavigationStack { TrialsView(client: apiClient) }.id(authManager.email ?? "signed-out").tabItem {
+            NavigationStack { TrialsView(client: apiClient) }.tabItem {
                 Label("Trials", systemImage: "flag")
             }
             .tag(RootTab.trials)
@@ -505,7 +507,7 @@ struct RootTabView: View {
         // account's private form or conversation data.
         .id(authManager.isAuthenticated)
         .tabItem {
-            Label("Account", systemImage: "person")
+            Label("Account", systemImage: RootTab.accountSymbol(editorial: usesEditorialTabs))
                 .accessibilityIdentifier("tab-bar-account")
         }
         .tag(RootTab.account)

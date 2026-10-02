@@ -48,7 +48,7 @@ struct PlayerHomeView: View {
                     || workspace.flags.applications)
             {
                 Phase2PlayerHome(
-                    client: apiClient, incoming: incoming, availability: availability, onNavigate: onNavigate
+                    client: apiClient, incoming: incoming, availability: availability, onNavigate: onNavigate, onSignIn: onSignIn
                 )
                 .navigationTitle("Home").navigationBarTitleDisplayMode(.inline)
                 .toolbar {

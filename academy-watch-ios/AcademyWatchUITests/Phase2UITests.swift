@@ -41,6 +41,126 @@ final class Phase2UITests: XCTestCase {
         }
         XCTAssertTrue(element.isHittable)
     }
+    func testAntiScamWarningPinnedThroughProductionScrollAndNewMessage() {
+        app.launchArguments = ["-phase2Preview", "N17", "-AppleInterfaceStyle", "Light"]
+        app.launch()
+        let last = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'My dad will drive me'")).firstMatch
+        XCTAssertTrue(last.waitForExistence(timeout: 15))
+        let banner = app.descendants(matching: .any)["contact-thread-anti-scam-banner"].firstMatch
+        let composer = app.descendants(matching: .any)["contact-message-composer"].firstMatch
+        func assertPinned() {
+            XCTAssertTrue(banner.exists)
+            XCTAssertTrue(banner.isHittable)
+            XCTAssertGreaterThanOrEqual(banner.frame.minY, app.navigationBars.firstMatch.frame.maxY)
+            XCTAssertLessThanOrEqual(banner.frame.maxY, composer.frame.minY)
+            XCTAssertLessThanOrEqual(banner.frame.maxY, app.frame.maxY)
+        }
+        XCTAssertTrue(composer.waitForExistence(timeout: 10))
+        Thread.sleep(forTimeInterval: 1)
+        assertPinned()
+        capture("I1F4-warning-production-open")
+        app.scrollViews.firstMatch.swipeUp()
+        assertPinned()
+        tap(composer); composer.typeText("A new message for regression.")
+        tap(app.buttons["Send message"])
+        XCTAssertTrue(app.staticTexts["A new message for regression."].waitForExistence(timeout: 10))
+        assertPinned()
+        capture("I1F4-warning-after-new-message")
+    }
+    func testHomeIncludesDirectAndOlderGrantedIntroductions() {
+        for mode in ["direct-home", "older-introduction"] {
+            launch(mode)
+            let waiting = app.staticTexts["home-waiting"]
+            XCTAssertTrue(waiting.waitForExistence(timeout: 10))
+            let confirmed = NSPredicate(format: "label == %@", "1 thing is waiting on you.")
+            expectation(for: confirmed, evaluatedWith: waiting)
+            waitForExpectations(timeout: 10)
+            let needs = app.buttons["home-introductions"]
+            XCTAssertTrue(needs.exists)
+            XCTAssertTrue(needs.label.lowercased().contains(mode == "direct-home" ? "reply needed" : "club said yes"))
+            XCTAssertTrue(needs.label.contains(mode == "direct-home" ? "Choose whether to talk" : "Your club agreed"))
+            capture("I1F4-home-" + mode)
+            app.terminate()
+        }
+    }
+    func testFailedTrialReadEndsLoaderAndShowsRetry() {
+        launch("detail-error", tab: "trials")
+        tap(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'trial-'")).firstMatch)
+        XCTAssertTrue(app.otherElements["phase2-error"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.descendants(matching: .any)["cleat-loader"].exists)
+        XCTAssertFalse(app.staticTexts["Loading opportunity…"].exists)
+        XCTAssertTrue(app.buttons["Try again"].exists)
+        capture("I1F4-trial-read-finished")
+    }
+    func testLegacyClubHomeOmitsColdWorkspaceReadFailure() {
+        launch("club-offline")
+        XCTAssertTrue(app.navigationBars["Home"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.otherElements["phase2-error"].exists)
+        XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'draft is still here'")).firstMatch.exists)
+        capture("I1F4-legacy-club-offline")
+    }
+    func testPublicPagesNeverLabelPageSizeAsOpenTotal() {
+        launch("paged-public", tab: "trials")
+        XCTAssertTrue(app.staticTexts["PAGE 1"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.staticTexts["30 OPEN"].exists)
+        scrollTo(app.buttons["Next"])
+        tap(app.buttons["Next"])
+        XCTAssertTrue(app.staticTexts["PAGE 2"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.staticTexts["1 OPEN"].exists)
+        capture("I1F4-trials-page-two")
+        tap(app.tabBars.buttons["Clubs"])
+        tap(app.buttons["club-101"])
+        XCTAssertTrue(app.staticTexts["Open now"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.staticTexts["30 open"].exists)
+        capture("I1F4-club-paged-posts")
+    }
+    func testSignedOutHomeSignInPreservesPublicTrialAndClubDestinations() {
+        launch("player-signed-out")
+        let signIn = app.buttons["home-sign-in"]
+        XCTAssertTrue(signIn.waitForExistence(timeout: 10))
+        XCTAssertTrue(signIn.isHittable)
+        capture("I1F4-signed-out-home")
+        tap(signIn)
+        XCTAssertTrue(app.textFields["signin-email"].waitForExistence(timeout: 10))
+        tap(app.buttons["Close sign in"])
+        tap(app.tabBars.buttons["Clubs"]); tap(app.buttons["club-101"])
+        XCTAssertTrue(app.staticTexts["The Saltings 3G, XW4 2QA"].waitForExistence(timeout: 10))
+        tap(app.tabBars.buttons["Trials"])
+        tap(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'trial-'")).firstMatch)
+        XCTAssertTrue(app.staticTexts["Sign in from Account to apply with your approved adult profile."].waitForExistence(timeout: 10))
+        tap(app.tabBars.buttons["Account"])
+        tap(app.buttons["Sign In"])
+        let email = app.textFields["signin-email"]
+        tap(email); email.typeText("phase2@fixture.invalid")
+        tap(app.buttons["signin-send-code"])
+        let code = app.textFields["signin-code"]
+        tap(code); code.typeText("123456")
+        tap(app.buttons["signin-verify"])
+        XCTAssertTrue(app.buttons["Sign Out"].waitForExistence(timeout: 10))
+        tap(app.tabBars.buttons["Trials"])
+        XCTAssertTrue(app.textFields["apply-position"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.otherElements["phase2-trial-detail"].exists)
+        XCTAssertFalse(app.staticTexts["Sign in from Account to apply with your approved adult profile."].exists)
+        capture("I1F4-trial-retained-after-sign-in")
+        tap(app.tabBars.buttons["Clubs"])
+        XCTAssertTrue(app.staticTexts["The Saltings 3G, XW4 2QA"].waitForExistence(timeout: 10))
+        capture("I1F4-club-retained-after-sign-in")
+    }
+    func testPermittedGreyBrandHeadersInBothAppearances() {
+        for style in ["Light", "Dark"] {
+            app.launchArguments = ["-phase2Fixture", "brand-grey", "-initialTab", "clubs", "-AppleInterfaceStyle", style]
+            app.launch()
+            tap(app.buttons["club-101"])
+            XCTAssertTrue(app.staticTexts["Verified club"].waitForExistence(timeout: 10))
+            capture("I1F4-grey-club-" + style.lowercased())
+            tap(app.tabBars.buttons["Trials"])
+            tap(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'trial-'")).firstMatch)
+            XCTAssertTrue(app.otherElements["phase2-trial-detail"].waitForExistence(timeout: 10))
+            capture("I1F4-grey-trial-" + style.lowercased())
+            app.terminate()
+        }
+    }
+
     func testFirstEditorPresentationEditsExistingAndTerminalPosts() {
         for mode in ["owner", "terminal"] {
             launch(mode, tab: "recruiting")
