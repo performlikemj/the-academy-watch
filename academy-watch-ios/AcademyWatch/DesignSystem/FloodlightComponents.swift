@@ -9,6 +9,7 @@ struct FloodlightPillStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
+            .environment(\.logoLoadingSurface, variant == .primary ? .primaryButton : variant == .onDark ? .chalk : .page)
             .font(AcademyType.subheadline.weight(.medium))
             .padding(.horizontal, 20)
             .padding(.vertical, 12)

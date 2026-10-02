@@ -273,7 +273,7 @@ struct ContactThreadView: View {
             } label: {
                 Group {
                     if viewModel.isSending {
-                        WingLiftLoadingView().tint(AcademyColors.onPrimary)
+                        WingLiftLoadingView().environment(\.logoLoadingSurface, .primaryButton)
                     } else {
                         Image(systemName: "arrow.right")
                             .font(AcademyType.body.weight(.semibold))

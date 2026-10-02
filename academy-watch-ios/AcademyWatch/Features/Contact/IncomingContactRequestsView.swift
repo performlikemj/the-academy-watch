@@ -17,7 +17,6 @@ struct IncomingContactRequestsView: View {
 
             if viewModel.isLoading, !viewModel.hasLoaded {
                 WingLiftLoadingView("Checking your introductions…")
-                    .tint(AcademyColors.accent)
             } else if let error = viewModel.errorMessage, viewModel.requests.isEmpty {
                 ContentUnavailableView {
                     Label("Introductions unavailable", systemImage: "tray")

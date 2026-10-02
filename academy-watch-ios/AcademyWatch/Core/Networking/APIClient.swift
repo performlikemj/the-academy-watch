@@ -1048,6 +1048,12 @@ struct APIClient: GolAPIClientProtocol, PlayerClubAPIClientProtocol, ScoutAPICli
         return configuration
     }
 
+    /// A response belongs to the credential that sent it, including deep private navigation.
+    private func checkResponseCredential(_ sentToken: String?) async throws {
+        guard await authSession?.accessToken() == sentToken else { throw CancellationError() }
+        try Task.checkCancellation()
+    }
+
     private func requestData(
         path: String,
         method: String,
@@ -1093,14 +1099,17 @@ struct APIClient: GolAPIClientProtocol, PlayerClubAPIClientProtocol, ScoutAPICli
                 try await Task.sleep(for: .seconds(4))
             }
             let data = try Phase2Fixtures.data(for: request)
+            try await checkResponseCredential(token)
             return (data, ProcessInfo.processInfo.systemUptime)
         }
         if FloodlightPreview.isActive {
             let data = try FloodlightPreview.data(for: request)
+            try await checkResponseCredential(token)
             return (data, ProcessInfo.processInfo.systemUptime)
         }
         if let fixtureMode {
             let data = try PlayerClubExperienceFixtures.data(for: request, mode: fixtureMode)
+            try await checkResponseCredential(token)
             return (data, ProcessInfo.processInfo.systemUptime)
         }
         #endif
@@ -1132,6 +1141,7 @@ struct APIClient: GolAPIClientProtocol, PlayerClubAPIClientProtocol, ScoutAPICli
             }
             throw APIClientError.httpStatus(httpResponse.statusCode)
         }
+        try await checkResponseCredential(token)
         return (data, responseReceivedAt)
     }
 

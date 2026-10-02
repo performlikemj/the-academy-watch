@@ -15,7 +15,6 @@ struct SentContactRequestsView: View {
 
             if viewModel.isLoading, !viewModel.hasLoaded {
                 WingLiftLoadingView("Loading sent requests…")
-                    .tint(AcademyColors.accent)
             } else if let error = viewModel.errorMessage, viewModel.requests.isEmpty {
                 ContentUnavailableView {
                     Label("Requests unavailable", systemImage: "paperplane")

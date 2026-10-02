@@ -214,7 +214,6 @@ struct SignInView: View {
             HStack(spacing: 9) {
                 if isLoading {
                     WingLiftLoadingView()
-                        .tint(AcademyColors.onPrimary)
                 }
                 Text(title)
                     .fontWeight(.semibold)

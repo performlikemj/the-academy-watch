@@ -51,6 +51,62 @@ private actor SlowDirectoryAPI: Phase2API {
 @MainActor
 final class Phase2ViewModelTests: XCTestCase {
     private static var fixtureNow: Date { Phase2Time.date("2026-10-01T10:00:00Z")! }
+    func testRetainedPrivateModelsObserveAccountBoundaryWithoutDisappearing() async {
+        let auth = AuthManager(authClient: APIClient(), tokenStore: ExperienceTokenStore(),
+                               fixtureState: .signedIn(email: "a@fixture.invalid", accountRole: .player,
+                                                       displayName: "A", isVerifiedScout: false))
+        let application = ApplicationDetailViewModel(id: Phase2FixtureTransport.applicationId,
+                                                      client: RecordingPhase2API())
+        let profiles = MyProfilesViewModel(client: APIClient(fixtureMode: "development"))
+        application.observeAccount(auth); profiles.observeAccount(auth)
+        await application.load(); await profiles.load()
+        XCTAssertNotNil(application.application); XCTAssertFalse(profiles.claims.isEmpty)
+        auth.updateScoutVerification(true)
+        XCTAssertNotNil(application.application); XCTAssertFalse(profiles.claims.isEmpty)
+        auth.signOut()
+        XCTAssertNil(application.application); XCTAssertTrue(profiles.claims.isEmpty)
+    }
+    func testAccountBoundaryKeepsOnlyPublicNavigationPrefix() {
+        let club = Phase2BrowseRoute.club(slug: "quillmere", distance: 0.8)
+        let trial = Phase2BrowseRoute.trial("trial")
+        for entry in [Phase2BrowseRoute.application(id: "private", account: "a"), .profiles(account: "a")] {
+            XCTAssertEqual(Phase2BrowseRoute.publicPrefix([trial, entry]), [trial])
+            XCTAssertEqual(Phase2BrowseRoute.publicPrefix([club, trial, entry, trial]), [club, trial])
+        }
+        XCTAssertEqual(Phase2BrowseRoute.publicPrefix([club, trial]), [club, trial])
+    }
+    func testApplicationResetClearsDataAndDiscardsLateWithdrawal() async {
+        let api = SuspendedTrialSendAPI()
+        let model = ApplicationDetailViewModel(id: Phase2FixtureTransport.applicationId, client: api,
+                                               now: { Self.fixtureNow })
+        await model.load()
+        XCTAssertNotNil(model.application)
+        model.note = "Private note"; model.venue = "Private venue"; model.instructions = "Private instructions"
+        model.enrollmentConfirmed = true
+        let pending = Task { await model.applicantAction("withdraw") }
+        await api.waitForSend()
+        model.resetAccount()
+        XCTAssertNil(model.application)
+        XCTAssertEqual(model.note, ""); XCTAssertEqual(model.venue, ""); XCTAssertEqual(model.instructions, "")
+        XCTAssertFalse(model.enrollmentConfirmed)
+        XCTAssertFalse(model.isBusy)
+        await api.release()
+        await pending.value
+        XCTAssertNil(model.application)
+        XCTAssertNil(model.error)
+    }
+    func testApplicationResetDiscardsLateRead() async {
+        let api = SuspendedPrivateReadAPI()
+        let model = ApplicationDetailViewModel(id: Phase2FixtureTransport.applicationId, client: api)
+        let pending = Task { await model.load() }
+        await api.waitForRead()
+        model.resetAccount()
+        await api.release()
+        await pending.value
+        XCTAssertNil(model.application)
+        XCTAssertNil(model.error)
+        XCTAssertFalse(model.isBusy)
+    }
     func testShiftedApplicationPagesKeepOneRowPerStableID() async {
         let model = ApplicationsViewModel(client: ShiftedApplicationsAPI())
         await model.load()
@@ -793,6 +849,26 @@ private actor SuspendedTrialSendAPI: Phase2API {
                 started = true
                 startWaiter?.resume(); startWaiter = nil
             }
+        }
+        return try await fixture.phase2Data(path: path, method: method, query: query, body: body)
+    }
+}
+
+private actor SuspendedPrivateReadAPI: Phase2API {
+    let fixture = Phase2FixtureTransport(mode: "player")
+    private var started = false
+    private var startWaiter: CheckedContinuation<Void, Never>?
+    private var readWaiter: CheckedContinuation<Void, Never>?
+    func waitForRead() async {
+        if started { return }
+        await withCheckedContinuation { startWaiter = $0 }
+    }
+    func release() { readWaiter?.resume(); readWaiter = nil }
+    func phase2Data(path: String, method: String, query: [URLQueryItem], body: Data?) async throws -> Data {
+        await withCheckedContinuation { continuation in
+            readWaiter = continuation
+            started = true
+            startWaiter?.resume(); startWaiter = nil
         }
         return try await fixture.phase2Data(path: path, method: method, query: query, body: body)
     }

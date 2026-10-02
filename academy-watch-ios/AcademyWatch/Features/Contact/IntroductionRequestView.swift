@@ -245,7 +245,7 @@ struct IntroductionRequestSheet: View {
             } label: {
                 HStack(spacing: 9) {
                     if viewModel.isSubmitting {
-                        WingLiftLoadingView().tint(AcademyColors.onPrimary)
+                        WingLiftLoadingView()
                     }
                     Label(
                         viewModel.isSubmitting ? "Sending…" : "Send Introduction Request",
@@ -316,7 +316,7 @@ struct IntroductionRequestSheet: View {
                         } label: {
                             HStack(spacing: 9) {
                                 if viewModel.isSubmitting {
-                                    WingLiftLoadingView().tint(AcademyColors.onPrimary)
+                                    WingLiftLoadingView()
                                 }
                                 Text(viewModel.isSubmitting ? "Sending…" : "Confirm and Send Request")
                                     .fontWeight(.semibold)

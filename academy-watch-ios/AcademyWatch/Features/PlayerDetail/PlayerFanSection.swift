@@ -174,7 +174,6 @@ struct PlayerFanSectionView: View {
                 if viewModel.isPending {
                     WingLiftLoadingView()
                         .controlSize(.small)
-                        .tint(isFollowing ? AcademyColors.accent : AcademyColors.onPrimary)
                 }
                 Text(isFollowing ? "Following" : "Follow")
                 if isFollowing {

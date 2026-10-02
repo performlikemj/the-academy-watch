@@ -4,6 +4,23 @@ import XCTest
 @testable import AcademyWatch
 
 final class AuthenticationAPIClientTests: XCTestCase {
+    func testSuccessfulOldAccountResponseIsDiscardedAfterSignOutOrSwitch() async throws {
+        for replacement in [nil, "token-b"] as [String?] {
+            let auth = ReplacingAuthenticationSession(requestCredential: "token-a", replacementCredential: replacement)
+            let config = URLSessionConfiguration.ephemeral
+            config.protocolClasses = [SuccessfulPrivateURLProtocol.self]
+            let session = URLSession(configuration: config)
+            defer { session.invalidateAndCancel() }
+            let api = APIClient(baseURL: URL(string: "https://example.test/api")!, session: session, authSession: auth)
+            do {
+                let _: WatchlistIDsResponse = try await api.fetchWatchlistIDs()
+                XCTFail("A successful old-account response must not be published")
+            } catch is CancellationError {
+                // Sign-out and A→B both invalidate a successful response before decoding.
+            } catch { XCTFail("Expected cancellation, got \(error)") }
+        }
+    }
+
     func testAuthTokenResponseDecodesDerivedAccountRole() throws {
         let payload = #"""
         {
@@ -366,11 +383,11 @@ private final class AuthenticationStubURLProtocol: URLProtocol {
 
 private actor ReplacingAuthenticationSession: AuthSessionProtocol {
     private var credential: String?
-    private let replacementCredential: String
+    private let replacementCredential: String?
     private var didReplaceCredential = false
     private var didInvalidate = false
 
-    init(requestCredential: String, replacementCredential: String) {
+    init(requestCredential: String, replacementCredential: String?) {
         credential = requestCredential
         self.replacementCredential = replacementCredential
     }
@@ -577,4 +594,17 @@ private enum StubTokenStoreError: LocalizedError {
     var errorDescription: String? {
         "The test credential could not be deleted."
     }
+}
+
+private final class SuccessfulPrivateURLProtocol: URLProtocol {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: "HTTP/1.1",
+                                       headerFields: ["Content-Type": "application/json"])!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data(#"{"player_ids":[]}"#.utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
 }

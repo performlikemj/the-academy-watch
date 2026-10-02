@@ -25,7 +25,6 @@ struct WatchlistStarButton: View {
                 if isPending {
                     WingLiftLoadingView()
                         .controlSize(.small)
-                        .tint(AcademyColors.accent)
                 } else {
                     Image(systemName: isWatched ? "star.fill" : "star")
                         .font(AcademyType.ui( 16, weight: .semibold))

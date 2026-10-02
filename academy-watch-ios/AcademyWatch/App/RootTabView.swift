@@ -399,14 +399,14 @@ struct RootTabView: View {
 
     @ViewBuilder private var phase2Tabs: some View {
         if availableTabs.contains(.clubs) {
-            NavigationStack { ClubsNearYouView(client: apiClient) }
+            Phase2BrowseStack(clubs: true, client: apiClient)
                 .environment(\.directoryTabActive, selectedTab == .clubs).tabItem {
                 Label("Clubs", systemImage: "mappin.and.ellipse")
             }
             .tag(RootTab.clubs)
         }
         if availableTabs.contains(.trials) {
-            NavigationStack { TrialsView(client: apiClient) }.tabItem {
+            Phase2BrowseStack(clubs: false, client: apiClient).tabItem {
                 Label("Trials", systemImage: "flag")
             }
             .tag(RootTab.trials)

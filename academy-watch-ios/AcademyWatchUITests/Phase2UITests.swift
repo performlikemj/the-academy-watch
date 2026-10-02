@@ -41,6 +41,121 @@ final class Phase2UITests: XCTestCase {
         }
         XCTAssertTrue(element.isHittable)
     }
+    func testSignOutClearsPrivateApplicationOnBothPublicStacks() {
+        checkPrivateBoundary(mode: "apply", switchAccount: false)
+    }
+    func testAccountSwitchClearsPrivateApplicationOnBothPublicStacks() {
+        checkPrivateBoundary(mode: "apply", switchAccount: true)
+    }
+    func testSignOutClearsProfilesOnBothPublicStacks() {
+        checkPrivateBoundary(mode: "ineligible", switchAccount: false)
+    }
+    func testAccountSwitchClearsProfilesOnBothPublicStacks() {
+        checkPrivateBoundary(mode: "ineligible", switchAccount: true)
+    }
+    func testSignOutClearsDeepProfileAndClaimPushes() {
+        checkPrivateBoundary(mode: "ineligible", switchAccount: false, deeper: true)
+    }
+    func testAccountSwitchClearsDeepProfileAndClaimPushes() {
+        checkPrivateBoundary(mode: "ineligible", switchAccount: true, deeper: true)
+    }
+    private func checkPrivateBoundary(mode: String, switchAccount: Bool, deeper: Bool = false) {
+        for tab in ["Trials", "Clubs"] {
+            let style = tab == "Trials" ? "Light" : "Dark"
+            app.launchArguments = ["-phase2Fixture", mode, "-initialTab", tab.lowercased(),
+                                   "-reviewAccountSwitch", "-reviewAppearance", style]
+            app.launch()
+            tap(app.tabBars.buttons[tab])
+            if tab == "Clubs" {
+                tap(app.buttons["club-101"])
+                tap(app.buttons.matching(NSPredicate(format: "label CONTAINS 'Tuesday night' OR label CONTAINS 'Open training'")).firstMatch)
+            } else {
+                tap(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'trial-'")).firstMatch)
+            }
+            if mode == "apply" {
+                let position = app.textFields["apply-position"]
+                tap(position); position.typeText("Central midfield\n")
+                tap(app.switches["apply-contact-consent"])
+                tap(app.buttons["apply-send"])
+                XCTAssertTrue(app.staticTexts["application-sent"].waitForExistence(timeout: 10))
+                tap(app.buttons["See my application"])
+                XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Applied as'")).firstMatch.waitForExistence(timeout: 10))
+                scrollTo(app.buttons["Withdraw this application"])
+            } else {
+                tap(app.buttons["Find or claim your profile"])
+                XCTAssertTrue(app.staticTexts["Your place in the game"].waitForExistence(timeout: 10))
+                if deeper {
+                    if tab == "Trials" {
+                        tap(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'my-profile-'")).firstMatch)
+                        tap(app.buttons["my-profile-edit"])
+                        XCTAssertTrue(app.textFields["profile-editor-position"].waitForExistence(timeout: 10))
+                        let editorPosition = app.textFields["profile-editor-position"]
+                        tap(editorPosition); editorPosition.typeText(" Private editor draft\n")
+                        if app.buttons["Done"].exists { tap(app.buttons["Done"]) }
+                        tap(app.tabBars.buttons["Account"])
+                        tap(app.tabBars.buttons[tab])
+                        XCTAssertTrue(editorPosition.waitForExistence(timeout: 10))
+                        XCTAssertTrue((editorPosition.value as? String)?.contains("Private editor draft") == true)
+                    } else {
+                        tap(app.buttons["my-profiles-add"])
+                        XCTAssertTrue(app.textFields["player-onboarding-name-search"].waitForExistence(timeout: 10))
+                    }
+                    XCTAssertFalse(app.staticTexts["Your place in the game"].isHittable)
+                }
+            }
+            capture("I1F7-\(tab)-\(mode)-\(deeper ? "deep" : "entry")-before-\(switchAccount ? "switch" : "signout")")
+            tap(app.tabBars.buttons["Account"])
+            if switchAccount {
+                tap(app.buttons["fixture-account-switch"])
+                XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "identifier == 'fixture-account-identity' AND label == 'second@fixture.invalid'")).firstMatch.waitForExistence(timeout: 10))
+            } else {
+                tap(app.buttons["Sign Out"])
+                XCTAssertTrue(app.buttons["Sign In"].waitForExistence(timeout: 10))
+            }
+            tap(app.tabBars.buttons[tab])
+            XCTAssertTrue(app.scrollViews["phase2-trial-detail"].waitForExistence(timeout: 10))
+            XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Applied as'")).firstMatch.exists)
+            XCTAssertFalse(app.staticTexts["Your place in the game"].exists)
+            XCTAssertFalse(app.buttons["Withdraw this application"].exists)
+            XCTAssertFalse(app.descendants(matching: .any)["my-profiles"].exists)
+            XCTAssertFalse(app.buttons["my-profiles-add"].exists)
+            XCTAssertFalse(app.textFields["profile-editor-position"].exists)
+            XCTAssertFalse(app.textFields["player-onboarding-name-search"].exists)
+            XCTAssertFalse(app.staticTexts["application-sent"].exists)
+            if !switchAccount {
+                XCTAssertTrue(app.staticTexts["Sign in from Account to apply with your approved adult profile."].waitForExistence(timeout: 10))
+            }
+            capture("I1F7-\(tab)-\(mode)-\(deeper ? "deep" : "entry")-after-\(switchAccount ? "switch" : "signout")")
+            if tab == "Clubs" {
+                tap(app.navigationBars.buttons.firstMatch)
+                XCTAssertTrue(app.staticTexts["The Saltings 3G, XW4 2QA"].waitForExistence(timeout: 10))
+            }
+            app.terminate()
+        }
+    }
+    func testLoadingFeedbackExposesFirstVisitTitleDetailAndWaitTime() {
+        app.launchArguments = ["-logoFixtureSeconds", "12", "-logoFixtureReduceMotion"]
+        app.launch()
+        XCTAssertTrue(app.otherElements["logo-loader"].waitForExistence(timeout: 10))
+        XCTAssertEqual(app.otherElements["logo-loader"].label, "Loading")
+        XCTAssertTrue(app.staticTexts["First visits can take about 30 seconds."].exists)
+        XCTAssertTrue(app.staticTexts["Almost there"].exists)
+        XCTAssertTrue(app.staticTexts["First visit — we're gathering players from around the world."].exists)
+        // Separate accessible texts, rather than a card that ignores all its children.
+        XCTAssertGreaterThanOrEqual(app.staticTexts.count, 3)
+        capture("I1F7-scout-accessible-first-load")
+    }
+    func testLogoSurfaceReviewInLightDarkAndReduceMotion() {
+        for style in ["Light", "Dark"] {
+            for screen in ["loader-buttons", "loader-buttons-still", "loader-gold"] {
+                app.launchArguments = ["-phase2Preview", screen, "-reviewCapture", "-reviewAppearance", style]
+                app.launch()
+                XCTAssertTrue(app.otherElements.matching(identifier: "logo-loader").firstMatch.waitForExistence(timeout: 10))
+                capture("I1F7-\(screen)-\(style.lowercased())")
+                app.terminate()
+            }
+        }
+    }
     func testPendingThreadShowsRealStatusWithoutLegend() {
         assertThreadStatusWithoutLegend(mode: "thread-pending", status: "Pending")
     }

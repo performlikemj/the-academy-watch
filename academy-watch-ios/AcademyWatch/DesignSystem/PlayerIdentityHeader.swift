@@ -66,7 +66,6 @@ struct PlayerIdentityHeader: View {
                             .scaledToFill()
                     case .empty:
                         WingLiftLoadingView()
-                            .tint(AcademyColors.accent)
                     case .failure:
                         photoPlaceholder
                     @unknown default:

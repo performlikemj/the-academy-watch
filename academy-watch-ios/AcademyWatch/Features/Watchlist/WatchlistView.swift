@@ -61,7 +61,6 @@ struct WatchlistView: View {
             signedOutState
         } else if viewModel.isLoading, viewModel.entries.isEmpty {
             WingLiftLoadingView("Loading your watchlist…")
-                .tint(AcademyColors.accent)
         } else if let message = viewModel.errorMessage, viewModel.entries.isEmpty {
             errorState(message: message)
         } else if viewModel.entries.isEmpty {

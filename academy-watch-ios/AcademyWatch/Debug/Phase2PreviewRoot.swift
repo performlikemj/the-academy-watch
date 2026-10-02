@@ -68,6 +68,27 @@
                 RootTabView(launchArguments: ["-initialTab", chosenTab.rawValue])
             } else {
                 switch screen {
+                case "loader-buttons", "loader-buttons-still":
+                    VStack(spacing: 24) {
+                        ForEach([0, 3], id: \.self) { phase in
+                            Button {} label: {
+                                HStack {
+                                    WingLiftLoadingView(phase: phase, reduceMotionOverride: screen == "loader-buttons-still", caption: nil)
+                                    Text("Saving…")
+                                }
+                            }.buttonStyle(FloodlightPillStyle()).disabled(true)
+                        }
+                        HStack(spacing: 24) {
+                            ForEach([0, 3], id: \.self) { phase in
+                                Button {} label: {
+                                    WingLiftLoadingView(phase: phase, reduceMotionOverride: screen == "loader-buttons-still", caption: nil)
+                                        .environment(\.logoLoadingSurface, .primaryButton)
+                                        .frame(width: 44, height: 44)
+                                        .background(AcademyColors.primaryFill, in: Circle())
+                                }.disabled(true).opacity(0.45)
+                            }
+                        }
+                    }.frame(maxWidth: .infinity, maxHeight: .infinity).background(AcademyColors.background)
                 case "loader-green", "loader-claret", "loader-navy", "loader-gold", "loader-tangerine", "loader-sky", "loader-still":
                     WingLiftLoadingView(phase: screen == "loader-claret" ? 1 : screen == "loader-navy" ? 2 : screen == "loader-gold" ? 3 : screen == "loader-tangerine" ? 4 : screen == "loader-sky" ? 5 : 0,
                                 reduceMotionOverride: screen == "loader-still")
@@ -89,6 +110,7 @@
                 case "N03":
                     NavigationStack {
                         PublicClubView(slug: "quillmere-athletic", searchDistance: 0.8, client: client)
+                            .phase2BrowseDestinations(client: client)
                             .toolbar { ToolbarItem(placement: .topBarLeading) { reviewBack("Clubs", tab: .clubs) } }
                     }
                 case "N04": RootTabView(launchArguments: ["-initialTab", "trials"])
@@ -96,6 +118,7 @@
                     NavigationStack {
                         if workspace.flags.opportunities {
                             TrialDetailView(id: Phase2FixtureTransport.postId, client: client)
+                                .phase2BrowseDestinations(client: client)
                                 .toolbar {
                                     ToolbarItem(placement: .topBarLeading) { reviewBack("Trials", tab: .trials) }
                                 }

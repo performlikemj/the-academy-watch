@@ -48,7 +48,6 @@ struct CompareView: View {
     private var content: some View {
         if viewModel.isLoading, viewModel.players.isEmpty {
             WingLiftLoadingView("Comparing players…")
-                .tint(AcademyColors.accent)
         } else if let message = viewModel.errorMessage, viewModel.players.isEmpty {
             ContentUnavailableView {
                 Label("Comparison unavailable", systemImage: "wifi.exclamationmark")
@@ -451,7 +450,6 @@ private struct ComparePlayerHeader: View {
                             .scaledToFill()
                     case .empty:
                         WingLiftLoadingView()
-                            .tint(AcademyColors.accent)
                     case .failure:
                         photoPlaceholder
                     @unknown default:

@@ -32,6 +32,8 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
 
 ## State
 
+- **Now (I1F7):** RI1V3 union O1Medium/O2-O4Small implemented; account-bound browse branches/data/late responses isolated, surface-aware logo edges and accessible wait copy. Targeted models/UI pass; final-head validation, evidence, pushed SHA and cleanup receipts are authoritative in `~/codex-runs/aw-redesign/logs/I1F7.final.md`. Draft1118 review-only/unmerged; see `ledgers/CONTINUITY_ios-phase2.md`.
+
 - **Now (I1F6):** static thread legend removed;4 targeted UI pass, real pending/accepted/declined status and pinned warning retained/light+dark. Final offline/push/cleanup receipts: `~/codex-runs/aw-redesign/logs/I1F6.final.md`; see `ledgers/CONTINUITY_ios-phase2.md`. Draft1118 review-only/unmerged.
 
 - **Now (I1F5):** real winged-boot/shared loader and exact Floodlight launch restored;81calls/36files, body-only colour cycle/white wings; targeted5/5 and18native shots. Final-head gates/push/cleanup receipts: `~/codex-runs/aw-redesign/logs/I1F5.final.md`; ledger `ledgers/CONTINUITY_ios-phase2.md`. Draft1118 remains review-only/unmerged.

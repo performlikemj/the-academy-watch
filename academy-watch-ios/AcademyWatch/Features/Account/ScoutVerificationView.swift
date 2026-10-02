@@ -22,7 +22,6 @@ struct ScoutVerificationView: View {
 
             if viewModel.isLoading, !viewModel.hasLoaded {
                 WingLiftLoadingView("Loading verification status…")
-                    .tint(AcademyColors.accent)
             } else if !viewModel.hasLoaded, let errorMessage = viewModel.errorMessage {
                 initialErrorState(errorMessage)
             } else {
@@ -249,7 +248,6 @@ struct ScoutVerificationView: View {
                 HStack(spacing: 9) {
                     if viewModel.isSubmitting {
                         WingLiftLoadingView()
-                            .tint(AcademyColors.onPrimary)
                     }
                     Text(viewModel.verification?.status == .rejected ? "Resubmit for review" : "Submit for review")
                         .fontWeight(.semibold)

@@ -282,7 +282,6 @@ struct ScoutDeskView: View {
                 } else if viewModel.isLoadingLeaderboards {
                     WingLiftLoadingView()
                         .controlSize(.small)
-                        .tint(AcademyColors.accent)
                 }
             }
             .padding(.horizontal, 16)
@@ -478,7 +477,6 @@ struct ScoutDeskView: View {
                 VStack(spacing: 7) {
                     if let feedback = viewModel.initialLoadFeedback() {
                         WingLiftLoadingView()
-                            .tint(AcademyColors.accent)
                         Text(feedback.title)
                             .font(AcademyType.subheadline.weight(.semibold))
                         Text(feedback.detail)
@@ -490,7 +488,6 @@ struct ScoutDeskView: View {
                             .foregroundStyle(AcademyColors.secondaryText)
                     } else {
                         WingLiftLoadingView("Scouting talent…")
-                            .tint(AcademyColors.accent)
                     }
                 }
                 .frame(maxWidth: .infinity)
@@ -567,7 +564,6 @@ struct ScoutDeskView: View {
                 HStack {
                     Spacer()
                     WingLiftLoadingView()
-                        .tint(AcademyColors.accent)
                         .padding(.vertical, 16)
                     Spacer()
                 }

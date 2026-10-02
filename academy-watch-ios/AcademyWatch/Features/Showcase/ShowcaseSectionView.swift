@@ -191,7 +191,7 @@ private struct HighlightReelCard: View {
                         case .empty:
                             ZStack {
                                 AcademyColors.elevatedSurface
-                                WingLiftLoadingView().tint(AcademyColors.accent)
+                                WingLiftLoadingView()
                             }
                         case .failure:
                             reelPlaceholder

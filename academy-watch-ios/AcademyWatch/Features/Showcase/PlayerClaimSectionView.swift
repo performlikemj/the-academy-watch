@@ -71,7 +71,6 @@ struct PlayerClaimSectionView: View {
         if isAuthenticated, viewModel.isLoading, !viewModel.hasLoaded {
             HStack(spacing: 10) {
                 WingLiftLoadingView()
-                    .tint(AcademyColors.accent)
                 Text("Checking your claim status…")
                     .font(AcademyType.subheadline)
                     .foregroundStyle(AcademyColors.secondaryText)
@@ -287,7 +286,7 @@ struct PlayerClaimSectionView: View {
         } label: {
             if viewModel.isSubmitting {
                 HStack(spacing: 8) {
-                    WingLiftLoadingView().tint(AcademyColors.onPrimary)
+                    WingLiftLoadingView()
                     Text("Submitting…")
                 }
             } else {

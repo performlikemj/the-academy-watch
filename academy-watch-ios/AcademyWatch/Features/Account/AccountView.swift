@@ -538,6 +538,16 @@ struct AccountView: View {
             .buttonStyle(.plain)
             .accessibilityIdentifier("account-blocked-users")
 
+            #if DEBUG && targetEnvironment(simulator)
+            if Phase2Fixtures.active && ProcessInfo.processInfo.arguments.contains("-reviewAccountSwitch") {
+                Button("Switch fixture account") {
+                    Task {
+                        _ = try? await authManager.verifyCode(email: "second@fixture.invalid", code: "123456")
+                    }
+                }.accessibilityIdentifier("fixture-account-switch")
+                Text(authManager.email ?? "signed-out").accessibilityIdentifier("fixture-account-identity")
+            }
+            #endif
             Button(role: .destructive) {
                 authManager.signOut()
             } label: {

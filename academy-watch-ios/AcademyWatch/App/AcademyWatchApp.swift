@@ -60,6 +60,20 @@ struct AcademyWatchApp: App {
         }
     }
 
+    #if DEBUG && targetEnvironment(simulator)
+    private var reviewColorScheme: ColorScheme? {
+        guard Phase2Fixtures.active || FloodlightPreview.isActive || logoFixtureElapsedSeconds != nil else { return nil }
+        let args = ProcessInfo.processInfo.arguments
+        guard let i = args.firstIndex(of: "-reviewAppearance") ?? args.firstIndex(of: "-AppleInterfaceStyle"),
+              args.indices.contains(i + 1) else { return nil }
+        switch args[i + 1].lowercased() {
+        case "light": return .light
+        case "dark": return .dark
+        default: return nil
+        }
+    }
+    #endif
+
     var body: some Scene {
         WindowGroup {
             Group {
@@ -76,6 +90,9 @@ struct AcademyWatchApp: App {
                 #endif
             }
             .floodlightAppearance()
+            #if DEBUG && targetEnvironment(simulator)
+            .preferredColorScheme(reviewColorScheme)
+            #endif
         }
     }
 

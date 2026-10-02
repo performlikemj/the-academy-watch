@@ -11,8 +11,8 @@
 
 ## State
 - Done: merged B3 + final B1/B2 dependencies; conflicts preserved owned feature blocks. Native role tabs, browse/apply/application actions, recruiting/invites/notes/signing, owner staff grants and scoped squads implemented.
-- Now: I1F4 ten-item union implemented; final verification/delivery receipts are authoritative in `~/codex-runs/aw-redesign/logs/I1F4.final.md`. Draft #1118 stays unmerged.
-- Next: independent review of the I1F4 pushed head; backend8305283b through renewal; app rollout depends on UXB #1124; no fleet merge.
+- Now: I1F7 RI1V3 union O1Medium/O2-O4Small implemented. Final-head gates/native evidence/push/cleanup receipts are authoritative in `~/codex-runs/aw-redesign/logs/I1F7.final.md`. Draft #1118 stays review-only/unmerged.
+- Next: independent review of the I1F7 pushed head; backend8305283b through renewal; UXB1124 merged to main, web rollout remains a deployment dependency; no fleet merge.
 
 ## Validation
 - Debug simulator compile passes. First XCTest launch hit simulator infrastructure error before tests; rerun on booted dedicated simulator, parallel testing disabled.
@@ -155,3 +155,14 @@
 - Next: pending/accepted/declined light+dark UI assertions/screenshots, targeted contact checks, final offline scheme once; push draft1118/no merge, cleanup and external hand-back.
 - Targeted contact UI:4/4 pass/0 failures; real pending/accepted/declined status and club-consent rows remain in light/dark, all legend heading/chips absent, warning frame fixed through scroll and production new-message path.
 - Source freeze: full offline Experience scheme runs once on committed head; final outcome/screenshots/pushed SHA and simulator/DerivedData cleanup receipts are authoritative in `~/codex-runs/aw-redesign/logs/I1F6.final.md`. No backend/frontend/dependencies, merge or live sends.
+
+## I1F7 review-duel fix round
+- In progress: O1 private pushed destinations/data/late work at account boundary; O2 surface-aware logo edges/dead tint; O3 accessible first-load feedback; O4 black-phase dark edge.
+- All four RI1V3 reports read; union 0 Serious/1 Medium/3 Small. Keep public-detail sign-in regression green.
+- Foreground governor only; targeted iteration then final main-integrated gates/offline/PG/browser, light/dark shots, push draft1118 before BUS DONE; owned simulator/DerivedData cleanup.
+- First targeted models12/12 and UI9/9 PASS. Covers sign-out/A→B applications/profiles/deeper routes on Trials/Clubs, preserved sign-in, accessible wait copy and light/dark/Reduce Motion logo evidence. Initial conversion compile syntax fixed.
+- Refinement: private models observe identity while retained under deeper pushes; normal tab navigation retains drafts. Added actual profile-editor draft roundtrip + identity reset regressions and removed three remaining multiline dead loader tint modifiers.
+- Retained-model account observer regression PASS. Actual deep profile-editor draft survives Account roundtrip and is removed on account switch. Screenshot inspection found iOS27 ignores old launch appearance argument; added explicit DEBUG fixture-only preferred scheme and deterministic light/dark captures.
+- True light/dark appearance targeted2 PASS; inspected original asset shapes/white wing in both. Composer uses its own solid circle rather than pill style; added explicit surface there, disabled pill/circle evidence and a crisper asset-derived chalk edge for black phase. Final targeted logo then freeze/main merge/gates.
+- Final logo7/7 PASS (disabled solid surfaces, every white-wing phase, Reduce Motion, chalk edge, original asset/callsite parity). Deep editor2/2 PASS with real fields/draft roundtrip; identity-observer1/1 PASS.
+- Source frozen before final main-integrated validation; exact final-head gates, full native unit/offline scheme, PG/browser, light/dark screenshot hashes, delivery and cleanup records are canonical in external `I1F7.final.md`. No I1 migration or logo asset changes; draft1118 never merged.

@@ -112,7 +112,6 @@ struct PlayerDetailView: View {
 
             if viewModel.isLoading(.profile), viewModel.profile == nil {
                 WingLiftLoadingView("Loading player…")
-                    .tint(AcademyColors.accent)
             } else if let message = viewModel.errorMessage(for: .profile), viewModel.profile == nil {
                 PlayerDetailPageError(message: message) {
                     Task { await viewModel.reload() }
@@ -552,7 +551,7 @@ private struct PlayerProfileHeader: View {
                     case let .success(image):
                         image.resizable().scaledToFill()
                     case .empty:
-                        WingLiftLoadingView().tint(AcademyColors.accent)
+                        WingLiftLoadingView()
                     case .failure:
                         photoPlaceholder
                     @unknown default:
@@ -1123,7 +1122,7 @@ private struct PlayerDetailLoadingCard: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            WingLiftLoadingView().tint(AcademyColors.accent)
+            WingLiftLoadingView()
             Text(label)
                 .font(AcademyType.footnote)
                 .foregroundStyle(AcademyColors.secondaryText)

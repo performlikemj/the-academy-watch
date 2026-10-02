@@ -112,6 +112,7 @@
         let mode: String
         private let lock = NSLock()
         private var flagReads = 0
+        private var fixtureEmail = "phase2@fixture.invalid"
         private var submitted = false
         private var version = 1
         private var status = "invited"
@@ -158,15 +159,17 @@
                 body["email"] as? String == "phase2@fixture.invalid" {
                 return try json(["message": "Offline code ready"])
             }
-            if mode == "player-signed-out", method == "POST", path == "auth/verify-code",
-                body["email"] as? String == "phase2@fixture.invalid", body["code"] as? String == "123456" {
+            if ["player-signed-out", "apply", "ineligible"].contains(mode), method == "POST", path == "auth/verify-code",
+                let email = body["email"] as? String, ["phase2@fixture.invalid", "second@fixture.invalid"].contains(email),
+                body["code"] as? String == "123456" {
+                fixtureEmail = email
                 return try json(["message": "Signed in", "role": "user", "account_role": "player",
                                  "display_name": "Reuben Castellane", "display_name_confirmed": true,
-                                 "token": "fixture-auth-token", "expires_in": 3600])
+                                 "token": "fixture-auth-token-" + fixtureEmail, "expires_in": 3600])
             }
             if path == "auth/me", method == "GET" {
                 return try json([
-                    "email": "phase2@fixture.invalid", "role": "user", "user_id": 7,
+                    "email": fixtureEmail, "role": "user", "user_id": fixtureEmail == "phase2@fixture.invalid" ? 7 : 8,
                     "display_name": ProcessInfo.processInfo.arguments.contains("-reviewLongName") ? "Alexanderthegreat Castellane" : "Reuben Castellane", "display_name_confirmed": true,
                     "is_journalist": false,
                     "is_curator": false, "is_verified_scout": false,

@@ -114,7 +114,6 @@ struct ListsView: View {
             signedOutState
         } else if viewModel.isLoading, viewModel.lists.isEmpty {
             WingLiftLoadingView("Loading your lists…")
-                .tint(AcademyColors.accent)
         } else if let message = viewModel.errorMessage, viewModel.lists.isEmpty {
             errorState(message: message)
         } else if viewModel.lists.isEmpty {
@@ -321,7 +320,6 @@ struct FollowListDetailView: View {
                     HStack {
                         Spacer()
                         WingLiftLoadingView("Resolving players…")
-                            .tint(AcademyColors.accent)
                         Spacer()
                     }
                     .padding(.vertical, 18)

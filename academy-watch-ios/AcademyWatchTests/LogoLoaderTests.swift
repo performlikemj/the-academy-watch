@@ -38,6 +38,46 @@ final class LogoLoaderTests: XCTestCase {
         XCTAssertNotEqual(LogoLoadingMotion(elapsed: 0.6, reduceMotion: false), still)
     }
 
+    func testSolidButtonAutomaticallyChoosesItsOwnSurfaceEdges() throws {
+        for scheme in [ColorScheme.light, .dark] {
+            for reduceMotion in [false, true] {
+                for phase in [0, 3] {
+                    let actual = try buttonSnapshot(phase: phase, scheme: scheme, reduceMotion: reduceMotion)
+                    let expected = try buttonSnapshot(phase: phase, scheme: scheme, reduceMotion: reduceMotion, surface: .primaryButton)
+                    let wrong = try buttonSnapshot(phase: phase, scheme: scheme, reduceMotion: reduceMotion, surface: .page)
+                    XCTAssertEqual(actual, expected)
+                    XCTAssertNotEqual(actual, wrong, "Solid buttons must outline against their inverted surface")
+                    let shot = XCTAttachment(data: actual, uniformTypeIdentifier: "public.png")
+                    shot.name = "I1F7-busy-\(scheme)-phase\(phase)-reduce\(reduceMotion)"
+                    shot.lifetime = .keepAlways; add(shot)
+                }
+            }
+        }
+    }
+    func testBlackPhaseHasVisibleChalkBootEdgeOnDarkPage() throws {
+        let visible = try rgba(snapshot(phase: 3, scheme: .dark))
+        let hidden = try rgba(snapshot(phase: 3, scheme: .dark, surface: .chalk))
+        let raised = stride(from: 0, to: visible.count, by: 4).filter {
+            Int(visible[$0]) - Int(hidden[$0]) > 60 && Int(visible[$0 + 1]) - Int(hidden[$0 + 1]) > 60
+        }
+        XCTAssertGreaterThan(raised.count, 100, "The dark boot edge must have clearly raised chalk pixels")
+    }
+    private func buttonSnapshot(phase: Int, scheme: ColorScheme, reduceMotion: Bool, surface: LogoLoadingSurface? = nil) throws -> Data {
+        let renderer = ImageRenderer(content:
+            Button {} label: {
+                if let surface {
+                    WingLiftLoadingView(phase: phase, reduceMotionOverride: reduceMotion, caption: nil)
+                        .environment(\.logoLoadingSurface, surface)
+                } else {
+                    WingLiftLoadingView(phase: phase, reduceMotionOverride: reduceMotion, caption: nil)
+                }
+            }.buttonStyle(FloodlightPillStyle()).disabled(true)
+                .padding(24).background(AcademyColors.background)
+                .environment(\.colorScheme, scheme))
+        renderer.scale = 4
+        return try XCTUnwrap(renderer.uiImage?.pngData())
+    }
+
     func testReduceMotionSnapshotsStayGreenForAllPhasesAndAppearances() throws {
         for scheme in [ColorScheme.light, .dark] {
             let expected = try snapshot(phase: 0, scheme: scheme, reduceMotion: true)
@@ -111,10 +151,11 @@ final class LogoLoaderTests: XCTestCase {
         XCTAssertEqual(launch["UIImageRespectsSafeAreaInsets"] as? Bool, false)
     }
 
-    private func snapshot(phase: Int, scheme: ColorScheme, reduceMotion: Bool = false) throws -> Data {
+    private func snapshot(phase: Int, scheme: ColorScheme, reduceMotion: Bool = false, surface: LogoLoadingSurface = .page) throws -> Data {
         let renderer = ImageRenderer(content:
             WingLiftLoadingView(phase: phase, reduceMotionOverride: reduceMotion)
                 .padding(24).background(AcademyColors.background)
+                .environment(\.logoLoadingSurface, surface)
                 .environment(\.colorScheme, scheme))
         renderer.scale = 2
         return try XCTUnwrap(renderer.uiImage?.pngData())

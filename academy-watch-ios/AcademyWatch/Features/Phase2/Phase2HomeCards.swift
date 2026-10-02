@@ -288,7 +288,7 @@ struct Phase2PlayerHome: View {
                                 }.prefix(2)
                             ) { post in
                                 NavigationLink {
-                                    TrialDetailView(id: post.id, client: client)
+                                    TrialDetailView(id: post.id, client: client).phase2BrowseDestinations(client: client)
                                 } label: {
                                     HStack {
                                         Text(post.title).font(AcademyType.serif(20))

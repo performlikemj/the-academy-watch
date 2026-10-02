@@ -1,3 +1,4 @@
+import Combine
 import SafariServices
 import SwiftUI
 
@@ -9,6 +10,22 @@ final class MyProfilesViewModel: ObservableObject {
     private let client: any PlayerClubAPIClientProtocol
     private var generation = 0
     init(client: any PlayerClubAPIClientProtocol) { self.client = client }
+
+    private var accountSubscription: AnyCancellable?
+    func observeAccount(_ auth: AuthManager) {
+        guard accountSubscription == nil else { return }
+        accountSubscription = auth.$state
+            .map { $0.isAuthenticated ? ($0.email ?? "restoring-account") : "signed-out" }
+            .removeDuplicates().dropFirst()
+            .sink { [weak self] _ in self?.resetAccount() }
+    }
+
+    func resetAccount() {
+        generation += 1
+        claims = []
+        error = nil
+        isLoading = false
+    }
 
     func load() async {
         generation += 1
@@ -260,6 +277,7 @@ struct PlayerHomeView: View {
 }
 
 struct MyProfilesView: View {
+    @EnvironmentObject private var auth: AuthManager
     @StateObject private var model: MyProfilesViewModel
     @Environment(\.scenePhase) private var scenePhase
     let apiClient: APIClient
@@ -313,7 +331,7 @@ struct MyProfilesView: View {
         }.background(AcademyColors.background)
             .background(AcademyColors.background)
             .navigationTitle("My profiles").navigationBarTitleDisplayMode(.inline)
-            .task { await model.load() }
+            .task { model.observeAccount(auth); await model.load() }
             .refreshable { await model.load() }
             .onChange(of: scenePhase) { _, phase in if phase == .active { Task { await model.load() } } }
             .accessibilityIdentifier("my-profiles")

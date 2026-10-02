@@ -359,6 +359,27 @@ final class ApplicationDetailViewModel: ObservableObject {
     private var path: String {
         programId.map { "club/\($0)/applications/\(id)" } ?? "me/applications/\(id)"
     }
+    private var accountSubscription: AnyCancellable?
+    func observeAccount(_ auth: AuthManager) {
+        guard accountSubscription == nil else { return }
+        accountSubscription = auth.$state
+            .map { $0.isAuthenticated ? ($0.email ?? "restoring-account") : "signed-out" }
+            .removeDuplicates().dropFirst()
+            .sink { [weak self] _ in self?.resetAccount() }
+    }
+
+    func resetAccount() {
+        generation += 1
+        application = nil
+        error = nil
+        isBusy = false
+        note = ""
+        venue = ""
+        instructions = ""
+        trialDate = clock().addingTimeInterval(86400)
+        enrollmentConfirmed = false
+        initializedInvite = false
+    }
     func load() async {
         guard !isBusy else { return }
         generation += 1
@@ -412,23 +433,29 @@ final class ApplicationDetailViewModel: ObservableObject {
     private func mutate<Body: Encodable>(suffix: String, body: Body) async {
         isBusy = true
         error = nil
-        defer { isBusy = false }
+        generation += 1
+        let request = generation
+        defer { if request == generation { isBusy = false } }
         do {
             let response: ApplicationResponse = try await client.write(path + "/" + suffix, body: body)
+            guard request == generation, !Task.isCancelled else { return }
             application = response.application
         } catch {
+            guard request == generation, !Task.isCancelled else { return }
             self.error = phase2Error(error)
             // Private records can be withdrawn from the board after a hold or
             // scope change; never keep stale profile/notes visible after denial.
             if [403, 404].contains(phase2Status(error) ?? 0) { application = nil }
-            if phase2Status(error) == 409 { await revalidateConflict() }
+            if phase2Status(error) == 409 { await revalidateConflict(request: request) }
         }
     }
-    private func revalidateConflict() async {
+    private func revalidateConflict(request: Int) async {
         do {
             let response: ApplicationResponse = try await client.read(path)
+            guard request == generation, !Task.isCancelled else { return }
             application = response.application
         } catch {
+            guard request == generation, !Task.isCancelled else { return }
             if [403, 404].contains(phase2Status(error) ?? 0) { application = nil }
         }
     }
@@ -438,17 +465,21 @@ final class ApplicationDetailViewModel: ObservableObject {
         else { return }
         isBusy = true
         error = nil
+        generation += 1
+        let request = generation
         do {
             let _: NoteResponse = try await client.write(
                 path + "/notes", body: NoteSubmission(body: note))
+            guard request == generation, !Task.isCancelled else { return }
             note = ""
             isBusy = false
             await load()
         } catch {
+            guard request == generation, !Task.isCancelled else { return }
             self.error = phase2Error(error)
             isBusy = false
             if [403, 404].contains(phase2Status(error) ?? 0) { application = nil }
-            if phase2Status(error) == 409 { await revalidateConflict() }
+            if phase2Status(error) == 409 { await revalidateConflict(request: request) }
         }
     }
 }

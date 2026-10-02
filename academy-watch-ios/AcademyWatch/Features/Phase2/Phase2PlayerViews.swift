@@ -149,6 +149,78 @@ extension EnvironmentValues {
         set { self[DirectoryTabActiveKey.self] = newValue }
     }
 }
+/// Public pages survive authentication; a private entry owns every descendant below it.
+enum Phase2BrowseRoute: Hashable {
+    case club(slug: String, distance: Double?)
+    case trial(String)
+    case application(id: String, account: String)
+    case profiles(account: String)
+
+    var isPrivate: Bool {
+        switch self {
+        case .application, .profiles: true
+        case .club, .trial: false
+        }
+    }
+    static func publicPrefix(_ path: [Self]) -> [Self] {
+        Array(path.prefix { !$0.isPrivate })
+    }
+}
+
+extension AuthManager {
+    var browseAccountIdentity: String { isAuthenticated ? (email ?? "restoring-account") : "signed-out" }
+}
+
+private struct Phase2BrowseDestinations: ViewModifier {
+    let client: APIClient
+    @EnvironmentObject private var auth: AuthManager
+    func body(content: Content) -> some View {
+        content
+            .navigationDestination(for: Phase2BrowseRoute.self) { route in
+                switch route {
+                case let .club(slug, distance):
+                    PublicClubView(slug: slug, searchDistance: distance, client: client)
+                case let .trial(id):
+                    TrialDetailView(id: id, client: client)
+                case let .application(id, account):
+                    if account == auth.browseAccountIdentity {
+                        ApplicationDetailView(id: id, client: client).id(account)
+                    }
+                case let .profiles(account):
+                    if account == auth.browseAccountIdentity {
+                        MyProfilesView(apiClient: client).id(account)
+                    }
+                }
+            }
+    }
+}
+extension View {
+    func phase2BrowseDestinations(client: APIClient) -> some View {
+        modifier(Phase2BrowseDestinations(client: client))
+    }
+}
+
+struct Phase2BrowseStack: View {
+    let clubs: Bool
+    let client: APIClient
+    @EnvironmentObject private var auth: AuthManager
+    @State private var path: [Phase2BrowseRoute] = []
+
+    var body: some View {
+        NavigationStack(path: $path) {
+            Group {
+                if clubs { ClubsNearYouView(client: client) }
+                else { TrialsView(client: client) }
+            }
+            .phase2BrowseDestinations(client: client)
+        }
+        .onChange(of: auth.browseAccountIdentity) { _, _ in
+            // Removing the entry also removes view-based profile/claim/editor pushes beneath it.
+            path = Phase2BrowseRoute.publicPrefix(path)
+        }
+    }
+}
+
 struct ClubsNearYouView: View {
     @Environment(\.directoryTabActive) private var tabActive
     @EnvironmentObject private var auth: AuthManager
@@ -245,9 +317,7 @@ struct ClubsNearYouView: View {
             if model.isLoading { WingLiftLoadingView("Finding clubs…") }
             Phase2ErrorView(message: model.error, retry: search)
             ForEach(model.clubs) { club in
-                NavigationLink {
-                    PublicClubView(slug: club.slug, searchDistance: club.distanceKm, client: client)
-                } label: {
+                NavigationLink(value: Phase2BrowseRoute.club(slug: club.slug, distance: club.distanceKm)) {
                     VStack(spacing: 0) {
                         HStack(spacing: 16) {
                             Phase2ClubCrest(name: club.name, brand: club.brand)
@@ -430,9 +500,7 @@ struct PublicClubView: View {
                                     message: posts.error,
                                     retry: { Task { await posts.load(programId: club.id) } })
                                 ForEach(posts.posts) { post in
-                                    NavigationLink {
-                                        TrialDetailView(id: post.id, client: client)
-                                    } label: {
+                                    NavigationLink(value: Phase2BrowseRoute.trial(post.id)) {
                                         Phase2Row(
                                             eyebrow: post.typeLabel, title: post.title,
                                             detail: (post.startsAt == nil
@@ -573,9 +641,7 @@ struct TrialsView: View {
             if model.isLoading { WingLiftLoadingView("Finding opportunities…") }
             Phase2ErrorView(message: model.error, retry: reload)
             ForEach(model.posts) { post in
-                NavigationLink {
-                    TrialDetailView(id: post.id, client: client)
-                } label: {
+                NavigationLink(value: Phase2BrowseRoute.trial(post.id)) {
                     OpportunityRow(post: post)
                 }.buttonStyle(.plain).accessibilityIdentifier("trial-\(post.id)")
             }
@@ -676,9 +742,8 @@ struct TrialDetailView: View {
                             Text(
                                 "Deleted by \(Phase2Time.shortDate(sent.retentionExpiresAt, zone: sent.timezone, format: "EEE d MMM yyyy"))"
                             ).font(AcademyType.footnote)
-                            NavigationLink("See my application") {
-                                ApplicationDetailView(id: sent.id, client: client)
-                            }
+                            NavigationLink("See my application", value: Phase2BrowseRoute.application(
+                                id: sent.id, account: auth.browseAccountIdentity))
                             .buttonStyle(FloodlightPillStyle())
                         } else if workspace.flags.applications {
                             Phase2FormCard {
@@ -691,9 +756,8 @@ struct TrialDetailView: View {
                                     Text(
                                         "Applications require your own approved adult self-profile. Guardian and agent profiles cannot apply."
                                     ).font(AcademyType.subheadline)
-                                    NavigationLink("Find or claim your profile") {
-                                        MyProfilesView(apiClient: client)
-                                    }
+                                    NavigationLink("Find or claim your profile", value: Phase2BrowseRoute.profiles(
+                                        account: auth.browseAccountIdentity))
                                 } else if model.claims.isEmpty {
                                     if model.isLoading { WingLiftLoadingView("Checking your profile…") }
                                     // The error and retry below replace unusable inputs.
@@ -931,6 +995,7 @@ struct ApplicationProgressCard: View {
     }
 }
 struct ApplicationDetailView: View {
+    @EnvironmentObject private var auth: AuthManager
     let client: APIClient
     @StateObject private var model: ApplicationDetailViewModel
     init(id: String, client: APIClient) {
@@ -957,7 +1022,7 @@ struct ApplicationDetailView: View {
                 Text(applicationRetentionCopy).font(AcademyType.footnote).foregroundStyle(
                     AcademyColors.secondaryText)
             }
-        }.navigationTitle("Application").task { await model.load() }.refreshable { await model.load() }
+        }.navigationTitle("Application").task { model.observeAccount(auth); await model.load() }.refreshable { await model.load() }
             .accessibilityIdentifier("phase2-application-detail")
     }
 }

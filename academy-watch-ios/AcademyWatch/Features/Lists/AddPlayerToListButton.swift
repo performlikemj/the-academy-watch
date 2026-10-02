@@ -75,7 +75,6 @@ private struct PlayerListPicker: View {
     private var content: some View {
         if viewModel.isLoading, viewModel.lists.isEmpty {
             WingLiftLoadingView("Loading lists…")
-                .tint(AcademyColors.accent)
         } else if availableLists.isEmpty {
             ContentUnavailableView {
                 Label("No lists available", systemImage: "list.bullet.rectangle")

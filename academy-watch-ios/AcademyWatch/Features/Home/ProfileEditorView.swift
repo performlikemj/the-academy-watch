@@ -179,7 +179,7 @@ struct ProfileEditorView: View {
         .scrollContentBackground(.hidden)
         .background(AcademyColors.background)
         .navigationTitle("Edit profile").navigationBarTitleDisplayMode(.inline)
-        .task { await model.load() }
+        .task { if !model.loaded { await model.load() } }
         .task(id: photoItem) {
             photoData = nil
             photoError = nil

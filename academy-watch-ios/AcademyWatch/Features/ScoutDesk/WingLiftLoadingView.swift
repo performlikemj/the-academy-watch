@@ -35,10 +35,44 @@ struct LogoLoadingMotion: Equatable {
     }
 }
 
+enum LogoLoadingSurface {
+    case page, primaryButton, chalk
+    func isDark(in scheme: ColorScheme) -> Bool {
+        switch self {
+        case .page: scheme == .dark
+        case .primaryButton: scheme == .light
+        case .chalk: false
+        }
+    }
+}
+private struct LogoLoadingSurfaceKey: EnvironmentKey {
+    static let defaultValue = LogoLoadingSurface.page
+}
+extension EnvironmentValues {
+    var logoLoadingSurface: LogoLoadingSurface {
+        get { self[LogoLoadingSurfaceKey.self] }
+        set { self[LogoLoadingSurfaceKey.self] = newValue }
+    }
+}
+
+/// Crisp, asset-derived chalk edge on dark surfaces; the bitmap silhouette is unchanged.
+private struct LogoBootEdge: ViewModifier {
+    let dark: Bool
+    func body(content: Content) -> some View {
+        let edge = AcademyColors.chalk.opacity(dark ? 0.9 : 0)
+        content
+            .shadow(color: edge, radius: 0.2, x: 0.35)
+            .shadow(color: edge, radius: 0.2, x: -0.35)
+            .shadow(color: edge, radius: 0.2, y: 0.35)
+            .shadow(color: edge, radius: 0.2, y: -0.35)
+    }
+}
+
 /// One shared logo loader for initial cards, inline reads and busy controls.
 struct WingLiftLoadingView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.controlSize) private var controlSize
+    @Environment(\.logoLoadingSurface) private var surface
     @Environment(\.colorScheme) private var colorScheme
     private var caption: String?
     private var feedback: ScoutInitialLoadFeedback?
@@ -57,8 +91,8 @@ struct WingLiftLoadingView: View {
         caption = "LOADING"
         self.reduceMotionOverride = reduceMotionOverride
     }
-    init(phase: Int, reduceMotionOverride: Bool = false) {
-        caption = "LOADING"
+    init(phase: Int, reduceMotionOverride: Bool = false, caption: String? = "LOADING") {
+        self.caption = caption
         phaseOverride = max(0, phase) % LogoLoadingPalette.bodies.count
         self.reduceMotionOverride = reduceMotionOverride
     }
@@ -96,8 +130,11 @@ struct WingLiftLoadingView: View {
                 let elapsed = fixedPhase == nil ? max(0, context.date.timeIntervalSince(animationStartedAt)) : 0
                 wingedBoot(elapsed: elapsed)
             }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Loading")
+            .accessibilityIdentifier("logo-loader")
             if let caption {
-                Text(caption).font(AcademyType.mono(11)).tracking(1.8)
+                Text(caption).accessibilityHidden(true).font(AcademyType.mono(11)).tracking(1.8)
                     .foregroundStyle(AcademyColors.text).multilineTextAlignment(.center)
             }
             if let feedback {
@@ -113,9 +150,8 @@ struct WingLiftLoadingView: View {
         .padding(feedback == nil ? 0 : 30)
         .background(feedback == nil ? Color.clear : AcademyColors.background)
         .multilineTextAlignment(.center)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Loading")
-        .accessibilityIdentifier(feedback == nil ? "logo-loader" : "initial-load-feedback")
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(feedback == nil ? "logo-loading-container" : "initial-load-feedback")
         .task(id: still) {
             phase = 0
             animationStartedAt = Date()
@@ -156,10 +192,11 @@ struct WingLiftLoadingView: View {
                             .frame(maxHeight: .infinity, alignment: .bottom)
                     }
                 }
-                .shadow(color: AcademyColors.chalk.opacity(colorScheme == .dark ? 0.35 : 0), radius: 0.5)
+                .modifier(LogoBootEdge(dark: surface.isDark(in: colorScheme)))
             // WingB is actually a detached boot tongue in the original extraction.
             // It keeps its existing subtle beat, but takes the boot colour.
             markLayer("LaunchBootWingB").foregroundStyle(bodyTint)
+                .modifier(LogoBootEdge(dark: surface.isDark(in: colorScheme)))
                 .rotationEffect(.degrees(motion.lowerBeat), anchor: wingAnchor)
             ZStack {
                 markLayer("LaunchBootBody")
@@ -171,7 +208,7 @@ struct WingLiftLoadingView: View {
             }
             .foregroundStyle(Color.white)
             // A small ink edge keeps white wings legible on chalk without changing their fill.
-            .shadow(color: AcademyColors.ink.opacity(colorScheme == .light ? 0.6 : 0), radius: 0.5)
+            .shadow(color: AcademyColors.ink.opacity(surface.isDark(in: colorScheme) ? 0 : 0.85), radius: 0.5)
             .rotationEffect(.degrees(motion.upperBeat), anchor: wingAnchor)
         }
         .frame(width: width, height: height)
