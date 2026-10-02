@@ -308,27 +308,35 @@ def _pilot_export(user, schema):
     return result
 
 
+def _pilot_erasure_invitations(session, user_id, claim_ids):
+    from src.models.club_invitation import ClubInvitation
+    from src.models.funding import ClubProgramClaim
+
+    owned_sources = sa.select(ClubProgramClaim.id).where(ClubProgramClaim.user_account_id == user_id)
+    predicate = or_(
+        ClubInvitation.recipient_user_id == user_id,
+        ClubInvitation.created_by_user_id == user_id,
+        ClubInvitation.source_manager_claim_id.in_(owned_sources),
+    )
+    if claim_ids:
+        predicate = or_(predicate, ClubInvitation.claim_id.in_(claim_ids))
+    return (
+        session.query(ClubInvitation)
+        .filter(predicate)
+        .order_by(ClubInvitation.program_id, ClubInvitation.claim_id, ClubInvitation.id)
+        .all()
+    )
+
+
 def _erase_pilot_rows(schema, user_id, claim_ids, tombstone_id):
-    from src.models.club_invitation import ClubInvitation, strict_manager
-    from src.models.funding import ClubProgramClaim, ClubProgramManager, ClubRosterMember
+    from src.models.club_invitation import strict_manager
+    from src.models.funding import ClubProgramManager, ClubRosterMember
     from src.models.player_feedback import PlayerFeedback, locked_invitation, observe_closure
     from src.models.video import VideoRosterEntry
 
     counts = {}
     if schema.has_table("club_invitations"):
-        owned_sources = sa.select(ClubProgramClaim.id).where(ClubProgramClaim.user_account_id == user_id)
-        predicate = or_(
-            ClubInvitation.recipient_user_id == user_id,
-            ClubInvitation.created_by_user_id == user_id,
-            ClubInvitation.source_manager_claim_id.in_(owned_sources),
-        )
-        if claim_ids:
-            predicate = or_(predicate, ClubInvitation.claim_id.in_(claim_ids))
-        invitations = (
-            ClubInvitation.query.filter(predicate)
-            .order_by(ClubInvitation.program_id, ClubInvitation.claim_id, ClubInvitation.id)
-            .all()
-        )
+        invitations = _pilot_erasure_invitations(db.session, user_id, claim_ids)
         for invitation in invitations:
             invitation = locked_invitation(db.session, invitation, user_id)
             if invitation is None:
@@ -1032,6 +1040,78 @@ def delete_account(user: UserAccount) -> AccountDeletionEvent:
         intents = purchase_intents()
         for intent_id in sorted(intents):
             _lock_gol_settlement(intent_id)
+        user_id = user_pk
+        email = (user.email or "").strip().lower()
+        claims = PlayerProfileClaim.query.filter_by(user_account_id=user_id).all()
+        claim_ids = [claim.id for claim in claims]
+        approved_player_ids = {claim.player_api_id for claim in claims if claim.status == "approved"}
+
+        contact_filters = [
+            ContactRequest.scout_user_id == user_id,
+            ContactRequest.club_consent_by_user_id == user_id,
+            ContactRequest.messages.any(ContactMessage.sender_user_id == user_id),
+            ContactRequest.outcomes.any(ContactOutcome.reported_by_user_id == user_id),
+            ContactRequest.audit_events.any(ContactAuditEvent.actor_user_id == user_id),
+        ]
+        if claim_ids:
+            contact_filters.append(ContactRequest.claim_id.in_(claim_ids))
+
+        from src.services.contact_locks import lock_contact_scope
+
+        schema = _SchemaView()
+        publication_ids = []
+        if schema.has_table("club_player_publications"):
+            from src.models.club_player_publication import ClubPlayerPublication
+
+            publication_ids = [
+                r.id
+                for r in ClubPlayerPublication.query.filter(
+                    or_(
+                        ClubPlayerPublication.recipient_user_id == user_id,
+                        ClubPlayerPublication.recipient_email == email,
+                        ClubPlayerPublication.creator_user_id == user_id,
+                        ClubPlayerPublication.association_confirmed_by == user_id,
+                    )
+                ).all()
+            ]
+        request_ids = [r.id for r in ContactRequest.query.filter(or_(*contact_filters)).all()]
+        # Club relationships can name programs absent from the profile claim.
+        # Resolve those before C/R; pilot erasure later invokes lock_context.
+        program_ids = set()
+        scope_claim_ids = set(claim_ids)
+        invitations = []
+        if schema.has_table("club_invitations"):
+            invitations = _pilot_erasure_invitations(db.session, user_id, claim_ids)
+            program_ids.update(r.program_id for r in invitations)
+            scope_claim_ids.update(r.claim_id for r in invitations)
+            request_ids.extend(
+                r.id for r in ContactRequest.query.filter(ContactRequest.claim_id.in_(scope_claim_ids)).all()
+            )
+        for table_name in ("club_program_managers", "club_program_claims", "club_staff_grants"):
+            if schema.has_table(table_name) and {"program_id", "user_account_id"} <= schema.columns(table_name):
+                table = sa.table(table_name, sa.column("program_id"), sa.column("user_account_id"))
+                program_ids.update(
+                    db.session.execute(
+                        sa.select(table.c.program_id).where(table.c.user_account_id == user_id)
+                    ).scalars()
+                )
+        lock_contact_scope(
+            db.session,
+            program_id=program_ids,
+            claim_id=scope_claim_ids,
+            request_id=request_ids,
+            publication_id=publication_ids,
+        )
+
+        # Contact scope precedes accounts for invitations, feedback and erasure alike.
+        # Lock the full account batch in ID order, including all pilot recipients.
+        account_ids = {user_id}
+        for invitation in invitations:
+            account_ids.update((invitation.recipient_user_id, invitation.created_by_user_id))
+        UserAccount.query.filter(UserAccount.id.in_(account_ids - {None})).order_by(
+            UserAccount.id
+        ).populate_existing().with_for_update().all()
+
         locked_user = db.session.execute(
             sa.select(UserAccount)
             .where(UserAccount.id == user_pk)
@@ -1071,65 +1151,6 @@ def delete_account(user: UserAccount) -> AccountDeletionEvent:
     )
     db.session.add(tombstone)
     db.session.flush()
-
-    claims = PlayerProfileClaim.query.filter_by(user_account_id=user_id).all()
-    claim_ids = [claim.id for claim in claims]
-    approved_player_ids = {claim.player_api_id for claim in claims if claim.status == "approved"}
-
-    contact_filters = [
-        ContactRequest.scout_user_id == user_id,
-        ContactRequest.club_consent_by_user_id == user_id,
-        ContactRequest.messages.any(ContactMessage.sender_user_id == user_id),
-        ContactRequest.outcomes.any(ContactOutcome.reported_by_user_id == user_id),
-        ContactRequest.audit_events.any(ContactAuditEvent.actor_user_id == user_id),
-    ]
-    if claim_ids:
-        contact_filters.append(ContactRequest.claim_id.in_(claim_ids))
-
-    from src.services.contact_locks import lock_contact_scope
-
-    schema = _SchemaView()
-    publication_ids = []
-    if schema.has_table("club_player_publications"):
-        from src.models.club_player_publication import ClubPlayerPublication
-
-        publication_ids = [
-            r.id
-            for r in ClubPlayerPublication.query.filter(
-                or_(
-                    ClubPlayerPublication.recipient_user_id == user_id,
-                    ClubPlayerPublication.recipient_email == email,
-                    ClubPlayerPublication.creator_user_id == user_id,
-                    ClubPlayerPublication.association_confirmed_by == user_id,
-                )
-            ).all()
-        ]
-    request_ids = [r.id for r in ContactRequest.query.filter(or_(*contact_filters)).all()]
-    # Club relationships can name programs absent from the profile claim.
-    # Resolve those before C/R; pilot erasure later invokes lock_context.
-    program_ids = set()
-    if schema.has_table("club_invitations"):
-        from src.models.club_invitation import ClubInvitation
-
-        program_ids.update(
-            r.program_id
-            for r in ClubInvitation.query.filter(
-                or_(
-                    ClubInvitation.recipient_user_id == user_id,
-                    ClubInvitation.created_by_user_id == user_id,
-                    ClubInvitation.claim_id.in_(claim_ids),
-                )
-            ).all()
-        )
-    for table_name in ("club_program_managers", "club_program_claims", "club_staff_grants"):
-        if schema.has_table(table_name) and {"program_id", "user_account_id"} <= schema.columns(table_name):
-            table = sa.table(table_name, sa.column("program_id"), sa.column("user_account_id"))
-            program_ids.update(
-                db.session.execute(sa.select(table.c.program_id).where(table.c.user_account_id == user_id)).scalars()
-            )
-    lock_contact_scope(
-        db.session, program_id=program_ids, claim_id=claim_ids, request_id=request_ids, publication_id=publication_ids
-    )
 
     counts = {
         "deleted": {

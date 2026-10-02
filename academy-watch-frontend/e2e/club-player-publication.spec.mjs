@@ -463,3 +463,31 @@ for (const clubFirst of [true, false]) {
     })
   }
 }
+
+for (const width of [320, 390]) {
+  test(`${width}px unbroken club name fits introduction list and thread`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 })
+    await fixture(page)
+    const club = 'C'.repeat(50)
+    const contact = { id: 'unbroken-club', player_api_id: -23, status: 'pending', club_first: true,
+      routing_mode: 'club_included', club_consent_status: 'pending', messaging_open: false,
+      message: 'Synthetic introduction', created_at: '2026-10-01T12:00:00',
+      public_profile: { player_api_id: -23, display_name: 'Synthetic adult' },
+      participants: { scout: { display_name: 'Synthetic scout' }, player: { display_name: 'Unavailable' }, club: { display_name: club } } }
+    await page.route('**/api/features', route => route.fulfill({ json: { contact_rail: true, club_player_publication: true } }))
+    await page.route('**/api/contact/**', route => {
+      const url = new URL(route.request().url())
+      return route.fulfill({ json: url.pathname === '/api/contact/requests'
+        ? { requests: url.searchParams.get('box') === 'sent' ? [contact] : [], total: 1 }
+        : { contact_request: contact, messages: [] } })
+    })
+    await page.goto('/introductions')
+    await page.getByRole('button', { name: /Synthetic adult/ }).click()
+    const thread = page.getByTestId('contact-thread')
+    await expect(thread).toContainText(club)
+    const dimensions = await thread.evaluate(el => ({ page: document.documentElement.scrollWidth, thread: el.scrollWidth, available: el.clientWidth }))
+    expect(dimensions.page).toBeLessThanOrEqual(width)
+    expect(dimensions.thread).toBeLessThanOrEqual(dimensions.available)
+    await shot(page, `unbroken-club-${width}`, 'mobile')
+  })
+}

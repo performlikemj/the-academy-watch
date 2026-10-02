@@ -183,6 +183,32 @@ def player_can_read(session, row, user_id):
     )
 
 
+def lock_invitation_batch(session, invitations, actor_id):
+    """Resolve all contact and account rows before any per-invitation mutation."""
+    from src.models.contact import ContactRequest
+    from src.services.contact_locks import lock_contact_scope
+
+    invitations = list(invitations)
+    scope = lock_contact_scope(
+        session,
+        program_id={r.program_id for r in invitations},
+        claim_id={r.claim_id for r in invitations},
+        request_id=[
+            r.id
+            for r in session.query(ContactRequest)
+            .filter(ContactRequest.claim_id.in_({r.claim_id for r in invitations}))
+            .all()
+        ],
+    )
+    account_ids = {actor_id}
+    for row in invitations:
+        account_ids.update((row.recipient_user_id, row.created_by_user_id))
+    session.query(UserAccount).filter(UserAccount.id.in_(account_ids - {None})).order_by(
+        UserAccount.id
+    ).populate_existing().with_for_update().all()
+    return scope
+
+
 def locked_invitation(session, invitation, actor_id):
     """Account -> claimant -> program/grants -> invitation -> thread order."""
     lock_context(

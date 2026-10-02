@@ -411,8 +411,16 @@ def revoke_relationship(session, invitation, claim, now):
         .order_by(ContactRequest.id)
         .all()
     )
-    contacts = lock_contact_scope(session, request_id=[r.id for r in candidates]).requests.values()
-    for contact in contacts:
+    scope = lock_contact_scope(session, request_id=[r.id for r in candidates])
+    for candidate in candidates:
+        contact = scope.requests.get(candidate.id)
+        if (
+            contact is None
+            or contact.claim_id != claim.id
+            or contact.club_program_id != invitation.program_id
+            or contact.routing_mode != "club_included"
+        ):
+            continue
         if contact.status not in ("pending", "accepted"):
             continue
         contact.status = "declined"

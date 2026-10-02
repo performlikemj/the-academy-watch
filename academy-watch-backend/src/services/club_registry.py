@@ -117,7 +117,8 @@ def program_is_operational(program_id: int | None, *, for_update: bool = False) 
     if for_update:
         from src.services.contact_locks import lock_contact_scope
 
-        lock_contact_scope(db.session, program_id=program_id)
+        program = lock_contact_scope(db.session, program_id=program_id).programs.get(program_id)
+        return bool(program and program.platform_status == "approved" and not program.emergency_hidden)
     return db.session.execute(statement).scalar() is not None
 
 

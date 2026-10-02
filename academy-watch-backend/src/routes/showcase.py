@@ -437,7 +437,7 @@ def _optional_owner_user(player_api_id: int):
         return None
 
 
-def _approved_subject_claim_or_403(subject: ShowcaseSubject):
+def _approved_subject_claim_or_403(subject: ShowcaseSubject, *, program_id=None):
     """Resolve the caller and require an approved claim for one subject.
 
     Returns ``(user, None)`` when the caller owns an approved claim, otherwise
@@ -460,7 +460,11 @@ def _approved_subject_claim_or_403(subject: ShowcaseSubject):
                 # An old owner cannot finish an authorized write after recovery.
                 hint = ClubPlayerPublication.query.filter_by(local_player_id=player.id).first()
                 publication = (
-                    lock_contact_scope(db.session, publication_id=hint.id).publications.get(hint.id) if hint else None
+                    lock_contact_scope(db.session, program_id=program_id, publication_id=hint.id).publications.get(
+                        hint.id
+                    )
+                    if hint and request.method not in ("GET", "HEAD")
+                    else hint
                 )
                 if publication and (publication.recipient_user_id != user.id or publication.club_revoked_at):
                     return None, (jsonify({"error": "You do not have an approved claim for this player"}), 403)
@@ -2940,13 +2944,16 @@ def upsert_local_showcase_profile(lp_id: int):
 
 def _upsert_subject_showcase_profile(subject: ShowcaseSubject):
     try:
-        user, error = _approved_subject_claim_or_403(subject)
-        if error:
-            return error
-
         payload, payload_error = _json_object_or_400()
         if payload_error:
             return (jsonify({"error": "invalid_request"}), 400) if subject.is_local else payload_error
+        program_id = payload.get("club_program_id")
+        program_id = (
+            program_id if isinstance(program_id, int) and not isinstance(program_id, bool) and program_id > 0 else None
+        )
+        user, error = _approved_subject_claim_or_403(subject, program_id=program_id)
+        if error:
+            return error
 
         # Native basic-profile editing must not replace fields managed on the
         # web or alter a private contract attestation. PATCH is deliberately
@@ -4163,7 +4170,8 @@ def _merge_subject_claims(source_subject: ShowcaseSubject, target_subject: Showc
     source_claims = PlayerProfileClaim.query.filter(*_subject_filters(PlayerProfileClaim, source_subject)).all()
     target_claims = PlayerProfileClaim.query.filter(*_subject_filters(PlayerProfileClaim, target_subject)).all()
     # Resolve the whole two-identity scope before acquiring any of its locks.
-    signed_ids = [subject.player_api_id or -subject.local_player_id for subject in (source_subject, target_subject)]
+    signed_ids = {subject.player_api_id or -subject.local_player_id for subject in (source_subject, target_subject)}
+    signed_ids.update(r.player_api_id for r in source_claims + target_claims if r.player_api_id is not None)
     requests = ContactRequest.query.filter(ContactRequest.player_api_id.in_(signed_ids)).all()
     scope = lock_contact_scope(
         db.session, claim_id=[r.id for r in source_claims + target_claims], request_id=[r.id for r in requests]

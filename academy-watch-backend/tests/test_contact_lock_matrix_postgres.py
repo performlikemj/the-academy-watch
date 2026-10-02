@@ -206,6 +206,7 @@ def setup_world(pg, monkeypatch, actions, mode):
     ids.update(
         request=request.id, scout=scouts[0], other_scout=scouts[1], invitation=invitation.id, opportunity=opportunity.id
     )
+    seed_multiclub_world(ids, scouts, mode)
     tokens = {
         role: issue_user_token(db.session.get(UserAccount, id_).email)["token"]
         for role, id_ in (
@@ -219,6 +220,160 @@ def setup_world(pg, monkeypatch, actions, mode):
     db.session.commit()
     db.session.remove()
     return app, ids, tokens
+
+
+def seed_multiclub_world(ids, scouts, mode):
+    """Three adults, two clubs, feedback shared across clubs and a manager/scout.
+
+    Background rows are valid retained history, not unavailable placeholders.
+    Their IDs are included in erasure and feedback batches during the races.
+    """
+    from datetime import date
+
+    from src.models.club_invitation import ClubInvitation
+    from src.models.funding import ClubProgram, ClubProgramClaim, ClubProgramManager
+    from src.models.player_feedback import PlayerFeedback
+
+    first = db.session.get(ClubProgram, ids["program"])
+    suffix = uuid4().hex
+    second = ClubProgram(
+        funding_league_id=first.funding_league_id,
+        name=f"Other club {suffix}",
+        legal_name="Fixture",
+        slug=f"matrix-other-{suffix}",
+        country="Test",
+        region="Test",
+        platform_status="approved",
+    )
+    db.session.add(second)
+    db.session.flush()
+    manager_claim = ClubProgramClaim(
+        program_id=second.id, user_account_id=ids["owner"], relationship_type="club_official", status="approved"
+    )
+    db.session.add(manager_claim)
+    db.session.flush()
+    db.session.add(
+        ClubProgramManager(
+            program_id=second.id,
+            user_account_id=ids["owner"],
+            source_claim_id=manager_claim.id,
+            status="active",
+            granted_by="test",
+        )
+    )
+    db.session.add(
+        ScoutVerification(
+            user_account_id=ids["owner"],
+            full_name="Manager and scout",
+            organization="Fixture",
+            role_title="Scout",
+            statement="Fixture",
+            status="approved",
+        )
+    )
+    now = publication.now()
+    first_manager = ClubProgramClaim.query.filter_by(program_id=first.id, user_account_id=ids["owner"]).first()
+    for kind in ("ordinary", "published"):
+        user = UserAccount(
+            email=f"multi-{kind}-{suffix}@example.test",
+            display_name=f"Adult {kind} {suffix}",
+            display_name_lower=f"adult {kind} {suffix}",
+        )
+        player = LocalPlayer(
+            display_name=f"Adult {kind} {suffix}",
+            provenance="user" if kind == "ordinary" else "club",
+            origin_program_id=second.id if kind == "published" else None,
+            birth_date=date(2000, 1, 1),
+            birth_year=2000,
+            status="approved" if kind == "ordinary" else "pending",
+        )
+        db.session.add_all([user, player])
+        db.session.flush()
+        player.api_player_id = -player.id
+        claim = PlayerProfileClaim(
+            local_player_id=player.id,
+            user_account_id=user.id,
+            relationship_type="player",
+            status="approved",
+            club_program_id=second.id,
+            contract_status="contracted",
+            verification_method="club_vouch" if kind == "published" else "manual",
+        )
+        db.session.add(claim)
+        db.session.flush()
+        if kind == "published":
+            db.session.add(
+                Publication(
+                    program_id=second.id,
+                    local_player_id=player.id,
+                    recipient_user_id=user.id,
+                    recipient_email=user.email,
+                    claim_id=claim.id,
+                    adult_invited_at=now,
+                    claimed_at=now,
+                    association_confirmed_at=now,
+                    association_confirmed_by=ids["owner"],
+                    consent_version=publication.CONSENT_VERSION,
+                    consented_at=now,
+                    moderation_status="approved",
+                    reviewed_at=now,
+                    reviewed_by="fixture",
+                    creator_user_id=ids["owner"],
+                )
+            )
+        # The manager also sent old scout introductions; deletion must keep the
+        # pilot recipients' claims distinct from the manager's owned claims.
+        db.session.add(
+            ContactRequest(
+                scout_user_id=ids["owner"],
+                player_api_id=-player.id,
+                claim_id=claim.id,
+                status="withdrawn",
+                routing_mode="direct",
+                message="Old retained introduction",
+                expires_at=now - timedelta(days=30),
+            )
+        )
+        if kind == "ordinary":
+            for program, source in ((first, first_manager), (second, manager_claim)):
+                invitation = ClubInvitation(
+                    program_id=program.id,
+                    player_api_id=-player.id,
+                    claim_id=claim.id,
+                    recipient_user_id=user.id,
+                    created_by_user_id=ids["owner"],
+                    source_manager_claim_id=source.id,
+                    status="accepted",
+                    client_request_id=str(uuid4()),
+                    request_hash="fixture",
+                    expires_at=now + timedelta(days=7),
+                )
+                db.session.add(invitation)
+                db.session.flush()
+                feedback_id = str(uuid4())
+                db.session.add(
+                    PlayerFeedback(
+                        id=feedback_id,
+                        thread_id=feedback_id,
+                        revision=1,
+                        invitation_id=invitation.id,
+                        program_id=program.id,
+                        player_api_id=-player.id,
+                        claim_id=claim.id,
+                        recipient_user_id=user.id,
+                        author_user_id=ids["owner"],
+                        client_request_id=str(uuid4()),
+                        request_hash="fixture",
+                        title="Retained club feedback",
+                        body="Real multi-club feedback fixture",
+                        published_at=now - timedelta(days=1),
+                    )
+                )
+        ids[f"background_{kind}"] = player.id
+        ids[f"background_{kind}_claim"] = claim.id
+        ids[f"background_{kind}_user"] = user.id
+    ids["other_program"] = second.id
+    db.session.commit()
 
 
 def execute(app, ids, tokens, action, marker):
@@ -429,6 +584,19 @@ def _run_pair(pg, monkeypatch, mode, left, right, reverse):
         sa.event.remove(engine, "before_cursor_execute", before)
         sa.event.remove(engine, "after_cursor_execute", after)
     assert all(status < 500 for status, _ in results.values()), (left, right, reverse, results)
+    # Every valid message/read/outcome race must perform useful work; a pair
+    # of deterministic retry replies must never count as success.
+    if {left, right} <= {
+        "message_scout",
+        "message_player",
+        "message_club",
+        "list_scout",
+        "list_player",
+        "list_club",
+        "outcome",
+        "list_requests",
+    }:
+        assert all(status in {200, 201} for status, _ in results.values()), (left, right, results)
     for sequence in sequences.values():
         # Re-locking already-held rows is harmless. First acquisitions must
         # follow the canonical order, across expiry's separate transactions too.

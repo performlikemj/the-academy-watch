@@ -27,14 +27,14 @@ def pg(monkeypatch):
     if not uri:
         pytest.skip("C1_POSTGRES_URL opt-in")
     parsed = sa.engine.make_url(uri)
-    assert parsed.database == "aw_p2_c1" and parsed.host in {"localhost", "127.0.0.1"}
+    assert parsed.database in {"aw_p2_c1", "aw_c1f8_ci"} and parsed.host in {"localhost", "127.0.0.1"}
     app = Flask(__name__)
     app.config.update(SQLALCHEMY_DATABASE_URI=uri, SQLALCHEMY_TRACK_MODIFICATIONS=False, SECRET_KEY="c1-test")
     db.init_app(app)
     monkeypatch.setenv("CLUB_PLAYER_PUBLICATION_ENABLED", "true")
     suffix = uuid4().hex[:12]
     with app.app_context():
-        assert db.session.execute(sa.text("SELECT current_database()")).scalar() == "aw_p2_c1"
+        assert db.session.execute(sa.text("SELECT current_database()")).scalar() == parsed.database
         assert db.session.execute(sa.text("SELECT version_num FROM alembic_version")).scalar() == "p2c1"
         league = FundingLeague(
             name=f"C1 Test {suffix}",

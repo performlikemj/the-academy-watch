@@ -45,7 +45,7 @@ function RequestList({ box, requests, loading, error, selectedId, onSelect, onAc
                 <span className="min-w-0 [overflow-wrap:anywhere] font-serif text-[1.5rem] leading-tight text-chalk">{counterpartName(request, box)}</span>
                 <Badge variant="outline" className="border-gold/50 text-gold">{statusLabel(request.status)}</Badge>
               </div>
-              <p className="mt-1 font-mono text-[10.5px] uppercase tracking-[0.12em] text-[#8C9791]">{formatDate(request.created_at)}{request.participants?.club ? ` · via ${request.participants.club.display_name}` : ''}</p>
+              <p className="mt-1 [overflow-wrap:anywhere] font-mono text-[10.5px] uppercase tracking-[0.12em] text-[#8C9791]">{formatDate(request.created_at)}{request.participants?.club ? ` · via ${request.participants.club.display_name}` : ''}</p>
               <p className="mt-2 text-sm leading-relaxed text-[#C9CFCB]">{previewText(request.message)}</p>
             </button>
             {canRespond(request, box) ? (

@@ -285,13 +285,13 @@ def list_feedback(*, manager=False):
     )
     result = []
     for candidate in candidates[: g.feedback_limit]:
-        rows = lock_thread(db.session, candidate, g.user_id)
+        rows = PlayerFeedback.query.filter_by(thread_id=candidate.thread_id).order_by(PlayerFeedback.revision).all()
         if manager and not _feedback_actor(candidate.program_id, candidate.player_api_id):
             raise FeedbackError("Club manager access denied", 403)
         row = next(item for item in rows if item.id == candidate.id)
         if row.revision != rows[-1].revision:
             continue
-        closed = observe_closure(db.session, row)
+        closed = durably_closed(db.session, row)
         if closed or not relationship_matches(db.session, row):
             if manager:
                 result.append(
@@ -410,6 +410,11 @@ def purge_feedback():
     candidates = query.order_by(PlayerFeedback.id).limit(501).all()
     counts = {"scanned": 0, "closed": 0, "expired": 0, "deleted": 0}
     now = utcnow()
+    from src.models.player_feedback import lock_invitation_batch
+
+    invitation_ids = {r.invitation_id for r in candidates[:500]}
+    invitations = ClubInvitation.query.filter(ClubInvitation.id.in_(invitation_ids)).all()
+    lock_invitation_batch(db.session, invitations, getattr(g, "user_id", None))
     for candidate in candidates[:500]:
         invitation = db.session.get(ClubInvitation, candidate.invitation_id)
         if invitation is None:
