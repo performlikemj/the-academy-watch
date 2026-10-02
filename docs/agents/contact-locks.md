@@ -36,6 +36,9 @@ Main's feedback lists already locked rows. C1F8 intentionally makes the list end
 true reads, while keeping existing detail and write serialization. Durable closure remains
 visible immediately; withdrawal/revocation and the retention worker persist its deadline.
 
+The inherited Sent-list club label now wraps unbroken names. The introduction revoke
+button also wraps inside narrow cards (320px) rather than enforcing a fixed one-line width.
+
 ## Validation contract
 
 - RC1XV3-O eight sequential probes must all succeed on the first attempt; C1 is OFF.

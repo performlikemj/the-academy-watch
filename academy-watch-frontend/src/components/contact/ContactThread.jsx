@@ -158,7 +158,7 @@ export function ContactThread({ request, onRequestChange, canReportOutcome = fal
           {request.latest_outcome ? <Badge variant="outline">Outcome: {outcomeLabel(request.latest_outcome.stage)}</Badge> : null}
         </div>
         <p className="rounded-lg border border-border bg-secondary/30 p-3 text-sm text-foreground/90">{request.message}</p>
-        {request.club_first && ['pending', 'accepted'].includes(request.status) && <Button variant="outline" disabled={revoking} onClick={() => setConfirmRevoke(true)}>{revoking ? 'Revoking permission…' : 'Revoke introduction permission'}</Button>}
+        {request.club_first && ['pending', 'accepted'].includes(request.status) && <Button variant="outline" className="h-auto max-w-full whitespace-normal [overflow-wrap:anywhere]" disabled={revoking} onClick={() => setConfirmRevoke(true)}>{revoking ? 'Revoking permission…' : 'Revoke introduction permission'}</Button>}
         <AlertDialog open={confirmRevoke} onOpenChange={setConfirmRevoke}>
           <AlertDialogContent>
             <AlertDialogHeader>

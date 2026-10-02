@@ -2944,16 +2944,19 @@ def upsert_local_showcase_profile(lp_id: int):
 
 def _upsert_subject_showcase_profile(subject: ShowcaseSubject):
     try:
-        payload, payload_error = _json_object_or_400()
-        if payload_error:
-            return (jsonify({"error": "invalid_request"}), 400) if subject.is_local else payload_error
-        program_id = payload.get("club_program_id")
+        # Read the routing hint before the owner gate locks publication rows,
+        # while preserving main's authorization-before-payload-error behavior.
+        hint = request.get_json(silent=True)
+        program_id = hint.get("club_program_id") if isinstance(hint, dict) else None
         program_id = (
             program_id if isinstance(program_id, int) and not isinstance(program_id, bool) and program_id > 0 else None
         )
         user, error = _approved_subject_claim_or_403(subject, program_id=program_id)
         if error:
             return error
+        payload, payload_error = _json_object_or_400()
+        if payload_error:
+            return (jsonify({"error": "invalid_request"}), 400) if subject.is_local else payload_error
 
         # Native basic-profile editing must not replace fields managed on the
         # web or alter a private contract attestation. PATCH is deliberately
