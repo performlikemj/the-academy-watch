@@ -30,7 +30,7 @@ struct APIEndpointPolicy {
 
     struct ConfigurationError: LocalizedError {
         var errorDescription: String? {
-            "Developer API configuration error: use an offline fixture, HTTP loopback /api, or https://basecamp.tail37b60.ts.net:15443/api. Production requires a Release device build."
+            "Developer API configuration error: use an offline fixture, HTTP(S) loopback /api, or https://basecamp.tail37b60.ts.net:15443/api. Production requires a Release device build."
         }
     }
 
@@ -51,7 +51,7 @@ struct APIEndpointPolicy {
         guard url.user == nil, url.password == nil, url.query == nil, url.fragment == nil,
               url.path == "/api" else { throw ConfigurationError() }
         if url == staging { return }
-        if url.scheme == "http", ["localhost", "127.0.0.1", "[::1]", "::1"].contains(url.host ?? "") { return }
+        if ["http", "https"].contains(url.scheme ?? ""), ["localhost", "127.0.0.1", "[::1]", "::1"].contains(url.host ?? "") { return }
         if url == production && context.permitsProduction { return }
         if url == offline && offlineFixture && context.debug && context.simulator { return }
         // Unit tests may use reserved .test names with an injected URLProtocol.

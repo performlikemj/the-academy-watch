@@ -29,6 +29,20 @@
             buildForAnalyzing = "NO">
             <BuildableReference
                BuildableIdentifier = "primary"
+               BlueprintIdentifier = "255845D799AE3D84EA91AB47"
+               BuildableName = "AcademyWatchTests.xctest"
+               BlueprintName = "AcademyWatchTests"
+               ReferencedContainer = "container:AcademyWatch.xcodeproj">
+            </BuildableReference>
+         </BuildActionEntry>
+         <BuildActionEntry
+            buildForTesting = "YES"
+            buildForRunning = "NO"
+            buildForProfiling = "NO"
+            buildForArchiving = "NO"
+            buildForAnalyzing = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
                BlueprintIdentifier = "2BF913805A5A17908892F84D"
                BuildableName = "AcademyWatchUITests.xctest"
                BlueprintName = "AcademyWatchUITests"
@@ -54,6 +68,17 @@
          </BuildableReference>
       </MacroExpansion>
       <Testables>
+         <TestableReference
+            skipped = "NO"
+            parallelizable = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "255845D799AE3D84EA91AB47"
+               BuildableName = "AcademyWatchTests.xctest"
+               BlueprintName = "AcademyWatchTests"
+               ReferencedContainer = "container:AcademyWatch.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
          <TestableReference
             skipped = "NO"
             parallelizable = "NO"

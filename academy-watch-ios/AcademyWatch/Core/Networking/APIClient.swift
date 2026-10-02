@@ -227,12 +227,13 @@ struct APIClient: GolAPIClientProtocol, PlayerClubAPIClientProtocol, ScoutAPICli
         let resolvedURL: URL
         let error: Error?
         do {
-            resolvedURL = try baseURL ?? APIEndpointPolicy.resolve(
+            let candidate = try baseURL ?? APIEndpointPolicy.resolve(
                 override: ProcessInfo.processInfo.environment["ACADEMY_LOCAL_API_URL"],
                 context: .current, offlineFixture: Self.offlineFixtureActive || fixtureMode != nil)
-            try APIEndpointPolicy.validate(resolvedURL, context: .current,
+            try APIEndpointPolicy.validate(candidate, context: .current,
                 stubTransport: !(session.configuration.protocolClasses ?? []).isEmpty,
                 offlineFixture: Self.offlineFixtureActive || fixtureMode != nil)
+            resolvedURL = candidate
             error = nil
         } catch let failure {
             resolvedURL = APIEndpointPolicy.offline

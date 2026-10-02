@@ -86,6 +86,21 @@ final class Phase2UITests: XCTestCase {
         }
         capture("I1F10-player-sign-in-private-loads")
     }
+    func testSwitchWhileAccountLookupPendingLoadsNewClubAccessOnce() {
+        launchSavedSession("owner")
+        waitForLabel("fixture-root-state", containing: "clubs=1")
+        tap(app.buttons["fixture-switch"])
+        waitForLabel("fixture-hydration-email", containing: "second@fixture.invalid")
+        waitForLabel("fixture-root-state", containing: "clubs=0;watch=0;ids=0;lists=0;sent=0;inbox=0")
+        // Release A's actual held auth/me only after B's private bootstrap finishes.
+        tap(app.buttons["fixture-hydrate"])
+        waitForLabel("fixture-hydration-email", containing: "second@fixture.invalid")
+        for path in ["me/club-access", "funding/claims/me"] {
+            waitForLabel("fixture-bootstrap-counts", containing: path + "=2")
+        }
+        capture("I1F10-switch-during-held-account-lookup-new-access-loaded")
+    }
+
     func testInvalidOverrideShowsDeveloperErrorBeforeFixtureBootstrap() {
         app.launchArguments = ["-phase2Fixture", "owner"]
         app.launchEnvironment["ACADEMY_LOCAL_API_URL"] = "https://api.theacademywatch.com/api"

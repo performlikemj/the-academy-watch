@@ -14,12 +14,12 @@ final class APIEndpointPolicyTests: XCTestCase {
         ]
         for (label, context) in contexts {
             if context.permitsProduction {
-                XCTAssertEqual(try APIEndpointPolicy.resolve(override: nil, context: context, offlineFixture: false), .init(string: "https://api.theacademywatch.com/api"), label)
+                XCTAssertEqual(try APIEndpointPolicy.resolve(override: nil, context: context, offlineFixture: false), APIEndpointPolicy.production, label)
             } else {
                 XCTAssertThrowsError(try APIEndpointPolicy.resolve(override: nil, context: context, offlineFixture: false), label)
                 XCTAssertThrowsError(try APIEndpointPolicy.resolve(override: APIEndpointPolicy.production.absoluteString, context: context, offlineFixture: true), label)
             }
-            for allowed in [APIEndpointPolicy.staging.absoluteString, "http://127.0.0.1:5011/api", "http://localhost/api", "http://[::1]:5011/api"] {
+            for allowed in [APIEndpointPolicy.staging.absoluteString, "http://127.0.0.1:5011/api", "http://localhost/api", "https://localhost:8443/api", "http://[::1]:5011/api"] {
                 XCTAssertEqual(try APIEndpointPolicy.resolve(override: allowed, context: context, offlineFixture: false).absoluteString, allowed, label)
             }
             for rejected in ["", "not a URL", "http://127.0.0.1:5011/wrong", "http://127.0.0.1/api?x=1", "http://127.0.0.1/api#x", "http://user:pass@127.0.0.1/api", "https://basecamp.tail37b60.ts.net/api", "http://basecamp.tail37b60.ts.net:15443/api", "https://example.com/api", "https://api.theacademywatch.com.evil.test/api"] {

@@ -4,24 +4,25 @@ import XCTest
 final class GolChatUITests: XCTestCase {
     func testOfflineVisitorSignInKeepsGolOpen() {
         continueAfterFailure = false
-        let app = XCUIApplication()
-        app.launchArguments = ["-phase2Fixture", "player-signed-out", "-initialTab", "account"]
-        app.launch()
-        defer { app.terminate() }
-        tap(app.buttons["gol-entry"])
-        tap(app.buttons["gol-sign-in"])
-        let email = app.textFields["signin-email"]
-        tap(email); email.typeText("phase2@fixture.invalid")
-        tap(app.buttons["signin-send-code"])
-        let code = app.textFields["signin-code"]
-        tap(code); code.typeText("123456")
-        capture("I1F10-gol-before-sign-in", app)
-        tap(app.buttons["signin-verify"])
-        XCTAssertTrue(app.buttons["gol-close"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.buttons["gol-suggestion-0"].waitForExistence(timeout: 10))
-        capture("I1F10-gol-retained-after-sign-in", app)
+        for appearance in ["light", "dark"] {
+            let app = XCUIApplication()
+            app.launchArguments = ["-phase2Fixture", "player-signed-out", "-initialTab", "account", "-reviewAppearance", appearance]
+            app.launch()
+            defer { app.terminate() }
+            tap(app.buttons["gol-entry"])
+            tap(app.buttons["gol-sign-in"])
+            let email = app.textFields["signin-email"]
+            tap(email); email.typeText("phase2@fixture.invalid")
+            tap(app.buttons["signin-send-code"])
+            let code = app.textFields["signin-code"]
+            tap(code); code.typeText("123456")
+            capture("I1F10-gol-before-sign-in-" + appearance, app)
+            tap(app.buttons["signin-verify"])
+            XCTAssertTrue(app.buttons["gol-close"].waitForExistence(timeout: 10))
+            XCTAssertTrue(app.buttons["gol-suggestion-0"].waitForExistence(timeout: 10))
+            capture("I1F10-gol-retained-after-sign-in-" + appearance, app)
+        }
     }
-
     func testLocalSignInSuggestionStreamingAndExhaustedQuestions() throws {
         let environment = ProcessInfo.processInfo.environment
         guard let raw = environment["GOL_LOCAL_API_URL"],

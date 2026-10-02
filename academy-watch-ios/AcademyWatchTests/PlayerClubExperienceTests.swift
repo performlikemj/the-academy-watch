@@ -61,7 +61,7 @@ final class PlayerClubExperienceTests: XCTestCase {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [ExperienceFixtureDataTaskSpy.self]
         let client = APIClient(
-            baseURL: URL(string: "https://fixture.invalid/api")!,
+            baseURL: APIEndpointPolicy.offline,
             session: URLSession(configuration: configuration),
             fixtureMode: "player"
         )
