@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { createSseParser } from './sse.js'
+import { GOL_MAINTENANCE_MESSAGE } from './gol-maintenance.js'
 
 const frame = (type, data) => `event: ${type}\ndata: ${JSON.stringify(data)}\n\n`
 const sampleEvents = [
@@ -108,9 +109,9 @@ function mountChat(streamChat, { lit = true, decoder = TextDecoder } = {}) {
     useCallback(callback) { return callback },
     useEffect() {},
   }
-  const useGolChat = new Function('hooks', 'APIService', 'createSseParser', 'TextDecoder',
+  const useGolChat = new Function('hooks', 'APIService', 'createSseParser', 'TextDecoder', 'GOL_MAINTENANCE_MESSAGE',
     `const { useState, useRef, useCallback, useEffect } = hooks;\n${hookSource}\nreturn useGolChat`,
-  )(hooks, { streamChat }, createSseParser, decoder)
+  )(hooks, { streamChat }, createSseParser, decoder, GOL_MAINTENANCE_MESSAGE)
   return () => {
     cursor = 0
     return useGolChat('account-a', { freeQuestionsRemaining: 3, creditBalance: 0 }, lit)
@@ -133,6 +134,32 @@ function deferred() {
   let reject
   const promise = new Promise((yes, no) => { resolve = yes; reject = no })
   return { promise, resolve, reject }
+}
+
+for (const lit of [false, true]) {
+  for (const transport of ['json', 'sse']) {
+    test(`maintenance switch for the assistant ${transport} billing ${lit}`, async () => {
+      let calls = 0
+      const chat = mountChat(async () => {
+        calls += 1
+        const body = { error: 'maintenance', message: GOL_MAINTENANCE_MESSAGE, retryable: true }
+        return transport === 'json'
+          ? new Response(JSON.stringify(body), { status: 503 })
+          : streamResponse(frame('error', body) + frame('done', {}))
+      }, { lit })
+      await chat().sendMessage('Question')
+      const state = chat()
+      assert.equal(state.maintenance, true)
+      assert.equal(state.messages[1].content, GOL_MAINTENANCE_MESSAGE)
+      assert.ok(!state.messages[1].error)
+      assert.equal(state.isStreaming, false)
+      assert.equal(state.canRetry, false)
+      assert.equal(state.freeQuestionsRemaining, 3)
+      assert.equal(state.creditBalance, 0)
+      await state.sendMessage('Another question')
+      assert.equal(calls, 1)
+    })
+  }
 }
 
 test('hook decodes real one-byte chunks, replaces text, keeps cards/history and updates usage', async () => {

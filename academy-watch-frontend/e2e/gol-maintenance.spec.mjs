@@ -10,6 +10,11 @@ async function fixture(page, { billing = true, early = true, theme = 'light' } =
   const errors = []
   page.on('pageerror', error => errors.push(error.message))
   await page.addInitScript(({ theme }) => {
+    document.addEventListener('DOMContentLoaded', () => {
+      const style = document.createElement('style')
+      style.textContent = '[data-agentation-root] { display: none !important; }'
+      document.head.append(style)
+    })
     localStorage.clear()
     sessionStorage.clear()
     localStorage.setItem('theme', theme)
