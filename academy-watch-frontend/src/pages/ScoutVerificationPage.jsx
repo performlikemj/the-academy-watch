@@ -1,3 +1,4 @@
+import { formatDisplayDate } from '@/lib/display-date'
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
@@ -99,7 +100,7 @@ export function ScoutVerificationPage() {
           ) : verification && !canApply(verification) ? (
             <CardContent className="space-y-1 text-sm text-muted-foreground">
               <p><span className="font-medium text-foreground">{verification.full_name}</span> · {verification.role_title} · {verification.organization}</p>
-              <p>Submitted {verification.submitted_at ? new Date(verification.submitted_at).toLocaleDateString() : '—'}</p>
+              <p>Submitted {formatDisplayDate(verification.submitted_at, { fallback: '—' })}</p>
               <p><Link to="/scout" className="underline">Back to the Scout Desk</Link></p>
             </CardContent>
           ) : null}

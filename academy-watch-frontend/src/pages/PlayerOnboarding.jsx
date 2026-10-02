@@ -1,3 +1,4 @@
+import { usePublicationFlag } from '@/hooks/usePublicationFlag'
 import '@/styles/floodlight-player.css'
 // --- p2-b2 begin ---
 import { PlayerApplications } from '@/components/applications/PlayerApplications'
@@ -60,6 +61,7 @@ function PlayerSearchResult({ player }) {
 }
 
 export function PlayerOnboarding() {
+  const publicationEnabled = usePublicationFlag()
   const flags = useOpportunities()
   const { claims: profiles, loading: profilesLoading, error: profilesError, retry: retryProfiles, refreshing: profilesRefreshing } = useApprovedPlayerState(flags, true)
   const applicationsError = flags.error || profilesError
@@ -230,6 +232,7 @@ export function PlayerOnboarding() {
         <Button className="mt-4" disabled={flags.retrying || profilesLoading || profilesRefreshing} onClick={flags.error ? flags.retry : retryProfiles}>Retry applications</Button>
       </section> : !checkingProfiles && <PlayerApplications />}
       {!checkingProfiles && (applicationsError || profiles.length > 0) && <div className="floodlight-container pb-16">{discovery}</div>}
+      {publicationEnabled && <Link className="block py-4 underline" to="/player-publications">Manage public profile consent</Link>}
       {/* --- p2-b2 end --- */}
     </div>
   )

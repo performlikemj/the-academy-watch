@@ -134,6 +134,20 @@ def profile_payload(member, *, match_filter=None, match_dto=None):
             }
             for h in sorted(member.squad_history, key=lambda h: (h.started_at, h.id))
         ]
+    # Older/imported roster assignments may predate history. Show the known current
+    # squad without inventing an assignment date or writing a history row on GET.
+    pathway = result.get("pathway", [])
+    if squad and not any(h["squad_id"] == squad.id and h["ended_at"] is None for h in pathway):
+        pathway.append(
+            {
+                "id": f"current-{member.id}",
+                "squad_id": squad.id,
+                "squad_name": squad.name,
+                "started_at": None,
+                "ended_at": None,
+            }
+        )
+        result["pathway"] = pathway
     signed_id = member.player_api_id or -member.local_player_id
     entries = (
         PlayerMatchEntry.query.outerjoin(ClubResult, ClubResult.id == PlayerMatchEntry.club_result_id)
@@ -222,7 +236,9 @@ def profile_payload(member, *, match_filter=None, match_dto=None):
             if contacts:
                 result["scout_interest"] = {
                     "locked": False,
-                    "requests": [_contact_request_payload(r) for r in contacts],
+                    # --- p2-c1 begin ---
+                    "requests": [_contact_request_payload(r, viewer_user_id=g.user_id) for r in contacts],
+                    # --- p2-c1 end ---
                 }
     if member.note:
         result["note"] = member.note

@@ -1773,40 +1773,64 @@ def public_player_search():
             )
             if len(results) >= 8:
                 break
+        # --- p2-c1 begin ---
+        from src.services.club_player_publication import enabled, local_publication_filter
+
+        club_publication_on = enabled()
+        club_adults = []
+        if club_publication_on:
+            from src.models.showcase import LocalPlayer
+
+            local_query = LocalPlayer.query.filter(
+                LocalPlayer.provenance == "club",
+                LocalPlayer.display_name.ilike(f"%{q}%"),
+                local_publication_filter(LocalPlayer),
+            )
+            club_adults = (
+                filter_public_adult_query(local_query, -LocalPlayer.id)
+                .with_entities(
+                    LocalPlayer.api_player_id, LocalPlayer.display_name, LocalPlayer.position, LocalPlayer.club_name
+                )
+                .all()
+            )
+        # --- p2-c1 end ---
         from src.utils.scout_discovery import local_players_enabled
 
-        # The OFF path returns main's exact provider payload/order/query work.
-        if not local_players_enabled():
+        community_on = local_players_enabled()
+        # Both flags OFF retain main's provider payload/order/query work.
+        if not community_on and not club_publication_on:
             return jsonify(results)
 
         from unicodedata import combining, normalize
 
         from src.models.showcase import LocalPlayer
 
-        query = LocalPlayer.query.filter(
-            LocalPlayer.display_name.ilike(f"%{q}%"),
-            LocalPlayer.status == "approved",
-            LocalPlayer.provenance != "club",
-            LocalPlayer.api_player_id < 0,
-            LocalPlayer.merged_into_local_player_id.is_(None),
-        )
-        # Load narrow evidence for every matching ID before ranking/capping.
-        # Hidden candidates cannot exhaust a pre-eligibility LIMIT. Fetch only
-        # public display columns, rather than full profiles, for the ON merge.
-        community = (
-            filter_public_adult_query(query, LocalPlayer.api_player_id)
-            .with_entities(
-                LocalPlayer.api_player_id, LocalPlayer.display_name, LocalPlayer.position, LocalPlayer.club_name
+        community = []
+        if community_on:
+            query = LocalPlayer.query.filter(
+                LocalPlayer.display_name.ilike(f"%{q}%"),
+                LocalPlayer.status == "approved",
+                LocalPlayer.provenance != "club",
+                LocalPlayer.api_player_id < 0,
+                LocalPlayer.merged_into_local_player_id.is_(None),
             )
-            .all()
-        )
+            # Load narrow evidence for every matching ID before ranking/capping.
+            # Hidden candidates cannot exhaust a pre-eligibility LIMIT. Fetch only
+            # public display columns, rather than full profiles, for the ON merge.
+            community = (
+                filter_public_adult_query(query, LocalPlayer.api_player_id)
+                .with_entities(
+                    LocalPlayer.api_player_id, LocalPlayer.display_name, LocalPlayer.position, LocalPlayer.club_name
+                )
+                .all()
+            )
 
         def name_key(name):
             return "".join(char for char in normalize("NFKD", name.casefold()) if not combining(char))
 
         # Retain the providers' database order, inserting eligible community
         # rows with an accent-insensitive key and a stable signed-ID tie break.
-        for player in sorted(community, key=lambda p: (name_key(p.display_name), -p.api_player_id))[:8]:
+        for player in sorted(community + club_adults, key=lambda p: (name_key(p.display_name), -p.api_player_id))[:8]:
             if player.api_player_id in seen:
                 continue
             seen.add(player.api_player_id)
@@ -13296,6 +13320,10 @@ def features():
         if os.getenv(f"ADMIN_{name.upper()}_ENABLED", "").strip().lower() in {"1", "true", "yes", "on"}:
             flags[f"admin_{name}"] = True
     # --- p2-b3 end ---
+    # --- p2-c1 begin ---
+    if os.getenv("CLUB_PLAYER_PUBLICATION_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}:
+        flags["club_player_publication"] = True
+    # --- p2-c1 end ---
     return jsonify(flags)
 
 

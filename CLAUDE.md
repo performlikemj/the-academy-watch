@@ -25,6 +25,7 @@ each doc encodes hard-won lessons, and skipping them repeats old mistakes.
 | Writing frontend code (React / Vite / Tailwind / Radix) | `docs/agents/frontend.md` |
 | Running Ralph, scheduled/autonomous loops, or sub-agent fan-outs | `docs/agents/loops.md` |
 | Changing club console auth, staff roles/invites, or enabling `CLUB_STAFF_ACCESS_ENABLED` | `docs/agents/club-staff-access.md` |
+| Changing club-created player publication, consent, moderation, club-first introductions, or enabling `CLUB_PLAYER_PUBLICATION_ENABLED` | `docs/agents/club-player-publication.md` |
 | Touching the public club directory (`/clubs`, `GET /api/programs`), club location fields, or enabling `CLUB_DIRECTORY_ENABLED` | `docs/agents/club-directory.md` |
 
 **Ledger protocol (this repo's own system, still in force):** before ANY work read

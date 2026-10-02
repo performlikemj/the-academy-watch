@@ -1,9 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { Link } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Loader2, Send } from 'lucide-react'
+import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from '@/components/ui/alert-dialog'
 import { APIService } from '@/lib/api'
 import { MESSAGE_MAX, OUTCOME_NOTES_MAX, OUTCOME_STAGES, outcomeLabel, describeThreadState, participantName, canSendMessage } from '@/lib/contact-thread'
 
@@ -26,6 +28,9 @@ export function ContactThread({ request, onRequestChange, canReportOutcome = fal
   const [notes, setNotes] = useState('')
   const [reporting, setReporting] = useState(false)
   const [outcomeError, setOutcomeError] = useState(null)
+  const [confirmRevoke, setConfirmRevoke] = useState(false)
+  const [revoking, setRevoking] = useState(false)
+  const revokeInFlight = useRef(false)
   // Discards stale loads: a slower fetch for a previously selected request must never overwrite this thread.
   const loadSeq = useRef(0)
   // The thread this component currently shows; sends/outcomes that finish after a switch must not touch the new one.
@@ -35,6 +40,7 @@ export function ContactThread({ request, onRequestChange, canReportOutcome = fal
   const requestId = request?.id
   useEffect(() => {
     requestIdRef.current = requestId
+    setConfirmRevoke(false)
   }, [requestId])
 
   const load = useCallback(async () => {
@@ -116,20 +122,56 @@ export function ContactThread({ request, onRequestChange, canReportOutcome = fal
     }
   }
 
+  const revoke = async () => {
+    if (!requestId || revokeInFlight.current) return
+    const revokedFor = requestId
+    revokeInFlight.current = true
+    setRevoking(true)
+    setConfirmRevoke(false)
+    setError(null)
+    try {
+      const result = await APIService.request(`/contact/requests/${revokedFor}/revoke`, { method: 'POST', body: '{}' })
+      if (revokedFor === requestIdRef.current) onRequestChange?.(result.contact_request)
+    } catch (err) {
+      if (revokedFor === requestIdRef.current) setError(err?.body?.error || err.message || 'Permission could not be revoked.')
+    } finally {
+      revokeInFlight.current = false
+      setRevoking(false)
+    }
+  }
+
   if (!request) {
     return <p className="text-sm text-muted-foreground">Select an introduction to read the thread.</p>
   }
 
   return (
-    <div className="space-y-4" data-testid="contact-thread">
+    <div className="min-w-0 space-y-4" data-testid="contact-thread">
       <div className="space-y-1">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-sm font-semibold text-foreground">{participantName(request, 'scout')} ↔ {participantName(request, 'player')}</span>
-          {request.participants?.club ? <Badge variant="outline">via {participantName(request, 'club')}</Badge> : null}
+          <span className="min-w-0 max-w-full [overflow-wrap:anywhere] text-sm font-semibold text-foreground">
+            {participantName(request, 'scout')} ↔ {request.club_first && request.public_profile ? (
+              <Link className="underline underline-offset-4" to={`/players/${request.public_profile.player_api_id}`}>{participantName(request, 'player')}</Link>
+            ) : participantName(request, 'player')}
+          </span>
+          {request.participants?.club ? <Badge variant="outline" className="min-w-0 max-w-full whitespace-normal [overflow-wrap:anywhere]">via {participantName(request, 'club')}</Badge> : null}
           <Badge variant="secondary">{request.status}</Badge>
           {request.latest_outcome ? <Badge variant="outline">Outcome: {outcomeLabel(request.latest_outcome.stage)}</Badge> : null}
         </div>
         <p className="rounded-lg border border-border bg-secondary/30 p-3 text-sm text-foreground/90">{request.message}</p>
+        {request.club_first && ['pending', 'accepted'].includes(request.status) && <Button variant="outline" className="h-auto max-w-full whitespace-normal [overflow-wrap:anywhere]" disabled={revoking} onClick={() => setConfirmRevoke(true)}>{revoking ? 'Revoking permission…' : 'Revoke introduction permission'}</Button>}
+        <AlertDialog open={confirmRevoke} onOpenChange={setConfirmRevoke}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Revoke introduction permission?</AlertDialogTitle>
+              <AlertDialogDescription>This permanently closes this introduction and stops messages. A fresh introduction requires new permissions; this conversation will stay closed.</AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Keep introduction open</AlertDialogCancel>
+              <AlertDialogAction disabled={revoking} onClick={revoke}>Confirm revocation</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+        {error && !state.open ? <p role="alert" className="text-sm text-rose-600">{error}</p> : null}
         {state.note ? <p className="text-xs text-muted-foreground">{state.note}</p> : null}
       </div>
 
@@ -162,7 +204,7 @@ export function ContactThread({ request, onRequestChange, canReportOutcome = fal
 
           {canReportOutcome ? (
           <div className="space-y-2 rounded-lg border border-dashed border-border p-3">
-            <p className="text-sm font-semibold text-foreground">Record the outcome</p>
+            <p className="min-w-0 max-w-full [overflow-wrap:anywhere] text-sm font-semibold text-foreground">Record the outcome</p>
             <div className="flex flex-wrap items-center gap-2">
               <Select value={stage} onValueChange={setStage}>
                 <SelectTrigger className="w-48" aria-label="Outcome stage"><SelectValue placeholder="Choose a stage" /></SelectTrigger>

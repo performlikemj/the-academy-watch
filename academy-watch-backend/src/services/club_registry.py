@@ -71,6 +71,22 @@ def get_club_program(program_id: int | None) -> dict | None:
     return dict(row) if row is not None else None
 
 
+def get_club_programs(program_ids) -> dict[int, dict]:
+    """Batch the same narrow projection across independently ordered schemas."""
+    ids = sorted(set(program_ids))
+    if not ids:
+        return {}
+    columns = _table_columns(PROGRAMS_TABLE)
+    if not {"id", "name"}.issubset(columns):
+        return {}
+    selected = ["id", "name"]
+    if "contact_email" in columns:
+        selected.append("contact_email")
+    programs = sa.table(PROGRAMS_TABLE, *(sa.column(name) for name in selected))
+    rows = db.session.execute(sa.select(programs).where(programs.c.id.in_(ids))).mappings()
+    return {row["id"]: dict(row) for row in rows}
+
+
 def club_program_exists(program_id: int | None) -> bool:
     return get_club_program(program_id) is not None
 
@@ -99,7 +115,10 @@ def program_is_operational(program_id: int | None, *, for_update: bool = False) 
         .limit(1)
     )
     if for_update:
-        statement = statement.with_for_update()
+        from src.services.contact_locks import lock_contact_scope
+
+        program = lock_contact_scope(db.session, program_id=program_id).programs.get(program_id)
+        return bool(program and program.platform_status == "approved" and not program.emergency_hidden)
     return db.session.execute(statement).scalar() is not None
 
 

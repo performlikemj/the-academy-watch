@@ -8,6 +8,7 @@ from uuid import uuid4
 import src.models.club_invitation  # noqa: F401
 import src.models.video  # noqa: F401
 from src.models.league import db
+from src.utils.sanitize import display_plain_text
 
 
 def _utcnow():
@@ -175,8 +176,8 @@ class PlayerMatchEntry(db.Model):
             "player_api_id": self.player_api_id,
             "season": self.season,
             "match_date": self.match_date.isoformat() if self.match_date else None,
-            "competition": self.competition,
-            "opponent": self.opponent,
+            "competition": display_plain_text(self.competition),
+            "opponent": display_plain_text(self.opponent),
             "home_away": self.home_away,
             "result_for": self.result_for,
             "result_against": self.result_against,

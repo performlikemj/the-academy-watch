@@ -24,6 +24,7 @@ from src.models.trust import ContentReport, ScoutVerification
 from src.models.video import VideoMatch
 from src.services.admin_audit import record_admin_event
 from src.services.admin_control_business import money_query
+from src.services.admin_control_names import account_names, player_names, program_names, subject_id, target_names
 from src.services.admin_control_safety import act, case_hidden, case_hide_intent
 from src.utils.data_mode import api_football_frozen, newsletters_frozen
 
@@ -40,11 +41,15 @@ def flag_enabled(flag):
     return os.getenv(flag, "").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def control_enabled(which):
+    return any(flag_enabled(flag) for flag in FLAGS.values()) if which == "overview" else flag_enabled(FLAGS[which])
+
+
 def page(which):
     def decorate(view):
         @wraps(view)
         def wrapped(*args, **kwargs):
-            if not flag_enabled(FLAGS[which]):
+            if not control_enabled(which):
                 return jsonify({"error": "Not found"}), 404
 
             @wraps(view)
@@ -88,11 +93,11 @@ def hide_dark_control_routes():
     if not rule.endpoint.startswith("admin_control."):
         return
     view = current_app.view_functions[rule.endpoint]
-    if not flag_enabled(FLAGS[view.control_page]):
+    if not control_enabled(view.control_page):
         # Route as though every dark B3 rule were absent. This preserves the real
         # app's SPA fallback, 405 body and OPTIONS Allow header, and sibling tools.
         rules = tuple(current_app.url_map.iter_rules())
-        disabled = tuple(which for which, flag in FLAGS.items() if not flag_enabled(flag))
+        disabled = tuple(which for which in (*FLAGS, "overview") if not control_enabled(which))
         key = (rules, disabled)
         cached = current_app.extensions.get("admin_control_dark_map")
         if cached is None or cached[0] != key:
@@ -105,6 +110,10 @@ def hide_dark_control_routes():
                 ):
                     continue
                 copied = candidate.empty()
+                # --- p2-c1 begin --- preserve the inherited dark OPTIONS contract
+                if candidate.methods is not None:
+                    copied.methods = candidate.methods.copy()
+                # --- p2-c1 end ---
                 # Flask adds this attribute after Werkzeug constructs the rule.
                 copied.provide_automatic_options = getattr(candidate, "provide_automatic_options", False)
                 visible_rules.append(copied)
@@ -130,7 +139,7 @@ def hide_dark_control_routes():
 @admin_control_bp.after_request
 def private_response(response):
     # Dark routes use the application's normal unrouted response, headers included.
-    if request.endpoint and flag_enabled(FLAGS[current_app.view_functions[request.endpoint].control_page]):
+    if request.endpoint and control_enabled(current_app.view_functions[request.endpoint].control_page):
         response.headers["Cache-Control"] = "no-store"
     return response
 
@@ -356,7 +365,22 @@ def people():
         query = query.filter(sa.func.lower(UserAccount.email).in_([email.lower() for email in _admin_email_list()]))
     elif role != "all":
         return jsonify(error="Unknown people filter"), 400
-    rows = query.order_by(UserAccount.id).offset(offset).limit(limit).all()
+    standing = request.args.get("standing", "all")
+    if standing not in {"all", "active", "suspended"}:
+        return jsonify(error="Unknown standing filter"), 400
+    if standing != "all":
+        query = query.filter(UserAccount.account_status == standing)
+    name = sa.func.lower(sa.func.coalesce(sa.func.nullif(UserAccount.display_name, ""), UserAccount.email))
+    sorts = {
+        "name": (name.asc(), UserAccount.id.asc()),
+        "name_desc": (name.desc(), UserAccount.id.asc()),
+        "newest": (UserAccount.created_at.desc(), UserAccount.id.desc()),
+        "standing": (UserAccount.account_status.asc(), name.asc(), UserAccount.id.asc()),
+    }
+    sort = request.args.get("sort", "name")
+    if sort not in sorts:
+        return jsonify(error="Unknown people sort"), 400
+    rows = query.order_by(*sorts[sort]).offset(offset).limit(limit).all()
     context = people_context([row.id for row in rows])
     return jsonify(
         total=query.count(),
@@ -372,7 +396,14 @@ def person_detail(user_id):
     user = db.session.get(UserAccount, user_id)
     if user is None or user.is_tombstone:
         return jsonify(error="Not found"), 404
-    return jsonify(person=person_dict(user), last_owner_programs=last_owner_programs(user.id))
+    person = person_dict(user)
+    if user.account_status == "suspended":
+        person["suspension"] = {
+            "reason": user.suspension_reason,
+            "by": user.suspended_by,
+            "at": iso(user.suspended_at),
+        }
+    return jsonify(person=person, last_owner_programs=last_owner_programs(user.id))
 
 
 def last_owner_programs(uid):
@@ -452,13 +483,15 @@ def account_action(user_id, action):
         raise
 
 
-def case_dict(case):
+def case_dict(case, names=None):
+    names = names if names is not None else target_names([(case.target_type, case.target_id)])
     return {
         "id": case.id,
         "report_id": case.report_id,
         "suppression_id": case.suppression_id,
         "target_type": case.target_type,
         "target_id": case.target_id,
+        "target_name": names.get((case.target_type, case.target_id)),
         "status": case.status,
         "received_at": iso(case.received_at),
         "first_action_due_at": iso(case.first_action_due_at),
@@ -480,12 +513,11 @@ def cases():
     query = SafeguardingCase.query
     if request.args.get("status", "open") != "all":
         query = query.filter(SafeguardingCase.status != "closed")
+    rows = query.order_by(SafeguardingCase.received_at, SafeguardingCase.id).offset(offset).limit(limit).all()
+    names = target_names((case.target_type, case.target_id) for case in rows)
     return jsonify(
         total=query.count(),
-        rows=[
-            case_dict(case)
-            for case in query.order_by(SafeguardingCase.received_at, SafeguardingCase.id).offset(offset).limit(limit)
-        ],
+        rows=[case_dict(case, names) for case in rows],
         limit=limit,
         offset=offset,
         open_count=SafeguardingCase.query.filter(SafeguardingCase.status != "closed").count(),
@@ -574,10 +606,25 @@ def hidden():
     suppressions = PlayerSuppression.query.filter_by(status="active")
     programs = ClubProgram.query.filter_by(emergency_hidden=True)
     suppression_total, program_total = suppressions.count(), programs.count()
+    suppression_rows = (
+        suppressions.with_entities(
+            PlayerSuppression.id, PlayerSuppression.player_api_id, PlayerSuppression.local_player_id
+        )
+        .order_by(PlayerSuppression.id)
+        .offset(suppression_offset)
+        .limit(limit)
+        .all()
+    )
+    names = player_names(subject_id(row) for row in suppression_rows)
     return jsonify(
         suppressions=[
-            {"id": row.id, "player_api_id": row.player_api_id, "local_player_id": row.local_player_id}
-            for row in suppressions.order_by(PlayerSuppression.id).offset(suppression_offset).limit(limit)
+            {
+                "id": row.id,
+                "player_api_id": row.player_api_id,
+                "local_player_id": row.local_player_id,
+                "player_name": names.get(subject_id(row)),
+            }
+            for row in suppression_rows
         ],
         programs=[
             {"id": row.id, "name": row.name}
@@ -634,6 +681,14 @@ def business():
             else None
         )
         rows.append(row)
+    clubs = program_names(row["scope_id"] for row in rows if row["scope_type"] == "club_program")
+    accounts = account_names(row["purchaser_user_id"] for row in rows)
+    for row in rows:
+        row["scope_name"] = (
+            clubs.get(row["scope_id"])
+            if row["scope_type"] == "club_program"
+            else accounts.get(row["purchaser_user_id"])
+        )
     return jsonify(
         rows=rows,
         total=db.session.scalar(sa.select(sa.func.count()).select_from(money)),
@@ -641,7 +696,13 @@ def business():
         offset=offset,
         currencies=totals,
         paying_clubs=BillingSubscription.query.filter(
-            BillingSubscription.scope_type == "club_program", BillingSubscription.status.in_(("active", "trialing"))
+            BillingSubscription.scope_type == "club_program", BillingSubscription.status == "active"
+        )
+        .with_entities(BillingSubscription.scope_id)
+        .distinct()
+        .count(),
+        past_due_clubs=BillingSubscription.query.filter(
+            BillingSubscription.scope_type == "club_program", BillingSubscription.status == "past_due"
         )
         .with_entities(BillingSubscription.scope_id)
         .distinct()
@@ -663,3 +724,19 @@ def business():
         ],
         coverage="GOL purchase history and cash events recorded since Business was enabled. Earlier invoice receipts and refund dates are unavailable. Subscription prices and credit reversals are not cash receipts.",
     )
+
+
+@admin_control_bp.get("/admin/control/overview")
+@page("overview")
+def overview():
+    from src.services.admin_control_overview import queue_counts
+    from src.services.admin_control_safety import lazy_reconcile
+
+    if control_enabled("safety"):
+        lazy_reconcile(current_app, "safety")
+    result = queue_counts(control_enabled)
+    if control_enabled("business"):
+        from src.services.stripe_billing import admin_summary
+
+        result["revenue"] = admin_summary(paying_only=True)
+    return jsonify(result)

@@ -23,6 +23,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar.jsx'
 import { useIsMobile } from '@/hooks/use-mobile.js'
 import { useGlobalSearch } from '@/hooks/useGlobalSearch.js'
+import { usePublicationFlag } from '@/hooks/usePublicationFlag'
 import { GlobalSearchDialog } from '@/components/GlobalSearchDialog.jsx'
 import {
   Users,
@@ -109,6 +110,7 @@ import { ListsPage } from '@/pages/ListsPage'
 import { MyClub } from '@/pages/MyClub'
 import { LocalPlayerPage } from '@/pages/LocalPlayerPage'
 import { LocalPlayerCreate } from '@/pages/LocalPlayerCreate'
+import { PlayerPublications } from '@/pages/PlayerPublications'
 import { PlayerOnboarding } from '@/pages/PlayerOnboarding'
 import { PricingPage } from '@/pages/PricingPage'
 import { AccountBillingPage } from '@/pages/AccountBillingPage'
@@ -4073,6 +4075,7 @@ function AppWithRouter() {
   const globalSearch = useGlobalSearch()
   const location = useLocation()
   const isAdminRoute = location.pathname.startsWith('/admin')
+  const PageContainer = isAdminRoute ? 'div' : 'main'
 
   // Central pageview tracking — fires on every route change (inside <Router> so useLocation is safe)
   useEffect(() => {
@@ -4094,11 +4097,11 @@ function AppWithRouter() {
         />
         <PlayerOnboardingPrompt />
         {isLegacyPublicRoute(location.pathname) && !LEGACY_PUBLIC_PAGES ? <meta name="robots" content="noindex, nofollow" /> : null}
-        <main>
+        <PageContainer className="app-main">
           <AppRoutes />
-        </main>
+        </PageContainer>
         {!isAdminRoute ? (
-          <footer className="dark bg-night text-chalk border-t border-border py-12 mt-auto">
+          <footer className="app-footer dark bg-night text-chalk border-t border-border py-12 mt-auto">
             <div className="floodlight-container text-center">
               <p className="display text-3xl">For the whole game.</p>
               <div className="mt-6"><BuyMeCoffeeButton /></div>
@@ -4142,6 +4145,12 @@ const legacyPublicElements = LEGACY_PUBLIC_PAGES ? [
 ] : []
 
 // App routes extracted for cleaner structure
+function PublicationRoute({ children, admin = false }) {
+  const enabled = usePublicationFlag({ poll: true })
+  if (enabled === null) return null
+  return enabled ? children : <Navigate to={admin ? '/admin/dashboard' : '/'} replace />
+}
+
 function AppRoutes() {
   return (
     <Routes>
@@ -4187,6 +4196,9 @@ function AppRoutes() {
       <Route path="/scout/lists" element={<ListsPage />} />
       <Route path="/scout/verification" element={<ScoutVerificationPage />} />
       <Route path="/introductions" element={<IntroductionsPage />} />
+      <Route path="/player-publications" element={<PublicationRoute><RequireAuth><PlayerPublications /></RequireAuth></PublicationRoute>} />
+      <Route path="/player-publication-invite" element={<PublicationRoute><PlayerPublications mode="invite" /></PublicationRoute>} />
+      <Route path="/club-publications/:programId" element={<PublicationRoute><RequireAuth><PlayerPublications mode="club" /></RequireAuth></PublicationRoute>} />
       <Route path="/my-club" element={<MyClub />} />
       <Route path="/staff-invite" element={<StaffInviteAccept />} />
       <Route path="/pricing" element={<PricingPage />} />
@@ -4222,6 +4234,7 @@ function AppRoutes() {
         <Route path="video" element={<AdminVideo />} />
         <Route path="video/:matchId" element={<AdminVideoMatch />} />
         <Route path="showcase" element={<AdminShowcase />} />
+        <Route path="player-publications" element={<PublicationRoute admin><PlayerPublications mode="admin" /></PublicationRoute>} />
         <Route path="trust" element={<AdminTrust />} />
         <Route path="local-clubs" element={<AdminLocalClubs />} />
         <Route path="funding" element={<AdminFunding />} />

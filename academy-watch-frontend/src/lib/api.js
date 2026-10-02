@@ -1,4 +1,4 @@
-import { loadFeatures } from './features.js'
+import { loadFeatures, peekFeatures } from './features.js'
 import {
     normalizeNewsletterIds,
     parseNewsletterId,
@@ -265,8 +265,10 @@ export class APIService {
     }
 
     static async getFeatures() {
-        return loadFeatures(() => this.request('/features'))
+        return loadFeatures(fetchFeatures)
     }
+
+    static getFeaturesLive() { return sharedFeatures() }
 
     static async getProfile() {
         const res = await this.request('/auth/me')
@@ -3451,4 +3453,22 @@ export class APIService {
         }
         if (onProgress) onProgress(100)
     }
+}
+
+let lastFeatures = null
+let pendingFeatures = null
+
+function fetchFeatures() {
+    if (pendingFeatures) return pendingFeatures
+    pendingFeatures = APIService.request('/features').then(value => {
+        lastFeatures = { value, fetchedAt: Date.now() }
+        return value
+    }).finally(() => { pendingFeatures = null })
+    return pendingFeatures
+}
+
+function sharedFeatures() {
+    if (peekFeatures() === null) return loadFeatures(fetchFeatures)
+    if (lastFeatures !== null && Date.now() - lastFeatures.fetchedAt < 15000) return Promise.resolve(lastFeatures.value)
+    return fetchFeatures()
 }
