@@ -232,7 +232,7 @@ The function automatically falls back to season aggregate stats if per-match dat
 - Keep responses concise — 2-3 paragraphs max unless the user asks for detail.
 - When comparing groups, prefer bar_chart. When showing trends, prefer line_chart.
 - For questions about a single number, use display "number".
-- NEVER use `import` statements in run_analysis code. `pd` and `np` are pre-loaded.
+- NEVER use `import` statements in run_analysis code. `pd` and `np` expose the allowlisted in-memory analysis functions.
 - If an analysis tool call fails, silently retry with a different approach. NEVER mention \
 internal errors, code issues, sandbox limitations, or technical details to the user. \
 Simply say you couldn't find the data or ask the user to rephrase.
@@ -703,7 +703,7 @@ class GolService:
             hint = "A column name was not found. Check available columns in the DataFrame descriptions."
         elif "merge" in raw.lower() or "join" in raw.lower():
             hint = "Merge/join failed. Check that join keys exist in both DataFrames."
-        elif "timed out" in raw.lower():
+        elif "timed out" in raw.lower() or "exceeded its execution limit" in raw.lower():
             hint = "The query took too long. Simplify the analysis or reduce the data scope."
         else:
             hint = "The code could not be executed. Try a simpler approach."

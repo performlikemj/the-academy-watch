@@ -155,7 +155,7 @@ Log one-liner in CONTINUITY.md's "Trivial Log" section.
 
 - Match-entry date-boundary tests use the parametrized `frozen_now` fixture in `tests/test_player_match_entries.py`; it patches route and subject-resolution UTC clocks. Derive relative date inputs inside the test from that fixture, never during parametrization.
 
-- GOL model-written analyses use `services/gol_capabilities.py` facades and typed guards; never expose raw library modules or expand attributes without escape/compatibility corpus coverage. Pandas aggregation strings require reduction allowlists even inside pivots/named aggregations. Analysis helpers use stored frames only; validate plain results before coercion/JSON and keep formatting inside the timeout.
+- GOL model-written analyses use `services/gol_capabilities.py` facades and typed guards; never expose raw library modules or expand attributes without escape/compatibility corpus coverage. Pandas aggregation strings require reduction allowlists even inside pivots/named aggregations; transform strings use a separate reviewed list. Analysis helpers use stored frames only; validate plain results before coercion/JSON and keep formatting inside the timeout. Validate typed frames by dtype and inspect only object/category values; pandas 3 copy-on-write isolates table mutations, while nested object containers still need cloning. Keep public refusal cases generic and the per-type attribute classification inventory explicit.
 
 ## Quality Bar
 

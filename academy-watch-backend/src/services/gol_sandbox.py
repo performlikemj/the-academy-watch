@@ -21,7 +21,9 @@ from src.services.gol_capabilities import (
     ALLOWED_BUILTINS,
     ERROR,
     MAX_VALUE_ITEMS,
+    SIZE_ERROR,
     AnalysisRefused,
+    AnalysisSizeLimit,
     guarded_getattr,
     guarded_getitem,
     guarded_getiter,
@@ -29,6 +31,7 @@ from src.services.gol_capabilities import (
     library_facades,
     plain_value,
     safe_helper,
+    validate_frame,
 )
 
 logger = logging.getLogger(__name__)
@@ -38,7 +41,7 @@ TIMEOUT_SECONDS = 10
 
 MAX_CODE_CHARS = 20_000
 MAX_AST_NODES = 4_000
-MAX_PYTHON_STEPS = 100_000
+MAX_PYTHON_STEPS = 3_000_000
 
 
 class _AnalysisLimit(BaseException):
@@ -1101,13 +1104,21 @@ def execute_analysis(code: str, dataframes: dict, display: str = "table", descri
         return {"result_type": "error", "error": "No code provided", "display": display}
 
     if type(code) is not str or len(code) > MAX_CODE_CHARS:
-        return {"result_type": "error", "error": ERROR, "display": display}
+        return {"result_type": "error", "error": SIZE_ERROR if type(code) is str else ERROR, "display": display}
 
     # Bound compilation and exclude class construction, imports and async code.
     try:
         tree = ast.parse(code)
         nodes = list(ast.walk(tree))
-        if len(nodes) > MAX_AST_NODES or any(
+        if len(nodes) > MAX_AST_NODES:
+            raise AnalysisSizeLimit(SIZE_ERROR)
+        if any(isinstance(node, (ast.Import, ast.ImportFrom)) for node in nodes):
+            return {
+                "result_type": "error",
+                "error": "Analysis refused: import statements are unavailable.",
+                "display": display,
+            }
+        if any(
             # Bare handlers/finally can suppress the private step-limit exception.
             (isinstance(node, ast.ExceptHandler) and node.type is None)
             or (isinstance(node, ast.Try) and node.finalbody)
@@ -1116,7 +1127,11 @@ def execute_analysis(code: str, dataframes: dict, display: str = "table", descri
         ):
             raise AnalysisRefused(ERROR)
         byte_code = compile_restricted(code, "<gol-analysis>", "exec")
-    except (SyntaxError, ValueError, TypeError, RecursionError):
+    except AnalysisSizeLimit:
+        return {"result_type": "error", "error": SIZE_ERROR, "display": display}
+    except SyntaxError:
+        return {"result_type": "error", "error": "Analysis refused: syntax error.", "display": display}
+    except (ValueError, TypeError, RecursionError):
         return {"result_type": "error", "error": ERROR, "display": display}
 
     if byte_code is None:
@@ -1166,19 +1181,15 @@ def execute_analysis(code: str, dataframes: dict, display: str = "table", descri
                 or type(frame) is not pd.DataFrame
             ):
                 raise AnalysisRefused(ERROR)
-            # No arbitrary objects in cells/labels/metadata; do not coerce them.
-            plain_value(list(frame.columns.names))
-            plain_value(list(frame.index.names))
-            for label in (*frame.columns, *frame.index):
-                plain_value(label)
-            for row in frame.itertuples(index=False, name=None):
-                for value in row:
-                    plain_value(value)
-            plain_value(frame.attrs)
-            frames[name] = frame.copy(deep=True)
-            for column in frames[name].columns:
-                if frames[name][column].dtype == object:
-                    frames[name][column] = frames[name][column].map(copy.deepcopy)
+            validate_frame(frame)
+            # Pandas 3 copy-on-write isolates table writes without a second full
+            # data copy. Object containers still need their own recursive copy.
+            frames[name] = frame.copy(deep=False)
+            for i, dtype in enumerate(frame.dtypes):
+                if isinstance(dtype, np.dtype) and dtype.kind == "O":
+                    column = frame.iloc[:, i]
+                    if any(type(v) in (list, dict, tuple) for v in column):
+                        frames[name].isetitem(i, column.map(copy.deepcopy))
             frames[name].attrs = {}
         restricted_globals.update(frames)
         restricted_globals.update({name: safe_helper(fn) for name, fn in helpers.items()})
@@ -1215,6 +1226,12 @@ def execute_analysis(code: str, dataframes: dict, display: str = "table", descri
                 outcome[0] = _format_result(result)
         except _AnalysisLimit:
             outcome[0] = {"result_type": "error", "error": "Analysis exceeded its execution limit."}
+        except AnalysisSizeLimit:
+            outcome[0] = {"result_type": "error", "error": SIZE_ERROR}
+        except KeyError:
+            outcome[0] = {"result_type": "error", "error": "Analysis refused: KeyError (missing column or label)."}
+        except SyntaxError:
+            outcome[0] = {"result_type": "error", "error": "Analysis refused: syntax error."}
         except BaseException:
             # Neither returned errors nor logs may stringify untrusted exceptions.
             outcome[0] = {"result_type": "error", "error": ERROR}
@@ -1301,47 +1318,37 @@ def _inplacevar(op, x, y):
 def _format_result(result) -> dict:
     """Only exact frames/series and recursively plain data cross the boundary."""
     budget = [MAX_VALUE_ITEMS]
+    if type(result) in (pd.Series, pd.DataFrame):
+        validate_frame(result)
     if type(result) is pd.Series:
-        # Validate labels before pandas creates column names from them.
-        plain_value(result.name, budget=budget)
-        plain_value(result.attrs, budget=budget)
-        plain_value(list(result.index.names), budget=budget)
-        for value in result.array:
-            plain_value(value, budget=budget)
-        for label in result.index:
-            plain_value(label, budget=budget)
-        result = result.reset_index()
+        total_rows = len(result)
+        result = result.head(MAX_ROWS).reset_index()
+    else:
+        total_rows = len(result) if type(result) is pd.DataFrame else None
     if type(result) is pd.DataFrame:
-        plain_value(list(result.columns.names), budget=budget)
-        plain_value(list(result.index.names), budget=budget)
         columns = []
         for label in result.columns:
-            clean = plain_value(label, budget=budget)
+            clean = plain_value(label, budget=budget, cap_strings=True)
             if type(clean) in (dict, list):
                 # MultiIndex column tuples are plain labels, not objects.
                 if type(label) is not tuple:
                     raise AnalysisRefused(ERROR)
                 clean = tuple(clean)
             columns.append(str(clean))
-        # Validate every cell, including omitted rows, before pandas row
-        # conversion. A shared budget bounds nested values and large outputs.
-        for row in result.itertuples(index=False, name=None):
-            for value in row:
-                plain_value(value, budget=budget)
-        plain_value(result.attrs, budget=budget)
-        for label in result.index:
-            plain_value(label, budget=budget)
         # Preserve the old numeric row conversion/rounding. Using row.array also
         # fixes the old non-JSON datetime64 output while retaining timezone data.
-        rows = [[plain_value(v) for v in row.array] for _, row in result.head(MAX_ROWS).iterrows()]
+        rows = [
+            [plain_value(v, budget=budget, cap_strings=True) for v in row.array]
+            for _, row in result.head(MAX_ROWS).iterrows()
+        ]
         return {
             "result_type": "table",
             "columns": columns,
             "rows": rows,
-            "total_rows": len(result),
-            "truncated": len(result) > MAX_ROWS,
+            "total_rows": total_rows,
+            "truncated": total_rows > MAX_ROWS,
         }
-    clean = plain_value(result, budget=budget)
+    clean = plain_value(result, budget=budget, cap_strings=True)
     if type(result) in (list, tuple):
         return {"result_type": "list", "items": clean[:MAX_ROWS]}
     if type(result) is dict:

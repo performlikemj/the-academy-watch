@@ -31,6 +31,7 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
   an unconditional development step.
 
 ## State
+- **Now (2026-10-03 SBXF1):** PR1132 usability/performance review union implemented; capability boundary retained, generic public corpus and external private controls; final-head governed gates/push/CI delivery is authoritative in external logs/SBXF1.final.md. See ledgers/CONTINUITY_sbx.md.
 - **Now (2026-10-02):** C1F9 fixes implemented on fix/c1-followup; erasure gap/closure/retention/count/inventory controls PASS; 39-path table + flow audit written. Final cached gates/full PostgreSQL/push pending; exact delivery in external logs/C1F9.final.md. See ledgers/CONTINUITY_p2-c1.md.
 - **Now (2026-10-02):** C1F8 full RC1XV3 O/X union implemented on fix/c1-followup; final gated delivery, push and cleanup recorded in ~/codex-runs/aw-redesign/logs/C1F8.final.md; see ledgers/CONTINUITY_p2-c1.md.
 - **Now (2026-10-02):** C1F7 canonical contact/publication lock order implemented on fix/c1-followup; ordinary change isolated554dc114; targeted303/PG30 controls/390px8 PASS. Final gated delivery and cleanup recorded externally in ~/codex-runs/aw-redesign/logs/C1F7.final.md; no merge/migration. See ledgers/CONTINUITY_p2-c1.md.

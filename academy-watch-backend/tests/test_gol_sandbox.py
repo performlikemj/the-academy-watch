@@ -10,7 +10,9 @@ from src.services import gol_sandbox as sandbox
 from src.services.gol_capabilities import (
     ALLOWED_BUILTINS,
     ERROR,
+    SIZE_ERROR,
     AnalysisRefused,
+    AnalysisSizeLimit,
     guarded_getattr,
     guarded_getitem,
     guarded_write,
@@ -183,195 +185,20 @@ def test_legitimate_matches_raw_library_reference(name, code, frames):
     json.dumps(actual, allow_nan=False)
 
 
-ESCAPES = [
-    ("pandas_io", "result=pd.io.common.os"),
-    ("env_boolean", "result=len(pd.io.common.os.environ)>0"),
-    ("system_type", "result=pd.io.common.os.system"),
-    ("numpy_dict", "result=np.__dict__"),
-    ("compat", "result=pd.compat"),
-    ("core", "result=pd.core"),
-    ("util", "result=pd.util"),
-    ("api", "result=pd.api"),
-    ("np_lib", "result=np.lib"),
-    ("np_ctypeslib", "result=np.ctypeslib"),
-    ("np_linalg", "result=np.linalg"),
-    ("pickle", "result=pd.read_pickle('/tmp/sbx-pickle')"),
-    ("read_file", "result=pd.read_csv('/etc/passwd')"),
-    ("read_url", "result=pd.read_csv('http://127.0.0.1:9/no-request')"),
-    ("read_json_url", "result=pd.read_json('http://127.0.0.1:9/no-request')"),
-    ("np_load", "result=np.load('/tmp/sbx-pickle',allow_pickle=True)"),
-    ("np_save", "np.save('/tmp/sbx-array',[1])\nresult=1"),
-    ("np_fromfile", "result=np.fromfile('/etc/passwd')"),
-    ("np_memmap", "result=np.memmap('/tmp/sbx-array')"),
-    ("np_frompyfunc", "result=np.frompyfunc(str,1,1)([1])"),
-    ("np_vectorize", "result=np.vectorize(str)([1])"),
-    ("pd_eval", "result=pd.eval('1+1')"),
-    ("df_eval", "result=teams.eval('id+1')"),
-    ("df_query", "result=teams.query('@__import__(\"os\")',engine='python')"),
-    ("class", "result=().__class__"),
-    ("mro", "result=type(teams).mro()"),
-    ("subclasses", "result=teams.__subclasses__()"),
-    ("format", "result='{0.__class__}'.format(teams)"),
-    ("format_map", "result='{a.__class__}'.format_map({'a':teams})"),
-    ("getattr", "result=getattr(teams,'to_csv')('/tmp/sbx-file')"),
-    ("vars", "result=vars(teams)"),
-    ("dir", "result=dir(teams)"),
-    ("globals", "result=globals()"),
-    ("locals", "result=locals()"),
-    ("import", "import os\nresult=1"),
-    ("import_fn", "result=__import__('os')"),
-    ("open", "result=open('/etc/passwd').read()"),
-    ("compile", "result=compile('1','x','eval')"),
-    ("setattr", "setattr(pd,'read',1)\nresult=1"),
-    ("delattr", "delattr(teams,'id')\nresult=1"),
-    ("class_def", "class Evil:\n pass\nresult=Evil()"),
-    ("function_globals", "result=academy_comparison.__globals__"),
-    ("function_closure", "result=academy_comparison.__closure__"),
-    ("generator_frame", "g=(i for i in range(1))\nresult=g.gi_frame"),
-    ("generator_code", "g=(i for i in range(1))\nresult=g.gi_code"),
-    ("coroutine", "async def f():\n return 1\nresult=f().cr_frame"),
-    ("frame_globals", "g=(i for i in range(1))\nresult=g.gi_frame.f_globals"),
-    ("traceback", "try:\n 1/0\nexcept Exception as e:\n result=e.__traceback__.tb_frame"),
-    ("exception_args", "result=Exception('x').args"),
-    ("attrs", "result=teams.attrs"),
-    ("style", "result=teams.style"),
-    ("flags", "result=teams.flags"),
-    ("sparse", "result=teams.sparse"),
-    ("plot", "result=teams.plot"),
-    ("hist", "result=teams.hist()"),
-    ("indexer_obj", "result=teams.loc.obj"),
-    ("groupby_obj", "result=teams.groupby('id').obj"),
-    ("string_parent", "result=teams['name'].str._parent"),
-    ("accessor_dict", "result=teams['name'].str.__dict__"),
-    ("cat", "result=teams['name'].astype('category').cat"),
-    ("df_reader", "result=pd.DataFrame.from_records('/etc/passwd')"),
-    ("df_dict_reader", "result=pd.DataFrame.from_dict({'x':[1]})"),
-    ("array_file", "np.array([1]).tofile('/tmp/sbx-array')\nresult=1"),
-    ("array_dump", "np.array([1]).dump('/tmp/sbx-array')\nresult=1"),
-    ("array_ctypes", "result=np.array([1]).ctypes"),
-    ("array_interface", "result=np.array([1]).__array_interface__"),
-    ("array_data", "result=np.array([1]).data"),
-    ("array_base", "result=np.array([1]).base"),
-    ("dtype_type", "result=np.array([1]).dtype.type.mro()"),
-    ("write_method", "teams.to_csv=lambda x:1\nresult=1"),
-    ("write_facade", "pd.io=1\nresult=1"),
-    ("write_attrs", "teams.attrs={'x':1}\nresult=1"),
-    ("dispatch_agg", "result=teams.agg('to_csv','/tmp/sbx-file')"),
-    ("dispatch_apply", "result=teams.apply('to_pickle',args=('/tmp/sbx-file',))"),
-    ("dispatch_transform", "result=teams.transform('eval')"),
-    ("dispatch_group", "result=teams.groupby('id').agg({'name':'to_csv'})"),
-    ("dispatch_named", "result=teams.groupby('id').agg(x=('name','to_csv'))"),
-    ("dispatch_nested", "result=teams.agg({'name':['sum','to_csv']})"),
-    ("lambda_io", "result=teams.apply(lambda x:x.to_csv('/tmp/sbx-file'))"),
-    ("lambda_pipe", "result=teams.pipe(lambda x:x.eval('1'))"),
-    ("lambda_map", "result=teams['name'].map(lambda x:getattr(x,'__class__'))"),
-    ("engine_callable", "result=teams.apply(sum,engine=academy_comparison)"),
-    ("result_function", "result=academy_comparison"),
-    ("result_array", "result=np.array([1])"),
-    ("result_groupby", "result=teams.groupby('id')"),
-    ("nested_function", "result={'x':[academy_comparison]}"),
-    ("cell_function", "result=pd.DataFrame({'x':[academy_comparison]})"),
-    ("label_function", "result=pd.DataFrame([[1]],columns=[academy_comparison])"),
-    ("index_function", "result=pd.Series([1],index=[academy_comparison])"),
-    ("name_function", "result=pd.Series([1],name=academy_comparison)"),
-    ("result_exception", "result=Exception('do not echo')"),
-    ("cycle", "a=[]\na.append(a)\nresult=a"),
-    ("helper_callable", "result=player_career(str)"),
-    ("getitem_facade", "result=pd['io']"),
-]
-for receiver in ("teams", "teams['name']", "teams.index"):
-    for method in (
-        "to_csv",
-        "to_pickle",
-        "to_sql",
-        "to_parquet",
-        "to_hdf",
-        "to_excel",
-        "to_json",
-        "to_clipboard",
-        "to_feather",
-        "to_html",
-        "to_xml",
-        "to_latex",
-        "to_string",
-        "to_markdown",
-        "eval",
-        "query",
-    ):
-        ESCAPES.append((f"writer_{receiver}_{method}", f"result={receiver}.{method}('/tmp/sbx-file')"))
-for method in ("to_csv", "to_pickle", "to_json", "eval", "query"):
-    ESCAPES.append(
-        (f"pivot_dispatch_{method}", f"result=teams.pivot_table(index='id',values='name',aggfunc='{method}')")
-    )
+@pytest.mark.parametrize("module,names,facade_index", [(pd, "PANDAS_NAMES", 0), (np, "NUMPY_NAMES", 1)])
+def test_non_allowlisted_library_attributes_are_refused(module, names, facade_index):
+    from src.services import gol_capabilities as capabilities
 
-
-ESCAPES += [
-    ("agg_none_positional", "result=teams.groupby('id').agg(None,x=('name','to_csv'))"),
-    ("agg_none_keyword", "result=teams.groupby('id').agg(func=None,x=('name','to_csv'))"),
-    ("pivot_positional", "result=teams.pivot_table('name','id',None,'to_csv')"),
-    ("pd_pivot_positional", "result=pd.pivot_table(teams,'name','id',None,'to_csv')"),
-    ("crosstab_positional", "result=pd.crosstab(teams['id'],teams['name'],teams['id'],None,None,'to_csv')"),
-    ("timezone_file", "result=pd.Timestamp('2026-01-01',tz='dateutil//etc/passwd')"),
-    (
-        "timezone_file_positional",
-        "result=pd.Timestamp('2026-01-01',None,None,None,None,None,None,None,'dateutil//etc/passwd')",
-    ),
-    ("function_kwdefaults", "result=academy_comparison.__kwdefaults__"),
-    ("ufunc_attrs", "result=np.sum.__globals__"),
-    ("ndarray_dtype_mro", "result=np.int64.mro()"),
-    ("class_method", "result=pd.Series.mro()"),
-    ("builtin_format", "result=format(teams,'')"),
-    ("getattribute", "result=teams.__getattribute__('to_csv')"),
-    ("dict_key_callable", "result={academy_comparison:1}"),
-    ("series_function", "result=pd.Series([academy_comparison])"),
-    ("accessor_lambda", "result=teams['name'].str.replace('a',lambda x:x.__class__)"),
-    ("dt_parent", "result=pd.to_datetime(teams['id']).dt._parent"),
-    ("dt_tz", "result=pd.to_datetime(teams['id']).dt.tz"),
-    ("array_dumps", "result=np.array([1]).dumps()"),
-    ("array_getfield", "result=np.array([1]).getfield('int64')"),
-    ("bare_handler", "try:\n result=1\nexcept:\n result=2"),
-    ("finally", "try:\n result=1\nfinally:\n result=2"),
-]
-
-
-@pytest.mark.parametrize("name,code", ESCAPES, ids=[case[0] for case in ESCAPES])
-def test_escape_is_neutrally_refused_before_io(name, code, frames, monkeypatch):
-    calls = []
-
-    def forbidden(*args, **kwargs):
-        calls.append(True)
-        raise AssertionError("unexpected I/O entry point")
-
-    for module, names in (
-        (pd, ["read_csv", "read_json", "read_pickle", "eval"]),
-        (np, ["load", "save", "fromfile", "memmap"]),
-    ):
-        for method in names:
-            monkeypatch.setattr(module, method, forbidden)
-    for cls in (pd.DataFrame, pd.Series):
-        for method in (
-            "to_csv",
-            "to_pickle",
-            "to_sql",
-            "to_parquet",
-            "to_hdf",
-            "to_excel",
-            "to_json",
-            "to_clipboard",
-            "to_feather",
-            "to_html",
-            "to_xml",
-            "to_latex",
-            "to_string",
-            "to_markdown",
-            "eval",
-            "query",
-        ):
-            if hasattr(cls, method):
-                monkeypatch.setattr(cls, method, forbidden)
-    response = sandbox.execute_analysis(code, frames)
-    assert response == {"result_type": "error", "error": ERROR, "display": "table"}
-    assert not calls
+    facade = library_facades()[facade_index]
+    allowed = set(getattr(capabilities, names))
+    for name in dir(module):
+        if not name.startswith("_") and name not in allowed:
+            with pytest.raises(AnalysisRefused):
+                guarded_getattr(facade, name)
+            response = sandbox.execute_analysis(f"result={'pd' if facade_index == 0 else 'np'}.{name}", {})
+            assert response["result_type"] == "error"
+    for name in allowed:
+        assert not isinstance(guarded_getattr(facade, name), ModuleType)
 
 
 def test_no_introspection_builtins():
@@ -470,12 +297,12 @@ def test_loop_bounded_inside_exception_handler(monkeypatch):
 def test_allocation_bound_before_call(monkeypatch):
     calls = []
     monkeypatch.setattr(np, "zeros", lambda *a, **kw: calls.append(True))
-    assert sandbox.execute_analysis("result=np.zeros((1000001,))", {})["error"] == ERROR
+    assert sandbox.execute_analysis("result=np.zeros((1000001,))", {})["error"] == SIZE_ERROR
     assert not calls
 
 
 def test_compilation_bound():
-    assert sandbox.execute_analysis("x=1\n" * 6000, {})["error"] == ERROR
+    assert sandbox.execute_analysis("x=1\n" * 6000, {})["error"] == SIZE_ERROR
 
 
 def test_plain_conversion():
@@ -571,17 +398,25 @@ def test_nested_input_lists_are_request_local():
     assert frame.iloc[0, 0] == [1, 2]
 
 
-@pytest.mark.parametrize("code", [123, ["result=1"], "result=)", 'result=df["private-column-label"]'])
-def test_invalid_code_and_errors_do_not_echo_details(code):
+@pytest.mark.parametrize(
+    "code,error",
+    [
+        (123, ERROR),
+        (["result=1"], ERROR),
+        ("result=)", "Analysis refused: syntax error."),
+        ('result=df["private-column-label"]', "Analysis refused: KeyError (missing column or label)."),
+    ],
+)
+def test_invalid_code_and_errors_do_not_echo_details(code, error):
     response = sandbox.execute_analysis(code, {"df": pd.DataFrame({"x": [1]})})
-    assert response == {"result_type": "error", "error": ERROR, "display": "table"}
+    assert response == {"result_type": "error", "error": error, "display": "table"}
 
 
 def test_large_dtype_is_refused_before_allocation(monkeypatch):
     calls = []
     monkeypatch.setattr(np, "zeros", lambda *a, **kw: calls.append(True))
     response = sandbox.execute_analysis("result=np.zeros(1,dtype='U100000000')", {})
-    assert response["error"] == ERROR
+    assert response["error"] == SIZE_ERROR
     assert not calls
 
 
@@ -602,7 +437,7 @@ def test_service_tool_and_completion_use_boundary(frames, monkeypatch):
     monkeypatch.setenv("API_FOOTBALL_FROZEN", "true")
     for code, ok in [
         ("result=teams[['name']]", True),
-        ("result=pd.io", False),
+        ("result=pd.non_allowlisted_attribute", False),
         ("result=pd.DataFrame", False),
         ("result={'x':sum}", False),
     ]:
@@ -645,3 +480,617 @@ def test_series_metadata_validated_before_reset_index(field):
         result.index.name = HostileMetadata()
     with pytest.raises(AnalysisRefused):
         sandbox._format_result(result)
+
+
+ORDINARY = [
+    ("column_frame", "result=int(tracked.age.mean())"),
+    ("column_row", "result=fixture_stats.apply(lambda row:row.goals+row.minutes,axis=1)"),
+    ("column_group", "result=fixture_stats.groupby('team_api_id').goals.sum()"),
+    ("string_unique_iter", "result=[club for club in tracked['parent_club'].unique()]"),
+    ("string_unique_list", "result=tracked['parent_club'].unique().tolist()"),
+    ("string_values_iter", "result=[name for name in tracked['player_name'].values]"),
+    ("string_values_item", "result=tracked['player_name'].values[0]"),
+    ("string_numpy", "result=tracked['player_name'].unique().to_numpy().tolist()"),
+    ("to_frame", "result=fixture_stats['goals'].to_frame()"),
+    ("where", "result=fixture_stats[['goals']].where(fixture_stats[['goals']]>2,0)"),
+    ("mask", "result=fixture_stats[['goals']].mask(fixture_stats[['goals']]>2,0)"),
+    ("rolling", "result=fixture_stats['goals'].rolling(2).sum()"),
+    ("expanding", "result=fixture_stats['goals'].expanding().mean()"),
+    ("ffill", "result=pd.Series([1,None,3]).ffill()"),
+    ("bfill", "result=pd.Series([1,None,3]).bfill()"),
+    ("cumcount", "result=fixture_stats.groupby('team_api_id').cumcount()"),
+    ("nth", "result=fixture_stats.groupby('team_api_id').nth(0)"),
+    ("transform_rank", "result=fixture_stats.groupby('team_api_id')['goals'].transform('rank')"),
+    ("transform_diff", "result=fixture_stats[['goals']].transform('diff')"),
+    ("transform_shift", "result=fixture_stats[['goals']].transform('shift')"),
+    ("transform_ffill", "result=fixture_stats[['goals']].transform('ffill')"),
+    ("transform_bfill", "result=fixture_stats[['goals']].transform('bfill')"),
+    ("transform_pct", "result=fixture_stats[['goals']].transform('pct_change')"),
+    ("insert", "teams.insert(0,'new',[3,4])\nresult=teams"),
+    ("sample", "result=teams.sample(n=1,random_state=5)"),
+    ("filter", "result=fixture_stats.filter(like='goals')"),
+    ("argmax", "result=int(fixture_stats['goals'].argmax())"),
+    ("argmin", "result=int(fixture_stats['goals'].argmin())"),
+    ("skew", "result=float(fixture_stats['goals'].skew())"),
+    ("kurt", "result=float(fixture_stats['goals'].kurt())"),
+    ("combine_first", "result=pd.Series([1,None]).combine_first(pd.Series([2,3]))"),
+    ("keys", "result=teams.keys().tolist()"),
+    ("group_keys", "result=[int(key) for key in fixture_stats.groupby('team_api_id').groups.keys()]"),
+    ("index_names", "result=[name for name in fixture_stats.set_index('goals').index.names]"),
+    ("tuple_column", "result=[row.name for row in teams.itertuples()]"),
+    ("tuple_item", "result=[row[1] for row in teams.itertuples()]"),
+    ("findall", "result=teams['name'].str.findall('[ae]')"),
+    ("isupper", "result=teams['name'].str.isupper()"),
+    ("islower", "result=teams['name'].str.islower()"),
+    ("removeprefix", "result=teams['name'].str.removeprefix('A')"),
+    ("removesuffix", "result=teams['name'].str.removesuffix('a')"),
+    ("weekday", "result=tracked['updated_at'].dt.weekday"),
+    ("to_period", "result=tracked['updated_at'].dt.to_period('M').dt.year"),
+    ("tz_localize", "result=tracked['updated_at'].dt.tz_localize('UTC').dt.strftime('%Y-%m-%d')"),
+    ("tz_convert", "result=tracked['updated_at'].dt.tz_localize('UTC').dt.tz_convert('Europe/London').dt.hour"),
+    ("index_year", "result=pd.DatetimeIndex(tracked['updated_at']).year.tolist()"),
+    ("index_get_loc", "result=int(teams.columns.get_loc('name'))"),
+    ("index_difference", "result=teams.columns.difference(['name']).tolist()"),
+    ("np_average", "result=float(np.average([1,2,3]))"),
+    ("np_diff", "result=np.diff([1,3,6]).tolist()"),
+    ("np_any", "result=bool(np.any([False,True]))"),
+    ("np_all", "result=bool(np.all([True,True]))"),
+    ("np_argmax", "result=int(np.argmax([1,3,2]))"),
+    ("np_argmin", "result=int(np.argmin([1,3,2]))"),
+    ("np_isin", "result=np.isin([1,2,3],[1,3]).tolist()"),
+    ("np_nan_to_num", "result=np.nan_to_num([1,np.nan]).tolist()"),
+    ("np_divide", "result=np.divide([2,4],2).tolist()"),
+    ("np_corrcoef", "result=np.corrcoef([[1,2,3],[3,2,1]]).tolist()"),
+    ("np_prod", "result=int(np.prod([1,2,3]))"),
+    ("pd_isnull", "result=pd.isnull(pd.Series([1,None]))"),
+    ("pd_notnull", "result=pd.notnull(pd.Series([1,None]))"),
+    ("pd_melt", "result=pd.melt(teams,id_vars=['name'])"),
+    ("pd_dummies", "result=pd.get_dummies(teams['name'],dtype=int)"),
+    ("pd_date_range", "result=pd.date_range('2026-01-01',periods=3).strftime('%Y-%m-%d').tolist()"),
+    ("pd_offset", "result=(pd.Timestamp('2026-01-01')+pd.DateOffset(days=2)).strftime('%Y-%m-%d')"),
+    ("pd_namedagg", "result=fixture_stats.groupby('team_api_id').agg(goals=pd.NamedAgg(column='goals',aggfunc='sum'))"),
+    ("pd_index", "result=pd.Index([1,2,3]).tolist()"),
+    ("pd_categorical", "result=pd.Categorical(['a','b','a']).tolist()"),
+    ("pd_now", "result=pd.Timestamp.now(tz='UTC').strftime('%Y-%m-%d')"),
+    ("pow", "result=pow(2,3)"),
+    ("divmod", "result=divmod(7,3)"),
+    ("repr", "result=repr({'goals':[1,2]})"),
+    ("ord", "result=ord('A')"),
+    ("chr", "result=chr(65)"),
+]
+# The named datetime index has the same constructor-only boundary as Index.
+ORDINARY = [
+    (name, code.replace("pd.DatetimeIndex(tracked['updated_at'])", "pd.Index(tracked['updated_at'])"))
+    for name, code in ORDINARY
+]
+
+
+@pytest.mark.parametrize("name,code", ORDINARY, ids=[case[0] for case in ORDINARY])
+def test_ordinary_analysis_matches_main(name, code, frames):
+    reference = {"pd": pd, "np": np, **{key: frame.copy(deep=True) for key, frame in frames.items()}}
+    exec(code, reference)
+    expected = _legacy_format_result(reference["result"])
+    expected["display"] = "table"
+    assert sandbox.execute_analysis(code, frames) == expected
+
+
+@pytest.mark.parametrize("rows", [100_000, 200_000])
+@pytest.mark.parametrize(
+    "code",
+    [
+        "result=df",
+        "result=df[df.goals>3]",
+        "result=df.goals.map(lambda value:value+1)",
+        "result=df.apply(lambda row:row.goals+row.minutes,axis=1)",
+    ],
+)
+def test_production_size_analysis_matches_main(rows, code):
+    frame = pd.DataFrame(
+        {
+            **{f"c{i}": np.arange(rows) for i in range(25)},
+            "goals": np.arange(rows) % 10,
+            "minutes": np.arange(rows),
+            "club": pd.Series(["Club"] * rows, dtype="str"),
+            "when": pd.date_range("2026-01-01", periods=rows, freq="s"),
+        }
+    )
+    reference = {"df": frame.copy()}
+    exec(code, reference)
+    expected = _legacy_format_result(reference["result"])
+    expected["display"] = "table"
+    assert sandbox.execute_analysis(code, {"df": frame}) == expected
+
+
+def test_interval_period_text_results():
+    response = sandbox.execute_analysis("result=pd.cut(pd.Series([18,20,24]),bins=[17,19,21,25]).value_counts()", {})
+    assert response["rows"] == [["(17, 19]", 1], ["(19, 21]", 1], ["(21, 25]", 1]]
+    response = sandbox.execute_analysis("result=pd.Series(pd.date_range('2026-01-01',periods=2)).dt.to_period('M')", {})
+    assert response["rows"] == [[0, "2026-01"], [1, "2026-01"]]
+
+
+def test_result_string_bound():
+    from src.services.gol_capabilities import MAX_STRING_CHARS
+
+    for result in [
+        "x" * (MAX_STRING_CHARS + 1),
+        {"x": "x" * (MAX_STRING_CHARS + 1)},
+        pd.DataFrame({"x": ["x" * (MAX_STRING_CHARS + 1)]}),
+    ]:
+        with pytest.raises(AnalysisSizeLimit):
+            sandbox._format_result(result)
+
+
+@pytest.mark.parametrize(
+    "method,receiver", [(pd.DataFrame.apply, pd.DataFrame({"x": [1]})), (pd.Series.map, pd.Series([1]))]
+)
+def test_engine_refused_in_all_parameter_positions(method, receiver):
+    import inspect
+
+    from src.services.gol_capabilities import _safe_call
+
+    signature = inspect.signature(method.__get__(receiver))
+    params = list(signature.parameters)
+    if "engine" not in params:
+        pytest.skip("library version has no engine parameter")
+    position = params.index("engine")
+    args = [sum if param == "func" else signature.parameters[param].default for param in params[:position]]
+    with pytest.raises(AnalysisRefused):
+        _safe_call(method.__get__(receiver), method.__name__)(*args, engine="python")
+    with pytest.raises(AnalysisRefused):
+        _safe_call(method.__get__(receiver), method.__name__)(*args, "python")
+
+
+def test_fixed_error_categories_and_service_hints():
+    from src.services.gol_service import GolService
+
+    categories = [
+        ("result=df.missing", ERROR),
+        ('result=df["missing"]', "Analysis refused: KeyError (missing column or label)."),
+        ("result=)", "Analysis refused: syntax error."),
+        ("import pandas", "Analysis refused: import statements are unavailable."),
+        ('result="x"*10001', SIZE_ERROR),
+    ]
+    for code, error in categories:
+        response = sandbox.execute_analysis(code, {"df": pd.DataFrame({"x": [1]})})
+        assert response["error"] == error
+    assert "column" in GolService._sanitize_for_llm({"error": categories[1][1]})["error"]
+    assert "Import" in GolService._sanitize_for_llm({"error": categories[3][1]})["error"]
+    assert "too long" in GolService._sanitize_for_llm({"error": "Analysis exceeded its execution limit."})["error"]
+
+
+# Explicit review inventory. Do not derive this table from production allowlists.
+# Method-name entries can also accept restricted callables.
+ATTRIBUTE_CLASSIFICATION = {
+    "DataFrame": {
+        "in-memory": "combine_first T abs add all any astype at bfill clip columns copy corr count cov cummax cummin cumprod cumsum describe diff div drop drop_duplicates dropna dtypes duplicated empty eq expanding explode ffill fillna floordiv ge get gt head iat idxmax idxmin iloc index insert isin isna isnull iterrows itertuples join keys kurt le loc lt max mean median melt merge min mod mode mul ndim ne nlargest notna notnull nsmallest nunique pct_change pivot pow prod quantile rank reindex reindex_like replace reset_index rolling round sample select_dtypes set_index shape shift size skew squeeze stack std sub sum tail to_numpy transpose truediv unstack value_counts values var",
+        "takes-callable": "applymap assign filter groupby map mask pipe rename rename_axis sort_index sort_values to_dict where",
+        "takes-method-name": "agg aggregate apply pivot_table transform",
+    },
+    "Series": {
+        "in-memory": "combine_first T abs add all any argmax argmin astype at between bfill clip copy corr count cov cummax cummin cumprod cumsum describe diff div drop drop_duplicates dropna dt dtype duplicated empty eq expanding explode ffill fillna floordiv ge get gt head iat idxmax idxmin iloc index insert isin isna isnull items iterrows itertuples join keys kurt le loc lt max mean median melt merge min mod mode mul name ndim ne nlargest notna notnull nsmallest nunique pct_change pivot pow prod quantile rank reindex reindex_like repeat replace reset_index rolling round sample select_dtypes set_index shape shift size skew squeeze stack std str sub sum tail to_frame to_list to_numpy tolist transpose truediv unique unstack value_counts values var",
+        "takes-callable": "applymap assign filter groupby map mask pipe rename rename_axis sort_index sort_values to_dict where",
+        "takes-method-name": "agg aggregate apply pivot_table transform",
+    },
+    "Index": {
+        "in-memory": "argmax argmin astype copy difference drop drop_duplicates droplevel dropna dtype duplicated empty fillna get_level_values get_loc isin isna max min name names ndim notna nunique shape size str to_list to_numpy tolist unique value_counts values",
+        "takes-callable": "map rename sort_values",
+        "takes-method-name": "",
+    },
+    "ndarray": {
+        "in-memory": "T all any argmax argmin argsort astype clip copy cumprod cumsum dtype flatten item max mean min ndim prod ravel reshape round shape size sort squeeze std sum tolist transpose var",
+        "takes-callable": "",
+        "takes-method-name": "",
+    },
+    "GroupBy": {
+        "in-memory": "all any bfill count cumcount cummax cummin cumprod cumsum diff ffill first get_group groups head idxmax idxmin indices kurt last max mean median min ngroups nth nunique prod quantile rank sem shift size skew std sum tail value_counts var",
+        "takes-callable": "filter",
+        "takes-method-name": "agg aggregate apply transform",
+    },
+    "StringMethods": {
+        "in-memory": "capitalize casefold cat contains count endswith extract extractall find findall fullmatch get isalnum isalpha isdigit islower isnumeric isspace isupper join len lower lstrip match normalize pad partition removeprefix removesuffix repeat rfind rpartition rsplit rstrip slice slice_replace split startswith strip title upper zfill",
+        "takes-callable": "replace",
+        "takes-method-name": "",
+    },
+    "DateAccessor": {
+        "in-memory": "ceil date day day_name day_of_week day_of_year dayofweek dayofyear days days_in_month daysinmonth floor hour is_leap_year is_month_end is_month_start is_quarter_end is_quarter_start is_year_end is_year_start isocalendar microsecond minute month month_name nanosecond normalize quarter round second seconds strftime time to_period total_seconds tz_convert tz_localize weekday year",
+        "takes-callable": "",
+        "takes-method-name": "",
+    },
+    "DatetimeIndex": {
+        "in-memory": "argmax argmin astype ceil copy date day day_name day_of_week day_of_year dayofweek dayofyear days days_in_month daysinmonth difference drop drop_duplicates droplevel dropna dtype duplicated empty fillna floor get_level_values get_loc hour is_leap_year is_month_end is_month_start is_quarter_end is_quarter_start is_year_end is_year_start isin isna isocalendar max microsecond min minute month month_name name names nanosecond ndim normalize notna nunique quarter round second seconds shape size str strftime time to_list to_numpy to_period tolist total_seconds tz_convert tz_localize unique value_counts values weekday year",
+        "takes-callable": "map rename sort_values",
+        "takes-method-name": "",
+    },
+    "DateScalar": {
+        "in-memory": "ceil date day day_name day_of_week day_of_year dayofweek dayofyear days days_in_month daysinmonth floor hour is_leap_year is_month_end is_month_start is_quarter_end is_quarter_start is_year_end is_year_start isocalendar isoformat microsecond minute month month_name nanosecond normalize quarter round second seconds strftime time to_period total_seconds tz_convert tz_localize weekday year",
+        "takes-callable": "",
+        "takes-method-name": "",
+    },
+    "Window": {
+        "in-memory": "corr count cov kurt max mean median min quantile sem skew std sum var",
+        "takes-callable": "",
+        "takes-method-name": "agg aggregate apply",
+    },
+    "ExtensionArray": {
+        "in-memory": "to_numpy tolist",
+        "takes-callable": "",
+        "takes-method-name": "",
+    },
+    "dtype": {
+        "in-memory": "itemsize kind name",
+        "takes-callable": "",
+        "takes-method-name": "",
+    },
+    "str": {
+        "in-memory": "capitalize casefold cat contains count endswith extract extractall find findall fullmatch get index isalnum isalpha isdigit islower isnumeric isspace isupper join len lower lstrip match normalize pad partition removeprefix removesuffix repeat rfind rindex rpartition rsplit rstrip slice slice_replace split splitlines startswith strip title upper zfill",
+        "takes-callable": "replace",
+        "takes-method-name": "",
+    },
+    "list-tuple": {
+        "in-memory": "append clear copy count extend index insert pop remove reverse sort",
+        "takes-callable": "",
+        "takes-method-name": "",
+    },
+    "dict": {
+        "in-memory": "clear copy get items keys pop setdefault update values",
+        "takes-callable": "",
+        "takes-method-name": "",
+    },
+    "set": {
+        "in-memory": "add copy difference discard intersection remove union",
+        "takes-callable": "",
+        "takes-method-name": "",
+    },
+    "number": {
+        "in-memory": "imag real",
+        "takes-callable": "",
+        "takes-method-name": "",
+    },
+    "numpy-number": {
+        "in-memory": "imag item real",
+        "takes-callable": "",
+        "takes-method-name": "",
+    },
+    "row": {
+        "in-memory": "Index club goals",
+        "takes-callable": "",
+        "takes-method-name": "",
+    },
+    "pandas-facade": {
+        "in-memory": "Categorical DataFrame DateOffset Index NA NaT NamedAgg Series Timedelta Timestamp concat cut date_range get_dummies isna isnull melt merge notna notnull qcut to_datetime to_numeric to_timedelta unique",
+        "takes-callable": "",
+        "takes-method-name": "crosstab pivot_table",
+    },
+    "numpy-facade": {
+        "in-memory": "where abs absolute all any arange argmax argmin argsort around array asarray average bool_ ceil clip concatenate corrcoef count_nonzero cumprod cumsum diff divide dot e exp expm1 float32 float64 floor full hstack inf int32 int64 isfinite isin isinf isnan linspace log log10 log1p log2 logical_and logical_not logical_or max maximum mean median min minimum nan nan_to_num nanmax nanmean nanmedian nanmin nanpercentile nanquantile nanstd nansum nanvar ones percentile pi power prod quantile round select sign sort sqrt square stack std sum unique var vstack zeros",
+        "takes-callable": "",
+        "takes-method-name": "",
+    },
+    "timestamp-facade": {
+        "in-memory": "now",
+        "takes-callable": "",
+        "takes-method-name": "",
+    },
+    "closed": {
+        "in-memory": "",
+        "takes-callable": "",
+        "takes-method-name": "",
+    },
+}
+
+
+def classification_receivers():
+    from datetime import date, datetime, timedelta
+    from types import GeneratorType
+
+    numeric = pd.Series([1, 2], name="goals")
+    text = pd.Series(["A", "b"])
+    dates = pd.Series(pd.date_range("2026-01-01", periods=2))
+    frame = pd.DataFrame({"goals": [1, 2], "club": ["A", "B"]})
+    pandas_facade, numpy_facade = library_facades()
+    receivers = [
+        ("DataFrame", frame),
+        ("Series", numeric),
+        ("Series", text),
+        ("Series", dates),
+        ("Series", text.astype("category")),
+        ("ndarray", np.array([1, 2])),
+        ("GroupBy", frame.groupby("club")),
+        ("GroupBy", numeric.groupby([1, 1])),
+        ("StringMethods", text.str),
+        ("DateAccessor", dates.dt),
+        ("DateAccessor", pd.Series(pd.to_timedelta([1, 2], unit="D")).dt),
+        ("DateAccessor", dates.dt.to_period("M").dt),
+        ("DateScalar", pd.Timestamp("2026-01-01")),
+        ("DateScalar", pd.Timedelta(days=1)),
+        ("DateScalar", datetime(2026, 1, 1)),
+        ("DateScalar", date(2026, 1, 1)),
+        ("DateScalar", timedelta(days=1)),
+        ("dtype", np.dtype("int64")),
+        ("str", "Example"),
+        ("list-tuple", []),
+        ("list-tuple", ()),
+        ("dict", {}),
+        ("set", set()),
+        ("number", 1),
+        ("number", 1.0),
+        ("number", True),
+        ("numpy-number", np.int64(1)),
+        ("numpy-number", np.float64(1)),
+        ("Window", numeric.rolling(2)),
+        ("Window", numeric.expanding()),
+        ("row", next(frame.itertuples())),
+        ("pandas-facade", pandas_facade),
+        ("numpy-facade", numpy_facade),
+        ("timestamp-facade", guarded_getattr(pandas_facade, "Timestamp")),
+    ]
+    for index in [
+        pd.Index([1, 2]),
+        pd.RangeIndex(2),
+        pd.MultiIndex.from_tuples([(1, 2)]),
+        pd.CategoricalIndex(["a"]),
+        pd.IntervalIndex.from_breaks([1, 2, 3]),
+        pd.period_range("2026-01-01", periods=2, freq="M"),
+    ]:
+        receivers.append(("Index", index))
+    receivers.append(("DatetimeIndex", pd.date_range("2026-01-01", periods=2)))
+    for array in [
+        text.array,
+        text.astype("category").array,
+        dates.array,
+        pd.Series(pd.to_timedelta([1, 2], unit="D")).array,
+        dates.dt.to_period("M").array,
+        pd.arrays.IntervalArray.from_breaks([1, 2, 3]),
+        pd.array([1, None], dtype="Int64"),
+        pd.array([1, None], dtype="Float64"),
+        pd.array([True, None], dtype="boolean"),
+    ]:
+        receivers.append(("ExtensionArray", array))
+    try:
+        receivers.append(("ExtensionArray", pd.array(["A"], dtype="string[pyarrow]")))
+    except ImportError:
+        pass
+    closed = [
+        pd.Int64Dtype(),
+        pd.StringDtype(),
+        np.bool_(True),
+        np.str_("A"),
+        np.datetime64("2026-01-01"),
+        frame.loc,
+        frame.iloc,
+        frame.at,
+        frame.iat,
+        pd.DataFrame,
+        pd.Series,
+        pd.Index,
+        pd.Categorical,
+        pd.DateOffset,
+        pd.NamedAgg,
+        np.int64,
+        str,
+        Exception,
+        Exception("private"),
+        lambda: 1,
+        len,
+        guarded_getattr(numpy_facade, "sum"),
+        range(2),
+        {}.keys(),
+        {}.values(),
+        {}.items(),
+        pd.NA,
+        pd.NaT,
+        None,
+        pd.Interval(1, 2),
+        pd.Period("2026-01", freq="M"),
+        slice(1),
+        complex(1),
+        b"data",
+        frame.flags,
+        pd.Series([1, 2], index=pd.date_range("2026-01-01", periods=2)).resample("D"),
+        ModuleType("dummy"),
+    ]
+    generator = (item for item in [])
+    assert isinstance(generator, GeneratorType)
+    closed.append(generator)
+    receivers.extend(("closed", value) for value in closed)
+    return receivers
+
+
+def test_every_allowed_attribute_is_classified():
+    from src.services import gol_capabilities as capabilities
+
+    # Also protect configured names absent on a particular library version.
+    for key, constant in [
+        ("DataFrame", "FRAME_METHODS"),
+        ("Series", "SERIES_METHODS"),
+        ("Index", "INDEX_METHODS"),
+        ("ndarray", "ARRAY_METHODS"),
+        ("GroupBy", "GROUP_METHODS"),
+        ("StringMethods", "STRING_METHODS"),
+        ("Window", "WINDOW_METHODS"),
+        ("DateAccessor", "DATE_METHODS"),
+        ("DateAccessor", "DATE_ATTRS"),
+        ("pandas-facade", "PANDAS_NAMES"),
+        ("numpy-facade", "NUMPY_NAMES"),
+    ]:
+        classified = set(" ".join(ATTRIBUTE_CLASSIFICATION[key].values()).split())
+        assert set(getattr(capabilities, constant)) <= classified
+    for key, receiver in classification_receivers():
+        classified = set(" ".join(ATTRIBUTE_CLASSIFICATION[key].values()).split())
+        candidates = set(dir(receiver)) | set(dir(type(receiver))) | classified
+        if key in {"DataFrame", "Series", "GroupBy"}:
+            # Existing data labels map to the same guarded item operation.
+            classified |= {"goals", "club"}
+            candidates |= {"goals", "club"}
+        for name in candidates:
+            try:
+                value = guarded_getattr(receiver, name)
+            except AnalysisRefused:
+                continue
+            assert not name.startswith("_")
+            assert name in classified, (key, name)
+            assert not isinstance(value, ModuleType)
+
+
+def test_non_allowlisted_method_dispatch_is_refused_before_call():
+    from src.services.gol_capabilities import AGGREGATIONS, TRANSFORMS, _safe_call
+
+    calls = []
+
+    def receiver(*args, **kwargs):
+        calls.append(True)
+        raise AssertionError("unvalidated dispatch reached library")
+
+    names = {name for cls in (pd.DataFrame, pd.Series) for name in dir(cls) if not name.startswith("_")}
+    for operation, allowed in [
+        ("agg", AGGREGATIONS),
+        ("aggregate", AGGREGATIONS),
+        ("apply", AGGREGATIONS),
+        ("transform", TRANSFORMS),
+    ]:
+        guarded = _safe_call(receiver, operation)
+        for name in names - allowed:
+            for spec in [name, [name], {"goals": name}, {"goals": ["sum", name]}]:
+                with pytest.raises(AnalysisRefused):
+                    guarded(spec)
+            with pytest.raises(AnalysisRefused):
+                guarded(func=name)
+            if operation in {"agg", "aggregate"}:
+                for spec in [("goals", name), pd.NamedAgg(column="goals", aggfunc=name)]:
+                    with pytest.raises(AnalysisRefused):
+                        guarded(None, label=spec)
+    assert not calls
+
+
+def test_property_refused_before_lookup(monkeypatch):
+    frame = pd.DataFrame({"goals": [1]})
+    names = {name for name in dir(pd.DataFrame) if not name.startswith("_")}
+    classified = set(" ".join(ATTRIBUTE_CLASSIFICATION["DataFrame"].values()).split())
+    calls = []
+
+    def property_body(self):
+        calls.append(True)
+        raise AssertionError("unapproved property reached")
+
+    for name in names - classified:
+        monkeypatch.setattr(pd.DataFrame, name, property(property_body))
+        with pytest.raises(AnalysisRefused):
+            guarded_getattr(frame, name)
+    assert not calls
+
+
+def test_typed_validation_skips_cell_conversion(monkeypatch):
+    from src.services import gol_capabilities as capabilities
+
+    calls = []
+    original = capabilities.plain_value
+
+    def count(value, *args, **kwargs):
+        calls.append(type(value))
+        return original(value, *args, **kwargs)
+
+    monkeypatch.setattr(capabilities, "plain_value", count)
+    frame = pd.DataFrame(
+        {
+            "number": np.arange(100_000),
+            "text": pd.Series(["Club"] * 100_000, dtype="str"),
+            "date": pd.date_range("2026-01-01", periods=100_000, freq="s"),
+            "category": pd.Categorical(["Club"] * 100_000),
+        }
+    )
+    capabilities.validate_frame(frame)
+    assert len(calls) < 20
+
+
+@pytest.mark.parametrize("location", ["object_tail", "category", "index", "column"])
+def test_dtype_validation_refuses_untrusted_values(location):
+    from src.services.gol_capabilities import validate_frame
+
+    value = Hostile()
+    if location == "object_tail":
+        frame = pd.DataFrame({"x": [1] * 101 + [value]})
+    elif location == "category":
+        frame = pd.DataFrame({"x": pd.Categorical(["a"], categories=["a", value])})
+    elif location == "index":
+        frame = pd.DataFrame({"x": [1]}, index=[value])
+    else:
+        frame = pd.DataFrame([[1]], columns=[value])
+    with pytest.raises(AnalysisRefused):
+        validate_frame(frame)
+
+
+def test_data_label_attributes_use_item_guards():
+    from src.services import gol_capabilities as capabilities
+
+    known = set(" ".join(ATTRIBUTE_CLASSIFICATION["DataFrame"].values()).split())
+    name = next(name for name in dir(pd.DataFrame) if not name.startswith("_") and name not in known)
+    frame = pd.DataFrame({name: [1], "sum": [2]})
+    pd.testing.assert_series_equal(guarded_getattr(frame, name), guarded_getitem(frame, name))
+    assert callable(guarded_getattr(frame, "sum"))
+    assert callable(guarded_getattr(frame.groupby(name), "sum"))
+    with pytest.raises(AnalysisRefused):
+        guarded_getattr(frame, "unknown_column_label")
+    assert capabilities.FRAME_METHODS
+
+
+WINDOW_CORPUS = [
+    ("sum", "sum()"),
+    ("mean", "mean()"),
+    ("median", "median()"),
+    ("min", "min()"),
+    ("max", "max()"),
+    ("std", "std()"),
+    ("var", "var()"),
+    ("count", "count()"),
+    ("quantile", "quantile(0.5)"),
+    ("sem", "sem()"),
+    ("skew", "skew()"),
+    ("kurt", "kurt()"),
+    ("corr", "corr()"),
+    ("cov", "cov()"),
+    ("agg", "agg('sum')"),
+    ("aggregate", "aggregate('sum')"),
+    ("apply", "apply(lambda values:sum(values))"),
+]
+
+
+@pytest.mark.parametrize("window", ["rolling(5)", "expanding()"])
+@pytest.mark.parametrize("name,call", WINDOW_CORPUS, ids=[case[0] for case in WINDOW_CORPUS])
+def test_window_operations_match_main(window, name, call, frames):
+    code = f"result=fixture_stats['goals'].{window}.{call}"
+    test_ordinary_analysis_matches_main(name, code, frames)
+
+
+def test_window_corpus_covers_every_allowed_method():
+    from src.services.gol_capabilities import WINDOW_METHODS
+
+    assert {name for name, call in WINDOW_CORPUS} == WINDOW_METHODS
+
+
+def test_current_timestamp_without_timezone():
+    response = sandbox.execute_analysis("result=pd.Timestamp.now().strftime('%Y-%m-%d')", {})
+    assert response["value"] == pd.Timestamp.now().strftime("%Y-%m-%d")
+
+
+def test_restricted_loop_wall_clock_deadline(monkeypatch):
+    import time
+
+    monkeypatch.setattr(sandbox, "TIMEOUT_SECONDS", 0.05)
+    monkeypatch.setattr(sandbox, "MAX_PYTHON_STEPS", 3_000_000)
+    start = time.monotonic()
+    response = sandbox.execute_analysis("while True:\n try:\n  x=1\n except Exception:\n  pass", {})
+    assert response["error"] in {"Analysis exceeded its execution limit.", "Analysis timed out (10s limit)"}
+    assert time.monotonic() - start < 1
+
+
+DISPATCH_CLASSIFICATION = {
+    "reduction": "all any count size sum mean median min max std var prod first last nunique idxmin idxmax quantile sem skew kurt cumsum cumprod cummin cummax",
+    "transform": "rank diff shift pct_change ffill bfill cumcount",
+}
+
+
+def test_every_method_name_dispatch_is_classified():
+    from src.services.gol_capabilities import AGGREGATIONS, TRANSFORMS
+
+    assert set(DISPATCH_CLASSIFICATION["reduction"].split()) == AGGREGATIONS
+    assert set(" ".join(DISPATCH_CLASSIFICATION.values()).split()) == TRANSFORMS
