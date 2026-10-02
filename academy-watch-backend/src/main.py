@@ -85,6 +85,14 @@ from src.services.opportunities import register_notifications
 
 # --- p2-b2 end ---
 
+# isort: split
+# --- p2-b3 begin ---
+from src.routes.admin_control import admin_control_bp
+from src.services.admin_control_safety import register_safety
+
+register_safety()
+# --- p2-b3 end ---
+
 dotenv.load_dotenv(dotenv.find_dotenv())
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")

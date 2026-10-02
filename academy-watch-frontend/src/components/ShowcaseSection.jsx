@@ -296,7 +296,7 @@ function AffiliationStatusBadge({ status }) {
   return <Badge variant="secondary">Self-reported</Badge>
 }
 
-export function ClaimantClubRelationships({ signedId, token, local, profile, onChanged = () => {} }) {
+export function ClaimantClubRelationships({ signedId, token, local, profile, onChanged = () => {}, onRelationshipsChange }) {
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
@@ -394,6 +394,8 @@ export function ClaimantClubRelationships({ signedId, token, local, profile, onC
     finally { if (alive.current && activeScope.current === capturedScope) setBusy(false) }
   }
 
+  useEffect(() => { onRelationshipsChange?.(rows) }, [rows, onRelationshipsChange])
+
   if (disabled) return null
   const accepted = rows.filter((row) => row.status === 'accepted')
   return <section aria-label="Club invitations" className="fl-player-invitations space-y-5">
@@ -438,6 +440,13 @@ export function ShowcaseSection({
   const matchPlayerApiId = canonicalPlayerApiId == null
     ? local ? `-${String(playerApiId)}` : String(playerApiId)
     : String(canonicalPlayerApiId)
+  const relationshipScope = `${subjectKey}:${token || 'public'}`
+  const [clubRelationships, setClubRelationships] = useState(null)
+  const handleRelationshipsChange = useCallback((rows) => {
+    setClubRelationships({ scope: relationshipScope, rows })
+  }, [relationshipScope])
+  const acceptedClubs = clubRelationships?.scope === relationshipScope
+    ? clubRelationships.rows.filter((row) => row.status === 'accepted') : []
   const matchSeason = normalizeSeasonStart(season)
   const goalkeeper = isGoalkeeperPosition(playerPosition)
 
@@ -814,6 +823,7 @@ export function ShowcaseSection({
   const photos = Array.isArray(showcase.photos) ? showcase.photos : []
   const affiliations = Array.isArray(showcase.affiliations) ? showcase.affiliations : []
   const profile = showcase.profile || null
+  const displayContractStatus = profile?.profile_contract_status ?? profile?.contract_status
   const verified = !local && Array.isArray(showcase.verified_footage) ? showcase.verified_footage : []
   const claimStatus = showcase.claim_status // 'unclaimed' | 'claimed'
 
@@ -1932,6 +1942,13 @@ export function ShowcaseSection({
               )}
             </div>
 
+            {isOwner && acceptedClubs.length > 0 && (
+              <div className="divide-y divide-border border-y border-border">
+                {acceptedClubs.map((club) => (
+                  <p key={club.id} className="py-3 text-sm"><span className="font-medium">{club.program_name}</span><span className="ml-2 text-muted-foreground">Accepted club relationship</span></p>
+                ))}
+              </div>
+            )}
             {visibleAffiliations.length > 0 ? (
               <div className="divide-y divide-border/60 overflow-hidden rounded-lg border border-border/70">
                 {visibleAffiliations.map((affiliation) => (
@@ -1976,7 +1993,7 @@ export function ShowcaseSection({
                 className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-border py-6 text-sm text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-foreground"
               >
                 <Plus className="h-4 w-4" />
-                Add your first club
+                {acceptedClubs.length > 0 ? 'Add another club' : 'Add your first club'}
               </button>
             )}
           </div>
@@ -2084,7 +2101,7 @@ export function ShowcaseSection({
                 <div>
                   <span className="text-muted-foreground">Contract: </span>
                   <span className="font-medium text-foreground">
-                    {optionLabel(CONTRACT_STATUS_OPTIONS, profile.contract_status) || 'Status not specified'}
+                    {optionLabel(CONTRACT_STATUS_OPTIONS, displayContractStatus) || 'Status not specified'}
                     {formatDateOnly(profile.contract_until) ? ` · until ${formatDateOnly(profile.contract_until)}` : ''}
                   </span>
                 </div>
@@ -2358,6 +2375,7 @@ export function ShowcaseSection({
         local={Number(matchPlayerApiId) < 0}
         profile={profile}
         onChanged={refresh}
+        onRelationshipsChange={handleRelationshipsChange}
       />}
       {isOwner && myClaim?.relationship_type === 'player' && token && <PlayerApplicationsTeaser />}
 

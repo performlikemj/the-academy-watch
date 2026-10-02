@@ -16,7 +16,7 @@ function formatWhen(value) {
 
 const PAGE = 100
 
-export function ContactThread({ request, onRequestChange, canReportOutcome = true }) {
+export function ContactThread({ request, onRequestChange, canReportOutcome = false, viewerRole = 'scout' }) {
   const [messages, setMessages] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -31,7 +31,7 @@ export function ContactThread({ request, onRequestChange, canReportOutcome = tru
   // The thread this component currently shows; sends/outcomes that finish after a switch must not touch the new one.
   const requestIdRef = useRef(request?.id)
 
-  const state = describeThreadState(request)
+  const state = describeThreadState(request, viewerRole)
   const requestId = request?.id
   useEffect(() => {
     requestIdRef.current = requestId

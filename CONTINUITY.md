@@ -31,6 +31,7 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
   an unconditional development step.
 
 ## State
+- **Now (2026-10-02):** C1F4 nine-item RC1V3 union in progress; main refresh first, inherited O4 separate commit, targeted regressions then final governed gates/PG/browser/push. See `ledgers/CONTINUITY_p2-c1.md`.
 - **Now (2026-10-02):** C1F3 RC1V2 union implemented on PR1121; main784b1490/B351f30f5b integrated; targeted/PG9/schema equality green, new migration CONTRACT posted; final-head governed gates/browser/push pending. See `ledgers/CONTINUITY_p2-c1.md`.
 
 - **Now (2026-10-01):** C1F2 REVIEW-DUEL union FIXED; current main784b1490/B3F5 51f30f5b integrated. Final flags-OFF pytest4451pass108skip0fail; contact/regressions49/PG7=177pass, modern browser262pass5skip/lane30/live1, Node221, Ruff598/OSV/lint-build green. Owned resources cleaned; exact delivery SHA/per-item hand-back in external logs/C1F2.final.md. PR1121 remains unmerged for review.
@@ -51,9 +52,12 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
 ### Done
 - **Now (B3F5):** all nine duel-confirmed fixes complete on PR #1115: full flags-OFF4258/101skip/0fail, PG32, Node219, browser17, Ruff/format587, OSV547/lint0err190warn/build. Preapply twice=upgrade/lock contention verified; new CONTRACT hashes on BUS. See ledgers/CONTINUITY_p2-b3.md and logs/B3F5.final.md; review/integration next, no merge.
 
-- **Now (2026-10-01):** B2F5 local gates green after mechanical refresh onto main/B1 e82bb4e3: full flags-off4075pass69skip0fail, PG19/Node219/Playwright45/Ruff-format579/lint0err186warn/build. All36 untouched B2 blobs equal reviewed16540e03; p2b1 matches main; real dark-count omission2 pass. Push + ready #1113 + CI verification next; no merge. Hand-back `~/codex-runs/aw-redesign/logs/B2F5.final.md`; see `ledgers/CONTINUITY_p2-b2.md`.
+- **Now (B3F5):** all nine duel-confirmed fixes complete on PR #1115: full flags-OFF4258/101skip/0fail, PG32, Node219, browser17, Ruff/format587, OSV547/lint0err190warn/build. Preapply twice=upgrade/lock contention verified; new CONTRACT hashes on BUS. See ledgers/CONTINUITY_p2-b3.md and logs/B3F5.final.md; review/integration next, no merge.
 
 ### Done
+- **2026-10-01 UXM1F2:** all three RUXM1V findings fixed on draft #1119; signed-out Get verified/sign-in CTA, implicit-season requests preserved, every explicit pick survives links. Main784b1490 merged; full pytest4089/69skip, Node263, lane Playwright40 + real frozen4, CI Ruff0.16-format580/lint/build pass. Real shadow15/limited30 defaults match main; own servers/SQLite/generated output cleaned. Pushed d0c7573a; no merge. Ledger `ledgers/CONTINUITY_uxm1.md`; hand-back `~/codex-runs/aw-redesign/logs/UXM1F2.final.md`.
+- **2026-10-01 UXM1F1:** all five RUXM1 findings fixed for draft #1119; server display season, unfiltered games, neutral verification/fallback, safe positions, single introductions load/retry. Main e82bb4e3 included; full pytest3766/50skip, Node257,216 unique modern Playwright/4existing skips, real Flask season+games freezeON/OFF, Ruff/format/lint/build pass. Own servers/SQLite/temp cleaned; no merge. Ledger `ledgers/CONTINUITY_uxm1.md`; report `~/codex-runs/aw-redesign/logs/UXM1F1.final.md`.
+- **2026-10-01 UXM1:** P-08–P-12/P-27/P-28 + public adult community search fixed; draft PR #1119 against main, unmerged. Main/N3 adea5177 integrated; full pytest3645/50skip, Node227, 67 unique relevant Playwright, Ruff/format/lint/build pass. Desktop/phone evidence reviewed; own servers/aw_uxm1/temp cleaned. Ledger `ledgers/CONTINUITY_uxm1.md`; hand-back `~/codex-runs/aw-redesign/logs/UXM1.final.md`.
 - **2026-10-01 P2 B3 fix round 5:** nine final REVIEW-DUEL items fixed:5s preapply/migration lock bound + retry, fixed dark action routes, honest no-overwrite duplicate contract, imported-source repair, canonical target serialization/savepoint collision recovery, per-case hide intent incl closed holds + restore confirmation, provenance-based actor-copy erasure, independent complete inventory paging and single-decode auth/me. Full4258/101skip/0fail, PG32, Node219, Playwright17, Ruff/format587, OSV547/lint0err190warn/build green. Exact SQL twice=upgrade(p2b2), schema diff0/backfill5/RLS4; CONTRACT published. B1/B2 bytes equal main784b1490, pins p2b3. Four inspected screenshots shots/B3F5; owned Vite/scratch DB/temp outputs cleaned. Hand-back ~/codex-runs/aw-redesign/logs/B3F5.final.md; no merge/deploy/provider sends.
 - **2026-10-01 P2 B2 fix round 5:** pure mechanical B1/main e82bb4e3 refresh of reviewed16540e03; exactly7 conflicts resolved per RB2V3 (real ClubsPage + B2 two routes, both blueprints, p2b2 pins, both histories). All36 untouched B2 blobs identical; p2b1 byte-identical to main; test-only real B1 dark-count/card omission2 added. Foreground full4075pass69skip0fail (790.70s), PG19/Node219/Playwright45/Ruff-format579/lint0err186warn/build pass. Owned stale Vite59996 and temporary5397 stopped; aw_p2_b2 absent. Ready/CI delivery pending, no merge.
 - **2026-10-01 P2 B2 fix round 4:** A2 main9f329ea5 refreshed, then latest N3 mainadea5177 included; exact reviewed tree b5c7864d matched. All177 IANA aliases canonicalized with backend/frontend parity + browser-device exhaustive checks. PATCH/close serialize with ordered locks before commit; two distinct staff PG races pass. Due hold emails defer without attempts, neutral applicant/reserved messages, dark directory countsNone/zeroSQL. Final full3954pass69skip0fail, PG19/Node211/Playwright32/Ruff-format575/OSV547/lint0err186warn/build green. Own Vite5297/aw_p2_b2/browser outputs cleaned; draft #1113 unmerged; daily retention required before flags ON.
@@ -1104,6 +1108,9 @@ CONTINUITY.md
 ## Cross-task Blockers / Handoffs
 
 - iOS cold-start diagnostic complete; scoped fix delivered with PR #634 (merged to main `be02736`).
+
+## UXM1F3
+- 2026-10-01: draft PR1119 review-duel union five Mediums/three Smalls fixed; full pytest4095pass86skip0fail, PG34/Node277/browser101+freezeOFF12 and Ruff/lint/build/OSV pass. Code0b9e99fb pushed to draft1119 (unmerged); ledger `ledgers/CONTINUITY_uxm1.md`; O-M3 default-season policy unchanged pending decision.
 
 ## Trivial Log
 
