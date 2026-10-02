@@ -512,7 +512,7 @@ def test_limit_rejection_and_auth_order(client, pilot, accepted, club_app):
         limiter.reset()
 
 
-@pytest.mark.parametrize("state", ["40001", "40P01", "other"])
+@pytest.mark.parametrize("state", ["40001", "40P01", "55P03", "other"])
 def test_transaction_failures_rollback_without_private_errors(client, pilot, accepted, state):
     from sqlalchemy.exc import OperationalError
 
@@ -520,8 +520,14 @@ def test_transaction_failures_rollback_without_private_errors(client, pilot, acc
     error.sqlstate = state
     with patch("src.routes.feedback.publish", side_effect=OperationalError("PRIVATE_SQL", {}, error)):
         response = create(client, pilot, accepted)
-    assert response.status_code == (409 if state != "other" else 500)
-    assert response.json == {"error": "retry_conflict" if state != "other" else "feedback_operation_failed"}
+    assert response.status_code == (503 if state == "55P03" else 409 if state != "other" else 500)
+    assert response.json == {
+        "error": "retry_busy"
+        if state == "55P03"
+        else "retry_conflict"
+        if state != "other"
+        else "feedback_operation_failed"
+    }
     assert PlayerFeedback.query.count() == 0
 
 

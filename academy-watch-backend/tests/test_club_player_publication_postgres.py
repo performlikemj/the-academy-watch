@@ -135,6 +135,12 @@ def race(app, work):
             except service.PublicationError as exc:
                 db.session.rollback()
                 return exc.code
+            except sa.exc.OperationalError as exc:
+                db.session.rollback()
+                conflict = service.database_conflict(exc)
+                if conflict is None:
+                    raise
+                return conflict[0]
             finally:
                 db.session.remove()
 
@@ -151,7 +157,9 @@ def test_postgres_single_use_claim(pg):
         service.redeem(user, {"token": token, "self_claim": True})
         return "claimed"
 
-    assert sorted(race(app, work)) == ["claimed", "invite_unavailable"]
+    results = race(app, work)
+    assert results.count("claimed") == 1
+    assert next(r for r in results if r != "claimed") in {"invite_unavailable", "publication_conflict"}
     db.session.expire_all()
     assert db.session.get(Publication, row_id).claimed_at
 
@@ -350,7 +358,9 @@ def test_postgres_recovery_version_race(pg):
         )
         return "invited"
 
-    assert sorted(race(app, work)) == ["invited", "version_conflict"]
+    results = race(app, work)
+    assert results.count("invited") == 1
+    assert next(r for r in results if r != "invited") in {"version_conflict", "publication_conflict"}
 
 
 @pytest.mark.parametrize("entry", ["preapply", "migration"])

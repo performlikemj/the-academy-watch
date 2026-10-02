@@ -85,10 +85,10 @@ def transaction(view):
             raise
         except Exception as error:
             db.session.rollback()
-            conflict = database_conflict(error)
+            conflict = database_conflict(error, family="retry")
             if conflict:
                 code, status = conflict
-                return jsonify(error=code, code=code, retryable=True), status
+                return jsonify(error=code), status
             code = getattr(getattr(error, "orig", None), "sqlstate", None)
             if isinstance(error, IntegrityError) or code in {"40001", "40P01"}:
                 return jsonify(error="retry_conflict"), 409

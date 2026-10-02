@@ -2396,10 +2396,10 @@ def _invitation_operation(operation, *, share=False):
 
 def _invitation_database_error(error):
     db.session.rollback()
-    conflict = database_conflict(error)
+    conflict = database_conflict(error, family="retry")
     if conflict:
         code, status = conflict
-        return jsonify(error=code, code=code, retryable=True), status
+        return jsonify(error=code), status
     logger.error("Invitation transaction failed (%s)", type(error).__name__)
     return jsonify({"error": "invitation_operation_failed"}), 500
 

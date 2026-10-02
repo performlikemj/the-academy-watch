@@ -207,6 +207,9 @@ def test_revocation_closes_only_exact_threads_and_rolls_back_on_failure(client, 
     assert ClubRosterMember.query.count() == 1 and pilot["local_claim"].club_program_id == pilot["program"]
     assert decide(client, row_id, "revoke").status_code == 200
     assert rows[0].status == "declined" and rows[0].club_consent_status == "declined"
+    from src.services.contact_locks import lock_contact_scope
+
+    lock_contact_scope(db.session, request_id=[row.id for row in rows])
     assert all(row.status == "accepted" and messaging_is_open(row) for row in rows[1:])
     assert not messaging_is_open(rows[0])
     assert pilot["local_claim"].contract_status == "contracted" and pilot["local_claim"].club_program_id is None
