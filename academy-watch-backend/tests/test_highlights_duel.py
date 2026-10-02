@@ -355,6 +355,18 @@ def test_o8_provider_flow_and_conflicting_dob(world, monkeypatch):
     )
     db.session.add(shadow)
     db.session.commit()
+    assert pick(world).status_code == 422  # re-keying roster evidence requires a new review
+    assert (
+        world["app"]
+        .test_client()
+        .post(
+            club_base(world) + "/highlight-review",
+            headers=headers(world["manager"]),
+            json={"classification": "adult_only", "all_visible_people_adults": True},
+        )
+        .status_code
+        == 200
+    )
     row = ready(world)
     assert row.player_api_id == pid and approve(world, row).status_code == 200
     monkeypatch.setattr(highlights_storage, "output_read_url", lambda *a, **k: "https://storage.example/standalone.mp4")
@@ -396,6 +408,18 @@ def test_o13_source_change_notifies_both_and_new_pick_needs_new_approval(world):
     intents = NotificationOutbox.query.filter_by(template="highlight_source_changed").all()
     assert {intent.recipient_user_id for intent in intents} == {world["player"].id, world["manager"].id}
     assert all(set(intent.payload) == {"highlight_id", "version"} for intent in intents)
+    assert pick(world).status_code == 422  # the member's missing squad is unknown evidence
+    assert (
+        world["app"]
+        .test_client()
+        .post(
+            club_base(world) + "/highlight-review",
+            headers=headers(world["manager"]),
+            json={"classification": "adult_only", "all_visible_people_adults": True, "squad_adult_attested": True},
+        )
+        .status_code
+        == 200
+    )
     fresh = ready(world)
     assert fresh.id != old_id and fresh.player_decision == "pending"
     assert not highlights.public(fresh)
