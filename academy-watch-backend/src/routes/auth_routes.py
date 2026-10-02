@@ -25,7 +25,6 @@ from src.auth import (
     _review_account_config,
     _review_login_matches,
     _safe_error_payload,
-    _user_serializer,
     get_client_ip,
     issue_user_token,
     require_api_key,
@@ -200,6 +199,9 @@ def verify_login_code():
                 get_client_ip(),
             )
             return jsonify({"error": "email and code are required"}), 400
+        from src.services.account_standing import account_can_act
+
+        existing = UserAccount.query.filter_by(email=email).populate_existing().first()
         client_ip = get_client_ip()
         logger.info("Verifying login code for %s from %s", email, client_ip)
         # Static review credentials require a byte-exact submitted code. Keep
@@ -213,6 +215,14 @@ def verify_login_code():
             # Mark one-time email codes used. The env-gated review code is
             # intentionally reusable until operators revoke either env var.
             row.used_at = datetime.now(UTC)
+        if existing is not None and not account_can_act(existing):
+            db.session.commit()  # consume the correct code before issuing restricted access
+            from src.services.account_standing import issue_account_access_token
+
+            return jsonify(
+                error="Sign-in unavailable. You can still manage your subscription and account.",
+                account_access_token=issue_account_access_token(existing),
+            ), 403
         is_new_user = not UserAccount.query.filter_by(email=email).first()
         user = _ensure_user_account(email)
         if user:
@@ -411,17 +421,9 @@ def seed_review_accounts():
 def auth_me():
     """Get current authenticated user's profile."""
     try:
-        auth = request.headers.get("Authorization", "")
-        token = auth.split(" ", 1)[1] if auth.startswith("Bearer ") else None
-        role = "user"
-        if token:
-            try:
-                data = _user_serializer().loads(token, max_age=60 * 60 * 24 * 30)
-                role = (data or {}).get("role") or "user"
-            except Exception:
-                pass
-        email = getattr(g, "user_email", None)
-        user = UserAccount.query.filter_by(email=email).first() if email else None
+        role = getattr(g, "user_token_role", "user")
+        email = g.user_email
+        user = g.user
         entitlements = scout_entitlements(user, role=role)
         return jsonify(
             {

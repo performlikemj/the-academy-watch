@@ -1527,7 +1527,8 @@ def test_admin_summary_mrr_and_auth(client, monkeypatch):
     assert mixed["currency"] is None
 
 
-def test_account_delete_cancels_active_subscription_and_exports_billing(client, monkeypatch):
+@pytest.mark.parametrize("suspended", [False, True])
+def test_account_delete_cancels_active_subscription_and_exports_billing(client, monkeypatch, suspended):
     monkeypatch.setenv("STRIPE_SECRET_KEY", "billing_secret_test_placeholder")
     user = _add_user()
     db.session.add(BillingCustomer(user_account_id=user.id, stripe_customer_id="cus_delete"))
@@ -1560,6 +1561,24 @@ def test_account_delete_cancels_active_subscription_and_exports_billing(client, 
     )
     db.session.commit()
     headers = _headers(user)
+    if suspended:
+        monkeypatch.setenv("BILLING_ENABLED", "1")
+        from src.services.account_standing import issue_account_access_token
+
+        user.account_status = "suspended"
+        user.auth_epoch += 1
+        db.session.commit()
+        headers = {"Authorization": "Bearer " + issue_account_access_token(user)}
+        portal = Mock(return_value={"url": "https://billing.stripe.com/fixture-cancel"})
+        monkeypatch.setattr(stripe.billing_portal.Session, "create", portal)
+        assert client.post("/api/billing/portal", headers=headers).status_code == 200
+        portal.assert_called_once()
+        assert (
+            client.post(
+                "/api/billing/checkout", headers=headers, json={"pack_id": "gol_small", "client_key": "no"}
+            ).status_code
+            == 401
+        )
     exported = client.get("/api/account/export", headers=headers).get_json()
     assert exported["billing"]["has_billing_account"] is True
     assert exported["billing"]["subscriptions"][0]["product_code"] == "scout_pro"

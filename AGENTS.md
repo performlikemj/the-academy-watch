@@ -133,8 +133,16 @@ Log one-liner in CONTINUITY.md's "Trivial Log" section.
 - Scout eligibility loads narrow policy columns via a single evidence UNION and PostgreSQL array/SQLite VALUES hold candidates; constrain queries first, then filter before counts/LIMIT/ranking. Leaderboards share immutable query bases and one request cache; dynamic follows share an immutable base query and eligibility through the digest run cache. No cross-request/run eligibility cache.
 - Scout digests share `cached_public_adult_ids` eligibility with follow resolution in the run-owned enrichment cache; eligible and ineligible IDs use a separate namespace from player states. Never reuse that cache across runs; ordinary list reads start fresh.
 - Phase 2 email intents use transactional `notification_outbox.enqueue` plus a trusted template eligibility/renderer registered at app startup; never commit inside enqueue or persist credentials/child PII. Worker commits a sending lease, sends without DB locks, then finalizes after rechecking tombstones; delivery is at-least-once.
+- Phase 2 case-created suppressions retain `suppression_id` after hold ownership clears; existing report/suppression decisions call `sync_source_case` in their transaction, and both suppression paths use `suppression_decision.decide_suppression`.
+- B3 dark routes re-match a cached URL map without disabled B3 rules, preserving the real SPA fallback, wrong-method responses and OPTIONS Allow headers; retain Flask automatic-options attributes when cloning rules. Receipt projection/replay backfills only unmapped refunds sharing a payment intent and currency, preserving cash facts.
+- B3 case notifications omit the mutable case version from both key and payload and isolate enqueue in a savepoint; Safety OFF gates enqueue and delivery. Case hide/restore sync sibling cases, retain/reuse original suppression evidence, and never own another requester's pending hold. Stripe 15 cash boundaries use recursive `to_dict()`, including provider list pages.
+- Phase 2 account suspension uses `services/account_standing.py` plus persisted `account_status`/`auth_epoch`; central bearer, user-bound media and service grants recheck standing even after the admin page flag is OFF. Restore requires fresh login.
 
 ---
+
+- Web current-season reads share `lib/seasonDirectory.js` / `useSeasonDirectory`; use the server directory `display_season` for default desk labels and player label fallbacks; player totals prefer the response season, including frozen shadow history. Use `current_season` only as a last resort. Omit `season` from unpicked desk/player requests so the server retains latest-data fallbacks; carry every explicit URL/store pick into reads and player links. Retain historical URL/store overrides and frozen-mode logic; community pages have no picker, ignore stored season and keep games unfiltered; positive provider games retain the resolved totals season scope. Unpicked local/provider-linked totals also omit season, and game mutations reload the server default totals. The directory must not gate independent data reads. Short positions use `lib/positions.js::positionAbbreviation`; keep free text on player profiles.
+
+- Community global search shares the dynamic `utils/scout_discovery.py::local_players_enabled` switch with the scout desk; OFF returns provider payload/order/query work directly. ON applies canonical public-adult eligibility to all constrained candidates before ranking/capping, retaining provider relative DB order and using NFKD/casefold for community insertion.
 
 ## Quality Bar
 
@@ -144,3 +152,5 @@ Before marking work complete:
 - [ ] Tests pass
 - [ ] Ledger state updated
 - [ ] Patterns added to AGENTS.md if discovered
+- B3 moderation locks the canonical target with a PostgreSQL transaction advisory lock before case/source rows; public takedown intake and original report/suppression/club tools share it. Reconciliation takes multiple target locks in sorted order. Case hide intent comes from the latest hide/restore/source-lift event, survives close, and is independent of physical hold ownership.
+- B3 case-generated suppression erasure uses the report's source link plus its first hide event before actor redaction; retain genuine requester evidence and active hold state. New generated contact/statement fields are fixed markers. B3 migration/preapply set a five-second transaction-local lock timeout; abort/rollback and retry the entire script after contention, before code deploy.

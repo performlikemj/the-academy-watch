@@ -3952,6 +3952,12 @@ def complete_claim():
         if not writer:
             return jsonify({"error": "Invalid token"}), 400
 
+        # p2-b3 standing: preserve claim credentials when the account cannot sign in.
+        from src.services.account_standing import account_can_act
+
+        if not account_can_act(writer):
+            return jsonify(error="account unavailable"), 403
+
         now = datetime.now(UTC)
         if writer.claim_token_expires_at and writer.claim_token_expires_at < now:
             return jsonify({"error": "Token has expired"}), 400
