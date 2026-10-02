@@ -12,6 +12,7 @@
 
 ## State
 - Now C1F4: nine RC1V3 union items accepted; X1=O1/X2 Serious, O2/O4/O5/X4 Medium, O3/O6/X3 Small. Main refresh preserves main and C1 delta; O4 erasure own commit. Decline note stays only for club decline, other unavailable states withheld.
+- Done C1F4 O4: inherited OFF community photo/affiliation erasure reproduced on pre-fix archive; rows deleted without re-pointing, real pending/published local blobs removed after root commit, root/savepoint rollback preserves files/rows. Targeted8pass; separate erasure commit.
 - Next C1F4: reverse probes, targeted tests, final cached gates + real PostgreSQL race/control + lane Playwright/screenshots; push then hand-back/BUS DONE.
 - Now C1F3: RC1V2 union X1/O1-O8 (X2=O4) implemented; final-head governed gates/browser/PG and push pending. Main784b1490/B351f30f5b already ancestors; no merge/deploy/flags.
 - Done C1F3 targeted: lane169 pass; related201 cases (198 + corrected pending-review/withheld-manager3); latest RC1V2/signed-parity22 pass. Actual main signed/showcase/share/card3 pass at counts3/2/2. Ruff600 clean/format; exact frozen deps retained, OSV547 clean.

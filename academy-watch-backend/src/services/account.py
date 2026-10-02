@@ -1146,6 +1146,11 @@ def delete_account(user: UserAccount) -> AccountDeletionEvent:
         synchronize_session=False
     )
     counts["deleted"]["submitted_links"] = PlayerLink.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+    # --- showcase account erasure (inherited O4) begin ---
+    from src.services.showcase_erasure import erase_owned_showcase
+
+    counts["deleted"].update(erase_owned_showcase(user_id))
+    # --- showcase account erasure (inherited O4) end ---
     if newly_unclaimed_player_ids:
         counts["reset"]["reel_items"] = PlayerLink.query.filter(
             PlayerLink.player_id.in_(newly_unclaimed_player_ids),
