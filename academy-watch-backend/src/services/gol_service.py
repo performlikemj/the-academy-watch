@@ -14,6 +14,13 @@ from datetime import UTC
 from openai import OpenAI
 from sqlalchemy import func
 from src.models.tracked_player import TrackedPlayer
+from src.services.gol_availability import (
+    GolMaintenance,
+    assistant_under_maintenance,
+    maintenance_enabled,
+    maintenance_payload,
+    provider_config,
+)
 from src.services.gol_dataframes import DataFrameCache
 from src.services.gol_sandbox import execute_analysis
 
@@ -455,11 +462,10 @@ class GolService:
     _df_cache = None  # Class-level singleton
 
     def __init__(self, session_id: str | None = None, model_override: str | None = None):
-        provider = os.getenv("GOL_PROVIDER", "openai")
+        provider, api_key = provider_config()
+        if maintenance_enabled() or not api_key:
+            raise GolMaintenance()
         if provider == "openrouter":
-            api_key = os.getenv("OPENROUTER_API_KEY")
-            if not api_key:
-                raise RuntimeError("OPENROUTER_API_KEY not configured")
             self.client = OpenAI(
                 base_url="https://openrouter.ai/api/v1",
                 api_key=api_key,
@@ -469,9 +475,6 @@ class GolService:
                 },
             )
         else:
-            api_key = os.getenv("OPENAI_API_KEY")
-            if not api_key:
-                raise RuntimeError("OPENAI_API_KEY not configured")
             self.client = OpenAI(api_key=api_key)
         self.model = model_override or os.getenv("GOL_MODEL", "gpt-4.1-mini")
         self._session_id = session_id
@@ -556,6 +559,10 @@ class GolService:
 
     def _run_completion(self, messages: list, depth: int = 0) -> Generator[dict, None, None]:
         """Run a streaming completion, handling tool calls recursively."""
+        if assistant_under_maintenance():
+            yield {"event": "error", "data": maintenance_payload()}
+            yield {"event": "done", "data": {}}
+            return
         if depth > 5:
             yield {"event": "error", "data": {"message": "Too many tool call rounds"}}
             return
@@ -633,6 +640,10 @@ class GolService:
 
                     # Execute tool
                     result = self._execute_tool(func_name, args)
+                    if result.get("error") == "maintenance":
+                        yield {"event": "error", "data": maintenance_payload()}
+                        yield {"event": "done", "data": {}}
+                        return
 
                     # Only emit data card for successful results
                     if result.get("result_type") != "error":
@@ -724,6 +735,8 @@ class GolService:
 
     def _execute_tool(self, name: str, args: dict) -> dict:
         """Execute a tool and return the result."""
+        if assistant_under_maintenance():
+            return {"result_type": "error", **maintenance_payload()}
         from src.utils.data_mode import api_football_frozen
 
         if api_football_frozen() and name != "run_analysis":

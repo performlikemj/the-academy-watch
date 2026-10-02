@@ -283,3 +283,11 @@ other matches were regex/SQL compilation and neural-network `.eval()` mode calls
 - `transform("pct_change")`: dispatches only this reviewed resident-data transform, rather than an arbitrary method name.
 - `transform("rank")`: dispatches only this reviewed resident-data transform, rather than an arbitrary method name.
 - `transform("shift")`: dispatches only this reviewed resident-data transform, rather than an arbitrary method name.
+
+## Maintenance switch for the assistant
+
+For operational control, set `GOL_MAINTENANCE=true` on the backend container environment to pause the assistant; set it to `false` or remove it to resume. No code deploy is needed after this release; the container must restart with the updated environment (an environment update may create a new container revision). The flag is read at request time. Values `1`, `true`, `yes`, and `on` enable it, ignoring surrounding whitespace and case; unset and unrecognised values mean OFF, matching other feature flags. The selected provider must also have a nonblank configured credential before the assistant resumes.
+
+Chat returns HTTP 503 with `error: maintenance`, `retryable: true`, `Retry-After: 60`, and `Cache-Control: no-store`, before reserving questions or constructing a provider client. Web users see “The assistant is under maintenance. Back soon.” inside the conversation with sending disabled; the launcher and displayed balances remain available. The existing suggestions read returns an empty list plus the same maintenance state, adding no requests to `/api/features`. Refresh the page after service resumes. Saved transcript PDF export and the authenticated admin cache-refresh endpoint remain available; neither needs the model provider. Authentication and rate limits still apply.
+
+The current iOS app displays “GOL is temporarily unavailable. Please try again.” below the conversation, with a “Retry answer” button and sending still enabled. It keeps the submitted question and an empty assistant turn, without changing balances. Suggestions are empty. The next iOS round should map HTTP 503 with `error: maintenance` to the maintenance copy, disable sending while that state is active, and provide a way to recheck availability. No iOS code changes are included here.

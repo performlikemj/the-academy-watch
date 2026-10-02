@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { APIService } from '@/lib/api'
 import { createSseParser } from '@/lib/sse'
+import { GOL_MAINTENANCE_MESSAGE } from '@/lib/gol-maintenance'
 
 /**
  * Build API history from messages, including tool-call context.
@@ -42,6 +43,7 @@ export function useGolChat(identityKey, initialUsage = {}, creditUiLit = false) 
   const [topUpPath, setTopUpPath] = useState('/account/billing')
   const [failedAttempt, setFailedAttempt] = useState(null)
   const [creditsExhausted, setCreditsExhausted] = useState(false)
+  const [maintenance, setMaintenance] = useState(false)
   const abortRef = useRef(null)
   const requestEpochRef = useRef(0)
   const previousIdentityRef = useRef(identityKey)
@@ -172,6 +174,12 @@ export function useGolChat(identityKey, initialUsage = {}, creditUiLit = false) 
         let body = null
         try { body = errorText ? JSON.parse(errorText) : null } catch { /* non-JSON response */ }
 
+        if (response.status === 503 && body?.error === 'maintenance') {
+          setMaintenance(true)
+          updateAssistant((message) => ({ ...message, content: GOL_MAINTENANCE_MESSAGE, maintenance: true, toolCall: null }))
+          return
+        }
+
         const isSignedOut = response.status === 401
         const isLegacyLock = response.status === 403
           && body?.error === 'scout_pro_required'
@@ -234,7 +242,12 @@ export function useGolChat(identityKey, initialUsage = {}, creditUiLit = false) 
         if (type === 'usage') {
           updateUsage(data)
         } else if (type === 'error') {
-          failAttempt()
+          if (data.error === 'maintenance') {
+            terminalError = true
+            setMaintenance(true)
+            setFailedAttempt(null)
+            updateAssistant((message) => ({ ...message, content: GOL_MAINTENANCE_MESSAGE, maintenance: true, dataCards: [], hiddenHistory: [], toolCall: null }))
+          } else failAttempt()
         } else if (type === 'done') {
           receivedDone = true
           // A replayed cut-off answer is terminal: flag it, never offer a retry.
@@ -291,11 +304,11 @@ export function useGolChat(identityKey, initialUsage = {}, creditUiLit = false) 
     }
   }, [creditUiLit, sessionId, updateUsage])
 
-  const sendMessage = useCallback((content) => runAttempt({
+  const sendMessage = useCallback((content) => maintenance ? undefined : runAttempt({
     content,
     history: buildHistory(messages),
     clientMsgId: questionId(),
-  }), [messages, runAttempt])
+  }), [maintenance, messages, runAttempt])
 
   const retryFailedMessage = useCallback(() => {
     if (!failedAttempt || isStreaming) return
@@ -312,6 +325,8 @@ export function useGolChat(identityKey, initialUsage = {}, creditUiLit = false) 
 
   return {
     messages,
+    maintenance,
+    onMaintenanceChange: setMaintenance,
     isStreaming,
     sendMessage,
     retryFailedMessage,

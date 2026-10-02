@@ -13,6 +13,12 @@ from flask import Blueprint, Response, g, jsonify, request, send_file, stream_wi
 from src.auth import require_api_key, require_user_auth
 from src.config.stripe_config import billing_enabled
 from src.extensions import limiter
+from src.services.gol_availability import (
+    MAINTENANCE_RETRY_SECONDS,
+    GolMaintenance,
+    assistant_under_maintenance,
+    maintenance_payload,
+)
 from src.services.gol_credits import (
     ClientMsgIdReused,
     CreditsExhausted,
@@ -36,6 +42,17 @@ def _sse(event_type: str, data: dict) -> str:
     return f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
 
 
+def _maintenance_response():
+    return (
+        jsonify(maintenance_payload()),
+        503,
+        {
+            "Retry-After": str(MAINTENANCE_RETRY_SECONDS),
+            "Cache-Control": "no-store",
+        },
+    )
+
+
 @gol_bp.route("/gol/chat", methods=["POST"])
 @require_user_auth
 @limiter.limit("20/minute")
@@ -45,6 +62,9 @@ def gol_chat():
     Body: {message: str, client_msg_id: str, history: [{role, content}], session_id: str}
     Returns: text/event-stream with events: usage, token, data_card, tool_call, done, error
     """
+    if assistant_under_maintenance():
+        return _maintenance_response()
+
     data = request.get_json(silent=True)
     if not isinstance(data, dict):
         return jsonify({"error": "invalid_json"}), 400
@@ -139,6 +159,9 @@ def gol_chat():
     if not reservation.get("replay"):
         try:
             service = GolService(model_override=model_override)
+        except GolMaintenance:
+            finish_execution(g.user, reservation, failed=True)
+            return _maintenance_response()
         except Exception:
             finish_execution(g.user, reservation, failed=True)
             logger.exception("Failed to initialize GolService")
@@ -273,12 +296,16 @@ def gol_chat():
 @gol_bp.route("/gol/suggestions", methods=["GET"])
 def gol_suggestions():
     """Get conversation starter suggestions."""
+    if assistant_under_maintenance():
+        return jsonify(suggestions=[], maintenance=True, **maintenance_payload()), 200, {"Cache-Control": "no-store"}
     try:
         from src.services.gol_service import GolService
 
         service = GolService()
         suggestions = service.get_suggestions()
         return jsonify({"suggestions": suggestions})
+    except GolMaintenance:
+        return jsonify(suggestions=[], maintenance=True, **maintenance_payload()), 200, {"Cache-Control": "no-store"}
     except Exception as e:
         logger.warning(f"Failed to get suggestions: {e}")
         return jsonify(

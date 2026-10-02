@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { GolMessage } from './GolMessage'
 import { GolInput } from './GolInput'
 import { GolSuggestions } from './GolSuggestions'
+import { GolMaintenance } from './GolMaintenance'
 import { PlayerPreviewDrawer } from './PlayerPreviewDrawer'
 import { exportChatAsMarkdown } from './exportChat'
 import { APIService } from '@/lib/api'
@@ -40,6 +41,8 @@ export function GolChatWindow({
   creditsExhausted,
   billingConfig,
   onSignIn,
+  maintenance,
+  onMaintenanceChange,
 }) {
   const [previewPlayerId, setPreviewPlayerId] = useState(null)
   const [pdfExporting, setPdfExporting] = useState(false)
@@ -75,12 +78,13 @@ export function GolChatWindow({
         className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain px-6 py-5"
       >
         {messages.length === 0 ? (
-          <GolSuggestions onSelect={sendMessage} disabled={accessState !== 'available' || creditsExhausted} />
+          maintenance ? <GolMaintenance /> : <GolSuggestions onSelect={sendMessage} disabled={accessState !== 'available' || creditsExhausted} onMaintenanceChange={onMaintenanceChange} />
         ) : (
           <div className="space-y-6 min-w-0">
             {messages.map(msg => (
               <GolMessage key={msg.id} message={msg} expanded={expanded} onPlayerClick={setPreviewPlayerId} />
             ))}
+            {maintenance && !messages.some(msg => msg.maintenance) && <GolMaintenance />}
             <div ref={bottomRef} />
           </div>
         )}
@@ -144,7 +148,7 @@ export function GolChatWindow({
               Sign in
             </Button>
           </div>
-        ) : creditsExhausted ? (
+        ) : creditsExhausted && !maintenance ? (
           <div className="space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-[10px] border border-amber-300/70 bg-amber-50/70 px-4 py-3 text-amber-950">
               <div className="flex min-w-0 items-start gap-2.5">
@@ -189,7 +193,7 @@ export function GolChatWindow({
                 </Button>
               </div>
             ) : null}
-            <GolInput onSend={sendMessage} isStreaming={isStreaming} onStop={stopStreaming} />
+            <GolInput onSend={sendMessage} isStreaming={isStreaming} onStop={stopStreaming} disabled={maintenance} />
           </div>
         )}
       </div>
