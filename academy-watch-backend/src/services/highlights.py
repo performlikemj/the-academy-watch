@@ -4,8 +4,6 @@ import hashlib
 import json
 import math
 import os
-import re
-import unicodedata
 from collections import defaultdict
 from functools import wraps
 
@@ -30,6 +28,7 @@ from src.services.account_standing import account_can_act, is_account_active
 from src.services.admin_audit import record_admin_event
 from src.services.club_directory import directory_eligibility, is_listed
 from src.services.club_publication_hold import club_publication_held
+from src.services.highlights_squads import squad_classification
 from src.services.public_adult import is_public_adult, public_adult_ids
 from src.services.public_player_subject import resolve_public_adult_subject
 from src.utils.academy_window import age_from_birth_date
@@ -95,6 +94,7 @@ def prepare_reads(rows, *, matches=(), candidates=False):
         "listed": set(),
         "eligible": {},
         "holds": defaultdict(list),
+        "subject_claims": defaultdict(list),
     }
     g.highlight_evidence = evidence
 
@@ -120,13 +120,15 @@ def prepare_reads(rows, *, matches=(), candidates=False):
         remember(program, match, squad, review)
         if listed:
             evidence["listed"].add(program.id)
+    member_squad = aliased(ClubSquad)
     claim_local = aliased(LocalPlayer)
     # Include every self claim for candidate subjects too, without per-player lookup.
     roster_subjects = set()
-    for entry, member, local, report in (
-        db.session.query(VideoRosterEntry, ClubRosterMember, LocalPlayer, VideoPlayerReport)
+    for entry, member, local, report, squad in (
+        db.session.query(VideoRosterEntry, ClubRosterMember, LocalPlayer, VideoPlayerReport, member_squad)
         .outerjoin(ClubRosterMember, ClubRosterMember.id == VideoRosterEntry.club_roster_member_id)
         .outerjoin(LocalPlayer, LocalPlayer.id == ClubRosterMember.local_player_id)
+        .outerjoin(member_squad, member_squad.id == ClubRosterMember.squad_id)
         .outerjoin(
             VideoPlayerReport,
             sa.and_(
@@ -139,7 +141,7 @@ def prepare_reads(rows, *, matches=(), candidates=False):
         .populate_existing()
         .all()
     ):
-        remember(entry, member, local, report)
+        remember(entry, member, local, report, squad)
         evidence["rosters"][entry.video_match_id].append(entry)
         pid = member_subject(member)
         if pid is not None:
@@ -160,6 +162,16 @@ def prepare_reads(rows, *, matches=(), candidates=False):
         .all()
     ):
         remember(claim, user, local)
+        if claim.status == "approved" and claim.relationship_type == "player":
+            pid = (
+                local.api_player_id
+                if claim.local_player_id is not None and local and local.merged_into_local_player_id is None
+                else claim.player_api_id
+                if claim.local_player_id is None
+                else None
+            )
+            if pid is not None:
+                evidence["subject_claims"][pid].append(claim)
     tracks = VideoTracklet.query.filter(VideoTracklet.video_match_id.in_(match_ids))
     if not candidates:
         tracks = tracks.filter(VideoTracklet.id.in_({row.tracklet_id for row in rows if row.tracklet_id}))
@@ -205,50 +217,40 @@ def recording_date_error(match):
     return None
 
 
-def squad_classification(squad):
-    if squad is None:
-        return "unknown"
-    if squad.age_limit is not None and squad.age_limit <= 18:
-        return "youth"
-    label = re.sub(r"[\W_]+", " ", unicodedata.normalize("NFKC", squad.name or ""), flags=re.UNICODE)
-    if re.search(
-        r"\b(?:youth|academy|juniors?|colts|minis|boys|girls|kids|school\w*|scholars|sixteens|eighteens|teens|juvenil|cadete|jugend|freshm[ae]n|sophomores|primary|secondary|jv)\b",
-        label,
-        re.I,
-    ):
-        return "youth"
-    if re.search(r"(?<!\d)(?:19|20)\d{2}(?!\d)|\bunder\s+[a-z]+", label, re.I):
-        return "youth"
-    label_limits = [
-        int(m[1])
-        for pattern in (
-            r"\b(?:u|under|sub|o|jo|mo|age|aged|yr|year|grade|j|p|f)\s*(\d{1,2})(?!\d)",
-            r"(?<!\d)(\d{1,2})\s*(?:u\b|s\b|(?:and\s+)?under\b)",
-        )
-        for m in re.finditer(pattern, label, re.I)
-    ]
-    if any(age <= 18 for age in label_limits):
-        return "youth"
-    # An upper age bound or ambiguous numbered name never establishes seniority.
-    if squad.kind == "age_group" or squad.age_limit is not None or label_limits or re.search(r"\d", label):
-        return "unknown"
-    return "adult" if squad.kind in {"first_team", "reserves"} else "unknown"
+def recording_squads(match):
+    ids = {match.squad_id}
+    for entry in roster_entries(match.id):
+        member = lookup(ClubRosterMember, entry.club_roster_member_id)
+        ids.add(member.squad_id if member else None)
+    return [lookup(ClubSquad, sid) if sid else None for sid in sorted(ids, key=lambda sid: sid or 0)]
+
+
+def recording_classification(match):
+    kinds = {squad_classification(squad) for squad in recording_squads(match)}
+    return "youth" if "youth" in kinds else "unknown" if "unknown" in kinds else "adult"
 
 
 def review_context(match):
-    squad = lookup(ClubSquad, match.squad_id) if match.squad_id else None
     return digest(
         [
             match.match_date,
             match.squad_id,
             match.finalized_at,
-            [squad.name, squad.kind, squad.age_limit] if squad else None,
+            [
+                [squad.id, squad.kind, squad.age_limit, squad_classification(squad)] if squad else None
+                for squad in recording_squads(match)
+            ],
         ]
     )
 
 
 def review_matches_context(review, match):
-    return bool(review and match.status in {"finalized", "expired"} and review.source_context == review_context(match))
+    return bool(
+        review
+        and match.status in {"finalized", "expired"}
+        and review.source_context
+        and (review.classification_context or review.source_context) == review_context(match)
+    )
 
 
 def recording_block_reason(match, *, frozen_etag=None):
@@ -256,8 +258,7 @@ def recording_block_reason(match, *, frozen_etag=None):
         return "finalized_recording_required"
     if recording_date_error(match):
         return recording_date_error(match)
-    squad = lookup(ClubSquad, match.squad_id) if match.squad_id else None
-    kind = squad_classification(squad)
+    kind = recording_classification(match)
     if kind == "youth":
         return "youth_recording_private"
     review = lookup(HighlightFootageReview, match.id)
@@ -311,10 +312,8 @@ def claim_subject_matches(claim, signed_id):
 def claim_for_subject(signed_id):
     evidence = read_evidence()
     if evidence is not None:
-        claims = [
-            claim for claim in evidence["models"].get(PlayerProfileClaim, {}).values() if own_claim(claim, signed_id)
-        ]
-        return claims[0] if len(claims) == 1 else None
+        claims = evidence["subject_claims"].get(signed_id, [])
+        return claims[0] if len(claims) == 1 and own_claim(claims[0], signed_id) else None
     claims = (
         PlayerProfileClaim.query.outerjoin(LocalPlayer, LocalPlayer.id == PlayerProfileClaim.local_player_id)
         .filter(
@@ -325,9 +324,9 @@ def claim_for_subject(signed_id):
         .order_by(PlayerProfileClaim.id)
         .all()
     )
-    claims = [claim for claim in claims if own_claim(claim, signed_id)]
+    claims = [claim for claim in claims if claim_subject_matches(claim, signed_id)]
     # Ambiguous ownership is reviewed rather than silently selecting somebody's second key.
-    return claims[0] if len(claims) == 1 else None
+    return claims[0] if len(claims) == 1 and own_claim(claims[0], signed_id) else None
 
 
 def adult_recording(match, *, frozen_etag=None):
@@ -401,10 +400,9 @@ def _adult_recording(match, *, frozen_etag=None):
         and review.source_snapshot == match.scoped_snapshot
     ):
         return False
-    squad = lookup(ClubSquad, match.squad_id) if match.squad_id else None
     if recording_date_error(match):
         return False
-    kind = squad_classification(squad)
+    kind = recording_classification(match)
     if kind == "youth" or (kind == "unknown" and not review.squad_adult_attested):
         return False
     entries = roster_entries(match.id)
@@ -957,7 +955,9 @@ def candidates(match):
         for window in player["windows"]:
             if len(out) >= 100:
                 return out
-            if reviewed_window(match, entry, window["tracklet_id"], window["start_s"], window["end_s"], reel=reel):
+            if not window_held(match.id, window["start_s"], window["end_s"]) and reviewed_window(
+                match, entry, window["tracklet_id"], window["start_s"], window["end_s"], reel=reel
+            ):
                 out.append(
                     {"roster_entry_id": entry.id, "player_name": player["player_name"], "player_id": pid, **window}
                 )

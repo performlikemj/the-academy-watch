@@ -206,8 +206,7 @@ def review_recording(program_id, match_id):
     new_review = row is None
     if new_review:
         row = HighlightFootageReview(video_match_id=match.id)
-    squad = db.session.get(service.ClubSquad, match.squad_id) if match.squad_id else None
-    kind = service.squad_classification(squad)
+    kind = service.recording_classification(match)
     attested = classification == "adult_only" and kind == "unknown" and data.get("squad_adult_attested") is True
     context = service.review_context(match)
     same_source = (
@@ -215,7 +214,7 @@ def review_recording(program_id, match_id):
         and row.source_etag == match.blob_etag
         and row.source_snapshot == match.scoped_snapshot
         and row.squad_adult_attested == attested
-        and row.source_context == context
+        and (row.classification_context or row.source_context) == context
     )
     if classification == "adult_only":
         if match.status != "finalized":
@@ -240,6 +239,7 @@ def review_recording(program_id, match_id):
     row.reviewer_user_id = g.user_id
     row.squad_adult_attested = attested
     row.source_context = context
+    row.classification_context = context
     row.reviewed_at = now()
     if new_review:
         db.session.add(row)
@@ -286,7 +286,7 @@ def club_highlights(program_id, match_id):
         if service.lookup(HighlightFootageReview, match.id)
         else "private",
         recording_block_reason=reason if intact else "source_unavailable",
-        unknown_squad=service.squad_classification(service.lookup(service.ClubSquad, match.squad_id)) == "unknown",
+        unknown_squad=service.recording_classification(match) == "unknown",
         candidates=service.candidates(match) if intact else [],
     )
 
@@ -385,7 +385,9 @@ def player_highlights(player_id):
 @service.gated
 @limiter.limit("60/minute")
 def program_highlights(slug):
-    program = ClubProgram.query.filter_by(slug=slug).first()
+    from src.routes.funding import _public_program_by_slug
+
+    program = _public_program_by_slug(slug)
     if not program:
         abort(404)
     return public_list(PlayerHighlight.query.filter_by(program_id=program.id))

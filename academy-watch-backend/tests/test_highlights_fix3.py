@@ -35,8 +35,7 @@ def test_bridge_retention(world, monkeypatch, raw_expired):
         PlayerShadow(player_api_id=pid, player_name="Bridge Adult", birth_date=date(2000, 1, 1), is_active=True)
     )
     db.session.commit()
-    if raw_expired:
-        assert review_recording(world).status_code == 200
+    assert review_recording(world).status_code == 200
     row = ready(world)
     assert approve(world, row).status_code == 200
     monkeypatch.setattr(highlights_storage, "output_read_url", lambda *a, **k: "https://storage.example/clip.mp4")
@@ -160,6 +159,7 @@ def test_x1_pending_bridge_retains_both_selection_and_permanent_key(world, roste
     world["report"].club_player_api_id_at_finalize = 765433
     db.session.add(PlayerShadow(player_api_id=765433, player_name="Adult", birth_date=date(2000, 1, 1), is_active=True))
     db.session.commit()
+    assert review_recording(world).status_code == 200
     row = ready(world)
     assert row.player_decision == "pending" and row.player_api_id == 765433
     assert not permanent_key_missing(row)
@@ -176,11 +176,6 @@ def test_x1_pending_bridge_retains_both_selection_and_permanent_key(world, roste
 @pytest.mark.parametrize(
     "label",
     [
-        "2012B",
-        "B2012",
-        "G2011",
-        "2010s",
-        "U2010",
         "15U",
         "14u",
         "12 & under",
@@ -217,7 +212,22 @@ def test_o1_youth_labels_never_publish_even_with_senior_tick(world, label, kind)
     }
 
 
-@pytest.mark.parametrize("label", ["Team 7", "XI 2", "U21", "19U", "First team 999", "Ｓｅｎｉｏｒｓ ２"])
+@pytest.mark.parametrize(
+    "label",
+    [
+        "Team 7",
+        "XI 2",
+        "U21",
+        "19U",
+        "First team 999",
+        "Ｓｅｎｉｏｒｓ ２",
+        "2012B",
+        "B2012",
+        "G2011",
+        "2010s",
+        "U2010",
+    ],
+)
 def test_o1_ambiguous_numbered_seniors_require_attestation(world, label):
     world["squad"].name = label
     db.session.commit()
@@ -278,7 +288,7 @@ def test_o3_context_changes_need_review_pick_and_player_approval(world, monkeypa
     elif change == "squad_kind":
         world["squad"].kind = "other"
     elif change == "squad_name":
-        world["squad"].name = "Senior eleven"
+        world["squad"].name = "Friendlies"
     elif change == "squad_age":
         world["squad"].age_limit = 21
     else:

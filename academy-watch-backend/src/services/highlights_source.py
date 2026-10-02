@@ -1,6 +1,7 @@
 """Invalidate consent in the source writer's transaction, including dark-period edits."""
 
 from datetime import timedelta
+from types import SimpleNamespace
 from uuid import uuid4
 from weakref import WeakKeyDictionary
 
@@ -15,6 +16,7 @@ from src.models.highlights import (
     now,
 )
 from src.models.video import VideoMatch, VideoPlayerReport, VideoRosterEntry, VideoTracklet
+from src.services.highlights_squads import squad_classification
 
 # Positive discovery only: preapply can introduce the table after process start.
 # Engines are replaced on fixture/schema lifecycle changes and process restarts.
@@ -72,12 +74,33 @@ def invalidate_sources(session, flush_context, instances):
             if row in session.deleted or any(state.attrs[key].history.has_changes() for key in MATCH_FIELDS):
                 matches.add(row.id)
         elif isinstance(row, ClubSquad):
-            if row in session.deleted or any(
-                state.attrs[key].history.has_changes() for key in ("name", "kind", "age_limit")
+            previous = (
+                session.connection()
+                .execute(sa.select(ClubSquad.name, ClubSquad.kind, ClubSquad.age_limit).where(ClubSquad.id == row.id))
+                .one()
+            )
+            old = SimpleNamespace(name=previous.name, kind=previous.kind, age_limit=previous.age_limit)
+            if (
+                row in session.deleted
+                or squad_classification(old) != squad_classification(row)
+                or any(state.attrs[key].history.has_changes() for key in ("kind", "age_limit"))
             ):
                 changed_contexts.update(
                     session.connection()
-                    .execute(sa.select(VideoMatch.id).where(VideoMatch.squad_id == row.id))
+                    .execute(
+                        sa.select(VideoMatch.id).where(
+                            sa.or_(
+                                VideoMatch.squad_id == row.id,
+                                VideoMatch.id.in_(
+                                    sa.select(VideoRosterEntry.video_match_id)
+                                    .join(
+                                        ClubRosterMember, ClubRosterMember.id == VideoRosterEntry.club_roster_member_id
+                                    )
+                                    .where(ClubRosterMember.squad_id == row.id)
+                                ),
+                            )
+                        )
+                    )
                     .scalars()
                 )
                 matches.update(changed_contexts)
@@ -91,6 +114,7 @@ def invalidate_sources(session, flush_context, instances):
                     "reviewed_at",
                     "squad_adult_attested",
                     "source_context",
+                    "classification_context",
                 )
             ):
                 matches.add(row.video_match_id)
@@ -99,7 +123,7 @@ def invalidate_sources(session, flush_context, instances):
                 state.attrs[key].history.has_changes()
                 for key in ("player_api_id", "local_player_id", "program_id", "squad_id")
             ):
-                matches.update(
+                affected = set(
                     session.connection()
                     .execute(
                         sa.select(VideoRosterEntry.video_match_id).where(
@@ -108,6 +132,8 @@ def invalidate_sources(session, flush_context, instances):
                     )
                     .scalars()
                 )
+                matches.update(affected)
+                changed_contexts.update(affected)
         elif isinstance(row, (VideoRosterEntry, VideoTracklet, VideoPlayerReport)):
             if row in session.deleted or session.is_modified(row, include_collections=False):
                 matches.add(row.video_match_id)

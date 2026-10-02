@@ -42,9 +42,20 @@ function Inbox() {
   useEffect(() => { load() }, [load])
   // Poll only while preparing; never manufacture a public state before the server says so.
   useEffect(() => {
-    if (!rows.some(row => ['queued', 'running'].includes(row.render_status)) || document.hidden) return
-    const timer = setTimeout(() => { pollDelay.current = Math.min(pollDelay.current * 2, 300000); load() }, pollDelay.current)
-    return () => clearTimeout(timer)
+    if (!rows.some(row => ['queued', 'running'].includes(row.render_status))) return
+    let timer
+    const cancel = () => clearTimeout(timer)
+    const schedule = () => {
+      cancel()
+      if (!document.hidden) timer = setTimeout(() => { pollDelay.current = Math.min(pollDelay.current * 2, 300000); load() }, pollDelay.current)
+    }
+    const visibility = () => {
+      cancel()
+      if (!document.hidden) { pollDelay.current = 30000; load() }
+    }
+    document.addEventListener('visibilitychange', visibility)
+    schedule()
+    return () => { cancel(); document.removeEventListener('visibilitychange', visibility) }
   }, [rows, load])
   async function act(row, action, decision) {
     setBusy(row.id); setError('')

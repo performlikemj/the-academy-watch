@@ -20,6 +20,7 @@ export function write(path, body, method = 'POST') {
 }
 
 export function message(error) {
+  if (error?.message === 'highlight_admin_taken_down') return 'This moment was taken down by The Academy Watch and cannot be picked.'
   if (error?.status === 409) return 'This moment changed. Refresh it before trying again.'
   if (error?.status === 401) return 'Sign in again to make your decision.'
   if (error?.status === 403) return 'Your club access changed. Refresh to check your access.'

@@ -54,3 +54,14 @@ test('unmounted highlights consumer ignores a delayed features result', async ()
   const hook = await hookHarness(async () => ({ highlights: true }))
   assert.deepEqual(await hook.mount({ unmount: true }), { enabled: false, loaded: false })
 })
+
+
+test('a raced moderation hold explains why retrying the pick cannot work', async () => {
+  const source = (await readFile(new URL('../src/components/highlights/useHighlights.js', import.meta.url), 'utf8'))
+    .replace(/^import .*\n/gm, '').replace(/^export /gm, '')
+  const context = vm.createContext({})
+  vm.runInContext(source, context)
+  const held = new Error('highlight_admin_taken_down'); held.status = 422
+  assert.equal(context.message(held), 'This moment was taken down by The Academy Watch and cannot be picked.')
+  assert.match(context.message({ status: 409 }), /Refresh/)
+})

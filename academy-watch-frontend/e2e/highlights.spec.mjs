@@ -1,4 +1,4 @@
-/* global document, innerWidth */
+/* global document, innerWidth, window */
 import { expect, test } from '@playwright/test'
 import fs from 'node:fs/promises'
 import path from 'node:path'
@@ -380,3 +380,69 @@ for (const width of [1440, 390]) {
     await expect(page.getByRole('alert')).toBeVisible()
   })
 }
+
+for (const initiallyHidden of [false, true]) {
+  test(`queued polling resumes after visibility returns (initially hidden: ${initiallyHidden})`, async ({ page }) => {
+    await fixture(page)
+    await page.clock.install()
+    await page.addInitScript(hidden => {
+      Object.defineProperty(document, 'hidden', { configurable: true, get: () => window.c2Hidden })
+      window.c2Hidden = hidden
+    }, initiallyHidden)
+    let reads = 0, ready = false
+    await page.route('**/api/me/highlight-requests?*', route => {
+      reads += 1
+      return route.fulfill({ json: { highlights: [{ ...clip, render_status: ready ? 'ready' : 'queued', can_approve: ready, preview_url: ready ? clip.preview_url : null }], has_more: false } })
+    })
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto('/highlight-approvals')
+    await expect(page.getByText('Waiting for you', { exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Make public' })).toHaveCount(0)
+    await page.evaluate(() => { window.c2Hidden = true; document.dispatchEvent(new Event('visibilitychange')) })
+    await page.clock.fastForward(300000)
+    const hiddenReads = reads
+    await page.clock.fastForward(300000)
+    expect(reads).toBe(hiddenReads)
+    ready = true
+    await page.evaluate(() => { window.c2Hidden = false; document.dispatchEvent(new Event('visibilitychange')) })
+    await expect.poll(() => reads).toBe(hiddenReads + 1)
+    await expect(page.getByRole('button', { name: 'Make public' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Preview short clip' })).toBeVisible()
+    await shot(page, `visibility-recovered-${initiallyHidden ? 'initial-hidden' : 'hidden-later'}-390`)
+    await page.clock.fastForward(300000)
+    expect(reads).toBe(hiddenReads + 1)
+  })
+}
+
+
+test('year-labelled squad senior attestation is reachable and raced takedown is explained', async ({ page }) => {
+  await fixture(page)
+  await page.setViewportSize({ width: 390, height: 844 })
+  let reviewed = false
+  await page.route('**/api/club/7/matches/41/**', route => {
+    const req = route.request(), p = new URL(req.url()).pathname
+    if (req.method() === 'POST' && p.endsWith('/highlight-review')) {
+      expect(req.postDataJSON().squad_adult_attested).toBe(true)
+      expect(req.postDataJSON().all_visible_people_adults).toBe(true)
+      reviewed = true
+    } else if (req.method() === 'POST') return route.fulfill({ status: 422, json: { error: 'highlight_admin_taken_down' } })
+    return route.fulfill({ json: { adult_recording: reviewed, can_review: true, unknown_squad: true, recording_block_reason: reviewed ? null : 'senior_squad_attestation_required', review_classification: reviewed ? 'adult_only' : 'private', candidates: reviewed ? [{ roster_entry_id: 1, tracklet_id: 2, start_s: 10, end_s: 30, player_name: 'Synthetic Adult' }] : [], highlights: [] } })
+  })
+  await page.goto('/highlight-approvals')
+  await page.evaluate(async () => {
+    const { default: React } = await import('/node_modules/.vite/deps/react.js')
+    const { default: ReactDOM } = await import('/node_modules/.vite/deps/react-dom_client.js')
+    const { ClubHighlightPicker } = await import('/src/components/highlights/ClubHighlightPicker.jsx')
+    const host = document.createElement('div'); host.className = 'floodlight-container'; document.body.replaceChildren(host)
+    ReactDOM.createRoot(host).render(React.createElement(ClubHighlightPicker, { programId: 7, matchId: 41 }))
+  })
+  await expect(page.getByRole('checkbox')).toHaveCount(2)
+  await page.getByRole('checkbox').first().check()
+  await expect(page.getByRole('button', { name: 'Confirm adult-only recording' })).toBeDisabled()
+  await shot(page, 'senior-attestation-required-390')
+  await page.getByRole('checkbox').last().check()
+  await page.getByRole('button', { name: 'Confirm adult-only recording' }).click()
+  await page.getByRole('button', { name: 'Pick moment' }).click()
+  await expect(page.getByRole('alert')).toContainText('This moment was taken down by The Academy Watch and cannot be picked.')
+  await shot(page, 'held-window-refusal-390')
+})

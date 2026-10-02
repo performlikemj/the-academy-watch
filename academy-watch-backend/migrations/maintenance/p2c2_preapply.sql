@@ -105,6 +105,7 @@ CREATE INDEX IF NOT EXISTS ix_highlight_consent_events_highlight_id ON highlight
 CREATE INDEX IF NOT EXISTS ix_highlight_render_jobs_highlight_id ON highlight_render_jobs (highlight_id);
 CREATE INDEX IF NOT EXISTS ix_highlight_render_jobs_status ON highlight_render_jobs (status);
 ALTER TABLE public.highlight_footage_reviews ADD COLUMN IF NOT EXISTS source_context VARCHAR(64);
+ALTER TABLE public.highlight_footage_reviews ADD COLUMN IF NOT EXISTS classification_context VARCHAR(64);
 ALTER TABLE public.player_highlights ADD COLUMN IF NOT EXISTS admin_taken_down BOOLEAN NOT NULL DEFAULT false;
 
 UPDATE public.player_highlights SET admin_taken_down=true WHERE revoke_reason='admin_takedown';
@@ -123,6 +124,55 @@ ALTER TABLE public.highlight_takedowns ENABLE ROW LEVEL SECURITY;
 CREATE INDEX IF NOT EXISTS ix_highlight_takedown_window ON highlight_takedowns (video_match_id,start_s,end_s);
 INSERT INTO public.highlight_takedowns(id,video_match_id,start_s,end_s) SELECT id,video_match_id,start_s,end_s FROM public.player_highlights WHERE admin_taken_down=true AND video_match_id IS NOT NULL ON CONFLICT(id) DO NOTHING;
 
+-- Classification, rather than display spelling, is publication evidence.
+CREATE OR REPLACE FUNCTION public.p2c2_squad_classification(label text, kind text, age_limit integer)
+RETURNS text LANGUAGE plpgsql IMMUTABLE AS $$
+DECLARE lim text[];
+BEGIN
+ IF age_limit IS NOT NULL AND age_limit <= 18 THEN RETURN 'youth'; END IF;
+ label = lower(trim(regexp_replace(translate(normalize(COALESCE(label,''), NFKC), '0123456789٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹߀߁߂߃߄߅߆߇߈߉०१२३४५६७८९০১২৩৪৫৬৭৮৯੦੧੨੩੪੫੬੭੮੯૦૧૨૩૪૫૬૭૮૯୦୧୨୩୪୫୬୭୮୯௦௧௨௩௪௫௬௭௮௯౦౧౨౩౪౫౬౭౮౯೦೧೨೩೪೫೬೭೮೯൦൧൨൩൪൫൬൭൮൯෦෧෨෩෪෫෬෭෮෯๐๑๒๓๔๕๖๗๘๙໐໑໒໓໔໕໖໗໘໙༠༡༢༣༤༥༦༧༨༩၀၁၂၃၄၅၆၇၈၉႐႑႒႓႔႕႖႗႘႙០១២៣៤៥៦៧៨៩᠐᠑᠒᠓᠔᠕᠖᠗᠘᠙᥆᥇᥈᥉᥊᥋᥌᥍᥎᥏᧐᧑᧒᧓᧔᧕᧖᧗᧘᧙᪀᪁᪂᪃᪄᪅᪆᪇᪈᪉᪐᪑᪒᪓᪔᪕᪖᪗᪘᪙᭐᭑᭒᭓᭔᭕᭖᭗᭘᭙᮰᮱᮲᮳᮴᮵᮶᮷᮸᮹᱀᱁᱂᱃᱄᱅᱆᱇᱈᱉᱐᱑᱒᱓᱔᱕᱖᱗᱘᱙꘠꘡꘢꘣꘤꘥꘦꘧꘨꘩꣐꣑꣒꣓꣔꣕꣖꣗꣘꣙꤀꤁꤂꤃꤄꤅꤆꤇꤈꤉꧐꧑꧒꧓꧔꧕꧖꧗꧘꧙꧰꧱꧲꧳꧴꧵꧶꧷꧸꧹꩐꩑꩒꩓꩔꩕꩖꩗꩘꩙꯰꯱꯲꯳꯴꯵꯶꯷꯸꯹０１２３４５６７８９𐒠𐒡𐒢𐒣𐒤𐒥𐒦𐒧𐒨𐒩𐴰𐴱𐴲𐴳𐴴𐴵𐴶𐴷𐴸𐴹𐵀𐵁𐵂𐵃𐵄𐵅𐵆𐵇𐵈𐵉𑁦𑁧𑁨𑁩𑁪𑁫𑁬𑁭𑁮𑁯𑃰𑃱𑃲𑃳𑃴𑃵𑃶𑃷𑃸𑃹𑄶𑄷𑄸𑄹𑄺𑄻𑄼𑄽𑄾𑄿𑇐𑇑𑇒𑇓𑇔𑇕𑇖𑇗𑇘𑇙𑋰𑋱𑋲𑋳𑋴𑋵𑋶𑋷𑋸𑋹𑑐𑑑𑑒𑑓𑑔𑑕𑑖𑑗𑑘𑑙𑓐𑓑𑓒𑓓𑓔𑓕𑓖𑓗𑓘𑓙𑙐𑙑𑙒𑙓𑙔𑙕𑙖𑙗𑙘𑙙𑛀𑛁𑛂𑛃𑛄𑛅𑛆𑛇𑛈𑛉𑛐𑛑𑛒𑛓𑛔𑛕𑛖𑛗𑛘𑛙𑛚𑛛𑛜𑛝𑛞𑛟𑛠𑛡𑛢𑛣𑜰𑜱𑜲𑜳𑜴𑜵𑜶𑜷𑜸𑜹𑣠𑣡𑣢𑣣𑣤𑣥𑣦𑣧𑣨𑣩𑥐𑥑𑥒𑥓𑥔𑥕𑥖𑥗𑥘𑥙𑯰𑯱𑯲𑯳𑯴𑯵𑯶𑯷𑯸𑯹𑱐𑱑𑱒𑱓𑱔𑱕𑱖𑱗𑱘𑱙𑵐𑵑𑵒𑵓𑵔𑵕𑵖𑵗𑵘𑵙𑶠𑶡𑶢𑶣𑶤𑶥𑶦𑶧𑶨𑶩𑽐𑽑𑽒𑽓𑽔𑽕𑽖𑽗𑽘𑽙𖄰𖄱𖄲𖄳𖄴𖄵𖄶𖄷𖄸𖄹𖩠𖩡𖩢𖩣𖩤𖩥𖩦𖩧𖩨𖩩𖫀𖫁𖫂𖫃𖫄𖫅𖫆𖫇𖫈𖫉𖭐𖭑𖭒𖭓𖭔𖭕𖭖𖭗𖭘𖭙𖵰𖵱𖵲𖵳𖵴𖵵𖵶𖵷𖵸𖵹𜳰𜳱𜳲𜳳𜳴𜳵𜳶𜳷𜳸𜳹𝟎𝟏𝟐𝟑𝟒𝟓𝟔𝟕𝟖𝟗𝟘𝟙𝟚𝟛𝟜𝟝𝟞𝟟𝟠𝟡𝟢𝟣𝟤𝟥𝟦𝟧𝟨𝟩𝟪𝟫𝟬𝟭𝟮𝟯𝟰𝟱𝟲𝟳𝟴𝟵𝟶𝟷𝟸𝟹𝟺𝟻𝟼𝟽𝟾𝟿𞅀𞅁𞅂𞅃𞅄𞅅𞅆𞅇𞅈𞅉𞋰𞋱𞋲𞋳𞋴𞋵𞋶𞋷𞋸𞋹𞓰𞓱𞓲𞓳𞓴𞓵𞓶𞓷𞓸𞓹𞗱𞗲𞗳𞗴𞗵𞗶𞗷𞗸𞗹𞗺𞥐𞥑𞥒𞥓𞥔𞥕𞥖𞥗𞥘𞥙🯰🯱🯲🯳🯴🯵🯶🯷🯸🯹', '0123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789'), '[^[:alnum:]]+', ' ', 'g')));
+ IF label ~ '\y(?:[y]outh[[:alnum:]_]*|academ[[:alnum:]_]*|junior[[:alnum:]_]*|juven[[:alnum:]_]*|cadet[[:alnum:]_]*|minor[[:alnum:]_]*|teen[[:alnum:]_]*|mini[[:alnum:]_]*|colt[[:alnum:]_]*|boy[[:alnum:]_]*|girl[[:alnum:]_]*|child[[:alnum:]_]*|kid[[:alnum:]_]*|school[[:alnum:]_]*|scholar[[:alnum:]_]*|infantil[[:alnum:]_]*|varsity|development|underage|under age|jugend[[:alnum:]_]*|freshm[ae]n|sophomore[[:alnum:]_]*|primary|secondary|jv|(?:[e]ight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen)s?)\y' OR label ~ '\yunder\s+[a-z]+' THEN RETURN 'youth'; END IF;
+ FOR lim IN SELECT regexp_matches(label, '\y(?:[u]|under|sub|o|jo|mo|age|aged|yr|year|grade|j|p|f)\s*([0-9]{1,2})(?![0-9])', 'g') UNION ALL SELECT regexp_matches(label, '(?<![0-9])([0-9]{1,2})\s*(?:[u]\y|s\y|(?:[a]nd\s+)?under\y)', 'g')
+ LOOP IF lim[1]::integer <= 18 THEN RETURN 'youth'; END IF; END LOOP;
+ IF kind='age_group' OR age_limit IS NOT NULL OR label ~ '\y(?:[u]|under|sub|o|jo|mo|age|aged|yr|year|grade|j|p|f)\s*([0-9]{1,2})(?![0-9])' OR label ~ '(?<![0-9])([0-9]{1,2})\s*(?:[u]\y|s\y|(?:[a]nd\s+)?under\y)' THEN RETURN 'unknown'; END IF;
+ IF kind IN ('first_team','reserves') AND label = ANY(ARRAY['1st xi','2nd xi','a team','b team','first team','ladies','men','reserves','senior','seniors','veterans','vets','women']) THEN RETURN 'adult'; END IF;
+ RETURN 'unknown';
+END $$;
+-- Python's canonical JSON uses ASCII escapes, including UTF-16 surrogate pairs.
+CREATE OR REPLACE FUNCTION public.p2c2_json_string(value text) RETURNS text LANGUAGE plpgsql IMMUTABLE AS $$
+DECLARE encoded text; result text := ''; ch text; code integer;
+BEGIN
+ IF value IS NULL THEN RETURN 'null'; END IF;
+ encoded = to_json(value)::text;
+ FOR i IN 1..char_length(encoded) LOOP
+  ch = substr(encoded,i,1); code = ascii(ch);
+  IF code < 128 THEN result = result || ch;
+  ELSIF code <= 65535 THEN result = result || '\u' || lpad(to_hex(code),4,'0');
+  ELSE result = result || '\u' || to_hex(55296 + ((code-65536)/1024)) || '\u' || to_hex(56320 + ((code-65536)%1024)); END IF;
+ END LOOP;
+ RETURN result;
+END $$;
+-- Checked compatibility: retain the opaque consent fingerprint of an exact,
+-- still-valid prior context; never revive cleared reviews or revoked clips.
+CREATE OR REPLACE FUNCTION public.p2c2_context_hash(mid integer, legacy boolean DEFAULT false)
+RETURNS text LANGUAGE plpgsql STABLE AS $$
+DECLARE m public.video_matches; s public.club_squads; stamp text; squads text; body text;
+BEGIN
+ SELECT * INTO m FROM public.video_matches WHERE id=mid;
+ stamp = CASE WHEN m.finalized_at IS NULL THEN 'null' ELSE to_json(
+  to_char(m.finalized_at,'YYYY-MM-DD HH24:MI:SS') || CASE WHEN (extract(microseconds FROM m.finalized_at)::bigint % 1000000) = 0 THEN ''
+  ELSE '.'||lpad((extract(microseconds FROM m.finalized_at)::bigint % 1000000)::text,6,'0') END)::text END;
+ IF legacy THEN
+  SELECT * INTO s FROM public.club_squads WHERE id=m.squad_id;
+  squads = CASE WHEN s.id IS NULL THEN 'null' ELSE '['||public.p2c2_json_string(s.name)||','||public.p2c2_json_string(s.kind)||','||COALESCE(s.age_limit::text,'null')||']' END;
+ ELSE
+  SELECT '['||string_agg(CASE WHEN cs.id IS NULL THEN 'null' ELSE '['||cs.id||','||to_json(cs.kind)::text||','||COALESCE(cs.age_limit::text,'null')||','||to_json(public.p2c2_squad_classification(cs.name,cs.kind,cs.age_limit))::text||']' END,',' ORDER BY COALESCE(ids.sid,0))||']' INTO squads
+  FROM (SELECT m.squad_id AS sid UNION SELECT r.squad_id FROM public.video_roster_entries e LEFT JOIN public.club_roster_members r ON r.id=e.club_roster_member_id WHERE e.video_match_id=mid) ids
+  LEFT JOIN public.club_squads cs ON cs.id=ids.sid;
+ END IF;
+ body = '['||COALESCE(to_json(m.match_date)::text,'null')||','||COALESCE(m.squad_id::text,'null')||','||stamp||','||squads||']';
+ RETURN encode(sha256(convert_to(body,'UTF8')),'hex');
+END $$;
 -- Schema-only, idempotent source-version fencing. Included verbatim by p2c2 and preapply.
 CREATE OR REPLACE FUNCTION public.p2c2_invalidate_match(mid integer) RETURNS void LANGUAGE plpgsql AS $$
 DECLARE changed RECORD; notice_ids varchar[] := ARRAY[]::varchar[]; event_key text := md5(random()::text || clock_timestamp()::text);
@@ -167,6 +217,11 @@ CREATE OR REPLACE FUNCTION public.p2c2_source_guard() RETURNS trigger LANGUAGE p
 DECLARE mid integer;
 BEGIN
  IF TG_OP='UPDATE' AND to_jsonb(NEW)=to_jsonb(OLD) THEN RETURN NEW; END IF;
+ IF TG_TABLE_NAME='highlight_footage_reviews' AND TG_OP='UPDATE' THEN
+  IF OLD.classification_context IS NULL AND NEW.classification_context=public.p2c2_context_hash(NEW.video_match_id)
+  AND NEW.source_context=public.p2c2_context_hash(NEW.video_match_id,true)
+  AND (to_jsonb(NEW)-'classification_context')=(to_jsonb(OLD)-'classification_context') THEN RETURN NEW; END IF;
+ END IF;
  IF TG_TABLE_NAME='highlight_footage_reviews' AND TG_OP='UPDATE'
   AND (to_jsonb(NEW)-'reviewer_user_id')=(to_jsonb(OLD)-'reviewer_user_id') THEN RETURN NEW; END IF;
  IF TG_TABLE_NAME='video_matches' THEN
@@ -189,8 +244,11 @@ BEGIN
   END IF;
  ELSIF TG_TABLE_NAME='club_squads' THEN
   IF TG_OP='INSERT' THEN RETURN NEW; END IF;
-  IF TG_OP='UPDATE' AND (NEW.name,NEW.kind,NEW.age_limit) IS NOT DISTINCT FROM (OLD.name,OLD.kind,OLD.age_limit) THEN RETURN NEW; END IF;
-  FOR mid IN SELECT id FROM public.video_matches WHERE squad_id=OLD.id ORDER BY id FOR UPDATE
+  IF TG_OP='UPDATE' AND (NEW.kind,NEW.age_limit) IS NOT DISTINCT FROM (OLD.kind,OLD.age_limit)
+   AND public.p2c2_squad_classification(NEW.name,NEW.kind,NEW.age_limit) = public.p2c2_squad_classification(OLD.name,OLD.kind,OLD.age_limit) THEN RETURN NEW; END IF;
+  FOR mid IN SELECT id FROM public.video_matches WHERE squad_id=OLD.id OR id IN (
+   SELECT e.video_match_id FROM public.video_roster_entries e JOIN public.club_roster_members m ON m.id=e.club_roster_member_id WHERE m.squad_id=OLD.id
+  ) ORDER BY id FOR UPDATE
   LOOP
    UPDATE public.highlight_footage_reviews SET source_context=NULL WHERE video_match_id=mid AND source_context IS NOT NULL;
    PERFORM public.p2c2_invalidate_match(mid);
@@ -202,7 +260,10 @@ BEGIN
   IF TG_OP='UPDATE' AND (NEW.player_api_id,NEW.local_player_id,NEW.program_id,NEW.squad_id) IS NOT DISTINCT FROM
    (OLD.player_api_id,OLD.local_player_id,OLD.program_id,OLD.squad_id) THEN RETURN NEW; END IF;
   FOR mid IN SELECT video_match_id FROM public.video_roster_entries WHERE club_roster_member_id=OLD.id
-  LOOP PERFORM public.p2c2_invalidate_match(mid); END LOOP;
+  LOOP
+   UPDATE public.highlight_footage_reviews SET source_context=NULL WHERE video_match_id=mid AND source_context IS NOT NULL;
+   PERFORM public.p2c2_invalidate_match(mid);
+  END LOOP;
   IF TG_OP='DELETE' THEN RETURN OLD; END IF;
   RETURN NEW;
  ELSE
@@ -237,4 +298,15 @@ END $$;
 DROP TRIGGER IF EXISTS p2c2_delete_highlight ON public.player_highlights;
 CREATE TRIGGER p2c2_delete_highlight BEFORE DELETE ON public.player_highlights FOR EACH ROW EXECUTE FUNCTION public.p2c2_delete_highlight();
 
+UPDATE public.highlight_footage_reviews r SET classification_context=public.p2c2_context_hash(m.id)
+FROM public.video_matches m LEFT JOIN public.club_squads s ON s.id=m.squad_id
+WHERE r.video_match_id=m.id AND r.classification_context IS NULL
+ AND r.source_context=public.p2c2_context_hash(m.id,true)
+ AND r.classification='adult_only' AND m.status IN ('finalized','expired')
+ AND r.source_etag=m.scoped_ready_etag AND r.source_snapshot=m.scoped_snapshot
+ AND (public.p2c2_squad_classification(s.name,s.kind,s.age_limit)='adult'
+      OR (public.p2c2_squad_classification(s.name,s.kind,s.age_limit)='unknown' AND r.squad_adult_attested))
+ AND EXISTS(SELECT 1 FROM public.video_roster_entries WHERE video_match_id=m.id)
+ AND NOT EXISTS(SELECT 1 FROM public.video_roster_entries e LEFT JOIN public.club_roster_members member ON member.id=e.club_roster_member_id
+  WHERE e.video_match_id=m.id AND (member.id IS NULL OR member.squad_id IS DISTINCT FROM m.squad_id));
 COMMIT;

@@ -85,3 +85,11 @@
 - Refreshed25 screenshot PNGs shots/C2F3, INDEX/SHA256SUMS; new390px retry and clubreview visually inspected, no overflow. Native three-origin playback remains green.
 - Implementation and regression source complete; final head re-verification/push outcome recorded in external logs/C2F3.final.md and C2F3.gate-manifest.json. Repository ledger intentionally precedes exact-head gates; no further source edits planned.
 - Final fetch moved main784b1490→33bf30bd (B3 squash #1115); mechanical12-conflict integration preserved already-stacked B3/C1/C2 code, p2c2 head pins and both ledgers. Duplicate B3 imports/export/features avoided; existing dark Allow-order fix retained. B3/C1 migration hashes unchanged. Final gate suite on prior candidate was in flight at fetch and is not final verification; final merged head is re-gated.
+
+## C2F4 — RC2V3 union (2026-10-02)
+- State: in-progress; all four reviews read; O3 Serious, O1/O2/X1 Medium, X2/O4/O5/O6 Small accepted. O7 lead conservative year attestation control.
+- Main ee16572f integration; preserve UXM1 and C1 gates. No delegation or dependency restore.
+- Next: reverse regressions, safe classification-context guards including SQL, final current lower-head integration, CONTRACT/schema equality, final cached gates/PG/Playwright/screenshots, push/hand-back/cleanup.
+- O3 first PostgreSQL19pass: cosmetic ORM/real invited-route/SQL edits ON/OFF/live/raw-expired preserve clips+assets; unsafe youth/unknown rename+revert permanently invalidates. Checked legacy context bridge preserves fingerprint only for exact valid prior contexts; Unicode controls pass.
+- Reversed reviewed behavior42fail4PG-onlyskip; first greenSQLite61pass1harness-fail7PG-onlyskip. Combined PG154pass3old-harness-fail; fixtures now review changed roster context and use an unknown non-youth label. Targeted rerun governed queue is normal.
+- Implementation complete: classifier allow-list/stems, every member squad context, suspension-independent ambiguity + indexed GET evidence, public club admission, held picker/refusal, visibility recovery. New p2c2 classification_context and static helper guards require CONTRACT/schema equality.
