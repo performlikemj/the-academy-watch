@@ -223,7 +223,9 @@ class DataFrameCache:
     def _load_query(engine, sql: str) -> pd.DataFrame:
         """Execute a SQL query and return a DataFrame. Returns empty on error."""
         try:
-            return pd.read_sql_query(sql, engine)
+            # SQL Numeric values are Decimal at the driver boundary. Analytics
+            # uses float64 (with NaN for SQL NULL), as pandas' default already did.
+            return pd.read_sql_query(sql, engine, coerce_float=True)
         except Exception as e:
             logger.error("Failed to load DataFrame: %s — %s", sql[:60], e)
             return pd.DataFrame()

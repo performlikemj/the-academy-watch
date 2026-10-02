@@ -33,6 +33,8 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
 ## State
 - **Now (2026-10-03 C2R2):** resume pure refresh; approved live flag-reader call/mock and four single-table guard exceptions, retaining reviewed API media wrappers per BUS clarification. Exact identity/SQL/count/gate/PG/browser/push/CI/cleanup receipts in external logs/C2R.identity.md and C2R2.final.md; migrations/sweeper/guard frozen.
 - **Now (2026-10-03 C2R):** pure release refresh from reviewed9f4a1707 onto main738c7da6; C1 review parentc7cf6c11. Identity proof/final governed checks and push tracked in external logs/C2R.identity.md and C2R.final.md. No behavior/schema/deploy/activation change.
+- **Now (2026-10-03 SBXF2):** PR1132 follow-up implemented: SQL loader/scalar compatibility, builtin inventory, resident idioms and size hint. Targeted529 PASS; final-head gates/delivery authoritative in external logs/SBXF2.final.md. See ledgers/CONTINUITY_sbx.md.
+- **Now (2026-10-03 SBXF1):** PR1132 usability/performance review union implemented; capability boundary retained, generic public corpus and external private controls; final-head governed gates/push/CI delivery is authoritative in external logs/SBXF1.final.md. See ledgers/CONTINUITY_sbx.md.
 - **Now (2026-10-02):** C1F9 fixes implemented on fix/c1-followup; erasure gap/closure/retention/count/inventory controls PASS; 39-path table + flow audit written. Final cached gates/full PostgreSQL/push pending; exact delivery in external logs/C1F9.final.md. See ledgers/CONTINUITY_p2-c1.md.
 - **Now (2026-10-02):** C1F8 full RC1XV3 O/X union implemented on fix/c1-followup; final gated delivery, push and cleanup recorded in ~/codex-runs/aw-redesign/logs/C1F8.final.md; see ledgers/CONTINUITY_p2-c1.md.
 - **Now (2026-10-02):** C1F7 canonical contact/publication lock order implemented on fix/c1-followup; ordinary change isolated554dc114; targeted303/PG30 controls/390px8 PASS. Final gated delivery and cleanup recorded externally in ~/codex-runs/aw-redesign/logs/C1F7.final.md; no merge/migration. See ledgers/CONTINUITY_p2-c1.md.
@@ -58,6 +60,12 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
 
 ### Done
 - **Now (B3F5):** all nine duel-confirmed fixes complete on PR #1115: full flags-OFF4258/101skip/0fail, PG32, Node219, browser17, Ruff/format587, OSV547/lint0err190warn/build. Preapply twice=upgrade/lock contention verified; new CONTRACT hashes on BUS. See ledgers/CONTINUITY_p2-b3.md and logs/B3F5.final.md; review/integration next, no merge.
+
+- **SBX (2026-10-02):** GOL capability facades, typed guards, callback-dispatch checks and plain result boundary implemented; sandbox270 PASS (67 legitimate/169 escapes/34 controls), related GOL/freeze179 PASS, OSV547 clean before frozen restore. Final-head four cached gates, pushed SHA, ready PR and CI are authoritative in `~/codex-runs/aw-redesign/logs/SBX.final.md`; see local `ledgers/CONTINUITY_sbx.md` and `docs/gol-sandbox.md`. No production actions or merge.
+
+- **DEPSR (2026-10-02):** ledger-only refresh of reviewed bba8c28e onto main c7d3e962; both CONTINUITY histories retained, dependency manifests frozen. PR-body/reachability/group-coverage corrections; fresh Python 3.11 targeted83 + sandbox probe PASS, venv removed; final-head gates/push/CI tracked in `~/codex-runs/aw-redesign/logs/DEPSR.final.md`. No builder merge.
+
+- **DEPS (2026-10-02):** targeted pins prepared on chore/deps-security from 66e85b2e; all 6 HIGH + 3 MODERATE fixed; WeasyPrint advisory not reachable at production call sites; 70.0 follow-up and 2 LOW GPU Torch upgrades deferred. No application changes. Source decisions: `ledgers/CONTINUITY_deps.md`; final-head gates, pushed SHA/ready PR, CI and cleanup state authoritative in `~/codex-runs/aw-redesign/logs/DEPS.final.md`.
 
 - **Now (B3XR):** Pure PR1126 refresh of reviewed ca36e869 onto main66e85b2e; both admin imports retained in three conflicts, both histories retained. Identity proof, final-head gates/browser/screenshots, push/CI and cleanup receipts: `~/codex-runs/aw-redesign/logs/B3XR.identity.md` and `B3XR.final.md`. No new product behavior.
 

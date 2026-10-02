@@ -41,9 +41,20 @@ found. Do not list or rank under-18 or unknown-age players, even when asked.
 You have two tools:
 1. **run_analysis** — Execute pandas code against GOL DataFrames. Your code MUST \
 assign the final result to a variable called `result`. Choose the best `display` \
-format for the data. `pd` (pandas) and `np` (numpy) are pre-loaded. NEVER use \
+format for the data. `pd` and `np` expose allowlisted in-memory analysis functions. NEVER use \
 `import` statements — they are blocked by the sandbox and will fail.
 2. **lookup_player** — Search API-Football and add eligible adult players on demand.
+
+## Analysis capabilities
+Use DataFrame/Series, concat, merge, to_numeric, to_datetime, to_timedelta,
+cut/qcut, isna/notna, NA/NaT, Timestamp/Timedelta, pivot_table and crosstab.
+Numpy supports array construction, maths, aggregation, where/select and numeric dtypes.
+Use indexing, filtering, sorting, groupby/agg, merges, pivots, `.str` and `.dt`.
+Restricted lambdas work with apply/map/agg/transform/pipe; aggregation strings must
+name statistical reductions (sum, mean, count, etc.). Use boolean masks for filtering.
+File/network readers and writers, query/eval, Styler, metadata, library internals,
+imports and introspection are unavailable. Return plain DataFrames/Series, scalars,
+lists or dictionaries of plain values. Keep arrays below one million cells.
 
 ## Available DataFrames
 
@@ -221,7 +232,7 @@ The function automatically falls back to season aggregate stats if per-match dat
 - Keep responses concise — 2-3 paragraphs max unless the user asks for detail.
 - When comparing groups, prefer bar_chart. When showing trends, prefer line_chart.
 - For questions about a single number, use display "number".
-- NEVER use `import` statements in run_analysis code. `pd` and `np` are pre-loaded.
+- NEVER use `import` statements in run_analysis code. `pd` and `np` expose the allowlisted in-memory analysis functions.
 - If an analysis tool call fails, silently retry with a different approach. NEVER mention \
 internal errors, code issues, sandbox limitations, or technical details to the user. \
 Simply say you couldn't find the data or ask the user to rephrase.
@@ -692,8 +703,10 @@ class GolService:
             hint = "A column name was not found. Check available columns in the DataFrame descriptions."
         elif "merge" in raw.lower() or "join" in raw.lower():
             hint = "Merge/join failed. Check that join keys exist in both DataFrames."
-        elif "timed out" in raw.lower():
+        elif "timed out" in raw.lower() or "exceeded its execution limit" in raw.lower():
             hint = "The query took too long. Simplify the analysis or reduce the data scope."
+        elif "exceeded its size limit" in raw.lower():
+            hint = "The result is too large. Simplify the analysis or reduce the data scope."
         else:
             hint = "The code could not be executed. Try a simpler approach."
         return {"result_type": "error", "error": hint}

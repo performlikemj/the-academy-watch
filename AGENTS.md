@@ -155,6 +155,8 @@ Log one-liner in CONTINUITY.md's "Trivial Log" section.
 
 - Match-entry date-boundary tests use the parametrized `frozen_now` fixture in `tests/test_player_match_entries.py`; it patches route and subject-resolution UTC clocks. Derive relative date inputs inside the test from that fixture, never during parametrization.
 
+- GOL model-written analyses use `services/gol_capabilities.py` facades and typed guards; never expose raw library modules or expand attributes without escape/compatibility corpus coverage. Pandas aggregation strings require reduction allowlists even inside pivots/named aggregations; transform strings use a separate reviewed list. Analysis helpers use stored frames only; validate plain results before coercion/JSON and keep formatting inside the timeout. Validate typed frames by dtype and inspect only object/category values; pandas 3 copy-on-write isolates table mutations, while nested object containers still need cloning. Keep public refusal cases generic and the per-type attribute classification inventory explicit.
+
 ## Quality Bar
 
 Before marking work complete:
@@ -188,3 +190,4 @@ Before marking work complete:
 - C2 reviews bind classification results for match and member squads; cosmetic renames preserve retained cuts, unsafe evidence transitions invalidate permanently in ORM/SQL. Legacy context conversion verifies the exact old hash and squad bindings without changing the consent fingerprint. Approved claimant ambiguity ignores suspension; request-owned subject indexes are rebuilt after storage.
 - C2 review idempotency requires a live `source_context` as well as matching retained context; change/revert re-confirmation renews review evidence but never old clip consent. Queued inbox polling re-arms after failed loads with a five-minute maximum delay and cancels while hidden or unmounted.
 - C2 retention and worker storage deletion require `HIGHLIGHT_RETENTION_SWEEP_ENABLED` (default OFF), independently of publication. Explicit `--dry-run` selects/logs proposals without mutations or storage. Delete only exact recorded highlight attempt blobs, never raw-match paths/prefixes. Build/activation/scheduling require MJ's go as separate go-live operations; deployment does not schedule highlights.
+- GOL loader compatibility checks use the real psycopg/PostgreSQL path with all selected frames; Numeric columns explicitly retain pandas float coercion, while exact finite Decimal values are accepted at the plain-data boundary. Keep builtin names in the reviewed classification inventory.
