@@ -1,3 +1,4 @@
+import { CleatLoader } from '@/components/CleatLoader'
 import { Link } from 'react-router-dom'
 import { ClubHome } from './club-console/ClubHome'
 import { DevelopmentActionFields, DevelopmentActionSummary, DevelopmentProgress, FeedbackEvidencePicker } from '@/components/showcase/DevelopmentAction'
@@ -1049,7 +1050,7 @@ export function RosterPanel({ programId, members, systemBrief, loading, error, o
         </CardHeader>
         <CardContent className="p-0">
           {loading ? (
-            <div className="flex items-center justify-center py-16 text-sm text-muted-foreground"><Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading roster…</div>
+            <div className="flex items-center justify-center py-16 text-sm text-muted-foreground"><CleatLoader /></div>
           ) : error ? (
             <div className="space-y-3 p-6 text-center">
               <InlineError>{error}</InlineError>
@@ -2276,7 +2277,7 @@ export function MatchesPanel({ programId, rosterMembers, matches, loading, error
         <ResultHistory key={programId} programId={programId} refreshToken={resultRefresh} onEdit={editResult} onAccessDenied={onAccessDenied} onResultsLoaded={rememberVideoResults} />
       </section> : null}
       {loading ? (
-        <Card><CardContent className="flex items-center justify-center py-16 text-sm text-muted-foreground"><Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading saved matches…</CardContent></Card>
+        <Card><CardContent className="flex items-center justify-center py-16 text-sm text-muted-foreground"><CleatLoader /></CardContent></Card>
       ) : error && loadFailureCount === 0 ? (
         <Card><CardContent className="space-y-3 py-10 text-center"><InlineError>{error}</InlineError><Button variant="outline" onClick={onReload}><RefreshCw className="mr-1.5 h-4 w-4" /> Try again</Button></CardContent></Card>
       ) : matches.length === 0 && loadFailureCount === 0 ? (
@@ -2296,7 +2297,7 @@ export function MatchesPanel({ programId, rosterMembers, matches, loading, error
             })}
           </div>
           {selectedMatch && !hydrated ? (
-            <Card><CardContent className="flex flex-col items-center justify-center gap-3 py-16 text-sm text-muted-foreground">{hydrateMessage ? (<><InlineError>{hydrateMessage}</InlineError><Button variant="outline" onClick={() => { setHydrateError(null); setHydrateAttempt((n) => n + 1) }}><RefreshCw className="mr-1.5 h-4 w-4" /> Retry</Button></>) : (<span className="inline-flex items-center"><Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading match details…</span>)}</CardContent></Card>
+            <Card><CardContent className="flex flex-col items-center justify-center gap-3 py-16 text-sm text-muted-foreground">{hydrateMessage ? (<><InlineError>{hydrateMessage}</InlineError><Button variant="outline" onClick={() => { setHydrateError(null); setHydrateAttempt((n) => n + 1) }}><RefreshCw className="mr-1.5 h-4 w-4" /> Retry</Button></>) : (<span className="inline-flex items-center"><CleatLoader /></span>)}</CardContent></Card>
           ) : selectedMatch ? (
             <MatchDetail
               key={selectedMatch.id}
@@ -2513,7 +2514,7 @@ function ClubProfile({ program, claim, onAccessDenied }) {
     }
   }
 
-  if (loadState === 'loading') return <Card><CardContent className="flex items-center justify-center py-16 text-sm text-muted-foreground"><Loader2 className="mr-2 h-5 w-5 animate-spin" />Loading club profile…</CardContent></Card>
+  if (loadState === 'loading') return <Card><CardContent className="flex items-center justify-center py-16 text-sm text-muted-foreground"><CleatLoader /></CardContent></Card>
   if (loadState === 'unavailable') return <ReadOnlyClubProfile program={program} claim={claim} />
   if (loadState === 'failed') return <Card><CardHeader><CardTitle>Club profile couldn&apos;t be loaded.</CardTitle><CardDescription>Your existing profile and updates have not been changed.</CardDescription></CardHeader><CardContent><Button variant="outline" onClick={load}>Retry</Button></CardContent></Card>
 
