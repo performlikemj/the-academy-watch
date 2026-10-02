@@ -1,6 +1,7 @@
 """Local-only capability regression corpus; never inspect or print secrets."""
 
 import json
+from decimal import Decimal
 from types import ModuleType
 
 import numpy as np
@@ -49,6 +50,10 @@ def frames():
             "goals": [20, 1, 2, 3, 4, 5],
             "assists": [10, 1, 2, 3, 4, 5],
             "rating": [9.0, 6.0, 6.1, 6.2, 6.3, 6.4],
+            "decimal_rating": pd.Series(
+                [Decimal("9.00"), Decimal("6.00"), None, Decimal("6.20"), Decimal("6.30"), Decimal("6.40")],
+                dtype=object,
+            ),
             "position": ["M"] * 6,
             "formation": ["4-3-3"] * 6,
             "formation_position": ["CAM"] * 6,
@@ -483,6 +488,14 @@ def test_series_metadata_validated_before_reset_index(field):
 
 
 ORDINARY = [
+    ("add_prefix", "result=teams.add_prefix('club_')"),
+    ("series_dot", "result=fixture_stats['goals'].dot(fixture_stats['assists'])"),
+    ("numpy_trunc", "result=np.trunc([1.9,-2.9]).tolist()"),
+    ("categorical_discard", "pd.Categorical(['a','b','a'])\nresult=1"),
+    ("string_center", "result='club'.center(8,'.')"),
+    ("string_ljust", "result='club'.ljust(8,'.')"),
+    ("set_update", "values=set([1,2])\nvalues.update([2,3])\nresult=sorted(values)"),
+    ("set_issubset", "result=set([1,2]).issubset(set([1,2,3]))"),
     ("column_frame", "result=int(tracked.age.mean())"),
     ("column_row", "result=fixture_stats.apply(lambda row:row.goals+row.minutes,axis=1)"),
     ("column_group", "result=fixture_stats.groupby('team_api_id').goals.sum()"),
@@ -656,18 +669,24 @@ def test_fixed_error_categories_and_service_hints():
     assert "column" in GolService._sanitize_for_llm({"error": categories[1][1]})["error"]
     assert "Import" in GolService._sanitize_for_llm({"error": categories[3][1]})["error"]
     assert "too long" in GolService._sanitize_for_llm({"error": "Analysis exceeded its execution limit."})["error"]
+    assert "reduce the data scope" in GolService._sanitize_for_llm({"error": SIZE_ERROR})["error"]
 
 
 # Explicit review inventory. Do not derive this table from production allowlists.
 # Method-name entries can also accept restricted callables.
 ATTRIBUTE_CLASSIFICATION = {
+    "builtins": {
+        "in-memory": "abs pow divmod ord chr all any bool dict enumerate float int isinstance len list max min range round set slice str sum tuple zip repr Exception ValueError TypeError KeyError IndexError ZeroDivisionError",
+        "takes-callable": "filter map sorted",
+        "takes-method-name": "",
+    },
     "DataFrame": {
-        "in-memory": "combine_first T abs add all any astype at bfill clip columns copy corr count cov cummax cummin cumprod cumsum describe diff div drop drop_duplicates dropna dtypes duplicated empty eq expanding explode ffill fillna floordiv ge get gt head iat idxmax idxmin iloc index insert isin isna isnull iterrows itertuples join keys kurt le loc lt max mean median melt merge min mod mode mul ndim ne nlargest notna notnull nsmallest nunique pct_change pivot pow prod quantile rank reindex reindex_like replace reset_index rolling round sample select_dtypes set_index shape shift size skew squeeze stack std sub sum tail to_numpy transpose truediv unstack value_counts values var",
+        "in-memory": "add_prefix combine_first T abs add all any astype at bfill clip columns copy corr count cov cummax cummin cumprod cumsum describe diff div drop drop_duplicates dropna dtypes duplicated empty eq expanding explode ffill fillna floordiv ge get gt head iat idxmax idxmin iloc index insert isin isna isnull iterrows itertuples join keys kurt le loc lt max mean median melt merge min mod mode mul ndim ne nlargest notna notnull nsmallest nunique pct_change pivot pow prod quantile rank reindex reindex_like replace reset_index rolling round sample select_dtypes set_index shape shift size skew squeeze stack std sub sum tail to_numpy transpose truediv unstack value_counts values var",
         "takes-callable": "applymap assign filter groupby map mask pipe rename rename_axis sort_index sort_values to_dict where",
         "takes-method-name": "agg aggregate apply pivot_table transform",
     },
     "Series": {
-        "in-memory": "combine_first T abs add all any argmax argmin astype at between bfill clip copy corr count cov cummax cummin cumprod cumsum describe diff div drop drop_duplicates dropna dt dtype duplicated empty eq expanding explode ffill fillna floordiv ge get gt head iat idxmax idxmin iloc index insert isin isna isnull items iterrows itertuples join keys kurt le loc lt max mean median melt merge min mod mode mul name ndim ne nlargest notna notnull nsmallest nunique pct_change pivot pow prod quantile rank reindex reindex_like repeat replace reset_index rolling round sample select_dtypes set_index shape shift size skew squeeze stack std str sub sum tail to_frame to_list to_numpy tolist transpose truediv unique unstack value_counts values var",
+        "in-memory": "add_prefix dot combine_first T abs add all any argmax argmin astype at between bfill clip copy corr count cov cummax cummin cumprod cumsum describe diff div drop drop_duplicates dropna dt dtype duplicated empty eq expanding explode ffill fillna floordiv ge get gt head iat idxmax idxmin iloc index insert isin isna isnull items iterrows itertuples join keys kurt le loc lt max mean median melt merge min mod mode mul name ndim ne nlargest notna notnull nsmallest nunique pct_change pivot pow prod quantile rank reindex reindex_like repeat replace reset_index rolling round sample select_dtypes set_index shape shift size skew squeeze stack std str sub sum tail to_frame to_list to_numpy tolist transpose truediv unique unstack value_counts values var",
         "takes-callable": "applymap assign filter groupby map mask pipe rename rename_axis sort_index sort_values to_dict where",
         "takes-method-name": "agg aggregate apply pivot_table transform",
     },
@@ -722,7 +741,7 @@ ATTRIBUTE_CLASSIFICATION = {
         "takes-method-name": "",
     },
     "str": {
-        "in-memory": "capitalize casefold cat contains count endswith extract extractall find findall fullmatch get index isalnum isalpha isdigit islower isnumeric isspace isupper join len lower lstrip match normalize pad partition removeprefix removesuffix repeat rfind rindex rpartition rsplit rstrip slice slice_replace split splitlines startswith strip title upper zfill",
+        "in-memory": "center ljust capitalize casefold cat contains count endswith extract extractall find findall fullmatch get index isalnum isalpha isdigit islower isnumeric isspace isupper join len lower lstrip match normalize pad partition removeprefix removesuffix repeat rfind rindex rpartition rsplit rstrip slice slice_replace split splitlines startswith strip title upper zfill",
         "takes-callable": "replace",
         "takes-method-name": "",
     },
@@ -737,7 +756,7 @@ ATTRIBUTE_CLASSIFICATION = {
         "takes-method-name": "",
     },
     "set": {
-        "in-memory": "add copy difference discard intersection remove union",
+        "in-memory": "add copy difference discard intersection issubset remove union update",
         "takes-callable": "",
         "takes-method-name": "",
     },
@@ -762,7 +781,7 @@ ATTRIBUTE_CLASSIFICATION = {
         "takes-method-name": "crosstab pivot_table",
     },
     "numpy-facade": {
-        "in-memory": "where abs absolute all any arange argmax argmin argsort around array asarray average bool_ ceil clip concatenate corrcoef count_nonzero cumprod cumsum diff divide dot e exp expm1 float32 float64 floor full hstack inf int32 int64 isfinite isin isinf isnan linspace log log10 log1p log2 logical_and logical_not logical_or max maximum mean median min minimum nan nan_to_num nanmax nanmean nanmedian nanmin nanpercentile nanquantile nanstd nansum nanvar ones percentile pi power prod quantile round select sign sort sqrt square stack std sum unique var vstack zeros",
+        "in-memory": "where abs absolute all any arange argmax argmin argsort around array asarray average bool_ ceil clip concatenate corrcoef count_nonzero cumprod cumsum diff divide dot e exp expm1 float32 float64 floor full hstack inf int32 int64 isfinite isin isinf isnan linspace log log10 log1p log2 logical_and logical_not logical_or max maximum mean median min minimum nan nan_to_num nanmax nanmean nanmedian nanmin nanpercentile nanquantile nanstd nansum nanvar ones percentile pi power prod quantile round select sign sort sqrt square stack std sum trunc unique var vstack zeros",
         "takes-callable": "",
         "takes-method-name": "",
     },
@@ -883,6 +902,7 @@ def classification_receivers():
         pd.Interval(1, 2),
         pd.Period("2026-01", freq="M"),
         slice(1),
+        Decimal("6.50"),
         complex(1),
         b"data",
         frame.flags,
@@ -894,6 +914,11 @@ def classification_receivers():
     closed.append(generator)
     receivers.extend(("closed", value) for value in closed)
     return receivers
+
+
+def test_every_allowed_builtin_is_classified():
+    classified = set(" ".join(ATTRIBUTE_CLASSIFICATION["builtins"].values()).split())
+    assert set(ALLOWED_BUILTINS) == classified
 
 
 def test_every_allowed_attribute_is_classified():
@@ -1094,3 +1119,44 @@ def test_every_method_name_dispatch_is_classified():
 
     assert set(DISPATCH_CLASSIFICATION["reduction"].split()) == AGGREGATIONS
     assert set(" ".join(DISPATCH_CLASSIFICATION.values()).split()) == TRANSFORMS
+
+
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("6.50", 6.5),
+        ("6.123456", 6.1235),
+        ("NaN", None),
+        ("sNaN", None),
+        ("Infinity", None),
+        ("-Infinity", None),
+        ("1e9999", None),
+    ],
+)
+def test_decimal_plain_scalars_and_result_formatting(text, expected):
+    value = Decimal(text)
+    assert plain_value(value) == expected
+    assert sandbox._format_result(value) == {"result_type": "scalar", "value": expected}
+    assert sandbox._format_result({"rating": value})["data"] == {"rating": expected}
+    frame = pd.DataFrame({"rating": pd.Series([value, None], dtype=object)})
+    from src.services.gol_capabilities import validate_frame
+
+    validate_frame(frame)
+    assert sandbox.execute_analysis("result=stats", {"stats": frame})["rows"] == [[expected], [None]]
+
+
+def test_decimal_input_does_not_block_other_frames(frames):
+    assert frames["fixture_stats"]["decimal_rating"].dtype == object
+    result = sandbox.execute_analysis("result=teams", frames)
+    assert result["result_type"] == "table"
+    result = sandbox.execute_analysis("result=fixture_stats['decimal_rating'].sum()", frames)
+    assert result == {"result_type": "scalar", "value": 101.7, "display": "table"}
+
+
+def test_decimal_subclass_is_refused():
+    class CustomDecimal(Decimal):
+        def __float__(self):
+            raise AssertionError("custom conversion called")
+
+    with pytest.raises(AnalysisRefused):
+        plain_value(CustomDecimal("6.50"))

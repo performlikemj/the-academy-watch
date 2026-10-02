@@ -9,6 +9,7 @@ import builtins
 import inspect
 import math
 from datetime import date, datetime, timedelta
+from decimal import Decimal
 from functools import lru_cache
 from types import FunctionType, GeneratorType, ModuleType
 from zoneinfo import available_timezones
@@ -54,7 +55,7 @@ PANDAS_NAMES = _names(
     "DataFrame Series concat merge to_numeric to_datetime to_timedelta cut qcut isna notna NA NaT Timestamp Timedelta pivot_table crosstab unique isnull notnull melt get_dummies date_range DateOffset NamedAgg Index Categorical"
 )
 NUMPY_NAMES = _names(
-    "array asarray arange linspace zeros ones full abs absolute sqrt log log2 log10 exp expm1 log1p square power sign floor ceil round around clip minimum maximum sum mean median std var min max nanmean nanmedian nanstd nanvar nansum nanmin nanmax percentile quantile nanpercentile nanquantile count_nonzero cumsum cumprod where select isnan isfinite isinf logical_and logical_or logical_not sort argsort unique concatenate stack hstack vstack dot int32 int64 float32 float64 bool_ nan inf pi e average diff any all argmax argmin isin nan_to_num divide corrcoef prod"
+    "array asarray arange linspace zeros ones full abs absolute sqrt log log2 log10 exp expm1 log1p square power sign floor ceil trunc round around clip minimum maximum sum mean median std var min max nanmean nanmedian nanstd nanvar nansum nanmin nanmax percentile quantile nanpercentile nanquantile count_nonzero cumsum cumprod where select isnan isfinite isinf logical_and logical_or logical_not sort argsort unique concatenate stack hstack vstack dot int32 int64 float32 float64 bool_ nan inf pi e average diff any all argmax argmin isin nan_to_num divide corrcoef prod"
 )
 
 AGGREGATIONS = frozenset(
@@ -64,11 +65,11 @@ AGGREGATIONS = frozenset(
 )
 FRAME_METHODS = frozenset(
     _names(
-        "head tail copy get iterrows itertuples to_dict to_numpy isin isna notna isnull notnull fillna dropna replace astype sort_values sort_index nlargest nsmallest drop drop_duplicates duplicated rename rename_axis reset_index set_index reindex reindex_like merge join groupby pivot pivot_table melt stack unstack transpose squeeze round abs clip add sub mul div truediv floordiv mod pow eq ne lt le gt ge sum mean median min max std var prod count nunique all any idxmin idxmax quantile describe corr cov rank diff pct_change shift cumsum cumprod cummin cummax value_counts mode select_dtypes apply map applymap agg aggregate transform pipe assign explode where mask rolling expanding ffill bfill insert sample filter skew kurt combine_first keys"
+        "head tail copy get iterrows itertuples to_dict to_numpy isin isna notna isnull notnull fillna dropna replace astype sort_values sort_index nlargest nsmallest drop drop_duplicates duplicated rename rename_axis reset_index set_index reindex reindex_like merge join groupby pivot pivot_table melt stack unstack transpose squeeze round abs clip add sub mul div truediv floordiv mod pow eq ne lt le gt ge sum mean median min max std var prod count nunique all any idxmin idxmax quantile describe corr cov rank diff pct_change shift cumsum cumprod cummin cummax value_counts mode select_dtypes apply map applymap agg aggregate transform pipe assign explode where mask rolling expanding ffill bfill insert sample filter skew kurt combine_first keys add_prefix"
     )
 )
 SERIES_METHODS = FRAME_METHODS | frozenset(
-    _names("tolist to_list to_numpy unique between nlargest nsmallest items keys repeat to_frame argmax argmin")
+    _names("tolist to_list to_numpy unique between nlargest nsmallest items keys repeat to_frame argmax argmin dot")
 )
 INDEX_METHODS = frozenset(
     _names(
@@ -325,7 +326,7 @@ def guarded_getattr(obj, name, default=None):
     elif isinstance(obj, np.dtype):
         attrs = frozenset({"name", "kind", "itemsize"})
     elif type(obj) is str:
-        methods = STRING_METHODS | frozenset({"join", "splitlines", "index", "rindex"})
+        methods = STRING_METHODS | frozenset({"join", "splitlines", "index", "rindex", "center", "ljust"})
     elif isinstance(obj, tuple) and type(obj).__module__ == "pandas.core.frame" and hasattr(type(obj), "_fields"):
         attrs = frozenset(type(obj)._fields)
     elif type(obj) in (list, tuple):
@@ -333,7 +334,7 @@ def guarded_getattr(obj, name, default=None):
     elif type(obj) is dict:
         methods = frozenset(_names("get items keys values copy update pop setdefault clear"))
     elif type(obj) is set:
-        methods = frozenset(_names("add discard remove union intersection difference copy"))
+        methods = frozenset(_names("add discard remove union intersection difference copy update issubset"))
     elif isinstance(obj, (int, float, np.number)):
         methods = frozenset({"item"}) if isinstance(obj, np.generic) else frozenset()
         attrs = frozenset({"real", "imag"})
@@ -485,7 +486,9 @@ def plain_value(value, depth=0, budget=None, cap_strings=False):
         return value if math.isfinite(value) else None
     if kind in (np.int8, np.int16, np.int32, np.int64, np.uint8, np.uint16, np.uint32, np.uint64):
         return int(value)
-    if kind in (np.float16, np.float32, np.float64):
+    if kind is Decimal and not value.is_finite():
+        return None
+    if kind in (np.float16, np.float32, np.float64, Decimal):
         v = float(value)
         return round(v, 4) if math.isfinite(v) else None
     if kind is np.bool_:

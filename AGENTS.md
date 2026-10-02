@@ -183,3 +183,5 @@ Before marking work complete:
 - Contact batches resolve all invitation recipient/source-owned claim IDs before locking; keep lock scope distinct from mutation selection. Feedback lists are plain reads; purge uses one upfront invitation/contact/account batch. Account erasure uses settlement → full contact scope → sorted accounts, with the entire prefix inside its purchase-retry savepoint. Helper held-row caches are transaction/savepoint scoped; dynamic earlier locks use PostgreSQL NOWAIT, never a synthetic rank-conflict retry.
 
 - Account erasure revalidates every owned claim/contact/publication/invitation/program and purchase selection after sorted account locks; changed hints roll back the full acquisition savepoint before bounded canonical retry. Closure writes persist feedback deadlines; pure lists never start retention clocks.
+
+- GOL loader compatibility checks use the real psycopg/PostgreSQL path with all selected frames; Numeric columns explicitly retain pandas float coercion, while exact finite Decimal values are accepted at the plain-data boundary. Keep builtin names in the reviewed classification inventory.

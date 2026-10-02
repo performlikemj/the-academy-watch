@@ -705,6 +705,8 @@ class GolService:
             hint = "Merge/join failed. Check that join keys exist in both DataFrames."
         elif "timed out" in raw.lower() or "exceeded its execution limit" in raw.lower():
             hint = "The query took too long. Simplify the analysis or reduce the data scope."
+        elif "exceeded its size limit" in raw.lower():
+            hint = "The result is too large. Simplify the analysis or reduce the data scope."
         else:
             hint = "The code could not be executed. Try a simpler approach."
         return {"result_type": "error", "error": hint}

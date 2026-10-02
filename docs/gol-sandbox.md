@@ -99,6 +99,33 @@ work retains the thread-isolation limitation described above.
 Stored-frame team-name helpers use `Team <id>` when neither the `teams` nor
 `team_profiles` frame contains the name. They do not consult a database or API.
 
+Release note: team labels now fall back to `Team <id>` when both stored team
+frames lack a name; there is no external name lookup during analysis.
+
+SQL Numeric values are explicitly loaded with pandas' `coerce_float=True`,
+preserving its existing float64/NaN behavior without a second frame conversion.
+Validation and formatting also accept exact `decimal.Decimal` values in object
+columns or results: finite values render as floats rounded like numpy floats,
+and nonfinite values (including finite values overflowing float) render as null.
+Subclasses remain refused; Decimal attributes are not exposed.
+
+`tests/test_gol_dataframes.py` exercises all ten frames through the actual
+PostgreSQL/psycopg loader, including a Numeric rating variant, SQL NULLs, dates,
+JSON arrays and text, then calls the service tool on the complete frame set.
+It also covers native PostgreSQL arrays/object JSON and SQLite Numeric values.
+The public sandbox suite has 255 checks, including 191 ordinary reference cases
+(the existing 183 plus eight resident-data idioms). The loader suite adds two
+checks; its PostgreSQL check is opt-in locally and required by CI.
+CI runs this against a disposable database migrated from a model baseline;
+the older migration graph cannot replay from an empty database. Run locally with
+`GOL_POSTGRES_URL` pointing to the local disposable `aw_sbxf2` database, bootstrap
+using `python scripts/gol_postgres_fixture.py`, run
+`python -m flask --app scripts.gol_postgres_fixture db upgrade`, then
+`python -m pytest -q tests/test_gol_dataframes.py`. Set `GOL_DTYPE_REPORT` to retain
+the dtype of every selected column. Drop the disposable database afterwards.
+The builtin allowlist must equal its explicit reviewed classification inventory.
+Size-limit errors ask the assistant to simplify or reduce the data scope.
+
 Earlier commits remain visible in the public branch history. No history is
 rewritten or force-pushed. The operational mitigation is to keep the assistant
 offline until this change is deployed and verified live, then rotate backend
@@ -112,6 +139,15 @@ render data. Spike test `exec` calls compile selected trusted repository ASTs;
 other matches were regex/SQL compilation and neural-network `.eval()` mode calls.
 
 ## Added in-memory operations
+
+- `DataFrame/Series.add_prefix`: creates labels for a resident table/series.
+- `Series.dot`: computes a dot product over resident numeric values.
+- `numpy facade.trunc`: removes fractional parts from resident numeric values.
+- `str.center`: pads resident text to a requested width.
+- `str.ljust`: pads resident text to a requested width.
+- `set.update`: adds elements from resident iterables.
+- `set.issubset`: compares resident set elements.
+- `pandas facade.Categorical` as a discarded expression uses the existing constructor capability; no additional result or attribute type is exposed.
 
 - `pandas facade.Categorical`: constructs categorical values from resident data, with no exposed class attributes.
 - `pandas facade.DateOffset`: constructs a calendar offset value, with no exposed class attributes.
