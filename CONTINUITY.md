@@ -32,6 +32,17 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
 
 ## State
 
+- **Now (2026-10-02 UXBF5):** Single duel-confirmed signed-out history retry fix implemented; main ee16572f/B3+UXM1 integrated; targeted48 PASS; ledger `ledgers/CONTINUITY_uxb.md`; final hand-back `~/codex-runs/aw-redesign/logs/UXBF5.final.md`. Exact final-head gates, delivery/ready/CI and cleanup recorded in external hand-back; PR1124, no merge.
+
+- **Now (2026-10-02 UXBF4):** Draft #1124 review union O1 Medium startup/navigation recovery + X1=O2 Small claims freshness implemented. Main33bf30bd/B3 merged; inherited migration verbatim. Final validation/delivery record: `~/codex-runs/aw-redesign/logs/UXBF4.final.md`; see `ledgers/CONTINUITY_uxb.md`.
+
+- **Now (2026-10-02 UXBF3):** Review-duel three Small fixes implemented on draft #1124: shared token-keyed navigation retry, UUID case anchor, readable wrapping name pill; no-id list hash safely ignored. Original probes9 failures; targeted36 pass. Exact final-head gates/PG/browser/screenshots/push/cleanup status in `~/codex-runs/aw-redesign/logs/UXBF3.final.md`; see `ledgers/CONTINUITY_uxb.md`.
+
+- **Now (2026-10-01 UXBF2):** Review-duel union fixed on draft#1124: contextual retry/discovery fallback, settled adult anchor, maximum text wrapping, rows-only open meta, N4 draft skip. Full flags-off4090/PG22/Node230/browser125+CI60 green;96 refreshed screenshots, owned resources cleaned. Final pushed SHA/CI in logs/UXBF2.final.md; see `ledgers/CONTINUITY_uxb.md`; unmerged.
+
+- **Now (2026-10-01 UXBF1):** All review-duel fixes + parent-interest anchor complete, sourcec8cf1a63 pushed to draft #1124; main784b1490 current. Full flags-off4090/PG22/Node225/Playwright105, Ruff-format/lint/build/OSV green;72 refreshed captures. Owned resources cleaned; unmerged. See `ledgers/CONTINUITY_uxb.md` and logs/UXBF1.final.md for final docs-only head/CI.
+
+- **Previous (2026-10-01 UXB):** P-01–P-07/P-23 staging polish implemented and gated on main784b1490; see `ledgers/CONTINUITY_uxb.md`. Flags-off parity; pytest4083/Node222/Playwright65+2 green; own resources cleaned; draft PR #1124 open, unmerged; no migrations/dependencies.
 - **Now (FLK):** test-only UTC clock fixture fixes collection/execution date race; 30 pinned boundary checks pass, neighbour audit complete. Final-head governed backend-full/backend-lint and ready PR delivery next. Local ledger `ledgers/CONTINUITY_flk.md`; hand-back `~/codex-runs/aw-redesign/logs/FLK.final.md`.
 
 - **Now (B3F5):** all nine duel-confirmed fixes complete on PR #1115: full flags-OFF4258/101skip/0fail, PG32, Node219, browser17, Ruff/format587, OSV547/lint0err190warn/build. Preapply twice=upgrade/lock contention verified; new CONTRACT hashes on BUS. See ledgers/CONTINUITY_p2-b3.md and logs/B3F5.final.md; review/integration next, no merge.

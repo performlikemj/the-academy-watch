@@ -138,6 +138,8 @@ Log one-liner in CONTINUITY.md's "Trivial Log" section.
 
 ---
 
+- Web feature consumers share `APIService.getFeatures()` through `src/lib/features.js`: cache successful bootstrap responses per page session, keep dark opportunity/application keys absent, and distinguish failed/pending flags from OFF. New dark entry points must make zero opportunity/application requests.
+
 - Web current-season reads share `lib/seasonDirectory.js` / `useSeasonDirectory`; use the server directory `display_season` for default desk labels and player label fallbacks; player totals prefer the response season, including frozen shadow history. Use `current_season` only as a last resort. Omit `season` from unpicked desk/player requests so the server retains latest-data fallbacks; carry every explicit URL/store pick into reads and player links. Retain historical URL/store overrides and frozen-mode logic; community pages have no picker, ignore stored season and keep games unfiltered; positive provider games retain the resolved totals season scope. Unpicked local/provider-linked totals also omit season, and game mutations reload the server default totals. The directory must not gate independent data reads. Short positions use `lib/positions.js::positionAbbreviation`; keep free text on player profiles.
 
 - Community global search shares the dynamic `utils/scout_discovery.py::local_players_enabled` switch with the scout desk; OFF returns provider payload/order/query work directly. ON applies canonical public-adult eligibility to all constrained candidates before ranking/capping, retaining provider relative DB order and using NFKD/casefold for community insertion.
@@ -152,5 +154,7 @@ Before marking work complete:
 - [ ] Tests pass
 - [ ] Ledger state updated
 - [ ] Patterns added to AGENTS.md if discovered
+
+- Opportunity feature/retry and approved-player navigation state live in `OpportunityStateProvider`; hooks enable the lazy shared bootstrap. Private claims clear on every auth-token transition and ignore stale responses. Keep page and menu consumers on this shared state; flags-OFF must issue zero opportunity/application requests. Consumer route arrivals recover failed reads once per arrival (router key + pathname); player-home/owner-summary arrivals revalidate claims, retaining successful values during loading and sharing pending/completed reads within an arrival. Navigation reports every route arrival to the provider even when signed out, without enabling requests; reset arrival markers on transitions so reused Back/Forward keys still recover and revalidate.
 - B3 moderation locks the canonical target with a PostgreSQL transaction advisory lock before case/source rows; public takedown intake and original report/suppression/club tools share it. Reconciliation takes multiple target locks in sorted order. Case hide intent comes from the latest hide/restore/source-lift event, survives close, and is independent of physical hold ownership.
 - B3 case-generated suppression erasure uses the report's source link plus its first hide event before actor redaction; retain genuine requester evidence and active hold state. New generated contact/statement fields are fixed markers. B3 migration/preapply set a five-second transaction-local lock timeout; abort/rollback and retry the entire script after contention, before code deploy.
