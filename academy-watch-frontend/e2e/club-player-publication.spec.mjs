@@ -1,4 +1,4 @@
-/* global window, document */
+/* global window, document, getComputedStyle */
 import { test, expect } from '@playwright/test'
 import fs from 'node:fs/promises'
 import path from 'node:path'

@@ -31,7 +31,7 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
   an unconditional development step.
 
 ## State
-- **Now (2026-10-02):** C1F5 on separate fix/c1-followup from reviewed c7cf6c11; Six duel items implemented; O4 export isolated147e0fa6, targeted backend/PG/browser green; final gates pending. Draft PR targets p2/c1-club-publication; remain on reviewed base per specific brief. See ledgers/CONTINUITY_p2-c1.md.
+- **Now (2026-10-02):** C1F5 on separate fix/c1-followup from reviewed c7cf6c11; Six duel items implemented; O4 export isolated147e0fa6, targeted backend/PG/browser green; final-head validation/delivery recorded in external ~/codex-runs/aw-redesign/logs/C1F5.final.md. Draft PR targets p2/c1-club-publication; remain on reviewed base per specific brief. See ledgers/CONTINUITY_p2-c1.md.
 - **Now (2026-10-02):** C1F4 nine-item RC1V3 union implemented; main ee16572f/B3 integrated, inherited O4 isolated in7f24e50d, targeted regressions green. Final gates/delivery SHA in external logs/C1F4.final.md +report.md; PR1121 unmerged. See `ledgers/CONTINUITY_p2-c1.md`.
 - **Now (2026-10-02):** C1F3 RC1V2 union implemented on PR1121; main784b1490/B351f30f5b integrated; targeted/PG9/schema equality green, new migration CONTRACT posted; final-head governed gates/browser/push pending. See `ledgers/CONTINUITY_p2-c1.md`.
 
