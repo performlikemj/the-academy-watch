@@ -160,7 +160,7 @@ final class OpportunityEditorTests: XCTestCase {
       XCTAssertFalse(try! decoder.decode(ClubAccess.self, from: data).canRecruit)
     }
   }
-  func testAllFieldValidationAndCreationHorizon() async {
+  func testAllFieldValidationAndCreationHorizon() async throws {
     let m = model(EditorAPI())
     await m.load()
     fill(m)
@@ -171,7 +171,7 @@ final class OpportunityEditorTests: XCTestCase {
     m.draft.birthYearMax = "2000"
     m.draft.timezone = "Factory"
     m.draft.squadId = 999
-    m.draft.closesAt = now.addingTimeInterval(91 * 86400)
+    m.draft.closesAt = try XCTUnwrap(m.horizon).addingTimeInterval(86400)
     m.draft.startsAt = nil
     m.validate(now: now)
     for key in [
