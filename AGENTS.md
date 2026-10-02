@@ -110,6 +110,8 @@ Log one-liner in CONTINUITY.md's "Trivial Log" section.
 
 ## Codebase Patterns
 
+- Web loader primitives live in `academy-watch-frontend/src/lib/cleat-loader.js`; after edits run `node academy-watch-frontend/scripts/sync-cleat-splash.mjs` to refresh the request-free inline boot snapshot. The Node parity test protects both copies.
+
 > Agents: Add patterns here when you discover reusable conventions.
 
 - Result opponent/competition storage and fixture keys use `sanitize_plain_text` as on main. Decode only at JSON/display boundaries with `utils.sanitize.display_plain_text` (one pass over Bleach amp/lt/gt escapes; preserve literal user entities). Never decode stored keys or rollup grouping labels.
@@ -143,6 +145,8 @@ Log one-liner in CONTINUITY.md's "Trivial Log" section.
 - Web current-season reads share `lib/seasonDirectory.js` / `useSeasonDirectory`; use the server directory `display_season` for default desk labels and player label fallbacks; player totals prefer the response season, including frozen shadow history. Use `current_season` only as a last resort. Omit `season` from unpicked desk/player requests so the server retains latest-data fallbacks; carry every explicit URL/store pick into reads and player links. Retain historical URL/store overrides and frozen-mode logic; community pages have no picker, ignore stored season and keep games unfiltered; positive provider games retain the resolved totals season scope. Unpicked local/provider-linked totals also omit season, and game mutations reload the server default totals. The directory must not gate independent data reads. Short positions use `lib/positions.js::positionAbbreviation`; keep free text on player profiles.
 
 - Community global search shares the dynamic `utils/scout_discovery.py::local_players_enabled` switch with the scout desk; OFF returns provider payload/order/query work directly. ON applies canonical public-adult eligibility to all constrained candidates before ranking/capping, retaining provider relative DB order and using NFKD/casefold for community insertion.
+
+- Match-entry date-boundary tests use the parametrized `frozen_now` fixture in `tests/test_player_match_entries.py`; it patches route and subject-resolution UTC clocks. Derive relative date inputs inside the test from that fixture, never during parametrization.
 
 ## Quality Bar
 
