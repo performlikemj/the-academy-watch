@@ -171,6 +171,16 @@ class ContactRequest(db.Model):
         if withheld:
             player_participant = {"display_name": "Unavailable"}
         extra = {"club_first": True} if self.club_first else {}
+        if self.club_first and viewer_user_id == self.scout_user_id:
+            from src.services.club_player_publication import public_request_profiles
+
+            profile = (
+                context["public_profiles"].get(self.id)
+                if context is not None
+                else public_request_profiles([self]).get(self.id)
+            )
+            if profile:
+                extra["public_profile"] = profile
         return {
             **extra,
             "id": self.id,

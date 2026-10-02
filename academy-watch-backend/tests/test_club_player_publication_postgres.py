@@ -673,3 +673,211 @@ def test_postgres_erased_canonical_club_identity_can_publish_again(pg):
     )
     db.session.commit()
     assert public_adult_ids([-ids["local"]]) == {-ids["local"]}
+
+
+@pytest.mark.parametrize("expired", [False, True])
+def test_invitation_vs_introduction_uses_program_then_publication(pg, monkeypatch, expired):
+    """Reverse the real-PG duel deadlock, also after expiry commits its cleanup."""
+    from threading import Event, local
+
+    import src.routes.contact as routes
+    from src.auth import issue_user_token
+    from src.extensions import limiter
+    from src.models.contact import ContactRequest
+    from src.models.trust import ScoutVerification
+    from src.routes.club_player_publication import publication_bp
+
+    app, ids = pg
+    monkeypatch.setenv("CONTACT_RAIL_ENABLED", "true")
+    app.config["RATELIMIT_ENABLED"] = False
+    limiter.init_app(app)
+    app.register_blueprint(routes.contact_bp, url_prefix="/api")
+    app.register_blueprint(publication_bp, url_prefix="/api")
+    pubid = make_consented(ids)
+    row = Publication.query.filter_by(id=pubid).with_for_update().one()
+    service.review(
+        row, "reviewer", {"action": "approve", "expected_version": row.version, "reason": "Lock order fixture"}
+    )
+    version = row.version
+    db.session.add(
+        ScoutVerification(
+            user_account_id=ids["owner"],
+            full_name="Synthetic scout",
+            organization="Fixture",
+            role_title="Scout",
+            statement="Fixture",
+            status="approved",
+        )
+    )
+    if expired:
+        db.session.add(
+            ContactRequest(
+                scout_user_id=ids["owner"],
+                player_api_id=-ids["local"],
+                claim_id=row.claim_id,
+                status="pending",
+                club_first=True,
+                routing_mode="club_included",
+                club_program_id=ids["program"],
+                club_consent_status="pending",
+                message="Expired fixture",
+                expires_at=service.now() - timedelta(days=1),
+            )
+        )
+    db.session.commit()
+    token = issue_user_token(db.session.get(UserAccount, ids["owner"]).email)["token"]
+    db.session.commit()
+    engine = db.engine
+    db.session.remove()
+    ready, program_held, attempted = Event(), Event(), Event()
+    if not expired:
+        ready.set()
+    own = local()
+    original_local, original_expire = service.private_local, routes._expire_visible_rows
+
+    def private_local(*args):
+        result = original_local(*args)
+        if getattr(own, "inviting", False):
+            program_held.set()
+            assert attempted.wait(10), "Introduction must attempt its first lock"
+        return result
+
+    def expire(query):
+        changed = original_expire(query)
+        assert changed
+        ready.set()
+        assert program_held.wait(10), "Invite must own program after expiry commits"
+        return changed
+
+    def before_cursor(conn, cursor, statement, parameters, context, executemany):
+        if (
+            getattr(own, "creating", False)
+            and program_held.is_set()
+            and "FOR UPDATE" in statement.upper()
+            and "club_programs" in statement
+        ):
+            attempted.set()  # Correct order blocks here until invitation rolls back.
+
+    def after_cursor(conn, cursor, statement, parameters, context, executemany):
+        if (
+            getattr(own, "creating", False)
+            and program_held.is_set()
+            and "FOR UPDATE" in statement.upper()
+            and "club_player_publications" in statement
+        ):
+            attempted.set()  # Old order owns publication and creates a real cycle.
+
+    monkeypatch.setattr(service, "private_local", private_local)
+    if expired:
+        monkeypatch.setattr(routes, "_expire_visible_rows", expire)
+    sa.event.listen(engine, "before_cursor_execute", before_cursor)
+    sa.event.listen(engine, "after_cursor_execute", after_cursor)
+
+    def invite():
+        assert ready.wait(10)
+        own.inviting = True
+        with app.test_client() as client:
+            response = client.post(
+                f"/api/club/{ids['program']}/players/{ids['local']}/publication-invite",
+                headers={"Authorization": "Bearer " + token},
+                json={"recipient_email": ids["email"], "expected_version": version},
+            )
+            return response.status_code, response.json
+
+    def create():
+        own.creating = True
+        if not expired:
+            assert program_held.wait(10)
+        with app.test_client() as client:
+            response = client.post(
+                "/api/contact/requests",
+                headers={"Authorization": "Bearer " + token},
+                json={"player_api_id": -ids["local"], "message": "Concurrent introduction"},
+            )
+            return response.status_code, response.json
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            invitation, introduction = pool.submit(invite), pool.submit(create)
+            invitation_result, introduction_result = invitation.result(20), introduction.result(20)
+        assert invitation_result == (409, {"error": "already_claimed"})
+        assert introduction_result[0] == 201, introduction_result
+        assert ContactRequest.query.filter_by(player_api_id=-ids["local"], status="pending").count() == 1
+    finally:
+        sa.event.remove(engine, "before_cursor_execute", before_cursor)
+        sa.event.remove(engine, "after_cursor_execute", after_cursor)
+
+
+def test_publication_endpoint_real_lock_timeout_is_retryable(pg, monkeypatch):
+    from src.auth import issue_user_token
+    from src.routes.club_player_publication import publication_bp
+
+    app, ids = pg
+    app.register_blueprint(publication_bp, url_prefix="/api")
+    pubid, _ = make_invite(ids)
+    version = db.session.get(Publication, pubid).version
+    token = issue_user_token(db.session.get(UserAccount, ids["owner"]).email)["token"]
+    db.session.commit()
+    engine = db.engine
+    db.session.remove()
+    original = service.invite
+
+    def bounded_invite(*args, **kwargs):
+        db.session.execute(sa.text("SET LOCAL lock_timeout = '100ms'"))
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(service, "invite", bounded_invite)
+    with engine.connect() as blocker:
+        transaction = blocker.begin()
+        blocker.execute(sa.text("SELECT id FROM club_player_publications WHERE id=:id FOR UPDATE"), {"id": pubid})
+        with app.test_client() as client:
+            response = client.post(
+                f"/api/club/{ids['program']}/players/{ids['local']}/publication-invite",
+                headers={"Authorization": "Bearer " + token},
+                json={"recipient_email": ids["email"], "expected_version": version},
+            )
+        assert response.status_code == 503 and response.json == {"error": "publication_busy"}
+        transaction.rollback()
+    # The failed request rolled back program locks too; the same call succeeds.
+    with app.test_client() as client:
+        response = client.post(
+            f"/api/club/{ids['program']}/players/{ids['local']}/publication-invite",
+            headers={"Authorization": "Bearer " + token},
+            json={"recipient_email": ids["email"], "expected_version": version},
+        )
+    assert response.status_code == 201, response.json
+
+
+def test_postgres_export_owned_photos_and_affiliations_while_dark(pg, monkeypatch):
+    from src.models.showcase import PlayerClubAffiliation, PlayerShowcaseMedia
+    from src.services.account import build_account_export
+
+    app, ids = pg
+    monkeypatch.setenv("CLUB_PLAYER_PUBLICATION_ENABLED", "false")
+    for owner in (ids["owner"], ids["adult"]):
+        db.session.add(
+            PlayerShowcaseMedia(
+                local_player_id=ids["local"],
+                uploaded_by_user_id=owner,
+                blob_path=f"export-photo-{owner}.png",
+                status="approved",
+                reviewed_by="private-reviewer@example.test",
+            )
+        )
+        db.session.add(
+            PlayerClubAffiliation(
+                local_player_id=ids["local"],
+                created_by_user_id=owner,
+                team_api_id=7001,
+                status="club_confirmed",
+                season=f"export-{owner}",
+            )
+        )
+    db.session.commit()
+    exported = build_account_export(db.session.get(UserAccount, ids["adult"]))
+    media, affiliations = exported["showcase_media"], exported["showcase_affiliations"]
+    assert len(media) == len(affiliations) == 1
+    assert media[0]["blob_path"] == f"export-photo-{ids['adult']}.png"
+    assert affiliations[0]["season"] == f"export-{ids['adult']}"
+    assert not {"uploaded_by_user_id", "created_by_user_id", "reviewed_by"} & media[0].keys()
+    assert not {"uploaded_by_user_id", "created_by_user_id", "reviewed_by"} & affiliations[0].keys()

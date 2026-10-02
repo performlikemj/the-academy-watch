@@ -27,3 +27,8 @@ C1F4 retirement and response contract:
 - Erasure-safe reapproval requires the existing canonical club-local shadow plus preserved nonpersonal approval audit; foreign signed claims and mismatched shadow evidence still block approval. Fresh invite, self-claim, consent and moderation remain required.
 - Introduction creation re-takes and rechecks the publication after expiry commits; existing no-expiry locking remains intact. Owner match writes serialize with retirement. Thread revocation confirms permanent closure and disables repeated writes while pending.
 - Inherited showcase erasure is a separate account-policy change: delete owned photos/affiliations rather than re-pointing them; blob cleanup waits for the root commit and rolls back with the deletion, including savepoints.
+
+C1F5 concurrency and presentation:
+- Invitation and introduction lock program → publication → claim; introduction must retake program and publication after expiry's commit. Retryable PG contention is 409/503 after rollback, including publication routes.
+- Live scout thread titles use a separate public-profile projection pinned to current publication claim/program; account identity stays redacted before grant. Closed/unavailable/replaced histories have no public title. List title evidence is batched per response.
+- Club-first outcome writes require current availability, club grant and player acceptance. Ordinary outcome policy is unchanged. Club adults share community's normalized search insertion and final cap even when community discovery is OFF.

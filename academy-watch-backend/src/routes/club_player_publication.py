@@ -4,7 +4,7 @@ from functools import wraps
 
 import sqlalchemy as sa
 from flask import Blueprint, abort, g, jsonify, request
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from src.auth import require_api_key, require_user_auth
 from src.extensions import limiter
 from src.models.club_player_publication import ClubPlayerPublication as Publication
@@ -35,6 +35,13 @@ def flagged(view):
         except IntegrityError:
             db.session.rollback()
             return jsonify(error="publication_conflict"), 409
+        except OperationalError as exc:
+            db.session.rollback()
+            conflict = service.database_conflict(exc)
+            if conflict is None:
+                raise
+            code, status = conflict
+            return jsonify(error=code), status
 
     return wrapped
 

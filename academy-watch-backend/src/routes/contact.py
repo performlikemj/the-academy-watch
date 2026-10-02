@@ -6,7 +6,7 @@ import logging
 
 from flask import Blueprint, abort, g, jsonify, request
 from sqlalchemy import and_, func, or_
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from src.auth import _ensure_user_account, _safe_error_payload, require_api_key, require_user_auth
 from src.extensions import limiter
 from src.models.contact import ContactAuditEvent, ContactMessage, ContactOutcome, ContactRequest
@@ -481,16 +481,13 @@ def create_contact_request():
 
             club_first = subject.local_player.provenance == "club"
             if club_first:
-                # Serialize creation with withdrawal before locking the claim.
-                from src.models.club_player_publication import ClubPlayerPublication
+                # Match invitation's program → publication → claim lock order.
+                from src.services.club_player_publication import lock_introduction_publication
 
-                publication = (
-                    ClubPlayerPublication.query.filter_by(local_player_id=-player_api_id)
-                    .populate_existing()
-                    .with_for_update()
-                    .first()
-                )
-                if publication is None or resolve_player_subject(player_api_id) is None:
+                publication_program_id = subject.local_player.origin_program_id
+                publication = lock_introduction_publication(-player_api_id, publication_program_id)
+                subject = resolve_player_subject(player_api_id)
+                if publication is None or subject is None or not subject.is_public:
                     db.session.rollback()
                     return _player_not_claimable()
 
@@ -513,12 +510,7 @@ def create_contact_request():
         if club_first and expired_rows:
             # Expiry commits its cleanup. Reacquire before trust/claim locks and
             # recheck the current permissions, retaining this lock through insert.
-            publication = (
-                ClubPlayerPublication.query.filter_by(local_player_id=-player_api_id)
-                .populate_existing()
-                .with_for_update()
-                .first()
-            )
+            publication = lock_introduction_publication(-player_api_id, publication_program_id)
             subject = resolve_player_subject(player_api_id)
             if publication is None or subject is None or not subject.is_public:
                 db.session.rollback()
@@ -732,6 +724,16 @@ def create_contact_request():
     except ValueError as exc:
         db.session.rollback()
         return jsonify({"error": str(exc)}), 400
+    except OperationalError as exc:
+        db.session.rollback()
+        from src.services.club_player_publication import database_conflict
+
+        conflict = database_conflict(exc)
+        if conflict:
+            code, status = conflict
+            return jsonify(error=code), status
+        logger.exception("Failed to create contact request")
+        return jsonify(_safe_error_payload(exc, "Failed to create contact request")), 500
     except Exception as exc:
         db.session.rollback()
         logger.exception("Failed to create contact request")
@@ -922,7 +924,7 @@ def list_contact_requests():
         limit, offset = _pagination()
         total = query.count()
         from sqlalchemy.orm import joinedload
-        from src.services.club_player_publication import available_club_requests
+        from src.services.club_player_publication import available_club_requests, public_request_profiles
 
         rows = (
             query.options(
@@ -951,6 +953,7 @@ def list_contact_requests():
             "programs": programs,
             "available": available_club_requests(rows),
         }
+        context["public_profiles"] = public_request_profiles(rows, context["available"])
         return jsonify(
             {
                 "requests": [_contact_request_payload(row, context=context, viewer_user_id=user.id) for row in rows],
@@ -1329,6 +1332,16 @@ def report_contact_outcome(request_id: str):
         if contact_request.scout_user_id != user.id and _lock_claim_owner(contact_request, user) is None:
             db.session.rollback()
             return jsonify({"error": "contact request not found"}), 404
+
+        if contact_request.club_first and (
+            contact_request.status != "accepted"
+            or contact_request.club_consent_status != "granted"
+            or not club_request_available(contact_request)
+        ):
+            db.session.rollback()
+            return jsonify(
+                error="Outcomes require an available, accepted introduction", code="outcome_unavailable"
+            ), 409
 
         payload = _json_object()
         stage = clean_plain_text(payload.get("stage"), "stage", max_len=30).lower()

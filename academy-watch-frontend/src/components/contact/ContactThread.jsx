@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { Link } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Textarea } from '@/components/ui/textarea'
@@ -147,7 +148,11 @@ export function ContactThread({ request, onRequestChange, canReportOutcome = fal
     <div className="space-y-4" data-testid="contact-thread">
       <div className="space-y-1">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-sm font-semibold text-foreground">{participantName(request, 'scout')} ↔ {participantName(request, 'player')}</span>
+          <span className="text-sm font-semibold text-foreground">
+            {participantName(request, 'scout')} ↔ {request.club_first && request.public_profile ? (
+              <Link className="underline underline-offset-4" to={`/players/${request.public_profile.player_api_id}`}>{participantName(request, 'player')}</Link>
+            ) : participantName(request, 'player')}
+          </span>
           {request.participants?.club ? <Badge variant="outline">via {participantName(request, 'club')}</Badge> : null}
           <Badge variant="secondary">{request.status}</Badge>
           {request.latest_outcome ? <Badge variant="outline">Outcome: {outcomeLabel(request.latest_outcome.stage)}</Badge> : null}

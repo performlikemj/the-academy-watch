@@ -11,6 +11,12 @@
 - Own local aw_p2_c1 and foreground ports5150/5201; no provider sends/prod writes.
 
 ## State
+- Now C1F5: separate fix/c1-followup at reviewed c7cf6c11; X1 lock order/DB conflicts, X2 rendered contrast, O1 safe public title, O2 search membership/cap, O3 granted+accepted outcomes, O4 own media/affiliation export (separate commit).
+- Constraint C1F5: no origin/main merge; specific reviewed-base instruction supersedes generic merge line. No migration expected; release branch untouched.
+- Done C1F5 O4: six reversed export probes FAIL before fix; owned local/provider pending/approved/rejected photos + affiliations portable without other account/reviewer identities. Export/erasure14 PASS; inherited fix separate commit.
+- Done C1F5 implementation: corrected reverse probes19 FAIL/10controls; actual PG invite/introduction deadlock2 FAIL before fix. Program→publication initial/expiry races + existing expiry3 PASS; real route timeout503/rollback/retry PASS. Backend new34+prior+search90 PASS/17skip; legacy contact/parity151 PASS/17skip, Node17 PASS; Chromium title2 + rendered contrast4 PASS after night-surface/utility override correction.
+- Done C1F5 schema: migration172d6c0a/preapply498fa9cb unchanged; no new CONTRACT/preapply equality required. Reviewed main ee16572f and lower B351f30f5b are ancestors; no further merge under explicit reviewed-base instruction.
+- Next C1F5: reverse probes, targeted tests/fixes, final cached four gates + PG/lane Playwright/screenshots, draft PR/push, external C1F5.final.md/BUS DONE.
 - Now C1F4: nine RC1V3 union items implemented; X1=O1/X2 Serious, O2/O4/O5/X4 Medium, O3/O6/X3 Small. Main refresh preserves main and C1 delta; O4 erasure own commit. Decline note stays only for club decline, other unavailable states withheld.
 - Done C1F4 O4: inherited OFF community photo/affiliation erasure reproduced on pre-fix archive; rows deleted without re-pointing, real pending/published local blobs removed after root commit, root/savepoint rollback preserves files/rows. Targeted8pass; separate erasure commit.
 - Done C1F4 implementation: main ee16572f/B3 51f30f5b integrated; duplicate squash hooks removed, main search body retained exactly plus C1 block. Corrected pre-fix probes28fail/3controls; real PG expiry red1fail/no-expiry1pass. New+prior regressions46pass, new namespace/note/PG boundaries10pass, real PG repair/reapproval2pass, stronger retirement/export-order10pass.

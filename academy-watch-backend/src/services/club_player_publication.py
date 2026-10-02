@@ -30,6 +30,26 @@ class PublicationError(ValueError):
         super().__init__(code)
 
 
+def database_conflict(exc):
+    """Recognize retryable PostgreSQL contention without masking other failures."""
+    state = getattr(exc.orig, "sqlstate", None)
+    if state in {"40P01", "40001"}:
+        return "publication_conflict", 409
+    if state == "55P03":
+        return "publication_busy", 503
+    return None
+
+
+def lock_introduction_publication(local_id, program_id):
+    """Match invitation's program → publication order, including after commits."""
+    from src.services.club_registry import program_is_operational
+
+    if not program_is_operational(program_id, for_update=True):
+        return None
+    row = Publication.query.filter_by(local_player_id=local_id).populate_existing().with_for_update().first()
+    return row if row is not None and row.program_id == program_id else None
+
+
 def adult_at_consent(local, timestamp):
     # A corrected child DOB cannot become public merely by reaching a birthday.
     # Current adulthood and adulthood at each explicit permission are separate keys.
@@ -159,6 +179,28 @@ def available_club_requests(contacts):
 
 def club_request_available(contact):
     return not getattr(contact, "club_first", False) or contact.id in available_club_requests([contact])
+
+
+def public_request_profiles(contacts, available=None):
+    """Titles describe a live pinned public profile, separately from its account."""
+    available = available_club_requests(contacts) if available is None else available
+    live = [
+        c
+        for c in contacts
+        if c.id in available and c.status in {"pending", "accepted"} and c.club_consent_status in {"pending", "granted"}
+    ]
+    if not live:
+        return {}
+    names = dict(
+        db.session.query(LocalPlayer.id, LocalPlayer.display_name)
+        .filter(LocalPlayer.id.in_({-c.player_api_id for c in live}))
+        .all()
+    )
+    return {
+        c.id: {"player_api_id": c.player_api_id, "display_name": names[-c.player_api_id]}
+        for c in live
+        if -c.player_api_id in names
+    }
 
 
 def scout_counterpart_available(contact, available=None):
@@ -345,7 +387,7 @@ def expect_version(row, payload):
 
 
 def invite(program_id, local_id, actor, payload):
-    # All C1 writes lock the publication first (or program before first creation).
+    # Invitation and introduction creation both lock program before publication.
     program = ClubProgram.query.filter_by(id=program_id).with_for_update().first()
     if not program or not is_listed(program):
         raise PublicationError("club_unavailable", 404)

@@ -63,9 +63,9 @@ def test_never_granted_response_identity(client, env, action):
             )
     assert (
         response.status_code
-        == {"create": 201, "duplicate": 409, "withdraw": 200, "outcome": 201, "revoke": 200, "messages": 409}[action]
+        == {"create": 201, "duplicate": 409, "withdraw": 200, "outcome": 409, "revoke": 200, "messages": 409}[action]
     ), response.json
-    if action == "messages":
+    if action in {"messages", "outcome"}:
         assert "contact_request" not in response.json
     else:
         assert response.json["contact_request"]["participants"]["player"] == {"display_name": "Unavailable"}
@@ -106,8 +106,11 @@ def test_retained_dark_never_granted_mutation_identity(client, env, monkeypatch,
     response = client.post(
         f"/api/contact/requests/{cid}/{action}", headers=_headers("scout"), json={"stage": "contacted"}
     )
-    assert response.status_code == (201 if action == "outcome" else 200)
-    assert response.json["contact_request"]["participants"]["player"] == {"display_name": "Unavailable"}
+    assert response.status_code == (409 if action == "outcome" else 200)
+    if action == "outcome":
+        assert response.json["code"] == "outcome_unavailable"
+    else:
+        assert response.json["contact_request"]["participants"]["player"] == {"display_name": "Unavailable"}
 
 
 @pytest.mark.parametrize(

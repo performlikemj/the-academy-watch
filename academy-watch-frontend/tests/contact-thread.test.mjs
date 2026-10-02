@@ -72,3 +72,11 @@ test('player sees their own pending action and club consent', () => {
   assert.equal(describeThreadState({status: 'pending', routing_mode: 'club_included', club_consent_status: 'pending'}, 'player').note,
     'Waiting for you to accept and the club to allow the introduction.')
 })
+
+
+test('thread public title never changes the private participant or unavailable fallback', () => {
+  const request = { club_first: true, participants: { player: { display_name: 'Unavailable' } }, public_profile: { display_name: 'Public profile' } }
+  assert.equal(participantName(request, 'player'), 'Public profile')
+  assert.equal(request.participants.player.display_name, 'Unavailable')
+  assert.equal(participantName({ ...request, public_profile: undefined }, 'player'), 'Unavailable')
+})
