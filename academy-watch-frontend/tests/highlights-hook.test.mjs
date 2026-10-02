@@ -11,7 +11,7 @@ async function hookHarness(loader) {
     .replace(/^import .*\n/gm, '').replace(/^export /gm, '')
   let state, effects = []
   const context = vm.createContext({
-    APIService: { getFeatures: loader },
+    APIService: { getFeaturesLive: loader },
     useState: initial => { state = initial; return [state, value => { state = value }] },
     useEffect: effect => effects.push(effect),
   })

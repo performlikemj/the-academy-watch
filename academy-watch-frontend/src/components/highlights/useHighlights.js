@@ -5,7 +5,7 @@ export function useHighlightsState() {
   const [state, setState] = useState({ enabled: false, loaded: false })
   useEffect(() => {
     let live = true
-    APIService.getFeatures().catch(() => ({})).then(value => { if (live) setState({ enabled: value.highlights === true, loaded: true }) })
+    APIService.getFeaturesLive().catch(() => ({})).then(value => { if (live) setState({ enabled: value.highlights === true, loaded: true }) })
     return () => { live = false }
   }, [])
   return state

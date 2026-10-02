@@ -129,3 +129,8 @@
 -31 original conflicts: non-C2 files take main verbatim; shared files retain main and reviewed C2 lines; context-only web insertion shifts and ledger history documented externally.
 - p2c1 migrations/preapply equal main; p2c2 migration/preapply/source guards equal reviewed head. CI jobs equal main including Contact Lock PostgreSQL.
 - Final-head identity proof, four cached gates, real-upgrade PostgreSQL/highlight dark safety, C1 contact batches/review/pairs and one lane browser run, pushed SHA/CI/cleanup authoritative in external logs/C2R.identity.md and C2R.final.md. No merge/deploy/activation.
+
+## C2R2 — approved compatibility exceptions (2026-10-03)
+- Flag hook uses main live reader; C2 hook mock follows it; unchanged16s kill-switch assertion. Main flag-reader code stays exact; reviewed media wrappers retained per02:11BUS clarification.
+- Exactly4single-table lock keys added to frozen test exceptions; no sweeper/guard code edits. SQL/call audit finds no subsequent C1 scope row lock in those sweep transactions.
+- Initial targetedNode17PASS; governed guard/count checks queued. Final identity/request-count/4gate/real-upgradePG/browser/pushedSHA/CI/cleanup authoritative in external logs/C2R2.final.md. No merge/deploy/activation.
