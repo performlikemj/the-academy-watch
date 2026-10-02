@@ -4,16 +4,21 @@
 // not stop JavaScript that is already running: a handler awaiting a response
 // carries on after the switch and would send its next request with the NEW
 // viewer's credential, log the new viewer out on a late 401, or navigate them
-// somewhere. Two pieces close that, at the two places every such case passes:
+// somewhere. A viewer lifetime (createViewerLifetime / useViewerLifetime),
+// which every viewer-bound component talks through, closes that:
 //
-//  - the request layer (APIService.request) binds each request to the
-//    credential it was sent with and delivers a StaleViewerError — never a
-//    success, never an ordinary failure — when the credential has changed by
-//    the time the answer arrives;
-//  - a viewer lifetime (createViewerLifetime / useViewerLifetime) that every
-//    viewer-bound component talks through: once its viewer is gone it refuses
-//    to START a request, and its guarded side effects (navigate, logout,
-//    login prompt, toast) do nothing.
+//  - requests made through `life.api` are bound to the viewer: once the viewer
+//    has changed none can be started, and an answer that arrives after the
+//    change is delivered as a StaleViewerError — never as a success, never as
+//    an ordinary failure;
+//  - guarded side effects (navigate, logout, login prompt, toast, a file
+//    download) do nothing once the component is unmounted or the viewer has
+//    changed.
+//
+// The shared request layer (APIService.request) is deliberately NOT bound:
+// pages that do not remount on a viewer change still get their answers. Its
+// one rule is that a 401 for a credential that is no longer current comes back
+// as a plain failure, so nothing signs the current session out because of it.
 //
 // Pure module (no React, no network) so the rules are unit-tested.
 
@@ -37,14 +42,16 @@ export function isStaleViewerError(error) {
  *
  *  - `sameViewer()`  the viewer this lifetime was created for is still the viewer.
  *  - `alive()`       …and the component is still mounted.
- *  - `api(client)`   a proxy of an API client: a call throws StaleViewerError
- *                    BEFORE sending once the viewer has changed, and a result
+ *  - `api(client)`   a proxy of an API client: once the viewer has changed a
+ *                    call returns a rejected StaleViewerError WITHOUT sending
+ *                    (a rejection, not a throw, so `.catch` chains handle it),
+ *                    and a result
  *                    that arrives after the change is delivered as
  *                    StaleViewerError. (Unmounting alone does not abort a
  *                    same-viewer write: the person who started a save is still
  *                    the one signed in, and half-finished saves help nobody.)
  *  - `guard(fn)`     wraps a side effect (navigate, logout, login prompt,
- *                    toast): it runs only while alive(), otherwise does nothing.
+ *                    toast, download): it runs only while alive(), otherwise does nothing.
  */
 export function createViewerLifetime({ viewer, currentViewer }) {
   const state = { mounted: false }
@@ -63,7 +70,7 @@ export function createViewerLifetime({ viewer, currentViewer }) {
         const value = Reflect.get(target, property, receiver)
         if (typeof value !== 'function') return value
         return (...args) => {
-          assertSameViewer()
+          if (!sameViewer()) return Promise.reject(new StaleViewerError())
           const result = value.apply(target, args)
           if (!result || typeof result.then !== 'function') return result
           return result.then(

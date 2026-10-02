@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Textarea } from '@/components/ui/textarea'
 import { MessageSquare, Loader2, Send } from 'lucide-react'
-import { useViewerLifetime } from '@/hooks/useViewerState'
+import { useViewerKey, useViewerLifetime } from '@/hooks/useViewerState'
 function relativeTime(dateStr) {
   if (!dateStr) return ''
   const now = Date.now()
@@ -20,7 +20,15 @@ function relativeTime(dateStr) {
   return new Date(dateStr).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 }
 
-export function CommentSection({ newsletterId, playerId, title = 'Comments' }) {
+// Keyed on the viewer: it is also mounted on pages that do not remount on a
+// viewer change (the newsletter write-up), and a fresh instance per viewer is
+// what keeps one viewer's draft, error or late answer away from the next.
+export function CommentSection(props) {
+  const viewer = useViewerKey()
+  return <CommentSectionBody key={viewer} {...props} />
+}
+
+function CommentSectionBody({ newsletterId, playerId, title = 'Comments' }) {
   // Requests and side effects go through this viewer's lifetime (see lib/viewer-lifetime.js).
   const life = useViewerLifetime()
   const api = life.api

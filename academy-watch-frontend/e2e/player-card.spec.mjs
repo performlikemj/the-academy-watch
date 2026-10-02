@@ -1280,9 +1280,10 @@ test('scout desk: A\'s held watchlist removal fails after the switch — B\'s ca
 
 // ---- PCF4: what the previous viewer started cannot act for the next --------
 // Remounting drops state; it does not stop a handler that is already running.
-// Requests are bound to the credential they were sent with (a late answer is a
-// StaleViewerError) and every handler goes through the viewer's lifetime (no
-// new request, no navigation, no logout / login prompt once the viewer changed).
+// Every handler goes through the viewer's lifetime: requests made there are
+// bound to the viewer (a late answer is a StaleViewerError), and there is no
+// new request, navigation, logout / login prompt or download once the viewer
+// changed. The shared request layer only refuses to act on a stale 401.
 
 function recordRequests(page) {
   const sent = []
@@ -1586,6 +1587,141 @@ test('scout desk: A\'s held introduction send answers 401 after the switch — B
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect(page.getByText('A: private introduction from the desk')).toHaveCount(0)
   expect(sent.filter((request) => request.path === '/api/contact/requests').map((request) => request.token)).toEqual(['mock-user-token'])
+})
+
+// ---- PCF5: the shared request layer delivers data; keyed pages stay strict --
+// A public page outside the keyed boundaries does not re-read on a sign-in
+// change, so its answer must reach it whatever happened to the credential. A
+// file download is a side effect beyond React state: it happens only through
+// the desk's guard, after the whole body is read and the viewer re-checked.
+
+const PUBLIC_CLUB = { id: 7, slug: 'pcf5-club', name: 'Quillmere Athletic Club Page', city: 'Quillmere', country: 'England', platform_status: 'approved', is_verified_program: false, provenance: { label: 'Self-reported' }, program_provided: { label: 'Program-provided', summary: 'A public club page.', age_groups: ['Adults'], activities: [] }, roster_links: {}, brand: { primary_color: '#0F3D2E', accent_color: '#CFAE62' }, updates: [] }
+
+async function holdPublicClub(page, held) {
+  await page.route('**/api/programs/pcf5-club', async (route) => {
+    await held
+    return route.fulfill({ json: { program: PUBLIC_CLUB } })
+  })
+}
+
+test('an expired saved sign-in: the start-up profile check signs out, and the public club page still renders', async ({ page }) => {
+  // RPCV5 (both reviewers), reversed: the club read was sent with the expired token.
+  await signIn(page)
+  await installApiMocks(page)
+  await page.route('**/api/auth/me', (route) => route.fulfill({ status: 401, json: { error: 'Token expired' } }))
+  const club = hold()
+  await holdPublicClub(page, club.promise)
+  const sent = recordRequests(page)
+  await page.goto('/programs/pcf5-club')
+  await expect.poll(() => storedToken(page)).toBe(null)
+  await expect.poll(() => sent.filter((request) => request.path === '/api/programs/pcf5-club').length).toBeGreaterThan(0)
+  expect(sent.find((request) => request.path === '/api/programs/pcf5-club').token).toBe('mock-user-token')
+  club.release()
+
+  await expect(page.getByRole('heading', { name: 'Quillmere Athletic Club Page' })).toBeVisible()
+  await expect(page.getByText('This club page isn’t available.')).toHaveCount(0)
+  await expect(page.getByText(/viewer changed/i)).toHaveCount(0)
+})
+
+for (const from of ['signed in as A', 'signed out']) {
+  test(`a viewer change while a public club page loads (${from} → B): the page renders for B`, async ({ page }) => {
+    if (from === 'signed in as A') await signIn(page)
+    // B's first sign-in would otherwise open the player onboarding prompt over the page.
+    else await page.addInitScript(() => localStorage.setItem('academyWatch.playerOnboardingPromptDismissed.v1', 'true'))
+    await installApiMocks(page)
+    const club = hold()
+    await holdPublicClub(page, club.promise)
+    const sent = recordRequests(page)
+    await page.goto('/programs/pcf5-club')
+    await expect.poll(() => sent.filter((request) => request.path === '/api/programs/pcf5-club').length).toBeGreaterThan(0)
+    await changeViewer(page, 'token-b')
+    club.release()
+
+    await expect(page.getByRole('heading', { name: 'Quillmere Athletic Club Page' })).toBeVisible()
+    await expect(page.getByText('This club page isn’t available.')).toHaveCount(0)
+    expect(await storedToken(page)).toBe('token-b')
+  })
+}
+
+// `held: 'response'` holds the whole answer (Playwright routing); `held: 'body'`
+// answers the headers at once and holds the streamed body — the reviewer's
+// case, which a check made only at the headers lets through.
+async function openDeskWithHeldExport(page, { held = 'response' } = {}) {
+  const csv = hold()
+  await signIn(page)
+  await page.setViewportSize(VIEWPORTS[0])
+  await installApiMocks(page, { verification: { status: 'approved' } })
+  if (held === 'response') {
+    await page.route('**/api/scout/export.csv**', async (route) => {
+      await csv.promise
+      return route.fulfill({ status: 200, contentType: 'text/csv', body: 'name,goals\nPrivate row for A,6\n' })
+    })
+  } else {
+    await page.addInitScript(() => {
+      const original = window.fetch.bind(window)
+      window.__csvSent = []
+      window.fetch = (input, init) => {
+        const url = String(input?.url || input)
+        if (!url.includes('/scout/export.csv')) return original(input, init)
+        window.__csvSent.push((init?.headers?.Authorization || '').replace(/^Bearer\s+/i, ''))
+        let release
+        const body = new window.ReadableStream({
+          start(controller) {
+            release = () => { controller.enqueue(new window.TextEncoder().encode('name,goals\nPrivate row for A,6\n')); controller.close() }
+          },
+        })
+        window.__releaseCsvBody = release
+        return Promise.resolve(new window.Response(body, { status: 200, headers: { 'content-type': 'text/csv' } }))
+      }
+    })
+    csv.promise.then(() => page.evaluate(() => window.__releaseCsvBody()))
+  }
+  const sent = recordRequests(page)
+  const downloads = []
+  page.on('download', (download) => downloads.push(download.suggestedFilename()))
+  await page.goto('/scout')
+  await page.getByRole('button', { name: 'Export CSV' }).click()
+  const exportTokens = held === 'response'
+    ? () => sent.filter((request) => request.path.startsWith('/api/scout/export.csv')).map((request) => request.token)
+    : () => page.evaluate(() => window.__csvSent)
+  await expect.poll(exportTokens).toEqual(['mock-user-token'])
+  return { csv, sent, downloads }
+}
+
+for (const held of ['response', 'body']) {
+  test(`scout desk: same viewer, the CSV export still downloads (control, held ${held})`, async ({ page }) => {
+    const { csv, downloads } = await openDeskWithHeldExport(page, { held })
+    csv.release()
+    await expect.poll(() => downloads).toEqual(['academy-watch-scout-export.csv'])
+  })
+
+  test(`scout desk: A's CSV export (held ${held}) finishes after the switch to B — nothing is downloaded`, async ({ page }) => {
+    // RPCV5-X, reversed.
+    const { csv, sent, downloads } = await openDeskWithHeldExport(page, { held })
+    await changeViewer(page, 'token-b')
+    await expect(page.getByRole('textbox', { name: 'Search players' })).toHaveValue('')
+    const after = await requestsAfter(page, sent, csv.release)
+
+    expect(after).toEqual([])
+    await page.waitForTimeout(600)
+    expect(downloads).toEqual([])
+    expect(await storedToken(page)).toBe('token-b')
+  })
+}
+
+test('scout desk: A leaves the desk while the CSV export is held — nothing is downloaded on the next page', async ({ page }) => {
+  // RPCV5-X same-viewer unmount, reversed.
+  const { csv, downloads } = await openDeskWithHeldExport(page)
+  await page.evaluate(() => {
+    window.history.pushState({}, '', '/')
+    window.dispatchEvent(new window.PopStateEvent('popstate'))
+  })
+  await expect(page.getByRole('button', { name: 'Export CSV' })).toHaveCount(0)
+  csv.release()
+  await page.waitForTimeout(1500)
+
+  expect(downloads).toEqual([])
+  expect(await storedToken(page)).toBe('mock-user-token')
 })
 
 // ---- PCF2: a failed season-totals read is not an empty season --------------

@@ -42,6 +42,13 @@ test('ShowcaseSection: the exported wrapper holds no state and keys the manage s
   assert.equal(source.split('<ShowcaseSectionBody').length - 1, 1)
 })
 
+test('CommentSection: keyed on the viewer, because it is also mounted outside the keyed pages', () => {
+  const wrapper = between(read('../src/components/CommentSection.jsx'), 'export function CommentSection(props) {', 'function CommentSectionBody({')
+  assert.deepEqual(wrapper.match(STATEFUL), null)
+  assert.match(wrapper, /const viewer = useViewerKey\(\)/)
+  assert.match(wrapper, /<CommentSectionBody key=\{viewer\} \{\.\.\.props\} \/>/)
+})
+
 test('LocalPlayerPage: the profile is keyed on player + viewer; the wrapper keeps only the retry counter and the analytics de-dupe', () => {
   const source = read('../src/pages/LocalPlayerPage.jsx')
   const wrapper = source.slice(source.indexOf('export function LocalPlayerPage() {'))
@@ -122,4 +129,24 @@ test('navigation and global auth actions in those components are guarded by the 
     assert.ok(!/authUI\.(logout|openLoginModal)\(/.test(source.replace(/useGuarded\(life, \(\) => \{[\s\S]*?\n {2}\}\)/g, '')), `${path}: auth action called outside a guard`)
     assert.ok(!/window\.location\.(assign|replace|href\s*=)/.test(source), `${path}: imperative location change`)
   }
+})
+
+// ---- PCF5: side effects that are not React state ---------------------------
+// A file download, window.open or a saved object URL must not happen for
+// another viewer or after leaving the page. API helpers that download on their
+// own (`download*`) run beyond the guard, so these components only fetch the
+// body (`fetch*` → Blob, read in full and re-checked by life.api) and save it
+// through `useGuarded(life, …)`.
+test('downloads and window.open in those components only happen through a guard', () => {
+  for (const path of VIEWER_BOUND_FILES) {
+    const source = read(path)
+    assert.ok(!/\bapi\.download\w*\(/.test(source), `${path}: API helper that downloads by itself`)
+    assert.ok(!/window\.open\(/.test(source), `${path}: window.open`)
+    for (const line of source.match(/.*\bsaveBlobAs\(.*/g) || []) {
+      assert.ok(/^const save\w+ = \(blob\) => saveBlobAs\(/.test(line), `${path}: saveBlobAs called outside a guarded saver — ${line.trim()}`)
+    }
+  }
+  const desk = read('../src/pages/ScoutPage.jsx')
+  assert.match(desk, /const saveCsv = useGuarded\(life, saveScoutCsv\)/)
+  assert.match(desk, /const blob = await api\.fetchScoutCsv\(/)
 })

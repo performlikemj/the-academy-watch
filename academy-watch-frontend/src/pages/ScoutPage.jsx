@@ -22,6 +22,8 @@ import { ScoutSurface, ScoutHeader, deskPillClass } from '@/components/scout/Sco
 import { PlayerCard } from '@/components/player-card/PlayerCard'
 import { cardLine, isProviderSourced, viewerKey } from '@/lib/player-card'
 import { cn } from '@/lib/utils'
+import { saveBlobAs } from '@/lib/download'
+import { isStaleViewerError } from '@/lib/viewer-lifetime'
 import { seasonStore } from '@/lib/seasonStore'
 import { formatSeasonLabel, withSeasonParam } from '@/lib/seasons'
 import {
@@ -57,6 +59,9 @@ const RESULT_VIEWS = [
   { value: 'table', label: 'Table' },
 ]
 const RESULT_VIEW_KEY = 'aw.scout.view'
+
+// Stable identity, so the guarded saver is made once per lifetime.
+const saveScoutCsv = (blob) => saveBlobAs(blob, 'academy-watch-scout-export.csv')
 
 // The stored choice wins; otherwise cards on phones (where the table scrolls
 // sideways) and the dense table on wider screens.
@@ -576,6 +581,7 @@ function ScoutDeskBody() {
   const auth = useAuth()
   const contactRail = useContactRail()
   const openLoginModal = useGuarded(life, useAuthUI().openLoginModal)
+  const saveCsv = useGuarded(life, saveScoutCsv)
   const [verificationState, setVerificationState] = useState(null)
   const scoutVerification = !auth?.token ? 'signed-out'
     : verificationState?.token === auth.token ? verificationState.status : 'loading'
@@ -734,13 +740,17 @@ function ScoutDeskBody() {
       const preset = AGE_PRESETS.find((p) => p.key === agePreset)
       Object.assign(params, preset?.params || {})
       if (selectedSeason != null) params.season = selectedSeason
-      await api.downloadScoutCsv({ ...params, sort, order })
+      // The whole body is read and the viewer re-checked (life.api) before the
+      // guarded save: nothing is downloaded after a viewer change or after
+      // leaving the desk.
+      const blob = await api.fetchScoutCsv({ ...params, sort, order })
+      saveCsv(blob)
     } catch (err) {
-      console.error('CSV export failed', err)
+      if (!isStaleViewerError(err)) console.error('CSV export failed', err)
     } finally {
       setExporting(false)
     }
-  }, [auth?.token, openLoginModal, debouncedSearch, effectivePosition, status, source, selectedSeason, api, sort, order, agePreset])
+  }, [auth?.token, openLoginModal, debouncedSearch, effectivePosition, status, source, selectedSeason, api, saveCsv, sort, order, agePreset])
 
   useEffect(() => {
     clearTimeout(searchTimer.current)

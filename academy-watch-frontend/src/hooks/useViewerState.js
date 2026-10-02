@@ -41,10 +41,11 @@ export function useViewerState(viewer, initial = null) {
  *   const api = life.api                      // APIService, bound to this viewer
  *   const navigate = life.guard(useNavigate()) // no-op once unmounted / viewer changed
  *
- * Once the viewer has changed, `api.x()` throws StaleViewerError before sending
- * anything (so a multi-step handler cannot issue its follow-up request as the
- * next viewer), and guarded effects do nothing once the component is unmounted
- * or the viewer has changed.
+ * Once the viewer has changed, `api.x()` returns a rejected StaleViewerError
+ * without sending anything (so a multi-step handler cannot issue its follow-up
+ * request as the next viewer), a late answer for the old viewer is a
+ * StaleViewerError, and guarded effects do nothing once the component is
+ * unmounted or the viewer has changed.
  */
 export function useViewerLifetime() {
   const viewer = useViewerKey()

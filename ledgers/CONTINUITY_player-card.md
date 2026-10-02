@@ -76,3 +76,16 @@
 - Deliberate reading: requests are refused on a viewer change, not on unmount alone (a same-viewer save finishes);
   side effects are refused on both.
 - Hand-back `~/codex-runs/aw-redesign/logs/PCF4.final.md`.
+
+## Fix round PCF5 (2026-10-03, after re-check RPCV5 at 0cf79bce: both FIX — the global request change went too far)
+- Lead's ruling applied. (A') `APIService.request` is back to main for data: answers reach their caller across a
+  credential change (public pages outside the keyed boundaries — club page, pricing — do not re-read on sign-in
+  changes). Only rule kept: a 401 for a credential that is no longer current is a plain failure (no `status`,
+  `staleCredential: true`), so nothing signs the current session out. Removed: `anyViewer`, `_boundFetch`, stale
+  conversion of data/network answers.
+- (B') Strict binding stays inside the keyed pages via `life.api`; pre-send refusal is now a rejected promise (RPCV5-O
+  Small: unhandled rejection in the journey hydration). `CommentSection` keys itself on the viewer (also mounted on the
+  newsletter write-up page, which does not remount).
+- (C') CSV: `fetchScoutCsv` returns the fully read Blob; the desk saves it through `useGuarded(life, saveScoutCsv)`
+  (`lib/download.js`). `downloadScoutCsv` (watchlist page) unchanged from main.
+- Hand-back `~/codex-runs/aw-redesign/logs/PCF5.final.md`.

@@ -57,20 +57,28 @@ is on screen. `tests/viewer-boundary.test.mjs` pins the wrappers; the lane spec
 Remounting drops component state; it does **not** stop a handler that is already running. Two more rules
 close that:
 
-- **Requests belong to the credential they were sent with.** `APIService.request` (and `_boundFetch`)
-  delivers a `StaleViewerError` — never a success, never an ordinary failure with a status — when the
-  credential changed before the answer arrived, so a late 401 for an old session cannot sign the current
-  one out. Only two kinds of request opt out with `{ anyViewer: true }`: app-wide public configuration
-  (features, data mode, season directory) and requests that establish a credential (sign-in code,
-  account claim). Do not add others without that reason.
+- **The shared request layer is not viewer-bound.** `APIService.request` delivers answers to their
+  caller even if the credential changed meanwhile — pages outside the keyed boundaries (club pages,
+  pricing, …) do not re-read on a sign-in change and must still render. Its one rule: a **401 for a
+  credential that is no longer current** comes back as a plain failure (no `status`,
+  `staleCredential: true`), so no caller signs the current session out, opens the sign-in prompt or clears
+  anything because of it (e.g. an expired saved sign-in, or an account switch, while a page loads).
 - **Viewer-bound components talk through their lifetime.** `const life = useViewerLifetime()`,
   `const api = life.api` instead of `APIService`, and `useGuarded(life, fn)` around `navigate`, logout,
-  the sign-in prompt and anything else global. Once the viewer has changed, `api.x()` throws
-  `StaleViewerError` before sending (a multi-step handler cannot issue its follow-up as the next viewer);
-  guarded effects do nothing once the component is unmounted or the viewer has changed. Sign-out plus
+  the sign-in prompt and anything else global. Requests made through `life.api` ARE bound to the viewer:
+  once it has changed, `api.x()` returns a rejected `StaleViewerError` without sending (a multi-step
+  handler cannot issue its follow-up as the next viewer), and an answer that lands after the change is a
+  `StaleViewerError` — never data, never an ordinary failure; swallow it silently. Guarded effects do
+  nothing once the component is unmounted or the viewer has changed. Side effects that are not React
+  state — a file download, clipboard after an await, `window.open`, a kept object URL — happen only
+  through a guard, AFTER the whole body has been read through `life.api`: never call an API helper that
+  downloads by itself (`api.download*`); fetch the Blob (`fetchScoutCsv`) and save it with
+  `useGuarded(life, save)`. A viewer-bound component that is also mounted outside the keyed pages keys
+  itself on `useViewerKey()` (as `CommentSection` does), so a stale answer never lands in a live
+  instance. Sign-out plus
   prompt is one guarded step (`expireSession`), not two calls. Put `api` in hook dependency arrays.
   `tests/viewer-boundary.test.mjs` fails if a file in its list references `APIService`, calls `fetch`,
-  or takes `navigate` / `logout` / `openLoginModal` unguarded — add new viewer-bound components to that
+  takes `navigate` / `logout` / `openLoginModal` unguarded, or downloads outside a guard — add new viewer-bound components to that
   list. Rules and unit tests: `src/lib/viewer-lifetime.js`, `tests/stale-viewer-requests.test.mjs`.
 
 ## Deploy
