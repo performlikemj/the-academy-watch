@@ -630,3 +630,18 @@ def test_all_helpers_have_real_outputs(frames):
         response = sandbox.execute_analysis(f"result={call}", frames)
         assert response["result_type"] == "table"
         assert response["rows"]
+
+
+@pytest.mark.parametrize("field", ["attrs", "index_name"])
+def test_series_metadata_validated_before_reset_index(field):
+    class HostileMetadata(Hostile):
+        def __deepcopy__(self, memo):
+            raise AssertionError("metadata copy hook called")
+
+    result = pd.Series([1])
+    if field == "attrs":
+        result.attrs["hostile"] = HostileMetadata()
+    else:
+        result.index.name = HostileMetadata()
+    with pytest.raises(AnalysisRefused):
+        sandbox._format_result(result)

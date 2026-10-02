@@ -84,7 +84,7 @@ that client. No production configuration change was made or tested by this lane.
 ## Verification and adjacent evaluation audit
 
 `tests/test_gol_sandbox.py` contains67 legitimate analyses (including all10 helpers
-on nonempty fixtures),169 escape cases and32 boundary/resource checks. The
+on nonempty fixtures),169 escape cases and34 boundary/resource checks. The
 legitimate corpus uses raw libraries plus a frozen pre-fix formatter as its
 reference; added date-serialization and nested-copy fixes have separate assertions.
 The escape corpus covers modules, readers/writers/SSRF/pickle, execution/string

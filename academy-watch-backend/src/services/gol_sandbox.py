@@ -1167,6 +1167,8 @@ def execute_analysis(code: str, dataframes: dict, display: str = "table", descri
             ):
                 raise AnalysisRefused(ERROR)
             # No arbitrary objects in cells/labels/metadata; do not coerce them.
+            plain_value(list(frame.columns.names))
+            plain_value(list(frame.index.names))
             for label in (*frame.columns, *frame.index):
                 plain_value(label)
             for row in frame.itertuples(index=False, name=None):
@@ -1302,10 +1304,16 @@ def _format_result(result) -> dict:
     if type(result) is pd.Series:
         # Validate labels before pandas creates column names from them.
         plain_value(result.name, budget=budget)
+        plain_value(result.attrs, budget=budget)
+        plain_value(list(result.index.names), budget=budget)
+        for value in result.array:
+            plain_value(value, budget=budget)
         for label in result.index:
             plain_value(label, budget=budget)
         result = result.reset_index()
     if type(result) is pd.DataFrame:
+        plain_value(list(result.columns.names), budget=budget)
+        plain_value(list(result.index.names), budget=budget)
         columns = []
         for label in result.columns:
             clean = plain_value(label, budget=budget)
