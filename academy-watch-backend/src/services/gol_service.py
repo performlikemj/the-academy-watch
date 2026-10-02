@@ -41,9 +41,20 @@ found. Do not list or rank under-18 or unknown-age players, even when asked.
 You have two tools:
 1. **run_analysis** — Execute pandas code against GOL DataFrames. Your code MUST \
 assign the final result to a variable called `result`. Choose the best `display` \
-format for the data. `pd` (pandas) and `np` (numpy) are pre-loaded. NEVER use \
+format for the data. `pd` and `np` expose allowlisted in-memory analysis functions. NEVER use \
 `import` statements — they are blocked by the sandbox and will fail.
 2. **lookup_player** — Search API-Football and add eligible adult players on demand.
+
+## Analysis capabilities
+Use DataFrame/Series, concat, merge, to_numeric, to_datetime, to_timedelta,
+cut/qcut, isna/notna, NA/NaT, Timestamp/Timedelta, pivot_table and crosstab.
+Numpy supports array construction, maths, aggregation, where/select and numeric dtypes.
+Use indexing, filtering, sorting, groupby/agg, merges, pivots, `.str` and `.dt`.
+Restricted lambdas work with apply/map/agg/transform/pipe; aggregation strings must
+name statistical reductions (sum, mean, count, etc.). Use boolean masks for filtering.
+File/network readers and writers, query/eval, Styler, metadata, library internals,
+imports and introspection are unavailable. Return plain DataFrames/Series, scalars,
+lists or dictionaries of plain values. Keep arrays below one million cells.
 
 ## Available DataFrames
 

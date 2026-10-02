@@ -32,6 +32,8 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
 
 ## State
 
+- **SBX (2026-10-02):** GOL capability facades, typed guards, callback-dispatch checks and plain result boundary implemented; sandbox268 PASS (67 legitimate/169 escapes/32 controls), related GOL/freeze179 PASS, OSV547 clean before frozen restore. Final-head four cached gates, pushed SHA, ready PR and CI are authoritative in `~/codex-runs/aw-redesign/logs/SBX.final.md`; see local `ledgers/CONTINUITY_sbx.md` and `docs/gol-sandbox.md`. No production actions or merge.
+
 - **Now (B3XR):** Pure PR1126 refresh of reviewed ca36e869 onto main66e85b2e; both admin imports retained in three conflicts, both histories retained. Identity proof, final-head gates/browser/screenshots, push/CI and cleanup receipts: `~/codex-runs/aw-redesign/logs/B3XR.identity.md` and `B3XR.final.md`. No new product behavior.
 
 - **Now (B3XF1):** PR1126 review-duel fix round: O1 queue parity, X1 phone wrapping, O2 id fallback, O3 honest duplicate-queue note; O4 rollout documentation. Main eddba4ac merged; all19 queue comparisons covered, targeted backend28/browser5 pass; final gates and ready delivery tracked in `ledgers/CONTINUITY_b3x.md` and external `logs/B3XF1.final.md`. No migration/dependency change.
