@@ -99,3 +99,15 @@
 - All RC2V3 union groups implemented with regressions; final exact-head gates, C2 PG selection, lane browser/screenshots and pushed SHA/cleanup are authoritative in external logs/C2F4.final.md + C2F4.gate-manifest.json. Repository ledger precedes these checks so gate caches are reusable. No merge/deploy/flag activation.
 - Candidate a259a1fc gates: backend4848pass162skip2old-fixturefail (provider re-key/member squad removal), PG331pass2samefail; all runtime/new regressions pass. Corrected inherited duel fixtures assert refusal then explicitly obtain fresh verified review/senior attestation; targeted PG2pass. No runtime/schema/frontend changes.
 - Candidate lint623/Node285/frontend lint0err193warnings/build PASS; browser21pass26.2s/29 refreshed inspected shots. Initial browser setup-only timeout from pnpm double-dash forwarding corrected; no tests ran in that attempt. Final exact-head four gates/PG/browser repeated after the justified fixture commit; final receipts external.
+
+## C2F5 — RC2V4 union (2026-10-02)
+- State: in-progress at19705a36; all four reviews read.
+- O1 Medium: live source context required for review no-op; route-created change/revert/re-confirm regression for ORM/SQL. Shared review fixture gets both context fields.
+- X1 Small: queued polling must recover after failed load with bounded backoff, visibility/unmount cancellation.
+- O2 lead ruling: retain fail-closed structural squad kind/age-limit withdrawal; clarify staff copy. Migration/preapply/guard hashes unchanged.
+- Next: reverse probes, fix, merge current main/lower lanes, final governed gates/PG/lane Playwright/screenshots, push + external C2F5.final.md.
+- Reverse evidence on19705a36: real-route O1 PostgreSQL14fail/2cosmetic-controls-pass; failed-poll browser2fail at1440/390px.
+- Fixed O1 live marker + complete shared review fixture: PostgreSQL20pass (14renewal variants,2cosmetic idempotency controls,4structural raw-expired ON/OFF route/SQL controls); inherited review/unsafe/legacy selection12pass.
+- X1 implementation re-arms on load completion with30/60/120/240/300s delay, active/visibility guards; removes double backoff on failure. Staff copy explains structural withdrawals and fresh review/pick/approval with retained raw. Targeted ESLint0errors/2existing effect warnings.
+- Current origin/main ee16572f and C1 c7cf6c11 merges already up to date; B3 ancestor. Migration2600cef5/preapply0d79f07c/guardsafe16025 unchanged; no schema/preapply rerun or new CONTRACT needed.
+- Source complete; exact final four cached gates, C2 PostgreSQL selection, one full lane browser run/refreshed screenshots, pushed SHA and cleanup are authoritative in external logs/C2F5.final.md + manifests. Ledger precedes final-head checks to preserve reusable gate caches; no merge/deploy/flag activation.

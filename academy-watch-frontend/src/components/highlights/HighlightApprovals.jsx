@@ -36,27 +36,34 @@ function Inbox() {
     if (!token) { setLoading(false); return }
     setLoading(true)
     try { const data = await APIService.request(`/me/highlight-requests?page=${page}`); setRows(data.highlights); setMore(data.has_more); setError('') }
-    catch { pollDelay.current = Math.min(pollDelay.current * 2, 300000); setError('We could not load your requests. Please refresh to try again.') }
+    catch { setError('We could not load your requests. Please refresh to try again.') }
     finally { setLoading(false) }
   }, [token, page])
   useEffect(() => { load() }, [load])
   // Poll only while preparing; never manufacture a public state before the server says so.
   useEffect(() => {
-    if (!rows.some(row => ['queued', 'running'].includes(row.render_status))) return
+    if (!token || !rows.some(row => ['queued', 'running'].includes(row.render_status))) return
     let timer
+    let active = true
     const cancel = () => clearTimeout(timer)
     const schedule = () => {
       cancel()
-      if (!document.hidden) timer = setTimeout(() => { pollDelay.current = Math.min(pollDelay.current * 2, 300000); load() }, pollDelay.current)
+      if (active && !document.hidden) timer = setTimeout(async () => {
+        pollDelay.current = Math.min(pollDelay.current * 2, 300000)
+        await load()
+        // Failure leaves rows unchanged. Re-arm here as well as on new rows.
+        // A successful load's new effect cancels this old effect's timer.
+        schedule()
+      }, pollDelay.current)
     }
     const visibility = () => {
       cancel()
-      if (!document.hidden) { pollDelay.current = 30000; load() }
+      if (!document.hidden) { pollDelay.current = 30000; load().then(schedule) }
     }
     document.addEventListener('visibilitychange', visibility)
     schedule()
-    return () => { cancel(); document.removeEventListener('visibilitychange', visibility) }
-  }, [rows, load])
+    return () => { active = false; cancel(); document.removeEventListener('visibilitychange', visibility) }
+  }, [rows, load, token])
   async function act(row, action, decision) {
     setBusy(row.id); setError('')
     try {

@@ -177,6 +177,26 @@ async function mountPicker(page) {
     ReactDOM.createRoot(host).render(React.createElement(ClubHighlightPicker, { programId: 7, matchId: 41 }))
   })
 }
+for (const rawAvailable of [true, false]) {
+  test(`staff withdrawal copy explains structural edits (raw available: ${rawAvailable})`, async ({ page }) => {
+    await fixture(page)
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.route('**/api/club/7/matches/41/**', route => route.fulfill({ json: {
+      adult_recording: false, can_review: rawAvailable, review_classification: 'adult_only',
+      recording_block_reason: rawAvailable ? 'review_required' : 'source_unavailable',
+      candidates: [], highlights: [{ ...clip, revoked: true, can_approve: false, status_label: 'Removed · private' }],
+    } }))
+    await page.goto('/highlight-approvals')
+    await mountPicker(page)
+    await expect(page.getByText(/squad type and age limits withdraw existing clips and consent/)).toBeVisible()
+    await expect(page.getByText(/fresh recording review, club pick and player approval/)).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Remove pick' })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Pick moment', exact: true })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Confirm adult-only recording' })).toHaveCount(rawAvailable ? 1 : 0)
+    if (!rawAvailable) await expect(page.getByText(/The raw recording is unavailable/)).toBeVisible()
+    await shot(page, `structural-withdrawal-${rawAvailable ? 'review-required' : 'raw-unavailable'}-390`)
+  })
+}
 for (const width of [1440, 390]) {
   test(`expired raw recording retains remove and un-attest controls at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 844 })
@@ -225,6 +245,79 @@ test('queued preview cannot be approved and polling backs off from thirty second
   expect(reads).toBe(initial + 1)
   await page.clock.fastForward(1000)
   await expect.poll(() => reads).toBe(initial + 2)
+})
+
+for (const width of [1440, 390]) {
+  test(`failed queued polls retry with bounded backoff and recover at ${width}px`, async ({ page }) => {
+    await page.clock.install()
+    await fixture(page)
+    await page.setViewportSize({ width, height: 900 })
+    let reads = 0, fail = false, ready = false
+    await page.route('**/api/me/highlight-requests?*', route => {
+      reads++
+      if (fail) return route.fulfill({ status: 503, json: { error: 'temporary' } })
+      return route.fulfill({ json: { highlights: [{ ...clip, render_status: ready ? 'ready' : 'queued', can_approve: ready, preview_url: ready ? clip.preview_url : null }], has_more: false } })
+    })
+    await page.goto('/highlight-approvals')
+    await expect(page.getByText('Waiting for you', { exact: true })).toBeVisible()
+    const initial = reads
+    fail = true
+    await page.clock.fastForward(30000)
+    await expect(page.getByRole('alert')).toContainText('could not load')
+    expect(reads).toBe(initial + 1)
+    await shot(page, `poll-failed-${width}`)
+    // Each failure re-arms the timer; retries never grow beyond five minutes.
+    let expected = initial + 1
+    for (const delay of [60000, 120000, 240000, 300000, 300000]) {
+      await page.clock.fastForward(delay - 1000)
+      expect(reads).toBe(expected)
+      await page.clock.fastForward(1000)
+      expected++
+      await expect.poll(() => reads).toBe(expected)
+      await expect(page.getByRole('button', { name: 'Refresh', exact: true })).toBeEnabled()
+    }
+    fail = false; ready = true
+    await page.clock.fastForward(300000)
+    await expect(page.getByRole('button', { name: 'Make public', exact: true })).toBeVisible()
+    await expect(page.getByRole('alert')).toHaveCount(0)
+    expect(reads).toBe(expected + 1)
+    await shot(page, `poll-recovered-${width}`)
+    await page.clock.fastForward(900000)
+    expect(reads).toBe(expected + 1)
+  })
+}
+
+test('failed poll retry pauses while hidden and cancels on unmount', async ({ page }) => {
+  await page.clock.install()
+  await fixture(page)
+  await page.addInitScript(() => {
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => window.c2Hidden })
+    window.c2Hidden = false
+  })
+  let reads = 0, fail = false
+  await page.route('**/api/me/highlight-requests?*', route => {
+    reads++
+    return fail ? route.fulfill({ status: 503, json: { error: 'temporary' } }) : route.fulfill({ json: { highlights: [{ ...clip, render_status: 'queued', can_approve: false, preview_url: null }], has_more: false } })
+  })
+  await page.goto('/highlight-approvals')
+  await expect(page.getByText('Waiting for you', { exact: true })).toBeVisible()
+  fail = true
+  await page.clock.fastForward(30000)
+  await expect(page.getByRole('alert')).toBeVisible()
+  const failedReads = reads
+  await page.evaluate(() => { window.c2Hidden = true; document.dispatchEvent(new Event('visibilitychange')) })
+  await page.clock.fastForward(900000)
+  expect(reads).toBe(failedReads)
+  await page.evaluate(() => { window.c2Hidden = false; document.dispatchEvent(new Event('visibilitychange')) })
+  await expect.poll(() => reads).toBe(failedReads + 1)
+  await expect(page.getByRole('button', { name: 'Refresh', exact: true })).toBeEnabled()
+  // The visibility load fails too; its next scheduled poll must still be cancelled.
+  await page.getByRole('link', { name: '← Home', exact: true }).click()
+  await expect(page).toHaveURL(/\/$/)
+  const unmountedReads = reads
+  await page.clock.fastForward(900000)
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')))
+  expect(reads).toBe(unmountedReads)
 })
 test('admin can take down one clip without raw footage', async ({ page }) => {
   await fixture(page)

@@ -25,6 +25,7 @@ function Picker({ programId, matchId }) {
   return <section className="p2-highlights mt-6" aria-labelledby={`highlight-picker-${matchId}`}>
     <p className="hl-label">Club key · reviewed adult footage</p><h2 id={`highlight-picker-${matchId}`} className="mt-3">Pick highlights</h2>
     <p className="hl-muted mt-4">Picking is the first key. The adult player holds the second. Only a separately cut clip can become public.</p>
+    <p className="hl-muted mt-4">Changes to recording details, roster or squad type and age limits withdraw existing clips and consent, even if the squad remains senior. Sharing again requires a fresh recording review, club pick and player approval while the raw recording is available.</p>
     {error && <p role="alert" className="hl-error mt-4">{error}</p>}
     {data && !data.adult_recording && data.can_review && <div className="hl-row">
       <h3>Review the whole recording first</h3><p className="hl-muted mt-3">Youth, mixed-age and unknown-age footage stays private. Review every person visible, including the opposition and bystanders.</p>

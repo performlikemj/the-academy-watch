@@ -210,7 +210,8 @@ def review_recording(program_id, match_id):
     attested = classification == "adult_only" and kind == "unknown" and data.get("squad_adult_attested") is True
     context = service.review_context(match)
     same_source = (
-        row.classification == classification
+        bool(row.source_context)
+        and row.classification == classification
         and row.source_etag == match.blob_etag
         and row.source_snapshot == match.scoped_snapshot
         and row.squad_adult_attested == attested

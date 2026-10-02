@@ -169,6 +169,7 @@ def world(monkeypatch):
             source_etag="source-v1",
             source_snapshot="snapshot-v1",
             source_context=highlights.review_context(match),
+            classification_context=highlights.review_context(match),
         )
         db.session.add_all([track, report, review])
         db.session.commit()
