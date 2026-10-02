@@ -45,7 +45,7 @@ for (const width of [1440, 390]) {
     await page.getByRole('button', { name: 'Save brief', exact: true }).click()
     expect((await saved).status()).toBe(200)
     const after = await (await request.get(`/api/__uxm2f3-fixture?width=${width}`)).json()
-    expect(after.worker_lines).toEqual(['Check shoulders'])
+    expect(after.worker_lines).toEqual(['Expectation withheld.', 'Check shoulders'])
     await expect(page.locator('.ch-brief-lines')).toContainText('Brannock scans')
     if (process.env.E2E_UXM2_SHOTS) await page.screenshot({ path: `${process.env.E2E_UXM2_SHOTS}/real-hidden-save-${width}.png`, fullPage: true })
     // Each viewport uses a separate scoped account with the same grant.
@@ -53,6 +53,7 @@ for (const width of [1440, 390]) {
       expect((await request.put(url, { headers, data: { body: 'Check shoulders' } })).status()).toBe(200)
       expect((await request.put(url, { headers, data: { body: 'Known scans' } })).status()).toBe(422)
     }
+    expect((await request.put(url, { headers, data: { body: 'Check shoulders' } })).status()).toBe(200)
     await page.getByRole('button', { name: 'Edit brief', exact: true }).click()
     await textbox.fill('Known scans')
     const limited = page.waitForResponse(r => r.url().endsWith(`/roster/${mid}/brief`) && r.request().method() === 'PUT')
@@ -66,6 +67,12 @@ for (const width of [1440, 390]) {
     await expect(textbox).toHaveValue('Known scans')
     expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false)
     if (process.env.E2E_UXM2_SHOTS) await page.screenshot({ path: `${process.env.E2E_UXM2_SHOTS}/real-429-${width}.png`, fullPage: true })
+    await textbox.fill('Check shoulders')
+    const clean = page.waitForResponse(r => r.url().endsWith(`/roster/${mid}/brief`) && r.request().method() === 'PUT')
+    await page.getByRole('button', { name: 'Save brief', exact: true }).click()
+    expect((await clean).status()).toBe(200)
+    await expect(page.locator('.ch-brief-lines')).toContainText('Check shoulders')
+    if (process.env.E2E_UXM2_SHOTS) await page.screenshot({ path: `${process.env.E2E_UXM2_SHOTS}/real-clean-after-exhaustion-${width}.png`, fullPage: true })
     expect(errors).toEqual([])
   })
 }

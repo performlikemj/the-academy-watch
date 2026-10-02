@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from concurrent.futures import ThreadPoolExecutor
+from datetime import date
 from threading import Barrier
 from urllib.parse import urlparse
 from uuid import uuid4
@@ -565,4 +566,65 @@ def test_complete_alias_inventory_and_worker_filter_on_postgres(postgres_app, pg
             [{"id": 101, "club_roster_member_id": target.id, "jersey_number": 9}],
             [target],
         )
-        assert result["roster"]["101"]["lines"] == ["Check shoulders"]
+        assert result["roster"]["101"]["lines"] == [*["Expectation withheld."] * 2, "Check shoulders"]
+
+
+@pytest.mark.parametrize("source", ["local", "tracked", "shadow", "sheet"])
+def test_nfd_names_and_stored_revision_on_postgres(postgres_app, pg_case, source):
+    from types import SimpleNamespace
+
+    from src.models.follow import PlayerShadow
+    from src.models.showcase import LocalPlayer
+    from src.models.video import VideoMatch, VideoRosterEntry
+    from src.services.coach_brief import brief_payload
+    from src.workers.vision_worker import _brief_context
+
+    with postgres_app.app_context():
+        outside = db.session.get(ClubRosterMember, pg_case["members_a"][1])
+        if source == "local":
+            local = LocalPlayer(display_name="Mu\u0308ller", birth_year=2010, status="approved")
+            db.session.add(local)
+            db.session.flush()
+            outside.local_player_id, outside.player_api_id = local.id, None
+        elif source == "tracked":
+            TrackedPlayer.query.filter_by(player_api_id=outside.player_api_id).update({"player_name": "Mu\u0308ller"})
+        elif source == "shadow":
+            db.session.add(PlayerShadow(player_api_id=outside.player_api_id, player_name="Mu\u0308ller"))
+        else:
+            match = VideoMatch(
+                club_program_id=pg_case["program_a"],
+                blob_path="fixture/nfd-sheet.mp4",
+                opponent_name="Synthetic Rovers",
+                match_date=date(2026, 9, 1),
+            )
+            db.session.add(match)
+            db.session.flush()
+            db.session.add(
+                VideoRosterEntry(
+                    video_match_id=match.id,
+                    jersey_number=9,
+                    player_name="Mu\u0308ller",
+                    club_roster_member_id=outside.id,
+                )
+            )
+        db.session.commit()
+    url = f"/api/club/{pg_case['program_a']}/roster/{pg_case['members_a'][0]}/brief"
+    with postgres_app.test_client() as client:
+        response = client.put(url, json={"body": "Muller scans"}, headers=_headers(pg_case))
+        assert response.status_code == 422
+    with postgres_app.app_context():
+        target = db.session.get(ClubRosterMember, pg_case["members_a"][0])
+        body = "Muller scans\nCheck shoulders"
+        target.coach_brief_body = body
+        result = _brief_context(
+            {
+                "club_program_id": pg_case["program_a"],
+                "our_kit_color": "blue",
+                "club_program": SimpleNamespace(system_brief_body=body),
+            },
+            [{"id": 101, "club_roster_member_id": target.id, "jersey_number": 9}],
+            [target],
+        )
+        for payload in [result["roster"]["101"], result["system_brief"]]:
+            assert payload["lines"] == ["Expectation withheld.", "Check shoulders"]
+            assert payload["hash"] == brief_payload(body)["hash"]

@@ -14,14 +14,17 @@ from src.models.video import VideoMatch, VideoRosterEntry
 BRIEF_NAME_TOKEN_RE = re.compile(r"[^\W\d_]{2,}")
 # These Latin letters do not decompose under NFKD. This is a defined ASCII
 # spelling policy, not universal romanization; casefold already handles ß.
-LATIN_ASCII = str.maketrans({"ł": "l", "ø": "o", "đ": "d"})
+LATIN_ASCII = str.maketrans({"ł": "l", "ø": "o", "đ": "d", "æ": "ae", "œ": "oe", "ı": "i", "þ": "th", "ð": "d"})
+WITHHELD_EXPECTATION = "Expectation withheld."
 
 
 def name_tokens(names):
     tokens = {}
     for name in names:
-        for token in BRIEF_NAME_TOKEN_RE.findall(name or ""):
-            tokens.setdefault(fold_brief_name(token), token)
+        # Combining marks must be folded before token extraction; otherwise NFD
+        # Müller becomes the unrelated fragments "mu" and "ller".
+        for token in BRIEF_NAME_TOKEN_RE.findall(fold_brief_name(name or "")):
+            tokens.setdefault(token, token)
     return tokens
 
 
@@ -115,11 +118,45 @@ def brief_name_token_matches(token: str, line: str) -> bool:
 
 
 def strip_named_lines(body, tokens):
-    """Drop entire lines containing any stored name before creating a model payload."""
+    """Withhold named text while retaining normalized expectation positions."""
     if not isinstance(body, str):
         return body
     return "\n".join(
-        line
+        WITHHELD_EXPECTATION if any(brief_name_token_matches(token, line) for token in tokens.values()) else line
         for line in body.splitlines()
-        if not any(brief_name_token_matches(token, line) for token in tokens.values())
     )
+
+
+def scoped_brief_analysis(value):
+    """Copy analysis without private checks or their aggregate/presence signals.
+
+    Brief model calls are isolated from ordinary observations. Their verdicts,
+    limits and check-only notes must not disclose the hidden inventory, even for
+    historical analyses that hashed/renumbered filtered lines.
+    """
+    if isinstance(value, list):
+        return [scoped_brief_analysis(item) for item in value]
+    if not isinstance(value, dict):
+        return value
+    out = {}
+    for key, item in value.items():
+        if "brief" in key:
+            continue
+        if key == "honest_limits" and isinstance(item, list):
+            item = [limit for limit in item if not isinstance(limit, str) or "brief" not in limit.casefold()]
+        if key == "player_notes" and isinstance(item, list):
+            item = [note for note in item if not isinstance(note, dict) or note.get("observations")]
+        out[key] = scoped_brief_analysis(item)
+    return out
+
+
+def scoped_analysis_payload(value):
+    """Find analysis in any club adapter without changing stored coach briefs."""
+    if isinstance(value, list):
+        return [scoped_analysis_payload(item) for item in value]
+    if not isinstance(value, dict):
+        return value
+    return {
+        key: scoped_brief_analysis(item) if key == "qwen_analysis" else scoped_analysis_payload(item)
+        for key, item in value.items()
+    }

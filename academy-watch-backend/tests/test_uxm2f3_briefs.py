@@ -68,8 +68,8 @@ def test_complete_inventory_refuses_suppressed_bridge_and_survivor_aliases(clien
     # Stored text predating this policy is also filtered at the worker boundary.
     target.coach_brief_body = "Brannock scans\nShadowalias scans\nLocalalias scans\nCheck shoulders"
     filtered = context(env, target, system="Privatealias scans\nStay compact")
-    assert filtered["roster"]["102"]["lines"] == ["Check shoulders"]
-    assert filtered["system_brief"]["lines"] == ["Stay compact"]
+    assert filtered["roster"]["102"]["lines"] == [*["Expectation withheld."] * 3, "Check shoulders"]
+    assert filtered["system_brief"]["lines"] == ["Expectation withheld.", "Stay compact"]
 
 
 @pytest.mark.parametrize(
@@ -86,9 +86,13 @@ def test_supported_latin_variants_are_refused_and_removed_at_worker(client, env,
     target = db.session.get(ClubRosterMember, env["m1"])
     target.coach_brief_body = f"{variant} scans\nCheck shoulders"
     assert context(env, target, system=f"{variant} scans\nStay compact")["roster"]["102"]["lines"] == [
-        "Check shoulders"
+        "Expectation withheld.",
+        "Check shoulders",
     ]
-    assert context(env, target, system=f"{variant} scans\nStay compact")["system_brief"]["lines"] == ["Stay compact"]
+    assert context(env, target, system=f"{variant} scans\nStay compact")["system_brief"]["lines"] == [
+        "Expectation withheld.",
+        "Stay compact",
+    ]
 
 
 def test_scoped_hidden_and_unknown_guesses_and_bisection_are_identical(client, env, club_app):
@@ -188,7 +192,7 @@ def test_invisible_aliases_do_not_change_a_scoped_save_answer(client, env, outsi
 
     assert stable(before) == stable(after)
     target = db.session.get(ClubRosterMember, env["m1"])
-    assert context(env, target)["roster"]["102"]["lines"] == ["Check shoulders"]
+    assert context(env, target)["roster"]["102"]["lines"] == ["Expectation withheld.", "Check shoulders"]
 
 
 def test_scoped_visible_roster_and_readable_match_sheet_names_are_refused(client, env):
@@ -223,8 +227,8 @@ def test_reverse_merge_alias_and_signed_shadow_names_never_reach_worker(client, 
     db.session.commit()
     target = db.session.get(ClubRosterMember, env["m1"])
     target.coach_brief_body = "Oldalias scans\nSignedalias scans\nSurvivor scans\nCheck shoulders"
-    assert context(env, target)["roster"]["102"]["lines"] == ["Check shoulders"]
+    assert context(env, target)["roster"]["102"]["lines"] == [*["Expectation withheld."] * 3, "Check shoulders"]
     # Malformed historical merge cycles must terminate without losing names.
     survivor.merged_into_local_player_id = source.id
     db.session.commit()
-    assert context(env, target)["roster"]["102"]["lines"] == ["Check shoulders"]
+    assert context(env, target)["roster"]["102"]["lines"] == [*["Expectation withheld."] * 3, "Check shoulders"]

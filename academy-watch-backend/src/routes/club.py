@@ -19,7 +19,7 @@ from functools import wraps
 from html import unescape
 from urllib.parse import urlsplit
 
-from flask import Blueprint, g, jsonify, request
+from flask import Blueprint, current_app, g, jsonify, request
 from sqlalchemy import func, or_, text
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from src.auth import mint_media_token
@@ -640,6 +640,7 @@ def _brief_name_tokens(program: ClubProgram) -> dict[str, str]:
     # The scoped save answer depends exclusively on readable identities. Hidden
     # aliases are handled by the full inventory at the worker boundary instead.
     names = []
+    readable_members = set()
     members = ClubRosterMember.query.filter(
         ClubRosterMember.program_id == program.id, ClubRosterMember.squad_id.in_(scope)
     ).all()
@@ -647,12 +648,14 @@ def _brief_name_tokens(program: ClubProgram) -> dict[str, str]:
         subject, _ = _member_subject(member)
         if subject:
             names.append(subject["display_name"])
+            readable_members.add(member.id)
     matches = VideoMatch.query.filter(VideoMatch.club_program_id == program.id, VideoMatch.squad_id.in_(scope)).all()
     readable_matches = [match.id for match in matches if match_in_scope(match, require_bytes=True)]
     names.extend(
         name
         for (name,) in db.session.query(VideoRosterEntry.player_name).filter(
-            VideoRosterEntry.video_match_id.in_(readable_matches)
+            VideoRosterEntry.video_match_id.in_(readable_matches),
+            VideoRosterEntry.club_roster_member_id.in_(readable_members),
         )
     )
     return name_tokens(names)
@@ -1120,7 +1123,6 @@ _brief_write_limit = limiter.shared_limit(
 
 @club_bp.route("/club/<int:program_id>/roster/<int:member_id>/brief", methods=["PUT"])
 @require_club_permission(("players.manage", "feedback"), any_of=True)
-@_brief_write_limit
 def set_club_roster_member_brief(program_id: int, member_id: int):
     member = ClubRosterMember.query.filter_by(id=member_id, program_id=program_id).first()
     if (
@@ -1133,7 +1135,10 @@ def set_club_roster_member_brief(program_id: int, member_id: int):
     try:
         body = _clean_brief(_payload().get("body"), program)
     except BriefNameError as exc:
-        return jsonify(error=str(exc)), 422
+        # Enter the account budget only after authorized validation proves this
+        # is a name refusal. Exhaustion must not prevent clean/malformed saves.
+        with _brief_write_limit:
+            return jsonify(error=str(exc)), 422
     except ValueError as exc:
         return _bad_request(str(exc))
 
@@ -2335,6 +2340,17 @@ def club_report_payload(match):
         visible.append(row)
     visible.sort(key=lambda row: -(row["minutes_visible"] or 0))
     return {"match": match.to_dict(), "reports": visible}
+
+
+@club_bp.after_request
+def _scoped_analysis_response(response):
+    # Central projection covers detail/list/writes, report (direct to_dict),
+    # reels and nested profile adapters. Whole-club/flag-off readers retain checks.
+    if response.is_json and scoped_squad_ids() is not None:
+        from src.services.brief_names import scoped_analysis_payload
+
+        response.set_data(current_app.json.dumps(scoped_analysis_payload(response.get_json())))
+    return response
 
 
 @club_bp.after_request

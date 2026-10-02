@@ -317,11 +317,12 @@ def _brief_context(match, roster_entries, roster_members) -> dict | None:
     skipped_roster = {}
     for entry, member in brief_entries:
         body = _row_value(member, "coach_brief_body")
-        # Enforce the original length cap before redaction, then hash only the
-        # filtered text that actually reaches the model.
+        # Enforce the original cap and retain the stored revision hash. Named
+        # lines become neutral placeholders, keeping original expectation indexes.
         payload, line_count = _brief_payload(body, max_lines=MAX_BRIEF_LINES)
         if payload is not None:
-            payload, _ = _brief_payload(strip_named_lines(body, tokens), max_lines=MAX_BRIEF_LINES)
+            filtered, _ = _brief_payload(strip_named_lines(body, tokens), max_lines=MAX_BRIEF_LINES)
+            payload["lines"] = filtered["lines"]
         if payload is not None:
             roster[str(int(_row_value(entry, "id")))] = {
                 **payload,
@@ -337,7 +338,8 @@ def _brief_context(match, roster_entries, roster_members) -> dict | None:
     system_body = _row_value(program, "system_brief_body")
     system_brief, _ = _brief_payload(system_body, max_lines=MAX_BRIEF_LINES)
     if system_brief is not None:
-        system_brief, _ = _brief_payload(strip_named_lines(system_body, tokens), max_lines=MAX_BRIEF_LINES)
+        filtered, _ = _brief_payload(strip_named_lines(system_body, tokens), max_lines=MAX_BRIEF_LINES)
+        system_brief["lines"] = filtered["lines"]
     return {
         "schema_version": BRIEF_CONTEXT_SCHEMA_VERSION,
         "max_lines": MAX_BRIEF_LINES,

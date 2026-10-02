@@ -32,6 +32,8 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
 
 ## State
 
+- **UXM2F4 (2026-10-02):** in progress; five confirmed Coach’s-brief fixes from RUXM2V3. Main ee16572f merged preserving B3/UXM1; targeted reverse probes next, then final governed gates/PG/lane browser/screenshots/push. See `ledgers/CONTINUITY_uxm2.md`.
+
 - **UXM2F3 (2026-10-01):** draft1123 review-duel union + lead option1 complete at source041f372f (final browser readiness/ledger closure follows): full4131pass74skip0fail, PG13/Node225/Playwright142pass1existing skip/Ruff-format583/OSV/lint/build. Complete aliases/Latin folding, scoped visible-only save/full-inventory worker strip, refusal-only budget, real429/frozen decode. Main current,10 shots inspected, cleanup complete; delivery SHA in external `logs/UXM2F3.report.md` / `logs/UXM2F3.final.md`; independent duel next, no merge. See `ledgers/CONTINUITY_uxm2.md`.
 
 - **UXM2F2 (2026-10-01):** Review-duel union fixes/gates complete at code28a4883c on draft #1123; full4111pass70skip0fail, PG9/Node225/Playwright140pass1skip/Ruff-format571/OSV/lint/build. Stored-name inventory, neutral422/account budget, served public rollup decode; all names refused per fallback (BUS ruling absent at final reread). Cleanup complete; delivery SHA in `~/codex-runs/aw-redesign/logs/UXM2F2.final.md`; next independent duel, no merge. See `ledgers/CONTINUITY_uxm2.md`.

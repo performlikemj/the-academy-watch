@@ -5,9 +5,9 @@
 - Constraints: staging read-only; foreground commands; no dependencies/migrations; preserve A2 scope/viewer redaction/minor privacy; no UXM1-owned edits without BUS agreement; draft PR, no merge.
 - Sources: DESIGN §§3/6–9; BUS tail; SUX.product-bugs.md; CLAUDE.md; docs/agents/{frontend,backend,invariants,club-staff-access}.md; PHASE2 decision 2.
 - Done: instructions/evidence read; START/CLAIM posted; live read-only staging reproduction recorded in external logs/uxm2/staging-readonly.json; OSV clean + frozen dependency restore; first scoped fixes implemented.
-- Status: complete (UXM2F3 implementation, gates and cleanup; delivery SHA in external hand-back).
-- Now: UXM2F3 source041f372f plus browser readiness closure; all final gates green, cleanup complete; draft1123 hand-back in external logs/UXM2F3.report.md.
-- Next: independent duel verification of updated draft #1123; no merge authorized.
+- Status: in-progress (UXM2F4 five review-duel fixes).
+- Now: UXM2F4; main ee16572f merged in e72d19d6 (only CONTINUITY conflict; both histories retained). Reverse five probes before fixing.
+- Next: targeted regressions, final-head four cached gates + PostgreSQL + lane Playwright/screenshots; push, hand-back, BUS DONE. No merge authorized.
 - Decision: orchestrator BUS 14:29 explicitly authorizes in-scope Coach’s brief writes via players.manage OR feedback; implemented with member scope/redacted response; viewers and analysts denied.
 - Gates: Ruff check/format pass (553 files); Node 210 pass; lint 0 errors/181 inherited warnings; build pass. Relevant Playwright 93 pass/1 expected skip + trust desk 1 pass. Final UXM2 20 pass; correction suite 4 pass on isolated rerun after one fixed-delay harness startup flake. Full offline pytest 3645 pass/50 skip/146 warnings (675.74s). No standalone typecheck script/config in this JavaScript frontend; build passes.
 
@@ -60,3 +60,5 @@
 - UXM2F3 gate harness correction: geometry test now waits for actual billing content/fonts and polls the unchanged no-overflow predicate boundedly; no cases excluded. Final complete140-case Vite suite rerunning sequentially with isolated output. Production probe5 pass; production-wide experiment cannot support source-import harnesses/StrictMode mock timing and is not counted as the final gate. Backend/runtime source041f372f remains unchanged.
 
 - UXM2F3 final: full flags-off4131pass74skip0fail147warnings754.20s; PG13/Node225/Ruff0.16-format583/OSV547/lint0err186warn/build green. Final complete normal Vite suite139pass1existing billing-build skip5.7m, plus real src.main.app2 + real results1 =142unique browser pass1skip. Same no-overflow requirement waits for billing content/fonts and checks boundedly; no cases excluded. Ten refreshed PNGs re-inspected/indexed/hashed. Final fetch/merge main784b1490 already up to date; BUS19:01 option1 unoverridden; no lower stack/migration/preapply/CONTRACT change. All5 owned ports absent, aw_uxm2f3_test catalog0, temp/build/browser/Python/Vite caches removed, pre-existing matching deps retained. All11 implementation/fixture/browser blobs unchanged; only existing test readiness + ledger closure follow source041f372f. Delivery SHA/remote confirmation recorded in external UXM2F3.report.md and UXM2F3.final.md; no merge/deploy/provider/staging writes.
+
+- UXM2F4 inputs: all four RUXM2V3 reports/probes read; X-1 Serious, O-1/O-2 Medium, O-3/O-4 Small confirmed; O-5 wider romanization excluded except optional one-line data map. Placeholder/stored hash plus scoped output withholding chosen. No migration/dependency changes.

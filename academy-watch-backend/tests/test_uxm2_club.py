@@ -253,7 +253,7 @@ def test_scoped_brief_saves_hidden_club_names_while_manager_refuses(client, env)
         [{"id": 102, "club_roster_member_id": target.id, "jersey_number": 9}],
         [target],
     )
-    assert context["roster"] == {}
+    assert context["roster"]["102"]["lines"] == ["Expectation withheld."]
 
 
 def test_old_and_new_result_entries_share_one_public_competition(client, club_app):
@@ -417,7 +417,7 @@ def test_brief_checks_stored_unavailable_names_without_display_serializer(
         [{"id": 102, "club_roster_member_id": target.id, "jersey_number": 9}],
         [target],
     )
-    assert context["roster"]["102"]["lines"] == ["Check both shoulders"]
+    assert context["roster"]["102"]["lines"] == ["Expectation withheld.", "Check both shoulders"]
     assert "Outsidesquad" not in str(context) and "Privateperson" not in str(context)
 
 
@@ -468,10 +468,11 @@ def test_brief_rate_budget_is_account_keyed_and_counts_only_refusals(rate_limite
             )
             assert response.status_code == 422
             assert response.json == BRIEF_REFUSAL
+        assert client.put(url, json={"body": "Check shoulders"}, headers=_h(_email("coach"))).status_code == 200
         for member_id in [case["m1"], case["m1"]]:
             limited = client.put(
                 f"{case['base']}/roster/{member_id}/brief",
-                json={"body": "Watch Zzyzzx and copy"},
+                json={"body": "Outsidesquad checks shoulders"},
                 headers=_h(_email("coach")),
             )
             assert limited.status_code == 429 and limited.json == {"error": "Too many brief updates. Try again later."}
