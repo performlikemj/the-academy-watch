@@ -695,3 +695,21 @@ def test_b2f4_posting_response_racing_staff_transition_uses_program_first(pg, mo
     finally:
         sa.event.remove(engine, "begin", begin)
         sa.event.remove(engine, "before_cursor_execute", lock_order)
+
+
+@pytest.mark.parametrize("oid", ["not-a-uuid", "\x00", ""])
+def test_uxbf1_invalid_context_uuid_is_neutral_and_keeps_pg_transaction_usable(pg, oid):
+    from src.auth import issue_user_token
+    from src.extensions import limiter
+    from src.routes.opportunities import opportunities_bp
+
+    app, ids = pg
+    app.config["RATELIMIT_ENABLED"] = False
+    limiter.init_app(app)
+    app.register_blueprint(opportunities_bp, url_prefix="/api")
+    token = issue_user_token(db.session.get(UserAccount, ids["users"][0]).email)["token"]
+    response = app.test_client().get(
+        "/api/me/application-claims", query_string={"opportunity_id": oid}, headers={"Authorization": f"Bearer {token}"}
+    )
+    assert response.status_code == 404 and response.get_json() == {"error": "Not found"}
+    assert db.session.execute(sa.text("SELECT 1")).scalar() == 1
