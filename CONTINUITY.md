@@ -42,7 +42,7 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
 
 
 
-- **Now (2026-10-02):** I1F4 fixing the RI1V2 ten-item union; I1F3 review-duel implementation complete; reused-simulator location test resets its authorization before launch; final gates/delivery receipts in `~/codex-runs/aw-redesign/logs/I1F3.final.md`; see `ledgers/CONTINUITY_ios-phase2.md`.
+- **Now (2026-10-02):** I1F4 ten RI1V2 union fixes implemented;59 targeted model tests and all7 new UI scenarios pass; final validation/delivery/cleanup receipts in `~/codex-runs/aw-redesign/logs/I1F4.final.md`; see `ledgers/CONTINUITY_ios-phase2.md`. Draft #1118 remains review-only/unmerged.
 
 ### Done
 - **2026-10-01 I1 round 2:** native owner/manager opportunity editor, exact N5F1 solid low-cut loader/static launch;56 staging contracts,292 unit tests,42 offline pass/2 opt-in skips,4 final affected UI pass,80 backend and Release green.60 indexed round2 PNGs; owned simulators/DerivedData removed. Draft #1118 unmerged. See `ledgers/CONTINUITY_ios-phase2.md`.

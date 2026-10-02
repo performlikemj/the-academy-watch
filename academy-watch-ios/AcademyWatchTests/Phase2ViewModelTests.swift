@@ -66,6 +66,7 @@ final class Phase2ViewModelTests: XCTestCase {
         XCTAssertNotNil(workspace.error)
         XCTAssertFalse(workspace.hasClubSurface)
         XCTAssertFalse(workspace.error?.contains("draft") ?? true)
+        XCTAssertFalse(phase2ReadError(APIClientError.decoding(NSError(domain: "fixture", code: 1))).contains("draft"))
         let enabled = Phase2Workspace(client: RecordingPhase2API("membership-error"))
         await enabled.load(authenticated: true)
         XCTAssertTrue(enabled.hasClubSurface)

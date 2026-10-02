@@ -101,8 +101,12 @@ func phase2Error(_ error: Error) -> String {
 
 func phase2ReadError(_ error: Error) -> String {
     if error is URLError { return "Could not connect. Please try again." }
-    if phase2Status(error).map({ $0 >= 500 }) == true {
-        return "The service could not load this information. Please try again later."
+    switch phase2Status(error) {
+    case 401: return "Sign in again from Account to continue."
+    case 403: return "You no longer have access, or your profile is not eligible."
+    case 404: return "This feature or record is no longer available."
+    case 409: return "The record changed. Refresh and try again."
+    case 429: return "Too many attempts. Wait a moment before trying again."
+    default: return "The service could not load this information. Please try again later."
     }
-    return phase2Error(error)
 }

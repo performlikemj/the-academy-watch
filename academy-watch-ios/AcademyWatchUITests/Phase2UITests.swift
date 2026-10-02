@@ -86,7 +86,7 @@ final class Phase2UITests: XCTestCase {
     func testFailedTrialReadEndsLoaderAndShowsRetry() {
         launch("detail-error", tab: "trials")
         tap(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'trial-'")).firstMatch)
-        XCTAssertTrue(app.otherElements["phase2-error"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["The service could not load this information. Please try again later."].waitForExistence(timeout: 10))
         XCTAssertFalse(app.descendants(matching: .any)["cleat-loader"].exists)
         XCTAssertFalse(app.staticTexts["Loading opportunity…"].exists)
         XCTAssertTrue(app.buttons["Try again"].exists)
@@ -95,7 +95,7 @@ final class Phase2UITests: XCTestCase {
     func testLegacyClubHomeOmitsColdWorkspaceReadFailure() {
         launch("club-offline")
         XCTAssertTrue(app.navigationBars["Home"].waitForExistence(timeout: 10))
-        XCTAssertFalse(app.otherElements["phase2-error"].exists)
+        XCTAssertFalse(app.descendants(matching: .any)["phase2-error"].exists)
         XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'draft is still here'")).firstMatch.exists)
         capture("I1F4-legacy-club-offline")
     }
@@ -104,6 +104,7 @@ final class Phase2UITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["PAGE 1"].waitForExistence(timeout: 10))
         XCTAssertFalse(app.staticTexts["30 OPEN"].exists)
         scrollTo(app.buttons["Next"])
+        XCTAssertLessThan(app.buttons["Next"].frame.maxY, app.tabBars.firstMatch.frame.minY)
         tap(app.buttons["Next"])
         XCTAssertTrue(app.staticTexts["PAGE 2"].waitForExistence(timeout: 10))
         XCTAssertFalse(app.staticTexts["1 OPEN"].exists)
@@ -139,7 +140,7 @@ final class Phase2UITests: XCTestCase {
         XCTAssertTrue(app.buttons["Sign Out"].waitForExistence(timeout: 10))
         tap(app.tabBars.buttons["Trials"])
         XCTAssertTrue(app.textFields["apply-position"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.otherElements["phase2-trial-detail"].exists)
+        XCTAssertTrue(app.scrollViews["phase2-trial-detail"].exists)
         XCTAssertFalse(app.staticTexts["Sign in from Account to apply with your approved adult profile."].exists)
         capture("I1F4-trial-retained-after-sign-in")
         tap(app.tabBars.buttons["Clubs"])
@@ -155,7 +156,7 @@ final class Phase2UITests: XCTestCase {
             capture("I1F4-grey-club-" + style.lowercased())
             tap(app.tabBars.buttons["Trials"])
             tap(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'trial-'")).firstMatch)
-            XCTAssertTrue(app.otherElements["phase2-trial-detail"].waitForExistence(timeout: 10))
+            XCTAssertTrue(app.scrollViews["phase2-trial-detail"].waitForExistence(timeout: 10))
             capture("I1F4-grey-trial-" + style.lowercased())
             app.terminate()
         }

@@ -4,6 +4,7 @@ import SwiftUI
 struct Phase2Page<Content: View>: View {
     let title: String
     let eyebrow: String
+    var bottomClearance: CGFloat = 0
     @ViewBuilder let content: () -> Content
     var body: some View {
         ScrollView {
@@ -16,7 +17,7 @@ struct Phase2Page<Content: View>: View {
                     Text(title).font(AcademyType.serif(32)).fixedSize(horizontal: false, vertical: true)
                 }
                 content()
-            }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
+            }.padding(16).padding(.bottom, bottomClearance).frame(maxWidth: .infinity, alignment: .leading)
         }.scrollDismissesKeyboard(.interactively)
             .background(AcademyColors.background).foregroundStyle(AcademyColors.text)
             .navigationBarTitleDisplayMode(.inline)
@@ -473,7 +474,8 @@ struct PublicClubView: View {
                     CleatLoader("Loading club…").padding(20)
                 }
                 Phase2ErrorView(message: error, retry: { Task { await load() } }).padding(.horizontal, 16)
-            }
+            }.padding(.bottom, 76) // Keep the last controls above the editorial tab bar.
+
         }.background(AcademyColors.background).foregroundStyle(AcademyColors.text)
             .navigationTitle("").navigationBarTitleDisplayMode(.inline).task { await load() }.refreshable {
                 await load()
@@ -550,7 +552,7 @@ struct TrialsView: View {
         _model = StateObject(wrappedValue: OpportunitiesViewModel(client: client))
     }
     var body: some View {
-        Phase2Page(title: "", eyebrow: "") {
+        Phase2Page(title: "", eyebrow: "", bottomClearance: 76) {
             Phase2Chips(
                 choices: [
                     ("", "All"), ("trial", "Trials"), ("open_session", "Open sessions"),

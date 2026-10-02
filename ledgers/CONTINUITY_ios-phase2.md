@@ -11,8 +11,8 @@
 
 ## State
 - Done: merged B3 + final B1/B2 dependencies; conflicts preserved owned feature blocks. Native role tabs, browse/apply/application actions, recruiting/invites/notes/signing, owner staff grants and scoped squads implemented.
-- Now: I1F4 in progress; fix RI1V2 ten-item union, native regression coverage and final evidence. Draft #1118 stays unmerged.
-- Next: independent review of the I1F3 pushed head; backend8305283b through renewal; app rollout depends on UXB #1124; no fleet merge.
+- Now: I1F4 ten-item union implemented; final verification/delivery receipts are authoritative in `~/codex-runs/aw-redesign/logs/I1F4.final.md`. Draft #1118 stays unmerged.
+- Next: independent review of the I1F4 pushed head; backend8305283b through renewal; app rollout depends on UXB #1124; no fleet merge.
 
 ## Validation
 - Debug simulator compile passes. First XCTest launch hit simulator infrastructure error before tests; rerun on booted dedicated simulator, parallel testing disabled.
@@ -131,3 +131,8 @@
 - Iteration: targeted xcodebuild only; final full offline/unit + one Release. Governed foreground commands, owned-resource cleanup, no merge.
 - Targeted models:59 pass/0 fail (`I1F4/targeted-models3.xcresult`). Two earlier compiles caught test-only helper/typecheck errors; corrected. Seven behaviour UI regressions queued under machine governor; no second invocation.
 - Integrated current main919be8af (UXM1/N5/clock-test fix); conflicts only AGENTS.md/CONTINUITY.md resolved preserving both histories. Lower A2d1eb66ad/B1d0a63c49/B255b1d3ac/B351f30f5b already included; no new migration/native ancestor change.
+- All seven new UI scenarios pass across targeted receipts: warning actual bounds/open/new message, direct + older granted Home, failed loader/retry, cold legacy club, grey brand light/dark, public paging, offline sign-in with both detail paths retained/claims reloaded.
+- O3 regression additionally exposed Next behind editorial tabs (frame y761.7). Added76pt bottom content clearance to Trials and public club pages; real Next bounds now precede tab bar and page2 is reachable. Bounded12-step helper retained.
+- Iteration failures: test-only element type/helper/compiler expression, signed-out fixture initialization, and the now-fixed public pagination footer. Receipts retained externally; no failures hidden.
+- Production backend/native contract8305283b and all migration bytes unchanged from reviewed d4308c6d. No preapply/CONTRACT revision required; scratch PG uses actual published triggers/RLS in an owned empty database.
+- Source freeze: final full native unit/offline scheme, one Release, four governed cached gates plus lane PG/browser and refreshed PNG evidence recorded externally. No tracked edits after freeze; external I1F4 hand-back records final outcome, pushed SHA and resource cleanup.

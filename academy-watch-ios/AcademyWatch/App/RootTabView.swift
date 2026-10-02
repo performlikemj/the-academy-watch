@@ -129,7 +129,7 @@ struct RootTabView: View {
         #if DEBUG && targetEnvironment(simulator)
             if Phase2Fixtures.active {
                 fixtureState =
-                    Phase2Fixtures.mode == "club-signed-out"
+                    ["club-signed-out", "player-signed-out"].contains(Phase2Fixtures.resolvedMode)
                     ? .signedOut
                     : .signedIn(
                         email: "phase2@fixture.invalid", accountRole: .player,
