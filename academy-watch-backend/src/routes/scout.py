@@ -71,6 +71,7 @@ from src.utils.data_mode import api_enabled_route, api_football_frozen, newslett
 from src.utils.feature_flags import rollup_reads_enabled
 from src.utils.player_names import clean_name
 from src.utils.sanitize import sanitize_plain_text
+from src.utils.scout_discovery import local_players_enabled as _community_local_players_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -186,10 +187,6 @@ def _local_players_enabled() -> bool:
     from src.services.club_player_publication import enabled
 
     return _community_local_players_enabled() or enabled()
-
-
-def _community_local_players_enabled():
-    return os.getenv("SCOUT_INCLUDE_LOCAL_PLAYERS", "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _resolve_subject(player_api_id: int):
