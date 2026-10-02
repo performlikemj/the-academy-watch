@@ -21,6 +21,28 @@ export function when(value, timezone = 'UTC') {
   }
 }
 
+// Collapse local same-day ranges only when both endpoints share the same UTC offset.
+// Across DST changes, show both zone labels so an ambiguous wall time stays explicit.
+export function whenRange(start, end, timezone = 'UTC') {
+  if (!end) return when(start, timezone)
+  const zone = canonicalTimezone(timezone)
+  let first, last
+  try { first = new Date(start); last = new Date(end) } catch { return `${when(start, zone)} – ${when(end, zone)}` }
+  if (!start || !Number.isFinite(first.getTime()) || !Number.isFinite(last.getTime())) return `${when(start, zone)} – ${when(end, zone)}`
+  try {
+    const parts = date => Object.fromEntries(new Intl.DateTimeFormat('en-GB', {
+      timeZone: zone, year: 'numeric', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZoneName: 'shortOffset',
+    }).formatToParts(date).map(part => [part.type, part.value]))
+    const a = parts(first), b = parts(last)
+    if (a.timeZoneName !== b.timeZoneName) return `${when(start, zone)} – ${when(end, zone)}`
+    const label = new Intl.DateTimeFormat('en-GB', { timeZone: zone, timeZoneName: 'short' }).formatToParts(last).find(part => part.type === 'timeZoneName').value
+    const date = p => `${p.day} ${p.month} ${p.year}`
+    const time = p => `${p.hour}:${p.minute}`
+    const sameDay = date(a) === date(b)
+    return `${date(a)}, ${time(a)}${sameDay ? '–' : ' – ' + date(b) + ', '}${time(b)} ${label} (${zone})`
+  } catch { return `${when(start, zone)} – ${when(end, zone)}` }
+}
+
 export function localInput(value, timezone) {
   if (!value || !TIMEZONES.has(timezone)) return ''
   timezone = canonicalTimezone(timezone)

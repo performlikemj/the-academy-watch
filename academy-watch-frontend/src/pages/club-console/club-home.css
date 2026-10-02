@@ -1197,15 +1197,9 @@
   border-left: 1px dashed var(--color-hairline-dark);
 }
 @media (max-width: 760px) {
-  body:has(.club-home) {
-    padding-bottom: calc(79px + env(safe-area-inset-bottom));
-  }
   .ch-rail {
     height: calc(63px + env(safe-area-inset-bottom));
     padding-bottom: env(safe-area-inset-bottom);
-  }
-  body:has(.club-home) button[aria-label="Open GOL Assistant chat"] {
-    bottom: calc(79px + env(safe-area-inset-bottom));
   }
 }
 @media (max-width: 760px) {
@@ -1378,7 +1372,7 @@
 }
 @media (max-width: 760px) {
   .club-home { display: block; padding-bottom: 0; }
-  .ch-rail { display: flex; gap: 0; padding-left: 8px; padding-right: 8px; }
+  .ch-rail { display: flex; gap: 0; padding-left: 8px; padding-right: 88px; } /* Reserved for the 56px GOL launcher + edge/gap. */
   .ch-rail > button { flex: 1; min-width: 0; width: auto; font-size: 9px; border-radius: 999px; }
   .ch-rail > button svg { width: 18px; height: 18px; }
   .ch-rail > button:nth-of-type(3), .ch-rail > button:nth-of-type(5) { display: none; }

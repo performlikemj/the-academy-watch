@@ -1,3 +1,4 @@
+import { formatDisplayDate } from '@/lib/display-date'
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
@@ -1246,7 +1247,7 @@ export function AdminTeams() {
                             <p className="font-medium truncate">{req.team_name}</p>
                             <p className="text-sm text-muted-foreground truncate">{req.team_league}</p>
                             <p className="text-xs text-muted-foreground mt-1">
-                              {new Date(req.created_at).toLocaleDateString()}
+                              {formatDisplayDate(req.created_at)}
                               {req.email && <span className="hidden sm:inline"> by {req.email}</span>}
                             </p>
                           </div>

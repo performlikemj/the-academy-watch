@@ -31,7 +31,7 @@ test('contact entry points are gated on the /api/features contact_rail flag', as
   const app = await fs.readFile(appFile, 'utf8')
   assert.ok(app.includes("import { useContactRail } from '@/hooks/useContactRail.js'"), 'App imports the hook')
   assert.ok(app.includes("if (contactRail === true) items.push({ path: '/introductions', label: 'Introductions', icon: Send })"), 'nav item behind the flag')
-  assert.ok(app.includes('}, [adminUnlocked, contactRail, isJournalist, isCurator])'), 'nav memo re-computes when the flag answers')
+  assert.ok(app.includes('}, [adminUnlocked, contactRail, isJournalist, isCurator, playerProfiles])'), 'nav memo re-computes when the flag answers')
   const scout = await fs.readFile(scoutFile, 'utf8')
   assert.ok(scout.includes('{contactRail === true && player.contactable ? ('), 'Introduce button behind the flag')
   const guard = scout.indexOf('{contactRail === true ? (')

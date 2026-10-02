@@ -89,3 +89,11 @@ test('an action that finishes after switching boxes never writes its error or cl
   assert.equal(defaultIntroductionBox({ sent: [{ id: 'sent' }], inbox: [] }), 'sent')
   assert.equal(defaultIntroductionBox({ sent: [{ id: 'sent' }], inbox: [{ id: 'received' }] }), 'inbox')
 })
+
+
+test('club-first cards use the separate public profile title while account identity stays withheld', () => {
+  const request = { club_first: true, player_api_id: -23, participants: { player: { display_name: 'Unavailable' }, scout: { display_name: 'Scout' } }, public_profile: { player_api_id: -23, display_name: 'Public profile name' } }
+  assert.equal(counterpartName(request, 'sent'), 'Public profile name')
+  assert.equal(counterpartName(request, 'inbox'), 'Scout')
+  assert.equal(counterpartName({ ...request, public_profile: undefined }, 'sent'), 'Unavailable')
+})

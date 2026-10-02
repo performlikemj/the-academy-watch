@@ -1,16 +1,51 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useContext, useEffect, useRef, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import { APIService } from '@/lib/api'
+import { OpportunityStateContext } from '@/context/OpportunityStateContext'
+import { peekFeatures } from '@/lib/features'
 
-export function useOpportunities() {
-  const [flags, setFlags] = useState({ opportunities: false, applications: false, loaded: false })
-  useEffect(() => {
-    let active = true
-    APIService.request('/opportunities/features').then(data => {
-      if (active) setFlags({ ...data, loaded: true })
-    }).catch(() => { if (active) setFlags({ opportunities: false, applications: false, loaded: true }) })
-    return () => { active = false }
+const unavailable = { opportunities: false, applications: false, loaded: true }
+function effectiveFlags(data) {
+  return { opportunities: data.opportunities === true, applications: data.opportunities === true && data.applications === true, loaded: true }
+}
+
+export function useOpportunityFlags(enabled) {
+  const inflight = useRef(null)
+  const mounted = useRef(true)
+  const [flags, setFlags] = useState(() => {
+    const data = peekFeatures()
+    return data ? effectiveFlags(data) : { opportunities: false, applications: false, loaded: false }
+  })
+  const retry = useCallback((arrival = false) => {
+    if (inflight.current) return inflight.current
+    setFlags(current => arrival === true ? { ...current, error: '', loaded: false, retrying: true } : { ...current, retrying: true })
+    const request = APIService.getFeatures().then(data => {
+      if (mounted.current) setFlags(effectiveFlags(data))
+    }).catch(() => {
+      if (mounted.current) setFlags({ loaded: true, error: 'Could not load opportunities. Please try again later.' })
+    }).finally(() => { if (inflight.current === request) inflight.current = null })
+    inflight.current = request
+    return request
   }, [])
-  return flags
+  useEffect(() => {
+    mounted.current = true
+    if (enabled) retry()
+    return () => { mounted.current = false }
+  }, [enabled, retry])
+  return { ...flags, retry }
+}
+
+export function useOpportunities(enabled = true) {
+  const { flags, enable, observeArrival } = useContext(OpportunityStateContext)
+  const { key, pathname } = useLocation()
+  const arrival = `${key}:${pathname}`
+  // Navigation reports every visit, including signed-out pages with no consumer.
+  // Observing an arrival never enables a request.
+  useEffect(() => {
+    observeArrival(arrival)
+    if (enabled) enable(false, arrival)
+  }, [enabled, enable, observeArrival, arrival])
+  return enabled ? flags : unavailable
 }
 
 export { when } from '@/lib/opportunity-time'
@@ -18,6 +53,7 @@ export { when } from '@/lib/opportunity-time'
 export function errorMessage(error) {
   const code = error?.body?.error || error?.message || ''
   if (code === 'temporarily_unavailable') return 'Temporarily unavailable. Please try again later.'
+  if (code === 'already_applied') return 'You already applied. View your applications and next steps on player home.'
   if (error?.status === 409) return 'This changed while you were working. Reload to see the latest state.'
   if (error?.status === 401) return 'Sign in to continue.'
   if (error?.status === 403) return 'An approved adult player claim and current access are required.'

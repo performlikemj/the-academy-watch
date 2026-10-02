@@ -93,3 +93,10 @@ nav a:hover {
 .newsletter-tactical-lens a[href*="buymeacoffee"] {
   display: none !important;
 }
+
+/* Reserve the launcher's landing area once, on the last public surface.
+ * Admin's inner .fl-admin-main already reserves pb-28 within its full-height
+ * layout. Padding the outer main would add a blank band below that layout. */
+body:has([data-gol-launcher]) .app-footer {
+  padding-bottom: calc(5.5rem + env(safe-area-inset-bottom, 0px));
+}

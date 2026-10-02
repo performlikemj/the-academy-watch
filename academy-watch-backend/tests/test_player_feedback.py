@@ -64,6 +64,44 @@ def published(client, pilot, accepted):
     return response.json["feedback"]
 
 
+@pytest.mark.parametrize("closure", ["relationship", "reject", "revoke"])
+def test_closure_write_stamps_deadline_without_read_and_reapproval_keeps_closed(
+    client, pilot, accepted, closure, monkeypatch
+):
+    monkeypatch.setenv("CLUB_PLAYER_PUBLICATION_ENABLED", "false")
+    row = published(client, pilot, accepted)
+    revision = correct(client, pilot, row)
+    assert revision.status_code == 201, revision.json
+    if closure == "relationship":
+        response = decide(client, accepted, "revoke")
+    else:
+        if closure == "reject":
+            pilot["claim"].status = "pending"
+            db.session.commit()
+        response = client.post(
+            f"/api/admin/showcase/claims/{pilot['claim'].id}/review",
+            json={"action": closure},
+            headers=_admin_headers(),
+        )
+    assert response.status_code == 200, response.json
+    db.session.expire_all()
+    revisions = PlayerFeedback.query.filter_by(thread_id=row["thread_id"]).all()
+    deadlines = {r.id: r.audit_expires_at for r in revisions}
+    assert len(deadlines) == 2 and all(deadlines.values())
+    assert all(timedelta(days=29) < deadline - utcnow() <= timedelta(days=30) for deadline in deadlines.values())
+    if closure != "relationship":
+        response = client.post(
+            f"/api/admin/showcase/claims/{pilot['claim'].id}/review",
+            json={"action": "approve"},
+            headers=_admin_headers(),
+        )
+        assert response.status_code == 200, response.json
+        assert pilot["claim"].status == "approved"
+    assert client.get("/api/me/player-feedback?player_api_id=7001", headers=_headers("scout")).json["feedback"] == []
+    db.session.expire_all()
+    assert {r.id: r.audit_expires_at for r in PlayerFeedback.query.filter_by(thread_id=row["thread_id"])} == deadlines
+
+
 def detail(client, row, key="scout"):
     return client.get(f"/api/me/player-feedback/{row['id']}", headers=_headers(key))
 
@@ -512,7 +550,7 @@ def test_limit_rejection_and_auth_order(client, pilot, accepted, club_app):
         limiter.reset()
 
 
-@pytest.mark.parametrize("state", ["40001", "40P01", "other"])
+@pytest.mark.parametrize("state", ["40001", "40P01", "55P03", "other"])
 def test_transaction_failures_rollback_without_private_errors(client, pilot, accepted, state):
     from sqlalchemy.exc import OperationalError
 
@@ -520,8 +558,14 @@ def test_transaction_failures_rollback_without_private_errors(client, pilot, acc
     error.sqlstate = state
     with patch("src.routes.feedback.publish", side_effect=OperationalError("PRIVATE_SQL", {}, error)):
         response = create(client, pilot, accepted)
-    assert response.status_code == (409 if state != "other" else 500)
-    assert response.json == {"error": "retry_conflict" if state != "other" else "feedback_operation_failed"}
+    assert response.status_code == (503 if state == "55P03" else 409 if state != "other" else 500)
+    assert response.json == {
+        "error": "retry_busy"
+        if state == "55P03"
+        else "retry_conflict"
+        if state != "other"
+        else "feedback_operation_failed"
+    }
     assert PlayerFeedback.query.count() == 0
 
 

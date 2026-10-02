@@ -1,4 +1,4 @@
-/* global window, document */
+/* global window, document, getComputedStyle */
 import { test, expect } from '@playwright/test'
 import fs from 'node:fs/promises'
 import path from 'node:path'
@@ -46,6 +46,28 @@ async function shot(page, name, viewport) {
   const confirming = await dialog.isVisible()
   if (confirming) await dialog.evaluate(el => Promise.all(el.getAnimations({ subtree: true }).map(animation => animation.finished.catch(() => {}))))
   await page.screenshot({ path: path.join(folder, `${name}-${viewport}.png`), fullPage: !confirming })
+}
+// Check rendered foreground/background, including transparent nested controls.
+async function assertDangerContrast(locator) {
+  const colors = await locator.evaluate(el => {
+    let parent = el, background
+    while (parent) {
+      background = getComputedStyle(parent).backgroundColor
+      if (background !== 'rgba(0, 0, 0, 0)') break
+      parent = parent.parentElement
+    }
+    return { color: getComputedStyle(el).color, background }
+  })
+  const luminance = rgb => {
+    const c = rgb.match(/[\d.]+/g).slice(0, 3).map(Number).map(x => x / 255)
+      .map(x => x <= .04045 ? x / 12.92 : ((x + .055) / 1.055) ** 2.4)
+    return .2126 * c[0] + .7152 * c[1] + .0722 * c[2]
+  }
+  const a = luminance(colors.color), b = luminance(colors.background)
+  expect(colors.color).toBe('rgb(240, 138, 127)')
+  const contrast = (Math.max(a, b) + .05) / (Math.min(a, b) + .05)
+  console.log('C1F5_DANGER_CONTRAST', colors, contrast)
+  expect(contrast).toBeGreaterThanOrEqual(4.5)
 }
 for (const [viewport, size] of [['desktop', { width: 1440, height: 900 }], ['mobile', { width: 390, height: 844 }]]) {
   test(`explicit consent, moderation wait and withdrawal ${viewport}`, async ({ page }) => {
@@ -107,6 +129,7 @@ for (const [viewport, size] of [['desktop', { width: 1440, height: 900 }], ['mob
     await page.goto('/admin/player-publications')
     await page.getByLabel('Review reason').fill('The manager invited their own address')
     await expect(page.getByRole('alert')).toContainText('The inviter and claimant match')
+    await assertDangerContrast(page.getByRole('alert'))
     await expect(page.getByRole('button', { name: 'Approve profile and self-claim' })).toBeDisabled()
     await shot(page, 'admin-self-invite-blocked-test-fixture', viewport)
     expect(writes).toEqual([])
@@ -277,6 +300,7 @@ test('stored birth conflict is visible and blocks moderator approval',async ({pa
   await page.goto('/admin/player-publications')
   await page.getByLabel('Review reason').fill('Conflicting evidence must remain private')
   await expect(page.getByRole('alert')).toContainText('Stored birth evidence conflicts with adulthood')
+  await assertDangerContrast(page.getByRole('alert'))
   await expect(page.getByRole('button',{name:'Approve profile and self-claim'})).toBeDisabled()
   await shot(page,'birth-conflict-review','mobile')
 })
@@ -369,5 +393,101 @@ test('moderator fallback keeps the profile private and asks for independent revi
   await expect(page.getByRole('alert')).toContainText('keep the profile private and arrange an independent identity review')
   await expect(page.getByRole('alert')).not.toContainText('contact your club')
   await expect(page.getByRole('alert')).not.toContainText('unmapped_service_failure')
+  await assertDangerContrast(page.getByRole('alert'))
+  await assertDangerContrast(page.getByRole('button', { name: 'Refresh', exact: true }))
+  expect(await page.getByRole('alert').evaluate(el => getComputedStyle(el).borderColor)).toBe('rgb(158, 58, 49)')
   await shot(page, 'error-moderator-fallback', 'mobile')
 })
+
+
+for (const available of [true, false]) {
+  test(`club-first sent card and thread use only the live public profile title: ${available}`, async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    await fixture(page)
+    const contact = { id: 'c1f5-title', player_api_id: -23, club_first: true, status: available ? 'pending' : 'withdrawn', routing_mode: 'club_included', club_consent_status: 'pending', messaging_open: false, message: 'Synthetic scout pitch', created_at: '2026-10-01T12:00:00', participants: { scout: { display_name: 'Synthetic scout' }, player: { display_name: 'Unavailable' }, club: { display_name: 'Synthetic club' } }, ...(available ? { public_profile: { player_api_id: -23, display_name: 'Public profile title' } } : {}) }
+    await page.route('**/api/features', route => route.fulfill({ json: { contact_rail: true, club_player_publication: true } }))
+    await page.route('**/api/contact/**', route => {
+      const url = new URL(route.request().url())
+      if (url.pathname === '/api/contact/requests') {
+        const sent = url.searchParams.get('box') === 'sent'
+        return route.fulfill({ json: { requests: sent ? [contact] : [], total: sent ? 1 : 0 } })
+      }
+      return route.fulfill({ json: { contact_request: contact, messages: [] } })
+    })
+    await page.goto('/introductions')
+    const title = available ? 'Public profile title' : 'Unavailable'
+    await page.getByRole('button', { name: new RegExp(title) }).click()
+    await expect(page.getByTestId('contact-thread')).toContainText(`Synthetic scout ↔ ${title}`)
+    const profile = page.getByTestId('contact-thread').getByRole('link', { name: 'Public profile title' })
+    if (available) await expect(profile).toHaveAttribute('href', '/players/-23')
+    else await expect(profile).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Save outcome' })).toHaveCount(0)
+    await shot(page, `sent-public-title-${available ? 'available' : 'unavailable'}`, 'mobile')
+  })
+}
+
+
+for (const clubFirst of [true, false]) {
+  for (const [name, title] of [['long', 'X'.repeat(clubFirst ? 120 : 80)], ['realistic', 'Oluwaseun Adebayo-Williams Junior']]) {
+    test(`390px ${clubFirst ? 'club-first' : 'ordinary'} ${name} introduction title fits`, async ({ page }) => {
+      await page.setViewportSize({ width: 390, height: 844 })
+      await fixture(page)
+      const contact = {
+        id: 'width-fixture', player_api_id: -23, club_first: clubFirst, status: 'pending',
+        routing_mode: clubFirst ? 'club_included' : 'direct', club_consent_status: clubFirst ? 'pending' : null,
+        messaging_open: false, message: 'Synthetic introduction', created_at: '2026-10-01T12:00:00',
+        participants: { scout: { display_name: 'Synthetic scout' }, player: { display_name: clubFirst ? 'Unavailable' : title }, club: { display_name: 'Wendleshire United Football Academy Adults' } },
+        ...(clubFirst ? { public_profile: { player_api_id: -23, display_name: title } } : {}),
+      }
+      await page.route('**/api/features', route => route.fulfill({ json: { contact_rail: true, club_player_publication: clubFirst } }))
+      await page.route('**/api/contact/**', route => {
+        const url = new URL(route.request().url())
+        return route.fulfill({ json: url.pathname === '/api/contact/requests'
+          ? { requests: url.searchParams.get('box') === 'sent' ? [contact] : [], total: 1 }
+          : { contact_request: contact, messages: [] } })
+      })
+      await page.goto('/introductions')
+      await page.getByRole('button', { name: new RegExp(title) }).click()
+      const thread = page.getByTestId('contact-thread')
+      await expect(thread).toContainText(title)
+      const clubBadge = thread.getByText('via Wendleshire United Football Academy Adults', { exact: true })
+      await expect(clubBadge).toBeVisible()
+      const badgeBounds = await clubBadge.boundingBox()
+      expect(badgeBounds.x).toBeGreaterThanOrEqual(0)
+      expect(badgeBounds.x + badgeBounds.width).toBeLessThanOrEqual(390)
+      if (clubFirst) await expect(thread.getByRole('link', { name: title })).toHaveAttribute('href', '/players/-23')
+      const widths = await thread.evaluate(el => ({ page: document.documentElement.scrollWidth, thread: el.scrollWidth, available: el.clientWidth }))
+      expect(widths.page).toBeLessThanOrEqual(390)
+      expect(widths.thread).toBeLessThanOrEqual(widths.available)
+      await shot(page, `introduction-${clubFirst ? 'club-first' : 'ordinary'}-${name}`, 'mobile')
+    })
+  }
+}
+
+for (const width of [320, 390]) {
+  test(`${width}px unbroken club name fits introduction list and thread`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 })
+    await fixture(page)
+    const club = 'C'.repeat(50)
+    const contact = { id: 'unbroken-club', player_api_id: -23, status: 'pending', club_first: true,
+      routing_mode: 'club_included', club_consent_status: 'pending', messaging_open: false,
+      message: 'Synthetic introduction', created_at: '2026-10-01T12:00:00',
+      public_profile: { player_api_id: -23, display_name: 'Synthetic adult' },
+      participants: { scout: { display_name: 'Synthetic scout' }, player: { display_name: 'Unavailable' }, club: { display_name: club } } }
+    await page.route('**/api/features', route => route.fulfill({ json: { contact_rail: true, club_player_publication: true } }))
+    await page.route('**/api/contact/**', route => {
+      const url = new URL(route.request().url())
+      return route.fulfill({ json: url.pathname === '/api/contact/requests'
+        ? { requests: url.searchParams.get('box') === 'sent' ? [contact] : [], total: 1 }
+        : { contact_request: contact, messages: [] } })
+    })
+    await page.goto('/introductions')
+    await page.getByRole('button', { name: /Synthetic adult/ }).click()
+    const thread = page.getByTestId('contact-thread')
+    await expect(thread).toContainText(club)
+    const dimensions = await thread.evaluate(el => ({ page: document.documentElement.scrollWidth, thread: el.scrollWidth, available: el.clientWidth }))
+    expect(dimensions.page).toBeLessThanOrEqual(width)
+    expect(dimensions.thread).toBeLessThanOrEqual(dimensions.available)
+    await shot(page, `unbroken-club-${width}`, 'mobile')
+  })
+}

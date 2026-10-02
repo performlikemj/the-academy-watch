@@ -1,4 +1,4 @@
-import { createFeatureCache } from './feature-cache.js'
+import { loadFeatures, peekFeatures } from './features.js'
 import {
     normalizeNewsletterIds,
     parseNewsletterId,
@@ -277,9 +277,11 @@ export class APIService {
         this.setDisplayNameConfirmed(false, { silent: true })
     }
 
-    static getFeatures() {
-        return sharedFeatures()
+    static async getFeatures() {
+        return loadFeatures(fetchFeatures)
     }
+
+    static getFeaturesLive() { return sharedFeatures() }
 
     static async getProfile() {
         const res = await this.request('/auth/me')
@@ -3466,4 +3468,20 @@ export class APIService {
     }
 }
 
-const sharedFeatures = createFeatureCache(() => APIService.request('/features'))
+let lastFeatures = null
+let pendingFeatures = null
+
+function fetchFeatures() {
+    if (pendingFeatures) return pendingFeatures
+    pendingFeatures = APIService.request('/features').then(value => {
+        lastFeatures = { value, fetchedAt: Date.now() }
+        return value
+    }).finally(() => { pendingFeatures = null })
+    return pendingFeatures
+}
+
+function sharedFeatures() {
+    if (peekFeatures() === null) return loadFeatures(fetchFeatures)
+    if (lastFeatures !== null && Date.now() - lastFeatures.fetchedAt < 15000) return Promise.resolve(lastFeatures.value)
+    return fetchFeatures()
+}

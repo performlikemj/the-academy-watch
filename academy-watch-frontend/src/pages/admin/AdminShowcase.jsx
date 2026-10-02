@@ -1,3 +1,5 @@
+import { useControlTab } from '@/components/admin/B3Control'
+import { formatDisplayDate } from '@/lib/display-date'
 import { ShowcasePhoto } from '@/components/ShowcasePhoto'
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Link } from 'react-router-dom'
@@ -99,10 +101,7 @@ const AVAILABILITY_LABELS = {
 }
 
 function formatDate(value) {
-    if (!value) return null
-    const d = new Date(value)
-    if (Number.isNaN(d.getTime())) return null
-    return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+    return formatDisplayDate(value, { fallback: null })
 }
 
 function formatBytes(value) {
@@ -223,8 +222,7 @@ function ClaimsTab({ setMessage }) {
                                             </Badge>
                                             <Badge variant="secondary">{RELATIONSHIP_LABELS[claim.relationship_type] || claim.relationship_type}</Badge>
                                             <Badge variant="outline">
-                                                {claim.player_name ? claim.player_name : `Player #${claim.player_api_id}`}
-                                                {claim.player_name ? ` · #${claim.player_api_id}` : ''}
+                                                {claim.subject_label || (claim.player_name ? `${claim.player_name} · #${claim.player_api_id}` : `Player #${claim.player_api_id}`)}
                                             </Badge>
                                         </div>
                                         <p className="text-sm font-medium text-foreground">{claimant}</p>
@@ -1251,7 +1249,7 @@ function RostersTab({ setMessage }) {
 
 export function AdminShowcase() {
     const [message, setMessage] = useState(null)
-    const [tab, setTab] = useState('claims')
+    const [tab, setTab] = useControlTab('admin_people', ['claims', 'profiles', 'rosters', 'media', 'local-players'], 'claims')
 
     return (
         <div className="space-y-6">

@@ -226,6 +226,13 @@ def test_caption_windows_clip_box_tracks_and_context_unions_tracks_by_roster():
     assert not ({"roster", "brief", "system_brief"} & context.keys())
 
 
+@pytest.fixture(autouse=True)
+def empty_stored_brief_inventory(monkeypatch):
+    # This module tests pure payload construction without a database. Stored
+    # inventory integration is covered by test_uxm2f3_briefs and PostgreSQL.
+    monkeypatch.setattr("src.services.brief_names.stored_name_tokens", lambda program_id: {})
+
+
 def test_brief_context_is_separate_hash_only_and_sends_all_eight_lines():
     body = "\n".join(["  Hold width  ", "", *[f"Expectation {index}" for index in range(2, 9)]])
     normalized = "\n".join(["Hold width", *[f"Expectation {index}" for index in range(2, 9)]])

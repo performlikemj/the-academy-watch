@@ -12,6 +12,8 @@ from src.models.funding import ClubProgram, ClubRosterMember, FundingLeague
 from src.models.league import UserAccount, db
 from src.models.showcase import LocalPlayer, PlayerProfileClaim, local_player_is_minor
 from src.services.club_directory import directory_eligibility, is_listed
+from src.services.contact_locks import database_conflict as contact_database_conflict
+from src.services.contact_locks import lock_contact_scope
 
 CONSENT_VERSION = "public-profile-v1"
 CONSENT_TEXT = (
@@ -28,6 +30,28 @@ class PublicationError(ValueError):
     def __init__(self, code, status=409):
         self.code, self.status = code, status
         super().__init__(code)
+
+
+def database_conflict(exc):
+    return contact_database_conflict(exc, family="publication")
+
+
+def lock_publication(row):
+    locked = lock_contact_scope(db.session, publication_id=row.id).publications.get(row.id)
+    if locked is None:
+        raise PublicationError("publication_unavailable", 404)
+    return locked
+
+
+def lock_introduction_publication(local_id, program_id):
+    from src.services.club_registry import program_is_operational
+
+    hint = Publication.query.filter_by(local_player_id=local_id).first()
+    scope = lock_contact_scope(db.session, program_id=program_id, publication_id=hint.id if hint else None)
+    row = scope.publications.get(hint.id) if hint else None
+    if not program_is_operational(program_id):
+        return None
+    return row if row is not None and row.program_id == program_id and row.local_player_id == local_id else None
 
 
 def adult_at_consent(local, timestamp):
@@ -161,6 +185,28 @@ def club_request_available(contact):
     return not getattr(contact, "club_first", False) or contact.id in available_club_requests([contact])
 
 
+def public_request_profiles(contacts, available=None):
+    """Titles describe a live pinned public profile, separately from its account."""
+    available = available_club_requests(contacts) if available is None else available
+    live = [
+        c
+        for c in contacts
+        if c.id in available and c.status in {"pending", "accepted"} and c.club_consent_status in {"pending", "granted"}
+    ]
+    if not live:
+        return {}
+    names = dict(
+        db.session.query(LocalPlayer.id, LocalPlayer.display_name)
+        .filter(LocalPlayer.id.in_({-c.player_api_id for c in live}))
+        .all()
+    )
+    return {
+        c.id: {"player_api_id": c.player_api_id, "display_name": names[-c.player_api_id]}
+        for c in live
+        if -c.player_api_id in names
+    }
+
+
 def scout_counterpart_available(contact, available=None):
     if not contact.club_first:
         return True
@@ -256,7 +302,8 @@ def quarantine_showcase(row):
 def retire_claim(row, actor):
     from src.services.admin_audit import record_admin_event
 
-    claim = PlayerProfileClaim.query.filter_by(id=row.claim_id).with_for_update().first()
+    row = lock_publication(row)
+    claim = db.session.get(PlayerProfileClaim, row.claim_id) if row.claim_id else None
     quarantine_showcase(row)
     if claim:
         claim.status = "revoked"
@@ -345,8 +392,9 @@ def expect_version(row, payload):
 
 
 def invite(program_id, local_id, actor, payload):
-    # All C1 writes lock the publication first (or program before first creation).
-    program = ClubProgram.query.filter_by(id=program_id).with_for_update().first()
+    hint = Publication.query.filter_by(program_id=program_id, local_player_id=local_id).first()
+    scope = lock_contact_scope(db.session, program_id=program_id, publication_id=hint.id if hint else None)
+    program = scope.programs.get(program_id)
     if not program or not is_listed(program):
         raise PublicationError("club_unavailable", 404)
     local = private_local(program_id, local_id)
@@ -356,8 +404,13 @@ def invite(program_id, local_id, actor, payload):
     if not isinstance(email, str) or len(email) > 254 or not EMAIL_RE.fullmatch(email.strip()):
         raise PublicationError("invalid_recipient", 400)
     email = email.strip().lower()
-    row = Publication.query.filter_by(program_id=program_id, local_player_id=local_id).with_for_update().first()
+    row = (
+        scope.publications.get(hint.id)
+        if hint
+        else Publication.query.filter_by(program_id=program_id, local_player_id=local_id).first()
+    )
     if row:
+        row = lock_publication(row)
         expect_version(row, payload)
         if not can_reinvite(row):
             raise PublicationError("already_claimed")
@@ -391,13 +444,13 @@ def redeem(user, payload, *, preview=False):
     token = payload.get("token")
     if not isinstance(token, str) or not 30 <= len(token) <= 100:
         raise PublicationError("invite_unavailable", 404)
-    row = (
-        Publication.query.filter_by(invite_token_hash=hashlib.sha256(token.encode()).hexdigest())
-        .with_for_update()
-        .first()
-    )
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    hint = Publication.query.filter_by(invite_token_hash=token_hash).first()
+    row = lock_publication(hint) if hint else None
     if (
         row is None
+        or row.invite_token_hash != token_hash
+        or row.invite_expires_at is None
         or row.invite_expires_at <= now()
         or row.club_revoked_at
         or row.claimed_at
@@ -442,6 +495,7 @@ def redeem(user, payload, *, preview=False):
 
 
 def consent(row, user_id, payload):
+    row = lock_publication(row)
     if row.recipient_user_id != user_id or not row.claimed_at:
         raise PublicationError("publication_unavailable", 404)
     expect_version(row, payload)
@@ -458,6 +512,7 @@ def consent(row, user_id, payload):
 
 
 def review(row, actor, payload):
+    row = lock_publication(row)
     expect_version(row, payload)
     action = payload.get("action")
     if action not in {"approve", "reject"}:
@@ -478,7 +533,7 @@ def review(row, actor, payload):
     shadow = PlayerShadow.query.filter_by(player_api_id=-local.id).with_for_update().first()
     if shadow_birth_conflict(shadow):
         raise PublicationError("birth_evidence_conflict")
-    claim = PlayerProfileClaim.query.filter_by(id=row.claim_id).with_for_update().first()
+    claim = db.session.get(PlayerProfileClaim, row.claim_id) if row.claim_id else None
     recipient = db.session.get(UserAccount, row.recipient_user_id)
     if self_invitation(row, recipient):
         raise PublicationError("self_invitation_review_required")
@@ -546,6 +601,7 @@ def review_audit(row, actor, payload, approved):
 
 
 def revoke(row, *, club=False):
+    row = lock_publication(row)
     if club:
         quarantine_showcase(row)
         row.club_revoked_at = now()
@@ -583,15 +639,19 @@ def close_threads(row):
     from src.models.contact import ContactRequest
     from src.services.contact import add_audit_event
 
-    for contact in (
+    row = lock_publication(row)
+    candidates = (
         ContactRequest.query.filter(
             ContactRequest.player_api_id == -row.local_player_id,
             ContactRequest.status.in_(("pending", "accepted")),
         )
         .order_by(ContactRequest.id)
-        .with_for_update()
         .all()
-    ):
+    )
+    scope = lock_contact_scope(db.session, request_id=[r.id for r in candidates])
+    for contact in scope.requests.values():
+        if contact.status not in ("pending", "accepted") or contact.player_api_id != -row.local_player_id:
+            continue
         contact.status = "withdrawn"
         add_audit_event(contact, "withdrawn", actor_user_id=None, metadata={"publication_id": row.id})
 

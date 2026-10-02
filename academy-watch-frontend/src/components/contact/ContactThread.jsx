@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { Link } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Textarea } from '@/components/ui/textarea'
@@ -144,16 +145,20 @@ export function ContactThread({ request, onRequestChange, canReportOutcome = fal
   }
 
   return (
-    <div className="space-y-4" data-testid="contact-thread">
+    <div className="min-w-0 space-y-4" data-testid="contact-thread">
       <div className="space-y-1">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-sm font-semibold text-foreground">{participantName(request, 'scout')} ↔ {participantName(request, 'player')}</span>
-          {request.participants?.club ? <Badge variant="outline">via {participantName(request, 'club')}</Badge> : null}
+          <span className="min-w-0 max-w-full [overflow-wrap:anywhere] text-sm font-semibold text-foreground">
+            {participantName(request, 'scout')} ↔ {request.club_first && request.public_profile ? (
+              <Link className="underline underline-offset-4" to={`/players/${request.public_profile.player_api_id}`}>{participantName(request, 'player')}</Link>
+            ) : participantName(request, 'player')}
+          </span>
+          {request.participants?.club ? <Badge variant="outline" className="min-w-0 max-w-full whitespace-normal [overflow-wrap:anywhere]">via {participantName(request, 'club')}</Badge> : null}
           <Badge variant="secondary">{request.status}</Badge>
           {request.latest_outcome ? <Badge variant="outline">Outcome: {outcomeLabel(request.latest_outcome.stage)}</Badge> : null}
         </div>
         <p className="rounded-lg border border-border bg-secondary/30 p-3 text-sm text-foreground/90">{request.message}</p>
-        {request.club_first && ['pending', 'accepted'].includes(request.status) && <Button variant="outline" disabled={revoking} onClick={() => setConfirmRevoke(true)}>{revoking ? 'Revoking permission…' : 'Revoke introduction permission'}</Button>}
+        {request.club_first && ['pending', 'accepted'].includes(request.status) && <Button variant="outline" className="h-auto max-w-full whitespace-normal [overflow-wrap:anywhere]" disabled={revoking} onClick={() => setConfirmRevoke(true)}>{revoking ? 'Revoking permission…' : 'Revoke introduction permission'}</Button>}
         <AlertDialog open={confirmRevoke} onOpenChange={setConfirmRevoke}>
           <AlertDialogContent>
             <AlertDialogHeader>
@@ -199,7 +204,7 @@ export function ContactThread({ request, onRequestChange, canReportOutcome = fal
 
           {canReportOutcome ? (
           <div className="space-y-2 rounded-lg border border-dashed border-border p-3">
-            <p className="text-sm font-semibold text-foreground">Record the outcome</p>
+            <p className="min-w-0 max-w-full [overflow-wrap:anywhere] text-sm font-semibold text-foreground">Record the outcome</p>
             <div className="flex flex-wrap items-center gap-2">
               <Select value={stage} onValueChange={setStage}>
                 <SelectTrigger className="w-48" aria-label="Outcome stage"><SelectValue placeholder="Choose a stage" /></SelectTrigger>

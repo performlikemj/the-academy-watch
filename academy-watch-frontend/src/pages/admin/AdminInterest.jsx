@@ -1,3 +1,4 @@
+import { formatDisplayDate } from '@/lib/display-date'
 import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -56,7 +57,7 @@ export function AdminInterest() {
             <TableBody>{data.rows.map((row) => <TableRow key={row.id}>
               <TableCell>{row.email}</TableCell><TableCell>{interestLabel(row.feature)}</TableCell>
               <TableCell>{row.role ? interestLabel(row.role) : '—'}</TableCell><TableCell>{row.source_path || '—'}</TableCell>
-              <TableCell>{new Date(row.created_at).toLocaleDateString()}</TableCell>
+              <TableCell>{formatDisplayDate(row.created_at)}</TableCell>
             </TableRow>)}</TableBody>
           </Table>}
         <p className="mt-4 text-xs text-muted-foreground">Showing the newest {data.rows.length} sign-ups. CSV includes all rows.</p>

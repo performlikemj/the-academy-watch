@@ -1,3 +1,4 @@
+import { formatDisplayDate } from '@/lib/display-date'
 import { useState, useEffect, useCallback } from 'react'
 import { APIService } from '@/lib/api'
 import AdminPilotCohort from './AdminPilotCohort'
@@ -412,7 +413,7 @@ function HistoryTimeline({ history }) {
                         <div className="flex items-baseline gap-2 flex-wrap">
                             <span className="font-medium capitalize">{entry.action}</span>
                             <span className="text-xs text-muted-foreground">
-                                {entry.created_at ? new Date(entry.created_at).toLocaleString() : ''}
+                                {entry.created_at ? formatDisplayDate(entry.created_at, { withTime: true }) : ''}
                             </span>
                         </div>
                         {entry.diff && Object.keys(entry.diff).length > 0 && (
@@ -763,7 +764,7 @@ export function AdminTools() {
                                             )}
                                         </div>
                                         <span className="text-xs text-muted-foreground">
-                                            Updated {c.updated_at ? new Date(c.updated_at).toLocaleDateString() : 'never'}
+                                            Updated {c.updated_at ? formatDisplayDate(c.updated_at) : 'never'}
                                         </span>
                                     </div>
                                     <div className="flex items-center gap-1 shrink-0">
