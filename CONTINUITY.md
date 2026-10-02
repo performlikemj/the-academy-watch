@@ -31,6 +31,7 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
   an unconditional development step.
 
 ## State
+- **Now (2026-10-02 C1F4):** Current lower-lane c7cf6c11 integrated in C2F4; nine-item union and inherited showcase erasure preserved. C1 exact delivery follows its external hand-back.
 - **Now (2026-10-02 C2F4):** RC2V3 union fix round active; main ee16572f integration, O3 irreversible cosmetic rename first. See `ledgers/CONTINUITY_p2-c2.md`.
 - **Now (2026-10-02):** C1F3 RC1V2 union implemented on PR1121; main784b1490/B351f30f5b integrated; targeted/PG9/schema equality green, new migration CONTRACT posted; final-head governed gates/browser/push pending. See `ledgers/CONTINUITY_p2-c1.md`.
 

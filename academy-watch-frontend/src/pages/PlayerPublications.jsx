@@ -16,9 +16,16 @@ const publicationErrors = {
   publication_not_pending: 'This profile is no longer awaiting review. Refresh to see its current status.',
   publication_not_ready: 'This profile is not ready for publication. Refresh and check the claim, consent and club association.',
   self_invitation_review_required: 'The inviter and claimant match. Independent identity review is required.',
+  duplicate_identity_review_required: 'Another profile may belong to this player. Keep both private until an independent identity review resolves the duplicate.',
+  identity_review_required: 'Existing identity evidence needs an independent review. Keep the profile private until the identity conflict is resolved.',
+  invalid_recipient: 'Enter the adult player’s valid email address, then create a new invitation.',
+  club_unavailable: 'This club is unavailable for publication. Ask a club administrator to check its approval and standing.',
+  adult_player_unavailable: 'This player is unavailable for adult publication. Check the club association and adult birth evidence before inviting them.',
 }
-function publicationError(error) {
-  return publicationErrors[error?.body?.error] || 'The request could not be completed. Refresh and try again. If it continues, contact your club.'
+function publicationError(error, mode) {
+  return publicationErrors[error?.body?.error] || (mode === 'admin'
+    ? 'The review could not be completed. Refresh and try again. If it continues, keep the profile private and arrange an independent identity review.'
+    : 'The request could not be completed. Refresh and try again. If it continues, contact your club.')
 }
 
 function status(row) {
@@ -68,7 +75,7 @@ export function PlayerPublications({ mode = 'player' }) {
           setPlayers(candidates.players || [])
         }
       }
-    } catch (err) { setError(publicationError(err)) }
+    } catch (err) { setError(publicationError(err, mode)) }
     finally { setLoading(false) }
   }
   useEffect(() => { if (enabled && authToken) load() }, [enabled, authToken, mode, programId]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -82,7 +89,7 @@ export function PlayerPublications({ mode = 'player' }) {
       else setRows(current => mode === 'admin' ? current.filter(r => r.id !== row.id) : current.map(r => r.id === row.id ? result.publication : r))
       setChecked(current => ({ ...current, [row.id]: false }))
       if (mode === 'club') await load()
-    } catch (err) { setError(publicationError(err)) }
+    } catch (err) { setError(publicationError(err, mode)) }
     finally { setBusy(false) }
   }
   async function invite(event) {
@@ -92,7 +99,7 @@ export function PlayerPublications({ mode = 'player' }) {
       const result = await APIService.request(`/club/${programId}/players/${selected}/publication-invite`, { method: 'POST', body: JSON.stringify({ recipient_email: email, expected_version: existing?.version }) })
       setShareLink(`${window.location.origin}/player-publication-invite#token=${result.token}`)
       await load()
-    } catch (err) { setError(publicationError(err)) }
+    } catch (err) { setError(publicationError(err, mode)) }
     finally { setBusy(false) }
   }
   if (enabled === null) return <p className="floodlight-container py-12">Loading…</p>

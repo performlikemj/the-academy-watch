@@ -175,6 +175,7 @@ SOURCE_LABELS = {
 }
 
 
+# --- p2-c1 begin ---
 def _local_players_enabled() -> bool:
     """Whether approved locals join discovery/query-resolved Scout surfaces.
 
@@ -187,6 +188,9 @@ def _local_players_enabled() -> bool:
     from src.services.club_player_publication import enabled
 
     return _community_local_players_enabled() or enabled()
+
+
+# --- p2-c1 end ---
 
 
 def _resolve_subject(player_api_id: int):

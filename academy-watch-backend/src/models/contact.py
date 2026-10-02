@@ -186,7 +186,16 @@ class ContactRequest(db.Model):
             "club_program_id": self.club_program_id,
             "club_consent_status": self.club_consent_status,
             "club_consent_at": _iso(self.club_consent_at),
-            "club_consent_note": self.club_consent_note,
+            "club_consent_note": (
+                None
+                if withheld
+                and not (
+                    self.status == "declined"
+                    and self.club_consent_status == "declined"
+                    and (self.id in context["available"] if context is not None else club_request_available(self))
+                )
+                else self.club_consent_note
+            ),
             "permission_attestation": bool(self.permission_attestation),
             "permission_attested_at": _iso(self.permission_attested_at),
             "messaging_open": (

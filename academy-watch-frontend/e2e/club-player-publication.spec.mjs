@@ -280,3 +280,94 @@ test('stored birth conflict is visible and blocks moderator approval',async ({pa
   await expect(page.getByRole('button',{name:'Approve profile and self-claim'})).toBeDisabled()
   await shot(page,'birth-conflict-review','mobile')
 })
+
+for (const [viewport, size] of [['desktop', { width: 1440, height: 900 }], ['mobile', { width: 390, height: 844 }]]) {
+  test(`introduction revocation confirms and disables while pending ${viewport}`, async ({ page }) => {
+    await page.setViewportSize(size)
+    await fixture(page)
+    let writes = 0, release
+    const pending = new Promise(resolve => { release = resolve })
+    const contact = { id: 'c1f4-synthetic', club_first: true, status: 'accepted', routing_mode: 'club_included', club_consent_status: 'granted', messaging_open: true, message: 'Synthetic introduction', created_at: '2026-10-01T12:00:00', participants: { scout: { display_name: 'Synthetic scout' }, player: { display_name: 'Synthetic adult' }, club: { display_name: 'Synthetic club' } } }
+    await page.route('**/api/features', route => route.fulfill({ json: { contact_rail: true, club_player_publication: true } }))
+    await page.route('**/api/contact/**', async route => {
+      const p = new URL(route.request().url()).pathname
+      if (p === '/api/contact/requests') {
+        const sent = new URL(route.request().url()).searchParams.get('box') === 'sent'
+        return route.fulfill({ json: { requests: sent ? [contact] : [], total: sent ? 1 : 0, limit: 100, offset: 0 } })
+      }
+      if (p.endsWith('/messages')) return route.fulfill({ json: { messages: [], contact_request: contact, total: 0, limit: 100, offset: 0 } })
+      if (p.endsWith('/revoke')) {
+        writes += 1
+        await pending
+        return route.fulfill({ json: { contact_request: { ...contact, status: 'withdrawn', messaging_open: false } } })
+      }
+      return route.fulfill({ json: {} })
+    })
+    await page.goto('/introductions')
+    await page.getByRole('button', { name: /Synthetic adult/ }).click()
+    await page.getByRole('button', { name: 'Revoke introduction permission' }).click()
+    const dialog = page.getByRole('alertdialog')
+    await expect(dialog).toContainText('permanently closes')
+    expect(writes).toBe(0)
+    await shot(page, 'introduction-revoke-confirmation', viewport)
+    await page.getByRole('button', { name: 'Keep introduction open' }).click()
+    await expect(dialog).toHaveCount(0)
+    expect(writes).toBe(0)
+    await page.getByRole('button', { name: 'Revoke introduction permission' }).click()
+    await page.getByRole('button', { name: 'Confirm revocation' }).click()
+    await expect.poll(() => writes).toBe(1)
+    await expect(page.getByRole('button', { name: 'Revoking permission…' })).toBeDisabled()
+    await expect(dialog).toHaveCount(0)
+    await shot(page, 'introduction-revoke-pending', viewport)
+    release()
+    await expect(page.getByTestId('contact-thread').getByText('withdrawn', { exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Revoke introduction permission' })).toHaveCount(0)
+    expect(writes).toBe(1)
+  })
+}
+
+for (const [code, explanation] of [
+  ['duplicate_identity_review_required', 'Another profile may belong to this player'],
+  ['identity_review_required', 'Existing identity evidence needs an independent review'],
+]) {
+  test(`moderator receives actionable ${code} recovery`, async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    await fixture(page, { admin: true, consented: true })
+    await page.route('**/api/admin/player-publications/1/review', route => route.fulfill({ status: 409, json: { error: code } }))
+    await page.goto('/admin/player-publications')
+    await page.getByLabel('Review reason').fill('Independent identity review')
+    await page.getByRole('button', { name: 'Approve profile and self-claim' }).click()
+    await expect(page.getByRole('alert')).toContainText(explanation)
+    await expect(page.getByRole('alert')).not.toContainText(code)
+    await expect(page.getByRole('alert')).not.toContainText('contact your club')
+    await shot(page, `error-${code}`, 'mobile')
+  })
+}
+for (const [code, explanation] of [
+  ['invalid_recipient', 'valid email address'],
+  ['club_unavailable', 'check its approval and standing'],
+  ['adult_player_unavailable', 'Check the club association and adult birth evidence'],
+]) {
+  test(`club receives actionable ${code} recovery`, async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    await fixture(page)
+    await page.route('**/api/club/7/players/23/publication-invite', route => route.fulfill({ status: 409, json: { error: code } }))
+    await page.goto('/club-publications/7')
+    await page.getByRole('combobox').selectOption('23')
+    await page.getByLabel('Player’s email').fill('fixture@c1.example')
+    await page.getByRole('button', { name: 'Create private invite' }).click()
+    await expect(page.getByRole('alert')).toContainText(explanation)
+    await expect(page.getByRole('alert')).not.toContainText(code)
+    await shot(page, `error-${code}`, 'mobile')
+  })
+}
+test('moderator fallback keeps the profile private and asks for independent review', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await fixture(page, { admin: true })
+  await page.route('**/api/admin/player-publications', route => route.fulfill({ status: 503, json: { error: 'unmapped_service_failure' } }))
+  await page.goto('/admin/player-publications')
+  await expect(page.getByRole('alert')).toContainText('keep the profile private and arrange an independent identity review')
+  await expect(page.getByRole('alert')).not.toContainText('contact your club')
+  await expect(page.getByRole('alert')).not.toContainText('unmapped_service_failure')
+  await shot(page, 'error-moderator-fallback', 'mobile')
+})

@@ -35,16 +35,17 @@ def purge_invited_emails(*, limit=100, at=None):
         row.invite_token_hash = None
         row.invite_expires_at = None
     from src.services.club_player_publication import clear_club_follow_labels
+    from src.services.retired_club_content import delete_archives, repair_archives
 
-    retired_ids = [
-        i
-        for (i,) in db.session.query(RetiredClubShowcase.id)
-        .filter(RetiredClubShowcase.created_at <= at - timedelta(days=180))
+    repair_archives(limit=limit)
+    retired = (
+        RetiredClubShowcase.query.filter(RetiredClubShowcase.created_at <= at - timedelta(days=180))
         .order_by(RetiredClubShowcase.id)
         .limit(limit)
-    ]
-    if retired_ids:
-        RetiredClubShowcase.query.filter(RetiredClubShowcase.id.in_(retired_ids)).delete(synchronize_session=False)
+        .with_for_update()
+        .all()
+    )
+    delete_archives(retired)
     labels = clear_club_follow_labels(limit=limit)
     return {"invited_emails_purged": len(rows), "follow_labels_cleared": labels}
 
@@ -67,14 +68,16 @@ def export_publications(user, schema):
     exported = {"club_player_publications": result} if result else {}
     if schema.has_table("retired_club_showcases"):
         from src.models.club_player_publication import RetiredClubShowcase
+        from src.services.retired_club_content import export_content, repair_archives
 
+        repair_archives(user_id=user.id)
         snapshots = RetiredClubShowcase.query.filter_by(user_account_id=user.id).order_by(RetiredClubShowcase.id).all()
         if snapshots:
             exported["retired_club_showcases"] = [
                 {
                     "claim_id": r.claim_id,
                     "local_player_id": r.local_player_id,
-                    "content": r.content,
+                    "content": export_content(r, user.id),
                     "created_at": r.created_at.isoformat(),
                 }
                 for r in snapshots
@@ -89,8 +92,10 @@ def erase_publications(user_id, email, schema):
 
     if schema.has_table("retired_club_showcases"):
         from src.models.club_player_publication import RetiredClubShowcase
+        from src.services.retired_club_content import delete_archives, repair_archives
 
-        RetiredClubShowcase.query.filter_by(user_account_id=user_id).delete(synchronize_session=False)
+        repair_archives(user_id=user_id)
+        delete_archives(RetiredClubShowcase.query.filter_by(user_account_id=user_id).with_for_update().all())
 
     rows = Publication.query.filter(
         sa.or_(Publication.recipient_user_id == user_id, Publication.recipient_email == email)

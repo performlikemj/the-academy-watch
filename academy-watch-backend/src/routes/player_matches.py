@@ -233,6 +233,24 @@ def _write_claim_or_error(player_api_id: int):
     subject = _resolve_subject(player_api_id)
     if subject is None:
         return None, None, neutral_player_not_found()
+    # --- p2-c1 begin ---
+    if subject["local_player_id"] is not None:
+        from src.services.club_player_publication import enabled
+
+        local = db.session.get(LocalPlayer, subject["local_player_id"])
+        if enabled() and local.provenance == "club":
+            from src.models.club_player_publication import ClubPlayerPublication
+
+            publication = (
+                ClubPlayerPublication.query.filter_by(local_player_id=local.id)
+                .populate_existing()
+                .with_for_update()
+                .first()
+            )
+            subject = _resolve_subject(player_api_id)
+            if publication is None or subject is None or publication.recipient_user_id != g.user_id:
+                return None, None, neutral_player_not_found()
+    # --- p2-c1 end ---
     claim = _claim_for_user(subject, g.user_id, CLAIM_RELATIONSHIPS)
     if claim is None:
         if subject["is_minor"]:
@@ -371,6 +389,18 @@ def create_player_match(player_api_id: int):
             # Another identical POST may have committed after our preflight.
             # Join that winner and apply this request as the idempotent update.
             db.session.rollback()
+            # --- p2-c1 begin --- the rollback also releases the publication lock
+            from src.services.club_player_publication import enabled
+
+            if (
+                enabled()
+                and _subject["local_player_id"] is not None
+                and db.session.get(LocalPlayer, _subject["local_player_id"]).provenance == "club"
+            ):
+                _subject, _claim, error = _write_claim_or_error(player_api_id)
+                if error:
+                    return error
+            # --- p2-c1 end ---
             entry = _find_self_entry(
                 player_api_id,
                 values["match_date"],

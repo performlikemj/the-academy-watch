@@ -531,11 +531,6 @@ def build_account_export(user: UserAccount) -> dict:
     from src.services.foundation_account import export_foundation_rows
 
     foundation_export = export_foundation_rows(user, schema)
-    # --- p2-b3 begin ---
-    from src.services.admin_control_account import export_admin_control
-
-    foundation_export.update(export_admin_control(user, schema))
-    # --- p2-b3 end ---
     # --- p2-b2 begin ---
     from src.services.opportunities_account import export_opportunities
 
@@ -1157,6 +1152,11 @@ def delete_account(user: UserAccount) -> AccountDeletionEvent:
         synchronize_session=False
     )
     counts["deleted"]["submitted_links"] = PlayerLink.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+    # --- showcase account erasure (inherited O4) begin ---
+    from src.services.showcase_erasure import erase_owned_showcase
+
+    counts["deleted"].update(erase_owned_showcase(user_id))
+    # --- showcase account erasure (inherited O4) end ---
     if newly_unclaimed_player_ids:
         counts["reset"]["reel_items"] = PlayerLink.query.filter(
             PlayerLink.player_id.in_(newly_unclaimed_player_ids),
