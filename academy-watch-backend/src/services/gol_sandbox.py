@@ -5,51 +5,47 @@ Executes LLM-generated pandas code in a RestrictedPython sandbox
 with allowlisted builtins, no imports, and a 10-second timeout.
 """
 
+import ast
+import copy
 import ctypes
 import logging
+import sys
 import threading
+import time
 
 import numpy as np
 import pandas as pd
 from RestrictedPython import compile_restricted
-from RestrictedPython.Guards import safe_builtins, safer_getattr
+from RestrictedPython.Guards import guarded_iter_unpack_sequence, guarded_unpack_sequence
+from src.services.gol_capabilities import (
+    ALLOWED_BUILTINS,
+    ERROR,
+    MAX_VALUE_ITEMS,
+    SIZE_ERROR,
+    AnalysisRefused,
+    AnalysisSizeLimit,
+    guarded_getattr,
+    guarded_getitem,
+    guarded_getiter,
+    guarded_write,
+    library_facades,
+    plain_value,
+    safe_helper,
+    validate_frame,
+)
 
 logger = logging.getLogger(__name__)
 
 MAX_ROWS = 100
 TIMEOUT_SECONDS = 10
 
-ALLOWED_BUILTINS = {
-    **safe_builtins,
-    "len": len,
-    "sorted": sorted,
-    "min": min,
-    "max": max,
-    "sum": sum,
-    "round": round,
-    "abs": abs,
-    "int": int,
-    "float": float,
-    "str": str,
-    "bool": bool,
-    "list": list,
-    "dict": dict,
-    "tuple": tuple,
-    "set": set,
-    "zip": zip,
-    "enumerate": enumerate,
-    "range": range,
-    "map": map,
-    "filter": filter,
-    "any": any,
-    "all": all,
-    "isinstance": isinstance,
-    "type": type,
-    "True": True,
-    "False": False,
-    "None": None,
-    "print": lambda *a, **kw: None,  # no-op print
-}
+MAX_CODE_CHARS = 20_000
+MAX_AST_NODES = 4_000
+MAX_PYTHON_STEPS = 3_000_000
+
+
+class _AnalysisLimit(BaseException):
+    """Cannot be caught using the exceptions available to restricted code."""
 
 
 BIG_6 = ["Arsenal", "Chelsea", "Liverpool", "Manchester United", "Manchester City", "Tottenham Hotspur"]
@@ -424,13 +420,9 @@ def _build_helpers(dataframes: dict) -> dict:
             if not match.empty:
                 return match.iloc[0]["name"]
 
-        # 3. Centralized resolver (DB + API fallback, caches to TeamProfile)
-        try:
-            from src.utils.team_resolver import resolve_team_name as _central_resolve
-
-            return _central_resolve(tid)
-        except Exception:
-            return f"Team {tid}"
+        # Analysis helpers use stored frames only. Model-written frame edits
+        # must not turn a name lookup into DB/API I/O.
+        return f"Team {tid}"
 
     def _resolve_team_name_or_fallback(value):
         """Resolve a current_club_name that might be a raw API ID or a real name."""
@@ -1108,72 +1100,154 @@ def execute_analysis(code: str, dataframes: dict, display: str = "table", descri
     Returns:
         Dict with result_type, display, meta, and formatted data.
     """
-    if not code or not code.strip():
+    if code is None or (type(code) is str and not code.strip()):
         return {"result_type": "error", "error": "No code provided", "display": display}
 
-    # Compile with RestrictedPython
+    if type(code) is not str or len(code) > MAX_CODE_CHARS:
+        return {"result_type": "error", "error": SIZE_ERROR if type(code) is str else ERROR, "display": display}
+
+    # Bound compilation and exclude class construction, imports and async code.
     try:
+        tree = ast.parse(code)
+        nodes = list(ast.walk(tree))
+        if len(nodes) > MAX_AST_NODES:
+            raise AnalysisSizeLimit(SIZE_ERROR)
+        if any(isinstance(node, (ast.Import, ast.ImportFrom)) for node in nodes):
+            return {
+                "result_type": "error",
+                "error": "Analysis refused: import statements are unavailable.",
+                "display": display,
+            }
+        if any(
+            # Bare handlers/finally can suppress the private step-limit exception.
+            (isinstance(node, ast.ExceptHandler) and node.type is None)
+            or (isinstance(node, ast.Try) and node.finalbody)
+            or isinstance(node, (ast.ClassDef, ast.Import, ast.ImportFrom, ast.AsyncFunctionDef, ast.Await))
+            for node in nodes
+        ):
+            raise AnalysisRefused(ERROR)
         byte_code = compile_restricted(code, "<gol-analysis>", "exec")
-    except SyntaxError as e:
-        return {"result_type": "error", "error": f"Syntax error: {e}", "display": display}
+    except AnalysisSizeLimit:
+        return {"result_type": "error", "error": SIZE_ERROR, "display": display}
+    except SyntaxError:
+        return {"result_type": "error", "error": "Analysis refused: syntax error.", "display": display}
+    except (ValueError, TypeError, RecursionError):
+        return {"result_type": "error", "error": ERROR, "display": display}
 
     if byte_code is None:
-        return {"result_type": "error", "error": "Code compilation failed", "display": display}
+        return {"result_type": "error", "error": ERROR, "display": display}
 
-    # Build restricted namespace
-    restricted_globals = {
-        "__builtins__": ALLOWED_BUILTINS,
-        "_getattr_": safer_getattr,
-        "_getiter_": iter,
-        "_getitem_": _guarded_getitem,
-        "_write_": _default_write,
-        "_inplacevar_": _inplacevar,
-        "pd": pd,
-        "np": np,
-        **dataframes,
-        **_build_helpers(dataframes),
-    }
+    # The service supplies trusted SQL-derived frames, with request-local copies.
+    # Reject namespace collisions and executable objects even for direct callers.
+    def prepare_globals():
+        frames = {}
+        pd_facade, np_facade = library_facades()
+        restricted_globals = {
+            "__builtins__": dict(ALLOWED_BUILTINS),
+            "_getattr_": guarded_getattr,
+            "_getiter_": guarded_getiter,
+            "_iter_unpack_sequence_": guarded_iter_unpack_sequence,
+            "_unpack_sequence_": guarded_unpack_sequence,
+            "_getitem_": guarded_getitem,
+            "_write_": guarded_write,
+            "_inplacevar_": _inplacevar,
+            "pd": pd_facade,
+            "np": np_facade,
+        }
+        helpers = _build_helpers(frames)
+        for name, frame in dataframes.items():
+            if (
+                type(name) is not str
+                or not name.isidentifier()
+                or name.startswith("_")
+                or name in restricted_globals
+                or name in helpers
+                or name in ALLOWED_BUILTINS
+                or name
+                in {
+                    "type",
+                    "getattr",
+                    "vars",
+                    "dir",
+                    "globals",
+                    "locals",
+                    "open",
+                    "eval",
+                    "exec",
+                    "compile",
+                    "setattr",
+                    "delattr",
+                }
+                or type(frame) is not pd.DataFrame
+            ):
+                raise AnalysisRefused(ERROR)
+            validate_frame(frame)
+            # Pandas 3 copy-on-write isolates table writes without a second full
+            # data copy. Object containers still need their own recursive copy.
+            frames[name] = frame.copy(deep=False)
+            for i, dtype in enumerate(frame.dtypes):
+                if isinstance(dtype, np.dtype) and dtype.kind == "O":
+                    column = frame.iloc[:, i]
+                    if any(type(v) in (list, dict, tuple) for v in column):
+                        frames[name].isetitem(i, column.map(copy.deepcopy))
+            frames[name].attrs = {}
+        restricted_globals.update(frames)
+        restricted_globals.update({name: safe_helper(fn) for name, fn in helpers.items()})
+        return restricted_globals
 
-    local_ns = {}
-
-    # Execute with thread-based timeout (signal.alarm doesn't work outside main thread)
-    exec_result = [None]  # [None] = success, or [exception]
+    # One namespace also lets restricted lambdas/functions see analysis locals.
+    # Formatting belongs inside the same timeout, before any object reaches JSON.
+    outcome = [{"result_type": "error", "error": ERROR}]
 
     def _run():
+        deadline = time.monotonic() + TIMEOUT_SECONDS
+        steps = 0
+
+        def trace(frame, event, arg):
+            nonlocal steps
+            if frame.f_code.co_filename == "<gol-analysis>":
+                steps += 1
+                if steps > MAX_PYTHON_STEPS or time.monotonic() > deadline:
+                    raise _AnalysisLimit()
+                return trace
+            return None
+
         try:
-            exec(byte_code, restricted_globals, local_ns)  # noqa: S102
-        except Exception as e:
-            exec_result[0] = e
+            restricted_globals = prepare_globals()
+            sys.settrace(trace)
+            exec(byte_code, restricted_globals)  # noqa: S102
+            result = restricted_globals.get("result")
+            if result is None:
+                outcome[0] = {
+                    "result_type": "error",
+                    "error": "No `result` variable set. Your code must assign to `result`.",
+                }
+            else:
+                outcome[0] = _format_result(result)
+        except _AnalysisLimit:
+            outcome[0] = {"result_type": "error", "error": "Analysis exceeded its execution limit."}
+        except AnalysisSizeLimit:
+            outcome[0] = {"result_type": "error", "error": SIZE_ERROR}
+        except KeyError:
+            outcome[0] = {"result_type": "error", "error": "Analysis refused: KeyError (missing column or label)."}
+        except SyntaxError:
+            outcome[0] = {"result_type": "error", "error": "Analysis refused: syntax error."}
+        except BaseException:
+            # Neither returned errors nor logs may stringify untrusted exceptions.
+            outcome[0] = {"result_type": "error", "error": ERROR}
+        finally:
+            sys.settrace(None)
 
     thread = threading.Thread(target=_run, daemon=True)
     thread.start()
     thread.join(timeout=TIMEOUT_SECONDS)
-
     if thread.is_alive():
-        # Thread is still running — try to kill it
         _kill_thread(thread)
         return {"result_type": "error", "error": "Analysis timed out (10s limit)", "display": display}
 
-    if exec_result[0] is not None:
-        e = exec_result[0]
-        return {
-            "result_type": "error",
-            "error": f"{type(e).__name__}: {e}",
-            "display": display,
-        }
-
-    # Extract result
-    result = local_ns.get("result")
-    if result is None:
-        return {
-            "result_type": "error",
-            "error": "No `result` variable set. Your code must assign to `result`.",
-            "display": display,
-        }
-
-    formatted = _format_result(result)
+    formatted = outcome[0]
     formatted["display"] = display
-    if description:
+    if description and formatted["result_type"] != "error":
         formatted["meta"] = {"description": description}
     return formatted
 
@@ -1188,17 +1262,36 @@ def _kill_thread(thread):
         pass  # Daemon thread will be cleaned up on process exit
 
 
-def _guarded_getitem(obj, key):
-    return obj[key]
-
-
-def _default_write(obj):
-    """RestrictedPython guard for attribute assignment on containers."""
-    return obj
-
-
 def _inplacevar(op, x, y):
     """Handle in-place operations (+=, -=, etc.) in RestrictedPython."""
+    if type(x) not in (
+        bool,
+        int,
+        float,
+        str,
+        list,
+        tuple,
+        set,
+        dict,
+        np.ndarray,
+        pd.DataFrame,
+        pd.Series,
+    ) and not isinstance(x, np.number):
+        raise AnalysisRefused(ERROR)
+    if type(y) not in (
+        bool,
+        int,
+        float,
+        str,
+        list,
+        tuple,
+        set,
+        dict,
+        np.ndarray,
+        pd.DataFrame,
+        pd.Series,
+    ) and not isinstance(y, np.number):
+        raise AnalysisRefused(ERROR)
     if op == "+=":
         return x + y
     elif op == "-=":
@@ -1223,60 +1316,44 @@ def _inplacevar(op, x, y):
 
 
 def _format_result(result) -> dict:
-    """Convert the result variable into a JSON-serializable response."""
-    if isinstance(result, pd.DataFrame):
-        truncated = len(result) > MAX_ROWS
-        df = result.head(MAX_ROWS)
-        # Convert to native Python types for JSON serialization
-        rows = []
-        for _, row in df.iterrows():
-            rows.append([_safe_value(v) for v in row.values])
+    """Only exact frames/series and recursively plain data cross the boundary."""
+    budget = [MAX_VALUE_ITEMS]
+    if type(result) in (pd.Series, pd.DataFrame):
+        validate_frame(result)
+    if type(result) is pd.Series:
+        total_rows = len(result)
+        result = result.head(MAX_ROWS).reset_index()
+    else:
+        total_rows = len(result) if type(result) is pd.DataFrame else None
+    if type(result) is pd.DataFrame:
+        columns = []
+        for label in result.columns:
+            clean = plain_value(label, budget=budget, cap_strings=True)
+            if type(clean) in (dict, list):
+                # MultiIndex column tuples are plain labels, not objects.
+                if type(label) is not tuple:
+                    raise AnalysisRefused(ERROR)
+                clean = tuple(clean)
+            columns.append(str(clean))
+        # Preserve the old numeric row conversion/rounding. Using row.array also
+        # fixes the old non-JSON datetime64 output while retaining timezone data.
+        rows = [
+            [plain_value(v, budget=budget, cap_strings=True) for v in row.array]
+            for _, row in result.head(MAX_ROWS).iterrows()
+        ]
         return {
             "result_type": "table",
-            "columns": [str(c) for c in df.columns],
+            "columns": columns,
             "rows": rows,
-            "total_rows": len(result),
-            "truncated": truncated,
+            "total_rows": total_rows,
+            "truncated": total_rows > MAX_ROWS,
         }
-
-    if isinstance(result, pd.Series):
-        df = result.reset_index()
-        df.columns = [str(c) for c in df.columns]
-        return _format_result(df)
-
-    if isinstance(result, (int, float, np.integer, np.floating)):
-        return {"result_type": "scalar", "value": _safe_value(result)}
-
-    if isinstance(result, str):
-        return {"result_type": "scalar", "value": result}
-
-    if isinstance(result, (list, tuple)):
-        return {"result_type": "list", "items": [_safe_value(v) for v in result[:MAX_ROWS]]}
-
-    if isinstance(result, dict):
-        return {"result_type": "dict", "data": {str(k): _safe_value(v) for k, v in result.items()}}
-
-    return {"result_type": "scalar", "value": str(result)}
-
-
-def _safe_value(v):
-    """Convert numpy/pandas types to JSON-safe Python natives."""
-    if v is None or (isinstance(v, float) and np.isnan(v)):
-        return None
-    if isinstance(v, type(pd.NaT)):
-        return None
-    if isinstance(v, (np.integer,)):
-        return int(v)
-    if isinstance(v, (np.floating,)):
-        return round(float(v), 4)
-    if isinstance(v, (np.bool_,)):
-        return bool(v)
-    if isinstance(v, pd.Timestamp):
-        return v.isoformat()
-    if isinstance(v, pd.DataFrame):
-        return f"[DataFrame: {len(v)} rows × {len(v.columns)} cols]"
-    if isinstance(v, pd.Series):
-        return v.tolist()
-    if isinstance(v, (list, tuple)):
-        return [_safe_value(i) for i in v]
-    return v
+    clean = plain_value(result, budget=budget, cap_strings=True)
+    if type(result) in (list, tuple):
+        return {"result_type": "list", "items": clean[:MAX_ROWS]}
+    if type(result) is dict:
+        return {"result_type": "dict", "data": clean}
+    if type(result) in (pd.Timestamp, pd.Timedelta):
+        # Preserve the existing scalar display; only coerce exact approved types.
+        clean = str(result)
+    return {"result_type": "scalar", "value": clean}

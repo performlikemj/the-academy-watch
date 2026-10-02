@@ -155,6 +155,8 @@ Log one-liner in CONTINUITY.md's "Trivial Log" section.
 
 - Match-entry date-boundary tests use the parametrized `frozen_now` fixture in `tests/test_player_match_entries.py`; it patches route and subject-resolution UTC clocks. Derive relative date inputs inside the test from that fixture, never during parametrization.
 
+- GOL model-written analyses use `services/gol_capabilities.py` facades and typed guards; never expose raw library modules or expand attributes without escape/compatibility corpus coverage. Pandas aggregation strings require reduction allowlists even inside pivots/named aggregations; transform strings use a separate reviewed list. Analysis helpers use stored frames only; validate plain results before coercion/JSON and keep formatting inside the timeout. Validate typed frames by dtype and inspect only object/category values; pandas 3 copy-on-write isolates table mutations, while nested object containers still need cloning. Keep public refusal cases generic and the per-type attribute classification inventory explicit.
+
 ## Quality Bar
 
 Before marking work complete:
@@ -181,3 +183,5 @@ Before marking work complete:
 - Contact batches resolve all invitation recipient/source-owned claim IDs before locking; keep lock scope distinct from mutation selection. Feedback lists are plain reads; purge uses one upfront invitation/contact/account batch. Account erasure uses settlement → full contact scope → sorted accounts, with the entire prefix inside its purchase-retry savepoint. Helper held-row caches are transaction/savepoint scoped; dynamic earlier locks use PostgreSQL NOWAIT, never a synthetic rank-conflict retry.
 
 - Account erasure revalidates every owned claim/contact/publication/invitation/program and purchase selection after sorted account locks; changed hints roll back the full acquisition savepoint before bounded canonical retry. Closure writes persist feedback deadlines; pure lists never start retention clocks.
+
+- GOL loader compatibility checks use the real psycopg/PostgreSQL path with all selected frames; Numeric columns explicitly retain pandas float coercion, while exact finite Decimal values are accepted at the plain-data boundary. Keep builtin names in the reviewed classification inventory.
