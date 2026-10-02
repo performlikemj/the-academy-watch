@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { APIService } from '@/lib/api'
 import { useHighlights, write, message } from './useHighlights'
+import { HighlightFeatureError } from './HighlightFeatureError'
 import './highlights.css'
 
 function Picker({ programId, matchId }) {
@@ -49,6 +50,6 @@ function Picker({ programId, matchId }) {
 }
 
 export function ClubHighlightPicker({ programId, matchId }) {
-  const enabled = useHighlights()
-  return enabled ? <Picker programId={programId} matchId={matchId} /> : null
+  const { enabled, status, retry } = useHighlights()
+  return <><HighlightFeatureError status={status} retry={retry} />{enabled === true && <Picker programId={programId} matchId={matchId} />}</>
 }

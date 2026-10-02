@@ -134,3 +134,10 @@
 - Flag hook uses main live reader; C2 hook mock follows it; unchanged16s kill-switch assertion. Main flag-reader code stays exact; reviewed media wrappers retained per02:11BUS clarification.
 - Exactly4single-table lock keys added to frozen test exceptions; no sweeper/guard code edits. SQL/call audit finds no subsequent C1 scope row lock in those sweep transactions.
 - Initial targetedNode17PASS; governed guard/count checks queued. Final identity/request-count/4gate/real-upgradePG/browser/pushedSHA/CI/cleanup authoritative in external logs/C2R2.final.md. No merge/deploy/activation.
+
+## C2F7 — failed feature reads (2026-10-03)
+- State: implementation complete; single confirmed review item from a31493c3. GitHub CONFLICTING required main58ccb8c6 merge c8293b64; only AGENTS/CONTINUITY conflicts, both histories retained. No lane backend/sweeper/migration/cache changes.
+- All five consumers distinguish loading, failed and successful ON/OFF; initial failure stays on approvals with Retry and no content/API reads.
+- Failed refresh retains last successful ON until next successful live read; server gates remain authoritative. Preserve shared15s TTL/read timing and first-load count parity.
+- Targeted hook7PASS; loading/failure/expired-read/knownON/ON-OFF/unmount/dedup controls. Browser adds every consumer/retry/recovery and8main-baseline first-load counts. OSV547clean before frozen dependency restore required by main; no task lockfile changes.
+- Final exact-head four cached gate/lane Playwright/pushedSHA/bounded25minCI/exact diff-stat/cleanup receipts are authoritative in external logs/C2F7.final.md. Ledger precedes final commit/gates for reusable caches; no merge/deploy/activation.

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { APIService } from '@/lib/api'
 import { useHighlights } from './useHighlights'
+import { HighlightFeatureError } from './HighlightFeatureError'
 import './highlights.css'
 
 function Clips({ path }) {
@@ -15,7 +16,7 @@ function Clips({ path }) {
 }
 
 export function PublicHighlights({ playerId, slug }) {
-  const enabled = useHighlights()
+  const { enabled, status, retry } = useHighlights()
   const path = slug ? `/programs/${encodeURIComponent(slug)}/highlights` : `/players/${playerId}/highlights`
-  return enabled ? <Clips key={path} path={path} /> : null
+  return <><HighlightFeatureError status={status} retry={retry} />{enabled === true && <Clips key={path} path={path} />}</>
 }

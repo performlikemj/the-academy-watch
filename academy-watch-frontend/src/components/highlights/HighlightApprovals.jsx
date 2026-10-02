@@ -4,6 +4,7 @@ import { APIService } from '@/lib/api'
 import { useAuth, useAuthUI } from '@/context/AuthContext'
 import { useNightSurface } from '@/hooks/useNightSurface'
 import { useHighlights, useHighlightsState, write, message } from './useHighlights'
+import { HighlightFeatureError } from './HighlightFeatureError'
 import './highlights.css'
 
 function Preview({ row }) {
@@ -103,20 +104,21 @@ function Inbox() {
 }
 
 export function HighlightApprovals() {
-  const { enabled, loaded } = useHighlightsState()
+  const { enabled, status, retry } = useHighlightsState()
   useNightSurface()
-  if (!loaded) return null
-  if (!enabled) return <Navigate to="/" replace />
+  if (status === 'known' && enabled === false) return <Navigate to="/" replace />
   return <div className="floodlight-container py-12 max-w-5xl">
     <meta name="referrer" content="no-referrer" />
     <Link to="/" className="inline-flex min-h-11 items-center text-chalk mb-6">← Home</Link>
-    <Inbox />
+    <HighlightFeatureError status={status} retry={retry} />
+    {enabled === null && status === 'loading' && <p role="status" className="text-chalk">Checking highlight availability…</p>}
+    {enabled === true && <Inbox />}
   </div>
 }
 
 export function HighlightInboxLink() {
-  const enabled = useHighlights()
+  const { enabled, status, retry } = useHighlights()
   const { token } = useAuth()
-  if (!enabled || !token) return null
-  return <section className="p2-highlights mt-8"><p className="hl-label">Your player home</p><h2 className="mt-3">Highlight approvals</h2><p className="hl-muted my-4">Review moments your club picked, keep them private or take an approval back.</p><Link className="hl-button hl-primary" to="/highlight-approvals">Review highlights →</Link></section>
+  if (!token) return null
+  return <><HighlightFeatureError status={status} retry={retry} />{enabled === true && <section className="p2-highlights mt-8"><p className="hl-label">Your player home</p><h2 className="mt-3">Highlight approvals</h2><p className="hl-muted my-4">Review moments your club picked, keep them private or take an approval back.</p><Link className="hl-button hl-primary" to="/highlight-approvals">Review highlights →</Link></section>}</>
 }

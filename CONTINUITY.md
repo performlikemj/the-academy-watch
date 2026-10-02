@@ -31,6 +31,7 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
   an unconditional development step.
 
 ## State
+- **Now (2026-10-03 C2F7):** one failed highlight feature-read fix on PR1122 from a31493c3; all five hook consumers, retry/recovery and unchanged live15s reader/counts. Final gates/push/CI receipts in external logs/C2F7.final.md; see ledgers/CONTINUITY_p2-c2.md.
 - **Now (2026-10-03 C2R2):** resume pure refresh; approved live flag-reader call/mock and four single-table guard exceptions, retaining reviewed API media wrappers per BUS clarification. Exact identity/SQL/count/gate/PG/browser/push/CI/cleanup receipts in external logs/C2R.identity.md and C2R2.final.md; migrations/sweeper/guard frozen.
 - **Now (2026-10-03 C2R):** pure release refresh from reviewed9f4a1707 onto main738c7da6; C1 review parentc7cf6c11. Identity proof/final governed checks and push tracked in external logs/C2R.identity.md and C2R.final.md. No behavior/schema/deploy/activation change.
 - **Now (2026-10-03 SBXF2):** PR1132 follow-up implemented: SQL loader/scalar compatibility, builtin inventory, resident idioms and size hint. Targeted529 PASS; final-head gates/delivery authoritative in external logs/SBXF2.final.md. See ledgers/CONTINUITY_sbx.md.

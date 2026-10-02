@@ -2,17 +2,26 @@ import { useEffect, useState } from 'react'
 import { APIService } from '@/lib/api'
 
 export function useHighlightsState() {
-  const [state, setState] = useState({ enabled: false, loaded: false })
+  const [state, setState] = useState({ enabled: null, status: 'loading' })
+  const [attempt, setAttempt] = useState(0)
   useEffect(() => {
     let live = true
-    APIService.getFeaturesLive().catch(() => ({})).then(value => { if (live) setState({ enabled: value.highlights === true, loaded: true }) })
+    APIService.getFeaturesLive().then(value => {
+      if (live) setState({ enabled: value.highlights === true, status: 'known' })
+    }).catch(() => {
+      // Failure is unknown on first load; a refresh retains the last known value.
+      if (live) setState(current => ({ ...current, status: 'failed' }))
+    })
     return () => { live = false }
-  }, [])
-  return state
+  }, [attempt])
+  return { ...state, retry: () => {
+    setState(current => ({ ...current, status: 'loading' }))
+    setAttempt(current => current + 1)
+  } }
 }
 
 export function useHighlights() {
-  return useHighlightsState().enabled
+  return useHighlightsState()
 }
 
 export function write(path, body, method = 'POST') {
