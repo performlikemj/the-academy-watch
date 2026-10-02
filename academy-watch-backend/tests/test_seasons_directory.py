@@ -49,6 +49,7 @@ def test_seasons_shape_order_coverage_and_current_inclusion(seasons_app, monkeyp
     import src.routes.seasons as seasons_routes
 
     monkeypatch.setattr(seasons_routes, "current_stats_season", lambda: 2026)
+    monkeypatch.setattr("src.utils.academy_window.current_stats_season", lambda today=None: 2026)
     monkeypatch.setattr(
         seasons_routes,
         "season_bounds",
@@ -70,6 +71,7 @@ def test_seasons_shape_order_coverage_and_current_inclusion(seasons_app, monkeyp
     assert response.status_code == 200
     assert response.get_json() == {
         "current_season": 2026,
+        "display_season": 2026,
         "bounds": {"min": 2007, "max": 2027},
         "seasons": [
             {"season": 2027, "label": "2027/28", "has_rollup": True, "is_current": False},
@@ -84,6 +86,7 @@ def test_seasons_includes_current_when_no_rollups_exist(seasons_app, monkeypatch
     import src.routes.seasons as seasons_routes
 
     monkeypatch.setattr(seasons_routes, "current_stats_season", lambda: 2026)
+    monkeypatch.setattr("src.utils.academy_window.current_stats_season", lambda today=None: 2026)
     monkeypatch.setattr(
         seasons_routes,
         "season_bounds",
@@ -118,5 +121,33 @@ def test_seasons_bounds_and_list_include_pre_fixture_rollup_history(seasons_app,
     assert response.status_code == 200
     data = response.get_json()
     assert data["bounds"] == {"min": 2007, "max": 2027}
-    assert {row["season"] for row in data["seasons"]} == {2007, 2026}
+    assert {row["season"] for row in data["seasons"]} == {2007, 2025, 2026}
     assert next(row for row in data["seasons"] if row["season"] == 2007)["has_rollup"] is True
+
+
+@pytest.mark.parametrize("frozen", [False, True])
+def test_display_default_on_august_first_when_fixtures_lag_calendar(seasons_app, monkeypatch, frozen):
+    from datetime import date
+
+    import src.utils.academy_window as window
+
+    calendar = window.current_stats_season(date(2026, 8, 1))
+    monkeypatch.setenv("API_FOOTBALL_FROZEN", "true" if frozen else "false")
+    monkeypatch.setattr("src.routes.seasons.current_stats_season", lambda: calendar)
+    monkeypatch.setattr(window, "current_stats_season", lambda today=None: calendar)
+    db.session.add(
+        Fixture(
+            fixture_id_api=2,
+            season=2025,
+            date_utc=datetime(2025, 9, 1, tzinfo=UTC),
+            home_team_api_id=1,
+            away_team_api_id=2,
+        )
+    )
+    db.session.commit()
+    data = seasons_app.test_client().get("/api/seasons").get_json()
+    assert data["current_season"] == 2026
+    assert data["display_season"] == window.resolve_stats_season(db.session) == 2025
+    assert {row["season"] for row in data["seasons"]} == {2025, 2026}
+    # An explicit calendar selection remains an explicit request.
+    assert window.resolve_stats_season(db.session, 2026) == 2026

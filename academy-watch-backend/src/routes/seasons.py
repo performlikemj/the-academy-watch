@@ -4,7 +4,7 @@ from flask import Blueprint, jsonify
 from src.auth import _safe_error_payload
 from src.models.league import db
 from src.models.season_rollup import PlayerSeasonTotal
-from src.utils.academy_window import current_stats_season, season_bounds
+from src.utils.academy_window import current_stats_season, season_bounds, stats_season_with_data
 
 seasons_bp = Blueprint("seasons", __name__)
 
@@ -14,6 +14,7 @@ def get_seasons():
     """List valid season start-years that have rollup coverage."""
     try:
         current = current_stats_season()
+        display = stats_season_with_data(db.session)
         low, high = season_bounds(db.session, include_rollup_history=True)
         covered = {
             int(row.season)
@@ -22,10 +23,11 @@ def get_seasons():
             .distinct()
             .all()
         }
-        available = covered | {current}
+        available = covered | {current, display}
         return jsonify(
             {
                 "current_season": current,
+                "display_season": display,
                 "bounds": {"min": low, "max": high},
                 "seasons": [
                     {

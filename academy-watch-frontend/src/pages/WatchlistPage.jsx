@@ -1,3 +1,4 @@
+import { positionAbbreviation } from '@/lib/positions'
 import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { APIService } from '@/lib/api'
@@ -290,7 +291,7 @@ export function WatchlistPage() {
                           {player ? (
                             <>
                               <td className="px-3 py-3.5"><PlayerCell player={player} /></td>
-                              <td className="px-3 py-3.5 font-mono text-[12px] text-muted-dark whitespace-nowrap">{player.position?.slice(0, 3) || '—'}</td>
+                              <td className="px-3 py-3.5 font-mono text-[12px] text-muted-dark whitespace-nowrap">{positionAbbreviation(player.position)}</td>
                               <td className="px-3 py-3.5"><StatusBadge status={player.status} /></td>
                               <td className="px-3 py-3.5 max-w-44">
                                 <span className="block truncate text-sm text-chalk/90">{player.loan_team_name || player.primary_team_name || '—'}</span>
