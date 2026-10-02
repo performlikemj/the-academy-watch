@@ -236,7 +236,7 @@ for (const width of [1440, 390]) {
                     program_total: 35, suppression_total: 35,
                     program_has_more: programOffset === 0, suppression_has_more: suppressionOffset === 0,
                     programs: all.slice(programOffset, programOffset + 30).map(id => ({ id, name: `Fixture Club ${id}` })),
-                    suppressions: all.slice(suppressionOffset, suppressionOffset + 30).map(id => ({ id, player_api_id: 1000 + id })) }
+                    suppressions: all.slice(suppressionOffset, suppressionOffset + 30).map(id => ({ id, player_api_id: 1000 + id, player_name: `Fixture Player ${id}` })) }
             }
             return { ...empty, open_count: 0, overdue_count: 0, active_suppressions: 35, hidden_programs: 35 }
         })
@@ -246,7 +246,7 @@ for (const width of [1440, 390]) {
         await expect(players).toContainText('35 total')
         await expect(clubs).toContainText('35 total')
         await players.getByRole('button', { name: 'Next', exact: true }).click()
-        await expect(players.getByText('Player 1035', { exact: true })).toBeVisible()
+        await expect(players.getByText('Fixture Player 35', { exact: true })).toBeVisible()
         await expect(players.getByRole('button', { name: 'Next', exact: true })).toBeDisabled()
         await expect(clubs.getByText('Fixture Club 1', { exact: true })).toBeVisible()
         await clubs.getByRole('button', { name: 'Next', exact: true }).click()
@@ -288,5 +288,254 @@ for (const width of [1440, 390]) {
         await page.getByRole('button', { name: 'Confirm restore case hold', exact: true }).click()
         await expect.poll(() => writes).toEqual([{ action: 'restore', reason: 'Review complete', version: 3 }])
         await expect(page.getByRole('heading', { name: 'Review the request' })).toBeVisible()
+    })
+}
+
+for (const width of [1440, 390]) {
+    test(`B3X restore uses its own reason and one error at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: width === 390 ? 844 : 900 })
+        const incident = { id: 1, target_type: 'player_profile', target_id: '-9', target_name: 'Local Prospect', status: 'investigating', hidden: true, owns_hold: false, hold_requested: true, version: 2, notification_state: 'none' }
+        await mockControl(page, url => {
+            if (url.pathname.endsWith('/hidden')) return { programs: [], suppressions: [], program_total: 0, suppression_total: 0, limit: 30 }
+            if (url.pathname.endsWith('/cases/1')) return { case: incident, evidence: { statement: 'Scoped evidence' }, events: [] }
+            return { ...empty, rows: [incident], total: 1, open_count: 1, overdue_count: 0, active_suppressions: 1, hidden_programs: 0 }
+        })
+        let submitted
+        await page.route('**/api/admin/safety/cases/1/actions', route => {
+            submitted = route.request().postDataJSON()
+            return route.fulfill({ status: 409, json: { error: 'Case changed. Refresh before acting.' } })
+        })
+        await page.goto('/admin/safety')
+        await page.getByRole('button', { name: /Case 1/ }).click()
+        await page.getByLabel('Reason to restore the case hold').fill('Withdraw my request')
+        await expect(page.getByLabel('Reason for this case action')).toHaveValue('')
+        await page.getByRole('button', { name: 'Restore case hold', exact: true }).click()
+        await expect(page.getByRole('dialog')).toContainText('Local Prospect')
+        await expect(page.getByRole('dialog')).toContainText('Withdraw my request')
+        await page.getByRole('button', { name: 'Confirm restore case hold', exact: true }).click()
+        await expect(page.getByRole('alert')).toHaveCount(1)
+        await expect(page.getByRole('alert')).toContainText('Case changed')
+        expect(submitted).toEqual({ action: 'restore', reason: 'Withdraw my request', version: 2 })
+        await expect(page.getByLabel('Reason for this case action')).toHaveValue('')
+    })
+
+    test(`B3X empty final inventory page keeps Previous at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: width === 390 ? 844 : 900 })
+        let shrunk = false
+        const incident = { id: 1, target_type: 'player_profile', target_id: '321', status: 'open', hidden: false, version: 1, notification_state: 'none' }
+        await mockControl(page, (url, request) => {
+            if (request.method() === 'POST') { shrunk = true; return { case: incident } }
+            if (url.pathname.endsWith('/hidden')) {
+                const offset = Number(url.searchParams.get('suppression_offset'))
+                return { limit: 30, programs: [], program_total: 0, suppressions: offset === 30 && shrunk ? [] : [{ id: offset + 1, local_player_id: 9, player_name: 'Local Prospect' }], suppression_total: shrunk ? 30 : 31 }
+            }
+            if (url.pathname.endsWith('/cases/1')) return { case: incident, evidence: {}, events: [] }
+            return { ...empty, rows: [incident], total: 1, open_count: 1, overdue_count: 0, active_suppressions: 31, hidden_programs: 0 }
+        })
+        await page.goto('/admin/safety')
+        const inventory = page.getByRole('region', { name: 'Player suppressions inventory' })
+        await inventory.getByRole('button', { name: 'Next', exact: true }).click()
+        await expect(inventory.getByText('Suppression 31')).toBeVisible()
+        await page.getByRole('button', { name: /Case 1/ }).click()
+        await page.getByLabel('Reason for this case action').fill('Review')
+        await page.getByRole('button', { name: 'Investigate', exact: true }).click()
+        await expect(inventory.getByText('No active player suppressions.')).toBeVisible()
+        await expect(inventory.getByRole('button', { name: 'Previous', exact: true })).toBeEnabled()
+        await expect(inventory.getByText('0 on this page · 30 total')).toBeVisible()
+        await inventory.getByRole('button', { name: 'Previous', exact: true }).click()
+        await expect(inventory.getByText('Local Prospect')).toBeVisible()
+    })
+}
+
+test('B3X People standing/sort controls and private admin suspension context', async ({ page }) => {
+    const reads = []
+    const person = { id: 2, display_name: 'Pete Example', email: 'pete@example.test', account_status: 'suspended', roles: [], programs: [], approved_claims: 0, suspension: { reason: 'Reported account misuse', by: 'Admin Example', at: '2026-09-20T10:20:00Z' } }
+    await mockControl(page, url => {
+        reads.push(url.search)
+        if (url.pathname.endsWith('/people/2')) return { person }
+        return { ...empty, rows: [person], total: 1 }
+    })
+    await page.goto('/admin/people')
+    await page.getByLabel('Standing filter').selectOption('suspended')
+    await page.getByLabel('Sort people').selectOption('name_desc')
+    await expect.poll(() => reads.some(query => query.includes('standing=suspended') && query.includes('sort=name_desc') && query.includes('offset=0'))).toBe(true)
+    await page.getByRole('button', { name: /Pete Example/ }).click()
+    await expect(page.getByText('Reported account misuse')).toBeVisible()
+    await expect(page.getByText('Admin Example', { exact: true })).toBeVisible()
+    await expect(page.getByText('Suspended at', { exact: true })).toBeVisible()
+})
+
+const dashboardStats = { players: { total: 1, academy: 1, on_loan: 0, first_team: 0, released: 0 }, teams: { tracked: 1 }, newsletters: { total: 0, published: 0, drafts: 0 } }
+
+async function captureFix(page, slug) {
+    const dir = process.env.B3XF1_SHOT_DIR
+    if (!dir) return
+    const fs = await import('node:fs/promises')
+    await fs.mkdir(dir, { recursive: true })
+    await page.evaluate(() => globalThis.scrollTo(0, 0))
+    await page.screenshot({ path: `${dir}/${slug}.png`, fullPage: true, animations: 'disabled' })
+}
+
+for (const width of [1440, 390]) {
+    test(`B3XF1 unbroken suspension reason fits detail at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: width === 390 ? 844 : 900 })
+        const reason = 'R'.repeat(240)
+        const person = { id: 2, display_name: 'Pete Example', email: 'pete@example.test', account_status: 'suspended', roles: [], programs: [], approved_claims: 0, suspension: { reason, by: 'Admin Example', at: '2026-09-20T10:20:00Z' } }
+        await mockControl(page, url => url.pathname.endsWith('/people/2') ? { person } : { ...empty, rows: [person], total: 1 })
+        await page.goto('/admin/people')
+        await page.getByRole('button', { name: /Pete Example/ }).click()
+        await expect(page.getByText(reason, { exact: true })).toBeVisible()
+        const bounds = await page.getByText(reason, { exact: true }).boundingBox()
+        expect(bounds.x + bounds.width).toBeLessThanOrEqual(width)
+        expect(await page.evaluate(() => globalThis.document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
+        await captureFix(page, `unbroken-suspension-${width}`)
+    })
+
+    test(`B3XF1 unnamed hidden inventory retains provider and local ids at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: width === 390 ? 844 : 900 })
+        await mockControl(page, url => url.pathname.endsWith('/hidden') ? {
+            programs: [], program_total: 0, suppression_total: 3, limit: 30,
+            suppressions: [
+                { id: 1, player_api_id: 987654321, player_name: null },
+                { id: 2, local_player_id: 12, player_name: null },
+                { id: 3, player_api_id: 321, player_name: 'Stored Prospect' },
+            ],
+        } : { ...empty, open_count: 0, overdue_count: 0, active_suppressions: 3, hidden_programs: 0 })
+        await page.goto('/admin/safety')
+        const inventory = page.getByRole('region', { name: 'Player suppressions inventory' })
+        await expect(inventory.getByText('Player name unavailable · #987654321', { exact: true })).toBeVisible()
+        await expect(inventory.getByText('Player name unavailable · Local #12', { exact: true })).toBeVisible()
+        await expect(inventory.getByText('Stored Prospect', { exact: true })).toBeVisible()
+        expect(await page.evaluate(() => globalThis.document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
+        await captureFix(page, `unnamed-inventory-${width}`)
+    })
+}
+
+test('B3X overview shows queue workload and paying revenue from one DTO', async ({ page }) => {
+    await mockControl(page, url => {
+        if (url.pathname.endsWith('/dashboard-stats')) return dashboardStats
+        if (url.pathname.endsWith('/control/overview')) return {
+            total: 8, overdue_safeguarding: 1,
+            queues: [{ key: 'club_claims', label: 'Club claims', count: 1, href: '/admin/funding?tab=claims' }, { key: 'profile_claims', label: 'Player profile claims', count: 2, href: '/admin/showcase?tab=claims' }, { key: 'reports', label: 'Open reports', count: 2, href: '/admin/trust?tab=reports' }, { key: 'safeguarding', label: 'Safeguarding cases', count: 3, href: '/admin/safety' }],
+            revenue: { active_subscriptions: 1, mrr_by_currency: { gbp: 2900 }, currency: 'gbp', mrr_cents: 2900, past_due: 1 },
+        }
+        if (url.pathname.endsWith('/billing/summary')) return { active_subscriptions: 3, mrr_cents: 7000, currency: 'gbp' }
+        return {}
+    })
+    await page.goto('/admin/dashboard')
+    const queue = page.getByTestId('inbox-pending')
+    await expect(queue).toContainText('8 queue items')
+    await expect(queue.getByRole('link', { name: /Open reports/ })).toHaveAttribute('href', '/admin/trust?tab=reports')
+    await expect(queue).toContainText('1 safeguarding first action overdue')
+    await expect(queue.getByText('Nothing pending. Inbox zero.')).toHaveCount(0)
+    await expect(queue).toContainText('A report also appears as a safeguarding case; one decision clears both queues.')
+    await expect(queue).not.toContainText('can need separate decisions')
+    await expect(page.getByTestId('revenue-summary')).toContainText('£29.00')
+    await expect(page.getByTestId('revenue-summary')).not.toContainText('£70.00')
+    await captureFix(page, 'overview-1440')
+    await page.setViewportSize({ width: 390, height: 844 })
+    await expect(queue).toContainText('8 queue items')
+    expect(await page.evaluate(() => globalThis.document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
+    await captureFix(page, 'overview-390')
+})
+
+test('B3X overview failed counts stay unavailable instead of zero', async ({ page }) => {
+    await mockControl(page, url => url.pathname.endsWith('/dashboard-stats') ? dashboardStats : {})
+    await page.route('**/api/admin/control/overview', route => route.fulfill({ status: 503, json: { error: 'Counts unavailable' } }))
+    await page.goto('/admin/dashboard')
+    await expect(page.getByTestId('inbox-pending')).toContainText('Review counts unavailable')
+    await expect(page.getByTestId('inbox-pending').getByText('Nothing pending. Inbox zero.')).toHaveCount(0)
+})
+
+test('B3X overview all flags OFF keeps legacy requests and revenue', async ({ page }) => {
+    const calls = []
+    await mockControl(page, url => {
+        calls.push(url.pathname)
+        if (url.pathname.endsWith('/dashboard-stats')) return dashboardStats
+        if (url.pathname.endsWith('/billing/summary')) return { active_subscriptions: 3, mrr_cents: 7000, currency: 'gbp' }
+        return {}
+    }, {})
+    await page.goto('/admin/dashboard')
+    await expect(page.getByTestId('revenue-summary')).toContainText('£70.00')
+    await expect(page.getByTestId('inbox-pending')).toContainText('Inbox zero')
+    expect(calls.filter(path => path.includes('/admin/control/') || path.includes('/admin/business/'))).toEqual([])
+})
+
+test('B3X admin names and queue deep links render without NULL ids', async ({ page }) => {
+    await mockControl(page, url => {
+        if (url.pathname.endsWith('/reports')) return { reports: [{ id: 1, status: 'open', reason_code: 'privacy', target: { content_type: 'player_profile', id: '-9', name: 'Local Prospect' }, reporter: { display_name: 'Reporter Example' } }], total: 1 }
+        if (url.pathname.endsWith('/showcase/claims')) return { claims: [{ id: 1, player_api_id: null, local_player_id: 9, player_name: 'Local Prospect', subject_label: 'Local Prospect · Local #9', status: 'pending', relationship_type: 'player', user_email: 'person@example.test' }] }
+        return {}
+    })
+    await page.goto('/admin/trust?tab=reports')
+    await expect(page.getByRole('tab', { name: 'Reports', exact: true })).toHaveAttribute('aria-selected', 'true')
+    await expect(page.getByText('Local Prospect', { exact: true })).toBeVisible()
+    await page.goto('/admin/showcase?tab=claims')
+    await expect(page.getByText('Local Prospect · Local #9', { exact: true })).toBeVisible()
+    await expect(page.getByText(/#NULL|#null/)).toHaveCount(0)
+})
+
+for (const width of [1440, 390]) {
+    test(`B3X real admin pages and screenshots at ${width}px`, async ({ page }) => {
+        test.skip(!process.env.B3X_AUTH_FILE, 'Opt-in isolated local backend evidence; requires B3X_AUTH_FILE')
+        const fs = await import('node:fs/promises')
+        const credentials = JSON.parse(await fs.readFile(process.env.B3X_AUTH_FILE, 'utf8'))
+        await page.addInitScript(({ token, key }) => {
+            localStorage.setItem('academy_watch_user_token', token)
+            localStorage.setItem('academy_watch_admin_key', key)
+            localStorage.setItem('academy_watch_is_admin', 'true')
+            localStorage.setItem('academy_watch_display_name_confirmed', 'true')
+            localStorage.setItem('academyWatch.playerOnboardingPromptDismissed.v1', 'true')
+        }, credentials)
+        await page.setViewportSize({ width, height: width === 390 ? 844 : 900 })
+        const errors = []
+        page.on('pageerror', error => errors.push(error.message))
+        const dir = process.env.B3X_SHOT_DIR
+        if (dir) await fs.mkdir(dir, { recursive: true })
+        const capture = async slug => {
+            if (!dir) return
+            await page.evaluate(() => { globalThis.scrollTo(0, 0) })
+            await page.screenshot({ path: `${dir}/${slug}-${width}.png`, fullPage: true, animations: 'disabled' })
+        }
+        const evidence = []
+        for (const route of ['dashboard', 'people', 'safety', 'business', 'trust?tab=reports', 'trust?tab=contact', 'showcase?tab=claims', 'local-clubs?tab=affiliations']) {
+            await page.goto(`/admin/${route}`)
+            await page.waitForLoadState('networkidle')
+            if (route === 'business') {
+                await page.getByLabel('From', { exact: true }).fill('2026-09-01')
+                await expect(page.locator('main').last()).toContainText('Quillmere Athletic')
+            }
+            const main = page.locator('main').last()
+            await expect(main).not.toContainText('Could not load this view.')
+            await expect(main).not.toContainText('internal error')
+            expect(await page.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth)).toBe(true)
+            const text = await main.innerText()
+            evidence.push({ route, width, text })
+            const slug = route.replace('?tab=', '-')
+            await capture(slug)
+            if (route === 'dashboard') {
+                await expect(page.getByTestId('inbox-pending')).toContainText('queue items')
+                await expect(page.getByTestId('inbox-pending')).not.toContainText('Inbox zero')
+                await expect(page.getByTestId('revenue-summary')).not.toContainText('£70.00')
+            }
+            if (route === 'people') {
+                await page.getByLabel('Search people').fill('Pete')
+                await page.getByRole('button', { name: /Pete Dunmore/ }).click()
+                await expect(page.getByText('Suspension reason', { exact: true })).toBeVisible()
+                await expect(page.getByText('Suspended by', { exact: true })).toBeVisible()
+                expect(await page.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth)).toBe(true)
+                await capture('people-suspended')
+                evidence.push({ route: 'people-suspended', width, text: await main.innerText() })
+            }
+            if (route === 'safety') {
+                await page.getByRole('button', { name: /Case .*Jermaine Stokoe/ }).click()
+                await expect(page.getByText('Target', { exact: true })).toBeVisible()
+                await capture('safety-detail')
+                evidence.push({ route: 'safety-detail', width, text: await main.innerText() })
+            }
+            if (route.startsWith('showcase')) await expect(main.getByText(/#NULL|#null/)).toHaveCount(0)
+        }
+        expect(errors).toEqual([])
+        if (dir) await fs.writeFile(`${dir}/evidence-${width}.json`, JSON.stringify(evidence, null, 2))
     })
 }

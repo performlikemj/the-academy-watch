@@ -1,4 +1,3 @@
-import { createFeatureCache } from './feature-cache.js'
 import { loadFeatures, peekFeatures } from './features.js'
 import {
     normalizeNewsletterIds,
@@ -3456,17 +3455,20 @@ export class APIService {
     }
 }
 
-let lastFeaturesFetchedAt = null
+let lastFeatures = null
+let pendingFeatures = null
 
-async function fetchFeatures() {
-    const flags = await APIService.request('/features')
-    lastFeaturesFetchedAt = Date.now()
-    return flags
+function fetchFeatures() {
+    if (pendingFeatures) return pendingFeatures
+    pendingFeatures = APIService.request('/features').then(value => {
+        lastFeatures = { value, fetchedAt: Date.now() }
+        return value
+    }).finally(() => { pendingFeatures = null })
+    return pendingFeatures
 }
 
-const sharedFeatures = createFeatureCache(() => {
-    const pageFeatures = peekFeatures()
-    if (pageFeatures === null) return loadFeatures(fetchFeatures)
-    if (lastFeaturesFetchedAt !== null && Date.now() - lastFeaturesFetchedAt < 15000) return pageFeatures
+function sharedFeatures() {
+    if (peekFeatures() === null) return loadFeatures(fetchFeatures)
+    if (lastFeatures !== null && Date.now() - lastFeatures.fetchedAt < 15000) return Promise.resolve(lastFeatures.value)
     return fetchFeatures()
-})
+}

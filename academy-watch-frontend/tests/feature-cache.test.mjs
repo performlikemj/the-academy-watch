@@ -107,3 +107,47 @@ test('failed shared bootstrap remains unknown and retries with one shared reques
   assert.deepEqual(recovered, [{ club_player_publication: false }, { club_player_publication: false }])
   assert.equal(request.mock.callCount(), 2)
 })
+
+for (const first of ['getFeatures', 'getFeaturesLive']) {
+  test(`live features expire at the real fetch boundary with ${first} first`, async (t) => {
+    const { APIService, advanceTo } = await featureReaders(t, `c1-real-expiry-${first}`)
+    let enabled = true
+    const request = t.mock.method(APIService, 'request', async () => ({ club_player_publication: enabled }))
+    const bootstrap = await APIService[first]()
+    enabled = false
+    advanceTo(14999)
+    assert.strictEqual(await APIService.getFeaturesLive(), bootstrap)
+    assert.equal(request.mock.callCount(), 1)
+    advanceTo(15000)
+    assert.deepEqual(await APIService.getFeaturesLive(), { club_player_publication: false })
+    assert.equal(request.mock.callCount(), 2)
+    advanceTo(29999)
+    assert.deepEqual(await APIService.getFeaturesLive(), { club_player_publication: false })
+    assert.equal(request.mock.callCount(), 2)
+    advanceTo(30000)
+    await APIService.getFeaturesLive()
+    assert.equal(request.mock.callCount(), 3)
+    assert.strictEqual(await APIService.getFeatures(), bootstrap)
+  })
+}
+
+test('failed live refresh never caches a failure or renews the stale value', async (t) => {
+  const { APIService, advanceTo } = await featureReaders(t, 'c1-failed-live-refresh')
+  let fail = false, enabled = true
+  const request = t.mock.method(APIService, 'request', async () => {
+    if (fail) throw new Error('offline')
+    return { club_player_publication: enabled }
+  })
+  const bootstrap = await APIService.getFeatures()
+  advanceTo(15000)
+  fail = true
+  await assert.rejects(APIService.getFeaturesLive(), /offline/)
+  assert.equal(request.mock.callCount(), 2)
+  await assert.rejects(APIService.getFeaturesLive(), /offline/)
+  assert.equal(request.mock.callCount(), 3)
+  fail = false; enabled = false
+  const recovered = await Promise.all([APIService.getFeaturesLive(), APIService.getFeaturesLive()])
+  assert.deepEqual(recovered, [{ club_player_publication: false }, { club_player_publication: false }])
+  assert.equal(request.mock.callCount(), 4)
+  assert.strictEqual(await APIService.getFeatures(), bootstrap)
+})

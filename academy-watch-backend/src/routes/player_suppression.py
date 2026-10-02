@@ -34,7 +34,7 @@ INTAKE_RATE_LIMIT_PER_MINUTE = "5 per minute"
 INTAKE_RATE_LIMIT_PER_HOUR = "20 per hour"
 EMAIL_PATTERN = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 ACKNOWLEDGMENT = {
-    "message": "Takedown requests are reviewed per player. If a request is already pending or active, "
+    "message": "Your request has been received for review. If a request is already pending or active, "
     "this submission does not replace or add to its contact or evidence."
 }
 
