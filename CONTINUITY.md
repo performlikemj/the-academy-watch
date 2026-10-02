@@ -32,6 +32,8 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
 
 ## State
 
+- **Now (FLK):** test-only UTC clock fixture fixes collection/execution date race; 30 pinned boundary checks pass, neighbour audit complete. Final-head governed backend-full/backend-lint and ready PR delivery next. Local ledger `ledgers/CONTINUITY_flk.md`; hand-back `~/codex-runs/aw-redesign/logs/FLK.final.md`.
+
 - **Now (B3F5):** all nine duel-confirmed fixes complete on PR #1115: full flags-OFF4258/101skip/0fail, PG32, Node219, browser17, Ruff/format587, OSV547/lint0err190warn/build. Preapply twice=upgrade/lock contention verified; new CONTRACT hashes on BUS. See ledgers/CONTINUITY_p2-b3.md and logs/B3F5.final.md; review/integration next, no merge.
 
 - **Now (N5F2):** review-duel union fixes implemented on #1125; O1 + six Small items, accepted boot unchanged. Final governed gates/push/cleanup receipts: `~/codex-runs/aw-redesign/logs/N5F2.final.md`; implementation ledger: `ledgers/CONTINUITY_n5-web.md`.
