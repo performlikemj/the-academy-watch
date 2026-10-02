@@ -165,7 +165,11 @@ def iso(value):
 
 def operational(program_id, *, lock=False):
     query = ClubProgram.query.filter_by(id=program_id).filter(public_club_eligibility()).populate_existing()
-    program = (query.with_for_update() if lock else query).first()
+    if lock:
+        from src.services.contact_locks import lock_contact_scope
+
+        lock_contact_scope(db.session, program_id=program_id)
+    program = query.first()
     if not program or program.platform_status != "approved" or club_publication_held(program_id):
         raise OpportunityError("Not found", 404)
     return program
@@ -656,8 +660,11 @@ def submit(oid, user_id, data):
     existing = replay()
     if existing:
         return existing, False
-    # Program -> opportunity -> claim; serializes submit/replay and claim resolution with merges.
+    # Resolve both program scopes before the opportunity and claim mutations.
     initial = opportunity(oid)
+    from src.services.contact_locks import lock_contact_scope
+
+    lock_contact_scope(db.session, program_id=initial.program_id, claim_id=claim_id)
     operational(initial.program_id, lock=True)
     row = opportunity(oid, lock=True)
     existing = replay()
@@ -665,7 +672,7 @@ def submit(oid, user_id, data):
         return existing, False
     if row.status != "published" or row.closes_at <= now():
         raise OpportunityError("Not found", 404)
-    PlayerProfileClaim.query.filter_by(id=claim_id).with_for_update().first()
+    lock_contact_scope(db.session, program_id=initial.program_id, claim_id=claim_id)
     claim, pid, source = adult_claim(integer(data.get("claim_id"), "claim_id"), user_id)
     if outside_age_band(row, source):
         raise OpportunityError("outside_age_band", 403)

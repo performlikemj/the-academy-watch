@@ -103,6 +103,7 @@ from src.services.contact import (
     require_contact_rail,
     utcnow,
 )
+from src.services.contact_locks import database_conflict, lock_contact_scope
 from src.services.photo_processing import process_photo, validate_photo
 from src.services.player_identity import retained_shadow_identity_exists
 from src.services.player_shadow_service import mint_shadow
@@ -310,7 +311,14 @@ def _has_approved_subject_claim(
         PlayerProfileClaim.status == "approved",
     )
     if for_update:
-        query = query.with_for_update()
+        candidates = query.all()
+        candidate_ids = {r.id for r in candidates}
+        lock_contact_scope(db.session, claim_id=candidate_ids)
+        query = query.populate_existing()
+        if {r.id for r in query.all()} != candidate_ids:
+            from src.services.contact_locks import _retry
+
+            _retry()
     return query.first() is not None
 
 
@@ -434,7 +442,7 @@ def _optional_owner_user(player_api_id: int):
         return None
 
 
-def _approved_subject_claim_or_403(subject: ShowcaseSubject):
+def _approved_subject_claim_or_403(subject: ShowcaseSubject, *, program_id=None):
     """Resolve the caller and require an approved claim for one subject.
 
     Returns ``(user, None)`` when the caller owns an approved claim, otherwise
@@ -447,6 +455,24 @@ def _approved_subject_claim_or_403(subject: ShowcaseSubject):
         player = db.session.get(LocalPlayer, subject.local_player_id)
         if player is None or player.status in ("merged", "rejected") or _local_player_is_suppressed(player):
             return None, (jsonify({"error": "local player not found"}), 404)
+        if player.provenance == "club":
+            from src.services.club_player_publication import enabled
+
+            if enabled():
+                from src.models.club_player_publication import ClubPlayerPublication
+
+                # Retirement takes this same lock before quarantining content.
+                # An old owner cannot finish an authorized write after recovery.
+                hint = ClubPlayerPublication.query.filter_by(local_player_id=player.id).first()
+                publication = (
+                    lock_contact_scope(db.session, program_id=program_id, publication_id=hint.id).publications.get(
+                        hint.id
+                    )
+                    if hint and request.method not in ("GET", "HEAD")
+                    else hint
+                )
+                if publication and (publication.recipient_user_id != user.id or publication.club_revoked_at):
+                    return None, (jsonify({"error": "You do not have an approved claim for this player"}), 403)
     if not _has_approved_subject_claim(subject, user.id):
         return None, (jsonify({"error": "You do not have an approved claim for this player"}), 403)
     return user, None
@@ -1528,6 +1554,10 @@ def create_local_club():
         return jsonify({"club": _local_club_dict(club)}), 201
     except Exception as e:
         db.session.rollback()
+        conflict = database_conflict(e)
+        if conflict:
+            code, status = conflict
+            return jsonify(error=code, code=code, retryable=True), status
         logger.error("Error in create_local_club: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to create local club")), 500
 
@@ -1723,6 +1753,10 @@ def create_local_player():
         return jsonify({"error": str(exc)}), exc.status
     except Exception as e:
         db.session.rollback()
+        conflict = database_conflict(e)
+        if conflict:
+            code, status = conflict
+            return jsonify(error=code, code=code, retryable=True), status
         logger.error("Error in create_local_player: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to create local player")), 500
 
@@ -1779,7 +1813,12 @@ def _local_player_publication_held(player):
 def _local_player_visible_to_context(player: LocalPlayer, auth_context) -> bool:
     if _local_player_publication_held(player):
         return False
-    if player.provenance == "club" or _local_player_is_suppressed(player):
+    if player.provenance == "club":
+        from src.services.club_player_publication import enabled
+        from src.services.public_adult import is_public_adult
+
+        return enabled() and is_public_adult(-player.id)
+    if _local_player_is_suppressed(player):
         return False
     user = auth_context["user"] if auth_context else None
     # Minor academy records are club-private even after an identity moderator
@@ -2142,6 +2181,10 @@ def submit_profile_claim(player_api_id: int):
         return jsonify({"error": str(e)}), 400
     except Exception as e:
         db.session.rollback()
+        conflict = database_conflict(e)
+        if conflict:
+            code, status = conflict
+            return jsonify(error=code, code=code, retryable=True), status
         logger.error("Error in submit_profile_claim: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to submit claim")), 500
 
@@ -2176,6 +2219,10 @@ def my_claims():
         return jsonify({"claims": out})
     except Exception as e:
         db.session.rollback()
+        conflict = database_conflict(e)
+        if conflict:
+            code, status = conflict
+            return jsonify(error=code, code=code, retryable=True), status
         logger.error("Error in my_claims: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to load claims")), 500
 
@@ -2213,6 +2260,10 @@ def verify_my_claim(claim_id: int):
         return jsonify({"claim": _profile_claim_dict(claim)})
     except Exception as e:
         db.session.rollback()
+        conflict = database_conflict(e)
+        if conflict:
+            code, status = conflict
+            return jsonify(error=code, code=code, retryable=True), status
         logger.error("Error in verify_my_claim: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to verify claim proof")), 500
 
@@ -2422,6 +2473,10 @@ def submit_club_official_claim():
         return jsonify({"claim": _club_claim_dict(claim)}), 201
     except Exception as e:
         db.session.rollback()
+        conflict = database_conflict(e)
+        if conflict:
+            code, status = conflict
+            return jsonify(error=code, code=code, retryable=True), status
         logger.error("Error in submit_club_official_claim: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to submit club-official claim")), 500
 
@@ -2448,6 +2503,10 @@ def my_club_claims():
         return jsonify({"claims": [_club_claim_dict(claim) for claim in claims]})
     except Exception as e:
         db.session.rollback()
+        conflict = database_conflict(e)
+        if conflict:
+            code, status = conflict
+            return jsonify(error=code, code=code, retryable=True), status
         logger.error("Error in my_club_claims: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to load club-official claims")), 500
 
@@ -2486,6 +2545,10 @@ def verify_my_club_claim(claim_id: int):
         return jsonify({"claim": _club_claim_dict(claim, include_verification_code=False)})
     except Exception as e:
         db.session.rollback()
+        conflict = database_conflict(e)
+        if conflict:
+            code, status = conflict
+            return jsonify(error=code, code=code, retryable=True), status
         logger.error("Error in verify_my_club_claim: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to verify club-official claim proof")), 500
 
@@ -2562,6 +2625,10 @@ def my_club():
         return jsonify({"clubs": clubs})
     except Exception as e:
         db.session.rollback()
+        conflict = database_conflict(e)
+        if conflict:
+            code, status = conflict
+            return jsonify(error=code, code=code, retryable=True), status
         logger.error("Error in my_club: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to load club workspace")), 500
 
@@ -2620,6 +2687,10 @@ def confirm_club_affiliation(aff_id: int):
         return _official_affiliation_action(aff_id, target_status="club_confirmed")
     except Exception as e:
         db.session.rollback()
+        conflict = database_conflict(e)
+        if conflict:
+            code, status = conflict
+            return jsonify(error=code, code=code, retryable=True), status
         logger.error("Error in confirm_club_affiliation: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to confirm affiliation")), 500
 
@@ -2637,6 +2708,10 @@ def reject_club_affiliation(aff_id: int):
         )
     except Exception as e:
         db.session.rollback()
+        conflict = database_conflict(e)
+        if conflict:
+            code, status = conflict
+            return jsonify(error=code, code=code, retryable=True), status
         logger.error("Error in reject_club_affiliation: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to reject affiliation")), 500
 
@@ -2654,7 +2729,7 @@ def vouch_for_player_claim(claim_id: int):
         user = _current_user_account()
         if user is None:
             return jsonify({"error": "auth context missing email"}), 401
-        player_claim = PlayerProfileClaim.query.filter_by(id=claim_id).with_for_update().first()
+        player_claim = lock_contact_scope(db.session, claim_id=claim_id).claims.get(claim_id)
         if player_claim is None:
             return jsonify({"error": "player claim not found"}), 404
 
@@ -2696,6 +2771,10 @@ def vouch_for_player_claim(claim_id: int):
         return jsonify({"claim": _player_claim_for_official_dict(player_claim)})
     except Exception as e:
         db.session.rollback()
+        conflict = database_conflict(e)
+        if conflict:
+            code, status = conflict
+            return jsonify(error=code, code=code, retryable=True), status
         logger.error("Error in vouch_for_player_claim: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to vouch for player claim")), 500
 
@@ -2800,6 +2879,10 @@ def _create_subject_affiliation(subject: ShowcaseSubject):
         )
     except Exception as e:
         db.session.rollback()
+        conflict = database_conflict(e)
+        if conflict:
+            code, status = conflict
+            return jsonify(error=code, code=code, retryable=True), status
         logger.error("Error in create_player_affiliation: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to create affiliation")), 500
 
@@ -2840,6 +2923,10 @@ def _delete_subject_affiliation(subject: ShowcaseSubject, aff_id: int):
         return jsonify({"deleted": True})
     except Exception as e:
         db.session.rollback()
+        conflict = database_conflict(e)
+        if conflict:
+            code, status = conflict
+            return jsonify(error=code, code=code, retryable=True), status
         logger.error("Error in delete_player_affiliation: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to delete affiliation")), 500
 
@@ -2862,10 +2949,16 @@ def upsert_local_showcase_profile(lp_id: int):
 
 def _upsert_subject_showcase_profile(subject: ShowcaseSubject):
     try:
-        user, error = _approved_subject_claim_or_403(subject)
+        # Read the routing hint before the owner gate locks publication rows,
+        # while preserving main's authorization-before-payload-error behavior.
+        hint = request.get_json(silent=True)
+        program_id = hint.get("club_program_id") if isinstance(hint, dict) else None
+        program_id = (
+            program_id if isinstance(program_id, int) and not isinstance(program_id, bool) and program_id > 0 else None
+        )
+        user, error = _approved_subject_claim_or_403(subject, program_id=program_id)
         if error:
             return error
-
         payload, payload_error = _json_object_or_400()
         if payload_error:
             return (jsonify({"error": "invalid_request"}), 400) if subject.is_local else payload_error
@@ -3098,6 +3191,10 @@ def _upsert_subject_showcase_profile(subject: ShowcaseSubject):
         return _invitation_database_error(e)
     except Exception as e:
         db.session.rollback()
+        conflict = database_conflict(e)
+        if conflict:
+            code, status = conflict
+            return jsonify(error=code, code=code, retryable=True), status
         logger.error("Error in upsert_showcase_profile: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to save profile")), 500
 
@@ -3189,6 +3286,10 @@ def _create_subject_showcase_photo(subject: ShowcaseSubject):
         return jsonify({"error": "Showcase media storage is not configured"}), 503
     except Exception as e:
         db.session.rollback()
+        conflict = database_conflict(e)
+        if conflict:
+            code, status = conflict
+            return jsonify(error=code, code=code, retryable=True), status
         logger.error("Error in create_showcase_photo: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to create photo upload")), 500
 
@@ -3266,6 +3367,10 @@ def _complete_subject_showcase_photo(subject: ShowcaseSubject, media_id: int):
         return jsonify({"error": "Showcase media storage is not configured"}), 503
     except Exception as e:
         db.session.rollback()
+        conflict = database_conflict(e)
+        if conflict:
+            code, status = conflict
+            return jsonify(error=code, code=code, retryable=True), status
         logger.error("Error in complete_showcase_photo: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to complete photo upload")), 500
 
@@ -3324,6 +3429,10 @@ def _reorder_subject_showcase_photos(subject: ShowcaseSubject):
         return jsonify({"photos": [_media_dict(media) for media in reordered]})
     except Exception as e:
         db.session.rollback()
+        conflict = database_conflict(e)
+        if conflict:
+            code, status = conflict
+            return jsonify(error=code, code=code, retryable=True), status
         logger.error("Error in reorder_showcase_photos: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to reorder photos")), 500
 
@@ -3377,6 +3486,10 @@ def _set_primary_subject_showcase_photo(subject: ShowcaseSubject, media_id: int)
         return jsonify({"media": _media_dict(media)})
     except Exception as e:
         db.session.rollback()
+        conflict = database_conflict(e)
+        if conflict:
+            code, status = conflict
+            return jsonify(error=code, code=code, retryable=True), status
         logger.error("Error in set_primary_showcase_photo: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to set primary photo")), 500
 
@@ -3427,6 +3540,10 @@ def _delete_subject_showcase_photo(subject: ShowcaseSubject, media_id: int):
         return jsonify({"error": "Showcase media storage is not configured"}), 503
     except Exception as e:
         db.session.rollback()
+        conflict = database_conflict(e)
+        if conflict:
+            code, status = conflict
+            return jsonify(error=code, code=code, retryable=True), status
         logger.error("Error in delete_showcase_photo: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to delete photo")), 500
 
@@ -3485,6 +3602,10 @@ def _add_subject_reel_item(subject: ShowcaseSubject):
         return jsonify({"link": _link_dict(link)}), 201
     except Exception as e:
         db.session.rollback()
+        conflict = database_conflict(e)
+        if conflict:
+            code, status = conflict
+            return jsonify(error=code, code=code, retryable=True), status
         logger.error("Error in add_reel_item: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to add reel item")), 500
 
@@ -3538,6 +3659,10 @@ def _reorder_subject_reel(subject: ShowcaseSubject):
         return jsonify({"reel": _subject_highlight_reel(subject, include_pending=True)})
     except Exception as e:
         db.session.rollback()
+        conflict = database_conflict(e)
+        if conflict:
+            code, status = conflict
+            return jsonify(error=code, code=code, retryable=True), status
         logger.error("Error in reorder_reel: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to reorder reel")), 500
 
@@ -3578,6 +3703,10 @@ def _delete_subject_reel_item(subject: ShowcaseSubject, link_id: int):
         return jsonify({"deleted": True})
     except Exception as e:
         db.session.rollback()
+        conflict = database_conflict(e)
+        if conflict:
+            code, status = conflict
+            return jsonify(error=code, code=code, retryable=True), status
         logger.error("Error in delete_reel_item: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to delete reel item")), 500
 
@@ -3673,6 +3802,10 @@ def admin_review_club_claim(claim_id: int):
         return jsonify({"error": str(e)}), 409
     except Exception as e:
         db.session.rollback()
+        conflict = database_conflict(e)
+        if conflict:
+            code, status = conflict
+            return jsonify(error=code, code=code, retryable=True), status
         logger.error("Error in admin_review_club_claim: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to review club-official claim")), 500
 
@@ -3702,6 +3835,10 @@ def admin_recheck_club_claim(claim_id: int):
         return jsonify({"claim": _club_claim_dict(claim, include_verification_code=False)})
     except Exception as e:
         db.session.rollback()
+        conflict = database_conflict(e)
+        if conflict:
+            code, status = conflict
+            return jsonify(error=code, code=code, retryable=True), status
         logger.error("Error in admin_recheck_club_claim: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to re-check club-official claim proof")), 500
 
@@ -3753,6 +3890,10 @@ def admin_review_local_club(club_id: int):
         return jsonify({"club": _local_club_dict(club)})
     except Exception as e:
         db.session.rollback()
+        conflict = database_conflict(e)
+        if conflict:
+            code, status = conflict
+            return jsonify(error=code, code=code, retryable=True), status
         logger.error("Error in admin_review_local_club: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to review local club")), 500
 
@@ -3803,6 +3944,10 @@ def admin_merge_local_club(club_id: int):
         )
     except Exception as e:
         db.session.rollback()
+        conflict = database_conflict(e)
+        if conflict:
+            code, status = conflict
+            return jsonify(error=code, code=code, retryable=True), status
         logger.error("Error in admin_merge_local_club: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to merge local club")), 500
 
@@ -3829,6 +3974,10 @@ def admin_link_local_club_api(club_id: int):
         return jsonify({"club": _local_club_dict(club)})
     except Exception as e:
         db.session.rollback()
+        conflict = database_conflict(e)
+        if conflict:
+            code, status = conflict
+            return jsonify(error=code, code=code, retryable=True), status
         logger.error("Error in admin_link_local_club_api: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to link local club")), 500
 
@@ -3840,6 +3989,10 @@ def admin_list_local_players():
     try:
         status = (request.args.get("status") or "").strip().lower()
         query = LocalPlayer.query.filter(LocalPlayer.provenance != "club")
+        from src.services.club_player_publication import enabled
+
+        if enabled():
+            query = LocalPlayer.query.filter(or_(LocalPlayer.provenance != "club", LocalPlayer.api_player_id > 0))
         if status:
             if status not in LOCAL_PLAYER_STATUSES:
                 return jsonify({"error": f"invalid status; one of {sorted(LOCAL_PLAYER_STATUSES)}"}), 400
@@ -3857,6 +4010,23 @@ def admin_list_local_players():
         return jsonify(_safe_error_payload(e, "Failed to load local players")), 500
 
 
+def _club_publication_identity_protected(local):
+    if local.provenance != "club":
+        return False
+    from src.services.club_player_publication import enabled
+
+    if enabled():
+        return True
+    # Retained permissions cannot transfer while dark; pre-C1 legacy actions keep parity.
+    from src.models.club_player_publication import ClubPlayerPublication
+    from src.services.account import _SchemaView
+
+    return (
+        _SchemaView().has_table("club_player_publications")
+        and ClubPlayerPublication.query.filter_by(local_player_id=local.id).first() is not None
+    )
+
+
 def _legacy_negative_identity_conflict(player_api_id: int):
     """Lock and return a referenced legacy identity occupying D1's namespace.
 
@@ -3865,11 +4035,21 @@ def _legacy_negative_identity_conflict(player_api_id: int):
     player-universe table make the collision ambiguous, so those fail closed.
     """
 
+    claims = PlayerProfileClaim.query.filter_by(player_api_id=player_api_id).all()
+    if claims:
+        claim_ids = {r.id for r in claims}
+        scope = lock_contact_scope(db.session, claim_id=claim_ids)
+        if {
+            id_ for (id_,) in db.session.query(PlayerProfileClaim.id).filter_by(player_api_id=player_api_id)
+        } != claim_ids:
+            from src.services.contact_locks import _retry
+
+            _retry()
+        return next(iter(scope.claims.values()), None)
     followed_player_id = Follow.selector["player_api_id"].as_integer()
     reference_queries = (
         TrackedPlayer.query.filter_by(player_api_id=player_api_id),
         PlayerShadow.query.filter_by(player_api_id=player_api_id),
-        PlayerProfileClaim.query.filter_by(player_api_id=player_api_id),
         ScoutWatchlistEntry.query.filter_by(player_api_id=player_api_id),
         Follow.query.filter(Follow.kind == "player", followed_player_id == player_api_id),
         FollowPlayerSnapshot.query.filter_by(player_api_id=player_api_id),
@@ -3953,6 +4133,10 @@ def admin_review_local_player(lp_id: int):
         return jsonify({"player": _local_player_admin_dict(player)})
     except Exception as e:
         db.session.rollback()
+        conflict = database_conflict(e)
+        if conflict:
+            code, status = conflict
+            return jsonify(error=code, code=code, retryable=True), status
         logger.error("Error in admin_review_local_player: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to review local player")), 500
 
@@ -3998,15 +4182,48 @@ def _merge_subject_claims(source_subject: ShowcaseSubject, target_subject: Showc
     (revoked/rejected cannot be resurrected), while the strongest independent
     social-proof evidence and club-vouch provenance are retained.
     """
-    source_claims = (
-        PlayerProfileClaim.query.filter(*_subject_filters(PlayerProfileClaim, source_subject)).with_for_update().all()
+    source_claims = PlayerProfileClaim.query.filter(*_subject_filters(PlayerProfileClaim, source_subject)).all()
+    target_claims = PlayerProfileClaim.query.filter(*_subject_filters(PlayerProfileClaim, target_subject)).all()
+    # Resolve the whole two-identity scope before acquiring any of its locks.
+    signed_ids = {subject.player_api_id or -subject.local_player_id for subject in (source_subject, target_subject)}
+    signed_ids.update(r.player_api_id for r in source_claims + target_claims if r.player_api_id is not None)
+    requests = ContactRequest.query.filter(ContactRequest.player_api_id.in_(signed_ids)).all()
+    selected_source_ids = {r.id for r in source_claims}
+    selected_target_ids = {r.id for r in target_claims}
+    selected_request_ids = {r.id for r in requests}
+    scope = lock_contact_scope(
+        db.session, claim_id=[r.id for r in source_claims + target_claims], request_id=[r.id for r in requests]
     )
+    # Membership can change while waiting for the canonical prefix. Never
+    # merge an unlocked new claim or silently leave a concurrent request behind.
+    fresh_source_ids = {
+        id_
+        for (id_,) in db.session.query(PlayerProfileClaim.id)
+        .filter(*_subject_filters(PlayerProfileClaim, source_subject))
+        .all()
+    }
+    fresh_target_ids = {
+        id_
+        for (id_,) in db.session.query(PlayerProfileClaim.id)
+        .filter(*_subject_filters(PlayerProfileClaim, target_subject))
+        .all()
+    }
+    fresh_request_ids = {
+        id_ for (id_,) in db.session.query(ContactRequest.id).filter(ContactRequest.player_api_id.in_(signed_ids)).all()
+    }
+    if (fresh_source_ids, fresh_target_ids, fresh_request_ids) != (
+        selected_source_ids,
+        selected_target_ids,
+        selected_request_ids,
+    ):
+        from src.services.contact_locks import _retry
+
+        _retry()
+    source_claims = [scope.claims[r.id] for r in source_claims if r.id in scope.claims]
+    target_claims = [scope.claims[r.id] for r in target_claims if r.id in scope.claims]
     if not source_claims:
         return 0
 
-    target_claims = (
-        PlayerProfileClaim.query.filter(*_subject_filters(PlayerProfileClaim, target_subject)).with_for_update().all()
-    )
     # p2-b2: claim FKs and resolved subject uniqueness move inside this merge transaction.
     from src.services.opportunities_merge import repoint_applications
 
@@ -4184,6 +4401,10 @@ def admin_merge_local_player(lp_id: int):
         if target is None or target.status in ("merged", "rejected"):
             return jsonify({"error": "merge target must be an active local player"}), 400
 
+        if _club_publication_identity_protected(source) or _club_publication_identity_protected(target):
+            return jsonify(
+                error="Club-origin identity requires a private identity review; publication consent cannot transfer"
+            ), 409
         now = datetime.now(UTC)
         claims = _merge_local_player_claims(source.id, target.id)
         profiles = _merge_local_player_profiles(source.id, target.id, now)
@@ -4237,6 +4458,10 @@ def admin_merge_local_player(lp_id: int):
         return jsonify(error=str(exc)), 409
     except Exception as e:
         db.session.rollback()
+        conflict = database_conflict(e)
+        if conflict:
+            code, status = conflict
+            return jsonify(error=code, code=code, retryable=True), status
         logger.error("Error in admin_merge_local_player: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to merge local player")), 500
 
@@ -4676,16 +4901,25 @@ def _rekey_video_report_subjects(local_player_id: int, player_api_id: int) -> in
 
 
 def _rekey_contacts(old_player_api_id: int, player_api_id: int) -> int:
-    source_rows = ContactRequest.query.filter_by(player_api_id=old_player_api_id).with_for_update().all()
+    candidates = ContactRequest.query.filter(ContactRequest.player_api_id.in_([old_player_api_id, player_api_id])).all()
+    candidate_ids = {r.id for r in candidates}
+    scope = lock_contact_scope(db.session, request_id=candidate_ids)
+    fresh_ids = {
+        id_
+        for (id_,) in db.session.query(ContactRequest.id).filter(
+            ContactRequest.player_api_id.in_([old_player_api_id, player_api_id])
+        )
+    }
+    if fresh_ids != candidate_ids:
+        from src.services.contact_locks import _retry
+
+        _retry()
+    source_rows = [r for r in scope.requests.values() if r.player_api_id == old_player_api_id]
     active_statuses = {"pending", "accepted"}
     target_active_by_scout = {
         row.scout_user_id: row
-        for row in ContactRequest.query.filter(
-            ContactRequest.player_api_id == player_api_id,
-            ContactRequest.status.in_(active_statuses),
-        )
-        .with_for_update()
-        .all()
+        for row in scope.requests.values()
+        if row.player_api_id == player_api_id and row.status in active_statuses
     }
     status_rank = {"pending": 0, "accepted": 1}
     now = utcnow()
@@ -4981,6 +5215,42 @@ def admin_link_local_player_api(lp_id: int):
         if payload_error:
             return payload_error
         player_api_id = payload.get("player_api_id")
+        from src.services import club_player_publication as publication_service
+
+        if (
+            publication_service.enabled()
+            and player.provenance == "club"
+            and "player_api_id" in payload
+            and player_api_id is None
+        ):
+            if not player.api_player_id or player.api_player_id <= 0:
+                return jsonify(error="Club player has no provider link to remove"), 409
+            if _legacy_negative_identity_conflict(-player.id) is not None:
+                return jsonify(error="synthetic player id conflicts with a legacy manual player"), 409
+            from src.models.club_player_publication import ClubPlayerPublication
+
+            hints = ClubPlayerPublication.query.filter_by(local_player_id=player.id).all()
+            hint_ids = {r.id for r in hints}
+            scope = lock_contact_scope(db.session, publication_id=hint_ids)
+            fresh_ids = {
+                id_ for (id_,) in db.session.query(ClubPlayerPublication.id).filter_by(local_player_id=player.id)
+            }
+            if fresh_ids != hint_ids:
+                from src.services.contact_locks import _retry
+
+                _retry()
+            for id_ in hint_ids:
+                publication = scope.publications.get(id_)
+                if publication is not None and publication.local_player_id == player.id:
+                    publication_service.revoke(publication, club=True)
+            # Remove the mapping only. Provider claims/content/stats stay with
+            # that provider; their permissions cannot transfer to this local.
+            player.api_player_id, player.status = -player.id, "pending"
+            player.updated_at = datetime.now(UTC)
+            db.session.commit()
+            return jsonify(player=_local_player_admin_dict(player))
+        if _club_publication_identity_protected(player):
+            return jsonify(error="Club-origin publication consent cannot transfer to another identity"), 409
         if isinstance(player_api_id, bool) or not isinstance(player_api_id, int) or player_api_id <= 0:
             return jsonify({"error": "player_api_id must be a positive integer"}), 400
         if player.status != "approved":
@@ -5042,6 +5312,10 @@ def admin_link_local_player_api(lp_id: int):
         return jsonify({"error": str(e)}), 409
     except Exception as e:
         db.session.rollback()
+        conflict = database_conflict(e)
+        if conflict:
+            code, status = conflict
+            return jsonify(error=code, code=code, retryable=True), status
         logger.error("Error in admin_link_local_player_api: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to link local player")), 500
 
@@ -5115,6 +5389,10 @@ def admin_review_affiliation(aff_id: int):
         )
     except Exception as e:
         db.session.rollback()
+        conflict = database_conflict(e)
+        if conflict:
+            code, status = conflict
+            return jsonify(error=code, code=code, retryable=True), status
         logger.error("Error in admin_review_affiliation: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to review affiliation")), 500
 
@@ -5208,6 +5486,10 @@ def admin_review_showcase_media(media_id: int):
                 return jsonify({"error": "Showcase media storage is not configured"}), 503
             except Exception as exc:
                 db.session.rollback()
+                conflict = database_conflict(exc)
+                if conflict:
+                    code, status = conflict
+                    return jsonify(error=code, code=code, retryable=True), status
                 _cleanup_failed_publication(published_url, media.id)
                 logger.warning("Photo processing/publish failed for media %s: %s", media.id, exc)
                 return jsonify({"error": "Photo could not be processed or published"}), 422
@@ -5224,6 +5506,10 @@ def admin_review_showcase_media(media_id: int):
                 return jsonify({"error": "Showcase media storage is not configured"}), 503
             except Exception as exc:
                 db.session.rollback()
+                conflict = database_conflict(exc)
+                if conflict:
+                    code, status = conflict
+                    return jsonify(error=code, code=code, retryable=True), status
                 logger.warning("Pending photo delete failed for rejected media %s: %s", media.id, exc)
                 return jsonify({"error": "Photo could not be rejected because its upload could not be deleted"}), 422
             media.status = "rejected"
@@ -5248,9 +5534,29 @@ def admin_review_showcase_media(media_id: int):
         return jsonify({"media": _media_dict(media, include_preview=True, admin_preview=True)})
     except Exception as e:
         db.session.rollback()
+        conflict = database_conflict(e)
+        if conflict:
+            code, status = conflict
+            return jsonify(error=code, code=code, retryable=True), status
         _cleanup_failed_publication(published_url, media_id)
         logger.error("Error in admin_review_showcase_media: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to review showcase media")), 500
+
+
+def _c1_claim_filter():
+    import sqlalchemy as sa
+    from src.services.account import _SchemaView
+
+    retired = PlayerProfileClaim.verification_method == "club_vouch_retired"
+    # Ordinary legacy club claims still belong to the legacy moderation queue.
+    if not _SchemaView().has_table("club_player_publications"):
+        return sa.func.coalesce(retired, False)
+    from src.models.club_player_publication import ClubPlayerPublication
+
+    return sa.or_(
+        sa.func.coalesce(retired, False),
+        sa.exists().where(ClubPlayerPublication.claim_id == PlayerProfileClaim.id),
+    )
 
 
 @showcase_bp.route("/admin/showcase/claims", methods=["GET"])
@@ -5259,7 +5565,7 @@ def admin_list_claims():
     """List profile claims, optionally filtered by status."""
     try:
         status = (request.args.get("status") or "").strip().lower()
-        query = PlayerProfileClaim.query
+        query = PlayerProfileClaim.query.filter(~_c1_claim_filter())
         if status:
             if status not in CLAIM_STATUSES:
                 return jsonify({"error": f"invalid status; one of {sorted(CLAIM_STATUSES)}"}), 400
@@ -5303,6 +5609,8 @@ def admin_recheck_claim(claim_id: int):
         claim = db.session.get(PlayerProfileClaim, claim_id)
         if claim is None:
             return jsonify({"error": "claim not found"}), 404
+        if PlayerProfileClaim.query.filter(PlayerProfileClaim.id == claim.id, _c1_claim_filter()).first():
+            return jsonify({"error": "publication_review_required"}), 409
         proof_url = (claim.verification_proof_url or "").strip()
         if not proof_url:
             return jsonify({"error": "claim has no stored proof_url"}), 400
@@ -5319,6 +5627,10 @@ def admin_recheck_claim(claim_id: int):
         return jsonify({"claim": _profile_claim_dict(claim)})
     except Exception as e:
         db.session.rollback()
+        conflict = database_conflict(e)
+        if conflict:
+            code, status = conflict
+            return jsonify(error=code, code=code, retryable=True), status
         logger.error("Error in admin_recheck_claim: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to re-check claim proof")), 500
 
@@ -5329,9 +5641,11 @@ def admin_review_claim(claim_id: int):
     """Transition a claim: pending → approved|rejected, approved → revoked.
     Approving does NOT auto-revoke other approved claims (player + agent may co-own)."""
     try:
-        claim = db.session.get(PlayerProfileClaim, claim_id)
+        claim = lock_contact_scope(db.session, claim_id=claim_id).claims.get(claim_id)
         if claim is None:
             return jsonify({"error": "claim not found"}), 404
+        if PlayerProfileClaim.query.filter(PlayerProfileClaim.id == claim.id, _c1_claim_filter()).first():
+            return jsonify({"error": "publication_review_required"}), 409
 
         payload = request.get_json(silent=True) or {}
         action = (payload.get("action") or "").strip().lower()
@@ -5360,6 +5674,12 @@ def admin_review_claim(claim_id: int):
         claim.reviewed_by = getattr(g, "user_email", None)
         claim.reviewed_at = datetime.now(UTC)
         if action in {"reject", "revoke"}:
+            from src.services.account import _SchemaView
+
+            if _SchemaView().has_table("player_feedback"):
+                from src.models.player_feedback import close_feedback
+
+                close_feedback(db.session, claim_id=claim.id, now=claim.reviewed_at)
             record_moderation_event(
                 user_account_id=claim.user_account_id,
                 target_kind="claim",
@@ -5379,6 +5699,10 @@ def admin_review_claim(claim_id: int):
         return jsonify({"claim": _profile_claim_dict(claim)})
     except Exception as e:
         db.session.rollback()
+        conflict = database_conflict(e)
+        if conflict:
+            code, status = conflict
+            return jsonify(error=code, code=code, retryable=True), status
         logger.error("Error in admin_review_claim: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to review claim")), 500
 
@@ -5523,6 +5847,10 @@ def _admin_review_subject_profile(subject: ShowcaseSubject):
         return _invitation_database_error(e)
     except Exception as e:
         db.session.rollback()
+        conflict = database_conflict(e)
+        if conflict:
+            code, status = conflict
+            return jsonify(error=code, code=code, retryable=True), status
         logger.error("Error in admin_review_profile: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to review profile")), 500
 
@@ -5630,6 +5958,10 @@ def admin_link_video_roster(roster_id: int):
         return jsonify({"roster": roster.to_dict(), "tracked_player_id": tracked.id})
     except Exception as e:
         db.session.rollback()
+        conflict = database_conflict(e)
+        if conflict:
+            code, status = conflict
+            return jsonify(error=code, code=code, retryable=True), status
         logger.error("Error in admin_link_video_roster: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to link roster entry")), 500
 

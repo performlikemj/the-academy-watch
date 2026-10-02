@@ -40,7 +40,7 @@ from src.models.player_fan import PlayerFan
 from src.models.player_match_entry import PlayerMatchEntry
 from src.models.product_event import ProductEvent
 from src.models.scout_watchlist import ScoutWatchlistEntry
-from src.models.showcase import PlayerProfileClaim, PlayerShowcaseProfile
+from src.models.showcase import PlayerClubAffiliation, PlayerProfileClaim, PlayerShowcaseMedia, PlayerShowcaseProfile
 from src.models.trust import ContentReport, ScoutVerification
 from src.services import season_rollup_service
 from src.services.club_registry import active_manager_program_ids, program_is_operational
@@ -141,20 +141,31 @@ def _submitted_link_dict(link: PlayerLink) -> dict:
     return payload
 
 
-def _contact_request_dict(contact_request: ContactRequest) -> dict:
-    payload = contact_request.to_dict()
+def _contact_request_dict(contact_request: ContactRequest, viewer_user_id=None, available=None) -> dict:
+    from src.services.club_player_publication import scout_counterpart_available
+
+    withheld = viewer_user_id == contact_request.scout_user_id and not scout_counterpart_available(
+        contact_request, available
+    )
+    payload = contact_request.to_dict(viewer_user_id=viewer_user_id, counterpart_withheld=withheld)
+
     payload["messages"] = [
         message.to_dict()
         for message in contact_request.messages.order_by(None)
         .order_by(ContactMessage.created_at.asc(), ContactMessage.id.asc())
         .all()
+        if not withheld or message.sender_user_id == viewer_user_id
     ]
-    payload["outcomes"] = [
-        outcome.to_dict()
-        for outcome in contact_request.outcomes.order_by(None)
-        .order_by(ContactOutcome.occurred_at.asc(), ContactOutcome.created_at.asc(), ContactOutcome.id.asc())
-        .all()
-    ]
+    payload["outcomes"] = (
+        []
+        if withheld
+        else [
+            outcome.to_dict()
+            for outcome in contact_request.outcomes.order_by(None)
+            .order_by(ContactOutcome.occurred_at.asc(), ContactOutcome.created_at.asc(), ContactOutcome.id.asc())
+            .all()
+        ]
+    )
     return payload
 
 
@@ -297,27 +308,36 @@ def _pilot_export(user, schema):
     return result
 
 
+def _pilot_erasure_invitations(session, user_id, claim_ids):
+    from src.models.club_invitation import ClubInvitation
+    from src.models.funding import ClubProgramClaim
+
+    owned_sources = sa.select(ClubProgramClaim.id).where(ClubProgramClaim.user_account_id == user_id)
+    predicate = or_(
+        ClubInvitation.recipient_user_id == user_id,
+        ClubInvitation.created_by_user_id == user_id,
+        ClubInvitation.source_manager_claim_id.in_(owned_sources),
+    )
+    if claim_ids:
+        predicate = or_(predicate, ClubInvitation.claim_id.in_(claim_ids))
+    return (
+        session.query(ClubInvitation)
+        .filter(predicate)
+        .order_by(ClubInvitation.program_id, ClubInvitation.claim_id, ClubInvitation.id)
+        .populate_existing()
+        .all()
+    )
+
+
 def _erase_pilot_rows(schema, user_id, claim_ids, tombstone_id):
-    from src.models.club_invitation import ClubInvitation, strict_manager
-    from src.models.funding import ClubProgramClaim, ClubProgramManager, ClubRosterMember
+    from src.models.club_invitation import strict_manager
+    from src.models.funding import ClubProgramManager, ClubRosterMember
     from src.models.player_feedback import PlayerFeedback, locked_invitation, observe_closure
     from src.models.video import VideoRosterEntry
 
     counts = {}
     if schema.has_table("club_invitations"):
-        owned_sources = sa.select(ClubProgramClaim.id).where(ClubProgramClaim.user_account_id == user_id)
-        predicate = or_(
-            ClubInvitation.recipient_user_id == user_id,
-            ClubInvitation.created_by_user_id == user_id,
-            ClubInvitation.source_manager_claim_id.in_(owned_sources),
-        )
-        if claim_ids:
-            predicate = or_(predicate, ClubInvitation.claim_id.in_(claim_ids))
-        invitations = (
-            ClubInvitation.query.filter(predicate)
-            .order_by(ClubInvitation.program_id, ClubInvitation.claim_id, ClubInvitation.id)
-            .all()
-        )
+        invitations = _pilot_erasure_invitations(db.session, user_id, claim_ids)
         for invitation in invitations:
             invitation = locked_invitation(db.session, invitation, user_id)
             if invitation is None:
@@ -464,6 +484,14 @@ def build_account_export(user: UserAccount) -> dict:
             .order_by(ContactRequest.created_at.asc(), ContactRequest.id.asc())
             .all()
         )
+        from src.services.club_player_publication import available_club_requests
+
+        available = available_club_requests(received_requests)
+        received_requests = [
+            row
+            for row in received_requests
+            if not row.club_first or (row.club_consent_status == "granted" and row.id in available)
+        ]
     received_request_ids = {row.id for row in received_requests}
 
     managed_program_ids = [
@@ -487,6 +515,19 @@ def build_account_export(user: UserAccount) -> dict:
             ContactRequest.id.asc(),
         ).all()
 
+    from src.services.club_player_publication import available_club_requests
+
+    sent_available = available_club_requests(sent_requests)
+    exported_ids = sent_request_ids | received_request_ids | {r.id for r in club_requests}
+    own_withheld_messages = (
+        ContactMessage.query.join(ContactRequest, ContactMessage.contact_request_id == ContactRequest.id)
+        .filter(
+            ContactMessage.sender_user_id == user.id,
+            ContactRequest.id.notin_(exported_ids),
+        )
+        .order_by(ContactMessage.created_at, ContactMessage.id)
+        .all()
+    )
     account = user.to_dict()
     # The manager id identifies another account and is not needed for portability.
     account.pop("managed_by_user_id", None)
@@ -509,6 +550,9 @@ def build_account_export(user: UserAccount) -> dict:
 
     foundation_export.update(export_admin_control(user, schema))
     # --- p2-b3 end ---
+    from src.services.club_player_publication_account import export_publications
+
+    foundation_export.update(export_publications(user, schema))
     normalized_email = (user.email or "").strip().lower()
     subscriptions = []
     if normalized_email:
@@ -535,8 +579,12 @@ def build_account_export(user: UserAccount) -> dict:
             (row.selector or {}).get("player_api_id")
             for row in Follow.query.filter(Follow.list_id.in_(list_ids), Follow.kind == "player").all()
         ]
-    suppressed_player_ids = active_suppressed_player_ids(
-        [row.player_api_id for row in watchlist_entries] + direct_follow_ids
+    from src.services.club_player_publication import clear_club_follow_labels, hidden_club_subject_ids
+
+    signed_ids = [row.player_api_id for row in watchlist_entries] + direct_follow_ids
+    clear_club_follow_labels([-i for i in signed_ids if isinstance(i, int) and not isinstance(i, bool) and i < 0])
+    suppressed_player_ids = active_suppressed_player_ids(signed_ids) | hidden_club_subject_ids(
+        signed_ids, include_dark=True
     )
 
     watchlist_payloads = []
@@ -589,6 +637,44 @@ def build_account_export(user: UserAccount) -> dict:
         ],
         "showcase_claims": [claim.to_dict() for claim in claims],
         "showcase_profiles": [_showcase_profile_dict(profile, own_claim_ids) for profile in profiles],
+        "showcase_media": [
+            {
+                "id": row.id,
+                "player_api_id": row.player_api_id,
+                "local_player_id": row.local_player_id,
+                "kind": row.kind,
+                "blob_path": row.blob_path,
+                "public_url": row.public_url,
+                "content_type": row.content_type,
+                "size_bytes": row.size_bytes,
+                "is_primary": bool(row.is_primary),
+                "sort_order": row.sort_order,
+                "status": row.status,
+                "reviewed_at": _iso(row.reviewed_at),
+                "created_at": _iso(row.created_at),
+                "updated_at": _iso(row.updated_at),
+            }
+            for row in PlayerShowcaseMedia.query.filter_by(uploaded_by_user_id=user.id)
+            .order_by(PlayerShowcaseMedia.created_at, PlayerShowcaseMedia.id)
+            .all()
+        ],
+        "showcase_affiliations": [
+            {
+                "id": row.id,
+                "player_api_id": row.player_api_id,
+                "local_player_id": row.local_player_id,
+                "local_club_id": row.local_club_id,
+                "team_api_id": row.team_api_id,
+                "season": row.season,
+                "status": row.status,
+                "reviewed_at": _iso(row.reviewed_at),
+                "created_at": _iso(row.created_at),
+                "updated_at": _iso(row.updated_at),
+            }
+            for row in PlayerClubAffiliation.query.filter_by(created_by_user_id=user.id)
+            .order_by(PlayerClubAffiliation.created_at, PlayerClubAffiliation.id)
+            .all()
+        ],
         "submitted_links": [
             _submitted_link_dict(row)
             for row in PlayerLink.query.filter_by(user_id=user.id)
@@ -596,9 +682,24 @@ def build_account_export(user: UserAccount) -> dict:
             .all()
         ],
         "contact_requests": {
-            "sent": [_contact_request_dict(row) for row in sent_requests],
+            "sent": [_contact_request_dict(row, user.id, sent_available) for row in sent_requests],
             "received": [_contact_request_dict(row) for row in received_requests],
             "club": [_contact_request_dict(row) for row in club_requests],
+            **(
+                {
+                    "authored_messages": [
+                        {
+                            "id": m.id,
+                            "contact_request_id": m.contact_request_id,
+                            "body": m.body,
+                            "created_at": _iso(m.created_at),
+                        }
+                        for m in own_withheld_messages
+                    ]
+                }
+                if own_withheld_messages
+                else {}
+            ),
         },
         "content_reports": [
             row.to_dict()
@@ -935,25 +1036,152 @@ def delete_account(user: UserAccount) -> AccountDeletionEvent:
             .all()
         }
 
+    from src.services.contact_locks import lock_contact_scope
+
+    user_id = user_pk
+
+    def read_scope(email):
+        # Hints must be selected again after accounts are locked. Foreign-key
+        # inserts can commit while this transaction waits for the account row.
+        claims = PlayerProfileClaim.query.filter_by(user_account_id=user_id).populate_existing().all()
+        claim_ids = [claim.id for claim in claims]
+        approved_player_ids = {claim.player_api_id for claim in claims if claim.status == "approved"}
+
+        contact_filters = [
+            ContactRequest.scout_user_id == user_id,
+            ContactRequest.club_consent_by_user_id == user_id,
+            ContactRequest.messages.any(ContactMessage.sender_user_id == user_id),
+            ContactRequest.outcomes.any(ContactOutcome.reported_by_user_id == user_id),
+            ContactRequest.audit_events.any(ContactAuditEvent.actor_user_id == user_id),
+        ]
+        if claim_ids:
+            contact_filters.append(ContactRequest.claim_id.in_(claim_ids))
+
+        schema = _SchemaView()
+        publications = []
+        publication_ids = []
+        if schema.has_table("club_player_publications"):
+            from src.models.club_player_publication import ClubPlayerPublication
+
+            publications = (
+                ClubPlayerPublication.query.filter(
+                    or_(
+                        ClubPlayerPublication.recipient_user_id == user_id,
+                        ClubPlayerPublication.recipient_email == email,
+                        ClubPlayerPublication.creator_user_id == user_id,
+                        ClubPlayerPublication.association_confirmed_by == user_id,
+                    )
+                )
+                .populate_existing()
+                .all()
+            )
+            publication_ids = [r.id for r in publications]
+        requests = ContactRequest.query.filter(or_(*contact_filters)).populate_existing().all()
+        request_ids = [r.id for r in requests]
+        # Club relationships can name programs absent from the profile claim.
+        # Resolve those before C/R; pilot erasure later invokes lock_context.
+        program_ids = set()
+        scope_claim_ids = set(claim_ids)
+        invitations = []
+        if schema.has_table("club_invitations"):
+            invitations = _pilot_erasure_invitations(db.session, user_id, claim_ids)
+            program_ids.update(r.program_id for r in invitations)
+            scope_claim_ids.update(r.claim_id for r in invitations)
+            requests.extend(
+                ContactRequest.query.filter(ContactRequest.claim_id.in_(scope_claim_ids)).populate_existing().all()
+            )
+            request_ids = [r.id for r in requests]
+        for table_name in ("club_program_managers", "club_program_claims", "club_staff_grants"):
+            if schema.has_table(table_name) and {"program_id", "user_account_id"} <= schema.columns(table_name):
+                table = sa.table(table_name, sa.column("program_id"), sa.column("user_account_id"))
+                program_ids.update(
+                    db.session.execute(
+                        sa.select(table.c.program_id).where(table.c.user_account_id == user_id)
+                    ).scalars()
+                )
+
+        def identities(rows, fields):
+            return frozenset(tuple(getattr(row, field) for field in fields) for row in rows)
+
+        signature = (
+            email,
+            identities(
+                claims, ("id", "user_account_id", "status", "player_api_id", "local_player_id", "club_program_id")
+            ),
+            identities(requests, ("id", "claim_id", "club_program_id", "player_api_id", "routing_mode", "club_first")),
+            identities(
+                publications,
+                (
+                    "id",
+                    "program_id",
+                    "local_player_id",
+                    "claim_id",
+                    "recipient_user_id",
+                    "recipient_email",
+                    "creator_user_id",
+                    "association_confirmed_by",
+                ),
+            ),
+            identities(
+                invitations,
+                ("id", "program_id", "claim_id", "recipient_user_id", "created_by_user_id", "source_manager_claim_id"),
+            ),
+            frozenset(program_ids),
+        )
+        return dict(
+            claim_ids=claim_ids,
+            approved_player_ids=approved_player_ids,
+            contact_filters=contact_filters,
+            invitations=invitations,
+            signature=signature,
+            locks=dict(
+                program_id=program_ids, claim_id=scope_claim_ids, request_id=request_ids, publication_id=publication_ids
+            ),
+        )
+
     for _attempt in range(5):
         savepoint = db.session.begin_nested()
         intents = purchase_intents()
         for intent_id in sorted(intents):
             _lock_gol_settlement(intent_id)
+        user_id = user_pk
+        email = (user.email or "").strip().lower()
+        selected = read_scope(email)
+        lock_contact_scope(db.session, **selected["locks"])
+        invitations = selected["invitations"]
+
+        # Contact scope precedes accounts for invitations, feedback and erasure alike.
+        # Lock the full account batch in ID order, including all pilot recipients.
+        account_ids = {user_id}
+        for invitation in invitations:
+            account_ids.update((invitation.recipient_user_id, invitation.created_by_user_id))
+        UserAccount.query.filter(UserAccount.id.in_(account_ids - {None})).order_by(
+            UserAccount.id
+        ).populate_existing().with_for_update().all()
+
         locked_user = db.session.execute(
             sa.select(UserAccount)
             .where(UserAccount.id == user_pk)
             .with_for_update()
             .execution_options(populate_existing=True)
         ).scalar_one_or_none()
-        if purchase_intents() <= intents:
+        if locked_user is None or locked_user.is_tombstone:
+            raise AccountDeletionUnavailable("account is already deleted")
+        refreshed = read_scope((locked_user.email or "").strip().lower())
+        if purchase_intents() == intents and refreshed["signature"] == selected["signature"]:
+            claim_ids = refreshed["claim_ids"]
+            approved_player_ids = refreshed["approved_player_ids"]
+            contact_filters = refreshed["contact_filters"]
             savepoint.commit()
             break
-        # A grant committed while we waited for the user. Release these locks
-        # before acquiring its settlement, preserving settlement -> user order.
+        # Release accounts and the entire contact prefix before resolving newly
+        # discovered earlier-ranked rows. The next bounded attempt starts fresh.
         savepoint.rollback()
     else:
-        raise AccountDeletionUnavailable("purchases changed during deletion; retry")
+        # This is genuine concurrent scope churn, not a missing account.
+        from src.services.contact_locks import _retry
+
+        _retry()
     if locked_user is None or locked_user.is_tombstone:
         raise AccountDeletionUnavailable("account is already deleted")
     cancel_subscriptions_for_account_deletion(locked_user)
@@ -979,20 +1207,6 @@ def delete_account(user: UserAccount) -> AccountDeletionEvent:
     )
     db.session.add(tombstone)
     db.session.flush()
-
-    claims = PlayerProfileClaim.query.filter_by(user_account_id=user_id).all()
-    claim_ids = [claim.id for claim in claims]
-    approved_player_ids = {claim.player_api_id for claim in claims if claim.status == "approved"}
-
-    contact_filters = [
-        ContactRequest.scout_user_id == user_id,
-        ContactRequest.club_consent_by_user_id == user_id,
-        ContactRequest.messages.any(ContactMessage.sender_user_id == user_id),
-        ContactRequest.outcomes.any(ContactOutcome.reported_by_user_id == user_id),
-        ContactRequest.audit_events.any(ContactAuditEvent.actor_user_id == user_id),
-    ]
-    if claim_ids:
-        contact_filters.append(ContactRequest.claim_id.in_(claim_ids))
 
     counts = {
         "deleted": {
@@ -1043,6 +1257,10 @@ def delete_account(user: UserAccount) -> AccountDeletionEvent:
         "forfeited_credits": 0,
     }
 
+    from src.services.club_player_publication_account import erase_introductions, erase_publications
+
+    counts.update(erase_publications(user_id, email, _SchemaView()))
+    counts["deleted"]["club_first_requests"] = erase_introductions(user_id, claim_ids)
     counts["pilot"] = _erase_pilot_rows(_SchemaView(), user_id, claim_ids, tombstone.id)
 
     # Break the sole indirect FK that cannot point at a UserAccount tombstone.
@@ -1088,6 +1306,11 @@ def delete_account(user: UserAccount) -> AccountDeletionEvent:
         synchronize_session=False
     )
     counts["deleted"]["submitted_links"] = PlayerLink.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+    # --- showcase account erasure (inherited O4) begin ---
+    from src.services.showcase_erasure import erase_owned_showcase
+
+    counts["deleted"].update(erase_owned_showcase(user_id))
+    # --- showcase account erasure (inherited O4) end ---
     if newly_unclaimed_player_ids:
         counts["reset"]["reel_items"] = PlayerLink.query.filter(
             PlayerLink.player_id.in_(newly_unclaimed_player_ids),
