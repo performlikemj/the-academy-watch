@@ -52,6 +52,12 @@
                     request["responded_at"] = NSNull()
                     request["latest_outcome"] = NSNull()
                 }
+                if screen == "N17", ["thread-pending", "thread-declined"].contains(resolvedMode) {
+                    request["status"] = resolvedMode == "thread-pending" ? "pending" : "declined"
+                    request["messaging_open"] = false
+                    request["latest_outcome"] = NSNull()
+                    if resolvedMode == "thread-pending" { request["responded_at"] = NSNull() }
+                }
                 return request
             }
             if messages {

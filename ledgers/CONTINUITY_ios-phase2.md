@@ -149,3 +149,9 @@
 - Third targeted render guard exposed that original bitmaps preserve alpha shading: opaque-255-only sampling excludes almost the whole white wing. Compare near-white wing pixels with2/255 antialias tolerance and require a full-wing pixel area; original assets/colour intent unchanged. Run uses collect-test-diagnostics never to avoid optional10min sysdiagnose on assertions; governor remains in place.
 - Targeted final loader:5/5 pass/0 failures; all81formercalls/36files guarded, six body tints differ with full wing remaining white.18final light/dark native captures +4original references indexed in shots/I1/I1F5/INDEX.md.
 - Code complete/source freeze: final unit scheme, full offline Experience scheme and one Release run sequentially on the committed head. Exact results, pushed SHA and cleanup are authoritative in ~/codex-runs/aw-redesign/logs/I1F5.final.md (written after gates); no backend/frontend/dependency changes or merge. Next: review-only draft1118.
+
+## I1F6 introduction thread legend
+- In progress: remove only the static other-states legend; preserve actual consent/status rows and pinned anti-scam warning.
+- Next: pending/accepted/declined light+dark UI assertions/screenshots, targeted contact checks, final offline scheme once; push draft1118/no merge, cleanup and external hand-back.
+- Targeted contact UI:4/4 pass/0 failures; real pending/accepted/declined status and club-consent rows remain in light/dark, all legend heading/chips absent, warning frame fixed through scroll and production new-message path.
+- Source freeze: full offline Experience scheme runs once on committed head; final outcome/screenshots/pushed SHA and simulator/DerivedData cleanup receipts are authoritative in `~/codex-runs/aw-redesign/logs/I1F6.final.md`. No backend/frontend/dependencies, merge or live sends.

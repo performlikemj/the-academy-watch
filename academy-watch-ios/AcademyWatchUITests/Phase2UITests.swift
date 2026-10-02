@@ -41,6 +41,47 @@ final class Phase2UITests: XCTestCase {
         }
         XCTAssertTrue(element.isHittable)
     }
+    func testPendingThreadShowsRealStatusWithoutLegend() {
+        assertThreadStatusWithoutLegend(mode: "thread-pending", status: "Pending")
+    }
+    func testAcceptedThreadShowsRealStatusWithoutLegend() {
+        assertThreadStatusWithoutLegend(mode: "player", status: "Nabil accepted")
+    }
+    func testDeclinedThreadShowsRealStatusWithoutLegend() {
+        assertThreadStatusWithoutLegend(mode: "thread-declined", status: "Declined")
+    }
+    private func assertThreadStatusWithoutLegend(mode: String, status: String) {
+        for style in ["Light", "Dark"] {
+            app.launchArguments = [
+                "-phase2Preview", "N17", "-phase2Fixture", mode, "-reviewCapture", "-AppleInterfaceStyle", style,
+            ]
+            app.launch()
+            let statusLine = app.staticTexts[status]
+            XCTAssertTrue(statusLine.waitForExistence(timeout: 15))
+            XCTAssertTrue(statusLine.isHittable)
+            XCTAssertTrue(app.staticTexts["Quillmere Athletic said yes"].exists)
+            let banner = app.descendants(matching: .any)["contact-thread-anti-scam-banner"].firstMatch
+            XCTAssertTrue(banner.waitForExistence(timeout: 10))
+            XCTAssertTrue(banner.label.contains("Never pay to be scouted."))
+            let pinnedFrame = banner.frame
+            XCTAssertTrue(banner.isHittable)
+            XCTAssertGreaterThanOrEqual(pinnedFrame.minY, app.navigationBars.firstMatch.frame.maxY)
+            func assertNoLegend() {
+                for label in ["OTHER STATES YOU WILL SEE", "Other states you will see",
+                              "WAITING ON CLUB", "WAITING ON PLAYER", "DECLINED", "EXPIRED", "WITHDRAWN"] {
+                    XCTAssertFalse(app.staticTexts[label].exists, label)
+                }
+            }
+            assertNoLegend()
+            capture("I1F6-\(mode)-\(style.lowercased())-top")
+            app.scrollViews.firstMatch.swipeUp()
+            assertNoLegend()
+            XCTAssertTrue(banner.isHittable)
+            XCTAssertEqual(banner.frame, pinnedFrame)
+            capture("I1F6-\(mode)-\(style.lowercased())-scrolled")
+            app.terminate()
+        }
+    }
     func testAntiScamWarningPinnedThroughProductionScrollAndNewMessage() {
         app.launchArguments = ["-phase2Preview", "N17", "-AppleInterfaceStyle", "Light"]
         app.launch()

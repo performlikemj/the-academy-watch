@@ -213,16 +213,6 @@ struct ContactThreadView: View {
                 .font(AcademyType.footnote).buttonStyle(.plain).foregroundStyle(AcademyColors.danger).frame(
                     minHeight: 44)
             }
-            Divider()
-            Phase2Eyebrow(text: "Other states you will see")
-            Phase2Flow {
-                ForEach(["Waiting on club", "Waiting on player", "Declined", "Expired", "Withdrawn"], id: \.self) {
-                    state in
-                    Text(state.uppercased()).font(AcademyType.mono(9)).tracking(1)
-                        .foregroundStyle(AcademyColors.secondaryText).padding(.horizontal, 9).padding(.vertical, 5)
-                        .overlay(Capsule().stroke(AcademyColors.hairline, lineWidth: 1))
-                }
-            }
         }.padding(16).frame(maxWidth: .infinity, alignment: .leading).background(
             AcademyColors.elevatedSurface, in: RoundedRectangle(cornerRadius: 14))
     }
