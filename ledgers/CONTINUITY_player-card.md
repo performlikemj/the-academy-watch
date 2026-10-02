@@ -65,3 +65,14 @@
   for a scope that is no longer on screen.
 - `tests/viewer-boundary.test.mjs` pins the wrappers; rule written into `docs/agents/frontend.md`.
 - Request counts unchanged. Hand-back `~/codex-runs/aw-redesign/logs/PCF3.final.md`.
+
+## Fix round PCF4 (2026-10-03, after re-check RPCV4 at f38fc204: Opus READY, codex FIX)
+- Remounting dropped state but not running handlers. Closed at the two places every case passes:
+  (A) `APIService.request` binds each request to the credential it was sent with — a late answer is a
+  `StaleViewerError`, never a success or a status failure, so no late 401 signs the current session out;
+  (B) `useViewerLifetime()` — viewer-bound components call `life.api` (throws before sending once the viewer changed)
+  and wrap navigate / logout / sign-in prompt in `useGuarded`.
+- Opt-outs (`anyViewer`): features, data mode, season directory; sign-in code request/verify; account claim.
+- Deliberate reading: requests are refused on a viewer change, not on unmount alone (a same-viewer save finishes);
+  side effects are refused on both.
+- Hand-back `~/codex-runs/aw-redesign/logs/PCF4.final.md`.

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { ArrowRight, ShieldAlert, UserPlus } from 'lucide-react'
-import { APIService } from '@/lib/api'
+import { useViewerLifetime } from '@/hooks/useViewerState'
 import { ContentReportDialog } from '@/components/ContentReportDialog'
 import { PlayerReachControls } from '@/components/PlayerReachControls'
 import { ShowcaseSection } from '@/components/ShowcaseSection'
@@ -58,6 +58,9 @@ function MissingState() {
 }
 
 function LocalPlayerProfile({ numericPlayerId, onPublicConfirmed, onRetry }) {
+  // Requests and side effects go through this viewer's lifetime (see lib/viewer-lifetime.js).
+  const life = useViewerLifetime()
+  const api = life.api
   const [searchParams, setSearchParams] = useSearchParams()
   const seasonParam = searchParams.get('season')
   // The URL holds the ONE picked season: it drives the totals request, the
@@ -97,7 +100,7 @@ function LocalPlayerProfile({ numericPlayerId, onPublicConfirmed, onRetry }) {
 
   useEffect(() => {
     let cancelled = false
-    APIService.getLocalPlayer(numericPlayerId)
+    api.getLocalPlayer(numericPlayerId)
       .then((response) => {
         if (cancelled) return
         if (!response?.player) {
@@ -119,7 +122,7 @@ function LocalPlayerProfile({ numericPlayerId, onPublicConfirmed, onRetry }) {
       })
 
     return () => { cancelled = true }
-  }, [numericPlayerId])
+  }, [api, numericPlayerId])
 
   if (loading) return <LoadingState />
   if (notFound) return <MissingState />

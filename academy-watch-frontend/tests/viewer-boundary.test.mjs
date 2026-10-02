@@ -73,3 +73,53 @@ test('a write made for another viewer changes nothing', () => {
   const fresh = viewerStateWrite({ scope: 'user:a', value: new Set([-1]) }, { writer: 'user:b', current: 'user:b', next: (ids) => ids, initial: null })
   assert.deepEqual(fresh, { scope: 'user:b', value: null })
 })
+
+// ---- PCF4: requests and side effects go through the viewer's lifetime ------
+// Remounting drops state but does not stop a handler that is already running.
+// So no component in the keyed subtrees talks to APIService, the router or the
+// global auth actions directly: they use `life.api` (refuses to start a request
+// once the viewer has changed) and `useGuarded(life, …)` (no-op once unmounted
+// or the viewer has changed). These tests fail when a direct call is added.
+const VIEWER_BOUND_FILES = [
+  '../src/pages/PlayerPage.jsx',
+  '../src/pages/LocalPlayerPage.jsx',
+  '../src/pages/ScoutPage.jsx',
+  '../src/components/ShowcaseSection.jsx',
+  '../src/components/player-card/usePlayerReadView.js',
+  '../src/components/PlayerReachControls.jsx',
+  '../src/components/contact/IntroduceDialog.jsx',
+  '../src/components/ContentReportDialog.jsx',
+  '../src/components/FlagDataDialog.jsx',
+  '../src/components/CommentSection.jsx',
+  '../src/components/PlayerLinksSection.jsx',
+  '../src/components/showcase/PlayerFeedbackInbox.jsx',
+  '../src/components/WatchingMeCard.jsx',
+  '../src/components/showcase/PlayerApplicationsTeaser.jsx',
+  '../src/components/ShowcasePhoto.jsx',
+  '../src/components/PlayerAvailability.jsx',
+  '../src/components/showcase/DevelopmentAction.jsx',
+]
+
+test('no viewer-bound component calls APIService directly — every request goes through life.api', () => {
+  for (const path of VIEWER_BOUND_FILES) {
+    const source = read(path)
+    assert.ok(!/\bAPIService\b/.test(source), `${path}: uses APIService directly; use useViewerLifetime().api`)
+    assert.ok(/const life = useViewerLifetime\(\)/.test(source), `${path}: no viewer lifetime`)
+    assert.ok(/const api = life\.api\b/.test(source), `${path}: no lifetime-bound api`)
+    assert.ok(!/\bfetch\(/.test(source), `${path}: raw fetch`)
+  }
+})
+
+test('navigation and global auth actions in those components are guarded by the lifetime', () => {
+  for (const path of VIEWER_BOUND_FILES) {
+    const source = read(path)
+    // The router's navigate only ever exists wrapped.
+    for (const use of source.match(/.*useNavigate\(\).*/g) || []) {
+      assert.ok(/useGuarded\(life, useNavigate\(\)\)/.test(use), `${path}: unguarded navigate — ${use.trim()}`)
+    }
+    // logout / login prompt are never taken straight from the auth UI context.
+    assert.ok(!/const \{[^}]*\b(logout|openLoginModal)\b[^}]*\} = useAuthUI\(\)/.test(source), `${path}: unguarded auth action`)
+    assert.ok(!/authUI\.(logout|openLoginModal)\(/.test(source.replace(/useGuarded\(life, \(\) => \{[\s\S]*?\n {2}\}\)/g, '')), `${path}: auth action called outside a guard`)
+    assert.ok(!/window\.location\.(assign|replace|href\s*=)/.test(source), `${path}: imperative location change`)
+  }
+})

@@ -1,4 +1,5 @@
 import { loadFeatures, peekFeatures } from './features.js'
+import { StaleViewerError, isStaleViewerError } from './viewer-lifetime.js'
 import {
     normalizeNewsletterIds,
     parseNewsletterId,
@@ -41,7 +42,7 @@ export class APIService {
         setTimeout(() => URL.revokeObjectURL(url), 1000)
     }
 
-    static getDataMode() { return this.request('/meta/data-mode') }
+    static getDataMode() { return this.request('/meta/data-mode', {}, { anyViewer: true }) }
     static adminKey = (typeof localStorage !== 'undefined' && localStorage.getItem('academy_watch_admin_key')) || null
     static userToken = (typeof localStorage !== 'undefined' && localStorage.getItem('academy_watch_user_token')) || null
     static isAdminFlag = (typeof localStorage !== 'undefined' && localStorage.getItem('academy_watch_is_admin') === 'true') || false
@@ -317,7 +318,48 @@ export class APIService {
         })
     }
 
+    // ---- Every request belongs to the credential it was sent with ----------
+    // If the credential has changed by the time the answer arrives (logout,
+    // login, another account), the answer is delivered as a StaleViewerError:
+    // never as a success and never as an ordinary failure. So nothing keyed on
+    // the result runs for the new viewer — in particular a late 401 for the old
+    // credential cannot log the current session out or open the sign-in prompt.
+    //
+    // `extra.anyViewer` opts a request out. It is for two kinds only:
+    //  - public configuration that is the same for every viewer and is loaded
+    //    once for the app (features, data mode, season directory);
+    //  - requests that ESTABLISH a credential (sign-in code request/verify):
+    //    their answer does not depend on who was signed in before.
+    static _credential(extra) {
+        const token = this.userToken || null
+        if (extra?.admin) return `${token}|admin:${this.adminKey || ''}`
+        if (extra?.curator) return `${token}|curator:${this.curatorKey || ''}`
+        return token
+    }
+
+    static _assertCredential(sent, extra) {
+        if (extra?.anyViewer) return
+        if (this._credential(extra) !== sent) throw new StaleViewerError()
+    }
+
+    // fetch for the few helpers that do not go through request(): same binding.
+    static async _boundFetch(input, init) {
+        const sent = this._credential()
+        let response
+        try {
+            response = await fetch(input, init)
+        } catch (error) {
+            this._assertCredential(sent)
+            throw error
+        }
+        this._assertCredential(sent)
+        return response
+    }
+
     static async request(endpoint, options = {}, extra = {}) {
+        // Captured before anything is sent; undefined until the pre-flight checks pass.
+        let sentCredential
+        let sent = false
         try {
             const admin = extra && extra.admin
             const curator = extra && extra.curator
@@ -358,7 +400,10 @@ export class APIService {
             // --- p2-b3 begin ---
             if (extra?.accountAccess) headers.Authorization = `Bearer ${extra.accountAccess}`
             // --- p2-b3 end ---
+            sentCredential = this._credential(extra)
+            sent = true
             const response = await fetch(`${API_BASE_URL}${endpoint}`, { ...options, headers })
+            this._assertCredential(sentCredential, extra)
 
             if (extra?.nullOn404 && response.status === 404) return null
 
@@ -380,6 +425,7 @@ export class APIService {
                         errorText = ''
                     }
                 }
+                this._assertCredential(sentCredential, extra)
                 console.error(`❌ HTTP error response body:`, parsed || errorText)
                 const err = new Error(parsed?.error || errorText || `HTTP ${response.status}`)
                 err.status = response.status
@@ -388,11 +434,14 @@ export class APIService {
             }
 
             if (response.status === 204) return null
-            if (extra?.text) return response.text()
-
-            const data = await response.json()
+            const data = extra?.text ? await response.text() : await response.json()
+            this._assertCredential(sentCredential, extra)
             return data
         } catch (error) {
+            if (isStaleViewerError(error)) throw error
+            // A network or parse failure that lands after the credential changed
+            // is not this viewer's failure either.
+            if (sent && !extra?.anyViewer && this._credential(extra) !== sentCredential) throw new StaleViewerError()
             // Unmounts and changed filters cancel requests intentionally.
             if (error?.name !== 'AbortError') console.error('❌ API request failed:', error)
             throw error
@@ -404,7 +453,7 @@ export class APIService {
     }
 
     static async getSeasons() {
-        return this.request('/seasons')
+        return this.request('/seasons', {}, { anyViewer: true })
     }
 
     static async getGameweeks(season) {
@@ -639,7 +688,7 @@ export class APIService {
         const headers = {}
         const token = this.userToken || (typeof localStorage !== 'undefined' && localStorage.getItem('academy_watch_user_token'))
         if (token) headers['Authorization'] = `Bearer ${token}`
-        const response = await fetch(`${API_BASE_URL}/scout/export.csv?${query}`, { headers })
+        const response = await this._boundFetch(`${API_BASE_URL}/scout/export.csv?${query}`, { headers })
         if (!response.ok) {
             const contentType = response.headers.get('content-type') || ''
             let parsed = null
@@ -914,7 +963,7 @@ export class APIService {
         return this.request('/auth/request-code', {
             method: 'POST',
             body: JSON.stringify({ email: trimmed })
-        })
+        }, { anyViewer: true })
     }
 
     static async requestAuthCode(email) {
@@ -958,7 +1007,7 @@ export class APIService {
         const res = await this.request('/auth/verify-code', {
             method: 'POST',
             body: JSON.stringify({ email: trimmedEmail, code: trimmedCode })
-        })
+        }, { anyViewer: true })
         this._recordLoginResult(res || {})
         return res
     }
@@ -1643,14 +1692,14 @@ export class APIService {
         if (!/^\/api\/(?:admin\/)?showcase\/media\/\d+\/preview$/.test(url)) throw new Error('Invalid showcase preview URL')
         const headers = { Authorization: `Bearer ${this.userToken}` }
         if (url.startsWith('/api/admin/')) headers['X-API-Key'] = this.adminKey || ''
-        const response = await fetch(`${API_BASE_URL}${url.slice(4)}`, { headers, signal, cache: 'no-store' })
+        const response = await this._boundFetch(`${API_BASE_URL}${url.slice(4)}`, { headers, signal, cache: 'no-store' })
         if (!response.ok) throw new Error('Photo unavailable')
         return response.blob()
     }
 
     static async clubPlayerPhotoBlob(url, signal) {
         if (!/^\/api\/club\/\d+\/roster\/\d+\/photo$/.test(url)) throw new Error('Invalid private photo URL');
-        const response = await fetch(`${API_BASE_URL}${url.slice(4)}`, {
+        const response = await this._boundFetch(`${API_BASE_URL}${url.slice(4)}`, {
             headers: { Authorization: `Bearer ${this.userToken}` }, signal, cache: 'no-store',
         });
         if (!response.ok) { const error = new Error('Photo unavailable'); error.status = response.status; throw error; }
@@ -2518,7 +2567,7 @@ export class APIService {
         return this.request('/claim/validate', {
             method: 'POST',
             body: JSON.stringify({ token })
-        })
+        }, { anyViewer: true })
     }
 
     // Complete account claim and get auth token
@@ -2526,7 +2575,7 @@ export class APIService {
         return this.request('/claim/complete', {
             method: 'POST',
             body: JSON.stringify({ token })
-        })
+        }, { anyViewer: true })
     }
 
     // ==========================================================================
@@ -3460,7 +3509,7 @@ let pendingFeatures = null
 
 function fetchFeatures() {
     if (pendingFeatures) return pendingFeatures
-    pendingFeatures = APIService.request('/features').then(value => {
+    pendingFeatures = APIService.request('/features', {}, { anyViewer: true }).then(value => {
         lastFeatures = { value, fetchedAt: Date.now() }
         return value
     }).finally(() => { pendingFeatures = null })

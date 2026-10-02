@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '@/context/AuthContext'
-import { APIService } from '@/lib/api'
+import { useViewerLifetime } from '@/hooks/useViewerState'
 import {
   confirmedClubName,
   linesReadState,
@@ -29,6 +29,9 @@ import {
  * at render time the moment the token changes.
  */
 export function usePlayerReadView({ matchPlayerApiId, showcase = null, revision = 0 }) {
+  // Requests and side effects go through this viewer's lifetime (see lib/viewer-lifetime.js).
+  const life = useViewerLifetime()
+  const api = life.api
   const { token } = useAuth()
   const [attempt, setAttempt] = useState(0)
   const subjectKey = matchPlayerApiId == null || matchPlayerApiId === '' ? null : `${matchPlayerApiId}:${viewerKey(token)}`
@@ -48,7 +51,7 @@ export function usePlayerReadView({ matchPlayerApiId, showcase = null, revision 
       })
       setSettled({ requestKey, failed: false })
     }
-    APIService.getPlayerMatches(matchPlayerApiId, { view: 'lines' })
+    api.getPlayerMatches(matchPlayerApiId, { view: 'lines' })
       .then(succeed)
       .catch((error) => {
         if (cancelled) return
@@ -58,7 +61,7 @@ export function usePlayerReadView({ matchPlayerApiId, showcase = null, revision 
         else setSettled({ requestKey, failed: true })
       })
     return () => { cancelled = true }
-  }, [matchPlayerApiId, requestKey, subjectKey])
+  }, [api, matchPlayerApiId, requestKey, subjectKey])
 
   const retry = useCallback(() => setAttempt((value) => value + 1), [])
   const state = linesReadState({ good, settled, subjectKey, requestKey })
@@ -119,6 +122,9 @@ export function useScopedShowcase({ playerApiId, local = false }) {
  * to player + viewer + season. A failure never turns into "no totals".
  */
 export function useSeasonTotalsRead({ playerApiId, season, revision = 0, enabled = true }) {
+  // Requests and side effects go through this viewer's lifetime (see lib/viewer-lifetime.js).
+  const life = useViewerLifetime()
+  const api = life.api
   const { token } = useAuth()
   const [attempt, setAttempt] = useState(0)
   const active = enabled && playerApiId != null && playerApiId !== ''
@@ -130,7 +136,7 @@ export function useSeasonTotalsRead({ playerApiId, season, revision = 0, enabled
   useEffect(() => {
     if (scopeKey == null) return undefined
     let cancelled = false
-    APIService.getPublicPlayerSeasonStats(playerApiId, season)
+    api.getPublicPlayerSeasonStats(playerApiId, season)
       .then((response) => {
         if (cancelled) return
         setGood({ scopeKey, value: response || null })
@@ -147,7 +153,7 @@ export function useSeasonTotalsRead({ playerApiId, season, revision = 0, enabled
         }
       })
     return () => { cancelled = true }
-  }, [playerApiId, requestKey, scopeKey, season])
+  }, [api, playerApiId, requestKey, scopeKey, season])
 
   const retry = useCallback(() => setAttempt((value) => value + 1), [])
   // Totals a mutation response already carries (the owner just changed a game).

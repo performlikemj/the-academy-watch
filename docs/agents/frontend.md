@@ -54,6 +54,25 @@ For state that a late request might write (watch marks, an open dialog) use
 is on screen. `tests/viewer-boundary.test.mjs` pins the wrappers; the lane spec
 (`e2e/player-card.spec.mjs`) drives logout / login / switch with held responses.
 
+Remounting drops component state; it does **not** stop a handler that is already running. Two more rules
+close that:
+
+- **Requests belong to the credential they were sent with.** `APIService.request` (and `_boundFetch`)
+  delivers a `StaleViewerError` — never a success, never an ordinary failure with a status — when the
+  credential changed before the answer arrived, so a late 401 for an old session cannot sign the current
+  one out. Only two kinds of request opt out with `{ anyViewer: true }`: app-wide public configuration
+  (features, data mode, season directory) and requests that establish a credential (sign-in code,
+  account claim). Do not add others without that reason.
+- **Viewer-bound components talk through their lifetime.** `const life = useViewerLifetime()`,
+  `const api = life.api` instead of `APIService`, and `useGuarded(life, fn)` around `navigate`, logout,
+  the sign-in prompt and anything else global. Once the viewer has changed, `api.x()` throws
+  `StaleViewerError` before sending (a multi-step handler cannot issue its follow-up as the next viewer);
+  guarded effects do nothing once the component is unmounted or the viewer has changed. Sign-out plus
+  prompt is one guarded step (`expireSession`), not two calls. Put `api` in hook dependency arrays.
+  `tests/viewer-boundary.test.mjs` fails if a file in its list references `APIService`, calls `fetch`,
+  or takes `navigate` / `logout` / `openLoginModal` unguarded — add new viewer-bound components to that
+  list. Rules and unit tests: `src/lib/viewer-lifetime.js`, `tests/stale-viewer-requests.test.mjs`.
+
 ## Deploy
 
 Push touching only `academy-watch-frontend/**` triggers the fast `Deploy Frontend (fast)`

@@ -11,8 +11,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Link2, Newspaper, Video, Share2, BarChart3, Globe, Plus, Loader2, Check, ExternalLink } from 'lucide-react'
-import { APIService } from '@/lib/api'
-
+import { useViewerLifetime } from '@/hooks/useViewerState'
 const TYPE_META = {
   article:   { label: 'Article',   icon: Newspaper },
   highlight: { label: 'Highlight', icon: Video },
@@ -27,6 +26,9 @@ function LinkTypeIcon({ type, className }) {
 }
 
 export function PlayerLinksSection({ playerId }) {
+  // Requests and side effects go through this viewer's lifetime (see lib/viewer-lifetime.js).
+  const life = useViewerLifetime()
+  const api = life.api
   const [links, setLinks] = useState([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
@@ -37,18 +39,18 @@ export function PlayerLinksSection({ playerId }) {
   const [submitted, setSubmitted] = useState(false)
   const [error, setError] = useState(null)
 
-  const isLoggedIn = !!APIService.userToken
+  const isLoggedIn = !!api.userToken
 
   const loadLinks = useCallback(async () => {
     try {
-      const data = await APIService.getPlayerLinks(playerId)
+      const data = await api.getPlayerLinks(playerId)
       setLinks(Array.isArray(data) ? data : [])
     } catch {
       // silently fail
     } finally {
       setLoading(false)
     }
-  }, [playerId])
+  }, [api, playerId])
 
   useEffect(() => {
     loadLinks()
@@ -61,7 +63,7 @@ export function PlayerLinksSection({ playerId }) {
     setSubmitting(true)
     setError(null)
     try {
-      await APIService.submitPlayerLink(playerId, {
+      await api.submitPlayerLink(playerId, {
         url: trimmedUrl,
         title: title.trim() || undefined,
         link_type: linkType,

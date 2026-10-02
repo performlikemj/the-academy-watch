@@ -27,7 +27,9 @@ test('canSend needs a non-empty message within the limit and the attestation whe
 
 test('the dialog posts through APIService and the desk mounts it only for contactable rows', async () => {
   const dialog = await fs.readFile(dialogFile, 'utf8')
-  assert.ok(dialog.includes('APIService.createContactRequest({'))
+  // Through the viewer's lifetime (life.api is APIService bound to the viewer who opened the dialog).
+  assert.ok(dialog.includes('const api = life.api'))
+  assert.ok(dialog.includes('api.createContactRequest({'))
   assert.ok(dialog.includes('permission_attestation: attestationRequired && attested'))
   const scout = await fs.readFile(scoutFile, 'utf8')
   assert.ok(scout.includes("import { IntroduceDialog } from '@/components/contact/IntroduceDialog'"))

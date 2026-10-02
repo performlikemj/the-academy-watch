@@ -14,8 +14,7 @@ import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Loader2, CheckCircle2, AlertCircle } from 'lucide-react'
-import { APIService } from '@/lib/api'
-
+import { useViewerLifetime } from '@/hooks/useViewerState'
 const CATEGORIES = [
     { value: 'stats', label: 'Incorrect Stats' },
     { value: 'player_data', label: 'Player Info (name, position, etc.)' },
@@ -27,6 +26,9 @@ const CATEGORIES = [
 ]
 
 export function FlagDataDialog({ open, onOpenChange, context = {} }) {
+    // Requests and side effects go through this viewer's lifetime (see lib/viewer-lifetime.js).
+    const life = useViewerLifetime()
+    const api = life.api
     const [category, setCategory] = useState('stats')
     const [reason, setReason] = useState('')
     const [email, setEmail] = useState('')
@@ -48,7 +50,7 @@ export function FlagDataDialog({ open, onOpenChange, context = {} }) {
         setSubmitting(true)
         setMessage(null)
         try {
-            await APIService.submitFlag({
+            await api.submitFlag({
                 category,
                 reason: reason.trim(),
                 email: email.trim() || undefined,

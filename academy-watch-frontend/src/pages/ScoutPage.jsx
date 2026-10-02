@@ -4,7 +4,6 @@ import { positionAbbreviation } from '@/lib/positions'
 import { useDataMode } from '@/hooks/useDataMode'
 import { useState, useEffect, useMemo, useCallback, useRef, Fragment } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { APIService } from '@/lib/api'
 import { track } from '@/lib/track'
 import { useAuth, useAuthUI } from '@/context/AuthContext'
 import { Button } from '@/components/ui/button'
@@ -18,7 +17,7 @@ import { SeasonSelect } from '@/components/ui/SeasonSelect'
 import { IntroduceDialog } from '@/components/contact/IntroduceDialog'
 import { ProvenanceChip } from '@/components/SelfReportedBadge'
 import { useContactRail } from '@/hooks/useContactRail.js'
-import { useViewerKey, useViewerState } from '@/hooks/useViewerState'
+import { useGuarded, useViewerKey, useViewerLifetime, useViewerState } from '@/hooks/useViewerState'
 import { ScoutSurface, ScoutHeader, deskPillClass } from '@/components/scout/ScoutDesk'
 import { PlayerCard } from '@/components/player-card/PlayerCard'
 import { cardLine, isProviderSourced, viewerKey } from '@/lib/player-card'
@@ -355,6 +354,9 @@ function LeaderboardCard({ board, entries, loading, season, seasonOverride }) {
 }
 
 function CompareDialog({ open, onOpenChange, playerIds, season, seasonOverride, source = 'all' }) {
+  // Requests and side effects go through this viewer's lifetime (see lib/viewer-lifetime.js).
+  const life = useViewerLifetime()
+  const api = life.api
   const [loading, setLoading] = useState(false)
   const [data, setData] = useState(null)
   const [error, setError] = useState(null)
@@ -366,7 +368,7 @@ function CompareDialog({ open, onOpenChange, playerIds, season, seasonOverride, 
     let cancelled = false
     setLoading(true)
     setError(null)
-    APIService.compareScoutPlayers(playerIds, {
+    api.compareScoutPlayers(playerIds, {
       includeAvailability: true,
       season,
       ...(source !== 'all' ? { source } : {}),
@@ -375,7 +377,7 @@ function CompareDialog({ open, onOpenChange, playerIds, season, seasonOverride, 
       .catch((err) => { if (!cancelled) setError(err.message || 'Comparison failed') })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [open, playerIds, season, source])
+  }, [api, open, playerIds, season, source])
 
   useEffect(() => () => clearTimeout(copyTimer.current), [])
 
@@ -527,6 +529,9 @@ export function ScoutPage() {
 }
 
 function ScoutDeskBody() {
+  // Requests and side effects go through this viewer's lifetime (see lib/viewer-lifetime.js).
+  const life = useViewerLifetime()
+  const api = life.api
   const { api_football_frozen: frozen } = useDataMode()
   const [players, setPlayers] = useState([])
   const [total, setTotal] = useState(0)
@@ -570,7 +575,7 @@ function ScoutDeskBody() {
 
   const auth = useAuth()
   const contactRail = useContactRail()
-  const { openLoginModal } = useAuthUI()
+  const openLoginModal = useGuarded(life, useAuthUI().openLoginModal)
   const [verificationState, setVerificationState] = useState(null)
   const scoutVerification = !auth?.token ? 'signed-out'
     : verificationState?.token === auth.token ? verificationState.status : 'loading'
@@ -668,23 +673,23 @@ function ScoutDeskBody() {
   useEffect(() => {
     if (!auth?.token || contactRail !== true) return
     let live = true
-    APIService.getScoutVerification()
+    api.getScoutVerification()
       .then((data) => {
         if (live) setVerificationState({ token: auth.token, status: data?.verification?.status === 'approved' ? 'approved' : 'unverified' })
       })
       .catch(() => { if (live) setVerificationState({ token: auth.token, status: 'unavailable' }) })
     return () => { live = false }
-  }, [auth?.token, contactRail])
+  }, [api, auth.token, contactRail])
 
   // Load watchlist ids once when signed in
   useEffect(() => {
     if (!auth?.token) return undefined
     let cancelled = false
-    APIService.getScoutWatchlistIds()
+    api.getScoutWatchlistIds()
       .then((data) => { if (!cancelled) setWatchedIds(new Set(data?.player_ids || [])) })
       .catch((err) => { console.error('Failed to load watchlist ids', err) })
     return () => { cancelled = true }
-  }, [auth?.token, setWatchedIds])
+  }, [api, auth?.token, setWatchedIds])
 
   const toggleWatch = useCallback((player) => {
     if (!auth?.token) {
@@ -700,8 +705,8 @@ function ScoutDeskBody() {
       return next
     })
     const action = wasWatched
-      ? APIService.removeFromScoutWatchlist(playerId)
-      : APIService.addToScoutWatchlist(playerId)
+      ? api.removeFromScoutWatchlist(playerId)
+      : api.addToScoutWatchlist(playerId)
     action.catch((err) => {
       console.error('Watchlist update failed', err)
       // Revert optimistic update
@@ -712,7 +717,7 @@ function ScoutDeskBody() {
         return next
       })
     })
-  }, [auth?.token, openLoginModal, setWatchedIds, watchedIds])
+  }, [api, auth?.token, openLoginModal, setWatchedIds, watchedIds])
 
   const handleExportCsv = useCallback(async () => {
     if (!auth?.token) {
@@ -729,13 +734,13 @@ function ScoutDeskBody() {
       const preset = AGE_PRESETS.find((p) => p.key === agePreset)
       Object.assign(params, preset?.params || {})
       if (selectedSeason != null) params.season = selectedSeason
-      await APIService.downloadScoutCsv({ ...params, sort, order })
+      await api.downloadScoutCsv({ ...params, sort, order })
     } catch (err) {
       console.error('CSV export failed', err)
     } finally {
       setExporting(false)
     }
-  }, [auth?.token, openLoginModal, debouncedSearch, effectivePosition, status, source, agePreset, sort, order, selectedSeason])
+  }, [auth?.token, openLoginModal, debouncedSearch, effectivePosition, status, source, selectedSeason, api, sort, order, agePreset])
 
   useEffect(() => {
     clearTimeout(searchTimer.current)
@@ -765,7 +770,7 @@ function ScoutDeskBody() {
   useEffect(() => {
     let cancelled = false
     setLoading(true)
-    APIService.getScoutPlayers({ ...filterParams, sort, order, page, per_page: 25 })
+    api.getScoutPlayers({ ...filterParams, sort, order, page, per_page: 25 })
       .then((data) => {
         if (cancelled) return
         setPlayers(data?.players || [])
@@ -779,7 +784,7 @@ function ScoutDeskBody() {
       })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [filterParams, sort, order, page])
+  }, [filterParams, sort, order, page, api])
 
   useEffect(() => {
     let cancelled = false
@@ -791,7 +796,7 @@ function ScoutDeskBody() {
     if (effectivePosition) boardFilters.position = effectivePosition
     if (status !== 'all') boardFilters.status = status
     if (source !== 'all') boardFilters.source = source
-    APIService.getScoutLeaderboards(boardFilters)
+    api.getScoutLeaderboards(boardFilters)
       .then((data) => {
         if (cancelled) return
         setBoards(data?.leaderboards || null)
@@ -803,7 +808,7 @@ function ScoutDeskBody() {
       })
       .finally(() => { if (!cancelled) setBoardsLoading(false) })
     return () => { cancelled = true }
-  }, [phase, effectivePosition, status, source, agePreset, selectedSeason])
+  }, [phase, effectivePosition, status, source, agePreset, selectedSeason, api])
 
   const toggleCompare = useCallback((playerId) => {
     const normalizedPlayerId = normalizeSignedPlayerId(playerId)

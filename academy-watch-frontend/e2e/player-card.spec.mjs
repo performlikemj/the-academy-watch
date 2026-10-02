@@ -1278,6 +1278,316 @@ test('scout desk: A\'s held watchlist removal fails after the switch — B\'s ca
   await expect(tamsin.getByRole('button', { name: 'Unwatch Tamsin Holloway' })).toHaveAttribute('aria-pressed', 'true')
 })
 
+// ---- PCF4: what the previous viewer started cannot act for the next --------
+// Remounting drops state; it does not stop a handler that is already running.
+// Requests are bound to the credential they were sent with (a late answer is a
+// StaleViewerError) and every handler goes through the viewer's lifetime (no
+// new request, no navigation, no logout / login prompt once the viewer changed).
+
+function recordRequests(page) {
+  const sent = []
+  page.on('request', (request) => {
+    const url = new URL(request.url())
+    if (!url.pathname.startsWith('/api/') || url.pathname === '/api/events') return
+    sent.push({ method: request.method(), path: url.pathname + url.search, token: (request.headers().authorization || '').replace(/^Bearer\s+/i, '') || null })
+  })
+  return sent
+}
+
+function hold() {
+  let release
+  const promise = new Promise((resolve) => { release = resolve })
+  return { promise, release }
+}
+
+const storedToken = (page) => page.evaluate(() => localStorage.getItem('academy_watch_user_token'))
+
+// Lets the page settle, runs `release`, and returns every request made afterwards.
+async function requestsAfter(page, sent, release) {
+  // The held request keeps the network busy, so wait for the new viewer's own reads by time.
+  await page.waitForTimeout(1500)
+  const before = sent.length
+  release()
+  await page.waitForTimeout(900)
+  return sent.slice(before)
+}
+
+async function openAsOwners(page, id, options = {}) {
+  await signIn(page)
+  await installApiMocks(page, options)
+  await claimsByViewer(page, {
+    'mock-user-token': [ownerClaim(9, 'player', Number(id))],
+    'token-b': [ownerClaim(10, 'agent', Number(id))],
+  })
+  await page.clock.setFixedTime(TODAY)
+  await page.setViewportSize(VIEWPORTS[0])
+  const sent = recordRequests(page)
+  await page.goto(`/players/${id}`)
+  await expect(page.getByRole('button', { name: 'Add video', exact: true })).toBeVisible()
+  return sent
+}
+
+async function typeVideoDraftAsB(page) {
+  await page.getByRole('button', { name: 'Add video', exact: true }).click()
+  await page.getByPlaceholder('e.g. Hat-trick vs. City U21').fill('Draft typed by B')
+}
+
+async function expectBUntouched(page) {
+  expect(await storedToken(page)).toBe('token-b')
+  await expect(page.getByRole('heading', { name: 'Sign in to The Academy Watch' })).toHaveCount(0)
+  await expect(page.getByPlaceholder('e.g. Hat-trick vs. City U21')).toHaveValue('Draft typed by B')
+}
+
+test('A\'s held "Add club" create succeeds after the switch — no affiliation is written, least of all as B', async ({ page }) => {
+  // The reviewer's Serious case, reversed.
+  const create = hold()
+  const sent = await openAsOwners(page, 42)
+  await page.route('**/api/local-clubs', async (route) => {
+    await create.promise
+    return route.fulfill({ status: 201, json: { club: { id: 731, name: 'Private club typed by A' } } })
+  })
+  await page.getByRole('button', { name: 'Add club', exact: true }).click()
+  await page.getByPlaceholder('Search by club name').fill('Private club')
+  await page.getByRole('button', { name: "Can't find your club? Add it" }).click()
+  await page.getByLabel('Club name').fill('Private club typed by A')
+  await page.getByRole('dialog').getByRole('button', { name: 'Add club', exact: true }).click()
+  await expect.poll(() => sent.filter((request) => request.method === 'POST' && request.path === '/api/local-clubs').map((request) => request.token)).toEqual(['mock-user-token'])
+
+  await changeViewer(page, 'token-b')
+  await expect(page.getByRole('button', { name: 'Add video', exact: true })).toBeVisible()
+  const after = await requestsAfter(page, sent, create.release)
+
+  expect(after).toEqual([])
+  expect(sent.filter((request) => request.path.includes('/showcase/affiliations'))).toEqual([])
+  expect(await storedToken(page)).toBe('token-b')
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+})
+
+for (const action of ['save', 'delete']) {
+  test(`A's late 401 on a game ${action} does not sign B out or touch B's draft`, async ({ page }) => {
+    // The reviewer's Medium case (save), plus the delete path.
+    const answer = hold()
+    const game = { id: 77, player_api_id: 42, season: 2026, match_date: '2026-09-20', competition: 'League', opponent: 'Skerraby United', home_away: 'home', result_for: 1, result_against: 0, minutes: 90, goals: 0, assists: 0, yellows: 0, reds: 0, saves: null, goals_conceded: null, note: null, source: 'self', status: 'self_reported', editable: true, provenance: { source_category: 'self' } }
+    const sent = await openAsOwners(page, 42, { rawMatches: [game] })
+    await page.route(/\/api\/players\/42\/matches(\/77)?$/, async (route) => {
+      if (!['POST', 'DELETE'].includes(route.request().method())) return route.fallback()
+      await answer.promise
+      return route.fulfill({ status: 401, json: { error: 'Session expired' } })
+    })
+    if (action === 'save') {
+      await page.getByRole('button', { name: 'Add a game', exact: true }).click()
+      const dialog = page.getByRole('dialog')
+      await dialog.getByLabel('Match date').fill('2026-09-28')
+      await dialog.getByLabel('Opponent', { exact: true }).fill('Fixture Town')
+      await dialog.getByRole('button', { name: 'Add game', exact: true }).click()
+    } else {
+      await page.getByRole('button', { name: 'Delete game against Skerraby United' }).click()
+      await page.getByRole('dialog').getByRole('button', { name: 'Delete game', exact: true }).click()
+    }
+    await expect.poll(() => sent.some((request) => ['POST', 'DELETE'].includes(request.method) && request.path.includes('/players/42/matches'))).toBe(true)
+
+    await changeViewer(page, 'token-b')
+    await typeVideoDraftAsB(page)
+    const after = await requestsAfter(page, sent, answer.release)
+
+    expect(after).toEqual([])
+    await expectBUntouched(page)
+  })
+}
+
+for (const outcome of ['fails (503)', 'says "not verified"']) {
+  test(`A's late introduction-eligibility answer ${outcome} — B is not sent to verification`, async ({ page }) => {
+    // The reviewer's Medium case: both the rejected and the resolved branch navigated.
+    const answer = hold()
+    await signIn(page)
+    await installApiMocks(page)
+    await page.route('**/api/scout/verification', async (route) => {
+      await answer.promise
+      return outcome.startsWith('fails')
+        ? route.fulfill({ status: 503, json: { error: 'temporarily unavailable' } })
+        : route.fulfill({ json: { verification: { status: 'pending' } } })
+    })
+    await page.clock.setFixedTime(TODAY)
+    await page.setViewportSize(VIEWPORTS[0])
+    const sent = recordRequests(page)
+    await page.goto('/players/-12')
+    await page.getByRole('button', { name: 'Ask for an introduction' }).click()
+    await expect.poll(() => sent.filter((request) => request.path === '/api/scout/verification').length).toBe(1)
+
+    await changeViewer(page, 'token-b')
+    await expect(page.getByRole('button', { name: 'Ask for an introduction' })).toBeEnabled()
+    const after = await requestsAfter(page, sent, answer.release)
+
+    expect(after).toEqual([])
+    await expect(page).toHaveURL(/\/players\/-12$/)
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await expect(page.getByRole('heading', { level: 1, name: 'Kofi Asante-Reid' })).toBeVisible()
+  })
+}
+
+test('same viewer: a genuine eligibility failure still sends them to verification, and a genuine 401 still signs them out', async ({ page }) => {
+  await signIn(page)
+  await installApiMocks(page)
+  await page.route('**/api/scout/verification', (route) => route.fulfill({ status: 503, json: { error: 'temporarily unavailable' } }))
+  await page.clock.setFixedTime(TODAY)
+  await page.setViewportSize(VIEWPORTS[0])
+  await page.goto('/players/-12')
+  await page.getByRole('button', { name: 'Ask for an introduction' }).click()
+  await expect(page).toHaveURL(/\/scout\/verification$/)
+
+  // Report with an expired session: signed out and asked to sign in, as before.
+  await page.route('**/api/reports', (route) => route.fulfill({ status: 401, json: { error: 'Session expired' } }))
+  await page.goto('/players/-12')
+  await page.getByRole('button', { name: 'Report', exact: true }).click()
+  await page.getByRole('button', { name: 'Submit report' }).click()
+  await expect(page.getByRole('heading', { name: 'Sign in to The Academy Watch' })).toBeVisible()
+  expect(await storedToken(page)).toBe(null)
+})
+
+test('A\'s photo upload: the storage step finishes after the switch — the "complete" request is never sent', async ({ page }) => {
+  const upload = hold()
+  const sent = await openAsOwners(page, 42)
+  await page.route('**/api/players/42/showcase/photos', (route) => (route.request().method() === 'POST'
+    ? route.fulfill({ status: 201, json: { media: { id: 5, status: 'pending_upload' }, upload: { url: '/fixture-upload/photo-5', headers: {} } } })
+    : route.fallback()))
+  await page.route('**/fixture-upload/**', async (route) => { await upload.promise; return route.fulfill({ status: 200, body: '' }) })
+  await page.getByRole('button', { name: 'Add photo', exact: true }).click()
+  await page.getByRole('dialog').locator('input[type="file"]').setInputFiles({ name: 'a-private.png', mimeType: 'image/png', buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64') })
+  await page.getByRole('dialog').getByRole('button', { name: 'Upload photo' }).click()
+  await expect.poll(() => sent.filter((request) => request.method === 'POST' && request.path === '/api/players/42/showcase/photos').length).toBe(1)
+
+  await changeViewer(page, 'token-b')
+  await typeVideoDraftAsB(page)
+  const after = await requestsAfter(page, sent, upload.release)
+
+  expect(after).toEqual([])
+  expect(sent.filter((request) => request.path.includes('/photos/5/complete'))).toEqual([])
+  await expectBUntouched(page)
+})
+
+test('A\'s held claim submit lands after the switch — B sees no claim, no code, no dialog', async ({ page }) => {
+  const claim = hold()
+  await signIn(page)
+  await installApiMocks(page)
+  await page.route('**/api/players/42/claim', async (route) => { await claim.promise; return route.fulfill({ status: 201, json: { claim: { id: 31, status: 'pending', player_api_id: 42, relationship_type: 'player', verification_code: 'AW-PRIVATE-A' } } }) })
+  await page.clock.setFixedTime(TODAY)
+  await page.setViewportSize(VIEWPORTS[0])
+  const sent = recordRequests(page)
+  await page.goto('/players/42')
+  await page.getByRole('button', { name: 'Claim this profile' }).click()
+  await page.getByRole('combobox', { name: 'Contract status' }).click()
+  await page.getByRole('option', { name: 'Contracted' }).click()
+  await page.getByRole('button', { name: 'Submit claim' }).click()
+  await expect.poll(() => sent.some((request) => request.method === 'POST' && request.path === '/api/players/42/claim')).toBe(true)
+
+  await changeViewer(page, 'token-b')
+  await expect(page.getByRole('button', { name: 'Claim this profile' })).toBeVisible()
+  const after = await requestsAfter(page, sent, claim.release)
+
+  expect(after).toEqual([])
+  expect(await storedToken(page)).toBe('token-b')
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(page.getByText('AW-PRIVATE-A')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Claim this profile' })).toBeVisible()
+})
+
+test('A\'s held report answers 401 after the switch — B is not signed out and gets no sign-in prompt', async ({ page }) => {
+  const report = hold()
+  await signIn(page)
+  await installApiMocks(page)
+  await page.route('**/api/reports', async (route) => { await report.promise; return route.fulfill({ status: 401, json: { error: 'Session expired' } }) })
+  await page.clock.setFixedTime(TODAY)
+  await page.setViewportSize(VIEWPORTS[0])
+  const sent = recordRequests(page)
+  await page.goto('/players/42')
+  await page.getByRole('button', { name: 'Report', exact: true }).click()
+  await page.getByRole('button', { name: 'Submit report' }).click()
+  await expect.poll(() => sent.some((request) => request.method === 'POST' && request.path === '/api/reports')).toBe(true)
+
+  await changeViewer(page, 'token-b')
+  await expect(page.getByRole('button', { name: 'Claim this profile' })).toBeVisible()
+  const after = await requestsAfter(page, sent, report.release)
+
+  expect(after).toEqual([])
+  expect(await storedToken(page)).toBe('token-b')
+  await expect(page.getByRole('heading', { name: 'Sign in to The Academy Watch' })).toHaveCount(0)
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+})
+
+test('A\'s held introduction send lands after the switch — B sees no form and no "sent"', async ({ page }) => {
+  const send = hold()
+  await signIn(page)
+  await installApiMocks(page, { verification: { status: 'approved' } })
+  await page.route('**/api/contact/requests', async (route) => { await send.promise; return route.fulfill({ status: 201, json: { request: { id: 1, status: 'pending' } } }) })
+  await page.clock.setFixedTime(TODAY)
+  await page.setViewportSize(VIEWPORTS[0])
+  const sent = recordRequests(page)
+  await page.goto('/players/-12')
+  await page.getByRole('button', { name: 'Ask for an introduction' }).click()
+  await page.getByLabel('Message to Kofi Asante-Reid').fill('A: private introduction')
+  await page.getByRole('dialog').getByRole('button', { name: /^Send/ }).click()
+  await expect.poll(() => sent.filter((request) => request.path === '/api/contact/requests').map((request) => request.token)).toEqual(['mock-user-token'])
+
+  await changeViewer(page, 'token-b')
+  await expect(page.getByRole('button', { name: 'Ask for an introduction' })).toBeEnabled()
+  const after = await requestsAfter(page, sent, send.release)
+
+  expect(after).toEqual([])
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(page.getByText('A: private introduction')).toHaveCount(0)
+})
+
+test('scout desk: A\'s held comparison lands after the switch — no comparison opens for B', async ({ page }) => {
+  const compare = hold()
+  await signIn(page)
+  await page.setViewportSize(VIEWPORTS[0])
+  await installApiMocks(page, { verification: { status: 'approved' } })
+  await page.route('**/api/scout/compare**', async (route) => { await compare.promise; return route.fulfill({ json: { players: [] } }) })
+  const sent = recordRequests(page)
+  await page.goto('/scout')
+  await page.getByRole('group', { name: 'Show players as' }).getByRole('button', { name: 'Cards' }).click()
+  const cards = page.getByTestId('player-card')
+  await cards.filter({ hasText: 'Kofi Asante-Reid' }).getByRole('button', { name: 'Compare Kofi Asante-Reid' }).click()
+  await cards.filter({ hasText: 'Reuben Castellane' }).getByRole('button', { name: 'Compare Reuben Castellane' }).click()
+  await page.getByRole('button', { name: 'Compare', exact: true }).click()
+  await expect.poll(() => sent.filter((request) => request.path.startsWith('/api/scout/compare')).map((request) => request.token)).toEqual(['mock-user-token'])
+
+  await changeViewer(page, 'token-b')
+  await expect(page.getByRole('textbox', { name: 'Search players' })).toHaveValue('')
+  const after = await requestsAfter(page, sent, compare.release)
+
+  expect(after).toEqual([])
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(page.getByText(/of 4 selected/)).toHaveCount(0)
+})
+
+test('scout desk: A\'s held introduction send answers 401 after the switch — B stays signed in, nothing is shown', async ({ page }) => {
+  const send = hold()
+  await signIn(page)
+  await page.setViewportSize(VIEWPORTS[0])
+  await installApiMocks(page, { verification: { status: 'approved' } })
+  await page.route('**/api/contact/requests', async (route) => { await send.promise; return route.fulfill({ status: 401, json: { error: 'Session expired' } }) })
+  const sent = recordRequests(page)
+  await page.goto('/scout')
+  await page.getByRole('group', { name: 'Show players as' }).getByRole('button', { name: 'Cards' }).click()
+  const kofi = page.getByTestId('player-card').filter({ hasText: 'Kofi Asante-Reid' })
+  await kofi.getByRole('button', { name: 'Introduce yourself to Kofi Asante-Reid' }).click()
+  await page.getByLabel('Message to Kofi Asante-Reid').fill('A: private introduction from the desk')
+  await page.getByRole('dialog').getByRole('button', { name: /^Send/ }).click()
+  await expect.poll(() => sent.some((request) => request.path === '/api/contact/requests')).toBe(true)
+
+  await changeViewer(page, 'token-b')
+  await expect(page.getByRole('textbox', { name: 'Search players' })).toHaveValue('')
+  const after = await requestsAfter(page, sent, send.release)
+
+  expect(after).toEqual([])
+  expect(await storedToken(page)).toBe('token-b')
+  await expect(page.getByRole('heading', { name: 'Sign in to The Academy Watch' })).toHaveCount(0)
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(page.getByText('A: private introduction from the desk')).toHaveCount(0)
+  expect(sent.filter((request) => request.path === '/api/contact/requests').map((request) => request.token)).toEqual(['mock-user-token'])
+})
+
 // ---- PCF2: a failed season-totals read is not an empty season --------------
 
 test('provider totals fail on first load: an error with a retry, totals built from the match log, never "No matches"', async ({ page }) => {

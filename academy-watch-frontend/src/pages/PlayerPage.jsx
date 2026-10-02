@@ -12,7 +12,7 @@ import { MatchLines, PlayerFacts, PlayerSeason } from '@/components/player-card/
 import { usePlayerReadView, useScopedShowcase, useSeasonTotalsRead } from '@/components/player-card/usePlayerReadView'
 import { IntroduceDialog } from '@/components/contact/IntroduceDialog'
 import { useContactRail } from '@/hooks/useContactRail.js'
-import { useViewerKey, useViewerState } from '@/hooks/useViewerState'
+import { useGuarded, useViewerKey, useViewerLifetime, useViewerState } from '@/hooks/useViewerState'
 import { calendarSeason, isGoalkeeperPosition, readProblem, roleLabel, seasonKicker, seasonView, viewerKey } from '@/lib/player-card'
 import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -39,7 +39,6 @@ import { Loader2, ArrowLeft, User, TrendingUp, Calendar, Target, ChevronRight, C
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible'
 import FlagDataDialog from '@/components/FlagDataDialog'
 import ContentReportDialog from '@/components/ContentReportDialog'
-import { APIService } from '@/lib/api'
 import { useAuth, useAuthUI } from '@/context/AuthContext'
 import { format } from 'date-fns'
 import { SponsorStrip } from '@/components/SponsorSidebar'
@@ -275,9 +274,12 @@ export function PlayerPage() {
 }
 
 function PlayerPageBody() {
+    // Requests and side effects go through this viewer's lifetime (see lib/viewer-lifetime.js).
+    const life = useViewerLifetime()
+    const api = life.api
     const { api_football_frozen: apiFootballFrozen } = useDataMode()
     const { playerId } = useParams()
-    const navigate = useNavigate()
+    const navigate = useGuarded(life, useNavigate())
     const [searchParams, setSearchParams] = useSearchParams()
     const seasonParam = searchParams.get('season')
     const urlSeason = /^\d{4}$/.test(seasonParam || '') ? Number(seasonParam) : undefined
@@ -339,7 +341,7 @@ function PlayerPageBody() {
 
     // Watchlist state
     const auth = useAuth()
-    const { openLoginModal } = useAuthUI()
+    const openLoginModal = useGuarded(life, useAuthUI().openLoginModal)
     // Watchlist membership and the open introduction form are the viewer's own.
     // useViewerState refuses writes made for another viewer (a late answer to a
     // request the previous viewer started).
@@ -361,11 +363,11 @@ function PlayerPageBody() {
     useEffect(() => {
         if (!auth?.token) return undefined
         let cancelled = false
-        APIService.getScoutWatchlistIds()
+        api.getScoutWatchlistIds()
             .then((data) => { if (!cancelled) setWatchedIds(new Set(data?.player_ids || [])) })
             .catch((err) => { console.error('Failed to load watchlist ids', err) })
         return () => { cancelled = true }
-    }, [auth?.token, setWatchedIds])
+    }, [api, auth?.token, setWatchedIds])
 
     const handleToggleWatch = () => {
         if (!auth?.token) {
@@ -381,8 +383,8 @@ function PlayerPageBody() {
             return next
         })
         const action = wasWatched
-            ? APIService.removeFromScoutWatchlist(playerApiId)
-            : APIService.addToScoutWatchlist(playerApiId)
+            ? api.removeFromScoutWatchlist(playerApiId)
+            : api.addToScoutWatchlist(playerApiId)
         action.catch((err) => {
             console.error('Watchlist update failed', err)
             setWatchedIds((current) => {
@@ -412,11 +414,11 @@ function PlayerPageBody() {
 
         let hydration = journeyHydrationRef.current
         if (hydration.playerId !== playerId) {
-            const promise = APIService.getPlayerJourneyMap(playerId)
+            const promise = api.getPlayerJourneyMap(playerId)
                 .catch(() => null)
                 .then((journeyMapData) => {
                     if (journeyMapData || isLocalPlayer) return journeyMapData
-                    return APIService.request(`/players/${playerId}/journey/map?sync=true`).catch(() => null)
+                    return api.request(`/players/${playerId}/journey/map?sync=true`).catch(() => null)
                 })
             hydration = { playerId, promise }
             journeyHydrationRef.current = hydration
@@ -427,7 +429,7 @@ function PlayerPageBody() {
         })
 
         return () => { cancelled = true }
-    }, [playerId, isLocalPlayer])
+    }, [playerId, isLocalPlayer, api])
 
     useEffect(() => {
         let cancelled = false
@@ -445,15 +447,15 @@ function PlayerPageBody() {
         try {
             let publicStatsNotFound = false
             const [profileData, statsData, academyData] = await Promise.all([
-                APIService.getPublicPlayerProfile(playerId).catch(() => null),
-                APIService.getPublicPlayerStats(playerId, selectedSeason).catch((requestError) => {
+                api.getPublicPlayerProfile(playerId).catch(() => null),
+                api.getPublicPlayerStats(playerId, selectedSeason).catch((requestError) => {
                     if (requestError?.status === 404) {
                         publicStatsNotFound = true
                         return null
                     }
                     throw requestError
                 }),
-                isLocalPlayer ? Promise.resolve(null) : APIService.getPlayerAcademyStats(playerId).catch(() => null),
+                isLocalPlayer ? Promise.resolve(null) : api.getPlayerAcademyStats(playerId).catch(() => null),
             ])
 
             if (isCancelled()) return
@@ -530,7 +532,7 @@ function PlayerPageBody() {
         setLoadingTeamPlayers(true)
 
         try {
-            const loans = await APIService.getTeamLoans(profile.primary_team_db_id, {
+            const loans = await api.getTeamLoans(profile.primary_team_db_id, {
                 active_only: 'false',
                 dedupe: 'true',
                 direction: 'loaned_from',
@@ -681,7 +683,7 @@ function PlayerPageBody() {
         if (introduceBusy) return
         setIntroduceBusy(true)
         try {
-            const data = await APIService.getScoutVerification()
+            const data = await api.getScoutVerification()
             if (data?.verification?.status === 'approved') setIntroduceOpen(true)
             else navigate('/scout/verification')
         } catch {
