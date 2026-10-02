@@ -538,7 +538,7 @@ def test_withdrawal_cannot_be_reattached_as_legacy_roster(client, pilot):
     assert ClubRosterMember.query.count() == 0
 
 
-@pytest.mark.parametrize("sqlstate", ["40001", "40P01"])
+@pytest.mark.parametrize("sqlstate", ["40001", "40P01", "55P03"])
 def test_transaction_conflicts_rollback_with_retry_contract(client, pilot, sqlstate):
     from sqlalchemy.exc import OperationalError
 
@@ -549,7 +549,8 @@ def test_transaction_conflicts_rollback_with_retry_contract(client, pilot, sqlst
     error.sqlstate = sqlstate
     with patch("src.routes.club.create_invitation", side_effect=OperationalError("redacted", {}, error)):
         response = create(client, pilot)
-    assert response.status_code == 409 and response.json == {"error": "retry_conflict"}
+    assert response.status_code == (503 if sqlstate == "55P03" else 409)
+    assert response.json == {"error": "retry_busy" if sqlstate == "55P03" else "retry_conflict"}
     assert ClubInvitation.query.count() == 0
 
 

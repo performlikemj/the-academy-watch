@@ -18,6 +18,7 @@ delta engine, which reads/writes ``.player_api_id`` / ``.last_snapshot`` /
 
 from datetime import UTC, datetime
 
+from sqlalchemy import event, select
 from src.models.league import db
 
 
@@ -137,3 +138,18 @@ class PlayerShadowStats(db.Model):
         # MAX(updated_at) is an index lookup, not a full seq scan. Matches migration sea03.
         db.Index("ix_pss_updated_at", "updated_at"),
     )
+
+
+@event.listens_for(Follow, "before_insert")
+@event.listens_for(Follow, "before_update")
+def _private_club_follow_label(_mapper, connection, follow):
+    """Keep club names live-derived, never a permanent copy in saved labels."""
+    pid = (follow.selector or {}).get("player_api_id") if follow.kind == "player" else None
+    if not isinstance(pid, int) or isinstance(pid, bool) or pid >= 0 or follow.label is None:
+        return
+    from src.models.showcase import LocalPlayer
+
+    if connection.execute(
+        select(LocalPlayer.id).where(LocalPlayer.id == -pid, LocalPlayer.provenance == "club")
+    ).first():
+        follow.label = None

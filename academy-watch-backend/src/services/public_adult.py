@@ -118,6 +118,16 @@ def public_adult_ids(signed_ids, *, trusted_birth_dates=None, allow_journeys=Fal
             suppressed.update(local_to_subjects[row.local_player_id])
             if -row.local_player_id in ids:
                 suppressed.add(-row.local_player_id)
+    from src.services.club_player_publication import enabled, publication_local_ids
+
+    published = set()
+    if enabled() and any(row.provenance == "club" for row in locals_):
+        published = {
+            id_
+            for (id_,) in LocalPlayer.query.with_entities(LocalPlayer.id)
+            .filter(LocalPlayer.id.in_([row.id for row in locals_]), LocalPlayer.id.in_(publication_local_ids()))
+            .all()
+        }
     # Only reversible B2 application reconciliation bypasses holds; public reads use the default.
     excluded = suppressed | (set() if ignore_publication_holds else held_subject_ids(ids))
     today = datetime.now(UTC).date()
@@ -130,7 +140,7 @@ def public_adult_ids(signed_ids, *, trusted_birth_dates=None, allow_journeys=Fal
                 and local.api_player_id == pid
                 and local.status == "approved"
                 and local.merged_into_local_player_id is None
-                and local.provenance != "club"
+                and (local.provenance != "club" or local.id in published)
                 for local in local_rows
             ):
                 continue
@@ -141,7 +151,11 @@ def public_adult_ids(signed_ids, *, trusted_birth_dates=None, allow_journeys=Fal
             or (allow_journeys and pid in journeys)
         ):
             continue
-        if any(local.provenance == "club" or local_player_is_minor(local, today=today) for local in local_rows):
+        if any(
+            (local.provenance == "club" and (pid > 0 or local.id not in published))
+            or local_player_is_minor(local, today=today)
+            for local in local_rows
+        ):
             continue
         sources = list(local_rows) + tracked[pid]
         sources += [row for row in (shadows.get(pid), journeys.get(pid)) if row is not None]

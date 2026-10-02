@@ -8,6 +8,7 @@ from src.extensions import limiter
 from src.models.league import db
 from src.services.account import AccountDeletionUnavailable, build_account_export, delete_account
 from src.services.account_standing import require_account_access
+from src.services.contact_locks import database_conflict
 from src.services.stripe_billing import BillingError
 
 logger = logging.getLogger(__name__)
@@ -25,9 +26,16 @@ def _user_rate_limit_key() -> str:
 def export_account_data():
     """Return one portable JSON document containing the caller's DSR data."""
     try:
-        return jsonify(build_account_export(g.user))
+        payload = build_account_export(g.user)
+        # Commit dark-capable repairs to legacy platform-generated follow labels.
+        db.session.commit()
+        return jsonify(payload)
     except Exception as exc:
         db.session.rollback()
+        conflict = database_conflict(exc)
+        if conflict:
+            code, status = conflict
+            return jsonify(error=code, code=code, retryable=True), status
         logger.exception("Failed to export account data")
         return jsonify(_safe_error_payload(exc, "Failed to export account data")), 500
 
@@ -60,6 +68,10 @@ def delete_current_account():
         return jsonify({"error": exc.code}), exc.status
     except Exception as exc:
         db.session.rollback()
+        conflict = database_conflict(exc)
+        if conflict:
+            code, status = conflict
+            return jsonify(error=code, code=code, retryable=True), status
         logger.exception("Failed to delete account")
         return jsonify(_safe_error_payload(exc, "Failed to delete account")), 500
 

@@ -16,6 +16,7 @@ from src.models.funding import ClubProgram, FundingLeague
 from src.models.league import Newsletter, Team, TeamProfile, db
 from src.models.showcase import LocalPlayer
 from src.models.tracked_player import TrackedPlayer
+from src.services.club_player_publication import local_publication_filter
 from src.services.club_publication_hold import held_subject_ids
 from src.services.player_suppression import public_player_visible_filter
 from src.services.public_player_subject import resolve_public_adult_subject
@@ -43,6 +44,7 @@ def clear_sitemap_cache() -> None:
     global _cache_generation
     with _build_lock:
         _cache.update(xml=None, built_at=None)
+        _cache.pop("publication_enabled", None)
         _cache_generation += 1
 
 
@@ -100,7 +102,7 @@ def _player_candidate_ids() -> list[int]:
     )
     local_ids = sa.select(LocalPlayer.api_player_id.label("player_api_id")).where(
         LocalPlayer.status == "approved",
-        LocalPlayer.provenance != "club",
+        local_publication_filter(LocalPlayer),
         LocalPlayer.merged_into_local_player_id.is_(None),
         LocalPlayer.api_player_id < 0,
         LocalPlayer.api_player_id == -LocalPlayer.id,
@@ -219,9 +221,19 @@ def _run_background_build(app) -> None:
     global _building, _build_thread, _cache_generation
 
     try:
+        from src.services.club_player_publication import enabled
+
+        publication_enabled = enabled()
         with app.app_context():
             xml = build_sitemap_xml()
-        _cache.update(xml=xml, built_at=time.monotonic())
+        values = {"xml": xml, "built_at": time.monotonic()}
+        if publication_enabled:
+            values["publication_enabled"] = True
+        # Publish the ON marker with its XML in one atomic dict update, so a
+        # simultaneous flag withdrawal cannot observe unmarked club URLs.
+        _cache.update(values)
+        if not publication_enabled:
+            _cache.pop("publication_enabled", None)
         _cache_generation += 1
     except Exception:
         logger.exception("Background sitemap build failed")
@@ -300,6 +312,9 @@ def _without_held_urls(xml: bytes) -> bytes:
     held = set()
     for offset in range(0, len(ids), 100):
         held.update(held_subject_ids(ids[offset : offset + 100]))
+    from src.services.club_player_publication import hidden_club_subject_ids
+
+    held.update(hidden_club_subject_ids(ids))
     held_programs = (
         set(
             db.session.execute(
@@ -330,6 +345,12 @@ def get_sitemap_response():
     cached_xml = _cache["xml"]
     built_at = _cache["built_at"]
     app = current_app._get_current_object()
+    from src.services.club_player_publication import enabled
+
+    # An enabled build may contain club identities. Turning the feature off
+    # discards that build without adding any SQL to ordinary dark cache hits.
+    if _cache.get("publication_enabled") is True and not enabled():
+        cached_xml = None
 
     if isinstance(cached_xml, bytes):
         ttl_seconds = _env_nonnegative_float("SITEMAP_TTL_SECONDS", SITEMAP_TTL_SECONDS)

@@ -27,6 +27,8 @@ def _iso(value):
 class ContactRequest(db.Model):
     """A verified scout's introduction request to an adult player claimant."""
 
+    club_first = db.Column(db.Boolean, nullable=False, default=False, server_default="false")
+
     __tablename__ = "contact_requests"
     __table_args__ = (
         db.CheckConstraint(
@@ -132,13 +134,17 @@ class ContactRequest(db.Model):
             metadata = created_metadata
         return bool(metadata.get("status_contradiction")) if isinstance(metadata, dict) else False
 
-    def to_dict(self, *, include_user_ids: bool = False):
-        latest = self.latest_outcome()
+    def to_dict(self, *, include_user_ids: bool = False, context=None, viewer_user_id=None, counterpart_withheld=None):
+        latest = context["outcomes"].get(self.id) if context is not None else self.latest_outcome()
         club_participant = None
         if self.routing_mode == "club_included" and self.club_program_id is not None:
             from src.services.club_registry import get_club_program
 
-            program = get_club_program(self.club_program_id)
+            program = (
+                context["programs"].get(self.club_program_id)
+                if context is not None
+                else get_club_program(self.club_program_id)
+            )
             club_participant = {
                 "club_program_id": self.club_program_id,
                 "display_name": program.get("name") if program else None,
@@ -152,20 +158,62 @@ class ContactRequest(db.Model):
         if include_user_ids:
             scout_participant["user_id"] = self.scout_user_id
             player_participant["user_id"] = self.claim.user_account_id if self.claim is not None else None
+        from src.services.club_player_publication import club_request_available, scout_counterpart_available
+
+        withheld = (
+            counterpart_withheld
+            if counterpart_withheld is not None
+            else (
+                viewer_user_id == self.scout_user_id
+                and not scout_counterpart_available(self, context["available"] if context is not None else None)
+            )
+        )
+        if withheld:
+            player_participant = {"display_name": "Unavailable"}
+        extra = {"club_first": True} if self.club_first else {}
+        if self.club_first and viewer_user_id == self.scout_user_id:
+            from src.services.club_player_publication import public_request_profiles
+
+            profile = (
+                context["public_profiles"].get(self.id)
+                if context is not None
+                else public_request_profiles([self]).get(self.id)
+            )
+            if profile:
+                extra["public_profile"] = profile
         return {
+            **extra,
             "id": self.id,
             "player_api_id": self.player_api_id,
             "message": self.message,
             "status": self.status,
             "routing_mode": self.routing_mode,
-            "status_contradiction": self.status_contradiction_at_creation(),
+            "status_contradiction": self.status_contradiction_at_creation(
+                created_metadata=context["created"].get(self.id)
+            )
+            if context is not None
+            else self.status_contradiction_at_creation(),
             "club_program_id": self.club_program_id,
             "club_consent_status": self.club_consent_status,
             "club_consent_at": _iso(self.club_consent_at),
-            "club_consent_note": self.club_consent_note,
+            "club_consent_note": (
+                None
+                if withheld
+                and not (
+                    self.status == "declined"
+                    and self.club_consent_status == "declined"
+                    and (self.id in context["available"] if context is not None else club_request_available(self))
+                )
+                else self.club_consent_note
+            ),
             "permission_attestation": bool(self.permission_attestation),
             "permission_attested_at": _iso(self.permission_attested_at),
-            "messaging_open": self.status == "accepted"
+            "messaging_open": (
+                not self.club_first or self.id in context["available"]
+                if context is not None
+                else club_request_available(self)
+            )
+            and self.status == "accepted"
             and (self.routing_mode != "club_included" or self.club_consent_status == "granted"),
             "created_at": _iso(self.created_at),
             "responded_at": _iso(self.responded_at),
@@ -175,7 +223,7 @@ class ContactRequest(db.Model):
                 "player": player_participant,
                 "club": club_participant,
             },
-            "latest_outcome": latest.to_dict() if latest else None,
+            "latest_outcome": latest.to_dict() if latest and not withheld else None,
         }
 
 

@@ -1,3 +1,4 @@
+import { usePublicationFlag } from '@/hooks/usePublicationFlag'
 import { useControlTab } from '@/components/admin/B3Control'
 import { formatDisplayDate } from '@/lib/display-date'
 import { useEffect, useState } from 'react'
@@ -713,12 +714,14 @@ function ContactOversightTab({ setMessage }) {
 }
 
 export function AdminTrust() {
+  const publicationEnabled = usePublicationFlag()
     const [message, setMessage] = useState(null)
     const [tab, setTab] = useControlTab('admin_safety', ['verifications', 'reports', 'contact'], 'verifications')
 
     return (
         <div className="space-y-6">
-            <AdminPageHeader
+            {publicationEnabled && <a className="block py-4 underline" href="/admin/player-publications">Review club adult public profiles</a>}
+      <AdminPageHeader
                 eyebrow={<span className="inline-flex items-center gap-2"><ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />Review · Trust &amp; safety</span>}
                 title="Trust"
                 accent="Desk"

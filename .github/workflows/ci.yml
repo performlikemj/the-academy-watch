@@ -144,3 +144,59 @@ jobs:
       - name: Run deterministic directory and opportunity UX regressions
         working-directory: academy-watch-frontend
         run: pnpm exec playwright test --config playwright.uxb.config.js
+
+  contact-lock-postgres:
+    name: Contact Lock PostgreSQL Regressions
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: aw_p2_c1
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 10s
+          --health-timeout 5s --health-retries 5
+    defaults:
+      run:
+        working-directory: academy-watch-backend
+    env:
+      C1_POSTGRES_URL: postgresql+psycopg://postgres:postgres@localhost:5432/aw_p2_c1
+      SKIP_API_HANDSHAKE: '1'
+      API_USE_STUB_DATA: 'true'
+      TEST_ONLY_MANU: 'false'
+      OPENAI_API_KEY: 'test-not-a-real-key'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install -r requirements.txt
+      - name: Build disposable model schema
+        run: |
+          python - <<'PY'
+          import os
+          from flask import Flask
+          from flask_migrate import Migrate, stamp
+          import importlib
+          import pkgutil
+          from src.models.league import db
+          import src.models
+          for module in pkgutil.iter_modules(src.models.__path__):
+              importlib.import_module("src.models." + module.name)
+          app = Flask(__name__)
+          app.config.update(SQLALCHEMY_DATABASE_URI=os.environ['C1_POSTGRES_URL'], SQLALCHEMY_TRACK_MODIFICATIONS=False)
+          db.init_app(app)
+          Migrate(app, db)
+          with app.app_context():
+              db.create_all()
+              stamp(directory='migrations', revision='p2c1')
+          PY
+      - name: Reviewer regressions and first-attempt success controls
+        run: >-
+          python -m pytest -q tests/test_account_scope_gap_postgres.py tests/test_contact_lock_batches.py
+          tests/test_contact_lock_review_postgres.py tests/test_contact_lock_review_pairs_postgres.py
+          tests/test_contact_lock_matrix_postgres.py
+          -k 'not inventory_action_pair'

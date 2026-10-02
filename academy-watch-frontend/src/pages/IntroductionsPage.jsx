@@ -42,10 +42,10 @@ function RequestList({ box, requests, loading, error, selectedId, onSelect, onAc
               className={`w-full px-3 py-4 text-left transition-colors duration-150 ${selected ? 'bg-chalk/[0.05] shadow-[inset_2px_0_0_var(--color-gold)]' : 'hover:bg-chalk/[0.03]'}`}
             >
               <div className="flex items-center justify-between gap-2">
-                <span className="truncate font-serif text-[1.5rem] leading-tight text-chalk">{counterpartName(request, box)}</span>
+                <span className="min-w-0 [overflow-wrap:anywhere] font-serif text-[1.5rem] leading-tight text-chalk">{counterpartName(request, box)}</span>
                 <Badge variant="outline" className="border-gold/50 text-gold">{statusLabel(request.status)}</Badge>
               </div>
-              <p className="mt-1 font-mono text-[10.5px] uppercase tracking-[0.12em] text-[#8C9791]">{formatDate(request.created_at)}{request.participants?.club ? ` · via ${request.participants.club.display_name}` : ''}</p>
+              <p className="mt-1 [overflow-wrap:anywhere] font-mono text-[10.5px] uppercase tracking-[0.12em] text-[#8C9791]">{formatDate(request.created_at)}{request.participants?.club ? ` · via ${request.participants.club.display_name}` : ''}</p>
               <p className="mt-2 text-sm leading-relaxed text-[#C9CFCB]">{previewText(request.message)}</p>
             </button>
             {canRespond(request, box) ? (
@@ -202,12 +202,12 @@ export function IntroductionsPage() {
           </TabsList>
           {['sent', 'inbox'].map((which) => (
             <TabsContent key={which} value={which}>
-              <div className="grid items-start gap-8 lg:grid-cols-[24rem_minmax(0,1fr)]">
-                <div>
+              <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-8 lg:grid-cols-[24rem_minmax(0,1fr)]">
+                <div className="min-w-0">
                   <RequestList box={which} requests={requests[which] || []} loading={loading && (box || 'inbox') === which} error={(box || 'inbox') === which ? error : null} selectedId={selectedId} onSelect={setSelectedId} onAction={act} busyId={busyId} onRetry={() => load(which)} />
                   {actionError && box === which ? <p className="mt-2 text-sm text-[#E9967A]">{actionError}</p> : null}
                 </div>
-                <Card className="py-0">
+                <Card className="min-w-0 py-0">
                   <CardContent className="p-6">
                     {box === which ? <ContactThread request={selected} onRequestChange={applyUpdate} viewerRole={box === 'sent' ? 'scout' : 'player'} canReportOutcome={box === 'sent'} /> : null}
                   </CardContent>

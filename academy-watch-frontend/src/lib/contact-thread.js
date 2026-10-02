@@ -34,6 +34,7 @@ export function describeThreadState(request, viewerRole = 'scout') {
 }
 
 export function participantName(request, role) {
+  if (role === 'player' && request?.club_first && request?.public_profile?.display_name) return request.public_profile.display_name
   const name = request?.participants?.[role]?.display_name
   if (name) return name
   if (role === 'scout') return 'Scout'
