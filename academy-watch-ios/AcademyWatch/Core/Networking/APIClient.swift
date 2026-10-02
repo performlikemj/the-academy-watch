@@ -184,25 +184,33 @@ struct APIClient: GolAPIClientProtocol, PlayerClubAPIClientProtocol, ScoutAPICli
     CompareAPIClientProtocol,
     Sendable
 {
-    static let productionBaseURL = URL(
-        string: "https://api.theacademywatch.com/api"
-    )!
+    static let productionBaseURL = APIEndpointPolicy.production
 
-    /// Local transport is available only in Debug simulator builds; Release is always production.
-    static var defaultBaseURL: URL {
+    static var offlineFixtureActive: Bool {
         #if DEBUG && targetEnvironment(simulator)
-        if let raw = ProcessInfo.processInfo.environment["ACADEMY_LOCAL_API_URL"],
-           let url = URL(string: raw), url.scheme == "http",
-           ["localhost", "127.0.0.1", "::1"].contains(url.host ?? ""),
-           url.user == nil, url.password == nil, url.query == nil, url.fragment == nil,
-           url.path == "/api" {
-            return url
-        }
+        return Phase2Fixtures.active || FloodlightPreview.isActive || PlayerClubExperienceFixtures.mode != nil
+        #else
+        return false
         #endif
-        return productionBaseURL
+    }
+
+    static var defaultBaseURL: URL {
+        (try? APIEndpointPolicy.resolve(
+            override: ProcessInfo.processInfo.environment["ACADEMY_LOCAL_API_URL"],
+            context: .current, offlineFixture: offlineFixtureActive)) ?? APIEndpointPolicy.offline
+    }
+
+    static var developerConfigurationError: String? {
+        do {
+            _ = try APIEndpointPolicy.resolve(
+                override: ProcessInfo.processInfo.environment["ACADEMY_LOCAL_API_URL"],
+                context: .current, offlineFixture: offlineFixtureActive)
+            return nil
+        } catch { return error.localizedDescription }
     }
 
     private let baseURL: URL
+    private let configurationError: Error?
     private let session: URLSession
     private let phase2Session: URLSession
     private let authSession: (any AuthSessionProtocol)?
@@ -210,17 +218,32 @@ struct APIClient: GolAPIClientProtocol, PlayerClubAPIClientProtocol, ScoutAPICli
     private let fixtureMode: String?
 
     init(
-        baseURL: URL = APIClient.defaultBaseURL,
+        baseURL: URL? = nil,
         session: URLSession = .shared,
         authSession: (any AuthSessionProtocol)? = nil,
         requiredCredential: String? = nil,
         fixtureMode: String? = nil
     ) {
-        self.baseURL = baseURL
-        self.session = session
+        let resolvedURL: URL
+        let error: Error?
+        do {
+            resolvedURL = try baseURL ?? APIEndpointPolicy.resolve(
+                override: ProcessInfo.processInfo.environment["ACADEMY_LOCAL_API_URL"],
+                context: .current, offlineFixture: Self.offlineFixtureActive || fixtureMode != nil)
+            try APIEndpointPolicy.validate(resolvedURL, context: .current,
+                stubTransport: !(session.configuration.protocolClasses ?? []).isEmpty,
+                offlineFixture: Self.offlineFixtureActive || fixtureMode != nil)
+            error = nil
+        } catch let failure {
+            resolvedURL = APIEndpointPolicy.offline
+            error = failure
+        }
+        self.baseURL = resolvedURL
+        self.configurationError = error
+        self.session = URLSession(configuration: session.configuration, delegate: APIOriginRedirectGuard(), delegateQueue: nil)
         let privateConfiguration = Self.phase2SessionConfiguration()
         privateConfiguration.protocolClasses = session.configuration.protocolClasses
-        self.phase2Session = URLSession(configuration: privateConfiguration)
+        self.phase2Session = URLSession(configuration: privateConfiguration, delegate: APIOriginRedirectGuard(), delegateQueue: nil)
         #if DEBUG && targetEnvironment(simulator)
         self.fixtureMode = fixtureMode ?? PlayerClubExperienceFixtures.mode
         #else
@@ -237,6 +260,8 @@ struct APIClient: GolAPIClientProtocol, PlayerClubAPIClientProtocol, ScoutAPICli
     }
 
     static func golRequest(baseURL: URL, token: String, question: GolQuestion) throws -> URLRequest {
+        try APIEndpointPolicy.validate(baseURL, context: .current,
+            stubTransport: APIEndpointPolicy.Context.current.testHost)
         var request = URLRequest(url: baseURL.appendingPathComponent("gol/chat"))
         request.httpMethod = "POST"
         request.httpBody = try JSONEncoder().encode(question)
@@ -250,6 +275,7 @@ struct APIClient: GolAPIClientProtocol, PlayerClubAPIClientProtocol, ScoutAPICli
     }
 
     func streamGol(_ question: GolQuestion, onEvent: @escaping @MainActor @Sendable (GolSSEEvent) -> Void) async throws {
+        if let configurationError { throw configurationError }
         guard let token = await authSession?.accessToken(), !token.isEmpty,
               requiredCredential == nil || token == requiredCredential else {
             throw GolFailure.http(401, code: nil)
@@ -1181,6 +1207,7 @@ struct APIClient: GolAPIClientProtocol, PlayerClubAPIClientProtocol, ScoutAPICli
     }
 
     private func makeURL(path: String, queryItems: [URLQueryItem]) throws -> URL {
+        if let configurationError { throw configurationError }
         guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
             throw APIClientError.invalidURL
         }

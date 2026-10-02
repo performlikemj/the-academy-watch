@@ -33,6 +33,7 @@
 		1ACA7C58177D2D959F64893A /* CompareView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C4AF72EDE6DC316DB016839 /* CompareView.swift */; };
 		20057058FF11AD0B824E3228 /* WatchlistView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57082A12AF4504CAB16CC3BB /* WatchlistView.swift */; };
 		203313599E4EC82F23944D11 /* ScoutLeaderboardDecodingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A0AE117B575AE91A850387D /* ScoutLeaderboardDecodingTests.swift */; };
+		21CC53D0A4035CF0E39CC343 /* APIEndpointPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EF5D34006CFDA62F573470F /* APIEndpointPolicyTests.swift */; };
 		22CB231B519248BF0F512EEA /* player_recent_fixtures_outfielder.json in Resources */ = {isa = PBXBuildFile; fileRef = 5D51630158A11B34A7FF091A /* player_recent_fixtures_outfielder.json */; };
 		232F06D3310D49C42531EBF7 /* GolChatTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FED510C26823D4684A57DD46 /* GolChatTests.swift */; };
 		23C4B154D4C2308D84E26254 /* GolChatViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 194F6BDED6F5D6DF3CF80993 /* GolChatViewModel.swift */; };
@@ -159,6 +160,7 @@
 		C24B36FDE2534C7AA2B4B911 /* PlayerClubModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB87D81A2866ED8EE290AA40 /* PlayerClubModels.swift */; };
 		C3F01060056A57B0EF2B7AB8 /* PlayerClubAPIClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 674E6567E4AF7172D11ED1E6 /* PlayerClubAPIClientTests.swift */; };
 		C404DF00CD0C74D93F08044C /* WatchlistViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 917E7A3B639B72BB9F42BCCB /* WatchlistViewModel.swift */; };
+		C5E02BA7FC45E2136583068C /* APIEndpointPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFD766880D753DC570026BEB /* APIEndpointPolicy.swift */; };
 		C65F74CEF0B2377DAF3CEC2F /* Phase2ViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5AA40D0859781C42784DE40 /* Phase2ViewModelTests.swift */; };
 		C6AC761A756A779E96FFFB71 /* CompareViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5091AF0665AB49134E39D5D1 /* CompareViewModel.swift */; };
 		C6B7EFF3F6E911D93463A801 /* ShowcaseViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32C48C3A0CB076792B592422 /* ShowcaseViewModel.swift */; };
@@ -333,6 +335,7 @@
 		7B1D673202728D284C572008 /* player-first-run-chooser.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "player-first-run-chooser.json"; sourceTree = "<group>"; };
 		7B7A1C356FF327A6364042E6 /* ScoutResponseCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoutResponseCache.swift; sourceTree = "<group>"; };
 		7BAD8F477373C476AB80BA86 /* AuthModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthModels.swift; sourceTree = "<group>"; };
+		7EF5D34006CFDA62F573470F /* APIEndpointPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIEndpointPolicyTests.swift; sourceTree = "<group>"; };
 		8022FFE4F68883A644342952 /* ScoutDeskViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoutDeskViewModel.swift; sourceTree = "<group>"; };
 		815DE4022045AB253403769A /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
 		820784310B77C99A7FE4045C /* SeasonRequestThreadingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SeasonRequestThreadingTests.swift; sourceTree = "<group>"; };
@@ -407,6 +410,7 @@
 		DCC60619C3D18A7ED68B8438 /* player_profile_gk.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = player_profile_gk.json; sourceTree = "<group>"; };
 		DF3865D5A12B0F12B510319A /* WatchlistStarButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchlistStarButton.swift; sourceTree = "<group>"; };
 		DF7F58DE505C31F7E72D7A5F /* scout_follow_lists.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = scout_follow_lists.json; sourceTree = "<group>"; };
+		DFD766880D753DC570026BEB /* APIEndpointPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIEndpointPolicy.swift; sourceTree = "<group>"; };
 		DFF7B0A04A87B026811259B0 /* interest_signals.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = interest_signals.json; sourceTree = "<group>"; };
 		E065918F84CE06B83D53E2B0 /* OpportunityEditorViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpportunityEditorViewModel.swift; sourceTree = "<group>"; };
 		E19FD42E5E124D0E918AC192 /* contact_messages.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = contact_messages.json; sourceTree = "<group>"; };
@@ -750,6 +754,7 @@
 			isa = PBXGroup;
 			children = (
 				815DE4022045AB253403769A /* APIClient.swift */,
+				DFD766880D753DC570026BEB /* APIEndpointPolicy.swift */,
 			);
 			path = Networking;
 			sourceTree = "<group>";
@@ -838,6 +843,7 @@
 			isa = PBXGroup;
 			children = (
 				2080A198B95A570E819AB7EA /* AccountAndBlocksAPIClientTests.swift */,
+				7EF5D34006CFDA62F573470F /* APIEndpointPolicyTests.swift */,
 				FC45A0E1DE349AE657B16018 /* AuthenticationAPIClientTests.swift */,
 				0E4BBA02F6853C08CA03AA84 /* CompareModelsTests.swift */,
 				E5A86FA1B9D144B5B14692C5 /* CompareViewModelTests.swift */,
@@ -1143,6 +1149,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				21CC53D0A4035CF0E39CC343 /* APIEndpointPolicyTests.swift in Sources */,
 				0545B1B2AE7BA99C5A7FAEE9 /* AccountAndBlocksAPIClientTests.swift in Sources */,
 				D733B183B1CCC270AC4C9F10 /* AuthenticationAPIClientTests.swift in Sources */,
 				EAD44D2DCF82559EB9B151F4 /* CompareModelsTests.swift in Sources */,
@@ -1194,6 +1201,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				8E8CA8FC1E538ECE378B3856 /* APIClient.swift in Sources */,
+				C5E02BA7FC45E2136583068C /* APIEndpointPolicy.swift in Sources */,
 				79FB49D9151BC3DD4FB6919F /* AcademyColors.swift in Sources */,
 				B2AAC916FF060118E66D1027 /* AcademyDesignSystem.swift in Sources */,
 				306601A7BED6401ABB4C9736 /* AcademyType.swift in Sources */,

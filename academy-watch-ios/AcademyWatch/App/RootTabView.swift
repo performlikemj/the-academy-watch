@@ -200,7 +200,7 @@ struct RootTabView: View {
 
         _workspace = StateObject(wrappedValue: Phase2Workspace(client: apiClient))
         _authManager = StateObject(wrappedValue: authManager)
-        _golChatViewModel = StateObject(wrappedValue: GolChatViewModel(client: apiClient))
+        _golChatViewModel = StateObject(wrappedValue: GolChatViewModel(client: apiClient, authManager: authManager))
         _watchlistViewModel = StateObject(
             wrappedValue: WatchlistViewModel(apiClient: apiClient)
         )
@@ -265,7 +265,7 @@ struct RootTabView: View {
         }
         #if DEBUG && targetEnvironment(simulator)
         .overlay(alignment: .top) {
-            if Phase2Fixtures.reviewsSavedSession {
+            if Phase2Fixtures.reviewsSavedSession || launchArguments.contains("-reviewAccountCounters") {
                 VStack(spacing: 2) {
                     SavedSessionReviewControls().environmentObject(authManager)
                     Text("tab=\(selectedTab.rawValue);clubs=\(workspace.clubs.count);watch=\(watchlistViewModel.entries.count);ids=\(watchlistViewModel.watchedPlayerIDs.count);lists=\(followListsViewModel.lists.count);sent=\(sentRequestsViewModel.requests.count);inbox=\(incomingRequestsViewModel.requests.count);destination=\(String(describing: accountDestination))")
@@ -301,17 +301,13 @@ struct RootTabView: View {
         .onChange(of: roleValue) { _, newValue in
             selectInitialTab(ExperienceRole(rawValue: newValue))
         }
-        .onChange(of: authManager.accountIdentity) { _, _ in
-            workspace.reset(preservePublicFlags: true)
-            golChatViewModel.resetAccount()
-            watchlistViewModel.resetForSignOut()
-            followListsViewModel.resetForSignOut()
-            sentRequestsViewModel.resetForSignOut()
-            incomingRequestsViewModel.resetForSignOut()
+        .onChange(of: authManager.accountIdentity) { oldIdentity, _ in
             accountDestination = nil
-            pendingLegacyAction = nil
-            legacyDestination = nil
-            isGolPresented = false
+            if oldIdentity != "signed-out" {
+                pendingLegacyAction = nil
+                legacyDestination = nil
+                isGolPresented = false
+            }
         }
         .sheet(item: $legacyDestination, onDismiss: completeLegacyDismissal) { destination in
             Group {
@@ -368,6 +364,10 @@ struct RootTabView: View {
         }
         .task(id: authManager.accountIdentity) {
             guard fixtureDestination == nil else { return }
+            watchlistViewModel.resetForSignOut()
+            followListsViewModel.resetForSignOut()
+            sentRequestsViewModel.resetForSignOut()
+            incomingRequestsViewModel.resetForSignOut()
             if authManager.isAuthenticated {
                 async let account: Void = authManager.refreshAccount(using: apiClient)
                 async let watchlist: Void = watchlistViewModel.loadWatchlist()
@@ -377,10 +377,6 @@ struct RootTabView: View {
                 _ = await (account, watchlist, lists, sentRequests, incomingRequests)
             } else {
                 accountDestination = nil
-                watchlistViewModel.resetForSignOut()
-                followListsViewModel.resetForSignOut()
-                sentRequestsViewModel.resetForSignOut()
-                incomingRequestsViewModel.resetForSignOut()
             }
         }
     }

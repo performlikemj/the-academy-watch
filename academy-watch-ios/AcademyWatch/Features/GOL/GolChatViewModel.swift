@@ -20,6 +20,8 @@ final class GolChatViewModel: ObservableObject {
     private(set) var pendingQuestion: GolQuestion?
     private var task: Task<Void, Never>?
     private var generation = UUID()
+    private var accountEpoch = UUID()
+    private var accountSubscription: AnyCancellable?
     private var receivedDone = false
     private var receivedError = false
     private let client: any GolAPIClientProtocol
@@ -34,13 +36,19 @@ final class GolChatViewModel: ObservableObject {
     var canSend: Bool { !isStreaming && failure?.blocksQuestions != true }
     var canStartNewChat: Bool { !messages.isEmpty || failure?.blocksQuestions == true }
 
-    init(client: any GolAPIClientProtocol) { self.client = client }
+    init(client: any GolAPIClientProtocol, authManager: AuthManager? = nil) {
+        self.client = client
+        // Synchronous account invalidation precedes SwiftUI's identity-keyed suggestion task.
+        accountSubscription = authManager?.$accountIdentity.dropFirst().sink { [weak self] _ in
+            self?.resetAccount()
+        }
+    }
     deinit { task?.cancel() }
 
     func loadSuggestions() async {
-        let epoch = generation
+        let epoch = accountEpoch
         let response = try? await client.golSuggestions()
-        guard epoch == generation, !Task.isCancelled else { return }
+        guard epoch == accountEpoch, !Task.isCancelled else { return }
         suggestions = response ?? [
                 "Which academy players should I watch?", "Explain academy pathways",
             ]
@@ -98,6 +106,7 @@ final class GolChatViewModel: ObservableObject {
     }
 
     func resetAccount() {
+        accountEpoch = UUID()
         newChat()
         freeQuestions = nil
         credits = nil

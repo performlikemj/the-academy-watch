@@ -109,8 +109,8 @@
         static let store = Phase2FixtureTransport(mode: resolvedMode)
         static func data(for request: URLRequest) throws -> Data { try store.data(for: request) }
         static func response(for request: URLRequest) async throws -> Data {
-            guard reviewsSavedSession else { return try data(for: request) }
             store.record(request)
+            guard reviewsSavedSession else { return try data(for: request) }
             if request.url?.path == "/api/auth/me",
                 request.value(forHTTPHeaderField: "Authorization") == "Bearer fixture-auth-token" {
                 // Hold only the restored account lookup; membership and private
@@ -196,10 +196,10 @@
             // The second synthetic account owns no records from the first one.
             // Keep account-switch probes distinct from a shared fixture inbox.
             if request.value(forHTTPHeaderField: "Authorization") == "Bearer fixture-auth-token-second@fixture.invalid" {
-                if Phase2Fixtures.reviewsSavedSession, method == "GET", path == "me/club-access" {
+                if method == "GET", path == "me/club-access" {
                     return try json(["programs": []])
                 }
-                if Phase2Fixtures.reviewsSavedSession, method == "GET", path == "funding/claims/me" {
+                if method == "GET", path == "funding/claims/me" {
                     return try json(["claims": []])
                 }
                 if Phase2Fixtures.reviewsSavedSession, path == "club/101/access/me" {
@@ -217,11 +217,11 @@
                 }
             }
             // Explicit simulator-only synthetic login: never sends an email or calls the network.
-            if mode == "player-signed-out", method == "POST", path == "auth/request-code",
+            if ["player-signed-out", "club-signed-out"].contains(mode), method == "POST", path == "auth/request-code",
                 body["email"] as? String == "phase2@fixture.invalid" {
                 return try json(["message": "Offline code ready"])
             }
-            if (["player-signed-out", "apply", "ineligible"].contains(mode) || Phase2Fixtures.reviewsSavedSession), method == "POST", path == "auth/verify-code",
+            if (["player-signed-out", "club-signed-out", "apply", "ineligible"].contains(mode) || Phase2Fixtures.reviewsSavedSession), method == "POST", path == "auth/verify-code",
                 let email = body["email"] as? String, ["phase2@fixture.invalid", "second@fixture.invalid"].contains(email),
                 body["code"] as? String == "123456" {
                 fixtureEmail = email
@@ -235,6 +235,10 @@
                     // Refusing B's loads proves old data does not linger on failure.
                     throw APIClientError.httpStatus(503)
                 }
+                return try FloodlightPreview.data(for: request)
+            }
+            if ["player-signed-out", "club-signed-out"].contains(mode), method == "GET",
+                ["scout/watchlist", "scout/watchlist/ids", "scout/lists", "contact/requests", "me/claims"].contains(path) {
                 return try FloodlightPreview.data(for: request)
             }
             if Phase2Fixtures.reviewsSavedSession, method == "GET", path == "me/claims" {
@@ -284,7 +288,7 @@
             }
             if method == "GET", path == "funding/claims/me" {
                 return try json([
-                    "claims": ["owner", "terminal", "editor", "recruiting", "signed", "full", "conflict", "draft", "nostaff"]
+                    "claims": ["owner", "terminal", "editor", "recruiting", "signed", "full", "conflict", "draft", "nostaff", "club-signed-out"]
                         .contains(mode)
                         ? [
                             [
@@ -914,7 +918,7 @@
         @State private var revision = 0
         var identifierPrefix = ""
         var body: some View {
-            if Phase2Fixtures.reviewsSavedSession {
+            if Phase2Fixtures.reviewsSavedSession || ProcessInfo.processInfo.arguments.contains("-reviewAccountCounters") {
                 VStack(spacing: 2) {
                     HStack {
                         Button("Hydrate") { Phase2Fixtures.store.releaseAccount(); revision += 1 }

@@ -260,6 +260,22 @@ final class GolChatTests: XCTestCase {
         XCTAssertTrue(model.messages.isEmpty)
     }
 
+    func testConversationActionsDoNotDiscardPendingSuggestions() async {
+        for action in ["send", "stop", "new-chat"] {
+            let client = DelayedGolSuggestionsClient()
+            let model = GolChatViewModel(client: client)
+            let load = Task { await model.loadSuggestions() }
+            await client.waitForRead()
+            model.send("A typed question before suggestions arrive")
+            if action == "stop" { model.stop() }
+            if action == "new-chat" { model.newChat() }
+            await client.finish()
+            await load.value
+            model.newChat()
+            XCTAssertEqual(model.suggestions, ["Old account suggestion"], action)
+        }
+    }
+
     func testAccountResetDiscardsLateSuggestions() async {
         let client = DelayedGolSuggestionsClient()
         let model = GolChatViewModel(client: client)

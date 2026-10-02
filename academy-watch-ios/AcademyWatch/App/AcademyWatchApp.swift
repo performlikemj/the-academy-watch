@@ -77,6 +77,11 @@ struct AcademyWatchApp: App {
     var body: some Scene {
         WindowGroup {
             Group {
+                if APIEndpointPolicy.Context.current.testHost {
+                    Text("Offline unit-test host").accessibilityIdentifier("unit-test-host")
+                } else if let error = APIClient.developerConfigurationError {
+                    Text(error).padding().accessibilityIdentifier("developer-api-error")
+                } else {
                 #if DEBUG && targetEnvironment(simulator)
                 if let screen = Phase2Fixtures.screen {
                     Phase2PreviewRoot(screen: screen)
@@ -88,6 +93,7 @@ struct AcademyWatchApp: App {
                 #else
                 normalRoot
                 #endif
+                }
             }
             .floodlightAppearance()
             #if DEBUG && targetEnvironment(simulator)

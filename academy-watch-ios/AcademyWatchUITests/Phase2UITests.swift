@@ -41,6 +41,60 @@ final class Phase2UITests: XCTestCase {
         }
         XCTAssertTrue(element.isHittable)
     }
+    private func fixtureSignIn() {
+        tap(app.buttons["Sign In"])
+        let email = app.textFields["signin-email"]
+        tap(email); email.typeText("phase2@fixture.invalid")
+        tap(app.buttons["signin-send-code"])
+        let code = app.textFields["signin-code"]
+        tap(code); code.typeText("123456")
+        tap(app.buttons["signin-verify"])
+    }
+    func testClubSignInLoadsAccessAndClaimsOnceAndShowsStaffTabs() {
+        app.launchArguments = ["-phase2Fixture", "club-signed-out", "-reviewAccountCounters", "-initialTab", "account"]
+        app.launch()
+        fixtureSignIn()
+        waitForLabel("fixture-root-state", containing: "clubs=1")
+        for title in ["Squads", "Matches", "Recruiting"] {
+            XCTAssertTrue(app.tabBars.buttons[title].waitForExistence(timeout: 10))
+        }
+        // Read fresh diagnostics via a control update after async bootstrap has settled.
+        tap(app.buttons["fixture-hydrate"])
+        for path in ["me/club-access", "funding/claims/me"] {
+            waitForLabel("fixture-bootstrap-counts", containing: path + "=1")
+        }
+        capture("I1F10-club-sign-in-tabs-and-single-access-load")
+        tap(app.buttons["fixture-switch"])
+        waitForLabel("fixture-hydration-email", containing: "second@fixture.invalid")
+        waitForLabel("fixture-root-state", containing: "clubs=0")
+        tap(app.buttons["fixture-hydrate"])
+        for path in ["me/club-access", "funding/claims/me"] {
+            waitForLabel("fixture-bootstrap-counts", containing: path + "=2")
+        }
+        XCTAssertFalse(app.tabBars.buttons["Recruiting"].exists)
+        capture("I1F10-account-switch-reloads-new-access")
+    }
+    func testPlayerSignInFillsWatchlistAndSentRequests() {
+        app.launchArguments = ["-phase2Fixture", "player-signed-out", "-reviewAccountCounters", "-initialTab", "account"]
+        app.launch()
+        fixtureSignIn()
+        waitForLabel("fixture-root-state", containing: "watch=1")
+        waitForLabel("fixture-root-state", containing: "lists=1;sent=5;inbox=2")
+        tap(app.buttons["fixture-hydrate"])
+        for path in ["scout/watchlist", "scout/lists", "contact/requests/sent", "contact/requests/inbox"] {
+            waitForLabel("fixture-bootstrap-counts", containing: path + "=1")
+        }
+        capture("I1F10-player-sign-in-private-loads")
+    }
+    func testInvalidOverrideShowsDeveloperErrorBeforeFixtureBootstrap() {
+        app.launchArguments = ["-phase2Fixture", "owner"]
+        app.launchEnvironment["ACADEMY_LOCAL_API_URL"] = "https://api.theacademywatch.com/api"
+        app.launch()
+        XCTAssertTrue(app.staticTexts["developer-api-error"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.tabBars.firstMatch.exists)
+        capture("I1F10-production-override-refused")
+    }
+
     private func launchSavedSession(_ mode: String, tab: String = "home") {
         app.launchArguments = ["-phase2Fixture", mode, "-initialTab", tab,
                                "-reviewSavedSession", "-reviewAppearance", "light"]

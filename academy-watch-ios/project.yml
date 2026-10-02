@@ -92,7 +92,12 @@ schemes:
         AcademyWatch: all
         AcademyWatchTests: [test]
         AcademyWatchUITests: [test]
+    run:
+      environmentVariables:
+        ACADEMY_LOCAL_API_URL: https://basecamp.tail37b60.ts.net:15443/api
     test:
+      environmentVariables:
+        ACADEMY_LOCAL_API_URL: http://127.0.0.1:9/api
       targets:
         - AcademyWatchTests
         - name: AcademyWatchUITests
@@ -103,7 +108,12 @@ schemes:
       targets:
         AcademyWatch: all
         AcademyWatchUITests: [test]
+    run:
+      environmentVariables:
+        ACADEMY_LOCAL_API_URL: https://basecamp.tail37b60.ts.net:15443/api
     test:
+      environmentVariables:
+        ACADEMY_LOCAL_API_URL: http://127.0.0.1:9/api
       captureScreenshotsAutomatically: false
       targets:
         - AcademyWatchUITests
@@ -113,7 +123,12 @@ schemes:
       targets:
         AcademyWatch: all
         AcademyWatchUITests: [test]
+    run:
+      environmentVariables:
+        ACADEMY_LOCAL_API_URL: https://basecamp.tail37b60.ts.net:15443/api
     test:
+      environmentVariables:
+        ACADEMY_LOCAL_API_URL: http://127.0.0.1:9/api
       captureScreenshotsAutomatically: false
       targets:
         - name: AcademyWatchUITests

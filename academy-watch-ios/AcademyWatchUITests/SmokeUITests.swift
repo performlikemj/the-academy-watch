@@ -12,11 +12,16 @@ final class SmokeUITests: XCTestCase {
 
     override func setUpWithError() throws {
         continueAfterFailure = false
+        guard ProcessInfo.processInfo.environment["ACADEMY_SMOKE_API_URL"] == "https://basecamp.tail37b60.ts.net:15443/api" else {
+            throw XCTSkip("Set TEST_RUNNER_ACADEMY_SMOKE_API_URL to the staging /api URL for live smoke tests.")
+        }
         app = XCUIApplication()
+        app.launchEnvironment["ACADEMY_LOCAL_API_URL"] = "https://basecamp.tail37b60.ts.net:15443/api"
         app.launch()
     }
 
     override func tearDownWithError() throws {
+        guard app != nil else { return }
         UIPasteboard.general.items = []
         continueAfterFailure = true
         if watchlistPlayerIDToRemove != nil || listNameToDelete != nil || shouldSignOut {
