@@ -1,4 +1,4 @@
-/* global document, window, getComputedStyle, Image */
+/* global document, window, getComputedStyle, Image, MutationObserver */
 import fs from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
@@ -284,7 +284,7 @@ const scoutRows = [
   { id: 6, player_id: 42, player_name: 'Test Prospect', position: 'Midfielder', primary_team_name: 'Test Academy', appearances: 30, minutes_played: 2412, provenance: { primary_source: 'journey' }, player_photo: null, contactable: false },
 ].map((row) => ({ nationality: 'England', age: 24, status: null, recent_form: [], goals: 0, assists: 0, contactable: true, ...row }))
 
-async function installApiMocks(page, { frozen = false, contactRail = true, watched = [], linesStatus = () => 200, verification = null, claims = [], rawMatches = [], gate = null } = {}) {
+async function installApiMocks(page, { frozen = false, contactRail = true, watched = [], linesStatus = () => 200, seasonStatsStatus = () => 200, verification = null, claims = [], rawMatches = [], gate = null } = {}) {
   const calls = []
   await page.route('**/fixture-photos/*', (route) => {
     const body = PHOTOS[new URL(route.request().url()).pathname]
@@ -339,6 +339,8 @@ async function installApiMocks(page, { frozen = false, contactRail = true, watch
         const grain = totalsOf(player.lines.filter((entry) => entry.confirmation === 'club_confirmed'))
         const asked = Number(url.searchParams.get('season') || 2026)
         if (gate) await gate(asked)
+        const seasonStatus = seasonStatsStatus()
+        if (seasonStatus !== 200) return route.fulfill({ status: seasonStatus, json: { error: 'Failed to load season stats' } })
         const providerHasSeason = player.provider && (!player.providerSeasons || player.providerSeasons.includes(asked))
         const base = providerHasSeason
           ? { ...provider, source: 'season-rollup', provenance: { primary_source: 'journey', reconcile_flag: null } }
@@ -875,6 +877,277 @@ for (const [label, path, id, claim] of [
     })
   }
 }
+
+// ---- PCF2: nothing of one viewer is shown to the next ---------------------
+
+const PRIVATE_EMAIL = 'private-agent@example.test'
+const bearer = (route) => (route.request().headers().authorization || '').replace(/^Bearer\s+/i, '') || null
+
+// The server adds the agent's email only for signed-in readers. `hold` delays
+// the answer for one viewer so the transition can be inspected while it is pending.
+async function viewerShowcase(page, id, { hold = {}, emails = {} } = {}) {
+  await page.route(`**/api/players/${id}/showcase`, async (route) => {
+    const token = bearer(route)
+    if (hold[token ?? 'public']) await hold[token ?? 'public']
+    const email = token ? (emails[token] ?? PRIVATE_EMAIL) : null
+    return route.fulfill({ json: {
+      player_api_id: Number(id), reel: [], verified_footage: [], ...players[id].showcase,
+      profile: { ...kofiProfile, agent_name: 'Fixture Agent', ...(email ? { agent_contact_email: email } : {}) },
+    } })
+  })
+}
+
+// Records every moment `text` is present in the page from now on, and whether
+// it was ever present AFTER it had first gone (a late answer painting it back).
+async function watchForText(page, text) {
+  await page.evaluate((needle) => {
+    const state = { present: document.body.textContent.includes(needle), goneOnce: false, returned: false }
+    window.__pcWatch = state
+    new MutationObserver(() => {
+      const present = document.body.textContent.includes(needle)
+      if (!present) state.goneOnce = true
+      else if (state.goneOnce) state.returned = true
+      state.present = present
+    }).observe(document.body, { childList: true, subtree: true, characterData: true })
+  }, text)
+}
+
+async function changeViewer(page, token) {
+  await page.evaluate(async (next) => {
+    const { APIService } = await import('/src/lib/api.js')
+    if (next) APIService.setUserToken(next)
+    else APIService.logout()
+  }, token)
+}
+
+test('logout: the signed-in-only agent email leaves the page at once, before the anonymous read answers', async ({ page }) => {
+  // The reviewer's probe, reversed.
+  let release
+  const held = new Promise((resolve) => { release = resolve })
+  await signIn(page)
+  await installApiMocks(page)
+  await viewerShowcase(page, '-12', { hold: { public: held } })
+  await page.clock.setFixedTime(TODAY)
+  await page.goto('/players/-12')
+  await expect(page.getByTestId('player-facts')).toContainText(PRIVATE_EMAIL)
+  await watchForText(page, PRIVATE_EMAIL)
+
+  await changeViewer(page, null)
+
+  // The anonymous showcase is still pending: nothing of the signed-in viewer is left.
+  await expect(page.getByText(PRIVATE_EMAIL)).toHaveCount(0, { timeout: 2000 })
+  await expect(page.getByTestId('player-facts')).toHaveCount(0)
+  await expect(page.getByRole('heading', { level: 1, name: 'Kofi Asante-Reid' })).toBeVisible()
+  release()
+  await expect(page.getByTestId('player-facts')).toContainText('Fixture Agent')
+  await expect(page.getByText(PRIVATE_EMAIL)).toHaveCount(0)
+  // Not at any point after it first went: no late answer painted it back.
+  expect(await page.evaluate(() => window.__pcWatch)).toMatchObject({ present: false, goneOnce: true, returned: false })
+})
+
+test('a late answer for the signed-in viewer is ignored after logout', async ({ page }) => {
+  // The signed-in read itself is the slow one: it answers only after the logout.
+  let release
+  const held = new Promise((resolve) => { release = resolve })
+  await signIn(page)
+  await installApiMocks(page)
+  await viewerShowcase(page, '-12', { hold: { 'mock-user-token': held } })
+  await page.clock.setFixedTime(TODAY)
+  await page.goto('/players/-12')
+  await expect(page.getByRole('heading', { level: 1, name: 'Kofi Asante-Reid' })).toBeVisible()
+  await watchForText(page, PRIVATE_EMAIL)
+
+  await changeViewer(page, null)
+  await expect(page.getByTestId('player-facts')).toContainText('Fixture Agent')
+  release()
+  await page.waitForTimeout(500)
+
+  await expect(page.getByText(PRIVATE_EMAIL)).toHaveCount(0)
+  expect((await page.evaluate(() => window.__pcWatch)).present).toBe(false)
+})
+
+test('account switch: viewer A\'s showcase, watchlist state and open dialog never reach viewer B', async ({ page }) => {
+  let release
+  const held = new Promise((resolve) => { release = resolve })
+  await signIn(page)
+  await installApiMocks(page, { verification: { status: 'approved' } })
+  await viewerShowcase(page, '-12', { hold: { 'token-b': held }, emails: { 'mock-user-token': 'agent-for-a@example.test', 'token-b': 'agent-for-b@example.test' } })
+  await page.route('**/api/scout/watchlist/ids', async (route) => {
+    if (bearer(route) === 'token-b') { await held; return route.fulfill({ json: { player_ids: [] } }) }
+    return route.fulfill({ json: { player_ids: [-12] } })
+  })
+  await page.clock.setFixedTime(TODAY)
+  await page.goto('/players/-12')
+  await expect(page.getByTestId('player-facts')).toContainText('agent-for-a@example.test')
+  await expect(page.getByRole('button', { name: 'On your watchlist' })).toHaveAttribute('aria-pressed', 'true')
+  await page.getByRole('button', { name: 'Ask for an introduction' }).click()
+  await expect(page.getByRole('dialog')).toBeVisible()
+  await watchForText(page, 'agent-for-a@example.test')
+
+  await changeViewer(page, 'token-b')
+
+  // B's reads are still pending: nothing of A is on screen.
+  await expect(page.getByText('agent-for-a@example.test')).toHaveCount(0, { timeout: 2000 })
+  await expect(page.getByRole('button', { name: 'On your watchlist' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Add to watchlist' })).toHaveAttribute('aria-pressed', 'false')
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  release()
+  await expect(page.getByTestId('player-facts')).toContainText('agent-for-b@example.test')
+  await expect(page.getByRole('button', { name: 'Add to watchlist' })).toHaveAttribute('aria-pressed', 'false')
+  expect(await page.evaluate(() => window.__pcWatch)).toMatchObject({ present: false, returned: false })
+})
+
+test('the community page drops the signed-in viewer\'s showcase on logout', async ({ page }) => {
+  let release
+  const held = new Promise((resolve) => { release = resolve })
+  await signIn(page)
+  await installApiMocks(page)
+  await page.route('**/api/local-players/16/showcase', async (route) => {
+    const token = bearer(route)
+    if (!token) await held
+    return route.fulfill({ json: {
+      local_player_id: 16, reel: [], verified_footage: [], ...players['-16'].showcase,
+      profile: { ...kofiProfile, agent_name: 'Fixture Agent', ...(token ? { agent_contact_email: PRIVATE_EMAIL } : {}) },
+    } })
+  })
+  await page.clock.setFixedTime(TODAY)
+  await page.goto('/local-players/16')
+  await expect(page.getByTestId('player-facts')).toContainText(PRIVATE_EMAIL)
+  await watchForText(page, PRIVATE_EMAIL)
+
+  await changeViewer(page, null)
+
+  await expect(page.getByText(PRIVATE_EMAIL)).toHaveCount(0, { timeout: 2000 })
+  release()
+  await expect(page.getByTestId('player-facts')).toContainText('Fixture Agent')
+  expect(await page.evaluate(() => window.__pcWatch)).toMatchObject({ present: false, returned: false })
+})
+
+test('scout desk cards: watch state and an open introduction do not survive logout or an account switch', async ({ page }) => {
+  let release
+  const held = new Promise((resolve) => { release = resolve })
+  await signIn(page)
+  await page.setViewportSize(VIEWPORTS[1])
+  await installApiMocks(page, { verification: { status: 'approved' } })
+  await page.route('**/api/scout/watchlist/ids', async (route) => {
+    if (bearer(route) === 'token-b') { await held; return route.fulfill({ json: { player_ids: [-19] } }) }
+    return route.fulfill({ json: { player_ids: [-15] } })
+  })
+  await page.goto('/scout')
+  const cards = page.getByTestId('player-card')
+  const reuben = cards.filter({ hasText: 'Reuben Castellane' })
+  await expect(reuben.getByRole('button', { name: 'Unwatch Reuben Castellane' })).toHaveAttribute('aria-pressed', 'true')
+  await reuben.getByRole('button', { name: 'Introduce yourself to Reuben Castellane' }).click()
+  await expect(page.getByRole('dialog')).toBeVisible()
+
+  // Switch to another account whose watchlist is still loading.
+  await changeViewer(page, 'token-b')
+  await expect(reuben.getByRole('button', { name: 'Watch Reuben Castellane' })).toHaveAttribute('aria-pressed', 'false', { timeout: 2000 })
+  await expect(page.getByRole('button', { name: /^Unwatch / })).toHaveCount(0)
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  release()
+  await expect(cards.filter({ hasText: 'Tamsin Holloway' }).getByRole('button', { name: 'Unwatch Tamsin Holloway' })).toHaveAttribute('aria-pressed', 'true')
+  await expect(reuben.getByRole('button', { name: 'Watch Reuben Castellane' })).toHaveAttribute('aria-pressed', 'false')
+
+  // Scout -> logout: nothing is marked as watched, the header count is gone.
+  await changeViewer(page, null)
+  await expect(page.getByRole('button', { name: /^Unwatch / })).toHaveCount(0, { timeout: 2000 })
+  await expect(cards.filter({ hasText: 'Tamsin Holloway' }).getByRole('button', { name: 'Watch Tamsin Holloway' })).toHaveAttribute('aria-pressed', 'false')
+})
+
+// ---- PCF2: a failed season-totals read is not an empty season --------------
+
+test('provider totals fail on first load: an error with a retry, totals built from the match log, never "No matches"', async ({ page }) => {
+  // The reviewer's probe, reversed: season-stats 500, per-match rows fine, no club/self entries.
+  let status = 500
+  await installApiMocks(page, { seasonStatsStatus: () => status })
+  await page.route('**/api/players/42/matches?view=lines', (route) => route.fulfill({ json: { view: 'lines', seasons: [], truncated: false } }))
+  await page.clock.setFixedTime(TODAY)
+  await page.setViewportSize(VIEWPORTS[0])
+  await page.goto('/players/42')
+  await expect(page.getByTestId('player-hero')).toBeVisible()
+
+  const error = page.getByTestId('season-error')
+  await expect(error).toContainText('The season totals could not be loaded.')
+  await expect(page.getByText('No matches recorded yet')).toHaveCount(0)
+  await expect(page.getByText(/Nothing has been entered/)).toHaveCount(0)
+  // The successful per-match read still gives the season its figures, as on main.
+  await expect(page.getByTestId('season-tile-minutes')).toContainText('90')
+  await expect(page.getByTestId('season-source')).toContainText('Totals are built from the 1 match in the public match log.')
+  await expect(page.getByRole('tab', { name: 'Match Log' })).toBeVisible()
+  await shot(page, '15-totals-read-failed-1440')
+
+  status = 200
+  await error.getByRole('button', { name: 'Try again' }).click()
+  await expect(page.getByTestId('season-tile-minutes')).toContainText('2,412')
+  await expect(page.getByTestId('season-error')).toHaveCount(0)
+})
+
+test('provider matches beside an empty grain and empty totals: the season is not called empty', async ({ page }) => {
+  await installApiMocks(page)
+  await page.route('**/api/players/42/season-stats**', (route) => route.fulfill({ json: { season: '2026/2027', appearances: 0, minutes: 0, goals: 0, assists: 0, source: 'none', clubs: [] } }))
+  await page.route('**/api/players/42/matches?view=lines', (route) => route.fulfill({ json: { view: 'lines', seasons: [], truncated: false } }))
+  await page.clock.setFixedTime(TODAY)
+  await page.setViewportSize(VIEWPORTS[0])
+  await page.goto('/players/42')
+
+  await expect(page.getByTestId('player-season')).toHaveAttribute('data-source', 'provider')
+  await expect(page.getByTestId('season-tile-minutes')).toContainText('90')
+  await expect(page.getByTestId('season-empty')).toHaveCount(0)
+  await expect(page.getByTestId('season-error')).toHaveCount(0)
+})
+
+test('provider totals fail on a refresh: the last good totals stay, with a retry', async ({ page }) => {
+  let status = 200
+  await signIn(page)
+  await installApiMocks(page, {
+    seasonStatsStatus: () => status,
+    claims: [{ id: 9, status: 'approved', relationship_type: 'player', player_api_id: 42 }],
+  })
+  await page.route('**/api/players/42/matches', async (route) => {
+    if (route.request().method() !== 'POST') return route.fallback()
+    return route.fulfill({ json: { match: { id: 123, ...route.request().postDataJSON(), season: 2026, source: 'self', status: 'self_reported' } } })
+  })
+  await page.clock.setFixedTime(TODAY)
+  await page.setViewportSize(VIEWPORTS[0])
+  await page.goto('/players/42')
+  await expect(page.getByTestId('season-tile-minutes')).toContainText('2,412')
+
+  // An owner's change refreshes the totals; that refresh fails.
+  await page.getByRole('button', { name: 'Add a game', exact: true }).click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByLabel('Match date').fill('2026-09-28')
+  await dialog.getByLabel('Opponent', { exact: true }).fill('Fixture Town')
+  status = 500
+  await dialog.getByRole('button', { name: 'Add game', exact: true }).click()
+
+  await expect(page.getByTestId('season-error')).toContainText('The latest figures could not be loaded. Showing what was loaded before.')
+  await expect(page.getByTestId('season-tile-minutes')).toContainText('2,412')
+  await expect(page.getByText('No matches recorded yet')).toHaveCount(0)
+
+  status = 200
+  await page.getByTestId('season-error').getByRole('button', { name: 'Try again' }).click()
+  await expect(page.getByTestId('season-error')).toHaveCount(0)
+  await expect(page.getByTestId('season-tile-minutes')).toContainText('2,412')
+})
+
+test('the community page: a failed totals read with nothing else to show is an error, not an empty season', async ({ page }) => {
+  let status = 500
+  await installApiMocks(page, { seasonStatsStatus: () => status })
+  await page.clock.setFixedTime(TODAY)
+  await page.setViewportSize(VIEWPORTS[0])
+  await page.goto('/local-players/14')
+  await expect(page.getByRole('heading', { level: 1, name: 'Olu Adeyemi-Clarke' })).toBeVisible()
+
+  await expect(page.getByTestId('season-error')).toContainText('The season could not be loaded.')
+  await expect(page.getByTestId('player-season')).toHaveAttribute('data-source', 'error')
+  await expect(page.getByText('No matches recorded yet')).toHaveCount(0)
+
+  status = 200
+  await page.getByTestId('season-error').getByRole('button', { name: 'Try again' }).click()
+  await expect(page.getByTestId('season-empty')).toContainText('No matches recorded yet')
+  await expect(page.getByTestId('season-error')).toHaveCount(0)
+})
 
 // Before/after proof: replays responses captured read-only from staging for one
 // player, with the match lines produced by the real server merge function.

@@ -7,12 +7,12 @@ import { PlayerReachControls } from '@/components/PlayerReachControls'
 import { ShowcaseSection } from '@/components/ShowcaseSection'
 import { PlayerHero } from '@/components/player-card/PlayerHero'
 import { MatchLines, PlayerFacts, PlayerSeason } from '@/components/player-card/PlayerSeason'
-import { usePlayerReadView } from '@/components/player-card/usePlayerReadView'
+import { usePlayerReadView, useScopedShowcase, useSeasonTotalsRead } from '@/components/player-card/usePlayerReadView'
 import { useAuth } from '@/context/AuthContext'
 import { useDataMode } from '@/hooks/useDataMode'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { calendarSeason, isGoalkeeperPosition, roleLabel, seasonKicker, seasonView } from '@/lib/player-card'
+import { calendarSeason, isGoalkeeperPosition, readProblem, roleLabel, seasonKicker, seasonView } from '@/lib/player-card'
 import { formatSeasonLabel } from '@/lib/seasons'
 import { track } from '@/lib/track'
 
@@ -67,9 +67,10 @@ function LocalPlayerProfile({ numericPlayerId, onPublicConfirmed, onRetry }) {
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
   const [error, setError] = useState(null)
-  const [seasonStatsState, setSeasonStatsState] = useState({ key: null, value: null })
   const [seasonStatsRevision, setSeasonStatsRevision] = useState(0)
-  const [showcase, setShowcase] = useState(null)
+  // Held per player AND viewer (this component is also re-keyed on the token,
+  // so nothing of a previous viewer survives a logout or account switch).
+  const [showcase, setShowcase] = useScopedShowcase({ playerApiId: String(numericPlayerId), local: true })
   const { api_football_frozen: frozen } = useDataMode()
   const signedPlayerApiId = `-${String(numericPlayerId)}`
   const canonicalPlayerApiId = player?.api_player_id == null
@@ -84,9 +85,15 @@ function LocalPlayerProfile({ numericPlayerId, onPublicConfirmed, onRetry }) {
     showcase,
     revision: seasonStatsRevision,
   })
-  const seasonStatsKey = `${matchPlayerApiId}:${season ?? 'default'}:${seasonStatsRevision}`
-  const seasonStatsLoaded = seasonStatsState.key === seasonStatsKey
-  const seasonStats = seasonStatsState.value
+  // Season totals are their own read: loading, failure (with retry) and the
+  // last good answer are tracked per player + viewer + season.
+  const seasonRead = useSeasonTotalsRead({
+    playerApiId: matchPlayerApiId,
+    season,
+    revision: seasonStatsRevision,
+    enabled: Boolean(player),
+  })
+  const seasonStats = seasonRead.stats
 
   useEffect(() => {
     let cancelled = false
@@ -113,19 +120,6 @@ function LocalPlayerProfile({ numericPlayerId, onPublicConfirmed, onRetry }) {
 
     return () => { cancelled = true }
   }, [numericPlayerId])
-
-  useEffect(() => {
-    if (!player) return undefined
-    let cancelled = false
-    APIService.getPublicPlayerSeasonStats(matchPlayerApiId, season)
-      .then((response) => {
-        if (!cancelled) setSeasonStatsState({ key: seasonStatsKey, value: response || null })
-      })
-      .catch(() => {
-        if (!cancelled) setSeasonStatsState({ key: seasonStatsKey, value: null })
-      })
-    return () => { cancelled = true }
-  }, [matchPlayerApiId, player, season, seasonStatsKey])
 
   if (loading) return <LoadingState />
   if (notFound) return <MissingState />
@@ -158,6 +152,17 @@ function LocalPlayerProfile({ numericPlayerId, onPublicConfirmed, onRetry }) {
   // merged match lines for the season shown. The two are never added together.
   const view = seasonView({ picked: season, stats: seasonStats, seasons: read.seasons })
   const { season: viewSeason, provider, lines: seasonLines, totals: seasonLineTotals } = view
+  const seasonProblem = readProblem({
+    linesError: read.linesError,
+    linesStale: read.hasLines,
+    totalsError: seasonRead.totalsError,
+    totalsStale: seasonRead.hasTotals,
+    showing: Boolean(provider) || seasonLines.length > 0,
+  })
+  const retrySeason = () => {
+    if (read.linesError) read.retry()
+    if (seasonRead.totalsError) seasonRead.retry()
+  }
   const pickSeason = (next) => {
     setSearchParams((previous) => {
       const params = new URLSearchParams(previous)
@@ -219,10 +224,9 @@ function LocalPlayerProfile({ numericPlayerId, onPublicConfirmed, onRetry }) {
           goalkeeper={goalkeeper}
           frozen={frozen}
           playerName={player.display_name}
-          loading={read.linesLoading || !seasonStatsLoaded}
-          error={read.linesError}
-          stale={read.hasLines}
-          onRetry={read.retry}
+          loading={read.linesLoading || seasonRead.totalsLoading}
+          problem={seasonProblem}
+          onRetry={retrySeason}
           truncated={read.truncated}
           kicker={seasonKicker(viewSeason, calendarSeason())}
           control={seasonChoices.length > 1 ? (

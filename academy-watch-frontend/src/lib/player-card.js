@@ -141,23 +141,99 @@ export function resolveSeason({ picked, statsSeason, provider, seasons }) {
 // season. Provider totals are used only when they describe the season being
 // shown — a response for another season (e.g. still in flight after a pick)
 // is never printed under this season's heading.
-export function seasonView({ picked, stats, seasons, fallbackSeason } = {}) {
-  const anyProvider = providerTotals(stats)
+export function seasonView({ picked, stats, seasons, fallbackSeason, matchRows, matchRowsSeason } = {}) {
+  // The provider's per-match rows are a second, independent witness of play:
+  // when the totals read is empty or failed, totals are built from them (as
+  // the page always did) rather than calling the season empty.
+  const rowsSeason = seasonStartOf(matchRowsSeason)
+  const fromRows = rowsSeason != null ? providerTotalsFromMatches(matchRows) : null
+  const fromStats = providerTotals(stats)
   const statsSeason = seasonStartOf(stats?.season)
+  const providerSeason = fromStats && statsSeason != null ? statsSeason : fromRows ? rowsSeason : null
   const season = resolveSeason({
     picked,
-    statsSeason: statsSeason ?? fallbackSeason,
-    provider: anyProvider && statsSeason != null ? anyProvider : null,
+    statsSeason: providerSeason ?? statsSeason ?? fallbackSeason,
+    provider: providerSeason != null ? (fromStats || fromRows) : null,
     seasons,
   })
   const entry = (Array.isArray(seasons) ? seasons : []).find((item) => item.season === season) || null
+  const provider = fromStats && statsSeason === season
+    ? fromStats
+    : fromRows && rowsSeason === season ? fromRows : null
   return {
     season,
-    provider: anyProvider && statsSeason === season ? anyProvider : null,
+    provider,
     statsMatchSeason: statsSeason === season,
     lines: entry?.lines || [],
     totals: entry?.totals || null,
   }
+}
+
+// Provider totals rebuilt from the provider's own per-match rows.
+export function providerTotalsFromMatches(rows) {
+  const played = (Array.isArray(rows) ? rows : []).filter((row) => row && typeof row === 'object')
+  if (!played.length) return null
+  const sum = (key) => played.reduce((total, row) => total + count(row[key]), 0)
+  const knownSum = (key) => (played.some((row) => known(row[key])) ? sum(key) : null)
+  const dates = played.map((row) => String(row.fixture_date || '').slice(0, 10)).filter(Boolean).sort()
+  return {
+    appearances: played.length,
+    minutes: sum('minutes'),
+    goals: sum('goals'),
+    assists: sum('assists'),
+    yellows: knownSum('yellows'),
+    reds: knownSum('reds'),
+    saves: knownSum('saves'),
+    goals_conceded: knownSum('goals_conceded'),
+    avg_rating: null,
+    as_of: dates.length ? dates[dates.length - 1] : null,
+    from_match_rows: true,
+  }
+}
+
+// ---- Who is looking --------------------------------------------------------
+// Everything the read view keeps is scoped to the player AND the viewer. The
+// moment the viewer changes (logout, login, another account) the previous
+// viewer's data stops being used — at render time, before any request answers.
+export function viewerKey(token) {
+  return token ? `user:${token}` : 'public'
+}
+
+export function showcaseScope({ local = false, playerApiId, token }) {
+  return `${local ? 'local' : 'api'}:${playerApiId}:${viewerKey(token)}`
+}
+
+// A value stored with the scope it was loaded for is only usable in that scope.
+export function scopedValue(entry, scope) {
+  return entry && scope != null && entry.scope === scope ? entry.value : null
+}
+
+// Season totals read: the same rule as the match lines. `scopeKey` is player +
+// viewer + season; a failure keeps the last good totals of the SAME scope.
+export function totalsReadState({ good, settled, scopeKey, requestKey }) {
+  const hasTotals = scopeKey != null && good?.scopeKey === scopeKey
+  const isSettled = settled?.requestKey === requestKey
+  return {
+    hasTotals,
+    stats: hasTotals ? good.value : null,
+    totalsLoading: !hasTotals && !isSettled,
+    totalsError: isSettled && settled.failed === true,
+  }
+}
+
+// The one sentence shown when a read behind the season block failed, or null.
+// `showing` = something is on screen for the season (tiles or lines).
+export function readProblem({ linesError = false, linesStale = false, totalsError = false, totalsStale = false, showing = false } = {}) {
+  if (!linesError && !totalsError) return null
+  const stale = (linesError && linesStale) || (totalsError && totalsStale)
+  if (stale) return 'The latest figures could not be loaded. Showing what was loaded before.'
+  if (!showing) {
+    return linesError && !totalsError
+      ? 'The matches could not be loaded. This is a loading problem — it does not mean nothing has been recorded.'
+      : 'The season could not be loaded. This is a loading problem — it does not mean nothing has been recorded.'
+  }
+  if (totalsError) return 'The season totals could not be loaded. What is shown comes from the matches that did load.'
+  return 'The matches entered by the club or the player could not be loaded.'
 }
 
 // What the read view may show for the match lines, given the last good answer
@@ -302,6 +378,11 @@ function grainSentence(totals, lines = []) {
 
 function providerSentence(provider, { frozen, lineCount }) {
   const asOf = provider.as_of ? String(provider.as_of).slice(0, 10) : null
+  if (provider.from_match_rows) {
+    const built = `Totals are built from the ${plural(count(provider.appearances), 'match', 'matches')} in the public match log.`
+    if (!lineCount) return built
+    return `${built} The ${plural(lineCount, 'match', 'matches')} entered by the club or the player ${lineCount === 1 ? 'is' : 'are'} listed separately and ${lineCount === 1 ? 'is' : 'are'} not added to these totals.`
+  }
   const lead = frozen
     ? `Public match data — last updated ${asOf || 'unknown'}.`
     : 'Totals come from public match data.'

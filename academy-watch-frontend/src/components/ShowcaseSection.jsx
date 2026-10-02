@@ -48,6 +48,7 @@ import {
 } from 'lucide-react'
 import { APIService } from '@/lib/api'
 import { formatDateOnly, toLocalISODate } from '@/lib/dateOnly'
+import { showcaseScope } from '@/lib/player-card'
 import { track } from '@/lib/track'
 import { isYouTubeUrl } from '@/lib/youtube'
 import { VideoEmbed } from '@/components/VideoEmbed'
@@ -443,6 +444,10 @@ export function ShowcaseSection({
   const { token } = useAuth()
   const { logout, openLoginModal } = useAuthUI()
   const subjectKey = `${local ? 'local' : 'api'}:${playerApiId}`
+  // What is loaded belongs to this player AND this viewer: after a logout,
+  // login or account switch nothing of the previous viewer is rendered or
+  // handed to the page, even before the new read starts.
+  const scopeKey = showcaseScope({ local, playerApiId, token })
   const matchPlayerApiId = canonicalPlayerApiId == null
     ? local ? `-${String(playerApiId)}` : String(playerApiId)
     : String(canonicalPlayerApiId)
@@ -477,7 +482,7 @@ export function ShowcaseSection({
   // needed by the owner's manage block — so they are requested only once the
   // viewer is known to be the owner.
   const rawGamesWanted = !readSectionsElsewhere
-    || (!loading && loadedSubjectKey === subjectKey && myClaim?.status === 'approved')
+    || (!loading && loadedSubjectKey === scopeKey && myClaim?.status === 'approved')
   const onShowcaseChangeRef = useRef(onShowcaseChange)
 
   // User/club-fed game rows. Signed ids stay strings at this boundary so a
@@ -618,7 +623,8 @@ export function ShowcaseSection({
   // PlayerPage is reused across /players/:id navigations — track the active
   // subject so an in-flight refresh for another API/local player never lands.
   const activeSubjectRef = useRef(subjectKey)
-  const previousSubjectRef = useRef(subjectKey)
+  const activeScopeRef = useRef(scopeKey)
+  const previousSubjectRef = useRef(scopeKey)
   const closeTimersRef = useRef({})
   const clubSearchRequestRef = useRef(0)
   const isActiveSubject = () => activeSubjectRef.current === subjectKey
@@ -647,7 +653,8 @@ export function ShowcaseSection({
 
   useLayoutEffect(() => {
     activeSubjectRef.current = subjectKey
-  }, [subjectKey])
+    activeScopeRef.current = scopeKey
+  }, [scopeKey, subjectKey])
 
   useEffect(() => clearAllCloseTimers, [clearAllCloseTimers])
 
@@ -698,8 +705,9 @@ export function ShowcaseSection({
 
   useEffect(() => {
     let cancelled = false
-    if (previousSubjectRef.current !== subjectKey) {
-      previousSubjectRef.current = subjectKey
+    // Another player, or another viewer of the same player: close every dialog.
+    if (previousSubjectRef.current !== scopeKey) {
+      previousSubjectRef.current = scopeKey
       clearAllCloseTimers()
       setClaimOpen(false)
       setClaimContractStatus('')
@@ -768,21 +776,21 @@ export function ShowcaseSection({
         if (cancelled) return
         setShowcase(sc || null)
         setMyClaims(claimsArr)
-        onShowcaseChangeRef.current?.(sc || null, subjectKey)
+        onShowcaseChangeRef.current?.(sc || null, scopeKey)
       })
       .catch(() => {
         if (cancelled) return
         setError(true)
-        onShowcaseChangeRef.current?.(null, subjectKey)
+        onShowcaseChangeRef.current?.(null, scopeKey)
       })
       .finally(() => {
         if (!cancelled) {
-          setLoadedSubjectKey(subjectKey)
+          setLoadedSubjectKey(scopeKey)
           setLoading(false)
         }
       })
     return () => { cancelled = true }
-  }, [clearAllCloseTimers, fetchData, subjectKey])
+  }, [clearAllCloseTimers, fetchData, scopeKey, subjectKey])
 
   useEffect(() => {
     const query = clubSearch.trim()
@@ -823,18 +831,19 @@ export function ShowcaseSection({
 
   const refresh = useCallback(async () => {
     const subject = subjectKey
+    const scope = scopeKey
     try {
       const { sc, claimsArr } = await fetchData()
-      if (activeSubjectRef.current !== subject) return
+      if (activeSubjectRef.current !== subject || activeScopeRef.current !== scope) return
       setShowcase(sc || null)
       setMyClaims(claimsArr)
-      onShowcaseChangeRef.current?.(sc || null, subject)
+      onShowcaseChangeRef.current?.(sc || null, scope)
     } catch {
       // best-effort refresh
     }
-  }, [fetchData, subjectKey])
+  }, [fetchData, scopeKey, subjectKey])
 
-  if (loading || loadedSubjectKey !== subjectKey) {
+  if (loading || loadedSubjectKey !== scopeKey) {
     return (
       <Card>
         <CardContent className="space-y-4 py-6">
@@ -1519,7 +1528,15 @@ export function ShowcaseSection({
           && seasonStatsRequestRef.current === statsRequestId
         ) onSeasonStatsChange(nextStats)
       })
-      .catch(() => {})
+      .catch(() => {
+        // The game changed but its totals could not be read here: still tell the
+        // page, so its own reads refresh (and report the failure with a retry).
+        if (
+          activeSubjectRef.current === subjectKey
+          && statsSubjectKeyRef.current === statsQueryKey
+          && seasonStatsRequestRef.current === statsRequestId
+        ) onSeasonStatsChange(null)
+      })
   }
 
   const loadMoreGames = async () => {

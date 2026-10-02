@@ -9,10 +9,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { StatFigure } from '@/components/public/Floodlight'
 import { PlayerHero } from '@/components/player-card/PlayerHero'
 import { MatchLines, PlayerFacts, PlayerSeason } from '@/components/player-card/PlayerSeason'
-import { usePlayerReadView } from '@/components/player-card/usePlayerReadView'
+import { usePlayerReadView, useScopedShowcase, useSeasonTotalsRead } from '@/components/player-card/usePlayerReadView'
 import { IntroduceDialog } from '@/components/contact/IntroduceDialog'
 import { useContactRail } from '@/hooks/useContactRail.js'
-import { calendarSeason, isGoalkeeperPosition, roleLabel, seasonKicker, seasonView } from '@/lib/player-card'
+import { calendarSeason, isGoalkeeperPosition, readProblem, roleLabel, scopedValue, seasonKicker, seasonView, viewerKey } from '@/lib/player-card'
 import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import {
@@ -276,26 +276,32 @@ export function PlayerPage() {
     const [profile, setProfile] = useState(null)
     const [stats, setStats] = useState([])
     const [statsMeta, setStatsMeta] = useState(null)
-    const [seasonStats, setSeasonStats] = useState(null)
     const [seasonStatsRevision, setSeasonStatsRevision] = useState(0)
+    // Season totals are their own read: loading, failure (with retry) and the
+    // last good answer are tracked per player + viewer + season.
+    const seasonRead = useSeasonTotalsRead({
+        playerApiId: playerId ? String(playerId) : null,
+        season: selectedSeason,
+        revision: seasonStatsRevision,
+    })
+    const seasonStats = seasonRead.stats
+    const [baseEmpty, setBaseEmpty] = useState(false)
     const [readRevision, setReadRevision] = useState(0)
-    const [introduceOpen, setIntroduceOpen] = useState(false)
+    // Opened by one viewer; never left open for the next (see `viewer` below).
+    const [introduceFor, setIntroduceFor] = useState(null)
     const contactRail = useContactRail()
     const [loading, setLoading] = useState(true)
     const [notFound, setNotFound] = useState(false)
     const [error, setError] = useState(null)
     // The read view asks for nothing until the page itself is known to be public.
-    const readSubject = playerId && !loading && !notFound && !error ? String(playerId) : null
+    // Profile + per-match rows both absent: the page exists only if the totals read found something.
+    const pageLoading = loading || (baseEmpty && seasonRead.totalsLoading)
+    const pageNotFound = notFound || (baseEmpty && !seasonRead.totalsLoading && !seasonStats)
+    const readSubject = playerId && !pageLoading && !pageNotFound && !error ? String(playerId) : null
     // ShowcaseSection loads the showcase once and hands it up; the read view never asks again.
-    const [showcaseState, setShowcaseState] = useState({ id: null, value: null })
-    const handleShowcaseChange = useCallback((value) => {
-        setShowcaseState({ id: String(playerId), value })
-    }, [playerId])
-    const read = usePlayerReadView({
-        matchPlayerApiId: readSubject,
-        showcase: showcaseState.id === String(playerId) ? showcaseState.value : null,
-        revision: readRevision,
-    })
+    // It is held per player AND viewer, so a logout or account switch withholds it at once.
+    const [showcase, handleShowcaseChange] = useScopedShowcase({ playerApiId: playerId ? String(playerId) : null })
+    const read = usePlayerReadView({ matchPlayerApiId: readSubject, showcase, revision: readRevision })
     const [introduceBusy, setIntroduceBusy] = useState(false)
     const [position, setPosition] = useState(DEFAULT_POSITION)
     const [selectedMetrics, setSelectedMetrics] = useState([])
@@ -323,7 +329,17 @@ export function PlayerPage() {
     // Watchlist state
     const auth = useAuth()
     const { openLoginModal } = useAuthUI()
-    const [watchedIds, setWatchedIds] = useState(null)
+    // Watchlist membership is the viewer's own: held with the viewer it was loaded for.
+    const viewer = viewerKey(auth?.token)
+    const [watchedState, setWatchedState] = useState({ scope: null, value: null })
+    const watchedIds = scopedValue(watchedState, viewer)
+    const setWatchedIds = useCallback((next) => {
+        setWatchedState((previous) => ({
+            scope: viewer,
+            value: typeof next === 'function' ? next(scopedValue(previous, viewer)) : next,
+        }))
+    }, [viewer])
+    const introduceOpen = introduceFor === viewer
     const playerApiId = parseInt(playerId, 10)
     const isLocalPlayer = playerApiId < 0
     const isWatched = !!watchedIds?.has(playerApiId)
@@ -337,16 +353,13 @@ export function PlayerPage() {
     }, [])
 
     useEffect(() => {
-        if (!auth?.token) {
-            setWatchedIds(null)
-            return
-        }
+        if (!auth?.token) return undefined
         let cancelled = false
         APIService.getScoutWatchlistIds()
             .then((data) => { if (!cancelled) setWatchedIds(new Set(data?.player_ids || [])) })
             .catch((err) => { console.error('Failed to load watchlist ids', err) })
         return () => { cancelled = true }
-    }, [auth?.token])
+    }, [auth?.token, setWatchedIds])
 
     const handleToggleWatch = () => {
         if (!auth?.token) {
@@ -418,22 +431,14 @@ export function PlayerPage() {
         return () => { cancelled = true }
     }, [playerId, selectedSeason])
 
-    useEffect(() => {
-        if (!playerId || seasonStatsRevision === 0) return
-        let cancelled = false
-        APIService.getPublicPlayerSeasonStats(playerId, selectedSeason)
-            .then((response) => { if (!cancelled) setSeasonStats(response) })
-            .catch(() => {})
-        return () => { cancelled = true }
-    }, [playerId, selectedSeason, seasonStatsRevision])
-
     const loadPlayerData = async (isCancelled) => {
         setLoading(true)
         setNotFound(false)
+        setBaseEmpty(false)
         setError(null)
         try {
             let publicStatsNotFound = false
-            const [profileData, statsData, seasonData, academyData] = await Promise.all([
+            const [profileData, statsData, academyData] = await Promise.all([
                 APIService.getPublicPlayerProfile(playerId).catch(() => null),
                 APIService.getPublicPlayerStats(playerId, selectedSeason).catch((requestError) => {
                     if (requestError?.status === 404) {
@@ -442,22 +447,22 @@ export function PlayerPage() {
                     }
                     throw requestError
                 }),
-                APIService.getPublicPlayerSeasonStats(playerId, selectedSeason).catch(() => null),
                 isLocalPlayer ? Promise.resolve(null) : APIService.getPlayerAcademyStats(playerId).catch(() => null),
             ])
 
             if (isCancelled()) return
 
-            if (publicStatsNotFound || (profileData == null && statsData == null && seasonData == null)) {
+            if (publicStatsNotFound) {
                 setNotFound(true)
                 return
             }
+            // With neither a profile nor per-match rows, the season totals read decides (see pageNotFound).
+            setBaseEmpty(profileData == null && statsData == null)
 
             const statRows = Array.isArray(statsData) ? statsData : statsData?.matches ?? []
             setProfile(profileData)
             setStats(statRows)
             setStatsMeta(Array.isArray(statsData) ? null : statsData)
-            setSeasonStats(seasonData)
             setAcademyStats(academyData)
 
             // Use profile position as initial value (backend enriches from multiple sources)
@@ -635,9 +640,23 @@ export function PlayerPage() {
         picked: selectedSeason == null ? undefined : Number(selectedSeason),
         stats: seasonStats,
         seasons: read.seasons,
+        // The provider's per-match rows, already loaded for the match log.
+        matchRows: stats,
+        matchRowsSeason: statsMeta?.summary?.season ?? selectedSeason ?? defaultSeason,
         fallbackSeason: resolvedSeason ?? defaultSeason,
     })
     const { season: viewSeason, provider, lines: seasonLines, totals: seasonLineTotals } = view
+    const seasonProblem = readProblem({
+        linesError: read.linesError,
+        linesStale: read.hasLines,
+        totalsError: seasonRead.totalsError,
+        totalsStale: seasonRead.hasTotals,
+        showing: Boolean(provider) || seasonLines.length > 0,
+    })
+    const retrySeason = () => {
+        if (read.linesError) read.retry()
+        if (seasonRead.totalsError) seasonRead.retry()
+    }
     const goalkeeper = position === 'Goalkeeper' || isGoalkeeperPosition(profile?.position)
     const heroClubName = read.confirmedBy
         || profile?.loan_team_name
@@ -657,7 +676,7 @@ export function PlayerPage() {
         setIntroduceBusy(true)
         try {
             const data = await APIService.getScoutVerification()
-            if (data?.verification?.status === 'approved') setIntroduceOpen(true)
+            if (data?.verification?.status === 'approved') setIntroduceFor(viewer)
             else navigate('/scout/verification')
         } catch {
             navigate('/scout/verification')
@@ -666,7 +685,7 @@ export function PlayerPage() {
         }
     }
 
-    if (loading) {
+    if (pageLoading) {
         return (
             <div className="min-h-screen flex items-center justify-center bg-chalk">
                 <div className="text-center">
@@ -693,7 +712,7 @@ export function PlayerPage() {
         )
     }
 
-    if (notFound) {
+    if (pageNotFound) {
         return (
             <div className="min-h-screen flex items-center justify-center bg-chalk">
                 <Card className="max-w-md">
@@ -832,10 +851,9 @@ export function PlayerPage() {
                             goalkeeper={goalkeeper}
                             frozen={apiFootballFrozen}
                             playerName={playerName}
-                            loading={read.linesLoading}
-                            error={read.linesError}
-                            stale={read.hasLines}
-                            onRetry={read.retry}
+                            loading={read.linesLoading || seasonRead.totalsLoading}
+                            problem={seasonProblem}
+                            onRetry={retrySeason}
                             truncated={read.truncated}
                             kicker={seasonKicker(viewSeason, calendarSeason())}
                             control={(
@@ -876,12 +894,12 @@ export function PlayerPage() {
                             onSeasonStatsChange={(nextStats) => {
                                 setReadRevision((revision) => revision + 1)
                                 const nextSeason = Number.parseInt(String(nextStats?.season ?? ''), 10)
-                                if (selectedSeason == null) {
+                                if (selectedSeason == null || nextStats == null) {
                                     // A mutation describes its game's season. Reload the server's
                                     // default so older games cannot replace the displayed totals.
                                     setSeasonStatsRevision((revision) => revision + 1)
                                 } else if (nextSeason === Number(selectedSeason)) {
-                                    setSeasonStats(nextStats)
+                                    seasonRead.accept(nextStats)
                                 }
                             }}
                         />
@@ -1443,7 +1461,7 @@ export function PlayerPage() {
 
         <IntroduceDialog
             open={introduceOpen}
-            onOpenChange={setIntroduceOpen}
+            onOpenChange={(open) => setIntroduceFor(open ? viewer : null)}
             player={{ player_id: playerApiId, player_name: playerName }}
         />
 

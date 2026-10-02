@@ -217,9 +217,9 @@ export function PlayerSeason({
   clubColors,
   control = null,
   loading = false,
-  // The match read failed. `stale` = the last good data is still on screen.
-  error = false,
-  stale = false,
+  // A read behind this block failed: the sentence to show (see readProblem()).
+  // While it is set the block never claims that nothing has been recorded.
+  problem = null,
   onRetry,
   // The server left the oldest seasons out (very long careers).
   truncated = false,
@@ -228,7 +228,7 @@ export function PlayerSeason({
   const summary = summarizeSeason({ lines, totals, provider, goalkeeper, frozen, minutesKnown })
   const label = formatSeasonLabel(season)
   const [lead, ...rest] = summary.tiles
-  const failedEmpty = error && !stale && summary.source === 'none'
+  const failedEmpty = Boolean(problem) && summary.source === 'none'
 
   return (
     <section className="pc pc-section" style={clubColorStyle(clubColors)} aria-labelledby="pc-season-title" data-testid="player-season" data-source={failedEmpty ? 'error' : summary.source}>
@@ -240,15 +240,9 @@ export function PlayerSeason({
         {control}
       </div>
 
-      {error ? (
+      {problem ? (
         <div className="pc-notice" role="alert" data-testid="season-error">
-          <p>
-            {stale
-              ? 'The latest matches could not be loaded. Showing what was loaded before.'
-              : summary.source === 'none'
-                ? 'The matches could not be loaded. This is a loading problem — it does not mean nothing has been recorded.'
-                : 'The matches entered by the club or the player could not be loaded.'}
-          </p>
+          <p>{problem}</p>
           {onRetry ? <button type="button" className="pc-pill pc-pill--outline" onClick={onRetry}>Try again</button> : null}
         </div>
       ) : null}

@@ -20,7 +20,7 @@ import { ProvenanceChip } from '@/components/SelfReportedBadge'
 import { useContactRail } from '@/hooks/useContactRail.js'
 import { ScoutSurface, ScoutHeader, deskPillClass } from '@/components/scout/ScoutDesk'
 import { PlayerCard } from '@/components/player-card/PlayerCard'
-import { cardLine, isProviderSourced } from '@/lib/player-card'
+import { cardLine, isProviderSourced, scopedValue, viewerKey } from '@/lib/player-card'
 import { cn } from '@/lib/utils'
 import { seasonStore } from '@/lib/seasonStore'
 import { formatSeasonLabel, withSeasonParam } from '@/lib/seasons'
@@ -564,8 +564,20 @@ export function ScoutPage() {
     : verificationState?.token === auth.token ? verificationState.status : 'loading'
   const verifiedScout = scoutVerification === 'approved'
   const canIntroduce = scoutVerification !== 'unverified'
-  const [introducePlayer, setIntroducePlayer] = useState(null)
-  const [watchedIds, setWatchedIds] = useState(null)
+  const [introduceState, setIntroduceState] = useState({ scope: null, value: null })
+  // Watchlist membership and an open introduction belong to the viewer who
+  // loaded or opened them; a logout or account switch withholds both at once.
+  const viewer = viewerKey(auth?.token)
+  const [watchedState, setWatchedState] = useState({ scope: null, value: null })
+  const watchedIds = scopedValue(watchedState, viewer)
+  const introducePlayer = scopedValue(introduceState, viewer)
+  const setIntroducePlayer = useCallback((player) => setIntroduceState({ scope: viewer, value: player }), [viewer])
+  const setWatchedIds = useCallback((next) => {
+    setWatchedState((previous) => ({
+      scope: viewer,
+      value: typeof next === 'function' ? next(scopedValue(previous, viewer)) : next,
+    }))
+  }, [viewer])
   const [exporting, setExporting] = useState(false)
   const [searchParams, setSearchParams] = useSearchParams()
   const requestedSource = searchParams.get('source')
@@ -662,16 +674,13 @@ export function ScoutPage() {
 
   // Load watchlist ids once when signed in
   useEffect(() => {
-    if (!auth?.token) {
-      setWatchedIds(null)
-      return
-    }
+    if (!auth?.token) return undefined
     let cancelled = false
     APIService.getScoutWatchlistIds()
       .then((data) => { if (!cancelled) setWatchedIds(new Set(data?.player_ids || [])) })
       .catch((err) => { console.error('Failed to load watchlist ids', err) })
     return () => { cancelled = true }
-  }, [auth?.token])
+  }, [auth?.token, setWatchedIds])
 
   const toggleWatch = useCallback((player) => {
     if (!auth?.token) {
@@ -699,7 +708,7 @@ export function ScoutPage() {
         return next
       })
     })
-  }, [auth?.token, openLoginModal, watchedIds])
+  }, [auth?.token, openLoginModal, setWatchedIds, watchedIds])
 
   const handleExportCsv = useCallback(async () => {
     if (!auth?.token) {
@@ -1291,7 +1300,7 @@ export function ScoutPage() {
           source={source}
         />
         <IntroduceDialog
-          open={canIntroduce && !!introducePlayer}
+          open={canIntroduce && !!auth?.token && !!introducePlayer}
           onOpenChange={(next) => { if (!next) setIntroducePlayer(null) }}
           player={introducePlayer}
         />

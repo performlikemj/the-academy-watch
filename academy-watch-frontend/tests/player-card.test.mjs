@@ -18,6 +18,12 @@ import {
   minutesShare,
   profileFacts,
   providerTotals,
+  providerTotalsFromMatches,
+  readProblem,
+  scopedValue,
+  showcaseScope,
+  totalsReadState,
+  viewerKey,
   publicPhotos,
   quietFigure,
   resolveSeason,
@@ -384,4 +390,91 @@ test('the source sentence says when entries sharing a date and opponent were kep
     'Built from 2 matches. 2 confirmed by the club, 0 only reported by the player. Entries that share a date and opponent are listed separately and each is counted.',
   )
   assert.doesNotMatch(summarizeSeason({ lines: [{ shared_slot: false }], totals: grainTotals() }).sentence, /listed separately/)
+})
+
+// ---- Fix round PCF2 -------------------------------------------------------
+
+test('what is held for one viewer is never usable by another', () => {
+  const signedIn = showcaseScope({ playerApiId: '-12', token: 'token-a' })
+  const entry = { scope: signedIn, value: { profile: { agent_contact_email: 'private-agent@example.test' } } }
+
+  assert.equal(scopedValue(entry, signedIn), entry.value)
+  // Logout, another account, another player, the local/api twin: all withheld.
+  for (const scope of [
+    showcaseScope({ playerApiId: '-12', token: null }),
+    showcaseScope({ playerApiId: '-12', token: 'token-b' }),
+    showcaseScope({ playerApiId: '-13', token: 'token-a' }),
+    showcaseScope({ playerApiId: '-12', token: 'token-a', local: true }),
+    null,
+  ]) assert.equal(scopedValue(entry, scope), null)
+  assert.equal(scopedValue(null, signedIn), null)
+  assert.notEqual(viewerKey('public'), viewerKey(null))
+  assert.equal(viewerKey(''), viewerKey(undefined))
+})
+
+test('a failed season-totals read keeps the last good totals of the same player, viewer and season only', () => {
+  const good = { scopeKey: '42:public:2026', value: { minutes: 2412 } }
+
+  // Initial failure: an error, nothing to show, not loading.
+  assert.deepEqual(
+    totalsReadState({ good: { scopeKey: null, value: null }, settled: { requestKey: 'r1', failed: true }, scopeKey: '42:public:2026', requestKey: 'r1' }),
+    { hasTotals: false, stats: null, totalsLoading: false, totalsError: true },
+  )
+  // Failed refresh: last good totals stay, flagged.
+  assert.deepEqual(
+    totalsReadState({ good, settled: { requestKey: 'r2', failed: true }, scopeKey: '42:public:2026', requestKey: 'r2' }),
+    { hasTotals: true, stats: good.value, totalsLoading: false, totalsError: true },
+  )
+  // Another season, another viewer, another player: nothing is carried over.
+  for (const scopeKey of ['42:public:2025', '42:user:token-a:2026', '43:public:2026']) {
+    assert.deepEqual(
+      totalsReadState({ good, settled: { requestKey: 'r2', failed: false }, scopeKey, requestKey: 'r3' }),
+      { hasTotals: false, stats: null, totalsLoading: true, totalsError: false },
+    )
+  }
+})
+
+test('provider match rows are a witness of play when the totals read is empty or failed', () => {
+  const rows = [
+    { fixture_date: '2026-09-01', minutes: 90, goals: 1, assists: 0 },
+    { fixture_date: '2026-09-08T15:00:00Z', minutes: 62, goals: 0, assists: 2 },
+  ]
+  const fromRows = providerTotalsFromMatches(rows)
+  assert.deepEqual(
+    [fromRows.appearances, fromRows.minutes, fromRows.goals, fromRows.assists, fromRows.yellows, fromRows.as_of, fromRows.from_match_rows],
+    [2, 152, 1, 2, null, '2026-09-08', true],
+  )
+  assert.equal(providerTotalsFromMatches([]), null)
+  assert.equal(providerTotalsFromMatches(null), null)
+
+  // Totals read failed (stats null), lines empty, rows exist: the season is not empty.
+  const view = seasonView({ stats: null, seasons: [], matchRows: rows, matchRowsSeason: 2026 })
+  assert.deepEqual([view.season, view.provider.minutes, view.lines.length], [2026, 152, 0])
+  const summary = summarizeSeason({ provider: view.provider })
+  assert.equal(summary.source, 'provider')
+  assert.equal(summary.sentence, 'Totals are built from the 2 matches in the public match log.')
+  assert.equal(summary.tiles.find((entry) => entry.key === 'discipline'), undefined)
+
+  // Real provider totals win over the rebuilt ones; rows of another season are not used.
+  const real = seasonView({ stats: { season: '2026/2027', appearances: 30, minutes: 2412, provenance: { primary_source: 'journey' } }, seasons: [], matchRows: rows, matchRowsSeason: 2026 })
+  assert.equal(real.provider.minutes, 2412)
+  assert.equal(seasonView({ picked: 2025, stats: null, seasons: [], matchRows: rows, matchRowsSeason: 2026 }).provider, null)
+  assert.equal(seasonView({ stats: null, seasons: [], matchRows: rows }).provider, null)
+})
+
+test('a failed read is worded as a loading problem, never as an empty season', () => {
+  assert.equal(readProblem({}), null)
+  assert.match(readProblem({ totalsError: true }), /^The season could not be loaded\. This is a loading problem/)
+  assert.match(readProblem({ linesError: true }), /^The matches could not be loaded\. This is a loading problem/)
+  assert.match(readProblem({ totalsError: true, linesError: true }), /^The season could not be loaded/)
+  assert.equal(readProblem({ totalsError: true, showing: true }), 'The season totals could not be loaded. What is shown comes from the matches that did load.')
+  assert.equal(readProblem({ linesError: true, showing: true }), 'The matches entered by the club or the player could not be loaded.')
+  for (const stale of [{ totalsError: true, totalsStale: true }, { linesError: true, linesStale: true }]) {
+    assert.equal(readProblem({ ...stale, showing: true }), 'The latest figures could not be loaded. Showing what was loaded before.')
+  }
+  // "Stale" data of the read that did NOT fail is not a reason to say "loaded before".
+  assert.match(readProblem({ totalsError: true, linesStale: true, showing: true }), /^The season totals could not be loaded/)
+  for (const problem of [readProblem({ totalsError: true }), readProblem({ linesError: true }), readProblem({ totalsError: true, showing: true })]) {
+    assert.doesNotMatch(problem, /No matches recorded|Nothing has been entered/)
+  }
 })

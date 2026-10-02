@@ -45,3 +45,13 @@
 - Showcase payload gained `contactable` (the player's own approved claim — the scout desk's rule) for the
   "Ask for an introduction" button; unverified users are sent to verification. No contact rule changed.
 - Hand-back: `~/codex-runs/aw-redesign/logs/PCF1.final.md`.
+
+## Fix round PCF2 (2026-10-03, after codex verification RPCV2-X at a903a29c)
+- Serious: the shared showcase was keyed by player only, so signed-in-only fields (agent email) stayed on screen after
+  logout until the anonymous read answered. Now showcase, lines, season totals, watchlist state and the open
+  introduction dialog are all scoped to player + viewer and withheld in the render where the token changes; late
+  answers for the old scope are ignored. ShowcaseSection's own loaded gate and dialogs follow the same scope.
+- Medium: the season-totals read is tracked on its own (`useSeasonTotalsRead`): error + Try again, last good totals
+  kept for the same player/viewer/season. When totals are missing or failed but the provider's match rows loaded,
+  totals are built from those rows; "No matches recorded yet" is never shown while a read has failed.
+- Request counts unchanged (`~/codex-runs/aw-redesign/logs/PCF2.request-counts.md`). Hand-back `logs/PCF2.final.md`.
