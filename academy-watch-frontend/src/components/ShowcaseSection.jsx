@@ -433,6 +433,10 @@ export function ShowcaseSection({
   season,
   local = false,
   onSeasonStatsChange,
+  // The page renders photos, profile facts and games in its own read view
+  // (hero, facts strip, match lines). Visitors then only get the sections
+  // left here; the owner's manage view is unchanged.
+  readSectionsElsewhere = false,
 }) {
   const { token } = useAuth()
   const { logout, openLoginModal } = useAuthUI()
@@ -869,12 +873,11 @@ export function ShowcaseSection({
   // can still claim an unclaimed profile.
   const showClaimStrip = !local && !isOwner && (myClaim ? true : claimStatus === 'unclaimed')
 
+  const showReadSections = isOwner || !readSectionsElsewhere
   const hasContent = reel.length > 0
-    || visiblePhotos.length > 0
     || visibleAffiliations.length > 0
-    || profile
     || verified.length > 0
-    || visibleGames.length > 0
+    || (showReadSections && (visiblePhotos.length > 0 || profile || visibleGames.length > 0))
   if (!hasContent && !isOwner && !showClaimStrip) return null
 
   const reorderableIds = reel.filter((i) => !isSynthetic(i)).map((i) => i.id)
@@ -1771,7 +1774,7 @@ export function ShowcaseSection({
         {canViewInterestSignals ? <WatchingMeCard signedId={matchPlayerApiId} /> : null}
 
         {/* 1. Photos */}
-        {(visiblePhotos.length > 0 || isOwner) && (
+        {showReadSections && (visiblePhotos.length > 0 || isOwner) && (
           <div className="space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <p className="inline-flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -2070,7 +2073,7 @@ export function ShowcaseSection({
         )}
 
         {/* 4. Self-reported profile */}
-        {profile && (
+        {showReadSections && profile && (
           <div className="min-w-0 space-y-3 rounded-lg border border-border/70 bg-secondary/40 p-4">
             <div className="flex items-center gap-2">
               <UserSquare className="h-4 w-4 text-muted-foreground" />
@@ -2148,7 +2151,7 @@ export function ShowcaseSection({
         )}
 
         {/* 5. Player- and club-entered games */}
-        {(canManageGames || (gamesLoaded && visibleGames.length > 0)) && (
+        {showReadSections && (canManageGames || (gamesLoaded && visibleGames.length > 0)) && (
           <div className="space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>

@@ -152,6 +152,8 @@ Log one-liner in CONTINUITY.md's "Trivial Log" section.
 
 - Match-entry date-boundary tests use the parametrized `frozen_now` fixture in `tests/test_player_match_entries.py`; it patches route and subject-resolution UTC clocks. Derive relative date inputs inside the test from that fixture, never during parametrization.
 
+- Player read views use `src/components/player-card/` with wording in `lib/player-card.js`. Match rows and their totals come merged from `GET /players/<id>/matches?view=lines` (`services/match_lines.py`): never pair self/club entries or sum match totals in a client, and never add provider totals to match-line totals. `ShowcaseSection` stays the owner's manage surface; pages pass `readSectionsElsewhere` when they render the read view themselves.
+
 ## Quality Bar
 
 Before marking work complete:

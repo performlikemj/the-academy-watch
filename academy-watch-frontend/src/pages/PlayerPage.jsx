@@ -1,6 +1,5 @@
 import { CleatLoader } from '@/components/CleatLoader'
 import { useSeasonDirectory } from '@/hooks/useSeasonDirectory'
-import { PublicMatchPanels } from '@/components/PublicMatchPanels'
 import { useDataMode } from '@/hooks/useDataMode'
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
@@ -8,6 +7,12 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { StatFigure } from '@/components/public/Floodlight'
+import { PlayerHero } from '@/components/player-card/PlayerHero'
+import { MatchLines, PlayerFacts, PlayerSeason } from '@/components/player-card/PlayerSeason'
+import { usePlayerReadView } from '@/components/player-card/usePlayerReadView'
+import { IntroduceDialog } from '@/components/contact/IntroduceDialog'
+import { useContactRail } from '@/hooks/useContactRail.js'
+import { isGoalkeeperPosition, providerTotals, resolveSeason, roleLabel } from '@/lib/player-card'
 import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import {
@@ -29,7 +34,7 @@ import {
     ResponsiveContainer,
     ReferenceLine,
 } from 'recharts'
-import { Loader2, ArrowLeft, User, TrendingUp, Calendar, Target, ChevronRight, ChevronDown, Users, ExternalLink, MapPin, Flag, Star } from 'lucide-react'
+import { Loader2, ArrowLeft, User, TrendingUp, Calendar, Target, ChevronRight, ChevronDown, Users, ExternalLink, MapPin, Flag } from 'lucide-react'
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible'
 import FlagDataDialog from '@/components/FlagDataDialog'
 import ContentReportDialog from '@/components/ContentReportDialog'
@@ -46,11 +51,10 @@ import { CommentSection } from '@/components/CommentSection'
 import { PlayerLinksSection } from '@/components/PlayerLinksSection'
 import { PlayerReachControls } from '@/components/PlayerReachControls'
 import { ShowcaseSection } from '@/components/ShowcaseSection'
-import { ProvenanceChip } from '@/components/SelfReportedBadge'
 import { PlayerAvailability } from '@/components/PlayerAvailability'
 import { SeasonSelect } from '@/components/ui/SeasonSelect'
 import { seasonStore } from '@/lib/seasonStore'
-import { formatSeasonLabel, withSeasonParam } from '@/lib/seasons'
+import { withSeasonParam } from '@/lib/seasons'
 import { track } from '@/lib/track'
 import { Tooltip as UiTooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 // Floodlight chart palette (page-local; shared theme-constants stay untouched).
@@ -274,9 +278,15 @@ export function PlayerPage() {
     const [statsMeta, setStatsMeta] = useState(null)
     const [seasonStats, setSeasonStats] = useState(null)
     const [seasonStatsRevision, setSeasonStatsRevision] = useState(0)
+    const [readRevision, setReadRevision] = useState(0)
+    const [introduceOpen, setIntroduceOpen] = useState(false)
+    const contactRail = useContactRail()
     const [loading, setLoading] = useState(true)
     const [notFound, setNotFound] = useState(false)
     const [error, setError] = useState(null)
+    // The read view asks for nothing until the page itself is known to be public.
+    const readSubject = playerId && !loading && !notFound && !error ? String(playerId) : null
+    const read = usePlayerReadView({ playerApiId: readSubject, matchPlayerApiId: readSubject, revision: readRevision })
     const [position, setPosition] = useState(DEFAULT_POSITION)
     const [selectedMetrics, setSelectedMetrics] = useState([])
     
@@ -586,7 +596,6 @@ export function PlayerPage() {
     const currentConfig = METRIC_CONFIG[position] || METRIC_CONFIG[DEFAULT_POSITION]
     const playerName = profile?.name || `Player #${playerId}`
     const resolvedSeason = selectedSeason ?? seasonStats?.season ?? statsMeta?.summary?.season
-    const seasonLabel = formatSeasonLabel(resolvedSeason ?? defaultSeason)
     const provenance = seasonStats?.provenance ?? statsMeta?.provenance
     const provenanceSource = provenance?.primary_source ?? provenance?.source
     const provenanceText = provenanceSource === 'journey' && ['cup-gap', 'fixtures-invisible'].includes(provenance?.reconcile_flag)
@@ -608,21 +617,26 @@ export function PlayerPage() {
         }, { replace: true })
     }
 
-    // Calculate season totals - prefer API season stats, fallback to calculated from match data
-    const seasonTotals = {
-        minutes: seasonStats?.minutes ?? stats.reduce((acc, s) => acc + (s.minutes || 0), 0),
-        goals: seasonStats?.goals ?? stats.reduce((acc, s) => acc + (s.goals || 0), 0),
-        assists: seasonStats?.assists ?? stats.reduce((acc, s) => acc + (s.assists || 0), 0),
-        avgRating: seasonStats?.avg_rating ?? (stats.filter(s => s.rating).length > 0
-            ? (stats.reduce((acc, s) => acc + (parseFloat(s.rating) || 0), 0) / stats.filter(s => s.rating).length).toFixed(2)
-            : '-'),
-        appearances: seasonStats?.appearances ?? stats.length,
-        // Goalkeeper stats
-        saves: seasonStats?.saves ?? stats.reduce((acc, s) => acc + (s.saves || 0), 0),
-        goalsConceded: seasonStats?.goals_conceded ?? stats.reduce((acc, s) => acc + (s.goals_conceded || 0), 0),
-        cleanSheets: seasonStats?.clean_sheets ?? 0,
-    }
-    const hasSeasonTotals = (seasonStats?.appearances ?? 0) > 0 || (seasonStats?.minutes ?? 0) > 0
+    // Read view: totals are the provider's when it really has them, otherwise exactly
+    // the merged match lines for the season shown. The two are never added together.
+    const provider = providerTotals(seasonStats)
+    const viewSeason = resolveSeason({
+        picked: selectedSeason == null ? undefined : Number(selectedSeason),
+        statsSeason: resolvedSeason ?? defaultSeason,
+        provider,
+        seasons: read.seasons,
+    })
+    const seasonEntry = read.seasons.find((entry) => entry.season === viewSeason) || null
+    const seasonLines = seasonEntry?.lines || []
+    const goalkeeper = position === 'Goalkeeper' || isGoalkeeperPosition(profile?.position)
+    const heroClubName = read.confirmedBy
+        || profile?.loan_team_name
+        || profile?.current_club_name
+        || profile?.parent_team_name
+        || null
+    // Same target set as the scout desk: players with an approved claim. The
+    // server still decides who may actually send (verified scouts only).
+    const canAskIntroduction = contactRail === true && read.claimed
 
     if (loading) {
         return (
@@ -675,107 +689,157 @@ export function PlayerPage() {
     return (
         <JourneyProvider journeyData={journeyData}>
         <div className="min-h-screen bg-chalk">
-            {/* Header */}
-            <header className="dark bg-night text-chalk">
-                <div className="floodlight-container max-w-[1200px] pb-12 pt-5 sm:pb-16">
-                    <div className="flex flex-wrap items-center gap-1">
-                        <Button variant="ghost" size="sm" onClick={handleBack} className="-ml-3 text-chalk/80 hover:text-chalk">
-                            <ArrowLeft className="h-4 w-4" />
-                            Back
-                        </Button>
-                        <div className="ml-auto flex items-center gap-1">
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => setFlagOpen(true)}
-                                className="text-muted-dark hover:text-gold"
-                                title="Report incorrect data"
-                                aria-label="Report incorrect data"
-                            >
-                                <Flag className="h-4 w-4" />
+            {/* Hero: A-style photo panel beside the name on desktop, card C on phones */}
+            <div className="floodlight-container max-w-[1232px] pt-5">
+                <PlayerHero
+                    name={playerName}
+                    photos={read.photos}
+                    faceUrl={profile?.photo || null}
+                    clubName={heroClubName}
+                    role={roleLabel(read.profile?.positions, isLocalPlayer ? profile?.position : position)}
+                    confirmedBy={read.confirmedBy}
+                    quote={read.bio}
+                    line={[isLocalPlayer ? profile?.position : position, heroClubName, profile?.age ? `${profile.age} yrs` : null, profile?.nationality].filter(Boolean).join(' · ') || null}
+                    eyebrow={(profile?.status || (academyStats?.appearances > 0 && stats.length > 0)) ? (
+                        <>
+                            {profile?.status && (
+                                <span>
+                                    {profile.status.replace('_', ' ')}{profile.status === 'on_loan' && profile.owner_team_name ? ` · from ${profile.owner_team_name}` : ''}{profile.sale_fee ? ` · ${profile.sale_fee}` : ''}
+                                </span>
+                            )}
+                            {academyStats?.appearances > 0 && stats.length > 0 && (
+                                <span>Academy: {academyStats.appearances} apps</span>
+                            )}
+                        </>
+                    ) : null}
+                    bar={(
+                        <>
+                            <Button variant="ghost" size="sm" onClick={handleBack} className="-ml-3 min-h-11 text-muted-foreground hover:text-ink">
+                                <ArrowLeft className="h-4 w-4" />
+                                Back
                             </Button>
-                            <ContentReportDialog subjectId={playerApiId} />
-                            <Button
-                                variant="ghost"
-                                size="sm"
+                            <div className="ml-auto flex items-center gap-1">
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => setFlagOpen(true)}
+                                    className="min-h-11 min-w-11 text-muted-foreground hover:text-ink"
+                                    title="Report incorrect data"
+                                    aria-label="Report incorrect data"
+                                >
+                                    <Flag className="h-4 w-4" />
+                                </Button>
+                                <ContentReportDialog subjectId={playerApiId} className="min-h-11 min-w-11" />
+                            </div>
+                        </>
+                    )}
+                    actions={(
+                        <>
+                            <button
+                                type="button"
+                                className="pc-pill pc-pill--lg"
                                 onClick={handleToggleWatch}
-                                className={isWatched ? 'text-gold hover:text-gold' : 'text-muted-dark hover:text-gold'}
-                                title={isWatched ? 'Remove from watchlist' : 'Watch this player'}
-                                aria-label={isWatched ? 'Remove from watchlist' : 'Watch this player'}
+                                aria-pressed={isWatched}
                             >
-                                <Star className={`h-4 w-4 ${isWatched ? 'fill-gold text-gold' : ''}`} />
-                            </Button>
-                        </div>
-                    </div>
-                    <div className="mt-8 flex flex-col gap-8 md:flex-row md:items-center md:gap-14">
-                        <div className="relative flex h-32 w-32 shrink-0 items-center justify-center sm:h-44 sm:w-44">
-                            <span aria-hidden="true" className="absolute inset-0 rounded-full border border-dashed border-gold/60" />
-                            {profile?.photo ? (
-                                <img
-                                    src={profile.photo}
-                                    alt={playerName}
-                                    width={152}
-                                    height={152}
-                                    className="h-[86%] w-[86%] rounded-full object-cover"
-                                />
+                                {isWatched ? 'On your watchlist' : 'Add to watchlist'}
+                            </button>
+                            {canAskIntroduction ? (
+                                <button
+                                    type="button"
+                                    className="pc-pill pc-pill--lg pc-pill--outline"
+                                    onClick={() => (auth?.token ? setIntroduceOpen(true) : openLoginModal())}
+                                >
+                                    <span className="min-[900px]:hidden">Introduction</span>
+                                    <span className="hidden min-[900px]:inline">Ask for an introduction</span>
+                                </button>
+                            ) : null}
+                            <Link
+                                to={`/scout?compare=${encodeURIComponent(String(playerId))}`}
+                                className="pc-pill pc-pill--lg pc-pill--quiet no-underline hover:no-underline"
+                            >
+                                Compare
+                            </Link>
+                        </>
+                    )}
+                >
+                    {/* Mini Progress Bar — career stops at a glance */}
+                    <MiniProgressBar />
+                    {/* Academy link — opens drawer to browse other academy players */}
+                    {profile?.parent_team_name && (
+                        <button
+                            onClick={handleParentClubClick}
+                            className="mt-2 inline-flex min-h-11 items-center gap-3 self-start rounded-full border border-hairline py-2 pl-2 pr-4 text-sm text-ink transition-colors hover:border-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        >
+                            {profile.parent_team_logo ? (
+                                <img src={profile.parent_team_logo} alt="" width={28} height={28} className="h-7 w-7 rounded-full bg-chalk object-contain p-0.5" />
                             ) : (
-                                <div className="flex h-[86%] w-[86%] items-center justify-center rounded-full bg-club">
-                                    <User className="h-12 w-12 text-gold sm:h-16 sm:w-16" />
+                                <Users className="ml-1 h-4 w-4 text-gold-text" />
+                            )}
+                            <span className="font-medium">{profile.parent_team_name} Academy</span>
+                            <span className="eyebrow hidden sm:inline">Academy players</span>
+                        </button>
+                    )}
+                    <PlayerReachControls
+                        key={playerApiId}
+                        signedId={playerApiId}
+                        onPublicConfirmed={handlePublicConfirmed}
+                    />
+                </PlayerHero>
+            </div>
+
+            <div className="floodlight-container max-w-[1232px] py-10 pb-24 sm:py-12">
+                    <div className="space-y-12">
+                        <PlayerFacts facts={read.facts} />
+
+                        {/* Season block + one line per match (dimmed when viewing a past career stop) */}
+                        <JourneyDimmer>
+                        <div className="space-y-12">
+                        <PlayerSeason
+                            season={viewSeason}
+                            lines={seasonLines}
+                            totals={seasonEntry?.totals || null}
+                            provider={provider}
+                            minutesKnown={seasonStats?.stats_coverage !== 'limited'}
+                            goalkeeper={goalkeeper}
+                            frozen={apiFootballFrozen}
+                            playerName={playerName}
+                            loading={!read.linesLoaded}
+                            control={(
+                                <div className="flex flex-wrap items-center gap-2">
+                                    {provider && provenanceText && provenanceText !== 'none' && provenanceText !== 'live-fallback' ? (
+                                        <UiTooltip>
+                                            <TooltipTrigger asChild>
+                                                <Badge variant="outline" className="cursor-help text-[11px] font-medium text-muted-foreground">
+                                                    {provenanceText}
+                                                </Badge>
+                                            </TooltipTrigger>
+                                            <TooltipContent side="top" className="max-w-72">
+                                                Reconciliation: {provenance.reconcile_flag || 'sources agree'}
+                                                {provenance.fixtures_minutes != null ? ` · fixtures ${provenance.fixtures_minutes.toLocaleString()} min` : ''}
+                                                {provenance.journey_minutes != null ? ` · journey ${provenance.journey_minutes.toLocaleString()} min` : ''}
+                                            </TooltipContent>
+                                        </UiTooltip>
+                                    ) : null}
+                                    <SeasonSelect
+                                        value={selectedSeason ?? viewSeason}
+                                        onValueChange={handleSeasonChange}
+                                        className="h-11"
+                                    />
                                 </div>
                             )}
+                        />
+                        <MatchLines lines={seasonLines} goalkeeper={goalkeeper} />
                         </div>
-                        <div className="min-w-0 flex-1">
-                            <div className="eyebrow flex flex-wrap items-center gap-x-5 gap-y-1">
-                                {profile?.status && (
-                                    <span className="text-gold">
-                                        {profile.status.replace('_', ' ')}{profile.status === 'on_loan' && profile.owner_team_name ? ` · from ${profile.owner_team_name}` : ''}{profile.sale_fee ? ` · ${profile.sale_fee}` : ''}
-                                    </span>
-                                )}
-                                {academyStats?.appearances > 0 && stats.length > 0 && (
-                                    <span className="text-muted-dark">Academy: {academyStats.appearances} apps</span>
-                                )}
-                            </div>
-                            <h1 className="display mt-3 text-balance break-words text-[48px] leading-[.92] [overflow-wrap:anywhere] sm:text-[80px] lg:text-[104px]">{playerName}</h1>
-                            <p className="mt-4 flex flex-wrap gap-x-2 text-base text-chalk/80 sm:text-[17px]">
-                                {[isLocalPlayer ? profile?.position : position, profile?.age ? `${profile.age} yrs` : null, profile?.nationality].filter(Boolean).map((item, index) => (
-                                    <span key={item}>{index > 0 ? <span aria-hidden="true" className="mr-2 text-muted-dark">·</span> : null}{item}</span>
-                                ))}
-                            </p>
-                            {/* Mini Progress Bar — career stops at a glance */}
-                            <MiniProgressBar />
-                            {/* Academy link — opens drawer to browse other academy players */}
-                            {profile?.parent_team_name && (
-                                <button
-                                    onClick={handleParentClubClick}
-                                    className="mt-4 inline-flex items-center gap-3 rounded-full border border-chalk/20 py-2 pl-2 pr-4 text-sm text-chalk transition-colors hover:border-chalk/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                >
-                                    {profile.parent_team_logo ? (
-                                        <img src={profile.parent_team_logo} alt="" width={28} height={28} className="h-7 w-7 rounded-full bg-chalk object-contain p-0.5" />
-                                    ) : (
-                                        <Users className="ml-1 h-4 w-4 text-gold" />
-                                    )}
-                                    <span className="font-medium">{profile.parent_team_name} Academy</span>
-                                    <span className="eyebrow hidden sm:inline">Academy players</span>
-                                </button>
-                            )}
-                            <PlayerReachControls
-                                key={playerApiId}
-                                signedId={playerApiId}
-                                onPublicConfirmed={handlePublicConfirmed}
-                            />
-                        </div>
-                    </div>
-                </div>
-            </header>
+                        </JourneyDimmer>
 
-            <div className="floodlight-container max-w-[1200px] py-12 pb-24 sm:py-16">
-                    <div className="space-y-8">
                         <ShowcaseSection
+                            readSectionsElsewhere
                             playerApiId={String(playerId)}
                             playerName={playerName}
                             playerPosition={profile?.position || position}
                             season={isLocalPlayer ? selectedSeason : (selectedSeason ?? resolvedSeason)}
                             onSeasonStatsChange={(nextStats) => {
+                                setReadRevision((revision) => revision + 1)
                                 const nextSeason = Number.parseInt(String(nextStats?.season ?? ''), 10)
                                 if (selectedSeason == null) {
                                     // A mutation describes its game's season. Reload the server's
@@ -786,51 +850,19 @@ export function PlayerPage() {
                                 }
                             }}
                         />
-                        <div className="flex flex-wrap items-center justify-between gap-3">
-                            <div className="flex flex-wrap items-center gap-2">
-                                <h2 className="display text-[34px] sm:text-[44px]">
-                                    {seasonLabel} Totals
-                                </h2>
-                                <ProvenanceChip provenance={provenance} />
-                                {provenanceText && provenanceText !== 'none' && provenanceText !== 'live-fallback' ? (
-                                    <UiTooltip>
-                                        <TooltipTrigger asChild>
-                                            <Badge variant="outline" className="cursor-help text-[11px] font-medium text-muted-foreground">
-                                                {provenanceText}
-                                            </Badge>
-                                        </TooltipTrigger>
-                                        <TooltipContent side="top" className="max-w-72">
-                                            Reconciliation: {provenance.reconcile_flag || 'sources agree'}
-                                            {provenance.fixtures_minutes != null ? ` · fixtures ${provenance.fixtures_minutes.toLocaleString()} min` : ''}
-                                            {provenance.journey_minutes != null ? ` · journey ${provenance.journey_minutes.toLocaleString()} min` : ''}
-                                        </TooltipContent>
-                                    </UiTooltip>
-                                ) : null}
-                            </div>
-                            <SeasonSelect
-                                value={selectedSeason}
-                                onValueChange={handleSeasonChange}
-                            />
-                        </div>
-                        {apiFootballFrozen && <PublicMatchPanels stats={seasonStats} hideProviderFreshness={isLocalPlayer} />}
+
+                        {/* Provider detail: per-club breakdown, coverage notes, charts and the match log */}
                         {stats.length === 0 && academyStats?.appearances > 0 ? (
                             /* Academy player with no loan stats — academy section below is the primary view */
                             null
-                        ) : stats.length === 0 && hasSeasonTotals && seasonStats?.stats_coverage !== 'limited' ? (
+                        ) : stats.length === 0 && !provider ? (
+                            /* Nothing from the provider for this season — the season block above says so */
+                            null
+                        ) : stats.length === 0 && provider && seasonStats?.stats_coverage !== 'limited' ? (
                             <div className="space-y-6">
                                 <p className="text-sm text-muted-foreground">
                                     Season totals — per-match breakdown not available for this season.
                                 </p>
-
-                                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-x-6">
-                                    <StatFigure label="Appearances">{seasonStats.appearances ?? 0}</StatFigure>
-                                    <StatFigure label="Goals">{seasonStats.goals ?? 0}</StatFigure>
-                                    <StatFigure label="Assists">{seasonStats.assists ?? 0}</StatFigure>
-                                    <StatFigure label="Minutes">{(seasonStats.minutes ?? 0).toLocaleString()}</StatFigure>
-                                    {seasonStats.avg_rating != null && (
-                                        <StatFigure label="Avg Rating">{seasonStats.avg_rating}</StatFigure>
-                                    )}
-                                </div>
 
                                 {seasonStats.clubs?.length > 0 && (
                                     <Card>
@@ -890,13 +922,8 @@ export function PlayerPage() {
                                 )}
                             </div>
                         ) : stats.length === 0 && seasonStats?.stats_coverage !== 'limited' ? (
-                            <Card>
-                                <CardContent className="py-12 text-center">
-                                    <Target className="h-12 w-12 mx-auto text-muted-foreground/50 mb-4" />
-                                    <p className="text-muted-foreground">No match data available for this player yet.</p>
-                                </CardContent>
-                            </Card>
-                        ) : stats.length === 0 && seasonStats?.stats_coverage === 'limited' && !academyStats?.appearances ? (
+                            null
+                        ) : stats.length === 0 && provider && seasonStats?.stats_coverage === 'limited' && !academyStats?.appearances ? (
                             /* LIMITED COVERAGE VIEW - Show basic stats from lineup/events data */
                             <div className="space-y-6">
                                 {/* Limited Coverage Notice */}
@@ -913,14 +940,6 @@ export function PlayerPage() {
                                         </div>
                                     </CardContent>
                                 </Card>
-                                
-                                {/* Basic Stats Cards */}
-                                <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6">
-                                    <StatFigure label="Appearances">{seasonStats?.appearances || 0}</StatFigure>
-                                    <StatFigure label="Goals">{seasonStats?.goals || 0}</StatFigure>
-                                    <StatFigure label="Assists">{seasonStats?.assists || 0}</StatFigure>
-                                    <StatFigure label="Yellow Cards">{seasonStats?.yellows || 0}</StatFigure>
-                                </div>
                                 
                                 {/* Loan Club Info */}
                                 {seasonStats?.clubs && seasonStats.clubs.length > 0 && (
@@ -954,26 +973,6 @@ export function PlayerPage() {
                             </div>
                         ) : (
                             <div className="space-y-6">
-                        {/* Season Summary Cards - Position-aware (dimmed when viewing past stop) */}
-                        <JourneyDimmer>
-                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-x-6">
-                            <StatFigure label="Appearances">{seasonTotals.appearances}</StatFigure>
-                            <StatFigure label="Minutes">{seasonTotals.minutes}</StatFigure>
-                            {position === 'Goalkeeper' ? (
-                                <>
-                                    <StatFigure label="Saves">{seasonTotals.saves}</StatFigure>
-                                    <StatFigure label="Conceded">{seasonTotals.goalsConceded}</StatFigure>
-                                </>
-                            ) : (
-                                <>
-                                    <StatFigure label="Goals">{seasonTotals.goals}</StatFigure>
-                                    <StatFigure label="Assists">{seasonTotals.assists}</StatFigure>
-                                </>
-                            )}
-                            <StatFigure label="Avg Rating">{seasonTotals.avgRating}</StatFigure>
-                        </div>
-                        </JourneyDimmer>
-
                         {/* Season Stats Panel — slides in when a past career stop is selected */}
                         <SeasonStatsPanel />
 
@@ -1406,6 +1405,12 @@ export function PlayerPage() {
             />
 
         </div>
+
+        <IntroduceDialog
+            open={introduceOpen}
+            onOpenChange={setIntroduceOpen}
+            player={{ player_id: playerApiId, player_name: playerName }}
+        />
 
         <FlagDataDialog
             open={flagOpen}

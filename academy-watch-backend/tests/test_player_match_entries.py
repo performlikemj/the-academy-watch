@@ -684,6 +684,76 @@ def test_adult_list_filters_and_paginates(client):
     assert client.get("/api/players/7001/matches?per_page=101").status_code == 400
 
 
+def test_lines_view_merges_sources_per_match_and_totals_those_lines(client):
+    owner, owner_headers = _user("lines-owner@example.com")
+    club_user, _club_headers = _user("lines-club@example.com")
+    _shadow(7101)
+    _claim(owner, player_api_id=7101)
+    _entry(7101, owner, match_date=date(2025, 9, 1))
+    club_row = _entry(7101, club_user, match_date=date(2025, 9, 1), source="club", status="club_confirmed")
+    club_row.opponent, club_row.minutes, club_row.goals = "  rivals   fc", 74, 0
+    _entry(7101, owner, match_date=date(2025, 9, 8), opponent="Durnsea &amp; District")
+    _entry(7101, owner, match_date=date(2025, 9, 15), status="disputed", opponent="Disputed Town")
+    _entry(7101, owner, match_date=date(2024, 9, 1), opponent="Old Opponent")
+    db.session.commit()
+
+    response = client.get("/api/players/7101/matches?view=lines")
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert set(payload) == {"view", "seasons", "truncated"}
+    assert (payload["view"], payload["truncated"]) == ("lines", False)
+    assert [season["season"] for season in payload["seasons"]] == [2025, 2024]
+    current = payload["seasons"][0]
+    assert [line["match_date"] for line in current["lines"]] == ["2025-09-08", "2025-09-01"]
+    self_only, merged = current["lines"]
+    assert (self_only["confirmation"], self_only["opponent"]) == ("self_reported", "Durnsea & District")
+    assert (merged["confirmation"], merged["self_report"], merged["minutes"]) == ("club_confirmed", "differs", 74)
+    assert current["totals"]["matches"] == 2
+    assert current["totals"]["minutes"] == 164 == sum(line["minutes"] for line in current["lines"])
+    assert (current["totals"]["club_confirmed"], current["totals"]["self_reported_only"]) == (1, 1)
+    assert not {"id", "editable", "reported_by_user_id", "note"} & set(merged)
+
+    # The owner gets the same read-only lines; a season pick narrows them.
+    assert client.get("/api/players/7101/matches?view=lines", headers=owner_headers).get_json() == payload
+    picked = client.get("/api/players/7101/matches?view=lines&season=2024").get_json()
+    assert [season["season"] for season in picked["seasons"]] == [2024]
+
+    assert client.get("/api/players/7101/matches?view=table").status_code == 400
+    assert client.get("/api/players/7101/matches?view=lines&source=club").status_code == 400
+
+
+def test_lines_view_keeps_the_minor_and_unknown_subject_rules_of_the_list(client):
+    guardian, guardian_headers = _user("lines-guardian@example.com")
+    stranger, stranger_headers = _user("lines-stranger@example.com")
+    _shadow(7102, birth_date=date(2012, 1, 1))
+    _claim(guardian, player_api_id=7102, relationship="guardian")
+    _entry(7102, guardian)
+
+    assert client.get("/api/players/7102/matches?view=lines").status_code == 404
+    assert client.get("/api/players/7102/matches?view=lines", headers=stranger_headers).status_code == 404
+    allowed = client.get("/api/players/7102/matches?view=lines", headers=guardian_headers)
+    assert allowed.status_code == 200
+    assert allowed.get_json()["seasons"][0]["totals"]["matches"] == 1
+    assert client.get("/api/players/999999/matches?view=lines").status_code == 404
+
+
+def test_lines_view_never_totals_part_of_a_season(client, monkeypatch):
+    reporter, _headers = _user("lines-truncated@example.com")
+    _shadow(7103)
+    for day in range(1, 4):
+        _entry(7103, reporter, match_date=date(2025, 9, day), opponent=f"Opponent {day}")
+    _entry(7103, reporter, match_date=date(2024, 9, 1), opponent="Older A")
+    _entry(7103, reporter, match_date=date(2024, 9, 2), opponent="Older B")
+    monkeypatch.setattr(player_matches_routes, "MERGED_LINES_ENTRY_LIMIT", 4)
+
+    payload = client.get("/api/players/7103/matches?view=lines").get_json()
+
+    assert payload["truncated"] is True
+    assert [season["season"] for season in payload["seasons"]] == [2025]
+    assert payload["seasons"][0]["totals"]["matches"] == 3
+
+
 @pytest.mark.parametrize(
     ("change", "expected_fragment"),
     [

@@ -19,6 +19,8 @@ import { IntroduceDialog } from '@/components/contact/IntroduceDialog'
 import { ProvenanceChip } from '@/components/SelfReportedBadge'
 import { useContactRail } from '@/hooks/useContactRail.js'
 import { ScoutSurface, ScoutHeader, deskPillClass } from '@/components/scout/ScoutDesk'
+import { PlayerCard } from '@/components/player-card/PlayerCard'
+import { cardLine } from '@/lib/player-card'
 import { cn } from '@/lib/utils'
 import { seasonStore } from '@/lib/seasonStore'
 import { formatSeasonLabel, withSeasonParam } from '@/lib/seasons'
@@ -50,6 +52,32 @@ function normalizeSignedPlayerId(value) {
 }
 
 // Sorts that default ascending because lower is better (or alphabetical).
+const RESULT_VIEWS = [
+  { value: 'cards', label: 'Cards' },
+  { value: 'table', label: 'Table' },
+]
+const RESULT_VIEW_KEY = 'aw.scout.view'
+
+// The stored choice wins; otherwise cards on phones (where the table scrolls
+// sideways) and the dense table on wider screens.
+function initialResultView() {
+  if (typeof window === 'undefined') return 'table'
+  try {
+    const stored = window.localStorage.getItem(RESULT_VIEW_KEY)
+    if (RESULT_VIEWS.some((option) => option.value === stored)) return stored
+  } catch {
+    // Storage can be unavailable in privacy-restricted browser contexts.
+  }
+  return window.matchMedia?.('(max-width: 767px)').matches ? 'cards' : 'table'
+}
+
+function isClubConfirmed(provenance) {
+  const source = typeof provenance === 'string'
+    ? provenance
+    : provenance?.source_category || provenance?.source || provenance?.primary_source
+  return ['club', 'club_confirmed'].includes(String(source || '').trim().toLowerCase().replaceAll('-', '_'))
+}
+
 const ASC_DEFAULT_SORTS = new Set(['name', 'age', 'goals_conceded', 'conceded_per90'])
 
 const fmtStat = (value) => (value === null || value === undefined ? '—' : value)
@@ -521,6 +549,15 @@ export function ScoutPage() {
   })
   const [order, setOrder] = useState('desc')
   const [page, setPage] = useState(1)
+  const [resultView, setResultView] = useState(initialResultView)
+  const changeResultView = useCallback((next) => {
+    setResultView(next)
+    try {
+      window.localStorage.setItem(RESULT_VIEW_KEY, next)
+    } catch {
+      // Storage can be unavailable in privacy-restricted browser contexts.
+    }
+  }, [])
 
   const [compareIds, setCompareIds] = useState([])
   const [compareOpen, setCompareOpen] = useState(false)
@@ -610,9 +647,11 @@ export function ScoutPage() {
     const raw = searchParams.get('compare')
     if (!raw) return
     const ids = [...new Set(raw.split(',').map(normalizeSignedPlayerId).filter(Boolean))]
-    if (ids.length >= 2 && ids.length <= 4) {
+    if (ids.length >= 1 && ids.length <= 4) {
+      // One id (the Compare button on a player's page) only fills the tray;
+      // the comparison itself opens once there are two.
       setCompareIds(ids)
-      setCompareOpen(true)
+      if (ids.length >= 2) setCompareOpen(true)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -905,11 +944,28 @@ export function ScoutPage() {
 
         {/* Filters */}
         <section aria-label="Filters" className="mb-4 flex flex-col gap-4">
-          <div className="flex flex-wrap items-baseline justify-between gap-3 border-b border-chalk pb-3">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-chalk pb-3">
             <h2 className="display text-[1.875rem] leading-none sm:text-[2.125rem]">Players</h2>
-            <span className="font-mono text-[11px] uppercase tracking-[0.16em] tabular-nums text-[#8C9791]">
-              {loading ? 'Loading…' : `${total.toLocaleString()} players`}
-            </span>
+            <div className="flex flex-wrap items-center gap-4">
+              <span className="font-mono text-[11px] uppercase tracking-[0.16em] tabular-nums text-[#8C9791]">
+                {loading ? 'Loading…' : `${total.toLocaleString()} players`}
+              </span>
+              <div role="group" aria-label="Show players as" className="flex rounded-full border border-chalk/20 p-1">
+                {RESULT_VIEWS.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => changeResultView(option.value)}
+                    aria-pressed={resultView === option.value}
+                    className={`h-9 rounded-full px-4 text-[13px] transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                      resultView === option.value ? 'bg-chalk text-night' : 'text-[#C9CFCB] hover:text-chalk'
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <span className="mr-1 font-mono text-[10.5px] uppercase tracking-[0.16em] text-[#8C9791]">Age</span>
@@ -981,8 +1037,45 @@ export function ScoutPage() {
           </div>
         </section>
 
-        {/* Results table */}
+        {/* Results: the standard player card, or the dense table */}
         <section aria-label="Results" className="border-t border-hairline-dark">
+          {resultView === 'cards' ? (
+            loading ? (
+              <div className="grid grid-cols-1 gap-6 py-8 sm:grid-cols-2 lg:grid-cols-3" aria-busy="true">
+                {[0, 1, 2].map((i) => <Skeleton key={i} className="h-[500px] w-full rounded-[28px]" />)}
+              </div>
+            ) : players.length ? (
+              <ul className="pc-card-grid py-8" data-testid="scout-player-cards">
+                {players.map((player) => {
+                  const watched = !!watchedIds?.has(player.player_id)
+                  const clubName = player.loan_team_name || player.primary_team_name || null
+                  return (
+                    <li key={player.id}>
+                      <PlayerCard
+                        to={withSeasonParam(`/players/${player.player_id}`, seasonOverride)}
+                        name={player.player_name}
+                        faceUrl={player.player_photo || null}
+                        clubName={clubName}
+                        role={player.position ? positionAbbreviation(player.position) : null}
+                        line={cardLine({ position: player.position, clubName })}
+                        confirmed={isClubConfirmed(player.provenance)}
+                        appearances={player.appearances}
+                        minutes={player.minutes_played}
+                        action={{
+                          label: watched ? 'Watching' : 'Watch',
+                          pressed: watched,
+                          ariaLabel: watched ? `Unwatch ${player.player_name}` : `Watch ${player.player_name}`,
+                          onClick: () => toggleWatch(player),
+                        }}
+                      />
+                    </li>
+                  )
+                })}
+              </ul>
+            ) : (
+              <p className="display px-3 py-16 text-center text-3xl text-chalk">No players match these filters.</p>
+            )
+          ) : (
           <div className="relative overflow-x-auto">
             <table className={`w-full border-collapse ${statColumns.length > 6 ? 'min-w-[920px]' : 'min-w-[760px]'}`}>
               <thead>
@@ -1116,6 +1209,7 @@ export function ScoutPage() {
               </tbody>
             </table>
           </div>
+          )}
 
           {/* Pagination */}
           {totalPages > 1 && (
