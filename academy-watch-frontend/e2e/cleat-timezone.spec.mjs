@@ -94,7 +94,7 @@ for (const width of [1440, 390]) {
           for (const element of elements) { const animation = element.getAnimations()[0]; animation.pause(); animation.currentTime = time }
         }, index * 1200)
         await expect(page.locator('.cleat-accent')).toHaveCSS('fill', index === 3 ? 'rgb(207, 174, 98)' : frames[index].fill)
-        await expect(page.locator('.cleat-wing')).toHaveCSS('fill', surface === 'night' ? 'rgb(243, 240, 232)' : 'rgb(14, 19, 17)')
+        await expect(page.locator('.cleat-wing')).toHaveCSS('fill', 'rgb(255, 255, 255)')
         await screenshot(page, `loader-${surface}-${size}-phase-${phase}`)
       }
       await page.locator('.cleat-body,.cleat-accent').evaluateAll(elements => {
@@ -143,7 +143,7 @@ test('reduced motion keeps both React and boot loaders still green', async ({ pa
   await page.unroute('**/src/main.jsx*')
   await mountLoader(page, 'night')
   expect(await page.locator('.cleat-accent').evaluate(element => ({ fill: getComputedStyle(element).fill, animations: element.getAnimations().length }))).toEqual({ fill: 'rgb(15, 61, 46)', animations: 0 })
-  await expect(page.locator('.cleat-wing')).toHaveCSS('fill', 'rgb(243, 240, 232)')
+  await expect(page.locator('.cleat-wing')).toHaveCSS('fill', 'rgb(255, 255, 255)')
 })
 
 test('club saved zone wins over browser; editing retains the post zone', async ({ page }) => {

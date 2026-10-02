@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import { createHash } from 'node:crypto'
 import { LOGO_SOURCE_SHA256 } from './academy-watch-logo.js'
-import { CLEAT_BOOT, CLEAT_CSS, CLEAT_SVG, CLUB_PALETTE, CLUB_COLOUR_MS, CLUB_TRANSITION_MS, LOGO_COLOUR_VARIANT, logoSvg } from './cleat-loader.js'
+import { CLEAT_BOOT, CLEAT_CSS, CLEAT_SVG, CLUB_PALETTE, CLUB_COLOUR_MS, CLUB_TRANSITION_MS } from './cleat-loader.js'
 
 test('boot splash uses the shared SVG and palette with no asset request', () => {
   const html = fs.readFileSync(new URL('../../index.html', import.meta.url), 'utf8')
@@ -32,7 +32,7 @@ test('reduced motion cancels every colour animation and forces a still green boo
   const reduced = CLEAT_CSS.slice(CLEAT_CSS.indexOf('@media(prefers-reduced-motion:reduce)'))
   assert.match(reduced, /\.cleat-loader \.cleat-body,\.cleat-loader \.cleat-accent\{animation:none;fill:#0F3D2E\}/)
   assert.doesNotMatch(CLEAT_CSS, /transform:|rotate|translate|cleat-laces/)
-  assert.match(CLEAT_CSS, /\.cleat-wing:not\(\.cleat-body\)\{fill:currentColor\}/)
+  assert.match(CLEAT_CSS, /\.cleat-wing\{fill:#FFFFFF;/)
 })
 
 test('contextual page loading messages suppress the shared visual caption', () => {
@@ -44,11 +44,11 @@ test('contextual page loading messages suppress the shared visual caption', () =
   }
 })
 
-test('A defaults to neutral still wings; B reuses the same brand paths with club fill', () => {
-  assert.equal(LOGO_COLOUR_VARIANT, 'A')
-  assert.match(logoSvg('A'), /class="cleat-wing"/)
-  assert.match(logoSvg('B'), /class="cleat-wing cleat-body"/)
-  assert.deepEqual([...logoSvg('A').matchAll(/ d="([^"]+)"/g)].map(m => m[1]), [...logoSvg('B').matchAll(/ d="([^"]+)"/g)].map(m => m[1]))
+test('wing stays white with a thin ink contour only on light surfaces', () => {
+  assert.match(CLEAT_SVG, /class="cleat-wing" data-brand-part="wing"/)
+  assert.match(CLEAT_CSS, /\.cleat-wing\{fill:#FFFFFF;stroke:#0E1311;stroke-width:1\.5;paint-order:stroke fill\}/)
+  assert.match(CLEAT_CSS, /\.dark \.cleat-loader \.cleat-wing,\.cleat-loader\[data-surface=night\] \.cleat-wing\{stroke:none\}/)
+  assert.match(CLEAT_CSS, /\.cleat-loader\[data-surface=chalk\] \.cleat-wing\{stroke:#0E1311\}/)
 })
 
 test('trace provenance matches the unchanged launch brand source', () => {
