@@ -55,6 +55,8 @@ struct PlayerHomeView: View {
     var onGolRequested: () -> Void = {}
     @ObservedObject var incoming: IncomingContactRequestsViewModel
     @ObservedObject var availability: ContactFeatureAvailability
+    @State private var path: [Phase2BrowseRoute] = []
+    @State private var privateStackIdentity = "initial"
     private var role: ExperienceRole? { ExperienceRole(rawValue: roleValue) }
 
     private var usesPlayerHome: Bool {
@@ -65,7 +67,7 @@ struct PlayerHomeView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             Group {
                 if usesPlayerHome
                     && (workspace.flags.directory || workspace.flags.opportunities
@@ -228,7 +230,22 @@ struct PlayerHomeView: View {
                         }
                         .accessibilityIdentifier("player-club-home")
                 }
-            }.phase2BrowseDestinations(client: apiClient)
+            }
+            .id(auth.accountIdentity)
+            .phase2BrowseDestinations(client: apiClient)
+        }
+        .id(privateStackIdentity)
+        .onChange(of: auth.accountIdentity) { _, identity in
+            let publicPath = Phase2BrowseRoute.publicPrefix(path)
+            if publicPath.isEmpty {
+                // Legacy Home destinations use view-based pushes. Rebuild that
+                // private branch, including any deeper editor or claim screen.
+                path = []
+                privateStackIdentity = identity
+            } else {
+                // Keep a visitor's public trial/club and remove private descendants.
+                path = publicPath
+            }
         }
     }
 

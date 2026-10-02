@@ -54,7 +54,7 @@ struct GolChatView: View {
         .interactiveDismissDisabled(model.isStreaming)
         .onAppear { model.prepareForPresentation() }
         .sheet(isPresented: $showsSignIn) { SignInView(authManager: authManager) }
-        .task(id: authManager.isAuthenticated) {
+        .task(id: authManager.accountIdentity) {
             if authManager.isAuthenticated { await model.loadSuggestions() }
         }
     }

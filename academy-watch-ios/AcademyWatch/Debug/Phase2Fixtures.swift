@@ -1,5 +1,6 @@
 #if DEBUG && targetEnvironment(simulator)
     import Foundation
+    import SwiftUI
 
     /// Process-local fixture world. Unknown routes and writes fail closed, before URLSession.
     /// The same transport is used by offline journeys and the screenshot launcher.
@@ -17,6 +18,9 @@
                 return nil
             }
             return args[i + 1]
+        }
+        static var reviewsSavedSession: Bool {
+            active && ProcessInfo.processInfo.arguments.contains("-reviewSavedSession")
         }
         static var active: Bool { mode != nil || screen != nil }
         static var resolvedMode: String {
@@ -104,6 +108,20 @@
         }
         static let store = Phase2FixtureTransport(mode: resolvedMode)
         static func data(for request: URLRequest) throws -> Data { try store.data(for: request) }
+        static func response(for request: URLRequest) async throws -> Data {
+            guard reviewsSavedSession else { return try data(for: request) }
+            store.record(request)
+            if request.url?.path == "/api/auth/me",
+                request.value(forHTTPHeaderField: "Authorization") == "Bearer fixture-auth-token" {
+                // Hold only the restored account lookup; membership and private
+                // lists can finish. XCTest releases the actual APIClient read.
+                while !store.accountReleased {
+                    try await Task.sleep(for: .milliseconds(50))
+                }
+                if store.accountFailed { throw URLError(.timedOut) }
+            }
+            return try data(for: request)
+        }
     }
 
     final class Phase2FixtureTransport: @unchecked Sendable {
@@ -111,6 +129,27 @@
         static let applicationId = "20202020-1111-4111-8111-010101010101"
         let mode: String
         private let lock = NSLock()
+        private var requestCounts: [String: Int] = [:]
+        private var released = false
+        private var failed = false
+        var accountReleased: Bool { lock.withLock { released } }
+        var accountFailed: Bool { lock.withLock { failed } }
+        func releaseAccount(fail: Bool = false) {
+            lock.withLock { failed = fail; released = true }
+        }
+        func record(_ request: URLRequest) {
+            let path = request.url?.path.replacingOccurrences(of: "/api/", with: "") ?? ""
+            let box = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "box" }?.value
+            let key = path == "contact/requests" ? path + "/" + (box ?? "") : path
+            lock.withLock { requestCounts[key, default: 0] += 1 }
+        }
+        var requestSummary: String {
+            lock.withLock {
+                ["auth/me", "features", "opportunities/features", "me/club-access", "funding/claims/me", "club/101/access/me",
+                 "scout/watchlist", "scout/lists", "contact/requests/sent", "contact/requests/inbox"]
+                    .map { "\($0)=\(requestCounts[$0, default: 0])" }.joined(separator: ";")
+            }
+        }
         private var flagReads = 0
         private var fixtureEmail = "phase2@fixture.invalid"
         private var submitted = false
@@ -157,6 +196,15 @@
             // The second synthetic account owns no records from the first one.
             // Keep account-switch probes distinct from a shared fixture inbox.
             if request.value(forHTTPHeaderField: "Authorization") == "Bearer fixture-auth-token-second@fixture.invalid" {
+                if Phase2Fixtures.reviewsSavedSession, method == "GET", path == "me/club-access" {
+                    return try json(["programs": []])
+                }
+                if Phase2Fixtures.reviewsSavedSession, method == "GET", path == "funding/claims/me" {
+                    return try json(["claims": []])
+                }
+                if Phase2Fixtures.reviewsSavedSession, path == "club/101/access/me" {
+                    throw APIClientError.httpStatus(403)
+                }
                 if method == "GET", path == "me/applications" {
                     return try json(["applications": [], "page": requestedPage, "has_more": false])
                 }
@@ -173,13 +221,28 @@
                 body["email"] as? String == "phase2@fixture.invalid" {
                 return try json(["message": "Offline code ready"])
             }
-            if ["player-signed-out", "apply", "ineligible"].contains(mode), method == "POST", path == "auth/verify-code",
+            if (["player-signed-out", "apply", "ineligible"].contains(mode) || Phase2Fixtures.reviewsSavedSession), method == "POST", path == "auth/verify-code",
                 let email = body["email"] as? String, ["phase2@fixture.invalid", "second@fixture.invalid"].contains(email),
                 body["code"] as? String == "123456" {
                 fixtureEmail = email
                 return try json(["message": "Signed in", "role": "user", "account_role": "player",
                                  "display_name": "Reuben Castellane", "display_name_confirmed": true,
                                  "token": "fixture-auth-token-" + fixtureEmail, "expires_in": 3600])
+            }
+            if Phase2Fixtures.reviewsSavedSession, method == "GET",
+                ["scout/watchlist", "scout/watchlist/ids", "scout/lists"].contains(path) {
+                guard request.value(forHTTPHeaderField: "Authorization") == "Bearer fixture-auth-token" else {
+                    // Refusing B's loads proves old data does not linger on failure.
+                    throw APIClientError.httpStatus(503)
+                }
+                return try FloodlightPreview.data(for: request)
+            }
+            if Phase2Fixtures.reviewsSavedSession, method == "GET", path == "me/claims" {
+                return try FloodlightPreview.data(for: request)
+            }
+            if Phase2Fixtures.reviewsSavedSession, method == "GET", path == "contact/requests",
+                request.value(forHTTPHeaderField: "Authorization") != "Bearer fixture-auth-token" {
+                throw APIClientError.httpStatus(503)
             }
             if path == "auth/me", method == "GET" {
                 return try json([
@@ -836,6 +899,41 @@
             request.httpMethod = method
             request.httpBody = body
             return try data(for: request)
+        }
+    }
+    final class SavedSessionReviewTokenStore: TokenStoreProtocol, @unchecked Sendable {
+        private let lock = NSLock()
+        private var token: String? = "fixture-auth-token"
+        func loadToken() throws -> String? { lock.withLock { token } }
+        func saveToken(_ token: String) throws { lock.withLock { self.token = token } }
+        func deleteToken() throws { lock.withLock { token = nil } }
+    }
+
+    struct SavedSessionReviewControls: View {
+        @EnvironmentObject private var auth: AuthManager
+        @State private var revision = 0
+        var identifierPrefix = ""
+        var body: some View {
+            if Phase2Fixtures.reviewsSavedSession {
+                VStack(spacing: 2) {
+                    HStack {
+                        Button("Hydrate") { Phase2Fixtures.store.releaseAccount(); revision += 1 }
+                            .accessibilityIdentifier(identifierPrefix + "fixture-hydrate")
+                        Button("Fail") { Phase2Fixtures.store.releaseAccount(fail: true); revision += 1 }
+                            .accessibilityIdentifier(identifierPrefix + "fixture-hydrate-fail")
+                        Button("Out") { auth.signOut(); revision += 1 }
+                            .accessibilityIdentifier(identifierPrefix + "fixture-signout")
+                        Button("Switch") {
+                            Task { _ = try? await auth.verifyCode(email: "second@fixture.invalid", code: "123456"); revision += 1 }
+                        }.accessibilityIdentifier(identifierPrefix + "fixture-switch")
+                        Text(auth.email ?? (auth.isAuthenticated ? "unhydrated" : "signed-out"))
+                            .accessibilityIdentifier(identifierPrefix + "fixture-hydration-email")
+                    }
+                    Text(Phase2Fixtures.store.requestSummary)
+                        .id(revision).accessibilityIdentifier(identifierPrefix + "fixture-bootstrap-counts")
+                }
+                .font(.system(size: 8)).padding(3).background(.regularMaterial)
+            }
         }
     }
 #endif

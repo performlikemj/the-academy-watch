@@ -32,6 +32,8 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
 
 ## State
 
+- **Now (I1F9):** RI1V5 union implemented: all account-bound root resets/bootstrap use stable identity; Home preserves public browse paths. All9 new root UI scenarios and115 affected unit/API/model checks PASS across targeted receipts. Final exact-head offline/delivery/evidence/cleanup receipts: `~/codex-runs/aw-redesign/logs/I1F9.final.md`; see `ledgers/CONTINUITY_ios-phase2.md`. Draft1118 review-only/no merge.
+
 - **Now (I1F8):** RI1V4 union Medium + O2/O3 Small implemented; typed browse arrivals/all host registrations, stable saved-session identity and bounded credential-change GET recovery. Final affected UI7 PASS; final-head validation/delivery/cleanup receipts: `~/codex-runs/aw-redesign/logs/I1F8.final.md`. See `ledgers/CONTINUITY_ios-phase2.md`; draft1118 review-only/no merge.
 
 - **Now (I1F7):** RI1V3 union O1Medium/O2-O4Small implemented; account-bound browse branches/data/late responses isolated, surface-aware logo edges and accessible wait copy. Targeted models/UI pass; final-head validation, evidence, pushed SHA and cleanup receipts are authoritative in `~/codex-runs/aw-redesign/logs/I1F7.final.md`. Draft1118 review-only/unmerged; see `ledgers/CONTINUITY_ios-phase2.md`.

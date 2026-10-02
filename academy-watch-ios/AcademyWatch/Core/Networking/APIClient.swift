@@ -1127,7 +1127,7 @@ struct APIClient: GolAPIClientProtocol, PlayerClubAPIClientProtocol, ScoutAPICli
             if Phase2Fixtures.mode == "late-off", ["features", "opportunities/features"].contains(path) {
                 try await Task.sleep(for: .seconds(4))
             }
-            let data = try Phase2Fixtures.data(for: request)
+            let data = try await Phase2Fixtures.response(for: request)
             try await checkResponseCredential(token)
             return (data, ProcessInfo.processInfo.systemUptime)
         }

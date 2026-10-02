@@ -13,6 +13,7 @@ final class PlayerFanViewModel: ObservableObject {
 
     private let apiClient: any PlayerFanAPIClientProtocol
     private var loadRevision = 0
+    private var accountRevision = 0
 
     init(
         playerID: Int,
@@ -25,6 +26,15 @@ final class PlayerFanViewModel: ObservableObject {
     func loadIfNeeded() async {
         guard !hasLoaded else { return }
         await refresh()
+    }
+
+    func resetAccount() {
+        accountRevision += 1
+        loadRevision += 1
+        summary = nil
+        isPending = false
+        actionErrorMessage = nil
+        hasLoaded = false
     }
 
     func refresh() async {
@@ -67,15 +77,17 @@ final class PlayerFanViewModel: ObservableObject {
         // Invalidate any count read that began before this mutation so it
         // cannot overwrite the optimistic state when it finishes later.
         loadRevision += 1
+        let account = accountRevision
         isPending = true
         actionErrorMessage = nil
-        defer { isPending = false }
+        defer { if account == accountRevision { isPending = false } }
 
         if summary.following == true {
             let rollback = summary
             self.summary = PlayerFanSummary(fans: max(0, summary.fans - 1), following: false)
             do {
                 let response = try await apiClient.unfollowPlayer(playerID: playerID)
+                guard account == accountRevision else { return }
                 if response.deleted == false {
                     self.summary = PlayerFanSummary(fans: rollback.fans, following: false)
                 } else {
@@ -85,6 +97,7 @@ final class PlayerFanViewModel: ObservableObject {
                     )
                 }
             } catch {
+                guard account == accountRevision else { return }
                 self.summary = rollback
                 actionErrorMessage = Self.actionMessage(for: error, fallback: "Could not unfollow. Try again.")
             }
@@ -93,8 +106,10 @@ final class PlayerFanViewModel: ObservableObject {
             self.summary = PlayerFanSummary(fans: summary.fans + 1, following: true)
             do {
                 let response = try await apiClient.followPlayer(playerID: playerID)
+                guard account == accountRevision else { return }
                 self.summary = PlayerFanSummary(fans: response.fans, following: response.following)
             } catch {
+                guard account == accountRevision else { return }
                 self.summary = rollback
                 actionErrorMessage = Self.actionMessage(for: error, fallback: "Could not follow. Try again.")
             }

@@ -128,7 +128,7 @@ struct RootTabView: View {
         let fixtureState: AuthState?
         #if DEBUG && targetEnvironment(simulator)
             if Phase2Fixtures.active {
-                fixtureState =
+                fixtureState = Phase2Fixtures.reviewsSavedSession ? nil :
                     ["club-signed-out", "player-signed-out"].contains(Phase2Fixtures.resolvedMode)
                     ? .signedOut
                     : .signedIn(
@@ -178,10 +178,12 @@ struct RootTabView: View {
 
         let tokenStore: any TokenStoreProtocol
         #if DEBUG && targetEnvironment(simulator)
-            tokenStore =
-                PlayerClubExperienceFixtures.mode == nil && !FloodlightPreview.isActive
-                    && !Phase2Fixtures.active
-                ? KeychainTokenStore() : ExperienceTokenStore()
+            if Phase2Fixtures.reviewsSavedSession {
+                tokenStore = SavedSessionReviewTokenStore()
+            } else {
+                tokenStore = PlayerClubExperienceFixtures.mode == nil && !FloodlightPreview.isActive
+                    && !Phase2Fixtures.active ? KeychainTokenStore() : ExperienceTokenStore()
+            }
         #else
             tokenStore = KeychainTokenStore()
         #endif
@@ -261,6 +263,18 @@ struct RootTabView: View {
                     .background(AcademyColors.background)
             }
         }
+        #if DEBUG && targetEnvironment(simulator)
+        .overlay(alignment: .top) {
+            if Phase2Fixtures.reviewsSavedSession {
+                VStack(spacing: 2) {
+                    SavedSessionReviewControls().environmentObject(authManager)
+                    Text("tab=\(selectedTab.rawValue);clubs=\(workspace.clubs.count);watch=\(watchlistViewModel.entries.count);ids=\(watchlistViewModel.watchedPlayerIDs.count);lists=\(followListsViewModel.lists.count);sent=\(sentRequestsViewModel.requests.count);inbox=\(incomingRequestsViewModel.requests.count);destination=\(String(describing: accountDestination))")
+                        .font(.system(size: 8)).background(.regularMaterial)
+                        .accessibilityIdentifier("fixture-root-state")
+                }
+            }
+        }
+        #endif
         .environmentObject(workspace)
         .environmentObject(authManager)
         .environmentObject(watchlistViewModel)
@@ -268,7 +282,7 @@ struct RootTabView: View {
         .onChange(of: availableTabs) { _, tabs in
             if !tabs.contains(selectedTab) { selectedTab = role == .scout ? .scoutDesk : .home }
         }
-        .task(id: authManager.email) {
+        .task(id: authManager.accountIdentity) {
             workspace.reset(preservePublicFlags: true)
             await workspace.load(authenticated: authManager.isAuthenticated)
             guard !Task.isCancelled else { return }
@@ -287,17 +301,17 @@ struct RootTabView: View {
         .onChange(of: roleValue) { _, newValue in
             selectInitialTab(ExperienceRole(rawValue: newValue))
         }
-        .onChange(of: authManager.isAuthenticated) { _, authenticated in
-            if !authenticated { golChatViewModel.resetAccount() }
-        }
-        .onChange(of: authManager.email) { old, new in
-            if old != nil && old != new {
-                golChatViewModel.resetAccount()
-                watchlistViewModel.resetForSignOut()
-                followListsViewModel.resetForSignOut()
-                sentRequestsViewModel.resetForSignOut()
-                incomingRequestsViewModel.resetForSignOut()
-            }
+        .onChange(of: authManager.accountIdentity) { _, _ in
+            workspace.reset(preservePublicFlags: true)
+            golChatViewModel.resetAccount()
+            watchlistViewModel.resetForSignOut()
+            followListsViewModel.resetForSignOut()
+            sentRequestsViewModel.resetForSignOut()
+            incomingRequestsViewModel.resetForSignOut()
+            accountDestination = nil
+            pendingLegacyAction = nil
+            legacyDestination = nil
+            isGolPresented = false
         }
         .sheet(item: $legacyDestination, onDismiss: completeLegacyDismissal) { destination in
             Group {
@@ -352,7 +366,7 @@ struct RootTabView: View {
         } message: {
             Text(authManager.signOutErrorMessage ?? "Your credential is still stored on this device.")
         }
-        .task(id: authManager.email) {
+        .task(id: authManager.accountIdentity) {
             guard fixtureDestination == nil else { return }
             if authManager.isAuthenticated {
                 async let account: Void = authManager.refreshAccount(using: apiClient)
@@ -387,7 +401,6 @@ struct RootTabView: View {
                 incoming: incomingRequestsViewModel,
                 availability: contactAvailability
             )
-            .id(authManager.accountIdentity)
             .tabItem {
                 Label(role == .club && usesEditorialTabs ? "Today" : "Home", systemImage: "house")
                     .accessibilityIdentifier("tab-bar-home")
@@ -502,10 +515,10 @@ struct RootTabView: View {
             phase2Membership: workspace.flags.staff ? workspace.selected : nil
         )
         // Protected destinations own verification and thread state.
-        // Rebuild their navigation tree whenever auth crosses the
-        // signed-in boundary so one account cannot retain another
+        // Rebuild their navigation tree at every session boundary
+        // so one account cannot retain another
         // account's private form or conversation data.
-        .id(authManager.isAuthenticated)
+        .id(authManager.accountIdentity)
         .tabItem {
             Label("Account", systemImage: RootTab.accountSymbol(editorial: usesEditorialTabs))
                 .accessibilityIdentifier("tab-bar-account")

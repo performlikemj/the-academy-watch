@@ -38,8 +38,10 @@ final class GolChatViewModel: ObservableObject {
     deinit { task?.cancel() }
 
     func loadSuggestions() async {
-        suggestions =
-            (try? await client.golSuggestions()) ?? [
+        let epoch = generation
+        let response = try? await client.golSuggestions()
+        guard epoch == generation, !Task.isCancelled else { return }
+        suggestions = response ?? [
                 "Which academy players should I watch?", "Explain academy pathways",
             ]
     }

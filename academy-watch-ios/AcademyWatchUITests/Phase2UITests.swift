@@ -41,6 +41,208 @@ final class Phase2UITests: XCTestCase {
         }
         XCTAssertTrue(element.isHittable)
     }
+    private func launchSavedSession(_ mode: String, tab: String = "home") {
+        app.launchArguments = ["-phase2Fixture", mode, "-initialTab", tab,
+                               "-reviewSavedSession", "-reviewAppearance", "light"]
+        app.launch()
+        XCTAssertTrue(app.staticTexts["fixture-root-state"].waitForExistence(timeout: 15))
+        waitForLabel("fixture-hydration-email", containing: "unhydrated")
+        waitForLabel("fixture-root-state", containing: "lists=1")
+        waitForLabel("fixture-root-state", containing: "watch=1")
+        waitForLabel("fixture-root-state", containing: "sent=5")
+        waitForLabel("fixture-root-state", containing: "inbox=2")
+    }
+    private func waitForLabel(_ identifier: String, containing value: String,
+                              file: StaticString = #filePath, line: UInt = #line) {
+        let element = app.staticTexts[identifier]
+        let predicate = NSPredicate(format: "label CONTAINS %@", value)
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: predicate, object: element)], timeout: 15),
+                       .completed, "\(identifier): expected \(value), got \(element.exists ? element.label : "absent")", file: file, line: line)
+    }
+    private func hydrateSavedSession() {
+        let prefix = app.buttons["editor-fixture-hydrate"].exists ? "editor-" : ""
+        tap(app.buttons[prefix + "fixture-hydrate"])
+        waitForLabel(prefix + "fixture-hydration-email", containing: "phase2@fixture.invalid")
+    }
+    private func assertSingleBootstrap(club: Bool = false) {
+        let prefix = app.staticTexts["editor-fixture-bootstrap-counts"].exists ? "editor-" : ""
+        let counts = app.staticTexts[prefix + "fixture-bootstrap-counts"].label
+        for path in ["auth/me", "features", "opportunities/features", "scout/watchlist", "scout/lists",
+                     "contact/requests/sent", "contact/requests/inbox"] {
+            XCTAssertTrue(counts.split(separator: ";").contains(Substring(path + "=1")), counts)
+        }
+        if club {
+            for path in ["me/club-access", "funding/claims/me"] {
+                XCTAssertTrue(counts.split(separator: ";").contains(Substring(path + "=1")), counts)
+            }
+            // Workspace resolves the owner once; editor/squad model independently
+            // rechecks access once on entry. Hydration must trigger neither again.
+            XCTAssertTrue(counts.split(separator: ";").contains("club/101/access/me=2"), counts)
+        }
+    }
+    func testSavedSessionHydrationRetainsRecruitingDraftAndSelectedTab() {
+        launchSavedSession("owner", tab: "recruiting")
+        waitForLabel("fixture-root-state", containing: "clubs=1")
+        tap(app.tabBars.buttons["Recruiting"])
+        tap(app.buttons["recruiting-create"])
+        let title = app.textFields["post-title"]
+        tap(title); title.typeText("Unsaved restored-session trial")
+        if app.toolbars.buttons["Done"].exists { tap(app.toolbars.buttons["Done"]) }
+        capture("I1F9-owner-draft-before-hydration")
+        hydrateSavedSession()
+        XCTAssertEqual(title.value as? String, "Unsaved restored-session trial")
+        XCTAssertTrue(app.navigationBars["Post a trial"].exists)
+        assertSingleBootstrap(club: true)
+        capture("I1F9-owner-draft-after-hydration")
+        tap(app.navigationBars.buttons["Done"])
+        XCTAssertTrue(app.tabBars.buttons["Recruiting"].isSelected)
+        waitForLabel("fixture-root-state", containing: "tab=recruiting;clubs=1")
+        capture("I1F9-owner-recruiting-retained")
+    }
+    func testSavedSessionClubBoundariesDisposeOpenDraft() {
+        for action in ["signout", "switch"] {
+            launchSavedSession("owner", tab: "recruiting")
+            tap(app.tabBars.buttons["Recruiting"])
+            tap(app.buttons["recruiting-create"])
+            let title = app.textFields["post-title"]
+            tap(title); title.typeText("Previous account private trial")
+            if app.toolbars.buttons["Done"].exists { tap(app.toolbars.buttons["Done"]) }
+            capture("I1F9-club-before-\(action)")
+            tap(app.buttons["editor-fixture-" + action])
+            waitForLabel("fixture-root-state", containing: "clubs=0;watch=0;ids=0;lists=0;sent=0;inbox=0")
+            XCTAssertFalse(title.exists)
+            XCTAssertFalse(app.tabBars.buttons["Recruiting"].exists)
+            XCTAssertFalse(app.tabBars.buttons["Squads"].exists)
+            XCTAssertFalse(app.tabBars.buttons["Matches"].exists)
+            capture("I1F9-club-after-\(action)")
+            app.terminate()
+        }
+    }
+    func testSavedSessionHydrationRetainsSquadsAndMatchesSelection() {
+        for tab in ["Squads", "Matches"] {
+            launchSavedSession("owner", tab: tab.lowercased())
+            tap(app.tabBars.buttons[tab])
+            let picker = app.buttons["squad-picker"]
+            tap(picker); tap(app.buttons["Reserves"])
+            XCTAssertTrue(picker.label.contains("Reserves"))
+            capture("I1F9-\(tab)-before-hydration")
+            hydrateSavedSession()
+            XCTAssertTrue(app.tabBars.buttons[tab].isSelected)
+            XCTAssertTrue(app.navigationBars[tab].exists)
+            XCTAssertTrue(picker.label.contains("Reserves"))
+            waitForLabel("fixture-root-state", containing: "clubs=1")
+            assertSingleBootstrap(club: true)
+            capture("I1F9-\(tab)-after-hydration")
+            app.terminate()
+        }
+    }
+    func testSavedSessionHydrationRetainsProfilesAndDeepDraft() {
+        launchSavedSession("off")
+        tap(app.buttons["home-my-profiles"])
+        tap(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'my-profile-'")).firstMatch)
+        tap(app.buttons["my-profile-edit"])
+        let field = app.textFields["profile-editor-position"]
+        tap(field); field.typeText(" Kept through hydration\n")
+        if app.buttons["Done"].exists { tap(app.buttons["Done"]) }
+        let before = field.value as? String
+        capture("I1F9-profiles-before-hydration")
+        hydrateSavedSession()
+        XCTAssertEqual(field.value as? String, before)
+        XCTAssertTrue(app.tabBars.buttons["Home"].isSelected)
+        assertSingleBootstrap()
+        capture("I1F9-profiles-after-hydration")
+    }
+    func testSavedSessionHydrationRetainsApplicationDetail() {
+        launchSavedSession("player", tab: "applied")
+        tap(app.tabBars.buttons["Applied"])
+        tap(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'application-'")).firstMatch)
+        XCTAssertTrue(app.buttons["Withdraw this application"].waitForExistence(timeout: 10))
+        capture("I1F9-application-before-hydration")
+        hydrateSavedSession()
+        XCTAssertTrue(app.buttons["Withdraw this application"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["phase2-application-detail"].exists)
+        XCTAssertTrue(app.tabBars.buttons["Applied"].isSelected)
+        assertSingleBootstrap()
+        capture("I1F9-application-after-hydration")
+    }
+    func testSavedSessionHydrationFlagsOffKeepsListsAndAccountDestination() {
+        launchSavedSession("off", tab: "lists")
+        tap(app.tabBars.buttons["Lists"])
+        XCTAssertTrue(app.navigationBars["Lists"].waitForExistence(timeout: 10))
+        tap(app.tabBars.buttons["Account"])
+        tap(app.buttons["account-my-profiles"])
+        XCTAssertTrue(app.staticTexts["Your place in the game"].waitForExistence(timeout: 10))
+        capture("I1F9-flags-off-account-before-hydration")
+        hydrateSavedSession()
+        XCTAssertTrue(app.staticTexts["Your place in the game"].exists)
+        XCTAssertTrue(app.tabBars.buttons["Account"].isSelected)
+        waitForLabel("fixture-root-state", containing: "destination=Optional")
+        assertSingleBootstrap()
+        capture("I1F9-flags-off-account-after-hydration")
+        tap(app.tabBars.buttons["Lists"])
+        XCTAssertTrue(app.navigationBars["Lists"].exists)
+        waitForLabel("fixture-root-state", containing: "tab=lists;clubs=0;watch=1")
+    }
+    func testUnhydratedSignOutAndFailedNextAccountClearsAllRootData() {
+        for mode in ["owner", "off"] {
+            launchSavedSession(mode)
+            if mode == "owner" { waitForLabel("fixture-root-state", containing: "clubs=1") }
+            capture("I1F9-\(mode)-unhydrated-data-before-signout")
+            // Sign out before /auth/me answers: email remains nil -> nil.
+            tap(app.buttons["fixture-signout"])
+            waitForLabel("fixture-hydration-email", containing: "signed-out")
+            waitForLabel("fixture-root-state", containing: "clubs=0;watch=0;ids=0;lists=0;sent=0;inbox=0;destination=nil")
+            capture("I1F9-\(mode)-unhydrated-data-after-signout")
+            tap(app.buttons["fixture-switch"])
+            waitForLabel("fixture-hydration-email", containing: "second@fixture.invalid")
+            tap(app.buttons["fixture-hydrate-fail"])
+            waitForLabel("fixture-root-state", containing: "watch=0;ids=0;lists=0;sent=0;inbox=0;destination=nil")
+            // B's private reloads are refused; A's data must still be absent.
+            tap(app.tabBars.buttons["Account"])
+            XCTAssertFalse(app.buttons["account-staff-access"].exists)
+            capture("I1F9-\(mode)-next-account-failed-loads-empty")
+            app.terminate()
+        }
+    }
+    func testFailedSavedSessionHydrationThenSwitchClearsAllRootData() {
+        launchSavedSession("owner")
+        waitForLabel("fixture-root-state", containing: "clubs=1")
+        tap(app.buttons["fixture-hydrate-fail"])
+        waitForLabel("fixture-hydration-email", containing: "unhydrated")
+        tap(app.buttons["fixture-switch"])
+        waitForLabel("fixture-hydration-email", containing: "second@fixture.invalid")
+        waitForLabel("fixture-root-state", containing: "watch=0;ids=0;lists=0;sent=0;inbox=0;destination=nil")
+        capture("I1F9-failed-hydration-direct-switch-empty")
+    }
+    func testVisitorHomePublicTrialAndClubSurviveSignIn() {
+        for entry in ["home-trials", "home-clubs", "home-club-page"] {
+            launchBrowseFixture("player-signed-out", host: "Home")
+            if entry == "home-club-page" {
+                let clubs = app.buttons["home-clubs"]
+                scrollBrowseTo(clubs); tap(clubs); tap(app.buttons["club-101"])
+                XCTAssertTrue(app.descendants(matching: .any)["phase2-club-page"].waitForExistence(timeout: 10))
+            } else { openBrowseList(entry) }
+            capture("I1F9-\(entry)-visitor-before-sign-in")
+            tap(app.tabBars.buttons["Account"]); tap(app.buttons["Sign In"])
+            let email = app.textFields["signin-email"]
+            tap(email); email.typeText("phase2@fixture.invalid")
+            tap(app.buttons["signin-send-code"])
+            let code = app.textFields["signin-code"]
+            tap(code); code.typeText("123456")
+            tap(app.buttons["signin-verify"])
+            XCTAssertTrue(app.buttons["Sign Out"].waitForExistence(timeout: 10))
+            tap(app.tabBars.buttons["Home"])
+            if entry == "home-club-page" {
+                XCTAssertTrue(app.descendants(matching: .any)["phase2-club-page"].waitForExistence(timeout: 10))
+                XCTAssertTrue(app.staticTexts["The Saltings 3G, XW4 2QA"].exists)
+            } else {
+                XCTAssertTrue(app.scrollViews["phase2-trial-detail"].waitForExistence(timeout: 10))
+                XCTAssertTrue(app.textFields["apply-position"].waitForExistence(timeout: 10))
+            }
+            capture("I1F9-\(entry)-visitor-after-sign-in")
+            app.terminate()
+        }
+    }
     func testHomeAllTrialsRowsOpen() { checkBrowseEntry("home-trials") }
     func testHomeClubsRowsAndClubTrialOpen() { checkBrowseEntry("home-clubs") }
     func testHubHomeAllTrialsRowsOpen() { checkBrowseEntry("home-trials", mode: "player-hub") }
@@ -158,7 +360,11 @@ final class Phase2UITests: XCTestCase {
                 XCTAssertTrue(app.buttons["Sign In"].waitForExistence(timeout: 10))
             }
             tap(app.tabBars.buttons[host])
-            XCTAssertTrue(app.navigationBars[host == "Home" ? "Home" : "Applications"].waitForExistence(timeout: 10))
+            if host == "Home" {
+                XCTAssertTrue(app.scrollViews["phase2-trial-detail"].waitForExistence(timeout: 10))
+            } else {
+                XCTAssertTrue(app.navigationBars["Applications"].waitForExistence(timeout: 10))
+            }
             XCTAssertFalse(app.descendants(matching: .any)["phase2-application-detail"].exists)
             XCTAssertFalse(app.buttons["Withdraw this application"].exists)
             XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Applied as'")).firstMatch.exists)

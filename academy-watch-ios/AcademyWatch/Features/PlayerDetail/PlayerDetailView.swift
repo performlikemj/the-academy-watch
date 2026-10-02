@@ -182,11 +182,15 @@ struct PlayerDetailView: View {
             async let showcaseLoad: Void = showcaseViewModel.loadIfNeeded()
             _ = await (detailLoad, showcaseLoad)
         }
-        .task(id: authManager.isAuthenticated) {
+        .onChange(of: authManager.accountIdentity) { _, _ in
+            claimViewModel.resetAccount()
+            fanViewModel.resetAccount()
+        }
+        .task(id: authManager.accountIdentity) {
             guard !prioritizesIntroductionFixture else { return }
             await claimViewModel.load(isAuthenticated: authManager.isAuthenticated)
         }
-        .task(id: authManager.isAuthenticated) {
+        .task(id: authManager.accountIdentity) {
             // The count endpoint is anonymous-OK; auth only changes the
             // caller's own `following` flag, so re-resolve on auth changes.
             await fanViewModel.refresh()

@@ -169,12 +169,11 @@ struct AccountView: View {
         .sheet(item: $exportFile, onDismiss: removeExportFile) { file in
             ActivityView(activityItems: [file.url])
         }
-        .task(id: authManager.isAuthenticated) {
-            guard authManager.isAuthenticated else {
-                hasApprovedPlayerClaim = false
-                hasAnyPlayerClaim = false
-                return
-            }
+        .task(id: authManager.accountIdentity) {
+            let identity = authManager.accountIdentity
+            hasApprovedPlayerClaim = false
+            hasAnyPlayerClaim = false
+            guard authManager.isAuthenticated else { return }
             #if DEBUG
             if fixtureDestination == .deleteAccount {
                 isDeleteAccountPresented = true
@@ -183,11 +182,13 @@ struct AccountView: View {
             #endif
             do {
                 let response = try await apiClient.fetchMyProfileClaims()
+                guard identity == authManager.accountIdentity, !Task.isCancelled else { return }
                 hasApprovedPlayerClaim = response.claims.contains {
                     $0.relationshipType == "player" && $0.status == .approved
                 }
                 hasAnyPlayerClaim = !response.claims.isEmpty
             } catch {
+                guard identity == authManager.accountIdentity, !Task.isCancelled else { return }
                 hasApprovedPlayerClaim = incomingRequestsViewModel.ownsApprovedPlayerClaim
             }
         }

@@ -72,6 +72,9 @@ struct RecruitingView: View {
                 NavigationStack {
                     OpportunityEditorView(programId: membership.id, post: destination.post, flags: workspace.flags, client: client) { _ in reload() }
                 }
+                #if DEBUG && targetEnvironment(simulator)
+                .overlay(alignment: .top) { SavedSessionReviewControls(identifierPrefix: "editor-") }
+                #endif
             }.accessibilityIdentifier("phase2-recruiting")
     }
     private func reload() { Task { await model.load(programId: membership.id, club: true) } }
