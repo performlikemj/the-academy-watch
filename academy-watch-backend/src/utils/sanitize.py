@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+from html import unescape
 from urllib.parse import urlparse
 
 import bleach
@@ -27,6 +29,18 @@ def sanitize_comment_body(value: str) -> str:
 def sanitize_plain_text(value: str) -> str:
     """Remove HTML tags from simple text fields such as author names."""
     return bleach.clean(value, tags=[], attributes={}, strip=True)
+
+
+def display_plain_text(value: str | None) -> str | None:
+    """Undo Bleach's storage escaping once, preserving user-written entities.
+
+    Bleach escapes bare &, < and > but preserves named entities such as &copy;.
+    A full html.unescape would therefore change literal user text. Substitution
+    is a single pass: &amp;copy; becomes &copy;, never ©.
+    """
+    if value is None:
+        return None
+    return re.sub(r"&(?:amp|lt|gt);", lambda match: unescape(match.group()), value)
 
 
 def sanitize_commentary_html(value: str) -> str:

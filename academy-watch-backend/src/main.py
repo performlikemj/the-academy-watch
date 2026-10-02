@@ -334,6 +334,10 @@ def shutdown_session(exception=None):
 @app.errorhandler(HTTPException)
 def handle_http_exception(exc: HTTPException):
     response = exc.get_response()
+    # Rate-limit callbacks carry a route-owned JSON message and retry/privacy
+    # headers. Preserve that response through the global HTTP error handler.
+    if exc.code == 429 and exc.response is not None and response.is_json:
+        return response
     payload = {
         "error": exc.description or exc.name,
         "code": exc.code,

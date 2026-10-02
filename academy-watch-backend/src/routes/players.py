@@ -34,6 +34,7 @@ from src.services.public_player_subject import resolve_public_adult_subject
 from src.services.reach_metrics import fan_counts, is_fan
 from src.utils.data_mode import api_football_frozen
 from src.utils.feature_flags import rollup_reads_enabled
+from src.utils.sanitize import display_plain_text
 
 logger = logging.getLogger(__name__)
 
@@ -297,6 +298,9 @@ def _rollup_source_breakdown(player_id: int, season: int) -> dict[str, list[dict
     for cell in cells:
         detail = cell.detail if isinstance(cell.detail, dict) else {}
         competition_label = detail.get("competition") if cell.source in {"club", "user"} else cell.competition_tier
+        if cell.source in {"club", "user"}:
+            competition_label = display_plain_text(competition_label)
+            detail = {**detail, "competition": competition_label}
         club_name = (
             local_program_names.get(-cell.club_api_id, cell.club_name) if cell.club_api_id < 0 else cell.club_name
         )
@@ -315,7 +319,7 @@ def _rollup_source_breakdown(player_id: int, season: int) -> dict[str, list[dict
                     "goals_conceded": cell.goals_conceded,
                     "avg_rating": float(cell.avg_rating) if cell.avg_rating is not None else None,
                 },
-                "detail": cell.detail,
+                "detail": detail if cell.source in {"club", "user"} else cell.detail,
                 "synced_at": cell.synced_at.isoformat() if cell.synced_at else None,
             }
         )
@@ -363,7 +367,9 @@ def _rollup_clubs(total: PlayerSeasonTotal) -> list[dict]:
             "minutes": club.get("minutes"),
             "goals": club.get("goals"),
             "assists": club.get("assists"),
-            "competition_tiers": club.get("competition_tiers") or [],
+            "competition_tiers": list(
+                dict.fromkeys(display_plain_text(label) for label in (club.get("competition_tiers") or []))
+            ),
         }
 
     return [adapt(club) for club in clubs]

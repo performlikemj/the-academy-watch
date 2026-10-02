@@ -1,3 +1,4 @@
+import { formatDisplayDate } from '@/lib/display-date'
 import { useState, useEffect, useCallback } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -332,7 +333,7 @@ export function AdminFlags() {
                                     </div>
                                     <p className="text-sm text-muted-foreground mt-1 line-clamp-2">{flag.reason}</p>
                                     <div className="flex items-center gap-3 mt-1.5 text-xs text-muted-foreground">
-                                        {flag.created_at && <span>{new Date(flag.created_at).toLocaleDateString()}</span>}
+                                        {flag.created_at && <span>{formatDisplayDate(flag.created_at)}</span>}
                                         {flag.email && <span>{flag.email}</span>}
                                     </div>
                                 </div>
@@ -373,7 +374,7 @@ export function AdminFlags() {
                     <DialogHeader>
                         <DialogTitle>Flag #{selectedFlag?.id}</DialogTitle>
                         <DialogDescription>
-                            Submitted {selectedFlag?.created_at ? new Date(selectedFlag.created_at).toLocaleString() : 'unknown'}
+                            Submitted {selectedFlag?.created_at ? formatDisplayDate(selectedFlag.created_at, { withTime: true }) : 'unknown'}
                             {selectedFlag?.source === 'newsletter' ? ' via newsletter' : ' via website'}
                         </DialogDescription>
                     </DialogHeader>

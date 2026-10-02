@@ -1,3 +1,5 @@
+import { sortClubMatches } from '@/lib/club-matches'
+import { formatDisplayDate } from '@/lib/display-date'
 import { CleatLoader } from '@/components/CleatLoader'
 import { Link } from 'react-router-dom'
 import { ClubHome } from './club-console/ClubHome'
@@ -38,7 +40,6 @@ import { useClubDirectory } from '@/hooks/useClubDirectory'
 import { EMPTY_DIRECTORY_FORM, directoryForm, directoryPayload, directorySummary } from '@/lib/club-directory'
 import { DirectoryFields } from './club-console/DirectoryFields'
 // --- p2-b1 end ---
-import { formatDateOnly } from '@/lib/dateOnly'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import {
   AlertDialog,
@@ -141,23 +142,11 @@ function errorText(error, fallback) {
 }
 
 function formatTimestampDate(value) {
-  if (!value) return null
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return null
-  return date.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+  return formatDisplayDate(value)
 }
 
 function formatUpdatedTime(value) {
-  if (!value) return null
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return null
-  return date.toLocaleString(undefined, {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  })
+  return formatDisplayDate(value, { withTime: true })
 }
 
 function formatBytes(value) {
@@ -555,7 +544,7 @@ export function AddRosterMemberDialog({ open, onOpenChange, programId, onAdded, 
                       className={`flex w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-left transition-colors ${selected ? 'bg-primary/10 text-primary' : 'hover:bg-muted'}`}
                     >
                       <span className="min-w-0">
-                        <span className="block truncate text-sm font-semibold">{player.player_name || player.name || `Player #${playerId}`}</span>
+                        <span className="block truncate text-sm font-semibold">{player.player_name || player.name || 'Player name unavailable'}</span>
                         <span className="block truncate text-xs text-muted-foreground">
                           {[player.position, player.loan_team_name || player.owner_team_name].filter(Boolean).join(' · ') || 'Tracked player'}
                         </span>
@@ -794,7 +783,7 @@ export function ClubInvitationPanel({ programId, token, onChanged = () => {} }) 
       {loading ? <p role="status">Loading invitations…</p> : rows.length === 0 ? <p className="text-sm text-muted-foreground">No club invitations yet.</p> : <ul className="divide-y">{rows.map((row) => {
         const expired = row.status === 'expired' || (row.status === 'pending' && Date.now() >= Date.parse(row.expires_at))
         return <li key={row.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
-          <div><a href={`/players/${row.player_api_id}`} className="text-sm underline">Player {row.player_api_id}</a><p className="text-sm text-muted-foreground">{expired ? 'Expired' : ({ pending: 'Awaiting player', accepted: 'Accepted', declined: 'Declined', revoked: 'Revoked' }[row.status])}</p></div>
+          <div><a href={`/players/${row.player_api_id}`} className="text-sm underline">{row.player_name || 'Player unavailable'}</a><p className="text-sm text-muted-foreground">{expired ? 'Expired' : ({ pending: 'Awaiting player', accepted: 'Accepted', declined: 'Declined', revoked: 'Revoked' }[row.status])}</p></div>
           <div className="flex flex-wrap gap-2">{row.status === 'pending' && !expired && <Button variant="outline" size="sm" onClick={() => copyLink(row)}>Copy invitation link</Button>}{['pending', 'accepted'].includes(row.status) && !expired && <Button variant="outline" size="sm" disabled={busy} onClick={() => mutate(row)}>Revoke relationship</Button>}</div>
         </li>
       })}</ul>}
@@ -1433,7 +1422,7 @@ export function RecordResultDialog({ programId, videoMatch, members, savedResult
                     const withheldMinor = stats?.withheld === 'minor'
                     const playerName = stats?.player_name
                       || member?.display_name
-                      || (withheldMinor ? 'Roster player' : `Player ${playerId}`)
+                      || 'Roster player'
                     const metrics = [
                       ['Apps', stats?.appearances ?? 0],
                       ['Minutes', stats?.minutes ?? 0],
@@ -1968,7 +1957,7 @@ function MatchDetail({ programId, match, uploadGrant, rosterMembers, onMatchChan
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-gold">Match #{match.id}</p>
             <CardTitle className="mt-1 text-xl text-white">vs {match.opponent_name || 'Opponent TBD'}</CardTitle>
-            <CardDescription className="mt-1 text-muted-dark">{[match.competition, formatDateOnly(match.match_date)].filter(Boolean).join(' · ') || 'Add match details below'}</CardDescription>
+            <CardDescription className="mt-1 text-muted-dark">{[match.competition, formatDisplayDate(match.match_date)].filter(Boolean).join(' · ') || 'Add match details below'}</CardDescription>
           </div>
           <MatchStatusBadge status={match.status} />
         </div>
@@ -2119,7 +2108,7 @@ export function ResultHistory({ programId, refreshToken, onEdit, onAccessDenied,
           <div className="flex items-start justify-between gap-3">
             <div>
               <p className="font-bold text-foreground">{saved.result.result_for}–{saved.result.result_against} vs {saved.result.opponent}</p>
-              <p className="mt-1 text-xs text-muted-foreground">{[saved.result.competition, formatDateOnly(saved.result.match_date)].filter(Boolean).join(' · ')}</p>
+              <p className="mt-1 text-xs text-muted-foreground">{[saved.result.competition, formatDisplayDate(saved.result.match_date)].filter(Boolean).join(' · ')}</p>
             </div>
             <Badge variant="outline">v{saved.result.version}</Badge>
           </div>
@@ -2190,7 +2179,7 @@ export function MatchesPanel({ programId, rosterMembers, matches, loading, error
   const upsertMatch = useCallback((updated) => {
     onMatchesChange((current) => {
       const exists = current.some((match) => match.id === updated.id)
-      return exists ? current.map((match) => match.id === updated.id ? updated : match) : [updated, ...current]
+      return sortClubMatches(exists ? current.map((match) => match.id === updated.id ? updated : match) : [...current, updated])
     })
   }, [onMatchesChange])
 
@@ -2283,14 +2272,14 @@ export function MatchesPanel({ programId, rosterMembers, matches, loading, error
       ) : matches.length === 0 && loadFailureCount === 0 ? (
         <EmptyState icon={Film} title="No matches yet">Create the first match workspace. Your club's matches are saved to your account and follow you to any device.</EmptyState>
       ) : matches.length > 0 ? (
-        <div className="grid items-start gap-4 xl:grid-cols-[16rem_minmax(0,1fr)]">
+        <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[16rem_minmax(0,1fr)]">
           <div className="space-y-2 lg:sticky lg:top-20">
             {matches.map((match) => {
               const selected = selectedMatch?.id === match.id
               return (
                 <button key={match.id} type="button" onClick={() => setSelectedId(match.id)} className={`w-full rounded-xl border p-4 text-left transition-all ${selected ? 'border-primary/40 bg-primary/5 shadow-sm' : 'border-border bg-card hover:border-primary/25 hover:bg-muted/30'}`}>
                   <div className="flex items-start justify-between gap-3"><p className="truncate font-bold text-foreground">vs {match.opponent_name || 'Opponent TBD'}</p><ChevronRight className={`h-4 w-4 shrink-0 ${selected ? 'text-primary' : 'text-muted-foreground'}`} /></div>
-                  <p className="mt-1 truncate text-xs text-muted-foreground">{[match.competition, formatDateOnly(match.match_date)].filter(Boolean).join(' · ') || `Match #${match.id}`}</p>
+                  <p className="mt-1 truncate text-xs text-muted-foreground">{[match.competition, formatDisplayDate(match.match_date)].filter(Boolean).join(' · ') || `Match #${match.id}`}</p>
                   <div className="mt-3"><MatchStatusBadge status={match.status} /></div>
                 </button>
               )

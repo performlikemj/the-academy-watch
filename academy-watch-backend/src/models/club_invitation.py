@@ -492,7 +492,16 @@ def local_attestation(session, claim, signed_id, payload, *, lock=True):
     }
 
 
-def list_invitations(session, *, recipient_id=None, program_id=None, player_api_id=None, limit=20, before=None):
+def list_invitations(
+    session,
+    *,
+    recipient_id=None,
+    program_id=None,
+    player_api_id=None,
+    limit=20,
+    before=None,
+    include_player_names=False,
+):
     from src.models.showcase import PlayerProfileClaim
     from src.services.public_player_subject import resolve_public_adult_subject
 
@@ -519,14 +528,22 @@ def list_invitations(session, *, recipient_id=None, program_id=None, player_api_
         )
     rows = []
     for row in query.order_by(ClubInvitation.created_at.desc(), ClubInvitation.id.desc()).yield_per(50):
-        if not resolve_public_adult_subject(row.player_api_id) or not claim_matches(
+        subject = resolve_public_adult_subject(row.player_api_id)
+        if not subject or not claim_matches(
             session, session.get(PlayerProfileClaim, row.claim_id), row.player_api_id, row.recipient_user_id
         ):
             continue
-        rows.append(row)
+        rows.append((row, subject.display_name))
         if len(rows) > limit:
             break
+    invitations = []
+    for row, name in rows[:limit]:
+        payload = invitation_dict(session, row)
+        if program_id is not None and include_player_names:
+            # Club managers already pass the adult-subject gate above; reuse its name.
+            payload["player_name"] = name
+        invitations.append(payload)
     return {
-        "invitations": [invitation_dict(session, row) for row in rows[:limit]],
-        "next_before": rows[limit - 1].id if len(rows) > limit else None,
+        "invitations": invitations,
+        "next_before": rows[limit - 1][0].id if len(rows) > limit else None,
     }

@@ -110,9 +110,15 @@ Log one-liner in CONTINUITY.md's "Trivial Log" section.
 
 ## Codebase Patterns
 
+- Web loader brand contours in `src/lib/academy-watch-logo.js` are generated from the unchanged iOS `LaunchBoot@3x.png` by `academy-watch-frontend/scripts/trace-loader-logo.py`; never redraw them. Wings stay still and #FFFFFF in every phase; only the boot cycles club colours. A thin ink contour keeps the white wing visible on light surfaces; dark surfaces have no wing contour. The browser proof input is checked by `scripts/verify-loader-logo.py`.
+
 - Web loader primitives live in `academy-watch-frontend/src/lib/cleat-loader.js`; after edits run `node academy-watch-frontend/scripts/sync-cleat-splash.mjs` to refresh the request-free inline boot snapshot. The Node parity test protects both copies.
 
 > Agents: Add patterns here when you discover reusable conventions.
+
+- Result opponent/competition storage and fixture keys use `sanitize_plain_text` as on main. Decode only at JSON/display boundaries with `utils.sanitize.display_plain_text` (one pass over Bleach amp/lt/gt escapes; preserve literal user entities). Never decode stored keys or rollup grouping labels.
+- Club console, billing, verification and admin dates use frontend `src/lib/display-date.js`: en-GB display, date-only values keep their calendar day, naive Flask ISO timestamps are UTC. Use `withTime` when the view needs a timestamp.
+- Coach's brief writes require `players.manage` OR `feedback` with member scope; other management stays `players.manage`. Whole-club writes use the complete stored alias closure (both roster keys, local/provider/shadow bridges, merge survivors and match sheets). Scoped saves refuse only readable own-squad roster/match-sheet names; never branch on hidden names. `_brief_context` withholds whole named lines against the full stored inventory using neutral placeholders; retain stored brief hashes and expectation positions. Fold complete names before tokenizing NFD storage. Scoped sheet aliases require currently readable members; scoped analysis JSON removes private brief checks/hashes/counters/limits/check-only notes. Neutral 422 for every role; shared 20/hour account budget is enforced on name refusals only; exhausted accounts can still save clean briefs. Route-owned JSON 429 survives the global handler with Retry-After/no-store.
 
 - Frozen legacy public pages use `src/lib/legacyRoutes.js` in the frontend; keep imports gated by `LEGACY_PUBLIC_PAGES`. Backend legacy URLs use `src/utils/legacy_pages.py` (`LEGACY_PUBLIC_PAGES` + `legacy_public_url`); sitemap enumeration/cache filtering, email contexts and public emitters share it. Keep frontend/backend gates aligned. Admin/writer/curator routes remain separate.
 - Azure SWA legacy 301 rules live in `academy-watch-frontend/public/staticwebapp.config.json`; `tests/legacy-routes.test.mjs` checks agreement with the client route list and protects active paths. Restoring public routes requires removing the corresponding server redirects as well as enabling the gates. Legacy noindex depends only on the current legacy pathname; never carry it to the redirect destination.

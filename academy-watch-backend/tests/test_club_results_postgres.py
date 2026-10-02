@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from concurrent.futures import ThreadPoolExecutor
+from datetime import date
 from threading import Barrier
 from urllib.parse import urlparse
 from uuid import uuid4
@@ -491,3 +492,139 @@ def test_forced_mid_refresh_failure_rolls_back_both_seasons(postgres_app, pg_cas
         ] == before_entries
         assert PlayerSeasonCell.query.filter_by(player_api_id=7041).count() == before_cells
         assert PlayerSeasonTotal.query.filter_by(player_api_id=7041).count() == before_totals
+
+
+def test_suppressed_roster_name_cannot_change_a_manager_brief(postgres_app, pg_case):
+    from src.models.player_suppression import PlayerSuppression
+
+    with postgres_app.app_context():
+        outside = db.session.get(ClubRosterMember, pg_case["members_a"][1])
+        tracked = TrackedPlayer.query.filter_by(player_api_id=outside.player_api_id).one()
+        tracked.player_name = "Outsidesquad Privateperson"
+        tracked.birth_date = "2010-01-01"
+        db.session.add(
+            PlayerSuppression(
+                player_api_id=outside.player_api_id,
+                reason_code="guardian_request",
+                requester_role="guardian",
+                requester_contact="guardian@example.test",
+                request_statement="Please hide this identity.",
+                status="active",
+            )
+        )
+        db.session.commit()
+    url = f"/api/club/{pg_case['program_a']}/roster/{pg_case['members_a'][0]}/brief"
+    with postgres_app.test_client() as client:
+        assert client.put(url, json={"body": "Check both shoulders"}, headers=_headers(pg_case)).status_code == 200
+        response = client.put(url, json={"body": "Outsidesquad checks shoulders"}, headers=_headers(pg_case))
+        assert response.status_code == 422
+        assert response.json == {"error": "Briefs describe behaviours, not people — remove player names."}
+    with postgres_app.app_context():
+        assert db.session.get(ClubRosterMember, pg_case["members_a"][0]).coach_brief_body == "Check both shoulders"
+
+
+@pytest.mark.parametrize("key_form", ["local", "provider", "merged", "signed_shadow"])
+def test_complete_alias_inventory_and_worker_filter_on_postgres(postgres_app, pg_case, key_form):
+    from src.models.follow import PlayerShadow
+    from src.models.showcase import LocalPlayer
+    from src.workers.vision_worker import _brief_context
+
+    with postgres_app.app_context():
+        outside = db.session.get(ClubRosterMember, pg_case["members_a"][1])
+        provider_id = outside.player_api_id
+        local = LocalPlayer(
+            display_name="Localalias Privatealias",
+            birth_year=2010,
+            status="approved",
+        )
+        db.session.add(local)
+        db.session.flush()
+        local.api_player_id = -local.id if key_form == "signed_shadow" else provider_id
+        db.session.add(PlayerShadow(player_api_id=local.api_player_id, player_name="Shadowalias Hiddenalias"))
+        if key_form != "signed_shadow":
+            TrackedPlayer.query.filter_by(player_api_id=provider_id).update({"player_name": "Brannock Outsidesquad"})
+        if key_form in {"local", "signed_shadow"}:
+            outside.player_api_id, outside.local_player_id = None, local.id
+        elif key_form == "merged":
+            old = LocalPlayer(display_name="Oldalias Oldperson", status="merged", merged_into_local_player_id=local.id)
+            db.session.add(old)
+            db.session.flush()
+            outside.player_api_id, outside.local_player_id = None, old.id
+        db.session.commit()
+    url = f"/api/club/{pg_case['program_a']}/roster/{pg_case['members_a'][0]}/brief"
+    with postgres_app.test_client() as client:
+        for word in ["Localalias", "Shadowalias", "Hiddenalias"]:
+            response = client.put(url, json={"body": f"{word} scans"}, headers=_headers(pg_case))
+            assert response.status_code == 422
+            assert response.json == {"error": "Briefs describe behaviours, not people — remove player names."}
+    with postgres_app.app_context():
+        target = db.session.get(ClubRosterMember, pg_case["members_a"][0])
+        assert target.coach_brief_body is None
+        target.coach_brief_body = "Localalias scans\nShadowalias scans\nCheck shoulders"
+        result = _brief_context(
+            {"club_program_id": pg_case["program_a"], "our_kit_color": "blue"},
+            [{"id": 101, "club_roster_member_id": target.id, "jersey_number": 9}],
+            [target],
+        )
+        assert result["roster"]["101"]["lines"] == [*["Expectation withheld."] * 2, "Check shoulders"]
+
+
+@pytest.mark.parametrize("source", ["local", "tracked", "shadow", "sheet"])
+def test_nfd_names_and_stored_revision_on_postgres(postgres_app, pg_case, source):
+    from types import SimpleNamespace
+
+    from src.models.follow import PlayerShadow
+    from src.models.showcase import LocalPlayer
+    from src.models.video import VideoMatch, VideoRosterEntry
+    from src.services.coach_brief import brief_payload
+    from src.workers.vision_worker import _brief_context
+
+    with postgres_app.app_context():
+        outside = db.session.get(ClubRosterMember, pg_case["members_a"][1])
+        if source == "local":
+            local = LocalPlayer(display_name="Mu\u0308ller", birth_year=2010, status="approved")
+            db.session.add(local)
+            db.session.flush()
+            outside.local_player_id, outside.player_api_id = local.id, None
+        elif source == "tracked":
+            TrackedPlayer.query.filter_by(player_api_id=outside.player_api_id).update({"player_name": "Mu\u0308ller"})
+        elif source == "shadow":
+            db.session.add(PlayerShadow(player_api_id=outside.player_api_id, player_name="Mu\u0308ller"))
+        else:
+            match = VideoMatch(
+                club_program_id=pg_case["program_a"],
+                blob_path="fixture/nfd-sheet.mp4",
+                opponent_name="Synthetic Rovers",
+                match_date=date(2026, 9, 1),
+            )
+            db.session.add(match)
+            db.session.flush()
+            db.session.add(
+                VideoRosterEntry(
+                    video_match_id=match.id,
+                    jersey_number=9,
+                    player_name="Mu\u0308ller",
+                    club_roster_member_id=outside.id,
+                )
+            )
+        db.session.commit()
+    url = f"/api/club/{pg_case['program_a']}/roster/{pg_case['members_a'][0]}/brief"
+    with postgres_app.test_client() as client:
+        response = client.put(url, json={"body": "Muller scans"}, headers=_headers(pg_case))
+        assert response.status_code == 422
+    with postgres_app.app_context():
+        target = db.session.get(ClubRosterMember, pg_case["members_a"][0])
+        body = "Muller scans\nCheck shoulders"
+        target.coach_brief_body = body
+        result = _brief_context(
+            {
+                "club_program_id": pg_case["program_a"],
+                "our_kit_color": "blue",
+                "club_program": SimpleNamespace(system_brief_body=body),
+            },
+            [{"id": 101, "club_roster_member_id": target.id, "jersey_number": 9}],
+            [target],
+        )
+        for payload in [result["roster"]["101"], result["system_brief"]]:
+            assert payload["lines"] == ["Expectation withheld.", "Check shoulders"]
+            assert payload["hash"] == brief_payload(body)["hash"]
