@@ -312,8 +312,13 @@ def _has_approved_subject_claim(
     )
     if for_update:
         candidates = query.all()
-        lock_contact_scope(db.session, claim_id=[r.id for r in candidates])
+        candidate_ids = {r.id for r in candidates}
+        lock_contact_scope(db.session, claim_id=candidate_ids)
         query = query.populate_existing()
+        if {r.id for r in query.all()} != candidate_ids:
+            from src.services.contact_locks import _retry
+
+            _retry()
     return query.first() is not None
 
 
@@ -4032,7 +4037,14 @@ def _legacy_negative_identity_conflict(player_api_id: int):
 
     claims = PlayerProfileClaim.query.filter_by(player_api_id=player_api_id).all()
     if claims:
-        scope = lock_contact_scope(db.session, claim_id=[r.id for r in claims])
+        claim_ids = {r.id for r in claims}
+        scope = lock_contact_scope(db.session, claim_id=claim_ids)
+        if {
+            id_ for (id_,) in db.session.query(PlayerProfileClaim.id).filter_by(player_api_id=player_api_id)
+        } != claim_ids:
+            from src.services.contact_locks import _retry
+
+            _retry()
         return next(iter(scope.claims.values()), None)
     followed_player_id = Follow.selector["player_api_id"].as_integer()
     reference_queries = (
@@ -4176,9 +4188,37 @@ def _merge_subject_claims(source_subject: ShowcaseSubject, target_subject: Showc
     signed_ids = {subject.player_api_id or -subject.local_player_id for subject in (source_subject, target_subject)}
     signed_ids.update(r.player_api_id for r in source_claims + target_claims if r.player_api_id is not None)
     requests = ContactRequest.query.filter(ContactRequest.player_api_id.in_(signed_ids)).all()
+    selected_source_ids = {r.id for r in source_claims}
+    selected_target_ids = {r.id for r in target_claims}
+    selected_request_ids = {r.id for r in requests}
     scope = lock_contact_scope(
         db.session, claim_id=[r.id for r in source_claims + target_claims], request_id=[r.id for r in requests]
     )
+    # Membership can change while waiting for the canonical prefix. Never
+    # merge an unlocked new claim or silently leave a concurrent request behind.
+    fresh_source_ids = {
+        id_
+        for (id_,) in db.session.query(PlayerProfileClaim.id)
+        .filter(*_subject_filters(PlayerProfileClaim, source_subject))
+        .all()
+    }
+    fresh_target_ids = {
+        id_
+        for (id_,) in db.session.query(PlayerProfileClaim.id)
+        .filter(*_subject_filters(PlayerProfileClaim, target_subject))
+        .all()
+    }
+    fresh_request_ids = {
+        id_ for (id_,) in db.session.query(ContactRequest.id).filter(ContactRequest.player_api_id.in_(signed_ids)).all()
+    }
+    if (fresh_source_ids, fresh_target_ids, fresh_request_ids) != (
+        selected_source_ids,
+        selected_target_ids,
+        selected_request_ids,
+    ):
+        from src.services.contact_locks import _retry
+
+        _retry()
     source_claims = [scope.claims[r.id] for r in source_claims if r.id in scope.claims]
     target_claims = [scope.claims[r.id] for r in target_claims if r.id in scope.claims]
     if not source_claims:
@@ -4862,7 +4902,18 @@ def _rekey_video_report_subjects(local_player_id: int, player_api_id: int) -> in
 
 def _rekey_contacts(old_player_api_id: int, player_api_id: int) -> int:
     candidates = ContactRequest.query.filter(ContactRequest.player_api_id.in_([old_player_api_id, player_api_id])).all()
-    scope = lock_contact_scope(db.session, request_id=[r.id for r in candidates])
+    candidate_ids = {r.id for r in candidates}
+    scope = lock_contact_scope(db.session, request_id=candidate_ids)
+    fresh_ids = {
+        id_
+        for (id_,) in db.session.query(ContactRequest.id).filter(
+            ContactRequest.player_api_id.in_([old_player_api_id, player_api_id])
+        )
+    }
+    if fresh_ids != candidate_ids:
+        from src.services.contact_locks import _retry
+
+        _retry()
     source_rows = [r for r in scope.requests.values() if r.player_api_id == old_player_api_id]
     active_statuses = {"pending", "accepted"}
     target_active_by_scout = {
@@ -5179,9 +5230,19 @@ def admin_link_local_player_api(lp_id: int):
             from src.models.club_player_publication import ClubPlayerPublication
 
             hints = ClubPlayerPublication.query.filter_by(local_player_id=player.id).all()
-            scope = lock_contact_scope(db.session, publication_id=[r.id for r in hints])
-            for publication in scope.publications.values():
-                publication_service.revoke(publication, club=True)
+            hint_ids = {r.id for r in hints}
+            scope = lock_contact_scope(db.session, publication_id=hint_ids)
+            fresh_ids = {
+                id_ for (id_,) in db.session.query(ClubPlayerPublication.id).filter_by(local_player_id=player.id)
+            }
+            if fresh_ids != hint_ids:
+                from src.services.contact_locks import _retry
+
+                _retry()
+            for id_ in hint_ids:
+                publication = scope.publications.get(id_)
+                if publication is not None and publication.local_player_id == player.id:
+                    publication_service.revoke(publication, club=True)
             # Remove the mapping only. Provider claims/content/stats stay with
             # that provider; their permissions cannot transfer to this local.
             player.api_player_id, player.status = -player.id, "pending"
@@ -5562,7 +5623,7 @@ def admin_review_claim(claim_id: int):
     """Transition a claim: pending → approved|rejected, approved → revoked.
     Approving does NOT auto-revoke other approved claims (player + agent may co-own)."""
     try:
-        claim = db.session.get(PlayerProfileClaim, claim_id)
+        claim = lock_contact_scope(db.session, claim_id=claim_id).claims.get(claim_id)
         if claim is None:
             return jsonify({"error": "claim not found"}), 404
         if PlayerProfileClaim.query.filter(PlayerProfileClaim.id == claim.id, _c1_claim_filter()).first():
@@ -5595,6 +5656,12 @@ def admin_review_claim(claim_id: int):
         claim.reviewed_by = getattr(g, "user_email", None)
         claim.reviewed_at = datetime.now(UTC)
         if action in {"reject", "revoke"}:
+            from src.services.account import _SchemaView
+
+            if _SchemaView().has_table("player_feedback"):
+                from src.models.player_feedback import close_feedback
+
+                close_feedback(db.session, claim_id=claim.id, now=claim.reviewed_at)
             record_moderation_event(
                 user_account_id=claim.user_account_id,
                 target_kind="claim",

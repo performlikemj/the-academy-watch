@@ -188,7 +188,7 @@ jobs:
           PY
       - name: Reviewer regressions and first-attempt success controls
         run: >-
-          python -m pytest -q tests/test_contact_lock_batches.py
+          python -m pytest -q tests/test_account_scope_gap_postgres.py tests/test_contact_lock_batches.py
           tests/test_contact_lock_review_postgres.py tests/test_contact_lock_review_pairs_postgres.py
           tests/test_contact_lock_matrix_postgres.py
           -k 'not inventory_action_pair'

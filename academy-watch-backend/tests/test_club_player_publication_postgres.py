@@ -284,7 +284,13 @@ def test_postgres_invite_email_privacy_retains_evidence_while_dark(pg, monkeypat
     row.invite_expires_at = service.now() - timedelta(seconds=1)
     db.session.commit()
     monkeypatch.setenv("CLUB_PLAYER_PUBLICATION_ENABLED", "false")
-    assert purge_invited_emails(limit=1)["invited_emails_purged"] == 1
+    # Other lane tests deliberately retain earlier expired invitations. Count
+    # the bounded prefix through our row instead of assuming ours has lowest ID.
+    prefix_size = Publication.query.filter(Publication.id <= id_).count()
+    purged = 0
+    for _ in range((prefix_size + 499) // 500):
+        purged += purge_invited_emails(limit=500)["invited_emails_purged"]
+    assert purged >= 1
     db.session.commit()
     db.session.expire_all()
     row = db.session.get(Publication, id_)

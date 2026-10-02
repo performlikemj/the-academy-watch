@@ -324,6 +324,7 @@ def _pilot_erasure_invitations(session, user_id, claim_ids):
         session.query(ClubInvitation)
         .filter(predicate)
         .order_by(ClubInvitation.program_id, ClubInvitation.claim_id, ClubInvitation.id)
+        .populate_existing()
         .all()
     )
 
@@ -1035,14 +1036,14 @@ def delete_account(user: UserAccount) -> AccountDeletionEvent:
             .all()
         }
 
-    for _attempt in range(5):
-        savepoint = db.session.begin_nested()
-        intents = purchase_intents()
-        for intent_id in sorted(intents):
-            _lock_gol_settlement(intent_id)
-        user_id = user_pk
-        email = (user.email or "").strip().lower()
-        claims = PlayerProfileClaim.query.filter_by(user_account_id=user_id).all()
+    from src.services.contact_locks import lock_contact_scope
+
+    user_id = user_pk
+
+    def read_scope(email):
+        # Hints must be selected again after accounts are locked. Foreign-key
+        # inserts can commit while this transaction waits for the account row.
+        claims = PlayerProfileClaim.query.filter_by(user_account_id=user_id).populate_existing().all()
         claim_ids = [claim.id for claim in claims]
         approved_player_ids = {claim.player_api_id for claim in claims if claim.status == "approved"}
 
@@ -1056,25 +1057,27 @@ def delete_account(user: UserAccount) -> AccountDeletionEvent:
         if claim_ids:
             contact_filters.append(ContactRequest.claim_id.in_(claim_ids))
 
-        from src.services.contact_locks import lock_contact_scope
-
         schema = _SchemaView()
+        publications = []
         publication_ids = []
         if schema.has_table("club_player_publications"):
             from src.models.club_player_publication import ClubPlayerPublication
 
-            publication_ids = [
-                r.id
-                for r in ClubPlayerPublication.query.filter(
+            publications = (
+                ClubPlayerPublication.query.filter(
                     or_(
                         ClubPlayerPublication.recipient_user_id == user_id,
                         ClubPlayerPublication.recipient_email == email,
                         ClubPlayerPublication.creator_user_id == user_id,
                         ClubPlayerPublication.association_confirmed_by == user_id,
                     )
-                ).all()
-            ]
-        request_ids = [r.id for r in ContactRequest.query.filter(or_(*contact_filters)).all()]
+                )
+                .populate_existing()
+                .all()
+            )
+            publication_ids = [r.id for r in publications]
+        requests = ContactRequest.query.filter(or_(*contact_filters)).populate_existing().all()
+        request_ids = [r.id for r in requests]
         # Club relationships can name programs absent from the profile claim.
         # Resolve those before C/R; pilot erasure later invokes lock_context.
         program_ids = set()
@@ -1084,9 +1087,10 @@ def delete_account(user: UserAccount) -> AccountDeletionEvent:
             invitations = _pilot_erasure_invitations(db.session, user_id, claim_ids)
             program_ids.update(r.program_id for r in invitations)
             scope_claim_ids.update(r.claim_id for r in invitations)
-            request_ids.extend(
-                r.id for r in ContactRequest.query.filter(ContactRequest.claim_id.in_(scope_claim_ids)).all()
+            requests.extend(
+                ContactRequest.query.filter(ContactRequest.claim_id.in_(scope_claim_ids)).populate_existing().all()
             )
+            request_ids = [r.id for r in requests]
         for table_name in ("club_program_managers", "club_program_claims", "club_staff_grants"):
             if schema.has_table(table_name) and {"program_id", "user_account_id"} <= schema.columns(table_name):
                 table = sa.table(table_name, sa.column("program_id"), sa.column("user_account_id"))
@@ -1095,13 +1099,56 @@ def delete_account(user: UserAccount) -> AccountDeletionEvent:
                         sa.select(table.c.program_id).where(table.c.user_account_id == user_id)
                     ).scalars()
                 )
-        lock_contact_scope(
-            db.session,
-            program_id=program_ids,
-            claim_id=scope_claim_ids,
-            request_id=request_ids,
-            publication_id=publication_ids,
+
+        def identities(rows, fields):
+            return frozenset(tuple(getattr(row, field) for field in fields) for row in rows)
+
+        signature = (
+            email,
+            identities(
+                claims, ("id", "user_account_id", "status", "player_api_id", "local_player_id", "club_program_id")
+            ),
+            identities(requests, ("id", "claim_id", "club_program_id", "player_api_id", "routing_mode", "club_first")),
+            identities(
+                publications,
+                (
+                    "id",
+                    "program_id",
+                    "local_player_id",
+                    "claim_id",
+                    "recipient_user_id",
+                    "recipient_email",
+                    "creator_user_id",
+                    "association_confirmed_by",
+                ),
+            ),
+            identities(
+                invitations,
+                ("id", "program_id", "claim_id", "recipient_user_id", "created_by_user_id", "source_manager_claim_id"),
+            ),
+            frozenset(program_ids),
         )
+        return dict(
+            claim_ids=claim_ids,
+            approved_player_ids=approved_player_ids,
+            contact_filters=contact_filters,
+            invitations=invitations,
+            signature=signature,
+            locks=dict(
+                program_id=program_ids, claim_id=scope_claim_ids, request_id=request_ids, publication_id=publication_ids
+            ),
+        )
+
+    for _attempt in range(5):
+        savepoint = db.session.begin_nested()
+        intents = purchase_intents()
+        for intent_id in sorted(intents):
+            _lock_gol_settlement(intent_id)
+        user_id = user_pk
+        email = (user.email or "").strip().lower()
+        selected = read_scope(email)
+        lock_contact_scope(db.session, **selected["locks"])
+        invitations = selected["invitations"]
 
         # Contact scope precedes accounts for invitations, feedback and erasure alike.
         # Lock the full account batch in ID order, including all pilot recipients.
@@ -1118,14 +1165,23 @@ def delete_account(user: UserAccount) -> AccountDeletionEvent:
             .with_for_update()
             .execution_options(populate_existing=True)
         ).scalar_one_or_none()
-        if purchase_intents() <= intents:
+        if locked_user is None or locked_user.is_tombstone:
+            raise AccountDeletionUnavailable("account is already deleted")
+        refreshed = read_scope((locked_user.email or "").strip().lower())
+        if purchase_intents() == intents and refreshed["signature"] == selected["signature"]:
+            claim_ids = refreshed["claim_ids"]
+            approved_player_ids = refreshed["approved_player_ids"]
+            contact_filters = refreshed["contact_filters"]
             savepoint.commit()
             break
-        # A grant committed while we waited for the user. Release these locks
-        # before acquiring its settlement, preserving settlement -> user order.
+        # Release accounts and the entire contact prefix before resolving newly
+        # discovered earlier-ranked rows. The next bounded attempt starts fresh.
         savepoint.rollback()
     else:
-        raise AccountDeletionUnavailable("purchases changed during deletion; retry")
+        # This is genuine concurrent scope churn, not a missing account.
+        from src.services.contact_locks import _retry
+
+        _retry()
     if locked_user is None or locked_user.is_tombstone:
         raise AccountDeletionUnavailable("account is already deleted")
     cancel_subscriptions_for_account_deletion(locked_user)

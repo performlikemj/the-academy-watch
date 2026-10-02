@@ -103,8 +103,20 @@ def erase_publications(user_id, email, schema):
     ).all()
     ids = [r.id for r in rows]
     scope = lock_contact_scope(db.session, publication_id=ids)
-    for row in scope.publications.values():
-        revoke(row)
+    fresh_ids = {
+        id_
+        for (id_,) in db.session.query(Publication.id).filter(
+            sa.or_(Publication.recipient_user_id == user_id, Publication.recipient_email == email)
+        )
+    }
+    if fresh_ids != set(ids):
+        from src.services.contact_locks import _retry
+
+        _retry()
+    for id_ in ids:
+        row = scope.publications.get(id_)
+        if row is not None and (row.recipient_user_id == user_id or row.recipient_email == email):
+            revoke(row)
     from src.models.p2_foundation import NotificationOutbox
 
     if ids and schema.has_table("notification_outbox"):

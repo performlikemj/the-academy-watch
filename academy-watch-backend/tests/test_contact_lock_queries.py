@@ -46,7 +46,7 @@ def test_counts(client):
 
     sa.event.listen(db.engine, "before_cursor_execute", before)
     out = []
-    budgets = [13, 13, 24, 18, 19, 24, 12, 23, 14]
+    expected_counts = [13, 13, 24, 16, 16, 20, 11, 20, 13]
     for index, (name, method, url, headers, data) in enumerate(
         [
             ("list sent (scout)", "GET", "/api/contact/requests?box=sent", scout_headers, None),
@@ -81,7 +81,7 @@ def test_counts(client):
         statements.clear()
         r = client.open(url, method=method, headers=headers, json=data)
         assert r.status_code in {200, 201}, (name, r.status_code, r.json)
-        assert len(statements) <= budgets[index], (name, len(statements), budgets[index])
+        assert len(statements) == expected_counts[index], (name, len(statements), expected_counts[index])
         out.append(f"RC1XV3-O COUNT {name}: status={r.status_code} statements={len(statements)}")
         db.session.remove()
     sa.event.remove(db.engine, "before_cursor_execute", before)

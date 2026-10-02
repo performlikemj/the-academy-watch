@@ -162,6 +162,20 @@ def durably_closed(session, row):
     )
 
 
+def close_feedback(session, *, invitation_id=None, claim_id=None, now=None):
+    """Persist the closure deadline in the serialized relationship write path."""
+    assert invitation_id is not None or claim_id is not None
+    query = session.query(PlayerFeedback)
+    if invitation_id is not None:
+        query = query.filter_by(invitation_id=invitation_id)
+    if claim_id is not None:
+        query = query.filter_by(claim_id=claim_id)
+    return query.filter(PlayerFeedback.audit_expires_at.is_(None)).update(
+        {PlayerFeedback.audit_expires_at: (now or utcnow()) + timedelta(days=30)},
+        synchronize_session="fetch",
+    )
+
+
 def observe_closure(session, row, *, now=None):
     """Retain durable closure; temporary denial must remain recoverable."""
     if not relationships_enabled() or not durably_closed(session, row):
@@ -186,31 +200,50 @@ def player_can_read(session, row, user_id):
 def lock_invitation_batch(session, invitations, actor_id):
     """Resolve all contact and account rows before any per-invitation mutation."""
     from src.models.contact import ContactRequest
-    from src.services.contact_locks import lock_contact_scope
+    from src.services.contact_locks import _retry, lock_contact_scope
 
     invitations = list(invitations)
+    fields = ("id", "program_id", "claim_id", "recipient_user_id", "created_by_user_id")
+    before = {tuple(getattr(row, key) for key in fields) for row in invitations}
+    claim_ids = {r.claim_id for r in invitations}
+    requests = session.query(ContactRequest.id).filter(ContactRequest.claim_id.in_(claim_ids))
+    request_ids = {id_ for (id_,) in requests.all()}
     scope = lock_contact_scope(
         session,
         program_id={r.program_id for r in invitations},
-        claim_id={r.claim_id for r in invitations},
-        request_id=[
-            r.id
-            for r in session.query(ContactRequest)
-            .filter(ContactRequest.claim_id.in_({r.claim_id for r in invitations}))
-            .all()
-        ],
+        claim_id=claim_ids,
+        request_id=request_ids,
     )
+    if {id_ for (id_,) in requests.all()} != request_ids:
+        _retry()
     account_ids = {actor_id}
     for row in invitations:
         account_ids.update((row.recipient_user_id, row.created_by_user_id))
     session.query(UserAccount).filter(UserAccount.id.in_(account_ids - {None})).order_by(
         UserAccount.id
     ).populate_existing().with_for_update().all()
+    refreshed = (
+        session.query(*(getattr(ClubInvitation, key) for key in fields))
+        .filter(ClubInvitation.id.in_({r.id for r in invitations}))
+        .all()
+    )
+    if {tuple(row) for row in refreshed} != before:
+        _retry()
     return scope
 
 
 def locked_invitation(session, invitation, actor_id):
-    """Account -> claimant -> program/grants -> invitation -> thread order."""
+    """Contact scope -> accounts -> grants -> invitation -> thread order."""
+    binding_fields = (
+        "id",
+        "program_id",
+        "claim_id",
+        "recipient_user_id",
+        "created_by_user_id",
+        "source_manager_claim_id",
+        "player_api_id",
+    )
+    binding = tuple(getattr(invitation, field) for field in binding_fields)
     lock_context(
         session,
         claim_id=invitation.claim_id,
@@ -231,7 +264,14 @@ def locked_invitation(session, invitation, actor_id):
     session.query(ClubProgramClaim).filter(ClubProgramClaim.id.in_(source_ids)).order_by(
         ClubProgramClaim.id
     ).populate_existing().with_for_update().all()
-    return session.query(ClubInvitation).filter_by(id=invitation.id).populate_existing().with_for_update().one_or_none()
+    locked = (
+        session.query(ClubInvitation).filter_by(id=invitation.id).populate_existing().with_for_update().one_or_none()
+    )
+    if locked is not None and tuple(getattr(locked, field) for field in binding_fields) != binding:
+        from src.services.contact_locks import _retry
+
+        _retry()
+    return locked
 
 
 def lock_thread(session, row, actor_id):

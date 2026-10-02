@@ -306,6 +306,16 @@ def resolve_invitation(session, invitation, actor_id, action, *, manager=False):
     from src.models.funding import ClubRosterMember
     from src.services.public_player_subject import resolve_public_adult_subject
 
+    binding_fields = (
+        "id",
+        "program_id",
+        "claim_id",
+        "recipient_user_id",
+        "created_by_user_id",
+        "source_manager_claim_id",
+        "player_api_id",
+    )
+    binding = tuple(getattr(invitation, field) for field in binding_fields)
     claim, _ = lock_context(
         session,
         claim_id=invitation.claim_id,
@@ -321,6 +331,10 @@ def resolve_invitation(session, invitation, actor_id, action, *, manager=False):
         else None
     )
     invitation = session.query(ClubInvitation).filter_by(id=invitation.id).populate_existing().with_for_update().one()
+    if tuple(getattr(invitation, field) for field in binding_fields) != binding:
+        from src.services.contact_locks import _retry
+
+        _retry()
     if manager and actor_grant is None:
         raise InvitationError("invitation_unavailable")
     if not manager and invitation.recipient_user_id != actor_id:
@@ -375,6 +389,9 @@ def revoke_relationship(session, invitation, claim, now):
 
     invitation.status = "revoked"
     invitation.revoked_at = now
+    from src.models.player_feedback import close_feedback
+
+    close_feedback(session, invitation_id=invitation.id, now=now)
     for member in (
         _roster_query(session, invitation)
         .filter_by(requires_player_acceptance=True, accepted_invitation_id=invitation.id)
