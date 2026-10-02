@@ -189,6 +189,7 @@ def _local_players_enabled() -> bool:
 
     return _community_local_players_enabled() or enabled()
 
+
 # --- p2-c1 end ---
 
 

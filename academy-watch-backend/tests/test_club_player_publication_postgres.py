@@ -419,3 +419,256 @@ def test_postgres_ddl_timeout_rolls_back_then_retries(pg, entry):
     finally:
         for connection in connections:
             connection.close()
+
+
+@pytest.mark.parametrize("expired", [False, True])
+def test_expiry_cleanup_retains_creation_lock_through_insert(pg, monkeypatch, expired):
+    """X4 real probe/control: withdrawal must wait after the final routing read."""
+    from threading import Event
+
+    import src.routes.contact as routes
+    from src.auth import issue_user_token
+    from src.extensions import limiter
+    from src.models.contact import ContactRequest
+    from src.models.trust import ScoutVerification
+
+    app, ids = pg
+    monkeypatch.setenv("CONTACT_RAIL_ENABLED", "true")
+    app.config["RATELIMIT_ENABLED"] = False
+    limiter.init_app(app)
+    app.register_blueprint(routes.contact_bp, url_prefix="/api")
+    pubid = make_consented(ids)
+    row = Publication.query.filter_by(id=pubid).with_for_update().one()
+    service.review(
+        row, "reviewer", {"action": "approve", "reason": "Expiry race control", "expected_version": row.version}
+    )
+    db.session.add(
+        ScoutVerification(
+            user_account_id=ids["owner"],
+            full_name="Synthetic scout",
+            organization="Synthetic fixture",
+            role_title="Scout",
+            statement="Synthetic fixture",
+            status="approved",
+        )
+    )
+    db.session.add(
+        ContactRequest(
+            scout_user_id=ids["owner"],
+            player_api_id=-ids["local"],
+            claim_id=row.claim_id,
+            status="pending" if expired else "expired",
+            club_first=True,
+            routing_mode="club_included",
+            club_program_id=ids["program"],
+            club_consent_status="pending",
+            message="Preceding request",
+            expires_at=service.now() - timedelta(days=1),
+        )
+    )
+    db.session.commit()
+    token = issue_user_token(db.session.get(UserAccount, ids["owner"]).email)["token"]
+    db.session.commit()
+    db.session.remove()
+    ready, attempted = Event(), Event()
+    original = routes.routing_mode_for_claim
+
+    def routing(claim, *, platform_belief=None):
+        result = original(claim, platform_belief=platform_belief)
+        ready.set()
+        assert attempted.wait(10), "Competing transaction must finish its lock attempt"
+        return result
+
+    monkeypatch.setattr(routes, "routing_mode_for_claim", routing)
+
+    def create():
+        with app.test_client() as client:
+            response = client.post(
+                "/api/contact/requests",
+                headers={"Authorization": "Bearer " + token},
+                json={"player_api_id": -ids["local"], "message": "Racing new introduction"},
+            )
+            return response.status_code, response.json
+
+    def withdraw():
+        assert ready.wait(10)
+        with app.app_context():
+            try:
+                db.session.execute(sa.text("SET LOCAL lock_timeout = '1s'"))
+                with pytest.raises(sa.exc.OperationalError) as error:
+                    Publication.query.filter_by(id=pubid).with_for_update().one()
+                assert error.value.orig.sqlstate == "55P03", "both expiry and no-expiry retain the publication lock"
+            finally:
+                db.session.rollback()
+                db.session.remove()
+                attempted.set()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        request = pool.submit(create)
+        withdrawal = pool.submit(withdraw)
+        withdrawal.result(timeout=15)
+        status, payload = request.result(timeout=15)
+    assert status == 201, payload
+    contact = db.session.get(ContactRequest, payload["contact_request"]["id"])
+    assert contact.status == "pending"
+    # A withdrawal after creation wins in the ordinary serial order and closes the inserted row.
+    row = Publication.query.filter_by(id=pubid).populate_existing().with_for_update().one()
+    service.revoke(row)
+    db.session.commit()
+    assert db.session.get(ContactRequest, contact.id).status == "withdrawn"
+    service.consent(
+        row,
+        ids["adult"],
+        {"expected_version": row.version, "public_profile_consent": True, "consent_version": service.CONSENT_VERSION},
+    )
+    service.review(
+        row, "reviewer", {"expected_version": row.version, "action": "approve", "reason": "Fresh independent review"}
+    )
+    db.session.commit()
+    assert contact.status == "withdrawn"
+    assert not service.scout_counterpart_available(contact)
+
+
+def test_expiry_commit_gap_rechecks_withdrawn_publication(pg, monkeypatch):
+    """A real withdrawal during the cleanup commit gap is refused after reacquisition."""
+    import src.routes.contact as routes
+    from src.auth import issue_user_token
+    from src.extensions import limiter
+    from src.models.contact import ContactRequest
+    from src.models.trust import ScoutVerification
+
+    app, ids = pg
+    monkeypatch.setenv("CONTACT_RAIL_ENABLED", "true")
+    app.config["RATELIMIT_ENABLED"] = False
+    limiter.init_app(app)
+    app.register_blueprint(routes.contact_bp, url_prefix="/api")
+    pubid = make_consented(ids)
+    row = Publication.query.filter_by(id=pubid).with_for_update().one()
+    service.review(row, "reviewer", {"action": "approve", "reason": "Commit gap race", "expected_version": row.version})
+    db.session.add(
+        ScoutVerification(
+            user_account_id=ids["owner"],
+            full_name="Synthetic scout",
+            organization="Synthetic fixture",
+            role_title="Scout",
+            statement="Synthetic fixture",
+            status="approved",
+        )
+    )
+    db.session.add(
+        ContactRequest(
+            scout_user_id=ids["owner"],
+            player_api_id=-ids["local"],
+            claim_id=row.claim_id,
+            status="pending",
+            club_first=True,
+            routing_mode="club_included",
+            club_program_id=ids["program"],
+            club_consent_status="pending",
+            message="Expired request",
+            expires_at=service.now() - timedelta(days=1),
+        )
+    )
+    db.session.commit()
+    token = issue_user_token(db.session.get(UserAccount, ids["owner"]).email)["token"]
+    db.session.commit()
+    original = routes._expire_visible_rows
+
+    def expire(query):
+        changed = original(query)
+        assert changed
+        # Separate real connection/transaction while creation's expiry helper has released its lock.
+        with app.app_context():
+            row = Publication.query.filter_by(id=pubid).with_for_update().one()
+            service.revoke(row)
+            db.session.commit()
+            db.session.remove()
+        return changed
+
+    monkeypatch.setattr(routes, "_expire_visible_rows", expire)
+    with app.test_client() as client:
+        response = client.post(
+            "/api/contact/requests",
+            headers={"Authorization": "Bearer " + token},
+            json={"player_api_id": -ids["local"], "message": "Creation after withdrawn permissions"},
+        )
+    assert response.status_code == 403, response.json
+    assert ContactRequest.query.filter_by(player_api_id=-ids["local"], status="pending").count() == 0
+
+
+def test_postgres_legacy_archive_repair_keeps_authors_separate(pg):
+    from src.models.club_player_publication import RetiredClubShowcase
+    from src.services.account import _SchemaView
+    from src.services.club_player_publication_account import export_publications, purge_invited_emails
+
+    _app, ids = pg
+    pubid = make_consented(ids)
+    row = db.session.get(Publication, pubid)
+    archive = RetiredClubShowcase(
+        local_player_id=ids["local"],
+        claim_id=row.claim_id,
+        user_account_id=ids["adult"],
+        content={
+            "player_links": [{"user_id": ids["owner"], "url": "https://example.test/other-author"}],
+            "player_showcase_profiles": [{"updated_by_user_id": ids["adult"], "bio": "Claimant own bio"}],
+        },
+    )
+    db.session.add(archive)
+    db.session.commit()
+    archive_id = archive.id
+    owner = db.session.get(UserAccount, ids["owner"])
+    data = export_publications(owner, _SchemaView())
+    assert "https://example.test/other-author" in str(data["retired_club_showcases"])
+    assert "user_id" not in str(data["retired_club_showcases"])
+    own = export_publications(db.session.get(UserAccount, ids["adult"]), _SchemaView())
+    assert "other-author" not in str(own)
+    assert "Claimant own bio" in str(own["retired_club_showcases"])
+    db.session.rollback()
+    original = db.session.get(RetiredClubShowcase, archive_id)
+    assert original.user_account_id == ids["adult"] and "player_links" in original.content
+    export_publications(owner, _SchemaView())
+    db.session.commit()
+    assert RetiredClubShowcase.query.filter_by(local_player_id=ids["local"]).count() == 2
+    purge_invited_emails(at=service.now() + timedelta(days=181))
+    db.session.commit()
+    assert RetiredClubShowcase.query.filter_by(local_player_id=ids["local"]).count() == 0
+
+
+def test_postgres_erased_canonical_club_identity_can_publish_again(pg):
+    from src.models.follow import PlayerShadow
+    from src.services.account import delete_account
+
+    _app, ids = pg
+    pubid = make_consented(ids)
+    row = Publication.query.filter_by(id=pubid).with_for_update().one()
+    service.review(
+        row,
+        "reviewer",
+        {"action": "approve", "reason": "Original independent approval", "expected_version": row.version},
+    )
+    db.session.commit()
+    delete_account(db.session.get(UserAccount, ids["adult"]))
+    db.session.commit()
+    assert db.session.get(Publication, pubid) is None
+    assert PlayerShadow.query.filter_by(player_api_id=-ids["local"]).count() == 1
+    person = UserAccount(
+        email=f"returning-{ids['local']}@example.test",
+        display_name="Returning claimant",
+        display_name_lower="returning claimant",
+    )
+    db.session.add(person)
+    db.session.commit()
+    row, token = service.invite(ids["program"], ids["local"], ids["owner"], {"recipient_email": person.email})
+    service.redeem(person, {"token": token, "self_claim": True})
+    service.consent(
+        row,
+        person.id,
+        {"expected_version": row.version, "public_profile_consent": True, "consent_version": service.CONSENT_VERSION},
+    )
+    service.review(
+        row,
+        "reviewer",
+        {"action": "approve", "reason": "Fresh returning identity review", "expected_version": row.version},
+    )
+    db.session.commit()
+    assert public_adult_ids([-ids["local"]]) == {-ids["local"]}

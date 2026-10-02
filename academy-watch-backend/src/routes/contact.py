@@ -127,7 +127,7 @@ def _player_not_claimable():
     return jsonify({"error": "Player is not available for contact", "code": "player_not_claimable"}), 403
 
 
-def _contact_request_payload(contact_request: ContactRequest, *, context=None, viewer_user_id=None) -> dict:
+def _contact_request_payload(contact_request: ContactRequest, *, viewer_user_id, context=None) -> dict:
     """Serialize blockable participants only for authenticated contact APIs."""
     return contact_request.to_dict(include_user_ids=True, context=context, viewer_user_id=viewer_user_id)
 
@@ -425,7 +425,7 @@ def _participant_request(request_id: str, user: UserAccount, *, club_for_update:
     return contact_request, None
 
 
-def _expire_visible_rows(query) -> None:
+def _expire_visible_rows(query) -> bool:
     due = (
         query.filter(
             or_(
@@ -449,6 +449,7 @@ def _expire_visible_rows(query) -> None:
         changed = expire_if_due(row, now=checked_at) or changed
     if changed:
         db.session.commit()
+    return changed
 
 
 @contact_bp.route("/contact/requests", methods=["POST"])
@@ -507,7 +508,22 @@ def create_contact_request():
 
         # An unread expired request must not keep the partial unique guard live.
         matching = ContactRequest.query.filter_by(scout_user_id=user.id, player_api_id=player_api_id)
-        _expire_visible_rows(matching)
+        expired_rows = _expire_visible_rows(matching)
+        # --- p2-c1 begin ---
+        if club_first and expired_rows:
+            # Expiry commits its cleanup. Reacquire before trust/claim locks and
+            # recheck the current permissions, retaining this lock through insert.
+            publication = (
+                ClubPlayerPublication.query.filter_by(local_player_id=-player_api_id)
+                .populate_existing()
+                .with_for_update()
+                .first()
+            )
+            subject = resolve_player_subject(player_api_id)
+            if publication is None or subject is None or not subject.is_public:
+                db.session.rollback()
+                return _player_not_claimable()
+        # --- p2-c1 end ---
 
         # Revalidate and lock both trust prerequisites through the insert
         # commit so concurrent admin revocation cannot win after our checks.
@@ -539,7 +555,7 @@ def create_contact_request():
 
         active = matching.filter(_active_request_filter()).first()
         if active is not None:
-            active_payload = _contact_request_payload(active)
+            active_payload = _contact_request_payload(active, viewer_user_id=user.id)
             db.session.rollback()
             return jsonify(
                 {
@@ -664,7 +680,7 @@ def create_contact_request():
                     {
                         "error": "An active contact request already exists for this player",
                         "code": "active_request_exists",
-                        "contact_request": _contact_request_payload(active),
+                        "contact_request": _contact_request_payload(active, viewer_user_id=user.id),
                     }
                 ), 409
             raise
@@ -712,7 +728,7 @@ def create_contact_request():
                 )
             except Exception:
                 logger.exception("Failed to queue admin notice for contact request %s", contact_request.id)
-        return jsonify({"contact_request": _contact_request_payload(contact_request)}), 201
+        return jsonify({"contact_request": _contact_request_payload(contact_request, viewer_user_id=user.id)}), 201
     except ValueError as exc:
         db.session.rollback()
         return jsonify({"error": str(exc)}), 400
@@ -804,7 +820,10 @@ def admin_get_contact_request(request_id: str):
         contact_request = row.ContactRequest
         created_metadata = _created_metadata_by_request([contact_request.id]).get(contact_request.id)
         verification = _verification_by_scout([contact_request.scout_user_id]).get(contact_request.scout_user_id)
-        payload = _contact_request_payload(contact_request)
+        payload = _contact_request_payload(
+            contact_request,
+            viewer_user_id=None,  # API-key administrator, not a scout projection
+        )
         payload.update(_admin_contact_request_payload(row, verification, created_metadata))
         payload["audit_events"] = [
             {
@@ -978,7 +997,7 @@ def _respond_to_request(request_id: str, action: str):
         event_type = "accepted" if action == "accept" else "declined"
         add_audit_event(contact_request, event_type, actor_user_id=user.id, created_at=now)
         db.session.commit()
-        return jsonify({"contact_request": _contact_request_payload(contact_request)})
+        return jsonify({"contact_request": _contact_request_payload(contact_request, viewer_user_id=user.id)})
     except Exception as exc:
         db.session.rollback()
         logger.exception("Failed to %s contact request %s", action, request_id)
@@ -1075,7 +1094,7 @@ def set_club_consent(request_id: str):
             note=note,
         )
         db.session.commit()
-        return jsonify({"contact_request": _contact_request_payload(contact_request)})
+        return jsonify({"contact_request": _contact_request_payload(contact_request, viewer_user_id=user.id)})
     except ValueError as exc:
         db.session.rollback()
         return jsonify({"error": str(exc)}), 400
@@ -1180,7 +1199,7 @@ def withdraw_contact_request(request_id: str):
         contact_request.status = "withdrawn"
         add_audit_event(contact_request, "withdrawn", actor_user_id=user.id, created_at=now)
         db.session.commit()
-        return jsonify({"contact_request": _contact_request_payload(contact_request)})
+        return jsonify({"contact_request": _contact_request_payload(contact_request, viewer_user_id=user.id)})
     except Exception as exc:
         db.session.rollback()
         logger.exception("Failed to withdraw contact request %s", request_id)
@@ -1210,7 +1229,7 @@ def list_contact_messages(request_id: str):
         return jsonify(
             {
                 "messages": [_contact_message_payload(row) for row in rows],
-                "contact_request": _contact_request_payload(contact_request),
+                "contact_request": _contact_request_payload(contact_request, viewer_user_id=user.id),
                 "total": total,
                 "limit": limit,
                 "offset": offset,
@@ -1344,7 +1363,7 @@ def report_contact_outcome(request_id: str):
         return jsonify(
             {
                 "outcome": outcome.to_dict(),
-                "contact_request": _contact_request_payload(contact_request),
+                "contact_request": _contact_request_payload(contact_request, viewer_user_id=user.id),
             }
         ), 201
     except ValueError as exc:
@@ -1377,4 +1396,4 @@ def revoke_club_origin_request(request_id):
         contact.status = "withdrawn"
         add_audit_event(contact, "withdrawn", actor_user_id=user.id)
     db.session.commit()
-    return jsonify(contact_request=_contact_request_payload(contact))
+    return jsonify(contact_request=_contact_request_payload(contact, viewer_user_id=user.id))

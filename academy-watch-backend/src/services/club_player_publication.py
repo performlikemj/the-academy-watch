@@ -186,22 +186,54 @@ def shadow_birth_conflict(shadow):
     return age is None or age < 18
 
 
+def canonical_club_namespace(local, shadow):
+    """Approval's nonpersonal audit survives erasure; unrelated signed identities do not qualify."""
+    from src.models.p2_foundation import AdminActionEvent
+    from src.models.tracked_player import TrackedPlayer
+
+    if (
+        local.provenance != "club"
+        or local.status != "approved"
+        or local.api_player_id != -local.id
+        or local.merged_into_local_player_id is not None
+        or shadow is None
+        or shadow.player_api_id != -local.id
+        or shadow.player_name != local.display_name
+        or shadow.birth_date != local.birth_date
+        or shadow.requested_by_user_id != local.created_by_user_id
+        or TrackedPlayer.query.filter_by(player_api_id=-local.id).first() is not None
+        or PlayerProfileClaim.query.filter_by(player_api_id=-local.id).first() is not None
+    ):
+        return False
+    return (
+        AdminActionEvent.query.filter(
+            AdminActionEvent.action == "club_player_publication_review",
+            AdminActionEvent.target_type == "club_player_publication",
+            AdminActionEvent.event_metadata["local_player_id"].as_integer() == local.id,
+            AdminActionEvent.event_metadata["approved"].as_boolean().is_(True),
+        ).first()
+        is not None
+    )
+
+
 def quarantine_showcase(row):
-    """Move subject content and approvals into private, old-claim evidence."""
-    from src.models.club_player_publication import RetiredClubShowcase
+    """Hide former-person content; private evidence stays with its actual author."""
     from src.models.league import PlayerLink
+    from src.models.player_match_entry import PlayerMatchEntry
     from src.models.showcase import PlayerClubAffiliation, PlayerShowcaseMedia, PlayerShowcaseProfile
+    from src.services.retired_club_content import archive_content
+    from src.services.season_rollup_service import refresh_player_scopes
 
     content = {}
-    for model in (PlayerShowcaseProfile, PlayerShowcaseMedia, PlayerLink, PlayerClubAffiliation):
+    seasons = set()
+    for model in (PlayerShowcaseProfile, PlayerShowcaseMedia, PlayerLink, PlayerClubAffiliation, PlayerMatchEntry):
         signed_column = model.player_id if model is PlayerLink else model.player_api_id
-        records = (
-            model.query.filter(
-                sa.or_(model.local_player_id == row.local_player_id, signed_column == -row.local_player_id)
-            )
-            .with_for_update()
-            .all()
-        )
+        subject_filter = signed_column == -row.local_player_id
+        if model is not PlayerMatchEntry:
+            subject_filter = sa.or_(model.local_player_id == row.local_player_id, subject_filter)
+        else:
+            subject_filter = sa.and_(subject_filter, model.source == "self")
+        records = model.query.filter(subject_filter).with_for_update().all()
         content[model.__tablename__] = [
             {
                 c.name: value.isoformat() if hasattr(value, "isoformat") else value
@@ -211,17 +243,14 @@ def quarantine_showcase(row):
             for record in records
         ]
         for record in records:
+            if model is PlayerMatchEntry:
+                seasons.add(record.season)
             db.session.delete(record)
-    if any(content.values()):
-        db.session.add(
-            RetiredClubShowcase(
-                local_player_id=row.local_player_id,
-                claim_id=row.claim_id,
-                user_account_id=row.recipient_user_id,
-                content=content,
-            )
-        )
+    archive_content(
+        content, local_player_id=row.local_player_id, claim_id=row.claim_id, claimant_id=row.recipient_user_id
+    )
     db.session.flush()
+    refresh_player_scopes([(-row.local_player_id, season) for season in seasons], session=db.session)
 
 
 def retire_claim(row, actor):
@@ -484,17 +513,9 @@ def review(row, actor, payload):
     if action == "approve" and duplicate:
         raise PublicationError("duplicate_identity_review_required")
     if action == "approve" and not (local.status == "approved" and claim.status == "approved"):
-        from src.models.follow import PlayerShadow
         from src.routes.showcase import _legacy_negative_identity_conflict
 
-        existing_shadow = PlayerShadow.query.filter_by(player_api_id=-local.id).first()
-        retained_claim = PlayerProfileClaim.query.filter_by(
-            local_player_id=local.id, verification_method="club_vouch_retired"
-        ).first()
-        if (
-            not (local.status == "approved" and retained_claim and existing_shadow)
-            and _legacy_negative_identity_conflict(-local.id) is not None
-        ):
+        if not canonical_club_namespace(local, shadow) and _legacy_negative_identity_conflict(-local.id) is not None:
             raise PublicationError("identity_review_required")
     row.moderation_status = "approved" if action == "approve" else "rejected"
     row.reviewed_by, row.reviewed_at = actor, now()
