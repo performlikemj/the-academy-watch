@@ -291,7 +291,10 @@ for (const [viewport, size] of [['desktop', { width: 1440, height: 900 }], ['mob
     await page.route('**/api/features', route => route.fulfill({ json: { contact_rail: true, club_player_publication: true } }))
     await page.route('**/api/contact/**', async route => {
       const p = new URL(route.request().url()).pathname
-      if (p === '/api/contact/requests') return route.fulfill({ json: { requests: [contact], total: 1, limit: 100, offset: 0 } })
+      if (p === '/api/contact/requests') {
+        const sent = new URL(route.request().url()).searchParams.get('box') === 'sent'
+        return route.fulfill({ json: { requests: sent ? [contact] : [], total: sent ? 1 : 0, limit: 100, offset: 0 } })
+      }
       if (p.endsWith('/messages')) return route.fulfill({ json: { messages: [], contact_request: contact, total: 0, limit: 100, offset: 0 } })
       if (p.endsWith('/revoke')) {
         writes += 1

@@ -651,10 +651,11 @@ def test_postgres_erased_canonical_club_identity_can_publish_again(pg):
     db.session.commit()
     assert db.session.get(Publication, pubid) is None
     assert PlayerShadow.query.filter_by(player_api_id=-ids["local"]).count() == 1
+    suffix = uuid4().hex[:12]
     person = UserAccount(
-        email=f"returning-{ids['local']}@example.test",
-        display_name="Returning claimant",
-        display_name_lower="returning claimant",
+        email=f"returning-{suffix}@example.test",
+        display_name=f"Returning claimant {suffix}",
+        display_name_lower=f"returning claimant {suffix}",
     )
     db.session.add(person)
     db.session.commit()
