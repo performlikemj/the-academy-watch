@@ -1,4 +1,6 @@
 import { CleatLoader } from '@/components/CleatLoader'
+import { useSeasonDirectory } from '@/hooks/useSeasonDirectory'
+import { positionAbbreviation } from '@/lib/positions'
 import { useDataMode } from '@/hooks/useDataMode'
 import { useState, useEffect, useMemo, useCallback, useRef, Fragment } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
@@ -500,7 +502,7 @@ export function ScoutPage() {
   const [boards, setBoards] = useState(null)
   const [boardsLoading, setBoardsLoading] = useState(true)
   const [resolvedSeason, setResolvedSeason] = useState(null)
-  const [currentSeason, setCurrentSeason] = useState()
+  const { currentSeason, displaySeason: defaultSeason } = useSeasonDirectory()
   const [storedSeason, setStoredSeason] = useState(() => seasonStore.get())
 
   const [search, setSearch] = useState('')
@@ -527,6 +529,11 @@ export function ScoutPage() {
   const auth = useAuth()
   const contactRail = useContactRail()
   const { openLoginModal } = useAuthUI()
+  const [verificationState, setVerificationState] = useState(null)
+  const scoutVerification = !auth?.token ? 'signed-out'
+    : verificationState?.token === auth.token ? verificationState.status : 'loading'
+  const verifiedScout = scoutVerification === 'approved'
+  const canIntroduce = scoutVerification !== 'unverified'
   const [introducePlayer, setIntroducePlayer] = useState(null)
   const [watchedIds, setWatchedIds] = useState(null)
   const [exporting, setExporting] = useState(false)
@@ -535,10 +542,9 @@ export function ScoutPage() {
   const source = SOURCE_VALUES.has(requestedSource) ? requestedSource : 'all'
   const seasonParam = searchParams.get('season')
   const urlSeason = /^\d{4}$/.test(seasonParam || '') ? Number(seasonParam) : undefined
+  // Leave implicit reads to the server; display_season labels the default only.
   const selectedSeason = seasonParam === null ? storedSeason : urlSeason
-  const seasonOverride = selectedSeason != null && (
-    currentSeason != null ? selectedSeason !== currentSeason : seasonParam === null
-  ) ? selectedSeason : undefined
+  const seasonOverride = selectedSeason
 
   const phaseConfig = PHASES[phase]
   // The phase IS a position filter when active; the standalone position
@@ -610,6 +616,17 @@ export function ScoutPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  useEffect(() => {
+    if (!auth?.token || contactRail !== true) return
+    let live = true
+    APIService.getScoutVerification()
+      .then((data) => {
+        if (live) setVerificationState({ token: auth.token, status: data?.verification?.status === 'approved' ? 'approved' : 'unverified' })
+      })
+      .catch(() => { if (live) setVerificationState({ token: auth.token, status: 'unavailable' }) })
+    return () => { live = false }
+  }, [auth?.token, contactRail])
 
   // Load watchlist ids once when signed in
   useEffect(() => {
@@ -779,7 +796,7 @@ export function ScoutPage() {
 
   const statColumns = phaseConfig.columns.map((key) => STAT_COLUMNS[key])
   const tableColumnCount = 8 + statColumns.length
-  const displaySeason = selectedSeason ?? resolvedSeason ?? currentSeason
+  const displaySeason = selectedSeason ?? defaultSeason ?? resolvedSeason ?? currentSeason
 
   const thClass = 'px-3 py-3 font-mono text-[10.5px] font-medium uppercase tracking-[0.14em] text-[#8C9791]'
   const selectTriggerClass = 'h-11 w-full rounded-full px-4 text-[13.5px]'
@@ -799,7 +816,6 @@ export function ScoutPage() {
                 <SeasonSelect
                   value={selectedSeason}
                   onValueChange={changeSeason}
-                  onCurrentSeasonChange={setCurrentSeason}
                 />
               </div>
               <Button variant="outline" size="sm" asChild className={deskPillClass}>
@@ -824,7 +840,7 @@ export function ScoutPage() {
               <Button variant="outline" size="sm" asChild className={deskPillClass}>
                 <Link to="/scout/verification" className="no-underline hover:no-underline">
                   <ShieldCheck className="mr-1.5 h-4 w-4" />
-                  Get verified
+                  {verifiedScout ? 'Verified scout' : scoutVerification === 'loading' && contactRail === true ? 'Checking verification…' : scoutVerification === 'unavailable' ? 'Scout verification' : scoutVerification === 'signed-out' ? 'Get verified' : contactRail === true ? 'Get verified to introduce yourself' : 'Get verified'}
                 </Link>
               </Button>
               <Button variant="outline" size="sm" onClick={handleExportCsv} disabled={exporting} className={deskPillClass}>
@@ -1021,7 +1037,9 @@ export function ScoutPage() {
                           >
                             <Star className={`h-4 w-4 transition-colors ${watched ? 'fill-gold text-gold' : 'text-muted-dark/60 hover:text-muted-dark'}`} />
                           </button>
-                          {contactRail === true && player.contactable ? (
+                          {contactRail === true && player.contactable ? (auth?.token && !canIntroduce ? (
+                            <Link to="/scout/verification" className="ml-0.5 inline-flex h-8 w-8 items-center justify-center rounded-full hover:bg-chalk/[0.06]" aria-label="Get verified to introduce yourself" title="Get verified to introduce yourself"><Send className="h-4 w-4 text-muted-dark/70" /></Link>
+                          ) : (
                             <button
                               type="button"
                               onClick={() => (auth?.token ? setIntroducePlayer(player) : openLoginModal())}
@@ -1031,7 +1049,7 @@ export function ScoutPage() {
                             >
                               <Send className="h-4 w-4 text-muted-dark/70 hover:text-gold" />
                             </button>
-                          ) : null}
+                          )) : null}
                         </td>
                         <td className="py-3">
                           <Checkbox
@@ -1042,7 +1060,7 @@ export function ScoutPage() {
                           />
                         </td>
                         <td className="px-3 py-3"><PlayerCell player={player} season={seasonOverride} /></td>
-                        <td className="px-3 py-3 font-mono text-[12px] text-muted-dark whitespace-nowrap">{player.position?.slice(0, 3) || '—'}</td>
+                        <td className="px-3 py-3 font-mono text-[12px] text-muted-dark whitespace-nowrap">{positionAbbreviation(player.position)}</td>
                         <td className="px-3 py-3"><StatusBadge status={player.status} /></td>
                         <td className="px-3 py-3 max-w-44">
                           <span className="block truncate text-sm text-chalk/90">{player.loan_team_name || player.primary_team_name || '—'}</span>
@@ -1151,7 +1169,7 @@ export function ScoutPage() {
           source={source}
         />
         <IntroduceDialog
-          open={!!introducePlayer}
+          open={canIntroduce && !!introducePlayer}
           onOpenChange={(next) => { if (!next) setIntroducePlayer(null) }}
           player={introducePlayer}
         />

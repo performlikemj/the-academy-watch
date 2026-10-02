@@ -459,16 +459,19 @@ def purchases_for_user(user) -> list[dict]:
     )
     purchases = []
     for grant in grants:
-        refunded_credits = -int(
-            db.session.query(func.coalesce(func.sum(GolCreditLedger.delta), 0))
-            .filter_by(
-                kind="reversal",
-                debit_id=None,
-                bucket="prepaid",
-                stripe_payment_intent_id=grant.stripe_payment_intent_id,
+        refunded_credits = 0
+        if grant.stripe_payment_intent_id is not None:
+            refunded_credits = -int(
+                db.session.query(func.coalesce(func.sum(GolCreditLedger.delta), 0))
+                .filter_by(
+                    user_account_id=user.id,
+                    kind="reversal",
+                    debit_id=None,
+                    bucket="prepaid",
+                    stripe_payment_intent_id=grant.stripe_payment_intent_id,
+                )
+                .scalar()
             )
-            .scalar()
-        )
         purchases.append(
             {
                 "stripe_session_id": grant.stripe_session_id,

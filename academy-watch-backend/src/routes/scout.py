@@ -70,6 +70,7 @@ from src.utils.data_mode import api_enabled_route, api_football_frozen, newslett
 from src.utils.feature_flags import rollup_reads_enabled
 from src.utils.player_names import clean_name
 from src.utils.sanitize import sanitize_plain_text
+from src.utils.scout_discovery import local_players_enabled as _local_players_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -171,18 +172,6 @@ SOURCE_LABELS = {
     "club": "Club-confirmed",
     "self": "Self-reported",
 }
-
-
-def _local_players_enabled() -> bool:
-    """Whether approved locals join discovery/query-resolved Scout surfaces.
-
-    This gates browse, leaderboards, compare, export, and query follows. Direct
-    watchlist adds and player-follow selectors accept approved adult locals
-    regardless of this flag. Read dynamically so an operator can roll the
-    union back without a process restart; the safe default remains off.
-    """
-
-    return os.getenv("SCOUT_INCLUDE_LOCAL_PLAYERS", "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _resolve_subject(player_api_id: int):

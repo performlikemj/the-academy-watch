@@ -23,7 +23,7 @@ const primitives = Object.fromEntries([...section.matchAll(/<([A-Z]\w*)[\s/>]/g)
 for (const frozen of [false, true]) {
   test(`PlayerPage retains stored match rows with frozen=${frozen}`, () => {
     const scope = {
-      ...primitives, React, PublicMatchPanels, apiFootballFrozen: frozen,
+      ...primitives, React, PublicMatchPanels, apiFootballFrozen: frozen, isLocalPlayer: false,
       stats: [{ opponent: 'Stored Opponent', minutes: 90, goals: 1, assists: 0, rating: '7.1', fixture_date: '2026-05-18' }],
       seasonStats: { public_match_data: { available: true, as_of: '2026-05-20', totals: { goals: 4 } }, club_verified: { available: true, totals: { goals: 2 } } },
       seasonTotals: { appearances: 1, minutes: 90, goals: 1, assists: 0, avgRating: 7.1 },

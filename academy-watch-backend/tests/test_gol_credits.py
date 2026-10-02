@@ -828,3 +828,33 @@ def test_integrity_error_loser_path_returns_winning_debit(app, monkeypatch):
     assert result["attempt"] == 1
     assert inserted is True
     assert GolCreditLedger.query.filter_by(kind="debit").count() == 1
+
+
+def test_purchase_refunds_require_same_user_and_non_null_intent(app):
+    from src.services.gol_credits import purchases_for_user
+
+    user = _user("purchase-owner@example.com")
+    other = _user("purchase-other@example.com")
+    for key, owner, kind, delta, intent in [
+        ("legacy-grant", user, "grant", 20, None),
+        ("purchase-grant", user, "grant", 40, "pi_shared"),
+        ("own-refund", user, "reversal", -5, "pi_shared"),
+        ("other-refund", other, "reversal", -17, "pi_shared"),
+        ("own-null-refund", user, "reversal", -9, None),
+        ("other-null-refund", other, "reversal", -13, None),
+        ("unrelated-refund", user, "reversal", -11, "pi_other"),
+    ]:
+        db.session.add(
+            GolCreditLedger(
+                user_account_id=owner.id,
+                bucket="prepaid",
+                kind=kind,
+                delta=delta,
+                idempotency_key=key,
+                stripe_payment_intent_id=intent,
+            )
+        )
+    db.session.commit()
+    purchases = {row["credits"]: row for row in purchases_for_user(user)}
+    assert purchases[20]["refunded_credits"] == 0
+    assert purchases[40]["refunded_credits"] == 5

@@ -1,4 +1,5 @@
 import { CleatLoader } from '@/components/CleatLoader'
+import { useSeasonDirectory } from '@/hooks/useSeasonDirectory'
 import { PublicMatchPanels } from '@/components/PublicMatchPanels'
 import { useDataMode } from '@/hooks/useDataMode'
 import React, { useState, useEffect, useRef, useCallback } from 'react'
@@ -264,15 +265,15 @@ export function PlayerPage() {
     const seasonParam = searchParams.get('season')
     const urlSeason = /^\d{4}$/.test(seasonParam || '') ? Number(seasonParam) : undefined
     const [storedSeason, setStoredSeason] = useState(() => seasonStore.get())
-    const [currentSeason, setCurrentSeason] = useState()
+    const { displaySeason: defaultSeason } = useSeasonDirectory()
+    // An explicit pick scopes reads; the default label must not disable server fallbacks.
     const selectedSeason = seasonParam === null ? storedSeason : urlSeason
-    const seasonOverride = selectedSeason != null && (
-        currentSeason != null ? selectedSeason !== currentSeason : seasonParam === null
-    ) ? selectedSeason : undefined
+    const seasonOverride = selectedSeason
     const [profile, setProfile] = useState(null)
     const [stats, setStats] = useState([])
     const [statsMeta, setStatsMeta] = useState(null)
     const [seasonStats, setSeasonStats] = useState(null)
+    const [seasonStatsRevision, setSeasonStatsRevision] = useState(0)
     const [loading, setLoading] = useState(true)
     const [notFound, setNotFound] = useState(false)
     const [error, setError] = useState(null)
@@ -304,6 +305,7 @@ export function PlayerPage() {
     const { openLoginModal } = useAuthUI()
     const [watchedIds, setWatchedIds] = useState(null)
     const playerApiId = parseInt(playerId, 10)
+    const isLocalPlayer = playerApiId < 0
     const isWatched = !!watchedIds?.has(playerApiId)
     const emittedProfileViewIdsRef = useRef(new Set())
 
@@ -374,7 +376,7 @@ export function PlayerPage() {
             const promise = APIService.getPlayerJourneyMap(playerId)
                 .catch(() => null)
                 .then((journeyMapData) => {
-                    if (journeyMapData) return journeyMapData
+                    if (journeyMapData || isLocalPlayer) return journeyMapData
                     return APIService.request(`/players/${playerId}/journey/map?sync=true`).catch(() => null)
                 })
             hydration = { playerId, promise }
@@ -386,7 +388,7 @@ export function PlayerPage() {
         })
 
         return () => { cancelled = true }
-    }, [playerId])
+    }, [playerId, isLocalPlayer])
 
     useEffect(() => {
         let cancelled = false
@@ -395,6 +397,15 @@ export function PlayerPage() {
         }
         return () => { cancelled = true }
     }, [playerId, selectedSeason])
+
+    useEffect(() => {
+        if (!playerId || seasonStatsRevision === 0) return
+        let cancelled = false
+        APIService.getPublicPlayerSeasonStats(playerId, selectedSeason)
+            .then((response) => { if (!cancelled) setSeasonStats(response) })
+            .catch(() => {})
+        return () => { cancelled = true }
+    }, [playerId, selectedSeason, seasonStatsRevision])
 
     const loadPlayerData = async (isCancelled) => {
         setLoading(true)
@@ -412,7 +423,7 @@ export function PlayerPage() {
                     throw requestError
                 }),
                 APIService.getPublicPlayerSeasonStats(playerId, selectedSeason).catch(() => null),
-                APIService.getPlayerAcademyStats(playerId).catch(() => null),
+                isLocalPlayer ? Promise.resolve(null) : APIService.getPlayerAcademyStats(playerId).catch(() => null),
             ])
 
             if (isCancelled()) return
@@ -575,7 +586,7 @@ export function PlayerPage() {
     const currentConfig = METRIC_CONFIG[position] || METRIC_CONFIG[DEFAULT_POSITION]
     const playerName = profile?.name || `Player #${playerId}`
     const resolvedSeason = selectedSeason ?? seasonStats?.season ?? statsMeta?.summary?.season
-    const seasonLabel = formatSeasonLabel(resolvedSeason)
+    const seasonLabel = formatSeasonLabel(resolvedSeason ?? defaultSeason)
     const provenance = seasonStats?.provenance ?? statsMeta?.provenance
     const provenanceSource = provenance?.primary_source ?? provenance?.source
     const provenanceText = provenanceSource === 'journey' && ['cup-gap', 'fixtures-invisible'].includes(provenance?.reconcile_flag)
@@ -726,7 +737,7 @@ export function PlayerPage() {
                             </div>
                             <h1 className="display mt-3 text-balance break-words text-[48px] leading-[.92] [overflow-wrap:anywhere] sm:text-[80px] lg:text-[104px]">{playerName}</h1>
                             <p className="mt-4 flex flex-wrap gap-x-2 text-base text-chalk/80 sm:text-[17px]">
-                                {[position, profile?.age ? `${profile.age} yrs` : null, profile?.nationality].filter(Boolean).map((item, index) => (
+                                {[isLocalPlayer ? profile?.position : position, profile?.age ? `${profile.age} yrs` : null, profile?.nationality].filter(Boolean).map((item, index) => (
                                     <span key={item}>{index > 0 ? <span aria-hidden="true" className="mr-2 text-muted-dark">·</span> : null}{item}</span>
                                 ))}
                             </p>
@@ -763,10 +774,14 @@ export function PlayerPage() {
                             playerApiId={String(playerId)}
                             playerName={playerName}
                             playerPosition={profile?.position || position}
-                            season={resolvedSeason}
+                            season={isLocalPlayer ? selectedSeason : (selectedSeason ?? resolvedSeason)}
                             onSeasonStatsChange={(nextStats) => {
                                 const nextSeason = Number.parseInt(String(nextStats?.season ?? ''), 10)
-                                if (selectedSeason == null || nextSeason === Number(selectedSeason)) {
+                                if (selectedSeason == null) {
+                                    // A mutation describes its game's season. Reload the server's
+                                    // default so older games cannot replace the displayed totals.
+                                    setSeasonStatsRevision((revision) => revision + 1)
+                                } else if (nextSeason === Number(selectedSeason)) {
                                     setSeasonStats(nextStats)
                                 }
                             }}
@@ -795,10 +810,9 @@ export function PlayerPage() {
                             <SeasonSelect
                                 value={selectedSeason}
                                 onValueChange={handleSeasonChange}
-                                onCurrentSeasonChange={setCurrentSeason}
                             />
                         </div>
-                        {apiFootballFrozen && <PublicMatchPanels stats={seasonStats} />}
+                        {apiFootballFrozen && <PublicMatchPanels stats={seasonStats} hideProviderFreshness={isLocalPlayer} />}
                         {stats.length === 0 && academyStats?.appearances > 0 ? (
                             /* Academy player with no loan stats — academy section below is the primary view */
                             null
@@ -1286,17 +1300,17 @@ export function PlayerPage() {
                     )}
 
                         {/* Season availability (injuries / suspensions) */}
-                        <PlayerAvailability playerId={parseInt(playerId)} />
+                        {!isLocalPlayer && <PlayerAvailability playerId={parseInt(playerId)} />}
 
                         {/* Inline Sponsor Strip */}
                         <SponsorStrip />
 
                         {/* Community */}
-                        <section aria-label="Community" className="space-y-6">
+                        {!isLocalPlayer && <section aria-label="Community" className="space-y-6">
                             <h2 className="display text-[34px] sm:text-[44px]">Community</h2>
                             <CommentSection playerId={parseInt(playerId)} title="Discussion" />
                             <PlayerLinksSection playerId={parseInt(playerId)} />
-                        </section>
+                        </section>}
                     </div>
             </div>
 

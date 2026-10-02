@@ -41,6 +41,9 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
 
 
 ### Done
+- **2026-10-01 UXM1F2:** all three RUXM1V findings fixed on draft #1119; signed-out Get verified/sign-in CTA, implicit-season requests preserved, every explicit pick survives links. Main784b1490 merged; full pytest4089/69skip, Node263, lane Playwright40 + real frozen4, CI Ruff0.16-format580/lint/build pass. Real shadow15/limited30 defaults match main; own servers/SQLite/generated output cleaned. Pushed d0c7573a; no merge. Ledger `ledgers/CONTINUITY_uxm1.md`; hand-back `~/codex-runs/aw-redesign/logs/UXM1F2.final.md`.
+- **2026-10-01 UXM1F1:** all five RUXM1 findings fixed for draft #1119; server display season, unfiltered games, neutral verification/fallback, safe positions, single introductions load/retry. Main e82bb4e3 included; full pytest3766/50skip, Node257,216 unique modern Playwright/4existing skips, real Flask season+games freezeON/OFF, Ruff/format/lint/build pass. Own servers/SQLite/temp cleaned; no merge. Ledger `ledgers/CONTINUITY_uxm1.md`; report `~/codex-runs/aw-redesign/logs/UXM1F1.final.md`.
+- **2026-10-01 UXM1:** P-08–P-12/P-27/P-28 + public adult community search fixed; draft PR #1119 against main, unmerged. Main/N3 adea5177 integrated; full pytest3645/50skip, Node227, 67 unique relevant Playwright, Ruff/format/lint/build pass. Desktop/phone evidence reviewed; own servers/aw_uxm1/temp cleaned. Ledger `ledgers/CONTINUITY_uxm1.md`; hand-back `~/codex-runs/aw-redesign/logs/UXM1.final.md`.
 - **2026-10-01 P2 B3 fix round 5:** nine final REVIEW-DUEL items fixed:5s preapply/migration lock bound + retry, fixed dark action routes, honest no-overwrite duplicate contract, imported-source repair, canonical target serialization/savepoint collision recovery, per-case hide intent incl closed holds + restore confirmation, provenance-based actor-copy erasure, independent complete inventory paging and single-decode auth/me. Full4258/101skip/0fail, PG32, Node219, Playwright17, Ruff/format587, OSV547/lint0err190warn/build green. Exact SQL twice=upgrade(p2b2), schema diff0/backfill5/RLS4; CONTRACT published. B1/B2 bytes equal main784b1490, pins p2b3. Four inspected screenshots shots/B3F5; owned Vite/scratch DB/temp outputs cleaned. Hand-back ~/codex-runs/aw-redesign/logs/B3F5.final.md; no merge/deploy/provider sends.
 - **2026-10-01 N5 loader redraw:** low collar/tapered toe/contrasting instep laces/soleplate/five blades; solid club colours +gold heel. Six1.2s phases with200ms ease, still green Reduce Motion; picker/routes/logo unchanged. Lint/build +225Node/64Playwright;30 shots, exact geometry/timing handoff to I1;#1125 push status in external N5F1 hand-back.
 - **2026-10-01 N5 web:** shared inline SVG loader + canonical region-grouped trial time-zone picker; reduced-motion/boot parity, browser/club defaults, aliases, keyboard/select/locked regressions pass. OSV547/lint0errors186 inherited warnings/build,225Node/64Playwright; six reviewed chalk/night/desktop/phone/picker PNGs. No backend, dependency or logo changes; see `ledgers/CONTINUITY_n5-web.md` and external `logs/N5.final.md` for PR/CI/review status.
@@ -1095,6 +1098,9 @@ CONTINUITY.md
 ## Cross-task Blockers / Handoffs
 
 - iOS cold-start diagnostic complete; scoped fix delivered with PR #634 (merged to main `be02736`).
+
+## UXM1F3
+- 2026-10-01: draft PR1119 review-duel union five Mediums/three Smalls fixed; full pytest4095pass86skip0fail, PG34/Node277/browser101+freezeOFF12 and Ruff/lint/build/OSV pass. Code0b9e99fb pushed to draft1119 (unmerged); ledger `ledgers/CONTINUITY_uxm1.md`; O-M3 default-season policy unchanged pending decision.
 
 ## Trivial Log
 
