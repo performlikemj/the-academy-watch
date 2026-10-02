@@ -19,7 +19,7 @@ from functools import wraps
 from html import unescape
 from urllib.parse import urlsplit
 
-from flask import Blueprint, current_app, g, jsonify, request
+from flask import Blueprint, g, jsonify, request
 from sqlalchemy import func, or_, text
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from src.auth import mint_media_token
@@ -2349,7 +2349,7 @@ def _scoped_analysis_response(response):
     if response.is_json and scoped_squad_ids() is not None:
         from src.services.brief_names import scoped_analysis_payload
 
-        response.set_data(current_app.json.dumps(scoped_analysis_payload(response.get_json())))
+        response.set_data(jsonify(scoped_analysis_payload(response.get_json())).get_data())
     return response
 
 
