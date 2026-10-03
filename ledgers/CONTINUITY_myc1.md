@@ -20,3 +20,5 @@
 - CI 37088351280: frontend146 PASS / 2 old-message assertions FAIL; new club-entry bootstrap error intentionally replaces recruiting-local error. Updated both (single parametrized test), preserving no-coming-soon and adding Retry/no-empty/no-business-request controls. Added MYC1 browser spec to CI.
 - Now: targeted two CI regressions, final commit/gates/browser/push/CI. Production code unchanged since 99ddbce8.
 - Validation: revised 429 bootstrap contract targeted desktop/mobile 2 PASS; ESLint PASS. CI now runs MYC1+staff specs after the existing opportunity regressions. Final delivery remains authoritative externally.
+- Candidate0bd7763a: browser49 PASS; four cached gates PASS (5028 backend / 1714 skipped; Node319; Ruff631; lint0 errors). CI did not enqueue because main advanced to53127a54 and PR became CONFLICTING (GitHub suppresses pull_request workflows with merge conflicts).
+- Refresh: merge main53127a54; only AGENTS.md/CONTINUITY.md conflict, preserve both histories/patterns. MYC1 production sources unchanged; new main includes GOL maintenance. Final merge head needs four gates/browser/push and CI bounded25 minutes.
