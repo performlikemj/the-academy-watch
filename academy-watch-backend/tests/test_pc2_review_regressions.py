@@ -505,7 +505,7 @@ def test_current_report_evidence_has_stable_backing_row_clock(app):
     first = _rollup_source_breakdown(pid, SEASON)
     assert first == _rollup_source_breakdown(pid, SEASON)
     row = PlayerMatchEntry.query.filter_by(player_api_id=pid, source="club").order_by(PlayerMatchEntry.id).first()
-    row.updated_at = datetime(2026, 10, 4, 12, 0)
+    row.updated_at = datetime(2026, 10, 4, 12, 0, tzinfo=UTC)
     row.goals += 1
     db.session.commit()
     changed = _rollup_source_breakdown(pid, SEASON)
