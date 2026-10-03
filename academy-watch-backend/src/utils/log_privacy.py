@@ -12,6 +12,8 @@ MAX_LOG_CHARS = 65536
 _DELIMITERS = frozenset("@<>\"',;:=()[]{}/?\\\x00")
 _TOKEN = re.compile(r"\S+")
 _IDENTIFIER = re.compile(r"[A-Za-z0-9_.:-]+\Z")
+_LABEL = re.compile(r"[A-Za-z0-9 .;:_-]+\Z")
+_HIGHLIGHT_KEY = re.compile(r"highlights/[a-f0-9-]{36}/[a-f0-9-]{36}\.mp4\Z")
 _FORMAT_WIDTH = re.compile(r"%(?:\([^)%]*\))?[-+ #0]*(\d+|\*)(?:\.(\d+|\*))?")
 _FAILURE = "[log message withheld: privacy formatting failed]"
 _DONE = object()
@@ -83,7 +85,7 @@ def log_metadata(value):
         if isinstance(value, BaseException):
             return _text(type(value).__name__)
         if isinstance(value, str):
-            return value if _IDENTIFIER.fullmatch(value) else "[text omitted]"
+            return value if _IDENTIFIER.fullmatch(value) or _HIGHLIGHT_KEY.fullmatch(value) else "[text omitted]"
         if isinstance(value, dict):
             safe = {}
             collision = 0
@@ -102,6 +104,18 @@ def log_metadata(value):
         return "[details omitted]"
     except Exception:
         return "[details omitted]"
+
+
+def log_label(value):
+    """Controlled ASCII event labels; no address/URL/encoding syntax.
+
+    Shared warning callers supply fixed source labels. Validate at their shared
+    emission boundary instead of treating a plain variable as a template.
+    """
+    try:
+        return value if isinstance(value, str) and _LABEL.fullmatch(value) else "[event label omitted]"
+    except Exception:
+        return "[event label omitted]"
 
 
 def safe_exc_info():

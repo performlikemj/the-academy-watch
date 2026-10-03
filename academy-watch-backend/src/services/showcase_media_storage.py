@@ -30,7 +30,7 @@ from time import monotonic
 from urllib.parse import quote, unquote, urlparse
 from uuid import uuid4
 
-from src.utils.log_privacy import log_metadata
+from src.utils.log_privacy import log_label, log_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +70,7 @@ def warn_once(key: str, message: str) -> None:
         if previous is not None and now - previous < WARNING_INTERVAL_SECONDS:
             return
         _logged_media_warnings[key] = now
-    logger.warning("Log event: %s", log_metadata(message))
+    logger.warning("Media warning: %s", log_label(message))
 
 
 _CONTENT_TYPE_EXTENSIONS = {

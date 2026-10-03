@@ -295,7 +295,7 @@ def test_backend_output_calls_use_fixed_templates_and_controlled_metadata():
     import ast
 
     root = Path(__file__).resolve().parents[1]
-    helpers = {"mask_email", "log_metadata", "safe_exc_info", "bool", "len", "int", "float"}
+    helpers = {"mask_email", "log_metadata", "log_label", "safe_exc_info", "bool", "len", "int", "float"}
 
     def safe(node):
         if isinstance(node, ast.Constant):
@@ -334,7 +334,13 @@ def test_backend_output_calls_use_fixed_templates_and_controlled_metadata():
                 "traceback.print_exc",
                 "traceback.print_exception",
             }
-            if not (is_log or is_output):
+            is_label_forwarder = (
+                isinstance(fn, ast.Attribute)
+                and fn.attr == "warn_once"
+                or isinstance(fn, ast.Name)
+                and fn.id == "warn_once"
+            )
+            if not (is_log or is_output or is_label_forwarder):
                 continue
             for arg in call.args:
                 # Verified local constructions, not generic spelling allowlists.
@@ -416,3 +422,24 @@ def test_deployed_error_logging_omits_raw_request_uri_and_header_errors(level):
         gunicorn.error_log.removeHandler(handler)
         for h in old:
             gunicorn.error_log.addHandler(h)
+
+
+@pytest.mark.parametrize("address", ADDRESSES)
+def test_shared_media_warning_label_never_accepts_request_data(monkeypatch, caplog, address):
+    from src.services import showcase_media_storage as storage
+
+    monkeypatch.setattr(storage, "_logged_media_warnings", {})
+    storage.warn_once("invalid-reference", "Provider diagnostic E42 " + address)
+    assert address not in caplog.text
+    assert "Provider diagnostic E42" not in caplog.text
+    assert "Media warning:" in caplog.text
+
+
+def test_validated_highlight_output_keys_remain_reviewable_metadata():
+    from src.services.highlights_storage import is_output_path
+
+    path = "highlights/00000000-0000-0000-0000-000000000000/11111111-1111-1111-1111-111111111111.mp4"
+    assert is_output_path(path)
+    assert log_metadata(path) == path
+    assert log_metadata("highlights/john@example.com/output.mp4") == "[text omitted]"
+    assert log_metadata(path.replace("00000000", "000000%40")) == "[text omitted]"
