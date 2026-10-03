@@ -12,6 +12,7 @@ final class ShowcaseViewModel: ObservableObject {
 
     private let apiClient: any ShowcaseAPIClientProtocol
     private var loadRevision = 0
+    private var boundIdentity: String?
 
     init(
         playerID: Int,
@@ -40,6 +41,28 @@ final class ShowcaseViewModel: ObservableObject {
     var visibleShowcase: PlayerShowcaseResponse? {
         guard let showcase, showcase.hasContent else { return nil }
         return showcase
+    }
+
+    /// The showcase differs by reader (the server adds the agent's email only
+    /// for signed-in readers; owners get more), so nothing loaded for one
+    /// account is kept for the next, and a late answer for it is discarded.
+    /// Only a real change of account drops the showcase; the page coming
+    /// back on screen for the same account keeps it.
+    @discardableResult
+    func bind(to identity: String) -> Bool {
+        guard boundIdentity != identity else { return false }
+        let changed = boundIdentity != nil
+        boundIdentity = identity
+        if changed { resetAccount() }
+        return changed
+    }
+
+    func resetAccount() {
+        guard !isFixturePreview else { return }
+        loadRevision += 1
+        showcase = nil
+        hasAttemptedLoad = false
+        isLoading = false
     }
 
     func loadIfNeeded() async {

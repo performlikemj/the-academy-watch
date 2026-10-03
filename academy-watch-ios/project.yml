@@ -137,5 +137,6 @@ schemes:
           selectedTests:
             - Phase2UITests
             - PlayerClubExperienceUITests
+            - PlayerCardUITests
             - JourneyRunnerUITests
             - GolChatUITests

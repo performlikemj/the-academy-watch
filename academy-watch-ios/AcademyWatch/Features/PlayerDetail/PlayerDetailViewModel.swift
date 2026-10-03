@@ -23,6 +23,8 @@ final class PlayerDetailViewModel: ObservableObject {
     @Published private(set) var hasAttemptedLoad = false
     @Published private(set) var seasons: [Season] = []
     @Published private(set) var selectedSeason: Int?
+    /// The season was chosen (by the caller or in the picker), not defaulted.
+    @Published private(set) var hasExplicitSeason: Bool
 
     private let apiClient: any PlayerDetailAPIClientProtocol
     private var loadRevision = 0
@@ -36,6 +38,7 @@ final class PlayerDetailViewModel: ObservableObject {
     ) {
         self.playerID = playerID
         selectedSeason = initialSeason
+        hasExplicitSeason = initialSeason != nil
         self.apiClient = apiClient
 
         #if DEBUG
@@ -87,6 +90,8 @@ final class PlayerDetailViewModel: ObservableObject {
     }
 
     func selectSeason(_ season: Int) async {
+        guard selectedSeason != season || !hasExplicitSeason else { return }
+        hasExplicitSeason = true
         guard selectedSeason != season else { return }
         selectedSeason = season
         await beginLoad(replacingExisting: true)
@@ -110,6 +115,7 @@ final class PlayerDetailViewModel: ObservableObject {
         if selectedSeason != season {
             selectedSeason = season
         }
+        hasExplicitSeason = true
         let client = apiClient
         let playerID = playerID
         async let statsResult = try? client.fetchPlayerSeasonStats(playerID: playerID, season: season)
@@ -266,6 +272,11 @@ final class PlayerDetailViewModel: ObservableObject {
                                 try await client.fetchPlayerSeasonStats(playerID: playerID, season: season)
                             )
                         } catch {
+                            // "Not found" is an answer (no totals for this
+                            // identity), not a failed read.
+                            if PlayerMatchLinesViewModel.statusCode(of: error) == 404 {
+                                return .seasonStatsMissing
+                            }
                             return .failure(.seasonStats, Self.displayMessage(for: error))
                         }
                     }
@@ -307,6 +318,9 @@ final class PlayerDetailViewModel: ObservableObject {
         case let .seasonStats(value):
             seasonStats = value
             loadingSections.remove(.seasonStats)
+        case .seasonStatsMissing:
+            seasonStats = nil
+            loadingSections.remove(.seasonStats)
         case let .recentForm(value):
             recentFixtures = value
             loadingSections.remove(.recentForm)
@@ -336,6 +350,7 @@ final class PlayerDetailViewModel: ObservableObject {
 private enum PlayerDetailLoadResult: Sendable {
     case profile(PlayerProfile)
     case seasonStats(PlayerSeasonStats)
+    case seasonStatsMissing
     case recentForm([PlayerRecentFixture])
     case journey(PlayerJourneyResponse)
     case availability(PlayerAvailability)
@@ -344,7 +359,7 @@ private enum PlayerDetailLoadResult: Sendable {
     var section: PlayerDetailSection {
         switch self {
         case .profile: .profile
-        case .seasonStats: .seasonStats
+        case .seasonStats, .seasonStatsMissing: .seasonStats
         case .recentForm: .recentForm
         case .journey: .journey
         case .availability: .availability

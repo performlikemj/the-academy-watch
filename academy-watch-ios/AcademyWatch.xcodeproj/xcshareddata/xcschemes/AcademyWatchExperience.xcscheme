@@ -98,6 +98,9 @@
                   Identifier = "PlayerClubExperienceUITests">
                </Test>
                <Test
+                  Identifier = "PlayerCardUITests">
+               </Test>
+               <Test
                   Identifier = "JourneyRunnerUITests">
                </Test>
                <Test

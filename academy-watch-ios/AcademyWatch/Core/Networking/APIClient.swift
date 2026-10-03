@@ -144,6 +144,11 @@ protocol PlayerMatchAPIClientProtocol: Sendable {
     ) async throws -> PlayerMatchMutationResponse
 }
 
+protocol PlayerMatchLinesAPIClientProtocol: Sendable {
+    /// One line per match with totals built from those lines, as the web reads it.
+    func fetchPlayerMatchLines(playerID: Int) async throws -> PlayerMatchLinesResponse
+}
+
 protocol OnboardingAPIClientProtocol: Sendable {
     func createLocalPlayer(_ submission: LocalPlayerSubmission) async throws -> LocalPlayerCreateResponse
     func fetchLocalPlayer(id: Int) async throws -> LocalPlayerResponse
@@ -180,6 +185,7 @@ struct APIClient: GolAPIClientProtocol, PlayerClubAPIClientProtocol, ScoutAPICli
     FollowListsAPIClientProtocol,
     PlayerFanAPIClientProtocol,
     PlayerMatchAPIClientProtocol,
+    PlayerMatchLinesAPIClientProtocol,
     OnboardingAPIClientProtocol,
     CompareAPIClientProtocol,
     Sendable
@@ -478,6 +484,13 @@ struct APIClient: GolAPIClientProtocol, PlayerClubAPIClientProtocol, ScoutAPICli
 
     func fetchPlayerShowcase(playerID: Int) async throws -> PlayerShowcaseResponse {
         try await get(path: "players/\(playerID)/showcase", queryItems: [])
+    }
+
+    func fetchPlayerMatchLines(playerID: Int) async throws -> PlayerMatchLinesResponse {
+        try await get(
+            path: "players/\(playerID)/matches",
+            queryItems: [URLQueryItem(name: "view", value: "lines")]
+        )
     }
 
     func updateOwnerShowcaseProfile(

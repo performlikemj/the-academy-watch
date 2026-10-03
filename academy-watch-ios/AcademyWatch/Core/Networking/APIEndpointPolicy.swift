@@ -46,6 +46,15 @@ struct APIEndpointPolicy {
         return production
     }
 
+    /// Player-card images follow the same rule as API calls: a build that may
+    /// not call production (Debug, simulator, test host) does not fetch an
+    /// image from the production host either. Other hosts are unaffected.
+    static func reviewSafeImageURL(_ url: URL?, context: Context = .current) -> URL? {
+        guard let url else { return nil }
+        if url.host?.lowercased() == production.host, !context.permitsProduction { return nil }
+        return url
+    }
+
     static func validate(_ url: URL, context: Context, stubTransport: Bool = false,
                          offlineFixture: Bool = false) throws {
         guard url.user == nil, url.password == nil, url.query == nil, url.fragment == nil,

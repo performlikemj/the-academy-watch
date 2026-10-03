@@ -1,23 +1,46 @@
 import Foundation
 
 struct PlayerShowcaseResponse: Decodable, Equatable, Sendable {
+    /// The signed identity: a provider id, or a community player's negative id.
     let playerApiId: Int
+    /// Set on a community (local) player's showcase, which carries no provider id.
+    let localPlayerId: Int?
     let profile: ShowcaseProfile?
     let reel: [ShowcaseReelItem]
     let verifiedFootage: [ShowcaseVerifiedFootage]
     let claimStatus: String?
+    let photos: [ShowcasePhoto]
+    let affiliations: [ShowcaseAffiliation]
+    /// The player has claimed the profile personally (the scout desk's rule).
+    let contactable: Bool
 
     private enum CodingKeys: String, CodingKey {
         case playerApiId
+        case localPlayerId
         case profile
         case reel
         case verifiedFootage
         case claimStatus
+        case photos
+        case affiliations
+        case contactable
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        playerApiId = try container.decode(Int.self, forKey: .playerApiId)
+        // A community player's showcase is keyed by `local_player_id` and has
+        // no provider id; its signed identity is the negative local id.
+        localPlayerId = try container.decodeIfPresent(Int.self, forKey: .localPlayerId)
+        if let providerID = try container.decodeIfPresent(Int.self, forKey: .playerApiId) {
+            playerApiId = providerID
+        } else if let localPlayerId {
+            playerApiId = -localPlayerId
+        } else {
+            throw DecodingError.keyNotFound(
+                CodingKeys.playerApiId,
+                .init(codingPath: container.codingPath, debugDescription: "No player_api_id or local_player_id")
+            )
+        }
         profile = try container.decodeIfPresent(ShowcaseProfile.self, forKey: .profile)
         reel = try container.decodeIfPresent([ShowcaseReelItem].self, forKey: .reel) ?? []
         verifiedFootage = try container.decodeIfPresent(
@@ -25,6 +48,34 @@ struct PlayerShowcaseResponse: Decodable, Equatable, Sendable {
             forKey: .verifiedFootage
         ) ?? []
         claimStatus = try container.decodeIfPresent(String.self, forKey: .claimStatus)
+        // Additive read-view fields: a malformed row never breaks the showcase.
+        photos = (try? container.decodeIfPresent([ShowcasePhoto].self, forKey: .photos)) ?? []
+        affiliations = (try? container.decodeIfPresent([ShowcaseAffiliation].self, forKey: .affiliations)) ?? []
+        contactable = (try? container.decodeIfPresent(Bool.self, forKey: .contactable)) ?? false
+    }
+
+    /// Same public rule as the web read view: approved photos that carry a
+    /// public URL, primary first, then the owner's order.
+    var publicPhotos: [ShowcasePhoto] {
+        photos
+            .filter { $0.status == "approved" && $0.url != nil }
+            .sorted { first, second in
+                let firstPrimary = first.isPrimary == true
+                let secondPrimary = second.isPrimary == true
+                if firstPrimary != secondPrimary { return firstPrimary }
+                let firstOrder = first.sortOrder ?? Int.max
+                let secondOrder = second.sortOrder ?? Int.max
+                if firstOrder != secondOrder { return firstOrder < secondOrder }
+                return first.id < second.id
+            }
+    }
+
+    /// The club that confirmed this player — only a club-confirmed affiliation counts.
+    var confirmedClubName: String? {
+        affiliations.last { affiliation in
+            affiliation.status == "club_confirmed"
+                && affiliation.clubName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        }?.clubName
     }
 
     var approvedReel: [ShowcaseReelItem] {
@@ -82,6 +133,14 @@ struct ShowcaseProfile: Decodable, Equatable, Sendable {
     let clubProgramId: Int?
     let statusContradiction: Bool?
     let contractAttestationReviewStatus: PlayerContractAttestationReviewStatus?
+    // Read-view facts. The server withholds the agent's email from signed-out readers.
+    let rawContractStatus: String?
+    let contractUntil: String?
+    let availability: String?
+    let agentName: String?
+    let agentContactEmail: String?
+    let nationalitySecondary: String?
+    let languages: String?
 
     private enum CodingKeys: String, CodingKey {
         case id
@@ -98,12 +157,24 @@ struct ShowcaseProfile: Decodable, Equatable, Sendable {
         case clubProgramId
         case statusContradiction
         case contractAttestationReviewStatus
+        case localPlayerId
+        case profileContractStatus
+        case contractUntil
+        case availability
+        case agentName
+        case agentContactEmail
+        case nationalitySecondary
+        case languages
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decodeIfPresent(Int.self, forKey: .id)
-        playerApiId = try container.decode(Int.self, forKey: .playerApiId)
+        // A community player's profile sends `player_api_id: null` with a
+        // `local_player_id`; a linked one sends both.
+        let localID = try? container.decodeIfPresent(Int.self, forKey: .localPlayerId)
+        playerApiId = (try? container.decodeIfPresent(Int.self, forKey: .playerApiId))
+            ?? localID.map { -$0 } ?? 0
         bio = try container.decodeIfPresent(String.self, forKey: .bio)
         positions = try container.decodeIfPresent(String.self, forKey: .positions)
         preferredFoot = try container.decodeIfPresent(String.self, forKey: .preferredFoot)
@@ -111,7 +182,11 @@ struct ShowcaseProfile: Decodable, Equatable, Sendable {
         selfReported = try container.decodeIfPresent(Bool.self, forKey: .selfReported) ?? false
         status = try container.decodeIfPresent(ShowcaseProfileModerationStatus.self, forKey: .status)
         updatedAt = try container.decodeIfPresent(String.self, forKey: .updatedAt)
-        contractStatus = try container.decodeIfPresent(PlayerContractStatus.self, forKey: .contractStatus)
+        // A public profile states its own contract status (under_contract /
+        // expiring / free_agent); only an owner's response carries the claim
+        // attestation values this enum knows. An unknown value is not an
+        // attestation — it must not fail the whole showcase.
+        contractStatus = try? container.decodeIfPresent(PlayerContractStatus.self, forKey: .contractStatus)
         currentClubName = try container.decodeIfPresent(String.self, forKey: .currentClubName)
         clubProgramId = try container.decodeIfPresent(Int.self, forKey: .clubProgramId)
         statusContradiction = try container.decodeIfPresent(Bool.self, forKey: .statusContradiction)
@@ -119,6 +194,14 @@ struct ShowcaseProfile: Decodable, Equatable, Sendable {
             PlayerContractAttestationReviewStatus.self,
             forKey: .contractAttestationReviewStatus
         )
+        rawContractStatus = (try? container.decodeIfPresent(String.self, forKey: .profileContractStatus))
+            ?? (try? container.decodeIfPresent(String.self, forKey: .contractStatus))
+        contractUntil = try? container.decodeIfPresent(String.self, forKey: .contractUntil)
+        availability = try? container.decodeIfPresent(String.self, forKey: .availability)
+        agentName = try? container.decodeIfPresent(String.self, forKey: .agentName)
+        agentContactEmail = try? container.decodeIfPresent(String.self, forKey: .agentContactEmail)
+        nationalitySecondary = try? container.decodeIfPresent(String.self, forKey: .nationalitySecondary)
+        languages = try? container.decodeIfPresent(String.self, forKey: .languages)
     }
 
     var hasVisibleContent: Bool {
@@ -231,7 +314,8 @@ struct ShowcaseReelItem: Decodable, Equatable, Identifiable, Sendable {
         } else {
             id = String(try container.decode(Int.self, forKey: .id))
         }
-        playerId = try container.decode(Int.self, forKey: .playerId)
+        // A community player's reel rows carry no provider id.
+        playerId = (try? container.decodeIfPresent(Int.self, forKey: .playerId)) ?? 0
         url = try container.decode(String.self, forKey: .url)
         title = try container.decodeIfPresent(String.self, forKey: .title)
         linkType = try container.decodeIfPresent(String.self, forKey: .linkType) ?? "highlight"

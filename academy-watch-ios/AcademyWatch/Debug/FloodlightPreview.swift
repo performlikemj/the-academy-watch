@@ -26,6 +26,10 @@ enum FloodlightPreview {
         if screen?.hasSuffix("-error") == true, !path.hasSuffix("/health") {
             throw APIClientError.server(statusCode: 503, message: "Synthetic review error. Please try again.")
         }
+        if let state = PlayerCardReviewFixtures.state,
+           let data = try PlayerCardReviewFixtures.data(for: request, state: state) {
+            return data
+        }
         let empty = screen?.hasSuffix("-empty") == true
         var name: String?
         if path.hasSuffix("/scout/compare") { name = "scout_compare_gk_outfielder" }
@@ -99,7 +103,7 @@ struct FloodlightPreviewRoot: View {
         _incoming = StateObject(wrappedValue: IncomingContactRequestsViewModel(apiClient: client, availability: ContactFeatureAvailability.shared))
         _gol = StateObject(wrappedValue: GolChatViewModel(client: PreviewGolClient()))
         _showcase = StateObject(wrappedValue: ShowcaseViewModel(playerID: 900001, apiClient: client))
-        UserDefaults.standard.set(screen == "chooser" ? "" : screen == "club-home" ? "club" : ["scout", "scout-empty", "scout-error", "watchlist", "watchlist-empty", "watchlist-error", "lists", "lists-empty", "account", "account-signed-out"].contains(screen) ? "scout" : "player", forKey: ExperienceRole.storageKey)
+        UserDefaults.standard.set(screen == "chooser" ? "" : screen == "club-home" ? "club" : ["scout", "scout-empty", "scout-error", "watchlist", "watchlist-empty", "watchlist-error", "lists", "lists-empty", "account", "account-signed-out"].contains(screen) || screen.hasPrefix("pc-desk") ? "scout" : "player", forKey: ExperienceRole.storageKey)
         ContactFeatureAvailability.shared.recordSuccess()
     }
 
@@ -126,7 +130,8 @@ struct FloodlightPreviewRoot: View {
 
     @ViewBuilder private var content: some View {
         switch screen {
-        case "scout", "scout-empty", "scout-error": RootTabView(launchArguments: ["-initialTab", "scoutDesk"])
+        case "scout", "scout-empty", "scout-error", "pc-desk", "pc-desk-next": RootTabView(launchArguments: ["-initialTab", "scoutDesk"])
+        case let state where state.hasPrefix("pc-"): NavigationStack { PlayerDetailView(playerID: PlayerCardReviewFixtures.playerID, apiClient: client) }
         case "loading": WingLiftLoadingView(feedback: ScoutInitialLoadFeedback(elapsedSeconds: 10), reduceMotionOverride: true)
         case "player", "player-error", "season": NavigationStack { PlayerDetailView(playerID: 900001, apiClient: client) }
         case "compare": NavigationStack { CompareView(playerIDs: [900001,900002], apiClient: client) }

@@ -104,8 +104,19 @@ struct PlayerSeasonStats: Decodable, Equatable, Sendable {
     let localAppearances: Int?
     let clubs: [PlayerSeasonClub]
     let provenance: PlayerSeasonProvenance?
+    /// Card totals when the source states them; absent is unknown, not zero.
+    let yellows: Int?
+    let reds: Int?
+    /// Keeper figures exactly as sent (`saves` / `goalsConceded` above default to zero).
+    let statedSaves: Int?
+    let statedGoalsConceded: Int?
+    /// Sent only while provider data is frozen: the provider's own totals, kept apart.
+    let publicMatchData: PlayerPublicMatchData?
 
     private enum CodingKeys: String, CodingKey {
+        case yellows
+        case reds
+        case publicMatchData
         case playerId
         case season
         case appearances
@@ -140,6 +151,11 @@ struct PlayerSeasonStats: Decodable, Equatable, Sendable {
         localAppearances = try container.decodeIfPresent(Int.self, forKey: .localAppearances)
         clubs = try container.decodeIfPresent([PlayerSeasonClub].self, forKey: .clubs) ?? []
         provenance = try container.decodeIfPresent(PlayerSeasonProvenance.self, forKey: .provenance)
+        yellows = try? container.decodeIfPresent(Int.self, forKey: .yellows)
+        reds = try? container.decodeIfPresent(Int.self, forKey: .reds)
+        statedSaves = try? container.decodeIfPresent(Int.self, forKey: .saves)
+        statedGoalsConceded = try? container.decodeIfPresent(Int.self, forKey: .goalsConceded)
+        publicMatchData = try? container.decodeIfPresent(PlayerPublicMatchData.self, forKey: .publicMatchData)
     }
 
     var hasHeadlineData: Bool {
@@ -201,6 +217,24 @@ struct PlayerSeasonStats: Decodable, Equatable, Sendable {
         default: nil
         }
     }
+}
+
+struct PlayerPublicMatchData: Decodable, Equatable, Sendable {
+    struct Totals: Decodable, Equatable, Sendable {
+        let appearances: Int?
+        let minutes: Int?
+        let goals: Int?
+        let assists: Int?
+        let yellows: Int?
+        let reds: Int?
+        let saves: Int?
+        let goalsConceded: Int?
+        let avgRating: Double?
+    }
+
+    let available: Bool?
+    let totals: Totals?
+    let asOf: String?
 }
 
 struct PlayerSeasonClub: Decodable, Equatable, Sendable {
@@ -282,6 +316,8 @@ struct PlayerRecentFixture: Decodable, Equatable, Sendable {
     let rating: Double?
     let saves: Int?
     let goalsConceded: Int?
+    var yellows: Int? = nil
+    var reds: Int? = nil
 }
 
 struct PlayerRecentFixturesResponse: Decodable, Equatable, Sendable {
