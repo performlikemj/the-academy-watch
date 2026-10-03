@@ -40,3 +40,4 @@
 - Final40317628 full audit:5142 PASS/1716 SKIP/6 FAIL, all two legacy scout fixtures with orphan reported totals. Added raw match rows; source-filter control now explicitly proves provider wins before testing club-only category. Product code unchanged. Touched browser40317628:81 PASS/2 optional SKIP (1.8m); retained for this fixture-only successor.
 - Now: focused scout fixture validation, final fixture-only commit/push; four cached gates once at successor head; bounded CI and exact receipts in external hand-back.
 - Focused fixture verification: scout blueprint/watchlist102 PASS; ruff format/check PASS. No browser/product changes since81-PASS run.
+- Runbook audit: corrected stale missing-provider query bound4->5 (four existing feeders plus cache fallback); matches implementation and external hand-back. Documentation-only successor; current90df2ed0 full run finishes normally before successor gates. Browser/product/test blobs unchanged.
