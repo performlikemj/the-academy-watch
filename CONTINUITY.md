@@ -31,6 +31,7 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
   an unconditional development step.
 
 ## State
+- **Now (2026-10-03 C2F9):** suppress unknown/initial failed flag panels in all four embedded highlights consumers; dedicated approvals retains error/Retry. Restore main UXBF1 spec; exact final gates/browser/push/CI receipts external logs/C2F9.final.md.
 - **Now (2026-10-03 C2F8):** lead-authorized GOL PostgreSQL test migration-head alignment only; CI-style disposable aw_sbxf2 proof and final backend gate/push/CI receipts in external logs/C2F8.final.md. See ledgers/CONTINUITY_p2-c2.md.
 - **Now (2026-10-03 C2F7):** one failed highlight feature-read fix on PR1122 from a31493c3; all five hook consumers, retry/recovery and unchanged live15s reader/counts. Final gates/push/CI receipts in external logs/C2F7.final.md; see ledgers/CONTINUITY_p2-c2.md.
 - **Now (2026-10-03 C2R2):** resume pure refresh; approved live flag-reader call/mock and four single-table guard exceptions, retaining reviewed API media wrappers per BUS clarification. Exact identity/SQL/count/gate/PG/browser/push/CI/cleanup receipts in external logs/C2R.identity.md and C2R2.final.md; migrations/sweeper/guard frozen.

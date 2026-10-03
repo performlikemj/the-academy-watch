@@ -151,3 +151,11 @@
 - Assertion uses ScriptDirectory over the backend migrations directory, preserving the single-head check on C2 p2c2 and future migration branches.
 - Done: CI-equivalent fixture bootstrap + Flask migration upgrade on disposable localhost aw_sbxf2 reached p2c2; tests/test_gol_dataframes.py passed 2/2. Database dropped and absence verified (count=0).
 - Next: final-head backend-full/backend-lint cached gates, push, bounded 25-minute CI watch; exact SHA/results and diff stat in external logs/C2F8.final.md. No merge.
+
+## C2F9 — keep failed dark flags invisible in embedded UI (2026-10-03)
+- RC2RV2-O sole Medium: initial failed flag reads exposed a dark highlight panel in embedded public/owner/staff/admin surfaces.
+- Shared error panel requires mounted consumer enabled=true; only dedicated HighlightApprovals opts into unknown errors/Retry. Hook/live15s reader and knownON retention unchanged.
+- Embedded consumers: PublicHighlights, HighlightInboxLink (onboarding/owner showcase), ClubHighlightPicker (club console), AdminHighlightTakedown (admin safety). Unknown/loading/initial failed render nothing; knownON failed refresh retains content and shows error/Retry until next successful read.
+- Restore e2e/uxbf1.spec.mjs byte-for-byte from origin/main58ccb8c6; replace four initial-error browser tests and add one knownON/expired failure/Retry OFF test per embedded consumer.
+- Final four cached gates, lane highlights and unchanged UXBF1 browser specs once each, push, bounded25minCI and exact diff/stat/cleanup receipts authoritative in external logs/C2F9.final.md. No backend/API/cache/sweeper/migration changes; no merge.
+- Targeted hook7PASS; new browser cases7PASS plus corrected-public-fixture1PASS. Targeted ESLint0errors/2inherited warnings. Protected backend/API/cache files unchanged; remote main remains58ccb8c6 and UXBF1 blob matches exactly. Final-head checks follow after this ledger commit.

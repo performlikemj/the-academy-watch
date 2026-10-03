@@ -542,34 +542,89 @@ test('failed ON refresh retains content and next successful OFF wins at the same
   expect(reads).toBe(3)
 })
 
+// Expose the real mounted hook's Retry for a controlled expired-live refresh.
+// No hook/cache behaviour is replaced; embedded initial failures have no Retry UI.
+async function exposeEmbeddedFlagState(page) {
+  await page.route('**/src/components/highlights/useHighlights.js*', async route => {
+    const response = await route.fetch()
+    const source = await response.text()
+    expect(source).toContain('return useHighlightsState()')
+    await route.fulfill({ response, body: source.replace('return useHighlightsState()',
+      'const state = useHighlightsState(); window.c2EmbeddedFlag = state; return state') })
+  })
+}
+
+async function mountEmbeddedHighlight(page, consumer) {
+  await page.evaluate(async name => {
+    const { default: React } = await import('/node_modules/.vite/deps/react.js')
+    const { default: DOM } = await import('/node_modules/.vite/deps/react-dom_client.js')
+    const { BrowserRouter } = await import('/e2e/fixtures/roster-router.jsx')
+    const { AuthContext } = await import('/src/context/AuthContext.jsx')
+    const file = name === 'HighlightInboxLink' ? 'HighlightApprovals' : name
+    const module = await import(`/src/components/highlights/${file}.jsx`)
+    const host = document.createElement('div'); host.id = 'embedded-highlight'; document.body.replaceChildren(host)
+    DOM.createRoot(host).render(React.createElement(BrowserRouter, null,
+      React.createElement(AuthContext.Provider, { value: { token: 'synthetic-c2-browser-token' } },
+        React.createElement(module[name], { programId: 7, matchId: 41, playerId: -7 }))))
+  }, consumer)
+}
+
 for (const consumer of ['ClubHighlightPicker', 'PublicHighlights', 'AdminHighlightTakedown', 'HighlightInboxLink']) {
-  test(`${consumer} handles failed features and Retry`, async ({ page }) => {
+  test(`${consumer} hides unknown and initially failed features`, async ({ page }) => {
     await fixture(page)
-    let failing = true, highlightReads = 0
-    await page.route('**/api/features', route => failing ? route.fulfill({ status: 503, json: { error: 'temporary' } }) : route.fulfill({ json: { highlights: true } }))
+    await exposeEmbeddedFlagState(page)
+    let hold = false, release, highlightReads = 0
+    const pending = new Promise(resolve => { release = resolve })
+    await page.route('**/api/features', async route => {
+      if (hold) await pending
+      await route.fulfill({ status: 503, json: { error: 'temporary' } })
+    })
     page.on('request', request => { if (/^\/api\/.*highlight/.test(new URL(request.url()).pathname)) highlightReads++ })
     await page.goto('/highlight-approvals')
     await expect(page.getByRole('alert')).toBeVisible()
-    await page.evaluate(async name => {
-      const { default: React } = await import('/node_modules/.vite/deps/react.js')
-      const { default: DOM } = await import('/node_modules/.vite/deps/react-dom_client.js')
-      const { BrowserRouter } = await import('/e2e/fixtures/roster-router.jsx')
-      const { AuthContext } = await import('/src/context/AuthContext.jsx')
-      const file = name === 'HighlightInboxLink' ? 'HighlightApprovals' : name
-      const module = await import(`/src/components/highlights/${file}.jsx`)
-      const host = document.createElement('div'); document.body.replaceChildren(host)
-      DOM.createRoot(host).render(React.createElement(BrowserRouter, null,
-        React.createElement(AuthContext.Provider, { value: { token: 'synthetic-c2-browser-token' } },
-          React.createElement(module[name], { programId: 7, matchId: 41, playerId: -7 }))))
-    }, consumer)
-    await expect(page.getByRole('alert')).toContainText('could not check highlight availability')
-    expect(highlightReads).toBe(0)
-    failing = false
-    await page.getByRole('button', { name: 'Retry', exact: true }).click()
+    hold = true
+    await mountEmbeddedHighlight(page, consumer)
+    await expect.poll(() => page.evaluate(() => window.c2EmbeddedFlag?.status)).toBe('loading')
+    await expect(page.locator('#embedded-highlight')).toBeEmpty()
+    release()
+    await expect.poll(() => page.evaluate(() => window.c2EmbeddedFlag?.status)).toBe('failed')
+    await expect(page.locator('#embedded-highlight')).toBeEmpty()
     await expect(page.getByRole('alert')).toHaveCount(0)
-    if (consumer === 'AdminHighlightTakedown') await expect(page.getByLabel('Highlight ID')).toBeVisible()
-    else if (consumer === 'HighlightInboxLink') await expect(page.getByRole('link', { name: 'Review highlights →' })).toBeVisible()
-    else await expect.poll(() => highlightReads).toBe(1)
+    await expect(page.getByRole('button', { name: 'Retry', exact: true })).toHaveCount(0)
+    expect(highlightReads).toBe(0)
+  })
+
+  test(`${consumer} shows error and Retry after a known ON refresh fails`, async ({ page }) => {
+    await page.clock.install()
+    await fixture(page)
+    await exposeEmbeddedFlagState(page)
+    let failing = false, enabled = true, reads = 0
+    await page.route('**/api/features', route => {
+      reads++
+      return failing ? route.fulfill({ status: 503, json: { error: 'temporary' } }) : route.fulfill({ json: { highlights: enabled } })
+    })
+    await page.route('**/api/players/-7/highlights', route => route.fulfill({ json: { highlights: [{ ...clip, clip_url: `/api/highlights/${id}/clip` }] } }))
+    await page.goto('/highlight-approvals')
+    await expect(page.getByRole('heading', { name: 'Your moments, your call.' })).toBeVisible()
+    await mountEmbeddedHighlight(page, consumer)
+    await expect.poll(() => page.evaluate(() => window.c2EmbeddedFlag?.status)).toBe('known')
+    const content = consumer === 'AdminHighlightTakedown' ? page.getByLabel('Highlight ID')
+      : consumer === 'HighlightInboxLink' ? page.getByRole('link', { name: 'Review highlights →' })
+      : page.getByRole('heading', { name: consumer === 'ClubHighlightPicker' ? 'Pick highlights' : 'Highlights', exact: true })
+    await expect(content).toBeVisible()
+    expect(reads).toBe(1)
+    await page.clock.fastForward(16000)
+    failing = true
+    await page.evaluate(() => window.c2EmbeddedFlag.retry())
+    await expect(page.getByRole('alert')).toContainText('could not check highlight availability')
+    await expect(content).toBeVisible()
+    expect(reads).toBe(2)
+    failing = false; enabled = false
+    await page.getByRole('button', { name: 'Retry', exact: true }).click()
+    await expect.poll(() => page.evaluate(() => window.c2EmbeddedFlag?.status)).toBe('known')
+    await expect(page.locator('#embedded-highlight')).toBeEmpty()
+    expect(reads).toBe(3)
+    await expect(page).toHaveURL(/\/highlight-approvals$/)
   })
 }
 

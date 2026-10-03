@@ -18,5 +18,5 @@ function Clips({ path }) {
 export function PublicHighlights({ playerId, slug }) {
   const { enabled, status, retry } = useHighlights()
   const path = slug ? `/programs/${encodeURIComponent(slug)}/highlights` : `/players/${playerId}/highlights`
-  return <><HighlightFeatureError status={status} retry={retry} />{enabled === true && <Clips key={path} path={path} />}</>
+  return <><HighlightFeatureError enabled={enabled} status={status} retry={retry} />{enabled === true && <Clips key={path} path={path} />}</>
 }

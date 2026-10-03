@@ -3,9 +3,6 @@ import { expect, test } from '@playwright/test'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 
-// Other features can independently report a failed shared bootstrap.
-const applicationAlerts = page => page.getByRole('alert').filter({ hasNotText: 'We could not check highlight availability.' })
-
 const oid = 'f9c683d7-2c0f-57ba-ae18-3a2544fa7c96'
 const opportunity = { id: oid, program_id: 7, club_name: 'Synthetic UXBF1 Club', club_slug: 'synthetic-uxbf1', type: 'trial', title: 'Adult trial', description: 'Synthetic review regression opportunity.', instructions: 'Bring boots.', venue: 'Test pitch', timezone: 'UTC', starts_at: '2026-10-20T10:00:00Z', ends_at: '2026-10-20T12:00:00Z', closes_at: '2026-10-18T12:00:00Z', gender_program: 'all', position_requirements: 'All positions', status: 'published' }
 const application = { id: '00000000-0000-4000-8000-000000000002', opportunity_id: oid, opportunity_title: opportunity.title, club_name: opportunity.club_name, status: 'new', status_label: 'New', timezone: 'UTC', version: 1, submitted_at: '2026-10-01T10:00:00Z' }
@@ -190,13 +187,13 @@ for (const [width, height, size] of [[1440, 900, 'desktop'], [390, 844, 'mobile'
     test('bootstrap failure remains unavailable instead of declaring feature off', async ({ page }) => {
       await fixture(page, { featuresStatus: 429 })
       await page.goto('/programs/synthetic-uxbf1')
-      await expect(applicationAlerts(page)).toContainText('Could not load opportunities')
+      await expect(page.getByRole('alert')).toContainText('Could not load opportunities')
       await expect(page.getByRole('heading', { name: 'Straight from the club, soon.' })).toHaveCount(0)
     })
     test('failed bootstrap never advertises recruiting as coming soon', async ({ page }) => {
       await fixture(page, { role: 'club-owner', featuresStatus: 429 })
       await page.goto('/my-club?view=recruiting')
-      await expect(applicationAlerts(page)).toContainText('Could not load opportunities')
+      await expect(page.getByRole('alert')).toContainText('Could not load opportunities')
       await expect(page.getByRole('heading', { name: 'The next player. The right place.' })).toHaveCount(0)
     })
     test('expired retained duplicate hides form without expired details', async ({ page }) => {
@@ -220,8 +217,8 @@ for (const [width, height, size] of [[1440, 900, 'desktop'], [390, 844, 'mobile'
         const evidence = await fixture(page, { role, on: false, featuresStatus: status, retrySuccess: true })
         await page.goto('/onboarding/player')
         await expect(page.getByRole('heading', { name: 'Are you a player?' })).toBeVisible()
-        await expect(applicationAlerts(page)).toHaveCount(1)
-        await expect(applicationAlerts(page)).toContainText('Could not load opportunities')
+        await expect(page.getByRole('alert')).toHaveCount(1)
+        await expect(page.getByRole('alert')).toContainText('Could not load opportunities')
         await expect(page.getByRole('heading', { name: 'Your next chapter.' })).toHaveCount(0)
         await expect(page.getByRole('link', { name: 'Create your profile', exact: true })).toBeVisible()
         await page.getByLabel('Player name').fill('Synthetic')
@@ -231,7 +228,7 @@ for (const [width, height, size] of [[1440, 900, 'desktop'], [390, 844, 'mobile'
         await shot(page, `bootstrap-${status}-${role}-discovery`, size)
         evidence.recover()
         await page.getByRole('button', { name: 'Retry applications' }).click()
-        await expect(applicationAlerts(page)).toHaveCount(0)
+        await expect(page.getByRole('alert')).toHaveCount(0)
         await expect(page.getByRole('heading', { name: 'Your next chapter.' })).toBeVisible()
         expect(evidence.calls.filter(p => p === '/api/features')).toHaveLength(2)
         expect(businessCalls(evidence.calls)).toEqual([])
@@ -243,7 +240,7 @@ for (const [width, height, size] of [[1440, 900, 'desktop'], [390, 844, 'mobile'
       const evidence = await fixture(page, { featuresStatus: 500, retrySuccess: true, waitRetry })
       await page.goto('/onboarding/player')
       await expect(page.getByRole('heading', { name: 'Are you a player?' })).toBeVisible()
-      await expect(applicationAlerts(page)).toHaveCount(1)
+      await expect(page.getByRole('alert')).toHaveCount(1)
       await page.getByLabel('Player name').fill('Synthetic')
       evidence.recover()
       await page.getByRole('button', { name: 'Retry applications' }).click()
@@ -253,7 +250,7 @@ for (const [width, height, size] of [[1440, 900, 'desktop'], [390, 844, 'mobile'
       await expect(page.getByRole('link', { name: 'Create your profile', exact: true })).toBeVisible()
       resolve()
       await expect(page.getByRole('heading', { name: 'Your next step.' })).toBeVisible()
-      await expect(applicationAlerts(page)).toHaveCount(0)
+      await expect(page.getByRole('alert')).toHaveCount(0)
       await expect(page.locator('#my-applications')).toBeVisible()
       expect(evidence.calls.filter(p => p === '/api/features')).toHaveLength(2)
     })
@@ -263,8 +260,8 @@ for (const [width, height, size] of [[1440, 900, 'desktop'], [390, 844, 'mobile'
       const evidence = await fixture(page, { claimsStatus: 500, retrySuccess: true, waitRetry })
       await page.goto('/onboarding/player')
       await expect(page.getByRole('heading', { name: 'Are you a player?' })).toBeVisible()
-      await expect(applicationAlerts(page)).toHaveCount(1)
-      await expect(applicationAlerts(page)).toContainText('Could not check your profiles')
+      await expect(page.getByRole('alert')).toHaveCount(1)
+      await expect(page.getByRole('alert')).toContainText('Could not check your profiles')
       await expect(page.getByRole('link', { name: 'Create your profile', exact: true })).toBeVisible()
       await page.getByLabel('Player name').fill('Synthetic')
       await expect(page.getByText('No tracked player matches', { exact: false })).toBeVisible()
@@ -278,7 +275,7 @@ for (const [width, height, size] of [[1440, 900, 'desktop'], [390, 844, 'mobile'
       await expect(page.getByLabel('Player name')).toHaveValue('Synthetic')
       resolve()
       await expect(page.getByRole('heading', { name: 'Your next step.' })).toBeVisible()
-      await expect(applicationAlerts(page)).toHaveCount(0)
+      await expect(page.getByRole('alert')).toHaveCount(0)
       await expect(page.locator('#my-applications')).toBeVisible()
       expect(evidence.calls.filter(p => p === '/api/me/application-claims')).toHaveLength(initialClaims + 1)
     })
@@ -346,7 +343,7 @@ for (const [width, height, size] of [[1440, 900, 'desktop'], [390, 844, 'mobile'
     test('UXBF2 failed opportunity list omits Open now', async ({ page }) => {
       await fixture(page, { listStatus: 500 })
       await page.goto('/programs/synthetic-uxbf1')
-      await expect(applicationAlerts(page)).toBeVisible()
+      await expect(page.getByRole('alert')).toBeVisible()
       await expect(page.getByText('Open now', { exact: true })).toHaveCount(0)
       await shot(page, 'failed-club-opportunities', size)
     })
@@ -372,7 +369,7 @@ for (const [width, height, size] of [[1440, 900, 'desktop'], [390, 844, 'mobile'
       else if (url.includes('programs')) await expect(page.getByRole('link', { name: /Adult trial/ })).toBeVisible()
       else if (url.includes('local-players')) await expect(page.getByRole('heading', { name: 'Your applications', exact: true })).toBeVisible()
       else await expect(page.getByRole('heading', { name: 'Adult trial', exact: true })).toBeVisible()
-      await expect(applicationAlerts(page)).toHaveCount(0)
+      await expect(page.getByRole('alert')).toHaveCount(0)
     }
     for (const on of [true, false]) for (const url of destinations.slice(0, 3)) for (const direction of ['back', 'forward']) test(`UXBF5 signed-out history ${direction} recovers ${url} flags ${on}`, async ({ page }) => {
       const evidence = await fixture(page, { role: 'visitor', on, featuresStatus: 500, retrySuccess: true })
@@ -382,7 +379,7 @@ for (const [width, height, size] of [[1440, 900, 'desktop'], [390, 844, 'mobile'
         history.pushState({ usr: null, key: 'uxbf5-failed', idx: 1 }, '', value)
       }, url)
       await page.goto(url)
-      await expect(applicationAlerts(page)).toHaveText('Could not load opportunities. Please try again later.')
+      await expect(page.getByRole('alert')).toHaveText('Could not load opportunities. Please try again later.')
       await page.waitForLoadState('networkidle')
       const initialReads = evidence.calls.filter(p => p === '/api/features').length
       expect(initialReads).toBeGreaterThan(0)
@@ -436,7 +433,7 @@ for (const [width, height, size] of [[1440, 900, 'desktop'], [390, 844, 'mobile'
       const otherId = '00000000-0000-4000-8000-000000000003'
       await page.route(`**/api/opportunities/${otherId}`, route => route.fulfill({ json: { opportunity: { ...opportunity, id: otherId } } }))
       await page.goto(`/opportunities/${oid}`)
-      await expect(applicationAlerts(page)).toHaveCount(1)
+      await expect(page.getByRole('alert')).toHaveCount(1)
       evidence.recover()
       await navigate(page, `/opportunities/${otherId}`)
       await normalContent(page, `/opportunities/${otherId}`, on)
@@ -446,7 +443,7 @@ for (const [width, height, size] of [[1440, 900, 'desktop'], [390, 844, 'mobile'
     for (const on of [true, false]) test(`UXBF4 signed-out failure heals through site links flags ${on ? 'ON' : 'OFF'}`, async ({ page }) => {
       const evidence = await fixture(page, { role: 'visitor', on, featuresStatus: 500, retrySuccess: true })
       await page.goto('/opportunities')
-      await expect(applicationAlerts(page)).toHaveCount(1)
+      await expect(page.getByRole('alert')).toHaveCount(1)
       evidence.recover()
       await page.getByRole('link', { name: 'The Academy Watch logo The Academy Watch' }).click()
       await expect(page).toHaveURL(/\/$/)
@@ -508,7 +505,7 @@ for (const [width, height, size] of [[1440, 900, 'desktop'], [390, 844, 'mobile'
       await page.goto('/')
       await page.waitForLoadState('networkidle')
       await navigate(page, '/onboarding/player')
-      await expect(applicationAlerts(page)).toHaveCount(1)
+      await expect(page.getByRole('alert')).toHaveCount(1)
       await page.waitForLoadState('networkidle')
       expect(evidence.calls.filter(p => p === endpoint)).toHaveLength(2)
       await page.getByLabel('Player name').fill('synthetic')
@@ -582,7 +579,7 @@ for (const [width, height, size] of [[1440, 900, 'desktop'], [390, 844, 'mobile'
     for (const failure of ['bootstrap', 'claims']) test(`UXBF3 ${failure} retry restores both navigation shortcuts without reload`, async ({ page }) => {
       const evidence = await fixture(page, { featuresStatus: failure === 'bootstrap' ? 500 : 200, claimsStatus: failure === 'claims' ? 500 : 200, retrySuccess: true })
       await page.goto('/onboarding/player')
-      await expect(applicationAlerts(page)).toHaveCount(1)
+      await expect(page.getByRole('alert')).toHaveCount(1)
       const expectedErrors = [...evidence.errors]
       evidence.recover()
       await page.getByRole('button', { name: 'Retry applications' }).click()

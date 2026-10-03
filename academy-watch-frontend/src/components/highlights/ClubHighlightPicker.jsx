@@ -51,5 +51,5 @@ function Picker({ programId, matchId }) {
 
 export function ClubHighlightPicker({ programId, matchId }) {
   const { enabled, status, retry } = useHighlights()
-  return <><HighlightFeatureError status={status} retry={retry} />{enabled === true && <Picker programId={programId} matchId={matchId} />}</>
+  return <><HighlightFeatureError enabled={enabled} status={status} retry={retry} />{enabled === true && <Picker programId={programId} matchId={matchId} />}</>
 }

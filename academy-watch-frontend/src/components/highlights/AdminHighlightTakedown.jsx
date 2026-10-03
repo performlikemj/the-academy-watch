@@ -16,7 +16,7 @@ export function AdminHighlightTakedown() {
     } catch { setStatus('The change could not be saved. Check the clip ID and your admin access, then try again.') }
     finally { setBusy(false) }
   }
-  return <><HighlightFeatureError status={featureStatus} retry={retry} />{enabled === true && <section className="border-y border-hairline-dark py-6">
+  return <><HighlightFeatureError enabled={enabled} status={featureStatus} retry={retry} />{enabled === true && <section className="border-y border-hairline-dark py-6">
     <h2 className="display text-2xl">Take down one highlight</h2>
     <p className="text-sm text-muted-dark mt-3">Withdraw this clip without hiding the player or club. This works even after the original recording has expired.</p>
     <form onSubmit={event => { event.preventDefault(); act('takedown') }} className="flex flex-wrap items-end gap-3 mt-5">
