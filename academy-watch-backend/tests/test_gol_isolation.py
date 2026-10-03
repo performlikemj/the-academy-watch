@@ -2,6 +2,7 @@
 
 import ctypes
 import json
+import logging
 import os
 import signal
 import socket
@@ -267,7 +268,8 @@ sys.stdout.write(json.dumps({'result_type':'scalar','value':value}))
 
 
 @pytest.mark.skipif(os.uname().sysname != "Linux", reason="Linux parent lifecycle policy")
-def test_linux_parent_exit_kills_and_reaps_worker(tmp_path, monkeypatch):
+@pytest.mark.parametrize("reaper", ["waitpid", "gunicorn"])
+def test_linux_parent_exit_kills_and_reaps_worker(tmp_path, monkeypatch, reaper):
     _probe_worker(
         tmp_path,
         monkeypatch,
@@ -298,8 +300,24 @@ def test_linux_parent_exit_kills_and_reaps_worker(tmp_path, monkeypatch):
         child_pid = int(parent.stdout.readline())
         parent.kill()
         parent.wait()
+        if reaper == "gunicorn":
+            from gunicorn.arbiter import Arbiter
+
+            arbiter = object.__new__(Arbiter)
+            arbiter.WORKERS = {}
+            arbiter.reexec_pid = arbiter.dirty_arbiter_pid = 0
+            arbiter.log = logging.getLogger("trusted-gunicorn-reaper-test")
         deadline = time.monotonic() + 5
         while time.monotonic() < deadline:
+            if reaper == "gunicorn":
+                arbiter.reap_workers()
+                if not Path(f"/proc/{child_pid}").exists():
+                    with pytest.raises(ChildProcessError):
+                        os.waitpid(child_pid, os.WNOHANG)
+                    child_pid = None
+                    break
+                time.sleep(0.025)
+                continue
             done, status = os.waitpid(child_pid, os.WNOHANG)
             if done:
                 assert os.waitstatus_to_exitcode(status) == -signal.SIGKILL

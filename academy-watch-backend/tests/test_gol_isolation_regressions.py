@@ -1,6 +1,7 @@
 """Process isolation for the analysis tool: review parity and operational controls."""
 
 import io
+import json
 import logging
 import os
 import signal
@@ -18,6 +19,7 @@ from uuid import UUID
 import numpy as np
 import pandas as pd
 import pytest
+from gol_plain_shape_cases import generated_cases
 from src.services import gol_availability as availability
 from src.services import gol_isolation as isolation
 from src.services import gol_sandbox as sandbox
@@ -34,7 +36,8 @@ REAL_READINESS = isolation.isolation_ready
 
 
 @pytest.fixture(autouse=True)
-def known_unit_readiness(monkeypatch):
+def known_unit_readiness(monkeypatch, tmp_path):
+    monkeypatch.setattr(isolation, "_SLOT_FILE", tmp_path / "slot")
     monkeypatch.setenv("GOL_MAINTENANCE", "false")
     monkeypatch.setenv("GOL_PROVIDER", "openai")
     monkeypatch.setenv("OPENAI_API_KEY", "test-not-a-real-key")
@@ -137,6 +140,74 @@ def shape_cases():
 
 
 SHAPES = shape_cases()
+GENERATED_SHAPES = generated_cases()
+
+
+def _shape_analyses(row, frame):
+    if row.domain == "timezone":
+        if isinstance(frame.index, pd.DatetimeIndex):
+            return ["result=df.index.strftime('%Z %z').tolist()", "result=df.index.to_period().astype(str).tolist()"]
+        if type(frame.x.dtype) is pd.DatetimeTZDtype:
+            return ["result=df.x.dt.strftime('%Z %z').tolist()", "result=df"]
+        return ["result=df.loc[0,'x'].strftime('%Z %z')", "result=repr(df.loc[0,'x'])", "result=df"]
+    if row.domain == "value" and row.name == "none":
+        return ["result=[df.loc[0,'x']]", "result=df"]
+    if row.domain == "value":
+        return ["result=df.loc[0,'x']", "result=repr(df.loc[0,'x'])", "result=df"]
+    if row.name == np.dtype(np.longdouble).name and np.longdouble is not np.float64:
+        return ["result=len(df)"]  # Extended dtype is admitted; extended scalar output is refused.
+    if row.domain == "index" and row.name == "index":
+        return ["result=len(df)", "result=df.index.tolist()"]
+    return ["result=df.x"] if row.domain == "frame" and row.name == "series" else ["result=df", "result=len(df)"]
+
+
+def _assert_exact_plain_frame(expected, actual):
+    from src.services.gol_wire import _encode_value
+
+    # Pandas equality cannot compare ragged nested containers or nested NaN.
+    # Compare their exact fixed-tag trees, and pandas schema/other cells normally.
+    left, right = expected.copy(), actual.copy()
+    for i, dtype in enumerate(expected.dtypes):
+        if dtype == np.dtype("object"):
+            for original, carried in zip(expected.iloc[:, i], actual.iloc[:, i], strict=True):
+                assert type(original) is type(carried)
+                assert _encode_value(original) == _encode_value(carried)
+            left.isetitem(i, expected.iloc[:, i].map(lambda value: json.dumps(_encode_value(value))))
+            right.isetitem(i, actual.iloc[:, i].map(lambda value: json.dumps(_encode_value(value))))
+    if type(expected.index) is pd.Index and expected.index.dtype == np.dtype("object"):
+        for original, carried in zip(expected.index, actual.index, strict=True):
+            assert type(original) is type(carried)
+            assert _encode_value(original) == _encode_value(carried)
+        left.index = pd.Index(
+            [json.dumps(_encode_value(value)) for value in expected.index], dtype=object, name=expected.index.name
+        )
+        right.index = pd.Index(
+            [json.dumps(_encode_value(value)) for value in actual.index], dtype=object, name=actual.index.name
+        )
+    pd.testing.assert_frame_equal(left, right, check_exact=True)
+    assert _encode_value(expected.attrs) == _encode_value(actual.attrs)
+
+
+@pytest.mark.parametrize("name,row,frame", GENERATED_SHAPES, ids=[name for name, _, _ in GENERATED_SHAPES])
+def test_generated_admission_table_roundtrip_and_results(name, row, frame):
+    validate_frame(frame)
+    payload = b"".join(stream_request("result=df", {"df": frame}))
+    for decoded in (
+        decode_request(encode_request("result=df", {"df": frame}))[1],
+        read_request(io.BytesIO(payload))[1],
+    ):
+        _assert_exact_plain_frame(frame, decoded["df"])
+        for code in _shape_analyses(row, frame):
+            expected = sandbox._execute_analysis(code, {"df": frame})
+            assert sandbox._execute_analysis(code, decoded) == expected
+
+
+@linux_policy
+@pytest.mark.parametrize("name,row,frame", GENERATED_SHAPES, ids=[name for name, _, _ in GENERATED_SHAPES])
+def test_generated_admission_table_linux_results(name, row, frame):
+    for code in _shape_analyses(row, frame):
+        expected = sandbox._execute_analysis(code, {"df": frame})
+        assert isolation._run_child(stream_request(code, {"df": frame})) == expected
 
 
 @pytest.mark.parametrize("name,frame", SHAPES, ids=[name for name, _ in SHAPES])
@@ -298,22 +369,30 @@ def test_readiness_is_pid_scoped_cached_and_skips_maintenance(monkeypatch, child
     assert len(children) == 1
     monkeypatch.setattr(isolation, "_READINESS", (-1, time.monotonic() + 600, True))
     assert REAL_READINESS() is True
-    assert len(children) == 2
+    assert len(children) == 1  # Another worker can use recent trusted slot evidence.
     monkeypatch.setenv("GOL_MAINTENANCE", "true")
     monkeypatch.setattr(isolation, "_READINESS", (0, 0, False))
     assert availability.assistant_under_maintenance() is True
-    assert len(children) == 2
+    assert len(children) == 1
     monkeypatch.setenv("GOL_MAINTENANCE", "false")
     monkeypatch.setenv("OPENAI_API_KEY", "")
     assert availability.assistant_under_maintenance() is True
-    assert len(children) == 2
+    assert len(children) == 1
 
 
-def test_health_reports_readiness_without_database(app, monkeypatch):
-    monkeypatch.setattr(isolation, "isolation_ready", lambda: False)
-    assert app.test_client().get("/api/health").json["analysis_isolation_available"] is False
-    monkeypatch.setattr(isolation, "isolation_ready", lambda: True)
-    assert app.test_client().get("/api/health").json["analysis_isolation_available"] is True
+def test_health_reports_cached_state_without_database_or_probe(app, monkeypatch):
+    monkeypatch.setattr(isolation, "isolation_ready", lambda: pytest.fail("Health started a probe"))
+    monkeypatch.setattr(isolation, "_analysis_slot", lambda: pytest.fail("Health acquired admission"))
+    for state in ("available", "unavailable", "unknown", "unsupported"):
+        monkeypatch.setattr(isolation, "isolation_status", lambda: state)
+        monkeypatch.setenv("GOL_MAINTENANCE", "true")
+        result = app.test_client().get("/api/health").json
+        assert result["analysis_isolation_available"] is (state == "available")
+        assert result["analysis_isolation_state"] == state
+        assert result["assistant_maintenance_enabled"] is True
+        assert result["assistant_provider_configured"] is True
+    monkeypatch.setenv("OPENAI_API_KEY", "")
+    assert app.test_client().get("/api/health").json["assistant_provider_configured"] is False
 
 
 def test_scope_includes_aliased_helpers_and_all_resident_dependencies():
@@ -373,7 +452,7 @@ def test_headroom_refuses_before_loader_or_child(monkeypatch, caplog):
     )
     caplog.set_level(logging.WARNING)
     result = isolation.run_analysis("result=1", lambda: pytest.fail("Frames copied before headroom"))
-    assert result["error"] == SIZE_ERROR
+    assert result["error"] == isolation.BUSY_ERROR
     assert "reason=headroom" in caplog.text
 
 
@@ -399,7 +478,7 @@ def test_300k_unreferenced_frames_do_not_refuse_small_analysis():
 def test_lazy_temp_resolution_refuses_cleanly(monkeypatch):
     monkeypatch.setattr(isolation, "_SLOT_FILE", None)
     monkeypatch.setattr(tempfile, "gettempdir", lambda: (_ for _ in ()).throw(OSError("Unavailable")))
-    with pytest.raises(OSError):
+    with pytest.raises(isolation.IsolationFault):
         with isolation._analysis_slot():
             pytest.fail("Acquired unavailable tmp slot")
 
@@ -584,3 +663,164 @@ def test_cache_expiry_does_not_reverse_readiness_and_admission_locks(monkeypatch
             assert pending.result(timeout=1) is True
         finally:
             isolation._READINESS_LOCK.release()
+
+
+@linux_policy
+@pytest.mark.parametrize("shared", [False, True])
+def test_expired_or_cold_readiness_during_other_request_keeps_policy_proof(shared, monkeypatch):
+    monkeypatch.setattr(isolation, "SLOT_WAIT_SECONDS", 0.05)
+    monkeypatch.setattr(isolation, "_READINESS", (os.getpid(), time.monotonic() - 1, True))
+    monkeypatch.setattr(isolation, "_run_child", lambda *a: pytest.fail("Started while another request held admission"))
+    with isolation._analysis_slot():
+        if shared:
+            isolation._policy_ready()
+            monkeypatch.setattr(isolation, "_READINESS", (0, 0, False))
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            assert executor.submit(REAL_READINESS).result(timeout=1) is True
+    assert isolation._READINESS[2] is True
+
+
+@linux_policy
+@pytest.mark.parametrize("reason", ["busy", "headroom", "deadline", "child_exit", "bad_output"])
+def test_transient_readiness_fault_keeps_previous_proof_with_short_retry(reason, monkeypatch, caplog):
+    monkeypatch.setattr(isolation, "_READINESS", (os.getpid(), time.monotonic() - 1, True))
+    monkeypatch.setattr(isolation, "_run_child", lambda *a: (_ for _ in ()).throw(isolation.IsolationFault(reason)))
+    assert REAL_READINESS() is True
+    assert 0 < isolation._READINESS[1] - time.monotonic() <= isolation.READINESS_TRANSIENT_SECONDS
+    assert "reason=bootstrap_failed" not in caplog.text
+
+
+@linux_policy
+def test_cold_transient_failure_is_unknown_and_retries_promptly(monkeypatch):
+    monkeypatch.setattr(isolation, "_READINESS", (0, 0, False))
+    monkeypatch.setattr(isolation, "_run_child", lambda *a: (_ for _ in ()).throw(isolation.IsolationFault("headroom")))
+    assert REAL_READINESS() is False
+    assert isolation.isolation_status() == "unknown"
+    assert isolation._READINESS[1] - time.monotonic() <= isolation.READINESS_TRANSIENT_SECONDS
+
+
+@linux_policy
+def test_loader_failure_is_neutral_and_does_not_revoke_readiness(caplog):
+    def loader():
+        raise ConnectionError("Fixture transient connection failure")
+
+    caplog.set_level(logging.INFO)
+    assert isolation.run_analysis("result=1", loader)["error"] == ERROR
+    assert isolation._READINESS[2] is True
+    assert "reason=loader_failed" in caplog.text
+    assert "reason=bootstrap_failed" not in caplog.text
+    assert isolation.run_analysis("result=1", {})["value"] == 1
+
+
+@linux_policy
+@pytest.mark.parametrize("depth", [30, 1500])
+def test_deep_child_output_is_per_analysis_refusal(depth, tmp_path, monkeypatch, caplog, children):
+    real_worker = isolation._WORKER
+    _probe_worker(
+        tmp_path,
+        monkeypatch,
+        f"sys.stdout.write('{{\"result_type\":\"dict\",\"data\":'+('['*{depth})+'0'+(']'*{depth})+'}}')",
+    )
+    caplog.set_level(logging.INFO)
+    result = isolation.run_analysis("result=1", {})
+    assert result["error"] == ERROR
+    assert isolation._READINESS[2] is True
+    assert "reason=bad_output" in caplog.text
+    assert "reason=input_size" not in caplog.text
+    assert "reason=bootstrap_failed" not in caplog.text
+    monkeypatch.setattr(isolation, "_WORKER", real_worker)
+    assert isolation.run_analysis("result=1", {})["value"] == 1
+
+
+@linux_policy
+def test_long_output_string_is_bad_output_not_input_size(tmp_path, monkeypatch, caplog):
+    _probe_worker(tmp_path, monkeypatch, "sys.stdout.write(json.dumps({'result_type':'scalar','value':'x'*100000}))")
+    caplog.set_level(logging.INFO)
+    assert isolation.run_analysis("result=1", {})["error"] == ERROR
+    assert "reason=bad_output" in caplog.text and "reason=input_size" not in caplog.text
+    assert isolation._READINESS[2] is True
+
+
+@linux_policy
+def test_startup_deadline_is_transient_and_parent_kills(tmp_path, monkeypatch, caplog, children):
+    _probe_worker(tmp_path, monkeypatch, "pass")
+    worker = isolation._WORKER
+    worker.write_text(
+        worker.read_text().replace("sys.stdout.write('READY\\n')", "time.sleep(60)\nsys.stdout.write('READY\\n')")
+    )
+    monkeypatch.setattr(isolation, "STARTUP_SECONDS", 0.05)
+    caplog.set_level(logging.INFO)
+    assert isolation.run_analysis("result=1", {})["error"] == isolation.TIME_ERROR
+    assert children[0][0].returncode == -signal.SIGKILL
+    assert isolation._READINESS[2] is True
+    assert "reason=deadline" in caplog.text and "reason=bootstrap_failed" not in caplog.text
+
+
+def test_noncanonical_timezone_refuses_identically():
+    from zoneinfo._zoneinfo import ZoneInfo as PythonZoneInfo
+
+    frame = pd.DataFrame({"x": pd.Series([datetime(2026, 1, 1, tzinfo=PythonZoneInfo("Europe/London"))], dtype=object)})
+    assert sandbox._execute_analysis("result=len(df)", {"df": frame})["error"] == ERROR
+    with pytest.raises(AnalysisRefused):
+        b"".join(stream_request("result=len(df)", {"df": frame}))
+
+
+@pytest.mark.parametrize("kind", ["datetime", "timestamp", "column", "index"])
+def test_subminute_timezone_refuses_identically(kind):
+    zone = timezone(timedelta(seconds=30, microseconds=1), "Fixture Seconds")
+    value = datetime(2026, 1, 1, tzinfo=zone)
+    if kind in {"datetime", "timestamp"}:
+        frame = pd.DataFrame({"x": pd.Series([value if kind == "datetime" else pd.Timestamp(value)], dtype=object)})
+    else:
+        index = pd.date_range(value, periods=2, freq="D")
+        frame = pd.DataFrame({"x": index}) if kind == "column" else pd.DataFrame({"x": [1, 2]}, index=index)
+    assert sandbox._execute_analysis("result=len(df)", {"df": frame})["error"] == ERROR
+    with pytest.raises(AnalysisRefused):
+        b"".join(stream_request("result=len(df)", {"df": frame}))
+
+
+def test_integer_outside_json_digit_bound_refuses_identically():
+    frame = pd.DataFrame({"x": pd.Series([2**14000], dtype=object)})
+    assert sandbox._execute_analysis("result=len(df)", {"df": frame})["error"] == ERROR
+    with pytest.raises(AnalysisRefused):
+        b"".join(stream_request("result=len(df)", {"df": frame}))
+    assert sandbox._execute_analysis("result=2**14000", {})["error"] == ERROR
+
+
+def test_new_admission_row_without_parity_recipe_fails(monkeypatch):
+    import gol_plain_shape_cases as cases
+    from src.services.gol_plain_shapes import Shape
+
+    monkeypatch.setattr(cases, "SHAPES", (*cases.SHAPES, Shape("value", "future_shape", "future_wire")))
+    with pytest.raises(AssertionError, match="explicit parity recipe"):
+        cases.generated_cases()
+
+
+def test_cached_health_state_is_memory_only(monkeypatch):
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(isolation, "_slot_file", lambda: pytest.fail("Health performed filesystem I/O"))
+    assert isolation.isolation_status() == "available"
+    monkeypatch.setattr(isolation, "_READINESS", (os.getpid(), time.monotonic() - 1, True))
+    assert isolation.isolation_status() == "unknown"
+    isolation._unavailable()
+    assert isolation.isolation_status() == "unavailable"
+
+
+@pytest.mark.parametrize("key", [np.nan, np.inf, -np.inf])
+def test_nonfinite_dictionary_keys_refuse_identically(key):
+    frame = pd.DataFrame({"x": pd.Series([{key: 1}], dtype=object)})
+    assert sandbox._execute_analysis("result=len(df)", {"df": frame})["error"] == ERROR
+    with pytest.raises(AnalysisRefused):
+        b"".join(stream_request("result=len(df)", {"df": frame}))
+
+
+def test_timezone_name_subclass_refuses_before_coercion():
+    class UncarriedName(str):
+        def __repr__(self):
+            pytest.fail("Uncarried timezone name was coerced")
+
+    zone = timezone(timedelta(hours=9), UncarriedName("Fixture Zone"))
+    frame = pd.DataFrame({"x": pd.Series([datetime(2026, 1, 1, tzinfo=zone)], dtype=object)})
+    assert sandbox._execute_analysis("result=len(df)", {"df": frame})["error"] == ERROR
+    with pytest.raises(AnalysisRefused):
+        b"".join(stream_request("result=len(df)", {"df": frame}))

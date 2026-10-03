@@ -279,7 +279,8 @@ modules, without Flask, models, database services or provider clients. Bootstrap
 disables native BLAS threads and retains both C and pure-Python timezone caches
 and required lazy pandas/NumPy formatting modules before filesystem lockdown.
 
-macOS and other platforms refuse analysis without starting a child. The local
+macOS and other platforms pause assistant chat and suggestions as maintenance,
+without starting an analysis child. Transcript export remains available. The local
 Seatbelt interface cannot supply all the Linux lifecycle guarantees, so it is
 not used. Clearly named trusted test helpers can exercise the first layer and
 transport on macOS; they are not a production execution path or policy test.
@@ -302,10 +303,30 @@ The earlier single-document codec remains covered by trusted transport tests.
 Only conservatively referenced frames and transitive helper dependencies are
 loaded and sent. Helpers obtain data from those frames, never the database.
 
+The authoritative admission/transport table is `src/services/gol_plain_shapes.py`.
+`plain_value`, dtype/index/frame validation and the encoders require a row in
+that table. `tests/gol_plain_shape_cases.py` generates recipes for every row; a
+new row without a recipe fails collection. Each recipe checks exact frame/type
+round-trip and ordinary analysis results through both the trusted reference and
+real Linux child. This includes fixed-offset names/UTC identity, aware object
+cells and Timestamp units/fold, timezone/frequency-bearing indices, timedelta,
+Decimal, categorical metadata, nullable dtypes, MultiIndex, empty frames and
+mixed null kinds. All existing ordinary analyses remain in the process corpus.
+
 Both paths validate frames and plain results. Native timedelta identity,
 datetime/timedelta units, timezone, category, index frequency and multi-level
 metadata are preserved. Custom index frequencies that cannot be represented by
-the canonical frequency string are refused by both paths. Input limits apply to
+the canonical frequency string are refused by both paths. Supported timezones
+are exact standard `ZoneInfo` directory entries and `datetime.timezone` offsets
+in whole minutes, with arbitrary plain names preserved. Other timezone
+implementations and sub-minute offsets are refused by shared validation: pandas
+cannot consistently reconstruct their Timestamp/typed-column semantics. String
+extension storage must be Python, with either NA or NaN missing semantics; other
+storage and extension dtypes refuse in both paths. Integer values are limited
+to 14,000 bits so both result JSON parsers can carry them within their native
+decimal-digit bound. Nonfinite dictionary keys are refused because NaN key
+identity cannot be preserved by plain data; missing/nonfinite values in cells
+and lists remain supported. Input limits apply to
 actual encoded bytes (128 MiB) and cells (16 million), rather than deep object
 memory for unreferenced tables. The output cap is 2 MiB; the parent checks the
 DTO and existing `plain_value` validator. The existing 100-row/result-value limits
@@ -337,7 +358,9 @@ with first-layer guards deliberately bypassed inside test-owned workers only.
 One analysis/serialization at a time is admitted across container workers using
 an owned regular mode-0600 advisory-lock file opened without following symlinks.
 It waits at most 10 seconds. Admission precedes database frame loading and cache
-copies; the empty lock file stays in the temporary directory to preserve identity.
+copies; the owned lock file stays in the temporary directory to preserve identity.
+It contains only a bounded monotonic timestamp and policy-ready bit, written by
+the supervisor while holding admission; children cannot access its contents.
 Maintenance is rechecked at admission and input boundaries. Every child is
 single-use across all requests/users. Startup measurements do not justify a pool.
 
@@ -352,18 +375,60 @@ threads. Larger real caches or concurrent non-analysis requests can still requir
 more container memory. Use measured application headroom, not just child RSS.
 
 Availability uses a PID-scoped real-policy self-test with `result=1`, cached for
-10 minutes on success and retried after 60 seconds on failure. The maintenance
-switch or missing provider key short-circuits before any probe. Missing policy
-support produces a WARNING with fixed `bootstrap_failed` reason and pauses the
-assistant before a new debit. Health exposes only `analysis_isolation_available`;
-a paused assistant does not fail the backend liveness status. Cold readiness
-under admission pressure also fails closed for 60 seconds. Production tool calls
-return distinct deadline and busy messages with simplify/retry-later hints.
+10 minutes. Every child READY refreshes evidence after mandatory policy installs;
+a cold worker can use recent trusted evidence from the container admission file.
+Only definite setup/handshake failure pauses readiness for 60 seconds. Contention,
+headroom, startup deadlines and unexpected child exits preserve previous policy
+proof and retry after one second. Without prior proof they remain unavailable
+with an unknown state and short retry; every actual analysis still installs the
+full policy before input. Loader and output-validation errors remain neutral
+per-analysis errors and do not revoke readiness. Headroom/slot refusals ask for a
+later retry, while child memory/input size refusals ask to reduce the data scope.
+The maintenance switch or missing provider key short-circuits before any probe.
+Missing policy support produces a WARNING with fixed `bootstrap_failed` reason
+and pauses the assistant before a new debit.
+
+`/api/health` reads only cached in-memory state and never probes, loads data or
+waits for admission. `analysis_isolation_state` distinguishes `available`,
+`unavailable`, `unknown` (cold/expired/transient) and `unsupported`;
+`analysis_isolation_available` is true only for available. Separate
+`assistant_maintenance_enabled` and `assistant_provider_configured` booleans
+report the other pause reasons without exposing credentials. Backend liveness
+remains healthy. A trusted operator can independently test policy while the
+maintenance switch stays ON, from `/app` inside the intended Linux revision:
+
+```sh
+python -c 'from src.services.gol_isolation import isolation_ready; ok=isolation_ready(); print("analysis_policy_ready="+str(ok)); raise SystemExit(0 if ok else 1)'
+```
+
+This command deliberately starts a policy probe (or uses recent shared evidence),
+independent of provider credentials and maintenance; run it through the existing
+trusted container console. This lane does not access or change production.
 Fixed logs distinguish `bootstrap_failed`, `deadline`, `memory`, `busy`,
-`input_size`, `bad_output`, `child_exit`, `input_validation` and `headroom`;
-bootstrap/headroom/input size failures are WARNINGs. Size logs include measured
-bytes/cells and limits. Success logs include timing, sampled RSS and wire sizes.
-No code, frame values or raw child diagnostics are logged.
+`input_size`, `bad_output`, `child_exit`, `input_validation`, `loader_failed`,
+`analysis_failed` and `headroom`; bootstrap/headroom/input size failures are
+WARNINGs. Size logs include measured bytes/cells and limits. Success logs include
+timing, sampled RSS and wire sizes. No code, frame values or raw child diagnostics
+are logged. Alert on any `input_size` warning and on successful `input_bytes`
+approaching 75% of 128 MiB; trend this alongside selected table rows, cache memory,
+headroom and resource refusals. The synthetic 29-column fixture table reaches
+the wire cap near 500k rows; real text lengths can reach it earlier. Revisit
+capacity before doubling the measured 200k-row envelope rather than raising the
+cap without application-memory measurements.
+
+The five-minute table cache is not a transactionally consistent database snapshot:
+partial loads later in that window can have different observation times. Helpers
+receive their entire dependency set together, but reads may combine cached tables
+of different ages. Current public-adult eligibility is rechecked on every read.
+A transaction-consistent analytical snapshot is separate data-loader work.
+
+Normal supervisors kill and wait for children in `finally`. After supervisor
+death, the mandatory parent-death signal kills the child; its adopting process
+must reap it. The Docker exec-form command runs Gunicorn as PID1, whose arbiter
+reaps unknown adopted children. Preserve that exec form. A deployment wrapper
+that interposes a shell must use `exec` or an init/subreaper; otherwise a dead
+child can remain a zombie until container exit. Linux regressions exercise both
+parent death and Gunicorn's real unknown-child reaper.
 
 Azure Container Apps kernel support is UNCONFIRMED by local work. Before resuming
 the assistant, verify the real non-root revision passes readiness and an ordinary
@@ -376,16 +441,17 @@ the application's host kernel and depends on its security and availability.
 
 Run `python scripts/benchmark_gol_isolation.py --rows 100000 200000 --repeats 3`
 in Linux for real loader-schema synthetic frames, including the 29-column table,
-without database access. At 0.5 CPU / 1 GiB, current median bootstrap is 315/322 ms,
-serialization 126/267 ms, and end-to-end 780/1018 ms for 100k/200k rows. Child peak
-RSS is approximately 108/129 MiB for that workload. The full-app measurement
+without database access. At 0.5 CPU / 1 GiB, current median bootstrap is 299/308 ms,
+serialization 177/221 ms, and end-to-end 718/1000 ms for 100k/200k rows. Child peak
+RSS is approximately 108/133 MiB for that workload. The full-app measurement
 `python scripts/benchmark_gol_application.py --rows 200000` preloads Flask and
 runs two workers with two concurrent requests each under the same container
 limits; it asserts no OOM and bounded total memory, allowing busy/resource
 refusals. It uses synthetic eligibility/frames and no database/provider calls. Add
 `--warm-caches` to populate all ten frame caches in both workers first. That
-pressure case peaked near 794 MiB locally: two analyses completed and two were
-killed at the reduced RSS budget, with no container OOM or worker loss.
+pressure case peaked near 795 MiB locally: one analysis completed, two reached
+the reduced RSS budget and one received busy, with no container OOM or worker
+loss. The successful/refused mix varies with workload scheduling.
 
 The mandatory Linux Backend Tests job exercises real policy failures, signalling,
 immutable deadlines, parent death, CPU/memory limits, parity and cleanup. Any skip

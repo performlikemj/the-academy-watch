@@ -1,5 +1,6 @@
 """Linux supervisor for single-use analysis children and bounded plain-data pipes."""
 
+import errno
 import fcntl
 import hashlib
 import logging
@@ -31,9 +32,10 @@ _WORKER = Path(__file__).with_name("gol_analysis_worker.py")
 _SLOT_FILE = None  # Resolved lazily so an unavailable tmp directory cannot break imports.
 _SLOT_LOCAL = threading.local()
 _READINESS_LOCK = threading.Lock()
-_READINESS = (0, 0.0, False)
+_READINESS = (0, 0.0, False, "unknown")
 READINESS_SECONDS = 600
 READINESS_RETRY_SECONDS = 60
+READINESS_TRANSIENT_SECONDS = 1
 MEMORY_RESERVE_BYTES = 128 * 1024 * 1024
 MIN_ADDRESS_SPACE_BYTES = 384 * 1024 * 1024
 
@@ -63,7 +65,49 @@ def _report(fault):
 
 def _unavailable():
     global _READINESS
-    _READINESS = (os.getpid(), time.monotonic() + READINESS_RETRY_SECONDS, False)
+    _READINESS = (os.getpid(), time.monotonic() + READINESS_RETRY_SECONDS, False, "unavailable")
+    _write_attestation(False)
+
+
+def _policy_ready():
+    """READY proves mandatory policy installation before any analysis input."""
+    global _READINESS
+    _READINESS = (os.getpid(), time.monotonic() + READINESS_SECONDS, True, "available")
+    _write_attestation(True)
+
+
+def _write_attestation(ready):
+    descriptor = getattr(_SLOT_LOCAL, "descriptor", None)
+    if descriptor is not None:
+        data = f"{int(ready)} {time.monotonic():.6f}\n".encode("ascii")
+        os.pwrite(descriptor, data, 0)
+        os.ftruncate(descriptor, len(data))
+
+
+def _shared_ready():
+    """Read bounded evidence from the owned file updated by the supervisor."""
+    try:
+        descriptor = os.open(_slot_file(), os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
+        try:
+            status = os.fstat(descriptor)
+            if status.st_uid != os.getuid() or status.st_mode & 0o077 or not stat.S_ISREG(status.st_mode):
+                return False
+            data = os.pread(descriptor, 64, 0).decode("ascii").split()
+            return len(data) == 2 and data[0] == "1" and 0 <= time.monotonic() - float(data[1]) < READINESS_SECONDS
+        finally:
+            os.close(descriptor)
+    except (OSError, ValueError, UnicodeError):
+        return False
+
+
+def isolation_status():
+    """Observational health state: no admission, filesystem I/O or subprocess."""
+    if sys.platform != "linux":
+        return "unsupported"
+    snapshot = _READINESS
+    if snapshot[0] == os.getpid() and time.monotonic() < snapshot[1]:
+        return "available" if snapshot[2] else snapshot[3]
+    return "unknown"
 
 
 def _slot_file():
@@ -80,7 +124,10 @@ def _analysis_slot():
     if getattr(_SLOT_LOCAL, "held", False):
         yield
         return
-    descriptor = os.open(_slot_file(), os.O_CREAT | os.O_RDWR | os.O_CLOEXEC | os.O_NOFOLLOW, 0o600)
+    try:
+        descriptor = os.open(_slot_file(), os.O_CREAT | os.O_RDWR | os.O_CLOEXEC | os.O_NOFOLLOW, 0o600)
+    except OSError as error:
+        raise IsolationFault("busy" if error.errno in {errno.EAGAIN, errno.ENOMEM} else "bootstrap_failed") from None
     try:
         status = os.fstat(descriptor)
         if status.st_uid != os.getuid() or status.st_mode & 0o077 or not stat.S_ISREG(status.st_mode):
@@ -95,10 +142,12 @@ def _analysis_slot():
                     raise IsolationFault("busy") from None
                 time.sleep(0.025)
         _SLOT_LOCAL.held = True
+        _SLOT_LOCAL.descriptor = descriptor
         try:
             yield
         finally:
             _SLOT_LOCAL.held = False
+            _SLOT_LOCAL.descriptor = None
     finally:
         os.close(descriptor)
 
@@ -177,18 +226,31 @@ def isolation_ready():
         now = time.monotonic()
         if _READINESS[0] == os.getpid() and now < _READINESS[1]:
             return _READINESS[2]
+        if _shared_ready():
+            _READINESS = (os.getpid(), now + READINESS_TRANSIENT_SECONDS, True, "available")
+            return True
+        previously_ready = _READINESS[0] == os.getpid() and _READINESS[2]
         try:
             with _analysis_slot():
                 _cleanup_stale_directories()
                 result = _run_child(stream_request("result=1", {}))
             if result.get("result_type") != "scalar" or result.get("value") != 1:
-                raise IsolationFault("bootstrap_failed")
+                raise IsolationFault("bad_output")
         except Exception as error:
             fault = error if isinstance(error, IsolationFault) else IsolationFault("bootstrap_failed")
             _report(fault)
-            _unavailable()
-            return False
-        _READINESS = (os.getpid(), time.monotonic() + READINESS_SECONDS, True)
+            if fault.reason == "bootstrap_failed":
+                _unavailable()
+                return False
+            ready = previously_ready or _READINESS[0] == os.getpid() and _READINESS[2] or _shared_ready()
+            _READINESS = (
+                os.getpid(),
+                time.monotonic() + READINESS_TRANSIENT_SECONDS,
+                ready,
+                "available" if ready else "unknown",
+            )
+            return ready
+        _policy_ready()
         return True
 
 
@@ -233,7 +295,7 @@ def _exchange(process, payload, rss_limit):
             resident = _resident_bytes(process.pid)
             peak_rss = max(peak_rss, resident)
             if time.monotonic() >= deadline:
-                raise IsolationFault("deadline" if ready else "bootstrap_failed")
+                raise IsolationFault("deadline")
             if resident > rss_limit:
                 raise IsolationFault("memory", resident, rss_limit)
             for key, _ in selector.select(timeout=min(0.025, max(0, deadline - time.monotonic()))):
@@ -270,6 +332,7 @@ def _exchange(process, payload, rss_limit):
                     if output != b"READY\n":
                         raise IsolationFault("bootstrap_failed")
                     ready = True
+                    _policy_ready()
                     bootstrap_seconds = time.monotonic() - started
                     output.clear()
                     deadline = time.monotonic() + WALL_SECONDS
@@ -278,7 +341,11 @@ def _exchange(process, payload, rss_limit):
                     raise IsolationFault("bad_output", len(output), MAX_OUTPUT_BYTES)
         remaining = deadline - time.monotonic()
         if not ready:
-            raise IsolationFault("bootstrap_failed")
+            try:
+                returncode = process.wait(timeout=max(0.01, remaining))
+            except subprocess.TimeoutExpired:
+                raise IsolationFault("deadline") from None
+            raise IsolationFault("bootstrap_failed" if returncode >= 0 else "child_exit")
         if remaining <= 0:
             raise IsolationFault("deadline")
         try:
@@ -307,18 +374,27 @@ def _run_child(payload):
         raise IsolationFault("bootstrap_failed")
     address_space, rss_limit = _memory_budget()
     with tempfile.TemporaryDirectory(prefix=f"aw-analysis-{os.getpid()}-") as directory:
-        process = subprocess.Popen(
-            [sys.executable, "-I", "-B", str(_WORKER), str(os.getpid()), str(address_space)],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            cwd=directory,
-            env={},
-            close_fds=True,
-            start_new_session=True,
-        )
+        try:
+            process = subprocess.Popen(
+                [sys.executable, "-I", "-B", str(_WORKER), str(os.getpid()), str(address_space)],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                cwd=directory,
+                env={},
+                close_fds=True,
+                start_new_session=True,
+            )
+        except OSError as error:
+            raise IsolationFault(
+                "busy" if error.errno in {errno.EAGAIN, errno.ENOMEM} else "bootstrap_failed"
+            ) from None
         try:
             return _exchange(process, payload, rss_limit)
+        except IsolationFault as fault:
+            if fault.reason == "bootstrap_failed":
+                _unavailable()
+            raise
         finally:
             _kill_and_wait(process)
             for pipe in (process.stdin, process.stdout, process.stderr):
@@ -344,7 +420,10 @@ def run_analysis(code, frames, display="table", description=""):
                 return {"result_type": "error", **maintenance_payload()}
             _memory_budget()
             # A service loader is invoked only after admission and headroom.
-            supplied = frames() if callable(frames) else frames
+            try:
+                supplied = frames() if callable(frames) else frames
+            except Exception:
+                raise IsolationFault("loader_failed") from None
             names = analysis_frame_names(code)
             selected = {name: frame for name, frame in supplied.items() if name in names}
             if assistant_under_maintenance():
@@ -368,18 +447,17 @@ def run_analysis(code, frames, display="table", description=""):
                 "error": TIME_ERROR
                 if fault.reason == "deadline"
                 else BUSY_ERROR
-                if fault.reason == "busy"
+                if fault.reason in {"busy", "headroom"}
                 else SIZE_ERROR
-                if fault.reason in {"input_size", "memory", "headroom"}
+                if fault.reason in {"input_size", "memory"}
                 else ERROR,
             }
     except AnalysisRefused:
         _report(IsolationFault("input_validation"))
         result = {"result_type": "error", "error": ERROR}
     except Exception:
-        _report(IsolationFault("bootstrap_failed"))
-        _unavailable()
-        result = {"result_type": "error", **maintenance_payload()}
+        _report(IsolationFault("analysis_failed"))
+        result = {"result_type": "error", "error": ERROR}
     result["display"] = display
     if description and result["result_type"] != "error":
         result["meta"] = {"description": description}

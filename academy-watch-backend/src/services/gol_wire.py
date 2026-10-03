@@ -3,7 +3,7 @@
 import base64
 import json
 import math
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta, timezone
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
@@ -12,21 +12,23 @@ import pandas as pd
 from src.services.gol_capabilities import (
     ERROR,
     SIZE_ERROR,
-    TIMEZONE_NAMES,
     AnalysisRefused,
     AnalysisSizeLimit,
     plain_value,
     validate_frame,
 )
+from src.services.gol_plain_shapes import (
+    INDEX_SHAPES,
+    NUMERIC_NAMES,
+    TIMEZONE_NAMES,
+    VALUE_SHAPES,
+    dtype_shape,
+    timezone_shape,
+)
 
 MAX_INPUT_BYTES = 128 * 1024 * 1024
 MAX_OUTPUT_BYTES = 2 * 1024 * 1024
-_NUMERIC_DTYPES = frozenset(
-    ["bool"]
-    + [f"{kind}{bits}" for kind in ("int", "uint") for bits in (8, 16, 32, 64)]
-    + ["float16", "float32", "float64"]
-    + [np.dtype(np.longdouble).name]
-)
+_NUMERIC_DTYPES = frozenset(NUMERIC_NAMES)
 
 
 class InputSizeLimit(AnalysisSizeLimit):
@@ -42,48 +44,39 @@ class InputSizeLimit(AnalysisSizeLimit):
 def _encode_value(value):
     """Only fixed tags and validated values, with no import/type names on the wire."""
     kind = type(value)
+    row = VALUE_SHAPES.get(kind)
+    if row is None:
+        raise AnalysisRefused(ERROR)
     if value is pd.NA:
         return ["na"]
     if value is pd.NaT:
         return ["nat"]
     if kind is float and not math.isfinite(value):
         return ["float", "nan" if math.isnan(value) else "inf" if value > 0 else "-inf"]
-    if kind in (
-        np.int8,
-        np.int16,
-        np.int32,
-        np.int64,
-        np.uint8,
-        np.uint16,
-        np.uint32,
-        np.uint64,
-        np.float16,
-        np.float32,
-        np.float64,
-        np.bool_,
-    ):
+    if row.wire == "numpy_scalar":
         return ["numpy_scalar", value.dtype.name, base64.b64encode(value.tobytes()).decode("ascii")]
-    if kind in (list, tuple):
-        return ["tuple" if kind is tuple else "list", [_encode_value(v) for v in value]]
-    if kind is dict:
-        return ["dict", [[_encode_value(k), _encode_value(v)] for k, v in value.items()]]
-    if kind in (datetime, date, pd.Timestamp):
-        zone = str(value.tzinfo) if kind is not date and value.tzinfo is not None else None
-        return [
-            "timestamp" if kind is pd.Timestamp else "datetime" if kind is datetime else "date",
-            value.isoformat(),
-            zone if zone in TIMEZONE_NAMES else None,
-        ]
-    if kind is Decimal:
+    if row.wire in {"list", "tuple"}:
+        return [row.wire, [_encode_value(v) for v in value]]
+    if row.wire == "dict":
+        return [row.wire, [[_encode_value(k), _encode_value(v)] for k, v in value.items()]]
+    if row.wire == "timestamp":
+        return ["timestamp", int(value.asm8.view("i8")), value.unit, _encode_zone(value.tzinfo), value.fold]
+    if row.wire == "datetime":
+        return ["datetime", value.isoformat(), _encode_zone(value.tzinfo), value.fold]
+    if row.wire == "date":
+        return ["date", value.isoformat()]
+    if row.wire == "decimal":
         return ["decimal", str(value)]
-    if kind is timedelta:
+    if row.wire == "python_timedelta":
         return ["python_timedelta", value.days, value.seconds, value.microseconds]
-    if kind is pd.Timedelta:
+    if row.wire == "timedelta":
         return ["timedelta", int(value.asm8.view("i8")), value.unit]
-    if kind is pd.Period:
+    if row.wire == "period":
         return ["period", str(value), value.freqstr]
-    if kind is pd.Interval:
+    if row.wire == "interval":
         return ["interval", _encode_value(value.left), _encode_value(value.right), value.closed]
+    if row.wire not in {"value", "float"}:
+        raise AnalysisRefused(ERROR)
     return ["value", plain_value(value)]
 
 
@@ -108,11 +101,13 @@ def _decode_value(value):
     if tag == "dict":
         return {_decode_value(k): _decode_value(v) for k, v in value[1]}
     if tag == "timestamp":
-        timestamp = pd.Timestamp(value[1])
-        return timestamp.tz_convert(value[2]) if value[2] in TIMEZONE_NAMES else timestamp
+        zone = _decode_zone(value[3])
+        timestamp = pd.Timestamp(value[1], unit=value[2], tz="UTC" if zone is not None else None)
+        return (timestamp.tz_convert(zone) if zone is not None else timestamp).replace(fold=value[4])
     if tag == "datetime":
         timestamp = datetime.fromisoformat(value[1])
-        return timestamp.astimezone(ZoneInfo(value[2])) if value[2] in TIMEZONE_NAMES else timestamp
+        zone = _decode_zone(value[2])
+        return (timestamp.astimezone(zone) if zone is not None else timestamp).replace(fold=value[3])
     if tag == "date":
         return date.fromisoformat(value[1])
     if tag == "decimal":
@@ -128,9 +123,48 @@ def _decode_value(value):
     raise AnalysisRefused(ERROR)
 
 
+def _encode_zone(zone):
+    if zone is None:
+        return None
+    row = timezone_shape(zone)
+    if row is None:
+        raise AnalysisRefused(ERROR)
+    if row.name == "fixed":
+        offset = zone.utcoffset(None)
+        return [
+            row.wire,
+            offset.days,
+            offset.seconds,
+            offset.microseconds,
+            zone.tzname(None),
+            "utc" if zone is UTC else "auto" if repr(zone) == repr(timezone(offset)) else "named",
+        ]
+    return [row.wire, zone.key]
+
+
+def _decode_zone(value):
+    if value is None:
+        return None
+    if value[0] == "fixed":
+        offset = timedelta(days=value[1], seconds=value[2], microseconds=value[3])
+        if value[5] == "utc":
+            return UTC
+        if value[5] == "auto":
+            return timezone(offset)
+        if value[5] == "named":
+            return timezone(offset, value[4])
+        raise AnalysisRefused(ERROR)
+    if value[0] == "zoneinfo" and value[1] in TIMEZONE_NAMES:
+        return ZoneInfo(value[1])
+    raise AnalysisRefused(ERROR)
+
+
 def _encode_column(column):
     dtype = column.dtype
-    if type(dtype) is pd.StringDtype:
+    row = dtype_shape(dtype)
+    if row is None:
+        raise AnalysisRefused(ERROR)
+    if row.wire == "string":
         codes, values = column.factorize(sort=False)
         return {
             "kind": "string",
@@ -138,7 +172,7 @@ def _encode_column(column):
             "values": values.tolist(),
             "codes": _encode_column(pd.Series(codes.astype(np.int32))),
         }
-    if isinstance(dtype, np.dtype) and dtype.name in _NUMERIC_DTYPES:
+    if row.wire == "numeric":
         array = np.asarray(column).astype(dtype.newbyteorder("<"), copy=False)
         return {
             "kind": "numeric",
@@ -146,7 +180,7 @@ def _encode_column(column):
             "byteorder": dtype.byteorder,
             "data": base64.b64encode(array.tobytes()).decode("ascii"),
         }
-    if isinstance(dtype, np.dtype) and dtype.kind in "Mm":
+    if row.wire == "temporal":
         return {
             "kind": "temporal",
             "dtype": dtype.name,
@@ -154,16 +188,23 @@ def _encode_column(column):
                 "ascii"
             ),
         }
-    if type(dtype) is pd.CategoricalDtype:
+    if row.wire == "category":
         return {
             "kind": "category",
-            "categories": [_encode_value(v) for v in dtype.categories],
+            "categories": _encode_index(dtype.categories),
             "ordered": dtype.ordered,
             "codes": _encode_column(pd.Series(column.array.codes)),
         }
-    if type(dtype) is pd.DatetimeTZDtype:
-        return {"kind": "datetime_tz", "dtype": str(dtype), "values": [_encode_value(v) for v in column]}
-    # Pandas string/nullable/object columns preserve their dtype and null kinds.
+    if row.wire == "datetime_tz":
+        return {
+            "kind": "datetime_tz",
+            "unit": dtype.unit,
+            "zone": _encode_zone(dtype.tz),
+            "data": base64.b64encode(column.array.asi8.astype("<i8", copy=False).tobytes()).decode("ascii"),
+        }
+    if row.wire != "values":
+        raise AnalysisRefused(ERROR)
+    # Pandas nullable/object columns preserve their dtype and null kinds.
     return {"kind": "values", "dtype": str(dtype), "values": [_encode_value(v) for v in column]}
 
 
@@ -188,7 +229,7 @@ def _decode_column(column):
     if kind == "category":
         return pd.Categorical.from_codes(
             _decode_column(column["codes"]),
-            categories=[_decode_value(v) for v in column["categories"]],
+            categories=_decode_index(column["categories"]),
             ordered=column["ordered"],
         )
     if kind == "string":
@@ -196,14 +237,25 @@ def _decode_column(column):
             raise AnalysisRefused(ERROR)
         values = np.asarray([*column["values"], None], dtype=object)
         return pd.array(values[_decode_column(column["codes"])], dtype=column["dtype"])
-    if kind in ("values", "datetime_tz"):
+    if kind == "datetime_tz":
+        unit = column["unit"]
+        if unit not in {"s", "ms", "us", "ns"}:
+            raise AnalysisRefused(ERROR)
+        numbers = np.frombuffer(base64.b64decode(column["data"], validate=True), dtype="<i8").copy()
+        return pd.array(numbers.view(f"datetime64[{unit}]"), dtype=pd.DatetimeTZDtype(unit=unit, tz="UTC")).tz_convert(
+            _decode_zone(column["zone"])
+        )
+    if kind == "values":
         series = pd.Series([_decode_value(v) for v in column["values"]], dtype=column["dtype"])
         return series.to_numpy(copy=False) if column["dtype"] == "object" else series.array
     raise AnalysisRefused(ERROR)
 
 
 def _encode_index(index):
-    if type(index) is pd.RangeIndex:
+    row = INDEX_SHAPES.get(type(index))
+    if row is None:
+        raise AnalysisRefused(ERROR)
+    if row.wire == "range":
         return {
             "kind": "range",
             "start": index.start,
@@ -211,12 +263,13 @@ def _encode_index(index):
             "step": index.step,
             "name": _encode_value(index.name),
         }
-    if type(index) is pd.MultiIndex:
+    if row.wire == "multi":
         return {
             "kind": "multi",
             "levels": [_encode_index(level) for level in index.levels],
             "codes": [_encode_column(pd.Series(codes)) for codes in index.codes],
             "names": [_encode_value(v) for v in index.names],
+            "sortorder": index.sortorder,
         }
     return {
         "kind": "index",
@@ -234,8 +287,14 @@ def _decode_index(index):
             levels=[_decode_index(level) for level in index["levels"]],
             codes=[_decode_column(codes) for codes in index["codes"]],
             names=[_decode_value(v) for v in index["names"]],
+            sortorder=index["sortorder"],
         )
-    result = pd.Index(_decode_column(index["column"]), name=_decode_value(index["name"]))
+    column = index["column"]
+    result = pd.Index(
+        _decode_column(column),
+        dtype=object if column.get("dtype") == "object" else None,
+        name=_decode_value(index["name"]),
+    )
     if type(result) in (pd.DatetimeIndex, pd.TimedeltaIndex):
         result.freq = index["frequency"]
     return result
@@ -256,6 +315,8 @@ def encode_request(code, frames):
             "index": _encode_index(frame.index),
             "columns": _encode_index(frame.columns),
             "data": [_encode_column(frame.iloc[:, i]) for i in range(len(frame.columns))],
+            "attrs": _encode_value(frame.attrs),
+            "duplicates": frame.flags.allows_duplicate_labels,
         }
     data = json.dumps({"version": 1, "code": code, "frames": encoded}, allow_nan=False, separators=(",", ":")).encode()
     if len(data) > MAX_INPUT_BYTES:
@@ -279,7 +340,13 @@ def stream_request(code, frames):
     def frame_messages():
         yield from messages
         for name, frame in frames.items():
-            yield {"frame": name, "index": _encode_index(frame.index), "columns": _encode_index(frame.columns)}
+            yield {
+                "frame": name,
+                "index": _encode_index(frame.index),
+                "columns": _encode_index(frame.columns),
+                "attrs": _encode_value(frame.attrs),
+                "duplicates": frame.flags.allows_duplicate_labels,
+            }
             for i in range(len(frame.columns)):
                 yield {"column": _encode_column(frame.iloc[:, i])}
         yield {"done": True}
@@ -316,7 +383,7 @@ def read_request(stream):
             if stream.read(1):
                 raise AnalysisRefused(ERROR)
             return header["code"], frames
-        if set(message) != {"frame", "index", "columns"} or type(message["frame"]) is not str:
+        if set(message) != {"frame", "index", "columns", "attrs", "duplicates"} or type(message["frame"]) is not str:
             raise AnalysisRefused(ERROR)
         index = _decode_index(message["index"])
         labels = _decode_index(message["columns"])
@@ -332,6 +399,8 @@ def read_request(stream):
         result = pd.DataFrame(columns, index=pd.RangeIndex(len(index)), copy=False)
         result.index = index
         result.columns = labels
+        result.attrs = _decode_value(message["attrs"])
+        result.flags.allows_duplicate_labels = message["duplicates"]
         validate_frame(result)
         frames[message["frame"]] = result
 
@@ -354,6 +423,8 @@ def _decode_document(request):
         result = pd.DataFrame(columns, index=pd.RangeIndex(len(index)))
         result.index = index
         result.columns = _decode_index(frame["columns"])
+        result.attrs = _decode_value(frame["attrs"])
+        result.flags.allows_duplicate_labels = frame["duplicates"]
         validate_frame(result)
         frames[name] = result
     return request["code"], frames
@@ -365,9 +436,9 @@ def decode_result(data):
         raise AnalysisRefused(ERROR)
     try:
         result = json.loads(data, parse_constant=lambda value: (_ for _ in ()).throw(AnalysisRefused(ERROR)))
-    except (ValueError, UnicodeError):
+        result = plain_value(result, cap_strings=True)
+    except (ValueError, UnicodeError, RecursionError):
         raise AnalysisRefused(ERROR) from None
-    result = plain_value(result, cap_strings=True)
     if type(result) is not dict or result.get("result_type") not in {"error", "table", "list", "dict", "scalar"}:
         raise AnalysisRefused(ERROR)
     fields = {

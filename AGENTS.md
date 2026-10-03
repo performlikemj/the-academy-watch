@@ -206,3 +206,5 @@ Before marking work complete:
 - Today scopes match SQL with `filter_match_bytes_query` and introduction subjects with `filter_public_adult_query` before LIMIT/has-more. Accepted scout queues end at session end (fallback start+one day); retention history is separate.
 
 - C4 private opportunity DTOs batch retained pending/accepted `live_attendance` evidence even after rollback. Session locks compare UTC instants/canonical timezone aliases and normalized venue/address; disabled editor dates carry exact stored timestamps, avoiding minute-input rounding. Same-program Today refresh retains stable row drafts, while program changes and failed reads discard private data.
+
+- GOL plain-data admission uses `services/gol_plain_shapes.py` as the shared type/dtype/index/timezone table. Encoders dispatch by its wire rules; every row needs a generated round-trip/reference/Linux-child recipe in `tests/gol_plain_shape_cases.py`. Unsupported storage/zones/keys refuse in both paths. READY refreshes trusted readiness evidence; transient contention, deadlines, loader and malformed-output failures never revoke working policy. Health reads cached state without a probe.
