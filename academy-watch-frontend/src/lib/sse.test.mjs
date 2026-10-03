@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { createSseParser } from './sse.js'
+import { GOL_MAINTENANCE_MESSAGE, maintenanceRetryAt } from './gol-maintenance.js'
 
 const frame = (type, data) => `event: ${type}\ndata: ${JSON.stringify(data)}\n\n`
 const sampleEvents = [
@@ -91,7 +92,7 @@ const hookSource = (await readFile(new URL('../hooks/useGolChat.js', import.meta
   .replace(/^import .*\n/gm, '')
   .replace('export function useGolChat', 'function useGolChat')
 
-function mountChat(streamChat, { lit = true, decoder = TextDecoder } = {}) {
+function mountChat(streamChat, { lit = true, decoder = TextDecoder, getGolSuggestions = async () => ({ suggestions: [] }) } = {}) {
   const slots = []
   let cursor = 0
   const hooks = {
@@ -108,9 +109,9 @@ function mountChat(streamChat, { lit = true, decoder = TextDecoder } = {}) {
     useCallback(callback) { return callback },
     useEffect() {},
   }
-  const useGolChat = new Function('hooks', 'APIService', 'createSseParser', 'TextDecoder',
+  const useGolChat = new Function('hooks', 'APIService', 'createSseParser', 'TextDecoder', 'GOL_MAINTENANCE_MESSAGE', 'maintenanceRetryAt',
     `const { useState, useRef, useCallback, useEffect } = hooks;\n${hookSource}\nreturn useGolChat`,
-  )(hooks, { streamChat }, createSseParser, decoder)
+  )(hooks, { streamChat, getGolSuggestions }, createSseParser, decoder, GOL_MAINTENANCE_MESSAGE, maintenanceRetryAt)
   return () => {
     cursor = 0
     return useGolChat('account-a', { freeQuestionsRemaining: 3, creditBalance: 0 }, lit)
@@ -133,6 +134,32 @@ function deferred() {
   let reject
   const promise = new Promise((yes, no) => { resolve = yes; reject = no })
   return { promise, resolve, reject }
+}
+
+for (const lit of [false, true]) {
+  for (const transport of ['json', 'sse']) {
+    test(`maintenance switch for the assistant ${transport} billing ${lit}`, async () => {
+      let calls = 0
+      const chat = mountChat(async () => {
+        calls += 1
+        const body = { error: 'maintenance', message: GOL_MAINTENANCE_MESSAGE, retryable: true }
+        return transport === 'json'
+          ? new Response(JSON.stringify(body), { status: 503 })
+          : streamResponse(frame('error', body) + frame('done', {}))
+      }, { lit })
+      await chat().sendMessage('Question')
+      const state = chat()
+      assert.equal(state.maintenance, true)
+      assert.equal(state.messages[1].content, GOL_MAINTENANCE_MESSAGE)
+      assert.ok(!state.messages[1].error)
+      assert.equal(state.isStreaming, false)
+      assert.equal(state.canRetry, true)
+      assert.equal(state.freeQuestionsRemaining, 3)
+      assert.equal(state.creditBalance, 0)
+      await state.sendMessage('Another question')
+      assert.equal(calls, 1)
+    })
+  }
 }
 
 test('hook decodes real one-byte chunks, replaces text, keeps cards/history and updates usage', async () => {
@@ -502,3 +529,99 @@ for (const error of ['in_flight', 'recovery_exhausted']) {
     assert.equal(calls[2][3], calls[1][3])
   })
 }
+
+
+test('maintenance honours Retry-After and preserves the exact question for recovery', async () => {
+  const requests = []
+  let suggestionCalls = 0
+  const chat = mountChat(async (...args) => {
+    requests.push(args)
+    return requests.length === 1
+      ? new Response(JSON.stringify({ error: 'maintenance' }), { status: 503, headers: { 'Retry-After': '120' } })
+      : streamResponse(frame('replace', { content: 'Recovered answer' }) + frame('done', {}))
+  }, { getGolSuggestions: async () => { suggestionCalls++; return { suggestions: ['Available'] } } })
+  const now = Date.now()
+  await chat().sendMessage('Original question')
+  assert.ok(chat().retryAt >= now + 120000)
+  assert.equal(await chat().recheckAvailability(), false)
+  assert.equal(suggestionCalls, 0)
+  // The reservation endpoint can recover an already charged question even while paused.
+  await chat().retryFailedMessage()
+  assert.equal(requests.length, 2)
+  assert.deepEqual(requests[1].slice(0, 4), requests[0].slice(0, 4))
+  assert.equal(chat().messages[1].content, 'Recovered answer')
+})
+
+test('an interrupted charged question remains recoverable when availability reports maintenance', async () => {
+  const requests = []
+  const chat = mountChat(async (...args) => {
+    requests.push(args)
+    return requests.length === 1
+      ? streamResponse(frame('usage', { free_questions_remaining: 2, debited: true }))
+      : streamResponse(frame('error', { error: 'maintenance', retry_after: 60 })
+        + frame('usage', { free_questions_remaining: 3, refunded: true }))
+  }, { getGolSuggestions: async () => ({ maintenance: true, retry_after: 60, suggestions: [] }) })
+  await chat().sendMessage('Held question')
+  assert.equal(chat().freeQuestionsRemaining, 2)
+  assert.equal(chat().canRetry, true)
+  await chat().recheckAvailability()
+  assert.equal(chat().maintenance, true)
+  assert.equal(chat().canRetry, true)
+  await chat().retryFailedMessage()
+  assert.deepEqual(requests[1].slice(0, 4), requests[0].slice(0, 4))
+  assert.equal(chat().freeQuestionsRemaining, 3)
+  assert.equal(chat().canRetry, true)
+  assert.equal(chat().maintenance, true)
+  assert.equal(chat().messages[1].maintenance, true)
+})
+
+test('availability recheck recovers without clearing the conversation; Clear resets maintenance', async () => {
+  let available = false
+  let calls = 0
+  const chat = mountChat(async () => new Response(JSON.stringify({ error: 'maintenance' }), {
+    status: 503, headers: { 'Retry-After': '0' },
+  }), { getGolSuggestions: async () => {
+    calls++
+    return available ? { suggestions: ['Available'] } : { maintenance: true, retry_after: 0, suggestions: [] }
+  } })
+  await chat().sendMessage('Keep this question')
+  assert.equal(await chat().recheckAvailability(), false)
+  available = true
+  assert.equal(await chat().recheckAvailability(), true)
+  assert.equal(chat().maintenance, false)
+  assert.equal(chat().messages[0].content, 'Keep this question')
+  assert.equal(chat().canRetry, true)
+  assert.deepEqual(chat().suggestions, ['Available'])
+  await chat().sendMessage('Question again')
+  assert.equal(chat().maintenance, true)
+  chat().clearChat()
+  assert.equal(chat().maintenance, false)
+  assert.equal(chat().retryAt, 0)
+  assert.equal(chat().canRetry, false)
+  assert.deepEqual(chat().messages, [])
+  assert.equal(await chat().recheckAvailability(), true)
+  assert.equal(calls, 3)
+})
+
+test('Clear discards late availability reads and shares concurrent rechecks', async () => {
+  const pending = deferred()
+  let calls = 0
+  const chat = mountChat(async () => streamResponse(frame('done', {})), {
+    getGolSuggestions: () => { calls++; return pending.promise },
+  })
+  const first = chat().recheckAvailability()
+  const second = chat().recheckAvailability()
+  assert.equal(calls, 1)
+  chat().clearChat()
+  pending.resolve({ maintenance: true, retry_after: 60 })
+  await Promise.all([first, second])
+  assert.equal(chat().maintenance, false)
+  assert.equal(chat().isCheckingAvailability, false)
+})
+
+test('operational control parses seconds and HTTP dates for retry deadlines', () => {
+  const now = Date.parse('2026-10-03T00:00:00Z')
+  assert.equal(maintenanceRetryAt('60', now), now + 60000)
+  assert.equal(maintenanceRetryAt('Sat, 03 Oct 2026 00:02:00 GMT', now), now + 120000)
+  assert.equal(maintenanceRetryAt('invalid', now), now + 60000)
+})

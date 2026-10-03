@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useId } from 'react'
 import { GolMessage } from './GolMessage'
 import { GolInput } from './GolInput'
 import { GolSuggestions } from './GolSuggestions'
+import { GolMaintenance } from './GolMaintenance'
 import { PlayerPreviewDrawer } from './PlayerPreviewDrawer'
 import { exportChatAsMarkdown } from './exportChat'
 import { APIService } from '@/lib/api'
@@ -40,10 +41,31 @@ export function GolChatWindow({
   creditsExhausted,
   billingConfig,
   onSignIn,
+  maintenance,
+  suggestions,
+  recheckAvailability,
+  isCheckingAvailability,
+  retryAt = 0,
 }) {
   const [previewPlayerId, setPreviewPlayerId] = useState(null)
   const [pdfExporting, setPdfExporting] = useState(false)
   const [pdfError, setPdfError] = useState(null)
+  const maintenanceId = useId()
+  // Mount the live region empty, including when reopening an unavailable panel.
+  const [announceMaintenance, setAnnounceMaintenance] = useState(false)
+  const [readyRetryAt, setReadyRetryAt] = useState(0)
+  // A non-maintenance failure may still hold a credit; Retry recovers its same ID.
+  const showRetry = canRetry && (!maintenance || !messages.at(-1)?.maintenance)
+  const retryWaiting = retryAt > readyRetryAt
+  useEffect(() => {
+    const timer = setTimeout(() => setAnnounceMaintenance(Boolean(maintenance)), 0)
+    return () => clearTimeout(timer)
+  }, [maintenance])
+  useEffect(() => {
+    const delay = Math.max(0, retryAt - Date.now())
+    const timer = setTimeout(() => setReadyRetryAt(retryAt), Math.min(delay, 2147483647))
+    return () => clearTimeout(timer)
+  }, [retryAt])
   const scrollRef = useRef(null)
   const bottomRef = useRef(null)
   const prefersReducedMotion = useRef(
@@ -75,14 +97,22 @@ export function GolChatWindow({
         className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain px-6 py-5"
       >
         {messages.length === 0 ? (
-          <GolSuggestions onSelect={sendMessage} disabled={accessState !== 'available' || creditsExhausted} />
+          !maintenance && <GolSuggestions onSelect={sendMessage} suggestions={suggestions} disabled={accessState !== 'available' || creditsExhausted} />
         ) : (
           <div className="space-y-6 min-w-0">
-            {messages.map(msg => (
+            {messages.filter(msg => !msg.maintenance).map(msg => (
               <GolMessage key={msg.id} message={msg} expanded={expanded} onPlayerClick={setPreviewPlayerId} />
             ))}
             <div ref={bottomRef} />
           </div>
+        )}
+        <div id={maintenanceId} role="status" aria-live="polite" aria-atomic="true">
+          {maintenance && announceMaintenance && <GolMaintenance />}
+        </div>
+        {maintenance && (
+          <Button variant="ghost" size="sm" onClick={recheckAvailability} disabled={isCheckingAvailability || retryWaiting}>
+            {isCheckingAvailability ? 'Checking…' : retryWaiting ? 'Please wait to check availability' : 'Check availability'}
+          </Button>
         )}
       </div>
 
@@ -144,7 +174,7 @@ export function GolChatWindow({
               Sign in
             </Button>
           </div>
-        ) : creditsExhausted ? (
+        ) : creditsExhausted && !maintenance ? (
           <div className="space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-[10px] border border-amber-300/70 bg-amber-50/70 px-4 py-3 text-amber-950">
               <div className="flex min-w-0 items-start gap-2.5">
@@ -155,7 +185,7 @@ export function GolChatWindow({
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                {canRetry ? (
+                {showRetry ? (
                   <Button size="sm" variant="ghost" onClick={retryFailedMessage} disabled={isStreaming}>
                     <RotateCcw className="mr-1.5 h-3.5 w-3.5" />Retry
                   </Button>
@@ -176,20 +206,20 @@ export function GolChatWindow({
                     ? `${freeQuestionsRemaining} free question${freeQuestionsRemaining === 1 ? '' : 's'} left`
                     : `Credits: ${creditBalance}`}
                 </span>
-                {canRetry ? (
+                {showRetry ? (
                   <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={retryFailedMessage} disabled={isStreaming}>
                     <RotateCcw className="mr-1.5 h-3.5 w-3.5" />Retry
                   </Button>
                 ) : null}
               </div>
-            ) : creditUiLit && canRetry ? (
+            ) : creditUiLit && showRetry ? (
               <div className="flex justify-end">
                 <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={retryFailedMessage} disabled={isStreaming}>
                   <RotateCcw className="mr-1.5 h-3.5 w-3.5" />Retry
                 </Button>
               </div>
             ) : null}
-            <GolInput onSend={sendMessage} isStreaming={isStreaming} onStop={stopStreaming} />
+            <GolInput onSend={sendMessage} isStreaming={isStreaming} onStop={stopStreaming} disabled={maintenance} describedBy={maintenance ? maintenanceId : undefined} />
           </div>
         )}
       </div>

@@ -2,7 +2,7 @@ import { useState, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { Send, Square } from 'lucide-react'
 
-export function GolInput({ onSend, isStreaming, onStop, disabled = false }) {
+export function GolInput({ onSend, isStreaming, onStop, disabled = false, describedBy }) {
   const [text, setText] = useState('')
   const inputRef = useRef(null)
 
@@ -32,6 +32,7 @@ export function GolInput({ onSend, isStreaming, onStop, disabled = false }) {
         placeholder="Ask about any player or team…"
         disabled={isStreaming || disabled}
         aria-label="Ask GOL"
+        aria-describedby={describedBy}
         className="min-w-0 flex-1 border-0 bg-transparent py-2 text-[15px] text-chalk placeholder:text-[#8C9791] focus-visible:outline-none disabled:opacity-60"
       />
       {isStreaming ? (
