@@ -12,13 +12,32 @@ export const RESULT_VIEWS = [
 export const RESULT_VIEW_KEY = 'aw.scout.view.v2'
 const VIEW_OWNERS_KEPT = 8
 
-// Who a stored view choice belongs to. The credential itself is never stored:
-// a short one-way tag of it is (FNV-1a, 32 bit), 'public' when signed out.
+// The account a sign-in token belongs to: its user id (or email) as carried in
+// the token's readable payload — a stable, non-secret identifier, the same after
+// signing out and in again. Null when the payload cannot be read.
+function accountOf(token) {
+  try {
+    const segment = String(token).split('.')[0]
+    if (!segment) return null
+    const base64 = segment.replaceAll('-', '+').replaceAll('_', '/')
+    const payload = JSON.parse(atob(base64 + '='.repeat((4 - (base64.length % 4)) % 4)))
+    if (payload?.user_id != null) return `id:${payload.user_id}`
+    return typeof payload?.email === 'string' && payload.email.trim() ? `email:${payload.email.trim().toLowerCase()}` : null
+  } catch {
+    return null
+  }
+}
+
+// Who a stored view choice belongs to: a short one-way tag (FNV-1a, 32 bit) of
+// the ACCOUNT, so the choice survives a new sign-in; 'public' when signed out.
+// Neither the credential nor the email is stored. A token whose payload cannot
+// be read falls back to a tag of that sign-in.
 export function viewOwnerTag(token) {
   if (!token) return 'public'
+  const subject = accountOf(token) || `token:${token}`
   let hash = 0x811c9dc5
-  for (let index = 0; index < token.length; index += 1) {
-    hash ^= token.charCodeAt(index)
+  for (let index = 0; index < subject.length; index += 1) {
+    hash ^= subject.charCodeAt(index)
     hash = Math.imul(hash, 0x01000193) >>> 0
   }
   return `u${hash.toString(16).padStart(8, '0')}`
@@ -170,6 +189,19 @@ export function boardsWithRows(boards, phaseBoards = []) {
   return phaseBoards.filter((board) => leaderEntries(boards?.[board.key]).length > 0)
 }
 
+// Compare prints season totals and per-90 rates. A club- or player-entered total
+// may be printed only when the server totals merged match lines (the same
+// figures as the player's page) — `serverMergesLines` is read off the desk's own
+// rows, which carry that contract's fields. Provider totals always may.
+export function compareFiguresWithheld(player, { serverMergesLines = false } = {}) {
+  if (figuresSource(player?.provenance) === 'provider') return false
+  return !serverMergesLines
+}
+
+export function serverMergesLines(rows) {
+  return (Array.isArray(rows) ? rows : []).some((row) => Object.hasOwn(row || {}, 'club_confirmed'))
+}
+
 // Pathway status and a non-chip source are set with the table's tools; while
 // one is on, the tools stay on screen in either view so it can be seen and cleared.
 export function hiddenFilterActive({ status = 'all', source = 'all' } = {}) {
@@ -237,7 +269,8 @@ export function introductionView(introduction, { verification = 'approved' } = {
   const { state } = introduction
   const label = INTRODUCTION_LABELS[state]
   const ask = (text) => {
-    if (!introduction.can_ask) return null
+    // Nothing is offered until it is known whether this scout may ask.
+    if (!introduction.can_ask || verification === 'loading') return null
     return verification === 'unverified' ? { kind: 'verify', label: 'Get verified to ask', to: '/scout/verification' } : { kind: 'ask', label: text }
   }
   const thread = { kind: 'thread', label: 'Open thread', to: introductionThreadPath(introduction) }
@@ -259,6 +292,9 @@ export function introductionView(introduction, { verification = 'approved' } = {
   }
   if (state === 'accepted') {
     const lead = answered ? `Accepted ${answered}.` : 'Accepted.'
+    if (introduction.read_only) {
+      return { label, tone: 'quiet', detail: `${lead} New messages cannot be sent in this thread.`, action: thread }
+    }
     return introduction.conversation_open
       ? { label, tone: 'good', detail: `${lead} Conversation open.`, action: thread }
       : { label, tone: 'wait', detail: [lead, WAITING[introduction.waiting_on]].filter(Boolean).join(' '), action: thread }

@@ -7,9 +7,9 @@ const consoleFile = new URL('../src/pages/MyClubConsole.jsx', import.meta.url)
 
 test('the panel lists the club box, decides consent through APIService, and mounts the thread', async () => {
   const src = await fs.readFile(panelFile, 'utf8')
-  assert.ok(src.includes("APIService.listContactRequests({ box: 'club', limit, offset })"))
+  assert.ok(src.includes("api.listContactRequests({ box: 'club', limit, offset })"))
   assert.ok(src.includes('fetchAllRequests('), 'the club box is paged through, not cut at the first page')
-  assert.ok(src.includes('APIService.setClubConsent(request.id, { action })'))
+  assert.ok(src.includes('api.setClubConsent(request.id, { action })'))
   assert.ok(src.includes("decide(request, 'grant')"))
   assert.ok(src.includes("decide(request, 'decline')"))
   assert.ok(src.includes('<ContactThread request={selected} onRequestChange={applyUpdate} canReportOutcome={false} />'))

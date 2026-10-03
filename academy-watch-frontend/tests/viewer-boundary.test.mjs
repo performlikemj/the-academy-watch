@@ -44,6 +44,37 @@ test('WatchlistPage: the exported wrapper holds no state and keys the watchlist 
   assert.match(source, /const saveCsv = useGuarded\(life, saveWatchlistCsv\)/)
 })
 
+// Every surface that renders private contact data (threads, messages, requests) or a
+// scout's own notes is a viewer-keyed boundary: IntroductionsPage, ContactThread,
+// ClubIntroductionsPanel, WatchlistPage and ListsPage.
+test('IntroductionsPage: the exported wrapper holds no state and keys the page on the viewer', () => {
+  const source = read('../src/pages/IntroductionsPage.jsx')
+  const wrapper = between(source, 'export function IntroductionsPage() {', 'function IntroductionsBody() {')
+  assert.deepEqual(wrapper.match(STATEFUL), null)
+  assert.match(wrapper, /const viewer = useViewerKey\(\)/)
+  assert.match(wrapper, /<IntroductionsBody key=\{viewer\} \/>/)
+  // Both boxes are viewer state: a list loaded for one account is unreadable by the next.
+  assert.match(source, /const \[requests, setRequests\] = useViewerState\(viewer, NO_REQUESTS\)/)
+  assert.equal(source.split('<IntroductionsBody').length - 1, 1)
+})
+
+test('ContactThread: keyed on viewer + request, so one account\'s thread never renders for another', () => {
+  const source = read('../src/components/contact/ContactThread.jsx')
+  const wrapper = between(source, 'export function ContactThread(props) {', 'function ContactThreadBody({')
+  assert.deepEqual(wrapper.match(STATEFUL), null)
+  assert.match(wrapper, /const viewer = useViewerKey\(\)/)
+  assert.match(wrapper, /<ContactThreadBody key=\{`\$\{viewer\}:\$\{props\.request\?\.id \?\? ''\}`\} \{\.\.\.props\} \/>/)
+})
+
+test('ClubIntroductionsPanel and ListsPage: keyed on the viewer', () => {
+  const panel = between(read('../src/components/contact/ClubIntroductionsPanel.jsx'), 'export function ClubIntroductionsPanel(props) {', 'function ClubIntroductionsPanelBody({')
+  assert.deepEqual(panel.match(STATEFUL), null)
+  assert.match(panel, /<ClubIntroductionsPanelBody key=\{viewer\} \{\.\.\.props\} \/>/)
+  const lists = between(read('../src/pages/ListsPage.jsx'), 'export function ListsPage() {', 'function ListsBody() {')
+  assert.deepEqual(lists.match(STATEFUL), null)
+  assert.match(lists, /<ListsBody key=\{viewer\} \/>/)
+})
+
 test('ShowcaseSection: the exported wrapper holds no state and keys the manage section on player + viewer', () => {
   const source = read('../src/components/ShowcaseSection.jsx')
   const wrapper = between(source, 'export function ShowcaseSection(props) {', 'function ShowcaseSectionBody({')
@@ -104,6 +135,10 @@ const VIEWER_BOUND_FILES = [
   '../src/pages/LocalPlayerPage.jsx',
   '../src/pages/ScoutPage.jsx',
   '../src/pages/WatchlistPage.jsx',
+  '../src/pages/IntroductionsPage.jsx',
+  '../src/pages/ListsPage.jsx',
+  '../src/components/contact/ContactThread.jsx',
+  '../src/components/contact/ClubIntroductionsPanel.jsx',
   '../src/components/ShowcaseSection.jsx',
   '../src/components/player-card/usePlayerReadView.js',
   '../src/components/PlayerReachControls.jsx',

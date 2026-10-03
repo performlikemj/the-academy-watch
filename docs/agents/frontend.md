@@ -45,7 +45,7 @@ Stripe.js, framer-motion, `d3-force-3d` for journey maps. Pages in `src/pages/` 
 Anything that belongs to the person looking — unsaved drafts, open dialogs, watchlist marks, claim/owner
 state, pending saves and their timers — must live **under a boundary keyed on player + viewer**, so React
 remounts it on logout, login or an account switch. The boundaries are the thin exported wrappers
-`PlayerPage` → `PlayerPageBody`, `ScoutPage` → `ScoutDeskBody`, `WatchlistPage` → `WatchlistBody`, `ShowcaseSection` → `ShowcaseSectionBody`
+`PlayerPage` → `PlayerPageBody`, `ScoutPage` → `ScoutDeskBody`, `WatchlistPage` → `WatchlistBody`, `IntroductionsPage` → `IntroductionsBody`, `ListsPage` → `ListsBody`, `ContactThread` → `ContactThreadBody` (keyed on viewer + request), `ClubIntroductionsPanel` → `ClubIntroductionsPanelBody`, `ShowcaseSection` → `ShowcaseSectionBody`
 and `LocalPlayerPage` → `LocalPlayerProfile`; the key comes from `viewerKey(token)` /
 `showcaseScope()` in `src/lib/player-card.js`. Never add state to a wrapper, and never key viewer-bound
 state by player id alone: a signed-in view can carry fields the server withholds from the next viewer.
@@ -80,6 +80,13 @@ close that:
   `tests/viewer-boundary.test.mjs` fails if a file in its list references `APIService`, calls `fetch`,
   takes `navigate` / `logout` / `openLoginModal` unguarded, or downloads outside a guard — add new viewer-bound components to that
   list. Rules and unit tests: `src/lib/viewer-lifetime.js`, `tests/stale-viewer-requests.test.mjs`.
+
+Every surface that renders private contact data (introduction requests, threads, messages) or a scout's own notes
+and lists must be one of these boundaries — a per-box or per-id cache that outlives the viewer is how one account's
+invitation ends up on the next account's screen. A requested id from the URL (`?request=…`) is only ever looked up in
+what the CURRENT viewer loaded. What is deliberately device state, not viewer state: filters kept in the address bar
+(`/scout?source=…&phase=…&season=…` — a shareable link, visible and clearable) and nothing else; the desk's Cards/Table
+choice is stored per account (`viewOwnerTag`).
 
 ## Deploy
 

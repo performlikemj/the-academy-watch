@@ -2,9 +2,9 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import {
-  DESK_CHIPS, NO_MATCHES, boardsWithRows, deskFigures, deskFilterParams, deskIntroduction, deskMeta, deskPhotos, deskStatus,
+  DESK_CHIPS, NO_MATCHES, boardsWithRows, compareFiguresWithheld, deskFigures, deskFilterParams, deskIntroduction, deskMeta, deskPhotos, deskStatus,
   figuresSource, hiddenFilterActive, initialResultView, introductionThreadPath, introductionView, leaderEntries,
-  storedResultView, viewOwnerTag, watchClub, watchRole, withResultView,
+  serverMergesLines, storedResultView, viewOwnerTag, watchClub, watchRole, withResultView,
 } from '../src/lib/scout-desk.js'
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
@@ -255,4 +255,63 @@ test('leaders are drawn only with rows, below the results', () => {
   assert.ok(!/No data yet/.test(desk), 'an empty board is drawn')
   assert.ok(!/Every tracked academy and loan player/.test(desk), 'the frozen product line is back')
   assert.match(desk, /Adult players who chose to be seen, with numbers their clubs stand behind\./)
+})
+
+// ---- Second review round ---------------------------------------------------
+
+const signInToken = (payload) => `${Buffer.from(JSON.stringify(payload)).toString('base64url')}.timestamp.signature`
+
+test('the view choice follows the ACCOUNT across sign-ins, not the sign-in token (review O-Small-1)', () => {
+  const first = signInToken({ email: 'corinne@example.com', user_id: 42, role: 'user', iat: 1790000000 })
+  const again = signInToken({ email: 'corinne@example.com', user_id: 42, role: 'user', iat: 1790099999 })
+  const other = signInToken({ email: 'dev@example.com', user_id: 43, role: 'user', iat: 1790000000 })
+  assert.notEqual(first, again)
+  assert.equal(viewOwnerTag(first), viewOwnerTag(again))
+  assert.notEqual(viewOwnerTag(first), viewOwnerTag(other))
+  // Older tokens without a user id fall back to the email; nothing readable is stored.
+  const byEmail = signInToken({ email: 'Corinne@Example.com ', role: 'user', iat: 1 })
+  assert.equal(viewOwnerTag(byEmail), viewOwnerTag(signInToken({ email: 'corinne@example.com', role: 'user', iat: 2 })))
+  for (const tag of [viewOwnerTag(first), viewOwnerTag(byEmail)]) {
+    assert.match(tag, /^u[0-9a-f]{8}$/)
+    assert.ok(!/corinne|42/.test(tag))
+  }
+  // An unreadable payload is still a per-sign-in tag, never an error.
+  assert.match(viewOwnerTag('.compressed-payload.x.y'), /^u[0-9a-f]{8}$/)
+  assert.notEqual(viewOwnerTag('opaque-a'), viewOwnerTag('opaque-b'))
+})
+
+test('compare withholds club- or player-entered season figures until the server merges match lines (review X2)', () => {
+  const club = { provenance: { source_category: 'club', primary_source: 'club' }, totals: { appearances: 1, minutes_played: 90 } }
+  const self = { provenance: { source_category: 'self', primary_source: 'user' } }
+  const provider = { provenance: { source_category: 'api', primary_source: 'journey' } }
+  assert.equal(compareFiguresWithheld(club), true)
+  assert.equal(compareFiguresWithheld(self), true)
+  assert.equal(compareFiguresWithheld({}), true)
+  assert.equal(compareFiguresWithheld(provider), false)
+  assert.equal(compareFiguresWithheld(club, { serverMergesLines: true }), false)
+  // The signal is read off the desk's own rows: only rows that carry the contract's field count.
+  assert.equal(serverMergesLines([{ player_id: 1 }, { player_id: 2, club_confirmed: false }]), true)
+  assert.equal(serverMergesLines([{ player_id: 1 }]), false)
+  assert.equal(serverMergesLines(null), false)
+  const desk = read('../src/pages/ScoutPage.jsx')
+  assert.match(desk, /if \(withheld\[i\] && SEASON_SOURCES\.includes\(row\.source\)\) return null/)
+  assert.match(desk, /mergedLines=\{serverMergesLines\(players\)\}/)
+})
+
+test('an accepted thread whose messages would be refused is not called a conversation (review X3)', () => {
+  const view = introductionView({ state: 'accepted', request_id: 'r-5', responded_at: `${YEAR}-09-28T10:00:00`, conversation_open: false, read_only: true })
+  assert.deepEqual(view, {
+    label: 'Accepted', tone: 'quiet', detail: 'Accepted 28 Sep. New messages cannot be sent in this thread.', action: { kind: 'thread', label: 'Open thread', to: '/introductions?request=r-5' },
+  })
+  assert.equal(deskStatus({ introduction: { state: 'accepted', conversation_open: false, read_only: true } }), 'Introduction accepted')
+})
+
+test('nothing is offered while it is unknown whether the scout may ask (review O-Small-2)', () => {
+  assert.equal(introductionView({ state: 'none', can_ask: true }, { verification: 'loading' }).action, null)
+  assert.equal(introductionView({ state: 'withdrawn', can_ask: true }, { verification: 'loading' }).action, null)
+  assert.deepEqual(introductionView({ state: 'none', can_ask: true }, { verification: 'approved' }).action, { kind: 'ask', label: 'Ask' })
+  // A status check that failed does not lock a verified scout out; the server still decides.
+  assert.deepEqual(introductionView({ state: 'none', can_ask: true }, { verification: 'unavailable' }).action, { kind: 'ask', label: 'Ask' })
+  // An existing thread stays reachable whatever the status.
+  assert.equal(introductionView({ state: 'pending', request_id: 'r-1', waiting_on: 'player' }, { verification: 'loading' }).action.kind, 'thread')
 })

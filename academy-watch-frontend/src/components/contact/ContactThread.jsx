@@ -6,7 +6,8 @@ import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Loader2, Send } from 'lucide-react'
 import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from '@/components/ui/alert-dialog'
-import { APIService } from '@/lib/api'
+import { useViewerKey, useViewerLifetime } from '@/hooks/useViewerState'
+import { isStaleViewerError } from '@/lib/viewer-lifetime'
 import { MESSAGE_MAX, OUTCOME_NOTES_MAX, OUTCOME_STAGES, outcomeLabel, describeThreadState, participantName, canSendMessage } from '@/lib/contact-thread'
 
 function formatWhen(value) {
@@ -18,12 +19,26 @@ function formatWhen(value) {
 
 const PAGE = 100
 
-export function ContactThread({ request, onRequestChange, canReportOutcome = false, viewerRole = 'scout' }) {
+// A thread belongs to the viewer who opened it and to one request. It is keyed on
+// both, so on an account switch (or another request) React remounts it: the
+// previous viewer's invitation, messages and draft cannot stay on screen, and
+// late answers land nowhere. Keep state inside ContactThreadBody.
+export function ContactThread(props) {
+  const viewer = useViewerKey()
+  return <ContactThreadBody key={`${viewer}:${props.request?.id ?? ''}`} {...props} />
+}
+
+function ContactThreadBody({ request, onRequestChange, canReportOutcome = false, viewerRole = 'scout' }) {
+  // Requests and side effects go through this viewer's lifetime (see lib/viewer-lifetime.js).
+  const life = useViewerLifetime()
+  const api = life.api
   const [messages, setMessages] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
+  // The server refused a message for this thread (a block between participants): history stays, the composer goes.
+  const [readOnly, setReadOnly] = useState(false)
   const [stage, setStage] = useState('')
   const [notes, setNotes] = useState('')
   const [reporting, setReporting] = useState(false)
@@ -58,7 +73,7 @@ export function ContactThread({ request, onRequestChange, canReportOutcome = fal
       let rows = []
       let offset = 0
       for (let page = 0; page < 50; page += 1) {
-        const res = await APIService.getContactMessages(requestId, { limit: PAGE, offset })
+        const res = await api.getContactMessages(requestId, { limit: PAGE, offset })
         if (seq !== loadSeq.current) return
         const more = Array.isArray(res?.messages) ? res.messages : []
         rows = rows.concat(more)
@@ -68,12 +83,12 @@ export function ContactThread({ request, onRequestChange, canReportOutcome = fal
       }
       setMessages(rows)
     } catch (err) {
-      if (seq !== loadSeq.current) return
+      if (seq !== loadSeq.current || isStaleViewerError(err)) return
       setError(err?.body?.error || err?.message || 'Messages could not be loaded.')
     } finally {
       if (seq === loadSeq.current) setLoading(false)
     }
-  }, [requestId, state.open, onRequestChange])
+  }, [api, requestId, state.open, onRequestChange])
 
   useEffect(() => {
     setDraft('')
@@ -91,12 +106,13 @@ export function ContactThread({ request, onRequestChange, canReportOutcome = fal
     setSending(true)
     setError(null)
     try {
-      const res = await APIService.sendContactMessage(sentFor, draft.trim())
+      const res = await api.sendContactMessage(sentFor, draft.trim())
       if (sentFor !== requestIdRef.current) return
       if (res?.message) setMessages((current) => [...current, res.message])
       setDraft('')
     } catch (err) {
-      if (sentFor !== requestIdRef.current) return
+      if (sentFor !== requestIdRef.current || isStaleViewerError(err)) return
+      if (err?.body?.code === 'messaging_unavailable') setReadOnly(true)
       setError(err?.body?.error || err?.message || 'Message could not be sent.')
     } finally {
       if (sentFor === requestIdRef.current) setSending(false)
@@ -109,13 +125,13 @@ export function ContactThread({ request, onRequestChange, canReportOutcome = fal
     setReporting(true)
     setOutcomeError(null)
     try {
-      const res = await APIService.reportContactOutcome(reportedFor, { stage, notes: notes.trim() || null })
+      const res = await api.reportContactOutcome(reportedFor, { stage, notes: notes.trim() || null })
       if (res?.contact_request && onRequestChange) onRequestChange(res.contact_request)
       if (reportedFor !== requestIdRef.current) return
       setStage('')
       setNotes('')
     } catch (err) {
-      if (reportedFor !== requestIdRef.current) return
+      if (reportedFor !== requestIdRef.current || isStaleViewerError(err)) return
       setOutcomeError(err?.body?.error || err?.message || 'Outcome could not be saved.')
     } finally {
       if (reportedFor === requestIdRef.current) setReporting(false)
@@ -130,10 +146,10 @@ export function ContactThread({ request, onRequestChange, canReportOutcome = fal
     setConfirmRevoke(false)
     setError(null)
     try {
-      const result = await APIService.request(`/contact/requests/${revokedFor}/revoke`, { method: 'POST', body: '{}' })
+      const result = await api.request(`/contact/requests/${revokedFor}/revoke`, { method: 'POST', body: '{}' })
       if (revokedFor === requestIdRef.current) onRequestChange?.(result.contact_request)
     } catch (err) {
-      if (revokedFor === requestIdRef.current) setError(err?.body?.error || err.message || 'Permission could not be revoked.')
+      if (revokedFor === requestIdRef.current && !isStaleViewerError(err)) setError(err?.body?.error || err.message || 'Permission could not be revoked.')
     } finally {
       revokeInFlight.current = false
       setRevoking(false)
@@ -191,6 +207,9 @@ export function ContactThread({ request, onRequestChange, canReportOutcome = fal
               ))}
             </ul>
           )}
+          {readOnly ? (
+            <p className="text-sm text-muted-foreground" data-testid="thread-read-only">New messages cannot be sent in this thread.</p>
+          ) : (
           <div className="space-y-2">
             <Textarea value={draft} onChange={(e) => setDraft(e.target.value.slice(0, MESSAGE_MAX))} rows={3} maxLength={MESSAGE_MAX} placeholder="Write a message…" aria-label="Message" />
             <div className="flex items-center justify-between">
@@ -200,6 +219,7 @@ export function ContactThread({ request, onRequestChange, canReportOutcome = fal
               </Button>
             </div>
           </div>
+          )}
           {error ? <p className="text-sm text-rose-600">{error}</p> : null}
 
           {canReportOutcome ? (

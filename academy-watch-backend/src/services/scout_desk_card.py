@@ -110,6 +110,33 @@ def _operational_program_ids(program_ids) -> set[int]:
     return set(db.session.execute(statement).scalars())
 
 
+def _programs_whose_managers_are_blocked(program_ids, related: set[int]) -> set[int]:
+    """Operational programs with an active manager on the other side of a block with the caller.
+
+    The message route's counterpart set for a club-included thread is the
+    claimant plus the active managers of an operational program
+    (``routes.contact.create_contact_message``); a block with any of them makes
+    sending impossible while the thread stays readable.
+    """
+    import sqlalchemy as sa
+    from src.services.club_registry import MANAGERS_TABLE, registry_available
+
+    operational = _operational_program_ids(program_ids)
+    if not operational or not related or not registry_available():
+        return set()
+    managers = sa.table(MANAGERS_TABLE, sa.column("program_id"), sa.column("user_account_id"), sa.column("status"))
+    statement = (
+        sa.select(managers.c.program_id)
+        .distinct()
+        .where(
+            managers.c.program_id.in_(operational),
+            managers.c.status == "active",
+            managers.c.user_account_id.in_(related),
+        )
+    )
+    return set(db.session.execute(statement).scalars())
+
+
 def target_claims(player_ids) -> dict[int, tuple[int, int]]:
     """``{player_id: (claim_id, owner_user_id)}`` — the claim a NEW request would be sent to.
 
@@ -212,6 +239,10 @@ def introductions_for(user, player_ids) -> dict[int, dict]:
       blocked account, hides nothing.
     * a blocked pair reads like any player who cannot be asked — never as a
       missing entry.
+    * ``conversation_open`` — what ``POST …/messages`` would accept: accepted,
+      both gates passed, and no block between the caller and the thread's
+      counterparts (the claimant — such a thread is hidden anyway — or an
+      active manager of the operational club on a club-included thread).
 
     One ``contact_requests`` query for all ids; the other lookups run once per
     response and only when a listed row needs them.
@@ -276,6 +307,19 @@ def introductions_for(user, player_ids) -> dict[int, dict]:
         {row.club_program_id for row in shown if row.routing_mode == ROUTING_CLUB_INCLUDED and row.club_program_id}
     )
     live_club_first = available_club_requests(shown)
+    # Sending is refused when the caller and an active manager of the thread's club have blocked one another.
+    send_blocked_programs = (
+        _programs_whose_managers_are_blocked(
+            {
+                row.club_program_id
+                for row in shown
+                if row.status == "accepted" and row.routing_mode == ROUTING_CLUB_INCLUDED
+            },
+            related,
+        )
+        if related
+        else set()
+    )
 
     result = {}
     for player_id in ids:
@@ -302,6 +346,7 @@ def introductions_for(user, player_ids) -> dict[int, dict]:
         elif state == "accepted" and club_included and row.club_consent_status != "granted":
             waiting_on = "club"
         program = programs.get(row.club_program_id) if club_included else None
+        messaging_blocked = state == "accepted" and club_included and row.club_program_id in send_blocked_programs
         result[player_id] = {
             "state": state,
             "request_id": row.id,
@@ -310,7 +355,9 @@ def introductions_for(user, player_ids) -> dict[int, dict]:
             "expires_at": _iso(row.expires_at),
             "via_club": program.get("name") if program else None,
             "waiting_on": None if closed else waiting_on,
-            "conversation_open": state == "accepted" and waiting_on is None and not closed,
+            "conversation_open": (state == "accepted" and waiting_on is None and not closed and not messaging_blocked),
+            # The thread can still be read; a new message would be refused (neutral wording in the UI).
+            "read_only": messaging_blocked and waiting_on is None and not closed,
             "declined_by": (
                 ("club" if row.club_consent_status == "declined" else "player") if state == "declined" else None
             ),

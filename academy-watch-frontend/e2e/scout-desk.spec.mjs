@@ -1,6 +1,7 @@
-/* global document, window, PopStateEvent */
+/* global document, window, PopStateEvent, MutationObserver */
 import fs from 'node:fs'
 import path from 'node:path'
+import { Buffer } from 'node:buffer'
 import process from 'node:process'
 import { test, expect } from '@playwright/test'
 import { RESULT_VIEW_KEY, viewOwnerTag } from '../src/lib/scout-desk.js'
@@ -73,7 +74,7 @@ function watchlistEntries() {
     entry(-17, 'Second striker who drifts left. Watch the cup tie.', { state: 'declined', request_id: 'r-max', created_at: '2026-09-18T09:00:00', responded_at: '2026-09-25T09:00:00', declined_by: 'player', can_ask: false, ask_again_from: '2026-10-25T09:00:00' }),
     entry(-24, 'For the women’s section: centre-back at Thrandby Wrens, back after six years out.', { state: 'withdrawn', request_id: 'r-seren', created_at: '2026-09-10T09:00:00', can_ask: true }),
     { player_api_id: -30, note: 'Asked in August, never heard back.', created_at: '2026-08-01T10:00:00', player: { ...byId(-23), id: 30, player_id: -30, player_name: 'Idris Vantongeren', position: 'Goalkeeper', age: 21 }, introduction: { state: 'expired', request_id: 'r-idris', created_at: '2026-08-30T09:00:00', expires_at: '2026-09-13T09:00:00', can_ask: true } },
-    entry(42, 'On loan at Test Town. Thirty games already — the engine is real.'),
+    entry(42, 'On loan at Test Town. Thirty games already — the engine is real.', { state: 'none', can_ask: false }),
     { player_api_id: 1005, note: 'Released in the summer; find out where he went.', created_at: '2026-07-01T10:00:00', player: null },
   ]
 }
@@ -461,7 +462,7 @@ for (const viewport of VIEWPORTS) {
       await expect(intro('Idris Vantongeren')).toContainText('No answer by 13 Sep, so the request lapsed.')
       await expect(intro('Idris Vantongeren').getByRole('button', { name: 'Ask again: introduction to Idris Vantongeren' })).toBeVisible()
 
-      // Provider-tracked: provider numbers and headshot as before; no introduction block without a state.
+      // Provider-tracked: provider numbers and headshot as before.
       const provider = row('Test Prospect')
       await expect(provider).toContainText('30 apps')
       await expect(provider).toContainText('2,412 min')
@@ -470,7 +471,8 @@ for (const viewport of VIEWPORTS) {
       await expect(provider).toContainText('Public match data')
       await expect(provider).toContainText('Test Town · from Test Academy')
       await expect(provider.locator('img.pc-mini-face')).toHaveAttribute('src', '/fixture-photos/headshot.svg')
-      await expect(provider.getByText('Introduction', { exact: true })).toHaveCount(0)
+      // Every tracked row carries a state when introductions are on — here the neutral one.
+      await expect(provider.getByTestId('watchlist-introduction')).toContainText('This player is not taking introductions here.')
 
       // No longer tracked: the note stays, and the row can still be removed.
       const gone = row('Player 1005')
@@ -786,4 +788,223 @@ test('"Open thread" lands on that thread in Introductions', async ({ page }) => 
   // An id that is not one of the caller's own requests selects nothing new.
   await page.evaluate(() => { window.history.pushState({}, '', '/introductions?request=r-someone-elses'); window.dispatchEvent(new PopStateEvent('popstate')) })
   await expect(selected).toContainText('Tobi Olawale')
+})
+
+
+// ---- Second review round ---------------------------------------------------
+
+// A sign-in token as the server issues it: a readable payload, then timestamp and signature.
+const tokenFor = (userId, issuedAt) => `${Buffer.from(JSON.stringify({ email: `scout${userId}@example.test`, user_id: userId, role: 'user', iat: issuedAt })).toString('base64url')}.t${issuedAt}.signature`
+
+test('the view choice follows the account through a new sign-in, and no other account inherits it', async ({ page }) => {
+  // Reviewer's probe: pick Table, sign out, sign in again (a NEW token for the same account).
+  await page.clock.setFixedTime(TODAY)
+  await page.setViewportSize(VIEWPORTS[0])
+  await signIn(page, tokenFor(42, 1790000000))
+  await installApiMocks(page)
+  await page.goto('/scout')
+  const view = page.getByRole('group', { name: 'Show players as' })
+  await view.getByRole('button', { name: 'Table' }).click()
+  await expect(page.getByRole('table')).toBeVisible()
+  await changeViewer(page, null)
+  await expect(view.getByRole('button', { name: 'Cards' })).toHaveAttribute('aria-pressed', 'true')
+  await changeViewer(page, tokenFor(42, 1790099999))
+  await expect(view.getByRole('button', { name: 'Table' })).toHaveAttribute('aria-pressed', 'true')
+  await changeViewer(page, tokenFor(43, 1790099999))
+  await expect(view.getByRole('button', { name: 'Cards' })).toHaveAttribute('aria-pressed', 'true')
+  const stored = await page.evaluate((key) => localStorage.getItem(key), RESULT_VIEW_KEY)
+  expect(stored).not.toMatch(/scout42|example\.test|signature/)
+})
+
+test('compare withholds club- or player-entered season figures the same way the cards do', async ({ page }) => {
+  // Reviewer's probe: the player's page says 2 appearances / 162 minutes, the rollup behind compare says 1 / 90.
+  const legacy = [
+    { id: 1, player_id: -12, player_name: 'Kofi Asante-Reid', position: 'Right-back', age: 27, primary_team_name: 'Quillmere Athletic', appearances: 1, minutes_played: 90, provenance: CLUB, contactable: true },
+    { id: 3, player_id: 42, player_name: 'Test Prospect', position: 'Midfielder', age: 20, primary_team_name: 'Test Academy', appearances: 30, minutes_played: 2412, provenance: API, contactable: false },
+  ]
+  const compared = (merged) => ({
+    season: 2026,
+    players: [
+      { profile: { player_id: -12, player_name: 'Kofi Asante-Reid', position: 'Right-back', age: 27, primary_team_name: 'Quillmere Athletic' }, provenance: CLUB, totals: { appearances: merged ? 2 : 1, minutes_played: merged ? 162 : 90, goals: 0, assists: 0 }, per90: { goal_contributions: 0.55 }, career: { first_team_apps: 61 } },
+      { profile: { player_id: 42, player_name: 'Test Prospect', position: 'Midfielder', age: 20, primary_team_name: 'Test Academy' }, provenance: API, totals: { appearances: 30, minutes_played: 2412, goals: 6, assists: 4 }, per90: { goal_contributions: 0.37 }, career: { first_team_apps: 30 } },
+    ],
+  })
+  await openDesk(page, VIEWPORTS[0], { rows: legacy })
+  await page.route('**/api/scout/compare**', (route) => route.fulfill({ json: compared(false) }))
+  const open = async () => {
+    for (const name of ['Kofi Asante-Reid', 'Test Prospect']) await cardsOf(page).filter({ hasText: name }).getByRole('button', { name: `Compare ${name}` }).click()
+    await page.getByRole('button', { name: 'Compare', exact: true }).click()
+    return page.getByRole('dialog')
+  }
+  const dialog = await open()
+  const row = (label) => dialog.getByRole('row').filter({ hasText: label })
+  await expect(dialog.getByTestId('compare-figures-withheld')).toHaveText('Season figures are on the player’s page')
+  // Kofi's rollup figures and the rate derived from them are not printed; the provider's are.
+  await expect(row('Appearances').getByRole('cell').nth(1)).toHaveText('—')
+  await expect(row('Minutes').getByRole('cell').nth(1)).toHaveText('—')
+  await expect(row('G+A / 90').getByRole('cell').nth(1)).toHaveText('—')
+  await expect(row('Appearances').getByRole('cell').nth(2)).toHaveText('30')
+  await expect(row('Minutes').getByRole('cell').nth(2)).toHaveText('2,412')
+  // Career volume is not a season rollup figure and stays.
+  await expect(row('First-team apps').getByRole('cell').nth(1)).toHaveText('61')
+  await shot(page, '15-compare-figures-withheld-1440')
+})
+
+test('compare prints every source once the desk rows carry the merged-lines contract', async ({ page }) => {
+  await openDesk(page, VIEWPORTS[0])
+  await page.route('**/api/scout/compare**', (route) => route.fulfill({ json: { season: 2026, players: [
+    { profile: { player_id: -12, player_name: 'Kofi Asante-Reid' }, provenance: CLUB, totals: { appearances: 2, minutes_played: 162 }, per90: {}, career: {} },
+    { profile: { player_id: -15, player_name: 'Reuben Castellane' }, provenance: SELF, totals: { appearances: 1, minutes_played: 72 }, per90: {}, career: {} },
+  ] } }))
+  for (const name of ['Kofi Asante-Reid', 'Reuben Castellane']) await cardsOf(page).filter({ hasText: name }).getByRole('button', { name: `Compare ${name}` }).click()
+  await page.getByRole('button', { name: 'Compare', exact: true }).click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.getByTestId('compare-figures-withheld')).toHaveCount(0)
+  await expect(dialog.getByRole('row').filter({ hasText: 'Minutes' }).getByRole('cell').nth(1)).toHaveText('162')
+})
+
+test('watchlist: no Ask until the verification status is known', async ({ page }) => {
+  let release
+  const held = new Promise((resolve) => { release = resolve })
+  await page.clock.setFixedTime(TODAY)
+  await page.setViewportSize(VIEWPORTS[0])
+  await signIn(page)
+  await installApiMocks(page, { entries: watchlistEntries(), verification: { status: 'pending' } })
+  await page.route('**/api/scout/verification', async (route) => { await held; return route.fallback() })
+  await page.goto('/scout/watchlist')
+  await expect(page.getByTestId('watchlist-row')).toHaveCount(10)
+  // Existing threads are reachable; nothing new is offered yet.
+  await expect(page.getByRole('link', { name: 'Open thread: Tobi Olawale' })).toBeVisible()
+  await expect(page.getByRole('button', { name: /^Ask/ })).toHaveCount(0)
+  release()
+  await expect(page.getByRole('link', { name: 'Get verified to ask: Kofi Asante-Reid' })).toBeVisible()
+  await expect(page.getByRole('button', { name: /^Ask/ })).toHaveCount(0)
+})
+
+test('watchlist: an accepted thread whose messages would be refused is not called a conversation', async ({ page }) => {
+  const entries = watchlistEntries().slice(0, 2)
+  entries[1].introduction = { ...entries[1].introduction, conversation_open: false, read_only: true }
+  await openWatchlist(page, VIEWPORTS[0], { entries })
+  const intro = page.getByTestId('watchlist-row').filter({ hasText: 'Reuben Castellane' }).getByTestId('watchlist-introduction')
+  await expect(intro).toContainText('Accepted 28 Sep. New messages cannot be sent in this thread.')
+  await expect(intro).not.toContainText('Conversation open')
+  await expect(intro.getByRole('link', { name: 'Open thread: Reuben Castellane' })).toBeVisible()
+})
+
+// ---- Introductions: nothing of the previous account, at any time ------------
+const A_SECRET = 'A-ONLY: I saw you against Skerraby and want to talk about next season.'
+const A_INBOX_SECRET = 'A-ONLY INBOX: a scout wrote this to account A alone.'
+const introRequest = (id, name, message, extra = {}) => ({ id, player_api_id: -21, message, status: 'pending', routing_mode: 'direct', messaging_open: false, created_at: '2026-09-30T09:00:00', participants: { scout: { display_name: 'Scout of record' }, player: { display_name: name } }, ...extra })
+
+// Records, inside the page, whether any of A's private text is EVER in the document.
+async function watchForPrivateText(page, needles) {
+  await page.evaluate((texts) => {
+    window.__sdLeak = false
+    const check = () => { if (texts.some((text) => document.body.innerText.includes(text))) window.__sdLeak = true }
+    new MutationObserver(check).observe(document.body, { childList: true, subtree: true, characterData: true })
+    window.__sdLeakCheck = check
+  }, needles)
+}
+
+for (const destination of ['delayed', 'failed']) {
+  test(`introductions: after an account switch, Back / Forward to the previous account's request shows nothing of theirs (destination box ${destination})`, async ({ page }) => {
+    let releaseInbox
+    const inboxHeld = new Promise((resolve) => { releaseInbox = resolve })
+    await page.clock.setFixedTime(TODAY)
+    await page.setViewportSize(VIEWPORTS[0])
+    await signIn(page, 'token-a')
+    await installApiMocks(page)
+    await page.route('**/api/contact/requests?**', async (route) => {
+      const url = new URL(route.request().url())
+      const box = url.searchParams.get('box')
+      const viewer = route.request().headers().authorization
+      if (viewer === 'Bearer token-a') {
+        return route.fulfill({ json: box === 'sent'
+          ? { requests: [introRequest('a-sent', 'Tobi Olawale', A_SECRET)], total: 1 }
+          : { requests: [introRequest('a-inbox', 'Account A Player', A_INBOX_SECRET, { participants: { scout: { display_name: 'A-ONLY Scout Name' }, player: { display_name: 'Account A Player' } } })], total: 1 } })
+      }
+      if (viewer === 'Bearer token-b') {
+        if (box === 'sent') return route.fulfill({ json: { requests: [introRequest('b-sent', 'Seren Maddox', 'B wrote this.')], total: 1 } })
+        if (destination === 'failed') return route.fulfill({ status: 503, json: { error: 'temporarily unavailable' } })
+        await inboxHeld
+        return route.fulfill({ json: { requests: [], total: 0 } })
+      }
+      return route.fulfill({ json: { requests: [], total: 0 } })
+    })
+
+    // A reads both of their threads, leaving both URLs in this tab's history.
+    await page.goto('/introductions?request=a-sent')
+    await expect(page.getByTestId('contact-thread')).toContainText(A_SECRET)
+    await page.evaluate(() => { window.history.pushState({}, '', '/introductions?request=a-inbox'); window.dispatchEvent(new PopStateEvent('popstate')) })
+    await expect(page.getByTestId('contact-thread')).toContainText(A_INBOX_SECRET)
+
+    // B signs in on the same page.
+    const secrets = [A_SECRET, A_INBOX_SECRET, 'A-ONLY Scout Name', 'Account A Player', 'Tobi Olawale']
+    await changeViewer(page, 'token-b')
+    await expect(page.getByText(A_INBOX_SECRET)).toHaveCount(0, { timeout: 2000 })
+    await watchForPrivateText(page, secrets)
+
+    // Back to A's sent thread URL, Forward to A's inbox thread URL, then the same again by a pushed link.
+    await page.goBack()
+    await expect(page).toHaveURL(/request=a-sent$/)
+    await page.goForward()
+    await expect(page).toHaveURL(/request=a-inbox$/)
+    await page.evaluate(() => { window.history.pushState({}, '', '/introductions?request=a-sent'); window.dispatchEvent(new PopStateEvent('popstate')) })
+    // Opening the other box (the one still loading / failing for B) changes nothing.
+    await page.getByRole('tab', { name: 'Received' }).click()
+    if (destination === 'failed') await expect(page.getByText('temporarily unavailable')).toBeVisible()
+    await page.evaluate(() => { window.history.pushState({}, '', '/introductions?request=a-inbox'); window.dispatchEvent(new PopStateEvent('popstate')) })
+    await page.waitForTimeout(300)
+    releaseInbox()
+    await page.getByRole('tab', { name: 'Sent' }).click()
+    await expect(page.getByText('Seren Maddox')).toBeVisible()
+
+    await page.evaluate(() => window.__sdLeakCheck())
+    expect(await page.evaluate(() => window.__sdLeak)).toBe(false)
+    for (const text of secrets) await expect(page.getByText(text)).toHaveCount(0)
+    // B's own request is selectable; A's ids select nothing.
+    await expect(page.locator('button[aria-current="true"]')).toHaveCount(0)
+    await page.evaluate(() => { window.history.pushState({}, '', '/introductions?request=b-sent'); window.dispatchEvent(new PopStateEvent('popstate')) })
+    await expect(page.getByTestId('contact-thread')).toContainText('B wrote this.')
+  })
+}
+
+test('introductions: signing out removes the open thread at once', async ({ page }) => {
+  await page.clock.setFixedTime(TODAY)
+  await signIn(page, 'token-a')
+  await installApiMocks(page, { sent: [introRequest('a-sent', 'Tobi Olawale', A_SECRET)] })
+  await page.goto('/introductions?request=a-sent')
+  await expect(page.getByTestId('contact-thread')).toContainText(A_SECRET)
+  await changeViewer(page, null)
+  await expect(page.getByText(A_SECRET)).toHaveCount(0, { timeout: 2000 })
+  await expect(page.getByText('Sign in to see introductions you sent or received.')).toBeVisible()
+})
+
+test('lists: the page is the scout’s own — another account never sees the previous one’s lists or notes', async ({ page }) => {
+  let release
+  const held = new Promise((resolve) => { release = resolve })
+  const pageErrors = []
+  page.on('pageerror', (error) => pageErrors.push(String(error)))
+  await page.clock.setFixedTime(TODAY)
+  await page.setViewportSize(VIEWPORTS[0])
+  await signIn(page, 'token-a')
+  await installApiMocks(page)
+  const listsOf = (name, note) => ({ lists: [{ id: 1, name, is_active: true, is_default: true, follow_count: 1, follows: [{ id: 9, kind: 'player', player_api_id: -21, label: 'Tobi Olawale', note }] }] })
+  await page.route('**/api/scout/lists', async (route) => {
+    if (route.request().headers().authorization === 'Bearer token-b') {
+      await held
+      return route.fulfill({ json: listsOf('B’s list', 'B’s own note') })
+    }
+    return route.fulfill({ json: listsOf('A-ONLY shortlist', 'A-ONLY note on Tobi') })
+  })
+  await page.goto('/scout/lists')
+  await expect(page.getByText('A-ONLY shortlist').first()).toBeVisible()
+
+  await changeViewer(page, 'token-b')
+  await expect(page.getByText('A-ONLY shortlist')).toHaveCount(0, { timeout: 2000 })
+  await expect(page.getByText('A-ONLY note on Tobi')).toHaveCount(0)
+  release()
+  await expect(page.getByText('B’s list').first()).toBeVisible()
+  await expect(page.getByText('A-ONLY shortlist')).toHaveCount(0)
+  expect(pageErrors).toEqual([])
 })

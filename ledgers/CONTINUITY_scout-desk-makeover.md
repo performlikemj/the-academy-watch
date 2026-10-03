@@ -8,6 +8,7 @@ Directive: `~/codex-runs/aw-redesign/briefs/SD.directive.md` (MJ-approved 2026-1
   results and only with rows); watchlist rebuilt (one row per player, private note in full and edited in place,
   introduction state for this scout + the one next action). Proof: `~/codex-runs/aw-redesign/shots/SD/INDEX.md`.
 - Fix round SDF1 (2026-10-03): duel findings fixed — introduction state mirrors the contact routes (target claim, per-request block, neutral blocked state; parity table test vs the real POST route, also run on PostgreSQL), desk control offers only what is allowed and refreshes after an ask, table-only filters stay visible in cards, same-page thread deep link, view choice per viewer, pre-PC2 figures withheld in table and leaders too.
+- Fix round SDF2 (2026-10-03): IntroductionsPage / ContactThread / ClubIntroductionsPanel / ListsPage made viewer-keyed boundaries (previous account's invitation could show after a switch + same-page Back/Forward); compare withholds pre-PC2 figures; `conversation_open` mirrors the message route's manager-block rule; view choice keyed by account; no Ask while verification is loading (watchlist).
 - Now: PR #1141 open to main, awaiting re-review. Do not merge here.
 - Next: after PC2 lands, merge main in (both edit `routes/scout.py`, `pages/ScoutPage.jsx`, `e2e/player-card.spec.mjs`).
 

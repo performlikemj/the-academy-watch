@@ -1,7 +1,7 @@
 import { useDataMode } from '@/hooks/useDataMode'
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { Link } from 'react-router-dom'
-import { APIService } from '@/lib/api'
+import { useGuarded, useViewerKey, useViewerLifetime } from '@/hooks/useViewerState'
 import { track } from '@/lib/track'
 import { useAuth, useAuthUI } from '@/context/AuthContext'
 import { Card, CardContent } from '@/components/ui/card'
@@ -85,6 +85,9 @@ function followLabel(follow) {
 }
 
 function PlayerSearchTab({ onAdd, adding, addError }) {
+  // Requests and side effects go through this viewer's lifetime (see lib/viewer-lifetime.js).
+  const life = useViewerLifetime()
+  const api = life.api
   const { api_football_frozen: frozen } = useDataMode()
   const [query, setQuery] = useState('')
   const [debounced, setDebounced] = useState('')
@@ -111,12 +114,12 @@ function PlayerSearchTab({ onAdd, adding, addError }) {
     setLoading(true)
     setError(null)
     track('search_performed', { q_len: debounced.length, surface: 'lists' })
-    APIService.scoutPlayerSearch(debounced)
+    api.scoutPlayerSearch(debounced)
       .then((data) => { if (!cancelled) setResults(data?.players || []) })
       .catch((err) => { if (!cancelled) { setError(err.message || 'Search failed'); setResults([]) } })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [debounced])
+  }, [api, debounced])
 
   const handleAdd = async (row) => {
     const ok = await onAdd({ kind: 'player', selector: { player_api_id: row.player_api_id } })
@@ -203,6 +206,9 @@ function PlayerSearchTab({ onAdd, adding, addError }) {
 }
 
 function ClubTab({ onAdd, adding, addError }) {
+  // Requests and side effects go through this viewer's lifetime (see lib/viewer-lifetime.js).
+  const life = useViewerLifetime()
+  const api = life.api
   const [teams, setTeams] = useState([])
   const [loading, setLoading] = useState(true)
   const [teamId, setTeamId] = useState(null)
@@ -211,12 +217,12 @@ function ClubTab({ onAdd, adding, addError }) {
     let cancelled = false
     setLoading(true)
     // All supported regions — the follow graph is a worldwide feature
-    APIService.getTeams()
+    api.getTeams()
       .then((data) => { if (!cancelled) setTeams(Array.isArray(data) ? data : (data?.teams || [])) })
       .catch((err) => { console.error('Failed to load teams', err); if (!cancelled) setTeams([]) })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [])
+  }, [api])
 
   const handleAdd = async () => {
     if (!teamId) return
@@ -320,6 +326,9 @@ function CountriesTab({ onAdd, adding, addError }) {
 }
 
 function FiltersTab({ onAdd, adding, addError }) {
+  // Requests and side effects go through this viewer's lifetime (see lib/viewer-lifetime.js).
+  const life = useViewerLifetime()
+  const api = life.api
   const [position, setPosition] = useState('all')
   const [status, setStatus] = useState('all')
   const [minAge, setMinAge] = useState('')
@@ -348,7 +357,7 @@ function FiltersTab({ onAdd, adding, addError }) {
     let cancelled = false
     setPreviewLoading(true)
     const timer = setTimeout(() => {
-      APIService.getScoutPlayers({ ...args, per_page: 3 })
+      api.getScoutPlayers({ ...args, per_page: 3 })
         .then((data) => {
           if (cancelled) return
           setPreview({
@@ -360,7 +369,7 @@ function FiltersTab({ onAdd, adding, addError }) {
         .finally(() => { if (!cancelled) setPreviewLoading(false) })
     }, 400)
     return () => { cancelled = true; clearTimeout(timer) }
-  }, [args, hasArgs])
+  }, [api, args, hasArgs])
 
   const handleAdd = async () => {
     if (!hasArgs) return
@@ -489,9 +498,21 @@ function AddFollowDialog({ open, onOpenChange, onAdd, adding, addError }) {
   )
 }
 
+// Viewer change = fresh screen. Lists, their follows and the notes on them are the
+// scout's own. The page is keyed on the viewer, so on logout, login or an account
+// switch React remounts it and nothing of the previous account stays on screen.
+// Keep viewer-bound state inside ListsBody — never in this wrapper.
 export function ListsPage() {
+  const viewer = useViewerKey()
+  return <ListsBody key={viewer} />
+}
+
+function ListsBody() {
+  // Requests and side effects go through this viewer's lifetime (see lib/viewer-lifetime.js).
+  const life = useViewerLifetime()
+  const api = life.api
   const auth = useAuth()
-  const { openLoginModal } = useAuthUI()
+  const openLoginModal = useGuarded(life, useAuthUI().openLoginModal)
 
   const [lists, setLists] = useState([])
   const [loading, setLoading] = useState(true)
@@ -524,7 +545,7 @@ export function ListsPage() {
     let cancelled = false
     setLoading(true)
     setError(null)
-    APIService.getFollowLists()
+    api.getFollowLists()
       .then((data) => {
         if (cancelled) return
         const arr = data?.lists || []
@@ -534,7 +555,7 @@ export function ListsPage() {
       .catch((err) => { if (!cancelled) setError(err.message || 'Failed to load lists') })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [auth?.token])
+  }, [api, auth?.token])
 
   // Load resolved preview for the selected list
   useEffect(() => {
@@ -545,7 +566,7 @@ export function ListsPage() {
     let cancelled = false
     setPreviewLoading(true)
     setPreviewError(null)
-    APIService.resolveFollowList(selectedListId, { limit: 20, offset: 0 })
+    api.resolveFollowList(selectedListId, { limit: 20, offset: 0 })
       .then((data) => {
         if (cancelled) return
         const players = data?.players || []
@@ -558,7 +579,7 @@ export function ListsPage() {
       })
       .finally(() => { if (!cancelled) setPreviewLoading(false) })
     return () => { cancelled = true }
-  }, [selectedListId, previewNonce])
+  }, [api, selectedListId, previewNonce])
 
   const reloadPreview = useCallback(() => setPreviewNonce((n) => n + 1), [])
 
@@ -566,7 +587,7 @@ export function ListsPage() {
     if (!selectedListId || previewLoading) return
     setPreviewLoading(true)
     try {
-      const data = await APIService.resolveFollowList(selectedListId, { limit: 20, offset: preview.offset })
+      const data = await api.resolveFollowList(selectedListId, { limit: 20, offset: preview.offset })
       const more = data?.players || []
       setPreview((prev) => ({
         players: [...prev.players, ...more],
@@ -578,7 +599,7 @@ export function ListsPage() {
     } finally {
       setPreviewLoading(false)
     }
-  }, [selectedListId, previewLoading, preview.offset])
+  }, [api, selectedListId, previewLoading, preview.offset])
 
   const handleCreate = useCallback(async () => {
     const name = newName.trim()
@@ -586,7 +607,7 @@ export function ListsPage() {
     setCreateSaving(true)
     setCreateError(null)
     try {
-      const res = await APIService.createFollowList(name)
+      const res = await api.createFollowList(name)
       const created = res?.list
       if (created) {
         track('list_created', { list_id: created.id })
@@ -600,15 +621,15 @@ export function ListsPage() {
     } finally {
       setCreateSaving(false)
     }
-  }, [newName])
+  }, [api, newName])
 
   const handleToggleActive = useCallback((list, checked) => {
     setLists((prev) => prev.map((l) => (l.id === list.id ? { ...l, is_active: checked } : l)))
-    APIService.updateFollowList(list.id, { is_active: checked }).catch((err) => {
+    api.updateFollowList(list.id, { is_active: checked }).catch((err) => {
       console.error('Failed to toggle list', err)
       setLists((prev) => prev.map((l) => (l.id === list.id ? { ...l, is_active: !checked } : l)))
     })
-  }, [])
+  }, [api])
 
   const handleDelete = useCallback((list) => {
     let removedIndex = -1
@@ -621,7 +642,7 @@ export function ListsPage() {
       const remaining = lists.filter((l) => l.id !== list.id)
       return remaining[0]?.id ?? null
     })
-    APIService.deleteFollowList(list.id).catch((err) => {
+    api.deleteFollowList(list.id).catch((err) => {
       console.error('Failed to delete list', err)
       // Revert
       setLists((prev) => {
@@ -631,14 +652,14 @@ export function ListsPage() {
         return next
       })
     })
-  }, [lists])
+  }, [api, lists])
 
   const handleAddFollow = useCallback(async (payload) => {
     if (!selectedListId) return false
     setAdding(true)
     setAddError(null)
     try {
-      const res = await APIService.addFollow(selectedListId, payload)
+      const res = await api.addFollow(selectedListId, payload)
       const follow = res?.follow
       track('follow_added', { kind: payload.kind })
       if (res?.shadow_created === true) {
@@ -659,7 +680,7 @@ export function ListsPage() {
     } finally {
       setAdding(false)
     }
-  }, [selectedListId, reloadPreview])
+  }, [api, selectedListId, reloadPreview])
 
   const handleRemoveFollow = useCallback((follow) => {
     if (!selectedListId) return
@@ -672,7 +693,7 @@ export function ListsPage() {
           }
         : l
     )))
-    APIService.removeFollow(selectedListId, follow.id)
+    api.removeFollow(selectedListId, follow.id)
       .then(() => reloadPreview())
       .catch((err) => {
         console.error('Failed to remove follow', err)
@@ -682,7 +703,7 @@ export function ListsPage() {
             : l
         )))
       })
-  }, [selectedListId, reloadPreview])
+  }, [api, selectedListId, reloadPreview])
 
   const followCount = (list) => (list.follows ? list.follows.length : (list.follow_count ?? 0))
 

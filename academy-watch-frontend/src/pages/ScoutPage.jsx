@@ -26,9 +26,9 @@ import { ScoutSurface, ScoutHeader, DeskSectionTitle, deskPillClass } from '@/co
 import { PlayerCard } from '@/components/player-card/PlayerCard'
 import { viewerKey } from '@/lib/player-card'
 import {
-  DESK_CHIPS, NO_MATCHES, RESULT_VIEWS, RESULT_VIEW_KEY, boardsWithRows, deskClubName, deskFigures,
+  DESK_CHIPS, NO_MATCHES, RESULT_VIEWS, RESULT_VIEW_KEY, boardsWithRows, compareFiguresWithheld, deskClubName, deskFigures,
   deskFilterParams, deskIntroduction, deskMeta, deskPhotos, deskStatus, hiddenFilterActive, initialResultView,
-  leaderEntries, storedResultView, viewOwnerTag, withResultView,
+  leaderEntries, serverMergesLines, storedResultView, viewOwnerTag, withResultView,
 } from '@/lib/scout-desk'
 import { cn } from '@/lib/utils'
 import { saveBlobAs } from '@/lib/download'
@@ -347,7 +347,7 @@ function LeaderboardCard({ board, entries, season, seasonOverride }) {
   )
 }
 
-function CompareDialog({ open, onOpenChange, playerIds, season, seasonOverride, source = 'all' }) {
+function CompareDialog({ open, onOpenChange, playerIds, season, seasonOverride, source = 'all', mergedLines = false }) {
   // Requests and side effects go through this viewer's lifetime (see lib/viewer-lifetime.js).
   const life = useViewerLifetime()
   const api = life.api
@@ -393,6 +393,10 @@ function CompareDialog({ open, onOpenChange, playerIds, season, seasonOverride, 
   }, [playerIds, season, source])
 
   const players = data?.players || []
+  // Same rule as the cards, table and leaders: a club- or player-entered figure that
+  // could differ from the player's page is not printed (nor a rate derived from it).
+  const withheld = players.map((p) => compareFiguresWithheld(p, { serverMergesLines: mergedLines }))
+  const SEASON_SOURCES = ['totals', 'per90']
   const anyGoalkeeper = players.some((p) => p.profile?.position === 'Goalkeeper')
 
   return (
@@ -451,7 +455,11 @@ function CompareDialog({ open, onOpenChange, playerIds, season, seasonOverride, 
                         <span className="text-xs text-muted-foreground font-normal">
                           {p.profile.loan_team_name || p.profile.primary_team_name}
                         </span>
-                        {p.totals?.rollup_missing ? (
+                        {withheld[players.indexOf(p)] ? (
+                          <span className="rounded-full border border-chalk/25 px-2 py-0.5 text-[10px] font-normal text-muted-dark" data-testid="compare-figures-withheld">
+                            Season figures are on the player’s page
+                          </span>
+                        ) : p.totals?.rollup_missing ? (
                           <span className="rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
                             No data for this season
                           </span>
@@ -465,7 +473,8 @@ function CompareDialog({ open, onOpenChange, playerIds, season, seasonOverride, 
               </thead>
               <tbody>
                 {COMPARE_ROWS.filter((row) => !row.position || (row.position === 'Goalkeeper' && anyGoalkeeper)).map((row, index) => {
-                  const values = players.map((p) => {
+                  const values = players.map((p, i) => {
+                    if (withheld[i] && SEASON_SOURCES.includes(row.source)) return null
                     const bucket = p[row.source]
                     const value = bucket?.[row.key]
                     return value === null || value === undefined ? null : value
@@ -1342,6 +1351,7 @@ function PlayerScoutPage({ clubsEnabled }) {
           season={selectedSeason}
           seasonOverride={seasonOverride}
           source={source}
+          mergedLines={serverMergesLines(players)}
         />
         <IntroduceDialog
           open={canIntroduce && !!auth?.token && !!introducePlayer}

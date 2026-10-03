@@ -606,3 +606,79 @@ def test_what_the_lists_offer_is_what_the_contact_route_does(client, monkeypatch
     assert watchlist == desk
     assert watchlist["can_ask"] is allowed
     assert (created.status_code == 201) is allowed, created.get_json()
+
+
+# ---- "Conversation open" must be what the message route accepts ------------
+
+
+def _club_thread(*, status, consent, club_first=False):
+    db.session.execute(
+        text(
+            "INSERT INTO club_programs (id, name, platform_status, emergency_hidden) "
+            "VALUES (7, 'Quillmere Athletic', 'approved', false)"
+        )
+    )
+    manager = _user("club-manager@example.com")
+    db.session.execute(
+        text(
+            "INSERT INTO club_program_managers (id, program_id, user_account_id, status) VALUES (1, 7, :uid, 'active')"
+        ),
+        {"uid": manager.id},
+    )
+    db.session.commit()
+    claim = _claim(2001)
+    claim.club_program_id = 7
+    claim.contract_status = "contracted"
+    db.session.commit()
+    row = _request(
+        SCOUT,
+        2001,
+        status=status,
+        claim_id=claim.id,
+        routing_mode="club_included",
+        club_program_id=7,
+        club_consent_status=consent,
+        responded_at=utcnow() if status == "accepted" else None,
+    )
+    return row, manager
+
+
+MESSAGE_CASES = [
+    # (request status, club consent, who blocks whom, messages may be sent)
+    ("pending", "pending", None, False),
+    ("accepted", "pending", None, False),
+    ("accepted", "granted", None, True),
+    ("accepted", "granted", "manager_blocks_scout", False),
+    ("accepted", "granted", "scout_blocks_manager", False),
+    ("accepted", "granted", "unrelated_block", True),
+]
+
+
+@pytest.mark.parametrize("status,consent,block,sendable", MESSAGE_CASES)
+def test_conversation_open_is_what_the_message_route_accepts(client, status, consent, block, sendable):
+    _verified()
+    _watch(SCOUT, 2001)
+    row, manager = _club_thread(status=status, consent=consent)
+    request_id = row.id
+    scout = _user(SCOUT)
+    if block == "manager_blocks_scout":
+        _block(manager.id, scout.id)
+    elif block == "scout_blocks_manager":
+        _block(scout.id, manager.id)
+    elif block == "unrelated_block":
+        _block(scout.id, _user("nobody-in-this-thread@example.com").id)
+    headers = _headers()
+
+    watchlist = _introductions(client)[2001]
+    desk = {
+        row["player_id"]: row
+        for row in client.get("/api/scout/players?sort=name&per_page=100", headers=headers).get_json()["players"]
+    }[2001]["introduction"]
+    sent = client.post(f"/api/contact/requests/{request_id}/messages", json={"body": "Hello"}, headers=headers)
+
+    assert watchlist == desk
+    assert watchlist["conversation_open"] is sendable
+    assert (sent.status_code == 201) is sendable, sent.get_json()
+    # A manager block makes the thread read-only — it never hides it and never re-opens asking.
+    assert watchlist["read_only"] is (block in {"manager_blocks_scout", "scout_blocks_manager"})
+    assert (watchlist["state"], watchlist["can_ask"], watchlist["request_id"]) == (status, False, request_id)

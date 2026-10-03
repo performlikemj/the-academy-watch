@@ -32,16 +32,16 @@ test('participantName, canSendMessage and outcome labels', () => {
 
 test('the component talks to the three thread endpoints through APIService', async () => {
   const src = await fs.readFile(componentFile, 'utf8')
-  assert.ok(src.includes('APIService.getContactMessages(requestId, { limit: PAGE, offset })'))
-  assert.ok(src.includes('APIService.sendContactMessage(sentFor, draft.trim())'))
-  assert.ok(src.includes('APIService.reportContactOutcome(reportedFor, { stage, notes: notes.trim() || null })'))
+  assert.ok(src.includes('api.getContactMessages(requestId, { limit: PAGE, offset })'))
+  assert.ok(src.includes('api.sendContactMessage(sentFor, draft.trim())'))
+  assert.ok(src.includes('api.reportContactOutcome(reportedFor, { stage, notes: notes.trim() || null })'))
   assert.ok(src.includes('data-testid="contact-thread"'))
 })
 
 test('the thread pages through every message and hides the outcome form when the viewer cannot report', async () => {
   const src = await fs.readFile(componentFile, 'utf8')
-  assert.ok(src.includes("export function ContactThread({ request, onRequestChange, canReportOutcome = false, viewerRole = 'scout' })"), 'outcome form defaults off until a permitted viewer opts in')
-  assert.ok(src.includes('APIService.getContactMessages(requestId, { limit: PAGE, offset })'), 'messages are fetched page by page')
+  assert.ok(src.includes("function ContactThreadBody({ request, onRequestChange, canReportOutcome = false, viewerRole = 'scout' })"), 'outcome form defaults off until a permitted viewer opts in')
+  assert.ok(src.includes('api.getContactMessages(requestId, { limit: PAGE, offset })'), 'messages are fetched page by page')
   assert.ok(src.includes('if (more.length < PAGE) break'), 'fetching stops at the first short page')
   const guard = src.indexOf('{canReportOutcome ? (')
   const form = src.indexOf('Record the outcome')
