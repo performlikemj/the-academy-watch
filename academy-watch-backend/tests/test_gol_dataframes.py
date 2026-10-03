@@ -9,6 +9,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 import sqlalchemy as sa
+from alembic.script import ScriptDirectory
 from flask import Flask
 from src.models.cohort import AcademyCohort, CohortMember
 from src.models.journey import PlayerJourney, PlayerJourneyEntry
@@ -63,7 +64,10 @@ def pg_loader():
     db.init_app(app)
     with app.app_context():
         assert db.session.execute(sa.text("SELECT current_database()")).scalar() == "aw_sbxf2"
-        assert db.session.execute(sa.text("SELECT version_num FROM alembic_version")).scalar() == "p2c1"
+        assert (
+            db.session.execute(sa.text("SELECT version_num FROM alembic_version")).scalar()
+            == ScriptDirectory(str(Path(__file__).resolve().parents[1] / "migrations")).get_current_head()
+        )
         # Also exercise a Numeric deployment variant. The current model is Float;
         # only this disposable database changes, and its original type is restored.
         rating_type = next(

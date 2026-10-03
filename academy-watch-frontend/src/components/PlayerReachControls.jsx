@@ -2,16 +2,18 @@ import { useEffect, useRef, useState } from 'react'
 import { Heart, Share2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useAuth, useAuthUI } from '@/context/AuthContext'
-import { APIService } from '@/lib/api'
-
+import { useGuarded, useViewerLifetime } from '@/hooks/useViewerState'
 function fanLabel(count) {
   if (count === 0) return 'Be the first fan'
   return `${count.toLocaleString()} ${count === 1 ? 'fan' : 'fans'}`
 }
 
 export function PlayerReachControls({ signedId, onPublicConfirmed }) {
+  // Requests and side effects go through this viewer's lifetime (see lib/viewer-lifetime.js).
+  const life = useViewerLifetime()
+  const api = life.api
   const { token } = useAuth()
-  const { openLoginModal } = useAuthUI()
+  const openLoginModal = useGuarded(life, useAuthUI().openLoginModal)
   const signedIdKey = signedId == null ? '' : String(signedId)
   const requestKey = `${signedIdKey}:${token || 'public'}`
   const confirmedIdsRef = useRef(new Set())
@@ -33,7 +35,7 @@ export function PlayerReachControls({ signedId, onPublicConfirmed }) {
 
     let cancelled = false
 
-    APIService.getPlayerFanCount(signedIdKey)
+    api.getPlayerFanCount(signedIdKey)
       .then((response) => {
         if (cancelled) return
         setReach({
@@ -55,7 +57,7 @@ export function PlayerReachControls({ signedId, onPublicConfirmed }) {
       })
 
     return () => { cancelled = true }
-  }, [onPublicConfirmed, requestKey, signedId, signedIdKey])
+  }, [api, onPublicConfirmed, requestKey, signedId, signedIdKey])
 
   const toggleFollow = async () => {
     if (!token) {
@@ -73,8 +75,8 @@ export function PlayerReachControls({ signedId, onPublicConfirmed }) {
 
     try {
       const response = nextFollowing
-        ? await APIService.followPlayer(signedIdKey)
-        : await APIService.unfollowPlayer(signedIdKey)
+        ? await api.followPlayer(signedIdKey)
+        : await api.unfollowPlayer(signedIdKey)
       setReach((current) => current?.requestKey === previous.requestKey
         ? {
             ...current,

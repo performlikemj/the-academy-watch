@@ -1,4 +1,5 @@
 import { loadFeatures, peekFeatures } from './features.js'
+import { saveBlobAs } from './download.js'
 import {
     normalizeNewsletterIds,
     parseNewsletterId,
@@ -17,6 +18,19 @@ export function nextWindowIndex(currentTime, windows, currentIdx) {
 }
 
 export class APIService {
+    // --- p2-c2 begin ---
+    static highlightClipUrl(path) {
+        if (!/^\/api\/highlights\/[a-f0-9-]{36}\/clip$/.test(path || '')) throw new Error('Invalid highlight URL')
+        return `${API_BASE_URL}${path.slice(4)}`
+    }
+    static async highlightPreviewUrl(path) {
+        if (!/^\/api\/(?:me\/highlight-requests\/[a-f0-9-]{36}|club\/\d+\/matches\/\d+\/highlights\/[a-f0-9-]{36})\/preview$/.test(path || '')) throw new Error('Invalid highlight preview')
+        const result = await this.request(`${path.slice(4)}?transport=url`)
+        const url = new URL(result.url)
+        if (!['https:', 'http:'].includes(url.protocol)) throw new Error('Highlight unavailable')
+        return url.href
+    }
+    // --- p2-c2 end ---
     // --- p2-b3 begin ---
     static adminControlRead(path) { return this.request(path, {}, { admin: true }) }
     static adminControlAction(path, payload) { return this.request(path, { method: 'POST', body: JSON.stringify(payload) }, { admin: true }) }
@@ -317,6 +331,18 @@ export class APIService {
         })
     }
 
+    // The credential a request was sent with (token, plus the admin/curator key
+    // when the request uses one). Data answers are delivered to the caller even
+    // if this has changed meanwhile; only a late 401 is treated differently
+    // (see request()). Strict per-viewer binding lives in the viewer-bound
+    // pages, through useViewerLifetime (lib/viewer-lifetime.js).
+    static _credential(extra) {
+        const token = this.userToken || null
+        if (extra?.admin) return `${token}|admin:${this.adminKey || ''}`
+        if (extra?.curator) return `${token}|curator:${this.curatorKey || ''}`
+        return token
+    }
+
     static async request(endpoint, options = {}, extra = {}) {
         try {
             const admin = extra && extra.admin
@@ -358,6 +384,7 @@ export class APIService {
             // --- p2-b3 begin ---
             if (extra?.accountAccess) headers.Authorization = `Bearer ${extra.accountAccess}`
             // --- p2-b3 end ---
+            const sentCredential = this._credential(extra)
             const response = await fetch(`${API_BASE_URL}${endpoint}`, { ...options, headers })
 
             if (extra?.nullOn404 && response.status === 404) return null
@@ -384,6 +411,14 @@ export class APIService {
                 const err = new Error(parsed?.error || errorText || `HTTP ${response.status}`)
                 err.status = response.status
                 err.body = parsed || errorText
+                // A 401 for a credential that is no longer the current one says
+                // nothing about the current session: it is returned as a plain
+                // failure (no status), so no caller signs the current session
+                // out, opens the sign-in prompt or clears anything because of it.
+                if (response.status === 401 && this._credential(extra) !== sentCredential) {
+                    delete err.status
+                    err.staleCredential = true
+                }
                 throw err
             }
 
@@ -635,6 +670,14 @@ export class APIService {
     }
 
     static async downloadScoutCsv(params = {}) {
+        const blob = await this.fetchScoutCsv(params)
+        saveBlobAs(blob, 'academy-watch-scout-export.csv')
+        return blob
+    }
+
+    // The export as a Blob, body fully read, with no side effect: callers that
+    // must not download for another viewer save it themselves, through their guard.
+    static async fetchScoutCsv(params = {}) {
         const query = new URLSearchParams(params)
         const headers = {}
         const token = this.userToken || (typeof localStorage !== 'undefined' && localStorage.getItem('academy_watch_user_token'))
@@ -658,18 +701,7 @@ export class APIService {
             err.body = parsed || message
             throw err
         }
-        const blob = await response.blob()
-        if (typeof document !== 'undefined' && typeof URL !== 'undefined' && URL.createObjectURL) {
-            const objectUrl = URL.createObjectURL(blob)
-            const a = document.createElement('a')
-            a.href = objectUrl
-            a.download = 'academy-watch-scout-export.csv'
-            document.body.appendChild(a)
-            a.click()
-            a.remove()
-            setTimeout(() => URL.revokeObjectURL(objectUrl), 0)
-        }
-        return blob
+        return response.blob()
     }
 
     // --- Follow lists (scout follow graph) — user-authed ---

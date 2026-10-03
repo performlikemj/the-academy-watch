@@ -1,5 +1,5 @@
 import fs from 'node:fs'
-import { CLEAT_BOOT, CLEAT_CSS } from '../src/lib/cleat-loader.js'
+import { CLEAT_BOOT, CLEAT_CSS } from '../src/lib/cleat-splash.js'
 
 // Run after changing the shared loader primitives. No boot-time script or asset fetch.
 const file = new URL('../index.html', import.meta.url)

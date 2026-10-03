@@ -12,7 +12,7 @@ from src.models.funding import ClubRosterMember
 from src.models.league import UserAccount, db
 from src.models.player_match_entry import PlayerMatchEntry
 from src.models.showcase import LocalPlayer, PlayerProfileClaim
-from src.services import season_rollup_service
+from src.services import match_lines, season_rollup_service
 from src.services.club_registry import is_manager_of_approved_program
 from src.services.contact_locks import database_conflict, lock_contact_scope
 from src.services.player_suppression import (
@@ -22,7 +22,7 @@ from src.services.player_suppression import (
     neutral_player_not_found,
 )
 from src.utils.academy_window import current_stats_season
-from src.utils.sanitize import sanitize_plain_text
+from src.utils.sanitize import display_plain_text, sanitize_plain_text
 
 player_matches_bp = Blueprint("player_matches", __name__)
 logger = logging.getLogger(__name__)
@@ -50,6 +50,27 @@ EDITABLE_FIELDS = frozenset(
         "goals_conceded",
         "note",
     }
+)
+# Raw rows read for the merged read view; far above any real career.
+MERGED_LINES_ENTRY_LIMIT = 1000
+_LINE_SOURCE_FIELDS = (
+    "id",
+    "season",
+    "source",
+    "status",
+    "match_date",
+    "home_away",
+    "result_for",
+    "result_against",
+    "minutes",
+    "goals",
+    "assists",
+    "yellows",
+    "reds",
+    "saves",
+    "goals_conceded",
+    "created_at",
+    "updated_at",
 )
 
 
@@ -291,6 +312,33 @@ def _apply_self_entry(
     entry.club_program_id = None
 
 
+def _merged_lines_payload(player_api_id: int, season: int | None) -> dict:
+    """One line per match with totals built from those lines (``?view=lines``)."""
+    query = PlayerMatchEntry.query.filter_by(player_api_id=player_api_id)
+    if season is not None:
+        query = query.filter(PlayerMatchEntry.season == season)
+    rows = (
+        query.order_by(PlayerMatchEntry.match_date.desc(), PlayerMatchEntry.id.desc())
+        .limit(MERGED_LINES_ENTRY_LIMIT + 1)
+        .all()
+    )
+    truncated = len(rows) > MERGED_LINES_ENTRY_LIMIT
+    if truncated:
+        # The oldest season in the window may be cut mid-way; totals must never
+        # be built from part of a season, so that season is left out whole.
+        cut_season = rows[MERGED_LINES_ENTRY_LIMIT].season
+        rows = [row for row in rows[:MERGED_LINES_ENTRY_LIMIT] if row.season != cut_season]
+    seasons = match_lines.seasons_from_entries(
+        {
+            **{field: getattr(row, field) for field in _LINE_SOURCE_FIELDS},
+            "competition": display_plain_text(row.competition),
+            "opponent": display_plain_text(row.opponent),
+        }
+        for row in rows
+    )
+    return {"view": "lines", "seasons": seasons, "truncated": truncated}
+
+
 @player_matches_bp.route("/players/<int(signed=True):player_api_id>/matches", methods=["GET"])
 @hide_suppressed_player("player_api_id", public_read=True)
 def list_player_matches(player_api_id: int):
@@ -319,6 +367,13 @@ def list_player_matches(player_api_id: int):
         source = request.args.get("source")
         if source is not None and source not in {"self", "club"}:
             raise ValueError("source must be self or club")
+        view = request.args.get("view")
+        if view is not None and view != "lines":
+            raise ValueError("view must be lines")
+        if view == "lines":
+            if source is not None:
+                raise ValueError("source cannot be combined with view=lines")
+            return jsonify(_merged_lines_payload(player_api_id, season))
         page = _query_integer("page", 1)
         per_page = _query_integer("per_page", 25, maximum=100)
 
