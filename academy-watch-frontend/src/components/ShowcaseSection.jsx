@@ -1,3 +1,7 @@
+// --- p2-c2 begin ---
+import { PublicHighlights } from '@/components/highlights/PublicHighlights'
+import { HighlightInboxLink } from '@/components/highlights/HighlightApprovals'
+// --- p2-c2 end ---
 import '@/styles/floodlight-player.css'
 import { PlayerApplicationsTeaser } from '@/components/showcase/PlayerApplicationsTeaser'
 import { ShowcasePhoto } from '@/components/ShowcasePhoto'
@@ -46,8 +50,9 @@ import {
   Search,
   Building2,
 } from 'lucide-react'
-import { APIService } from '@/lib/api'
+import { useGuarded, useViewerLifetime } from '@/hooks/useViewerState'
 import { formatDateOnly, toLocalISODate } from '@/lib/dateOnly'
+import { showcaseScope } from '@/lib/player-card'
 import { track } from '@/lib/track'
 import { isYouTubeUrl } from '@/lib/youtube'
 import { VideoEmbed } from '@/components/VideoEmbed'
@@ -296,7 +301,10 @@ function AffiliationStatusBadge({ status }) {
   return <Badge variant="secondary">Self-reported</Badge>
 }
 
-export function ClaimantClubRelationships({ signedId, token, local, profile, onChanged = () => {} }) {
+export function ClaimantClubRelationships({ signedId, token, local, profile, onChanged = () => {}, onRelationshipsChange }) {
+  // Requests and side effects go through this viewer's lifetime (see lib/viewer-lifetime.js).
+  const life = useViewerLifetime()
+  const api = life.api
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
@@ -319,7 +327,7 @@ export function ClaimantClubRelationships({ signedId, token, local, profile, onC
     let cancelled = false
     if (window.location.hash.startsWith('#club-invitation=')) window.history.replaceState(null, '', window.location.pathname + window.location.search)
     setLoading(true); setRows([]); setError(null); setDisabled(false)
-    APIService.request(endpoint).then((data) => {
+    api.request(endpoint).then((data) => {
       if (!cancelled) { setRows(data.invitations || []); setNextBefore(data.next_before) }
     }).catch((err) => {
       if (!cancelled) {
@@ -328,7 +336,7 @@ export function ClaimantClubRelationships({ signedId, token, local, profile, onC
       }
     }).finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true; alive.current = false }
-  }, [endpoint, token, linkedId])
+  }, [endpoint, token, linkedId, api])
 
   useEffect(() => {
     setContract(['contracted', 'unknown', 'free_agent'].includes(profile?.contract_status) ? profile.contract_status : 'unknown')
@@ -343,7 +351,7 @@ export function ClaimantClubRelationships({ signedId, token, local, profile, onC
     const event = { accept: 'invite_accepted', decline: 'invite_declined', revoke: 'relationship_revoked' }[action]
     setBusy(true); setError(null); setNotice('')
     try {
-      const data = await APIService.request(`/me/club-invitations/${row.id}/${action}`, { method: 'POST', body: '{}' })
+      const data = await api.request(`/me/club-invitations/${row.id}/${action}`, { method: 'POST', body: '{}' })
       if (!current()) return
       setRows((old) => old.map((item) => item.id === row.id ? data.invitation : item))
       if (action === 'revoke') { setProgram(''); setPending(false) }
@@ -369,7 +377,7 @@ export function ClaimantClubRelationships({ signedId, token, local, profile, onC
     const current = () => alive.current && activeScope.current === capturedScope
     setBusy(true); setError(null)
     try {
-      const data = await APIService.request(`/local-players/${Math.abs(Number(signedId))}/showcase/profile`, {
+      const data = await api.request(`/local-players/${Math.abs(Number(signedId))}/showcase/profile`, {
         method: 'PUT', body: JSON.stringify({ contract_status: contract, club_program_id: contract === 'free_agent' || !program ? null : Number(program) }),
       })
       if (!current()) return
@@ -388,11 +396,13 @@ export function ClaimantClubRelationships({ signedId, token, local, profile, onC
     const capturedScope = scope
     setBusy(true); setError(null)
     try {
-      const data = await APIService.request(endpoint + (more ? `&before=${encodeURIComponent(nextBefore)}` : ''))
+      const data = await api.request(endpoint + (more ? `&before=${encodeURIComponent(nextBefore)}` : ''))
       if (alive.current && activeScope.current === capturedScope) { setRows((old) => more ? [...old, ...data.invitations] : data.invitations); setNextBefore(data.next_before) }
     } catch { if (alive.current && activeScope.current === capturedScope) setError('Could not load invitations.') }
     finally { if (alive.current && activeScope.current === capturedScope) setBusy(false) }
   }
+
+  useEffect(() => { onRelationshipsChange?.(rows) }, [rows, onRelationshipsChange])
 
   if (disabled) return null
   const accepted = rows.filter((row) => row.status === 'accepted')
@@ -423,7 +433,19 @@ export function ClaimantClubRelationships({ signedId, token, local, profile, onC
   </section>
 }
 
-export function ShowcaseSection({
+// Viewer change = fresh screen. The manage section holds unsaved drafts (video
+// URL/title, claim message, profile and game forms, photo and club pickers),
+// open dialogs, timers and in-flight saves. It is keyed on player + viewer, so
+// on logout, login or an account switch React remounts it: none of the previous
+// viewer's drafts, dialogs or pending callbacks reach the next. Same-viewer
+// re-renders and refreshes keep their drafts exactly as before.
+export function ShowcaseSection(props) {
+  const { token } = useAuth()
+  const scope = showcaseScope({ local: Boolean(props.local), playerApiId: props.playerApiId, token })
+  return <ShowcaseSectionBody key={scope} {...props} />
+}
+
+function ShowcaseSectionBody({
   playerApiId,
   canonicalPlayerApiId,
   playerName,
@@ -431,13 +453,40 @@ export function ShowcaseSection({
   season,
   local = false,
   onSeasonStatsChange,
+  // The page renders photos, profile facts and games in its own read view
+  // (hero, facts strip, match lines). Visitors then only get the sections
+  // left here; the owner's manage view is unchanged.
+  readSectionsElsewhere = false,
+  // Hands the loaded showcase to the page so its read view never asks twice.
+  onShowcaseChange,
 }) {
+  // Requests and side effects go through this viewer's lifetime (see lib/viewer-lifetime.js).
+  const life = useViewerLifetime()
+  const api = life.api
   const { token } = useAuth()
-  const { logout, openLoginModal } = useAuthUI()
+  const authUI = useAuthUI()
+  const openLoginModal = useGuarded(life, authUI.openLoginModal)
+  // Sign out + sign-in prompt as ONE guarded step: it runs only for the viewer
+  // whose session really expired, never for a late answer after a viewer change.
+  const expireSession = useGuarded(life, () => {
+    authUI.logout({ clearAdminKey: true })
+    authUI.openLoginModal()
+  })
   const subjectKey = `${local ? 'local' : 'api'}:${playerApiId}`
+  // What is loaded belongs to this player AND this viewer: after a logout,
+  // login or account switch nothing of the previous viewer is rendered or
+  // handed to the page, even before the new read starts.
+  const scopeKey = showcaseScope({ local, playerApiId, token })
   const matchPlayerApiId = canonicalPlayerApiId == null
     ? local ? `-${String(playerApiId)}` : String(playerApiId)
     : String(canonicalPlayerApiId)
+  const relationshipScope = `${subjectKey}:${token || 'public'}`
+  const [clubRelationships, setClubRelationships] = useState(null)
+  const handleRelationshipsChange = useCallback((rows) => {
+    setClubRelationships({ scope: relationshipScope, rows })
+  }, [relationshipScope])
+  const acceptedClubs = clubRelationships?.scope === relationshipScope
+    ? clubRelationships.rows.filter((row) => row.status === 'accepted') : []
   const matchSeason = normalizeSeasonStart(season)
   const goalkeeper = isGoalkeeperPosition(playerPosition)
 
@@ -447,6 +496,23 @@ export function ShowcaseSection({
   const [loadedSubjectKey, setLoadedSubjectKey] = useState(null)
   const { api_football_frozen: frozen } = useDataMode()
   const [myClaims, setMyClaims] = useState([])
+  const signedSubjectId = Number(playerApiId)
+  const myClaim = myClaims.find((claim) => {
+    const apiClaimMatches = !local && Number(claim.player_api_id) === signedSubjectId
+    const localClaimId = Number(claim.local_player_id)
+    const localClaimMatches = local
+      ? localClaimId === signedSubjectId || String(claim.player_api_id) === matchPlayerApiId
+      : signedSubjectId < 0 && (
+          localClaimId === signedSubjectId || localClaimId === Math.abs(signedSubjectId)
+        )
+    return apiClaimMatches || localClaimMatches
+  })
+  // When the page shows games in its own read view, the raw rows are only
+  // needed by the owner's manage block — so they are requested only once the
+  // viewer is known to be the owner.
+  const rawGamesWanted = !readSectionsElsewhere
+    || (!loading && loadedSubjectKey === scopeKey && myClaim?.status === 'approved')
+  const onShowcaseChangeRef = useRef(onShowcaseChange)
 
   // User/club-fed game rows. Signed ids stay strings at this boundary so a
   // local player's reserved leading minus is never lost to numeric coercion.
@@ -478,6 +544,10 @@ export function ShowcaseSection({
   const [gameDeleteBusy, setGameDeleteBusy] = useState(false)
   const [gameDeleteError, setGameDeleteError] = useState(null)
   const optimisticGameIdRef = useRef(0)
+
+  useLayoutEffect(() => {
+    onShowcaseChangeRef.current = onShowcaseChange
+  }, [onShowcaseChange])
 
   useLayoutEffect(() => {
     gamesQueryKeyRef.current = gamesQueryKey
@@ -572,20 +642,23 @@ export function ShowcaseSection({
 
   const fetchData = useCallback(async () => {
     const [sc, claims] = await Promise.all([
-      APIService.getPlayerShowcase(playerApiId, { local }),
-      token ? APIService.getMyClaims().catch(() => null) : Promise.resolve(null),
+      api.getPlayerShowcase(playerApiId, { local }),
+      token ? api.getMyClaims().catch(() => null) : Promise.resolve(null),
     ])
     const claimsArr = Array.isArray(claims) ? claims : claims?.claims || []
     return { sc, claimsArr }
-  }, [local, playerApiId, token])
+  }, [api, local, playerApiId, token])
 
   // PlayerPage is reused across /players/:id navigations — track the active
   // subject so an in-flight refresh for another API/local player never lands.
   const activeSubjectRef = useRef(subjectKey)
-  const previousSubjectRef = useRef(subjectKey)
+  const activeScopeRef = useRef(scopeKey)
+  const previousSubjectRef = useRef(scopeKey)
   const closeTimersRef = useRef({})
   const clubSearchRequestRef = useRef(0)
-  const isActiveSubject = () => activeSubjectRef.current === subjectKey
+  // False once this instance is unmounted or its viewer has changed: nothing a
+  // late answer does may be treated as belonging to the screen now shown.
+  const isActiveSubject = () => life.alive() && activeSubjectRef.current === subjectKey
 
   const clearCloseTimer = useCallback((key) => {
     const timer = closeTimersRef.current[key]
@@ -611,16 +684,18 @@ export function ShowcaseSection({
 
   useLayoutEffect(() => {
     activeSubjectRef.current = subjectKey
-  }, [subjectKey])
+    activeScopeRef.current = scopeKey
+  }, [scopeKey, subjectKey])
 
   useEffect(() => clearAllCloseTimers, [clearAllCloseTimers])
 
   useEffect(() => {
+    if (!rawGamesWanted) return undefined
     let cancelled = false
     const replaceRequestId = gamesReplaceRequestRef.current + 1
     gamesReplaceRequestRef.current = replaceRequestId
     gamesLoadMoreRequestRef.current += 1
-    APIService.getPlayerMatches(matchPlayerApiId, {
+    api.getPlayerMatches(matchPlayerApiId, {
       ...(matchSeason == null ? {} : { season: matchSeason }),
       page: 1,
       per_page: MATCHES_PER_PAGE,
@@ -657,12 +732,13 @@ export function ShowcaseSection({
         setGamesLoadedKey(gamesQueryKey)
       })
     return () => { cancelled = true }
-  }, [gamesQueryKey, matchPlayerApiId, matchSeason])
+  }, [api, gamesQueryKey, matchPlayerApiId, matchSeason, rawGamesWanted])
 
   useEffect(() => {
     let cancelled = false
-    if (previousSubjectRef.current !== subjectKey) {
-      previousSubjectRef.current = subjectKey
+    // Another player, or another viewer of the same player: close every dialog.
+    if (previousSubjectRef.current !== scopeKey) {
+      previousSubjectRef.current = scopeKey
       clearAllCloseTimers()
       setClaimOpen(false)
       setClaimContractStatus('')
@@ -731,18 +807,21 @@ export function ShowcaseSection({
         if (cancelled) return
         setShowcase(sc || null)
         setMyClaims(claimsArr)
+        onShowcaseChangeRef.current?.(sc || null, scopeKey)
       })
       .catch(() => {
-        if (!cancelled) setError(true)
+        if (cancelled) return
+        setError(true)
+        onShowcaseChangeRef.current?.(null, scopeKey)
       })
       .finally(() => {
         if (!cancelled) {
-          setLoadedSubjectKey(subjectKey)
+          setLoadedSubjectKey(scopeKey)
           setLoading(false)
         }
       })
     return () => { cancelled = true }
-  }, [clearAllCloseTimers, fetchData, subjectKey])
+  }, [clearAllCloseTimers, fetchData, scopeKey, subjectKey])
 
   useEffect(() => {
     const query = clubSearch.trim()
@@ -756,7 +835,7 @@ export function ShowcaseSection({
       setClubSearchBusy(true)
       setClubSearchError(null)
       try {
-        const response = await APIService.searchClubs(query)
+        const response = await api.searchClubs(query)
         if (clubSearchRequestRef.current !== requestId || activeSubjectRef.current !== subject) return
         setClubResults({
           api_teams: Array.isArray(response?.api_teams) ? response.api_teams : [],
@@ -779,21 +858,23 @@ export function ShowcaseSection({
       clearTimeout(timer)
       if (clubSearchRequestRef.current === requestId) clubSearchRequestRef.current += 1
     }
-  }, [clubOpen, clubSearch, createClubMode, subjectKey])
+  }, [api, clubOpen, clubSearch, createClubMode, subjectKey])
 
   const refresh = useCallback(async () => {
     const subject = subjectKey
+    const scope = scopeKey
     try {
       const { sc, claimsArr } = await fetchData()
-      if (activeSubjectRef.current !== subject) return
+      if (activeSubjectRef.current !== subject || activeScopeRef.current !== scope) return
       setShowcase(sc || null)
       setMyClaims(claimsArr)
+      onShowcaseChangeRef.current?.(sc || null, scope)
     } catch {
       // best-effort refresh
     }
-  }, [fetchData, subjectKey])
+  }, [fetchData, scopeKey, subjectKey])
 
-  if (loading || loadedSubjectKey !== subjectKey) {
+  if (loading || loadedSubjectKey !== scopeKey) {
     return (
       <Card>
         <CardContent className="space-y-4 py-6">
@@ -814,20 +895,10 @@ export function ShowcaseSection({
   const photos = Array.isArray(showcase.photos) ? showcase.photos : []
   const affiliations = Array.isArray(showcase.affiliations) ? showcase.affiliations : []
   const profile = showcase.profile || null
+  const displayContractStatus = profile?.profile_contract_status ?? profile?.contract_status
   const verified = !local && Array.isArray(showcase.verified_footage) ? showcase.verified_footage : []
   const claimStatus = showcase.claim_status // 'unclaimed' | 'claimed'
 
-  const signedSubjectId = Number(playerApiId)
-  const myClaim = myClaims.find((claim) => {
-    const apiClaimMatches = !local && Number(claim.player_api_id) === signedSubjectId
-    const localClaimId = Number(claim.local_player_id)
-    const localClaimMatches = local
-      ? localClaimId === signedSubjectId || String(claim.player_api_id) === matchPlayerApiId
-      : signedSubjectId < 0 && (
-          localClaimId === signedSubjectId || localClaimId === Math.abs(signedSubjectId)
-        )
-    return apiClaimMatches || localClaimMatches
-  })
   const isOwner = myClaim?.status === 'approved'
   const canViewInterestSignals = isOwner
     && myClaim?.relationship_type === 'player'
@@ -859,12 +930,11 @@ export function ShowcaseSection({
   // can still claim an unclaimed profile.
   const showClaimStrip = !local && !isOwner && (myClaim ? true : claimStatus === 'unclaimed')
 
+  const showReadSections = isOwner || !readSectionsElsewhere
   const hasContent = reel.length > 0
-    || visiblePhotos.length > 0
     || visibleAffiliations.length > 0
-    || profile
     || verified.length > 0
-    || visibleGames.length > 0
+    || (showReadSections && (visiblePhotos.length > 0 || profile || visibleGames.length > 0))
   if (!hasContent && !isOwner && !showClaimStrip) return null
 
   const reorderableIds = reel.filter((i) => !isSynthetic(i)).map((i) => i.id)
@@ -893,7 +963,7 @@ export function ShowcaseSection({
     setClaimBusy(true)
     setClaimError(null)
     try {
-      const response = await APIService.submitProfileClaim(pid, {
+      const response = await api.submitProfileClaim(pid, {
         relationship_type: claimRelationship,
         message: claimMessage.trim() || undefined,
         contract_status: claimRelationship === 'player' ? claimContractStatus : undefined,
@@ -950,7 +1020,7 @@ export function ShowcaseSection({
     setVerifyDone(false)
     setVerifyResult(null)
     try {
-      const response = await APIService.verifyClaimProof(claimId, { proof_url: url })
+      const response = await api.verifyClaimProof(claimId, { proof_url: url })
       const checkedClaim = response?.claim || null
       if (isActiveSubject()) {
         setVerifyResult(checkedClaim)
@@ -990,7 +1060,7 @@ export function ShowcaseSection({
     setVideoBusy(true)
     setVideoError(null)
     try {
-      await APIService.addShowcaseReelItem(pid, { url, title: videoTitle.trim() || undefined }, { local })
+      await api.addShowcaseReelItem(pid, { url, title: videoTitle.trim() || undefined }, { local })
       if (isActiveSubject()) {
         setVideoDone(true)
         setVideoUrl('')
@@ -1040,12 +1110,12 @@ export function ShowcaseSection({
     setPhotoBusy(true)
     setPhotoError(null)
     try {
-      const created = await APIService.createShowcasePhoto(pid, {
+      const created = await api.createShowcasePhoto(pid, {
         content_type: file.type,
         size_bytes: file.size,
       }, { local })
-      await APIService.uploadPhotoToUrl(created.upload, file)
-      await APIService.completeShowcasePhoto(pid, created.media.id, { local })
+      await api.uploadPhotoToUrl(created.upload, file)
+      await api.completeShowcasePhoto(pid, created.media.id, { local })
       if (isActiveSubject()) {
         setPhotoDone(true)
         setPhotoFile(null)
@@ -1099,7 +1169,7 @@ export function ShowcaseSection({
     setProfileError(null)
     try {
       const heightRaw = profileForm.height_cm.trim()
-      await APIService.updateShowcaseProfile(pid, {
+      await api.updateShowcaseProfile(pid, {
         bio: profileForm.bio.trim(),
         positions: profileForm.positions.trim(),
         preferred_foot: profileForm.preferred_foot || null,
@@ -1134,7 +1204,7 @@ export function ShowcaseSection({
     const pid = playerApiId
     setReelBusy(true)
     try {
-      await APIService.reorderShowcaseReel(pid, { ordered_ids }, { local })
+      await api.reorderShowcaseReel(pid, { ordered_ids }, { local })
       await refresh()
     } catch {
       // ignore — order unchanged on failure
@@ -1148,7 +1218,7 @@ export function ShowcaseSection({
     const pid = playerApiId
     setReelBusy(true)
     try {
-      await APIService.deleteShowcaseReelItem(pid, linkId, { local })
+      await api.deleteShowcaseReelItem(pid, linkId, { local })
       await refresh()
     } catch {
       // ignore
@@ -1197,7 +1267,7 @@ export function ShowcaseSection({
     const pid = playerApiId
     beginPhotoAction({ title: 'Reorder photos', done: 'Photo order updated' })
     try {
-      await APIService.reorderShowcasePhotos(pid, { ordered_ids }, { local })
+      await api.reorderShowcasePhotos(pid, { ordered_ids }, { local })
       if (isActiveSubject()) setPhotoActionDone(true)
       await refresh()
       finishPhotoAction(subjectKey)
@@ -1215,7 +1285,7 @@ export function ShowcaseSection({
     const pid = playerApiId
     beginPhotoAction({ title: 'Set primary photo', done: 'Primary photo updated' })
     try {
-      await APIService.setShowcasePhotoPrimary(pid, mediaId, { local })
+      await api.setShowcasePhotoPrimary(pid, mediaId, { local })
       if (isActiveSubject()) setPhotoActionDone(true)
       await refresh()
       finishPhotoAction(subjectKey)
@@ -1233,7 +1303,7 @@ export function ShowcaseSection({
     const pid = playerApiId
     beginPhotoAction({ title: 'Delete photo', done: 'Photo deleted' })
     try {
-      await APIService.deleteShowcasePhoto(pid, mediaId, { local })
+      await api.deleteShowcasePhoto(pid, mediaId, { local })
       if (isActiveSubject()) setPhotoActionDone(true)
       await refresh()
       finishPhotoAction(subjectKey)
@@ -1321,7 +1391,7 @@ export function ShowcaseSection({
     try {
       let selection = selectedClub
       if (createClubMode) {
-        const response = await APIService.createLocalClub({
+        const response = await api.createLocalClub({
           name: localClubForm.name.trim(),
           country: localClubForm.country.trim() || undefined,
           city: localClubForm.city.trim() || undefined,
@@ -1337,7 +1407,7 @@ export function ShowcaseSection({
         ? { team_api_id: selection.club.team_api_id }
         : { local_club_id: selection.club.id }
       const season = clubSeason.trim()
-      await APIService.addPlayerAffiliation(pid, {
+      await api.addPlayerAffiliation(pid, {
         ...affiliationPayload,
         season: season || undefined,
       }, { local })
@@ -1377,7 +1447,7 @@ export function ShowcaseSection({
     setClubDeleteDone(false)
     setClubDeleteError(null)
     try {
-      await APIService.deletePlayerAffiliation(pid, affiliationId, { local })
+      await api.deletePlayerAffiliation(pid, affiliationId, { local })
       if (isActiveSubject()) setClubDeleteDone(true)
       await refresh()
       scheduleClose('clubDelete', subjectKey, () => {
@@ -1405,8 +1475,7 @@ export function ShowcaseSection({
     setGameDeleteTarget(null)
     setGameDeleteError(null)
     setGameDeleteBusy(false)
-    logout({ clearAdminKey: true })
-    openLoginModal()
+    expireSession()
   }
 
   const refreshFilteredGames = async () => {
@@ -1417,7 +1486,7 @@ export function ShowcaseSection({
     setGamesLoadMoreBusy(false)
     setGamesLoadMoreError(null)
     try {
-      const response = await APIService.getPlayerMatches(
+      const response = await api.getPlayerMatches(
         matchPlayerApiId,
         {
           ...(matchSeason == null ? {} : { season: matchSeason }),
@@ -1481,7 +1550,7 @@ export function ShowcaseSection({
       ?? normalizeSeasonStart(response?.season)
       ?? normalizeSeasonStart(fallbackSeason)
     if (statsSeason == null) return
-    APIService.getPublicPlayerSeasonStats(matchPlayerApiId, statsSeason)
+    api.getPublicPlayerSeasonStats(matchPlayerApiId, statsSeason)
       .then((nextStats) => {
         if (
           activeSubjectRef.current === subjectKey
@@ -1489,7 +1558,15 @@ export function ShowcaseSection({
           && seasonStatsRequestRef.current === statsRequestId
         ) onSeasonStatsChange(nextStats)
       })
-      .catch(() => {})
+      .catch(() => {
+        // The game changed but its totals could not be read here: still tell the
+        // page, so its own reads refresh (and report the failure with a retry).
+        if (
+          activeSubjectRef.current === subjectKey
+          && statsSubjectKeyRef.current === statsQueryKey
+          && seasonStatsRequestRef.current === statsRequestId
+        ) onSeasonStatsChange(null)
+      })
   }
 
   const loadMoreGames = async () => {
@@ -1502,7 +1579,7 @@ export function ShowcaseSection({
     setGamesLoadMoreBusy(true)
     setGamesLoadMoreError(null)
     try {
-      const response = await APIService.getPlayerMatches(matchPlayerApiId, {
+      const response = await api.getPlayerMatches(matchPlayerApiId, {
         ...(matchSeason == null ? {} : { season: matchSeason }),
         page: nextPage,
         per_page: MATCHES_PER_PAGE,
@@ -1618,8 +1695,8 @@ export function ShowcaseSection({
     setGameError(null)
     try {
       const response = editing
-        ? await APIService.updatePlayerMatch(matchPlayerApiId, targetId, payload)
-        : await APIService.createPlayerMatch(matchPlayerApiId, payload)
+        ? await api.updatePlayerMatch(matchPlayerApiId, targetId, payload)
+        : await api.createPlayerMatch(matchPlayerApiId, payload)
       if (!response?.match?.id) throw new Error('The saved game was not returned')
       if (!isActiveSubject()) return
       setGameOpen(false)
@@ -1684,7 +1761,7 @@ export function ShowcaseSection({
     setGameDeleteBusy(true)
     setGameDeleteError(null)
     try {
-      const response = await APIService.deletePlayerMatch(matchPlayerApiId, targetId)
+      const response = await api.deletePlayerMatch(matchPlayerApiId, targetId)
       if (!isActiveSubject()) return
       setGameDeleteOpen(false)
       setGameDeleteTarget(null)
@@ -1719,6 +1796,10 @@ export function ShowcaseSection({
   return (
     <Card className={isOwner ? 'fl-owner-showcase' : undefined}>
       <CardContent className="space-y-8 py-6">
+        {/* --- p2-c2 begin --- */}
+        <PublicHighlights playerId={matchPlayerApiId} />
+        {isOwner && <HighlightInboxLink />}
+        {/* --- p2-c2 end --- */}
         {/* Header */}
         <SectionHeader
           icon={Sparkles}
@@ -1761,7 +1842,7 @@ export function ShowcaseSection({
         {canViewInterestSignals ? <WatchingMeCard signedId={matchPlayerApiId} /> : null}
 
         {/* 1. Photos */}
-        {(visiblePhotos.length > 0 || isOwner) && (
+        {showReadSections && (visiblePhotos.length > 0 || isOwner) && (
           <div className="space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <p className="inline-flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -1932,6 +2013,13 @@ export function ShowcaseSection({
               )}
             </div>
 
+            {isOwner && acceptedClubs.length > 0 && (
+              <div className="divide-y divide-border border-y border-border">
+                {acceptedClubs.map((club) => (
+                  <p key={club.id} className="py-3 text-sm"><span className="font-medium">{club.program_name}</span><span className="ml-2 text-muted-foreground">Accepted club relationship</span></p>
+                ))}
+              </div>
+            )}
             {visibleAffiliations.length > 0 ? (
               <div className="divide-y divide-border/60 overflow-hidden rounded-lg border border-border/70">
                 {visibleAffiliations.map((affiliation) => (
@@ -1976,7 +2064,7 @@ export function ShowcaseSection({
                 className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-border py-6 text-sm text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-foreground"
               >
                 <Plus className="h-4 w-4" />
-                Add your first club
+                {acceptedClubs.length > 0 ? 'Add another club' : 'Add your first club'}
               </button>
             )}
           </div>
@@ -2053,7 +2141,7 @@ export function ShowcaseSection({
         )}
 
         {/* 4. Self-reported profile */}
-        {profile && (
+        {showReadSections && profile && (
           <div className="min-w-0 space-y-3 rounded-lg border border-border/70 bg-secondary/40 p-4">
             <div className="flex items-center gap-2">
               <UserSquare className="h-4 w-4 text-muted-foreground" />
@@ -2084,7 +2172,7 @@ export function ShowcaseSection({
                 <div>
                   <span className="text-muted-foreground">Contract: </span>
                   <span className="font-medium text-foreground">
-                    {optionLabel(CONTRACT_STATUS_OPTIONS, profile.contract_status) || 'Status not specified'}
+                    {optionLabel(CONTRACT_STATUS_OPTIONS, displayContractStatus) || 'Status not specified'}
                     {formatDateOnly(profile.contract_until) ? ` · until ${formatDateOnly(profile.contract_until)}` : ''}
                   </span>
                 </div>
@@ -2131,7 +2219,7 @@ export function ShowcaseSection({
         )}
 
         {/* 5. Player- and club-entered games */}
-        {(canManageGames || (gamesLoaded && visibleGames.length > 0)) && (
+        {showReadSections && (canManageGames || (gamesLoaded && visibleGames.length > 0)) && (
           <div className="space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
@@ -2358,6 +2446,7 @@ export function ShowcaseSection({
         local={Number(matchPlayerApiId) < 0}
         profile={profile}
         onChanged={refresh}
+        onRelationshipsChange={handleRelationshipsChange}
       />}
       {isOwner && myClaim?.relationship_type === 'player' && token && <PlayerApplicationsTeaser />}
 

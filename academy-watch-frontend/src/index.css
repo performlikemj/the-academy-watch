@@ -66,6 +66,7 @@
 }
 
 :root {
+  --danger-text: var(--color-danger);
   --radius: 10px;
   --background: var(--color-chalk);
   --foreground: var(--color-ink);
@@ -107,6 +108,7 @@
 }
 
 .dark {
+  --danger-text: #F08A7F;
   color-scheme: dark;
   --background: var(--color-night);
   --foreground: var(--color-chalk);
@@ -135,8 +137,13 @@
   --sidebar-ring: var(--color-gold);
 }
 
+/* The control room uses a night surface without the full dark theme. */
+.bg-night { --danger-text: #F08A7F; }
+
 /* Legacy shadcn bg-muted is a surface; Floodlight text-muted is a text token. */
 @utility bg-muted { background-color: var(--muted); }
+/* Override the generated danger text colour; borders keep the danger token. */
+.text-danger { color: var(--danger-text); }
 
 @layer base {
   * { @apply border-border; }

@@ -14,6 +14,7 @@ export function statusLabel(status) {
 
 export function counterpartName(request, box) {
   const role = box === 'inbox' ? 'scout' : 'player'
+  if (role === 'player' && request?.club_first && request?.public_profile?.display_name) return request.public_profile.display_name
   const name = request?.participants?.[role]?.display_name
   if (name) return name
   return role === 'scout' ? 'A scout' : `Player ${request?.player_api_id ?? ''}`.trim()
@@ -58,4 +59,8 @@ export async function fetchAllRequests(fetchPage, { pageSize = 100, maxPages = 2
     offset += more.length
   }
   return rows
+}
+
+export function defaultIntroductionBox({ inbox = [] } = {}) {
+  return inbox.length > 0 ? 'inbox' : 'sent'
 }

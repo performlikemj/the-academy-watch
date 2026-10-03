@@ -1426,7 +1426,9 @@ def get_loan_destinations():
 
         destinations = []
         for r in results:
-            destinations.append({"name": r.loan_team_name, "team_id": r.loan_team_id, "player_count": r.player_count})
+            destinations.append(
+                {"name": r.current_club_name, "team_id": r.current_club_db_id, "player_count": r.player_count}
+            )
 
         return jsonify({"destinations": destinations})
 

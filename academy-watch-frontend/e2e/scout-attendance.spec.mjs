@@ -27,7 +27,7 @@ async function fixture(page, { enabled = true, verified = true, attendance = nul
     const reply = json => route.fulfill({ json })
     if (p === '/api/scout-attendance/features') return reply({ scout_attend: enabled })
     if (p === '/api/auth/me') return reply({ email: 'c4-test@example.test', display_name: 'C4 TEST ONLY User', display_name_confirmed: true, role: 'user', is_verified_scout: verified })
-    if (p === '/api/features') return reply({ club_directory: true, club_staff_access: coach, contact_rail: true })
+    if (p === '/api/features') return reply({ club_directory: true, club_staff_access: coach, contact_rail: true, opportunities: true, applications: true })
     if (p === '/api/me/scout-attendance') return reply({ attendance: current ? [current] : [], next_cursor: null })
     if (p === '/api/opportunities/search') { const body = req.postDataJSON(); writes.push({ path: p, body, url: req.url() }); return reply({ opportunities: empty ? [] : [{ ...post, distance_km: body.lat ? 3.2 : null }], has_more: false }) }
     if (p === '/api/club-directory/search') { writes.push({ path: p, body: req.postDataJSON(), url: req.url() }); return reply({ clubs: empty ? [] : [{ id: 7, slug: post.club_slug, name: post.club_name, city: 'Test city', distance_km: null, open_opportunities: 1 }], has_more: false }) }
@@ -373,4 +373,43 @@ test('C4F3 unchanged locked dates preserve the exact instant in a repeated DST h
   await expect(dialog.getByRole('alert')).toHaveCount(0)
   await expect(dialog).toHaveCount(0)
   expect(saved).toMatchObject({ ...dates, description: 'Corrected TEST ONLY description in repeated hour' })
+})
+
+
+test('attendance started by A and answered after switching to B leaves B untouched', async ({ page }) => {
+  await fixture(page, { attendance: { ...request, status: 'accepted', arrival_instructions: 'A only instructions' } })
+  const sent = []
+  page.on('request', req => { if (new URL(req.url()).pathname.startsWith('/api/')) sent.push({ path: new URL(req.url()).pathname, token: req.headers().authorization }) })
+  await page.route('**/api/me/scout-attendance', route => route.request().headers().authorization === 'Bearer c4-account-b'
+    ? route.fulfill({ json: { attendance: [], next_cursor: null } }) : route.fallback())
+  let release
+  const held = new Promise(resolve => { release = resolve })
+  let started = false
+  await page.route(`**/api/me/scout-attendance/${rid}/withdraw`, async route => {
+    started = true
+    await held
+    await route.fulfill({ json: { attendance: { ...request, status: 'withdrawn', version: 2 } } })
+  })
+  await page.goto('/scout?desk=clubs')
+  await expect(page.getByText('A only instructions')).toBeVisible()
+  await page.getByRole('button', { name: 'Withdraw request' }).click()
+  await expect.poll(() => started).toBe(true)
+  await page.evaluate(async () => {
+    const { APIService } = await import('/src/lib/api.js')
+    APIService.setUserToken('c4-account-b')
+  })
+  await expect(page.getByText('A only instructions')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Ask to attend', exact: true }).click()
+  const draft = page.getByRole('textbox', { name: 'A note to the club' })
+  await draft.fill('B private draft remains')
+  const count = sent.length
+  const answer = page.waitForResponse(response => response.url().endsWith(`/me/scout-attendance/${rid}/withdraw`))
+  release()
+  await answer
+  await page.waitForTimeout(300)
+  expect(sent.slice(count)).toEqual([])
+  await expect(draft).toHaveValue('B private draft remains')
+  await expect(page.getByRole('dialog')).toBeVisible()
+  await expect(page.getByRole('alert')).toHaveCount(0)
+  expect(await page.evaluate(() => localStorage.getItem('academy_watch_user_token'))).toBe('c4-account-b')
 })

@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react'
 import { APIService } from '@/lib/api'
 
-export function useScoutAttend() {
+export function useScoutAttend(api = APIService) {
   const [enabled, setEnabled] = useState(false)
   useEffect(() => {
     let live = true
-    APIService.request('/scout-attendance/features').then(data => { if (live) setEnabled(data.scout_attend === true) }).catch(() => {})
+    api.request('/scout-attendance/features').then(data => { if (live) setEnabled(data.scout_attend === true) }).catch(() => {})
     return () => { live = false }
-  }, [])
+  }, [api])
   return enabled
 }
 
@@ -28,6 +28,6 @@ export function attendanceError(err) {
   return messages[err.body?.error] || 'Could not complete this request. Please try again.'
 }
 
-export function sendAttendance(path, body) {
-  return APIService.request(path, { method: 'POST', body: JSON.stringify(body) })
+export function sendAttendance(path, body, api = APIService) {
+  return api.request(path, { method: 'POST', body: JSON.stringify(body) })
 }

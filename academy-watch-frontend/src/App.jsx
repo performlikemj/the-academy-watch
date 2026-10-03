@@ -1,3 +1,7 @@
+import { CleatLoader } from '@/components/CleatLoader'
+// --- p2-c2 begin ---
+import { HighlightApprovals } from '@/components/highlights/HighlightApprovals'
+// --- p2-c2 end ---
 import { useState, useEffect, useMemo, useCallback, useRef, Fragment, lazy, Suspense } from 'react'
 import { BrowserRouter as Router, Routes, Route, Link, Navigate, useLocation, useParams, useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button.jsx'
@@ -22,6 +26,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar.jsx'
 import { useIsMobile } from '@/hooks/use-mobile.js'
 import { useGlobalSearch } from '@/hooks/useGlobalSearch.js'
+import { usePublicationFlag } from '@/hooks/usePublicationFlag'
 import { GlobalSearchDialog } from '@/components/GlobalSearchDialog.jsx'
 import {
   Users,
@@ -93,6 +98,11 @@ import { AdminFunding } from '@/pages/admin/AdminFunding'
 import { HomePage } from '@/pages/HomePage'
 import { ClubsPage } from '@/pages/clubs/ClubsPage' // p2-b1: real directory when the flag is on, the teaser otherwise
 // --- p2-b2 begin ---
+// --- uxb begin ---
+import { OpportunityStateProvider } from '@/context/OpportunityStateProvider'
+import { useApprovedPlayer } from '@/hooks/useApprovedPlayer'
+import { useOpportunities } from '@/pages/opportunities/useOpportunities'
+// --- uxb end ---
 import { OpportunitiesPage, OpportunityDetail } from '@/pages/opportunities/OpportunitiesPage'
 // --- p2-b2 end ---
 import { AdminInterest } from '@/pages/admin/AdminInterest'
@@ -103,6 +113,7 @@ import { ListsPage } from '@/pages/ListsPage'
 import { MyClub } from '@/pages/MyClub'
 import { LocalPlayerPage } from '@/pages/LocalPlayerPage'
 import { LocalPlayerCreate } from '@/pages/LocalPlayerCreate'
+import { PlayerPublications } from '@/pages/PlayerPublications'
 import { PlayerOnboarding } from '@/pages/PlayerOnboarding'
 import { PricingPage } from '@/pages/PricingPage'
 import { AccountBillingPage } from '@/pages/AccountBillingPage'
@@ -404,7 +415,7 @@ function HistoricalNewslettersPage() {
               <CardContent>
                 {loading ? (
                   <div className="text-center py-8">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
+                    <CleatLoader />
                   </div>
                 ) : (
                   <div className="space-y-4">
@@ -557,6 +568,10 @@ function Navigation() {
   const location = useLocation()
   const isMobile = useIsMobile()
   const { token, isAdmin, hasApiKey, isJournalist, isCurator } = useAuth()
+  // --- uxb begin ---
+  const opportunityFlags = useOpportunities(Boolean(token))
+  const playerProfiles = useApprovedPlayer(opportunityFlags)
+  // --- uxb end ---
   const contactRail = useContactRail()
   const [drawerOpen, setDrawerOpen] = useState(false)
   const { open: openSearch } = useGlobalSearchContext()
@@ -574,6 +589,12 @@ function Navigation() {
       { path: '/my-club', label: 'My club', icon: Users },
       { path: '/scout/lists', label: 'Lists', icon: ListChecks },
     ]
+    // --- uxb begin ---
+    if (playerProfiles.length) items.push(
+      { path: playerProfiles[0].profile_path || `/players/${playerProfiles[0].signed_player_id}`, label: 'My profile', icon: UserPlus },
+      { path: '/onboarding/player#my-applications', label: 'My applications', icon: ListChecks },
+    )
+    // --- uxb end ---
     if (contactRail === true) items.push({ path: '/introductions', label: 'Introductions', icon: Send })
     items.push(
       { path: '/settings', label: 'Settings', icon: UserCog },
@@ -583,7 +604,9 @@ function Navigation() {
     if (isCurator) items.push({ path: '/curator/dashboard', label: 'Curator', icon: FileText })
     if (adminUnlocked) items.push({ path: '/admin', label: 'Admin', icon: Settings })
     return items
-  }, [adminUnlocked, contactRail, isJournalist, isCurator])
+  // --- uxb begin ---
+  }, [adminUnlocked, contactRail, isJournalist, isCurator, playerProfiles])
+  // --- uxb end ---
 
   const linkClasses = (isActive) => (
     `inline-flex items-center gap-2 rounded-full px-3 py-2 text-sm font-medium transition-colors sm:px-3 whitespace-nowrap no-underline hover:no-underline ` +
@@ -1053,7 +1076,7 @@ function SubscribePage() {
             <CardContent>
               {loading ? (
                 <div className="text-center py-8">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
+                  <CleatLoader />
                 </div>
               ) : (
                 <div className="space-y-4">
@@ -1532,7 +1555,7 @@ function TeamsPage() {
             </div>
           ) : (isCL ? clLoading : loading) ? (
             <div className="flex items-center justify-center py-16">
-              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground/70" />
+              <CleatLoader />
             </div>
           ) : isCL ? (
             <div>
@@ -2451,7 +2474,7 @@ function NewslettersPage() {
 
           {loading ? (
             <div className="text-center py-12">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
+              <CleatLoader caption={false} />
               <p className="mt-4 text-muted-foreground">Loading newsletters...</p>
             </div>
           ) : newsletters.length === 0 ? (
@@ -3251,7 +3274,7 @@ function SettingsPage() {
 
         {loading ? (
           <div className="text-center py-12">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
+            <CleatLoader caption={false} />
             <p className="mt-4 text-muted-foreground">Loading your preferences…</p>
           </div>
         ) : (
@@ -3735,7 +3758,7 @@ function ManagePage() {
 
         {status === 'loading' && (
           <div className="text-center py-12">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
+            <CleatLoader caption={false} />
             <p className="mt-4 text-muted-foreground">Loading…</p>
           </div>
         )}
@@ -3892,7 +3915,7 @@ function StatsPage() {
 
         {loading ? (
           <div className="text-center py-12">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
+            <CleatLoader caption={false} />
             <p className="mt-4 text-muted-foreground">Loading statistics...</p>
           </div>
         ) : stats ? (
@@ -4055,6 +4078,7 @@ function AppWithRouter() {
   const globalSearch = useGlobalSearch()
   const location = useLocation()
   const isAdminRoute = location.pathname.startsWith('/admin')
+  const PageContainer = isAdminRoute ? 'div' : 'main'
 
   // Central pageview tracking — fires on every route change (inside <Router> so useLocation is safe)
   useEffect(() => {
@@ -4076,11 +4100,11 @@ function AppWithRouter() {
         />
         <PlayerOnboardingPrompt />
         {isLegacyPublicRoute(location.pathname) && !LEGACY_PUBLIC_PAGES ? <meta name="robots" content="noindex, nofollow" /> : null}
-        <main>
+        <PageContainer className="app-main">
           <AppRoutes />
-        </main>
+        </PageContainer>
         {!isAdminRoute ? (
-          <footer className="dark bg-night text-chalk border-t border-border py-12 mt-auto">
+          <footer className="app-footer dark bg-night text-chalk border-t border-border py-12 mt-auto">
             <div className="floodlight-container text-center">
               <p className="display text-3xl">For the whole game.</p>
               <div className="mt-6"><BuyMeCoffeeButton /></div>
@@ -4124,13 +4148,22 @@ const legacyPublicElements = LEGACY_PUBLIC_PAGES ? [
 ] : []
 
 // App routes extracted for cleaner structure
+function PublicationRoute({ children, admin = false }) {
+  const enabled = usePublicationFlag({ poll: true })
+  if (enabled === null) return null
+  return enabled ? children : <Navigate to={admin ? '/admin/dashboard' : '/'} replace />
+}
+
 function AppRoutes() {
   return (
     <Routes>
       {LEGACY_PUBLIC_ROUTES.map((path, index) => (
-        <Route key={path} path={LEGACY_PUBLIC_PAGES ? path.replace(':id', path.startsWith('/academy/') ? ':cohortId' : path.startsWith('/newsletters/') ? ':newsletterId' : ':id') : path} element={LEGACY_PUBLIC_PAGES ? <Suspense fallback={null}>{legacyPublicElements[index]}</Suspense> : <LegacyPublicRedirect />} />
+        <Route key={path} path={LEGACY_PUBLIC_PAGES ? path.replace(':id', path.startsWith('/academy/') ? ':cohortId' : path.startsWith('/newsletters/') ? ':newsletterId' : ':id') : path} element={LEGACY_PUBLIC_PAGES ? <Suspense fallback={<CleatLoader className="min-h-[65vh]" />}>{legacyPublicElements[index]}</Suspense> : <LegacyPublicRedirect />} />
       ))}
       <Route path="/" element={<HomePage />} />
+      {/* --- p2-c2 begin --- */}
+      <Route path="/highlight-approvals" element={<HighlightApprovals />} />
+      {/* --- p2-c2 end --- */}
       <Route path="/clubs" element={<ClubsPage />} />
       {/* --- p2-b2 begin --- */}
       <Route path="/opportunities" element={<OpportunitiesPage />} />
@@ -4169,6 +4202,9 @@ function AppRoutes() {
       <Route path="/scout/lists" element={<ListsPage />} />
       <Route path="/scout/verification" element={<ScoutVerificationPage />} />
       <Route path="/introductions" element={<IntroductionsPage />} />
+      <Route path="/player-publications" element={<PublicationRoute><RequireAuth><PlayerPublications /></RequireAuth></PublicationRoute>} />
+      <Route path="/player-publication-invite" element={<PublicationRoute><PlayerPublications mode="invite" /></PublicationRoute>} />
+      <Route path="/club-publications/:programId" element={<PublicationRoute><RequireAuth><PlayerPublications mode="club" /></RequireAuth></PublicationRoute>} />
       <Route path="/my-club" element={<MyClub />} />
       <Route path="/staff-invite" element={<StaffInviteAccept />} />
       <Route path="/pricing" element={<PricingPage />} />
@@ -4204,6 +4240,7 @@ function AppRoutes() {
         <Route path="video" element={<AdminVideo />} />
         <Route path="video/:matchId" element={<AdminVideoMatch />} />
         <Route path="showcase" element={<AdminShowcase />} />
+        <Route path="player-publications" element={<PublicationRoute admin><PlayerPublications mode="admin" /></PublicationRoute>} />
         <Route path="trust" element={<AdminTrust />} />
         <Route path="local-clubs" element={<AdminLocalClubs />} />
         <Route path="funding" element={<AdminFunding />} />
@@ -4323,10 +4360,12 @@ function App() {
         logout: handleLogout,
         isLoginModalOpen: loginModalOpen,
       }}>
-        <Router>
-          <AppWithRouter />
-          <GolPanel />
-        </Router>
+        <OpportunityStateProvider>
+          <Router>
+            <AppWithRouter />
+            <GolPanel />
+          </Router>
+        </OpportunityStateProvider>
       </AuthUIContext.Provider>
     </AuthContext.Provider>
   )

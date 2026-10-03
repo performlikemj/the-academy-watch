@@ -1,4 +1,6 @@
-import { canonicalTimezone, fromLocalInput, localInput } from '@/lib/opportunity-time'
+import { OpportunityTimezonePicker } from '@/components/OpportunityTimezonePicker'
+import { defaultOpportunityTimezone } from '@/lib/opportunity-timezone-options'
+import { fromLocalInput, localInput } from '@/lib/opportunity-time'
 import { OpportunityBoundary } from '@/pages/opportunities/OpportunityBoundary'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ComingSoon } from '@/components/interest/ComingSoon'
@@ -10,11 +12,11 @@ const STAGES = [['new', 'New'], ['shortlisted', 'Shortlisted'], ['invited', 'Inv
 const TITLE = { shortlisted: 'Shortlist', invited: 'Invite to trial', attended: 'Record attendance', offer: 'Make offer', rejected: 'Not selected', signed: 'Record signed' }
 const LOCKED = new Set(['title', 'description', 'instructions', 'capacity', 'type', 'squad_id', 'birth_year_min', 'birth_year_max', 'gender_program', 'position_requirements', 'starts_at', 'ends_at', 'timezone', 'venue', 'address', 'closes_at'])
 const ATTENDANCE_TERMS = new Set(['type', 'starts_at', 'ends_at', 'timezone', 'venue', 'address'])
-const FIELDS = [['title', 'Title', 'text', true], ['description', 'About this opportunity', 'textarea', true], ['instructions', 'What to bring', 'textarea'], ['position_requirements', 'Positions / eligibility', 'text'], ['venue', 'Venue', 'text', true], ['address', 'Address', 'text'], ['timezone', 'Time zone (for example Europe/London)', 'text', true], ['birth_year_min', 'Earliest birth year', 'number'], ['birth_year_max', 'Latest birth year', 'number'], ['capacity', 'Trial capacity (optional)', 'number'], ['starts_at', 'Starts (your local time)', 'datetime-local'], ['ends_at', 'Ends (your local time)', 'datetime-local'], ['closes_at', 'Applications close (your local time)', 'datetime-local', true]]
+const FIELDS = [['title', 'Title', 'text', true], ['description', 'About this opportunity', 'textarea', true], ['instructions', 'What to bring', 'textarea'], ['position_requirements', 'Positions / eligibility', 'text'], ['venue', 'Venue', 'text', true], ['address', 'Address', 'text'], ['timezone', 'Time zone', 'timezone', true], ['birth_year_min', 'Earliest birth year', 'number'], ['birth_year_max', 'Latest birth year', 'number'], ['capacity', 'Trial capacity (optional)', 'number'], ['starts_at', 'Starts (your local time)', 'datetime-local'], ['ends_at', 'Ends (your local time)', 'datetime-local'], ['closes_at', 'Applications close (your local time)', 'datetime-local', true]]
 
-function OpportunityEditor({ programId, squads, item, onClose, onSaved }) {
+function OpportunityEditor({ programId, programTimezone, squads, item, onClose, onSaved }) {
   const ref = useRef(null)
-  const [values, setValues] = useState(() => ({ type: 'trial', status: 'draft', gender_program: 'all', timezone: canonicalTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone), position_requirements: 'All positions', ...item, ...Object.fromEntries(['starts_at', 'ends_at', 'closes_at'].map(key => [key, localInput(item?.[key], item?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone)])) }))
+  const [values, setValues] = useState(() => ({ type: 'trial', status: 'draft', gender_program: 'all', position_requirements: 'All positions', ...item, timezone: defaultOpportunityTimezone(item?.timezone || programTimezone), ...Object.fromEntries(['starts_at', 'ends_at', 'closes_at'].map(key => [key, localInput(item?.[key], defaultOpportunityTimezone(item?.timezone || programTimezone))])) }))
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const locked = Boolean(item?.application_count)
@@ -43,7 +45,7 @@ function OpportunityEditor({ programId, squads, item, onClose, onSaved }) {
       <label className="opp-field">Opportunity type<select aria-label="Opportunity type" disabled={fieldLocked('type')} value={values.type} onChange={e => setValues({ ...values, type: e.target.value })}><option value="trial">Trial</option><option value="open_session">Open session</option><option value="position">Position</option></select></label>
       <label className="opp-field">Squad<select aria-label="Squad" disabled={locked} value={values.squad_id || ''} onChange={e => setValues({ ...values, squad_id: e.target.value })}><option value="">Whole club</option>{squads.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></label>
       <label className="opp-field">Programme<select aria-label="Programme" disabled={locked} value={values.gender_program} onChange={e => setValues({ ...values, gender_program: e.target.value })}>{['all', 'boys', 'girls', 'men', 'women', 'mixed'].map(v => <option key={v} value={v}>{v}</option>)}</select></label>
-      {FIELDS.map(([key, label, type, required]) => <label key={key} className="opp-field">{type === 'datetime-local' ? `${label.replace(' (your local time)', '')} (${values.timezone})` : label}{type === 'textarea' ? <textarea disabled={fieldLocked(key)} maxLength={key === 'description' ? 6000 : 3000} required={required} value={values[key] || ''} onChange={e => setValues({ ...values, [key]: e.target.value })} /> : <input disabled={fieldLocked(key)} type={type} required={required || (key === 'starts_at' && values.type !== 'position')} min={type === 'number' ? key === 'capacity' ? 1 : 1900 : undefined} maxLength={key === 'title' ? 180 : 300} value={values[key] ?? ''} onChange={e => setValues({ ...values, [key]: e.target.value })} />}</label>)}
+      {FIELDS.map(([key, label, type, required]) => type === 'timezone' ? <OpportunityTimezonePicker key={key} value={values.timezone} disabled={fieldLocked(key)} onChange={timezone => setValues({ ...values, timezone })} /> : <label key={key} className="opp-field">{type === 'datetime-local' ? `${label.replace(' (your local time)', '')} (${values.timezone})` : label}{type === 'textarea' ? <textarea disabled={fieldLocked(key)} maxLength={key === 'description' ? 6000 : 3000} required={required} value={values[key] || ''} onChange={e => setValues({ ...values, [key]: e.target.value })} /> : <input disabled={fieldLocked(key)} type={type} required={required || (key === 'starts_at' && values.type !== 'position')} min={type === 'number' ? key === 'capacity' ? 1 : 1900 : undefined} maxLength={key === 'title' ? 180 : 300} value={values[key] ?? ''} onChange={e => setValues({ ...values, [key]: e.target.value })} />}</label>)}
       {attendanceLocked && <p className="text-sm text-muted">Scout attendance is pending or accepted. Session type, dates, time zone, venue and address are fixed while those requests remain live. You can still update other details.</p>}
       {locked && <p className="text-sm text-muted">Advertised details and capacity are fixed once applications arrive. Trial changes use the applicant invitation.</p>}
       <label className="opp-field">Publication<select aria-label="Publication" value={values.status} onChange={e => setValues({ ...values, status: e.target.value })}>{item?.status !== 'published' && <option value="draft">Draft</option>}<option value="published">Published</option></select></label>
@@ -127,7 +129,9 @@ function RecruitingContent({ program, squads = [] }) {
     catch (err) { setError(errorMessage(err)) }
     finally { setBusy(false) }
   }
-  if (!flags.loaded || !flags.opportunities) return <ComingSoon feature="recruiting" role="club" image="/media/club-match.webp" title="The next player. The right place." lede="Trials and applications will have a home here. Join the list to hear when recruiting opens." bullets={['Share the opportunities your club is ready to offer.', 'Keep applications and next steps together.', 'Build a clearer path into your squads.']} />
+  if (flags.error) return <p role="alert" className="p2-opportunities py-8">{flags.error}</p>
+  if (!flags.loaded) return <p role="status" className="p2-opportunities py-8">Loading opportunities…</p>
+  if (!flags.opportunities) return <ComingSoon feature="recruiting" role="club" image="/media/club-match.webp" title="The next player. The right place." lede="Trials and applications will have a home here. Join the list to hear when recruiting opens." bullets={['Share the opportunities your club is ready to offer.', 'Keep applications and next steps together.', 'Build a clearer path into your squads.']} />
   return <section className="p2-opportunities" aria-label="Recruiting">
     <header className="flex flex-wrap items-end justify-between gap-6"><div><p className="opp-label">Recruiting</p><h1 className="opp-heading mt-3">{current?.title || 'Your next player.'}</h1>{current && <p className="mt-4 text-sm text-muted">{when(current.starts_at, current.timezone)} · {current.venue} · {current.status}</p>}</div><button className="opp-button primary" onClick={() => setEditor({ item: null })}>+ New opportunity</button></header>
     {error && <p className="opp-error" role="alert">{error}</p>}
@@ -140,7 +144,7 @@ function RecruitingContent({ program, squads = [] }) {
     {current && !flags.applications && <p className="py-8 text-muted">Adult applications are coming soon.</p>}
     <p className="mt-10 border-t border-hairline pt-5 text-sm leading-relaxed text-muted">Adults apply with approved self-claims. Applicant details stay inside Club Home and are retained for up to 180 days. Reserved places remain reserved while an applicant is temporarily unavailable. Parent and guardian applications are coming soon. Signing is recorded after a separate adult enrollment; it creates no public profile or consent.</p>
     <div className="mt-5 flex gap-3">{appPage > 1 && <button className="opp-button" onClick={() => setAppPage(appPage - 1)}>Previous applications</button>}{appMore && <button className="opp-button" onClick={() => setAppPage(appPage + 1)}>Next applications</button>}</div>
-    {editor && <OpportunityEditor key={editor.item?.id || 'new'} item={editor.item} programId={program.id} squads={squads} onClose={() => setEditor(null)} onSaved={load} />}
+    {editor && <OpportunityEditor key={editor.item?.id || 'new'} item={editor.item} programId={program.id} programTimezone={program.timezone} squads={squads} onClose={() => setEditor(null)} onSaved={load} />}
   </section>
 }
 

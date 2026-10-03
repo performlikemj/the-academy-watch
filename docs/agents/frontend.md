@@ -40,6 +40,47 @@ Stripe.js, framer-motion, `d3-force-3d` for journey maps. Pages in `src/pages/` 
   "SyntaxError: The string did not match the expected pattern". Manual deploy:
   `VITE_API_BASE="https://ca-loan-army-backend.<fqdn>/api" pnpm build`.
 
+## Viewer change = fresh screen (keyed boundary)
+
+Anything that belongs to the person looking — unsaved drafts, open dialogs, watchlist marks, claim/owner
+state, pending saves and their timers — must live **under a boundary keyed on player + viewer**, so React
+remounts it on logout, login or an account switch. The boundaries are the thin exported wrappers
+`PlayerPage` → `PlayerPageBody`, `ScoutPage` → `ScoutDeskBody`, `ShowcaseSection` → `ShowcaseSectionBody`
+and `LocalPlayerPage` → `LocalPlayerProfile`; the key comes from `viewerKey(token)` /
+`showcaseScope()` in `src/lib/player-card.js`. Never add state to a wrapper, and never key viewer-bound
+state by player id alone: a signed-in view can carry fields the server withholds from the next viewer.
+For state that a late request might write (watch marks, an open dialog) use
+`useViewerState` (`src/hooks/useViewerState.js`): a setter made for one viewer does nothing once another
+is on screen. `tests/viewer-boundary.test.mjs` pins the wrappers; the lane spec
+(`e2e/player-card.spec.mjs`) drives logout / login / switch with held responses.
+
+Remounting drops component state; it does **not** stop a handler that is already running. Two more rules
+close that:
+
+- **The shared request layer is not viewer-bound.** `APIService.request` delivers answers to their
+  caller even if the credential changed meanwhile — pages outside the keyed boundaries (club pages,
+  pricing, …) do not re-read on a sign-in change and must still render. Its one rule: a **401 for a
+  credential that is no longer current** comes back as a plain failure (no `status`,
+  `staleCredential: true`), so no caller signs the current session out, opens the sign-in prompt or clears
+  anything because of it (e.g. an expired saved sign-in, or an account switch, while a page loads).
+- **Viewer-bound components talk through their lifetime.** `const life = useViewerLifetime()`,
+  `const api = life.api` instead of `APIService`, and `useGuarded(life, fn)` around `navigate`, logout,
+  the sign-in prompt and anything else global. Requests made through `life.api` ARE bound to the viewer:
+  once it has changed, `api.x()` returns a rejected `StaleViewerError` without sending (a multi-step
+  handler cannot issue its follow-up as the next viewer), and an answer that lands after the change is a
+  `StaleViewerError` — never data, never an ordinary failure; swallow it silently. Guarded effects do
+  nothing once the component is unmounted or the viewer has changed. Side effects that are not React
+  state — a file download, clipboard after an await, `window.open`, a kept object URL — happen only
+  through a guard, AFTER the whole body has been read through `life.api`: never call an API helper that
+  downloads by itself (`api.download*`); fetch the Blob (`fetchScoutCsv`) and save it with
+  `useGuarded(life, save)`. A viewer-bound component that is also mounted outside the keyed pages keys
+  itself on `useViewerKey()` (as `CommentSection` does), so a stale answer never lands in a live
+  instance. Sign-out plus
+  prompt is one guarded step (`expireSession`), not two calls. Put `api` in hook dependency arrays.
+  `tests/viewer-boundary.test.mjs` fails if a file in its list references `APIService`, calls `fetch`,
+  takes `navigate` / `logout` / `openLoginModal` unguarded, or downloads outside a guard — add new viewer-bound components to that
+  list. Rules and unit tests: `src/lib/viewer-lifetime.js`, `tests/stale-viewer-requests.test.mjs`.
+
 ## Deploy
 
 Push touching only `academy-watch-frontend/**` triggers the fast `Deploy Frontend (fast)`

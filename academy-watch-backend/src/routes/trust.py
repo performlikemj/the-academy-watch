@@ -433,9 +433,18 @@ def admin_list_content_reports():
         total = query.count()
         rows = query.order_by(ContentReport.created_at.asc(), ContentReport.id.asc()).offset(offset).limit(limit).all()
         message_excerpts = _message_report_excerpts(rows)
+        payloads = [_admin_report_payload(row, message_excerpts) for row in rows]
+        from src.routes.admin_control import flag_enabled
+
+        if flag_enabled("ADMIN_SAFETY_ENABLED"):
+            from src.services.admin_control_names import target_names
+
+            names = target_names((row.subject_type, row.subject_id) for row in rows)
+            for payload, row in zip(payloads, rows, strict=True):
+                payload["target"]["name"] = names.get((row.subject_type, row.subject_id))
         return jsonify(
             {
-                "reports": [_admin_report_payload(row, message_excerpts) for row in rows],
+                "reports": payloads,
                 "total": total,
                 "limit": limit,
                 "offset": offset,

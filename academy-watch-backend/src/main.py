@@ -6,7 +6,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 import logging
 
 import dotenv
-from flask import Flask, jsonify, send_from_directory
+from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 from flask_migrate import Migrate
 from flask_talisman import Talisman
@@ -72,18 +72,29 @@ from src.routes.trust import trust_bp
 from src.routes.video import video_bp
 
 # isort: split
-# --- p2-b3 begin ---
-from src.routes.admin_control import admin_control_bp
-from src.services.admin_control_safety import register_safety
-
-register_safety()
-# --- p2-b3 end ---
 # --- p2-b2 begin ---
 import src.models.opportunities  # noqa: E402, F401
 from src.routes.opportunities import opportunities_bp
 from src.services.opportunities import register_notifications
 
 # --- p2-b2 end ---
+
+# isort: split
+# --- p2-b3 begin ---
+from src.routes.admin_control import admin_control_bp
+from src.services.admin_control_safety import register_safety
+
+register_safety()
+# --- p2-b3 end ---
+
+# isort: split
+# --- p2-c2 begin ---
+import src.models.highlights  # noqa: F401
+import src.services.highlights_source  # noqa: F401
+from src.routes.highlights import highlights_bp
+from src.services.highlights import register_notifications as register_highlight_notifications
+
+# --- p2-c2 end ---
 
 # isort: split
 # --- p2-c4 begin ---
@@ -160,6 +171,10 @@ app.register_blueprint(admin_programs_bp, url_prefix="/api")
 # --- p2-b3 begin ---
 app.register_blueprint(admin_control_bp, url_prefix="/api")
 # --- p2-b3 end ---
+# --- p2-c2 begin ---
+app.register_blueprint(highlights_bp, url_prefix="/api")
+register_highlight_notifications()
+# --- p2-c2 end ---
 app.register_blueprint(club_bp, url_prefix="/api")
 app.register_blueprint(club_access_bp, url_prefix="/api")
 app.register_blueprint(club_directory_bp, url_prefix="/api")  # p2-b1
@@ -196,6 +211,13 @@ app.register_blueprint(video_bp, url_prefix="/api")
 app.register_blueprint(ops_bp, url_prefix="/api")
 app.register_blueprint(season_rollup_bp, url_prefix="/api")
 app.register_blueprint(share_bp)
+# --- p2-c1 begin ---
+from src.routes.club_player_publication import publication_bp
+from src.services.club_player_publication_account import register_publication_notifications
+
+app.register_blueprint(publication_bp, url_prefix="/api")
+register_publication_notifications()
+# --- p2-c1 end ---
 
 csp = {
     "default-src": ["'self'"],
@@ -206,6 +228,15 @@ csp = {
     "connect-src": ["'self'", "https:"],
     "frame-ancestors": ["'none'"],
 }
+
+
+@app.after_request
+def highlight_media_referrer_policy(response):
+    # Registered before Talisman so this runs after its default header writer.
+    if request.endpoint in {"highlights.public_clip", "highlights.preview", "highlights.club_preview"}:
+        response.headers["Referrer-Policy"] = "no-referrer"
+    return response
+
 
 Talisman(
     app,
@@ -336,6 +367,10 @@ def shutdown_session(exception=None):
 @app.errorhandler(HTTPException)
 def handle_http_exception(exc: HTTPException):
     response = exc.get_response()
+    # Rate-limit callbacks carry a route-owned JSON message and retry/privacy
+    # headers. Preserve that response through the global HTTP error handler.
+    if exc.code == 429 and exc.response is not None and response.is_json:
+        return response
     payload = {
         "error": exc.description or exc.name,
         "code": exc.code,

@@ -15,24 +15,26 @@ export function outcomeLabel(stage) {
   return OUTCOME_STAGES.find((s) => s.value === stage)?.label || stage || '—'
 }
 
-export function describeThreadState(request) {
+export function describeThreadState(request, viewerRole = 'scout') {
+  const player = viewerRole === 'player'
   if (!request) return { open: false, note: 'No request selected.' }
   if (request.messaging_open) return { open: true, note: null }
   if (request.status === 'pending' && request.routing_mode === 'club_included' && request.club_consent_status === 'pending') {
-    return { open: false, note: 'Waiting for the player to accept and the club to allow the introduction.' }
+    return { open: false, note: player ? 'Waiting for you to accept and the club to allow the introduction.' : 'Waiting for the player to accept and the club to allow the introduction.' }
   }
-  if (request.status === 'pending') return { open: false, note: 'Waiting for the player to accept.' }
+  if (request.status === 'pending') return { open: false, note: player ? 'Waiting for you to accept.' : 'Waiting for the player to accept.' }
   if (request.status === 'accepted' && request.club_consent_status === 'pending') {
-    return { open: false, note: 'The player accepted. Messaging opens once the club allows the introduction.' }
+    return { open: false, note: player ? 'You accepted. Messaging opens once the club allows the introduction.' : 'The player accepted. Messaging opens once the club allows the introduction.' }
   }
   if (request.club_consent_status === 'declined') return { open: false, note: 'The club declined this introduction.' }
-  if (request.status === 'declined') return { open: false, note: 'The player declined this introduction.' }
+  if (request.status === 'declined') return { open: false, note: player ? 'You declined this introduction.' : 'The player declined this introduction.' }
   if (request.status === 'withdrawn') return { open: false, note: 'This introduction was withdrawn.' }
   if (request.status === 'expired') return { open: false, note: 'This introduction expired without a reply.' }
   return { open: false, note: 'Messaging is not available for this request.' }
 }
 
 export function participantName(request, role) {
+  if (role === 'player' && request?.club_first && request?.public_profile?.display_name) return request.public_profile.display_name
   const name = request?.participants?.[role]?.display_name
   if (name) return name
   if (role === 'scout') return 'Scout'

@@ -1,4 +1,9 @@
+import { CleatLoader } from '@/components/CleatLoader'
+// --- p2-c2 begin ---
+import { PublicHighlights } from '@/components/highlights/PublicHighlights'
+// --- p2-c2 end ---
 import { useEffect, useState } from 'react'
+import { ClubOpportunities } from '@/pages/opportunities/ClubOpportunities'
 import { Link, useParams } from 'react-router-dom'
 import {
     ArrowLeft,
@@ -14,7 +19,7 @@ import { APIService } from '@/lib/api'
 import { useAuth, useAuthUI } from '@/context/AuthContext'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
-import { FactRow, QuietNote, SectionHeading, TeaserBlock } from '@/components/public/Floodlight'
+import { FactRow, QuietNote, SectionHeading } from '@/components/public/Floodlight'
 import { LEVEL_LABELS, osmLink, programmeList } from '@/lib/club-directory' // p2-b1
 
 const PROVENANCE_COPY = {
@@ -109,9 +114,8 @@ function ProgramPageContent({ slug }) {
 
     if (loading) {
         return (
-            <div className="flex min-h-[65vh] items-center justify-center gap-3 text-muted-foreground" role="status">
-                <Loader2 className="h-5 w-5 animate-spin motion-reduce:animate-none" />
-                <span className="eyebrow">Loading club</span>
+            <div className="flex min-h-[65vh] items-center justify-center gap-3 text-muted-foreground">
+                <CleatLoader />
             </div>
         )
     }
@@ -205,16 +209,8 @@ function ProgramPageContent({ slug }) {
                         )}
                     </section>
 
-                    <section aria-labelledby="club-opportunities">
-                        <SectionHeading id="club-opportunities" title="Opportunities" meta="Coming soon" />
-                        <TeaserBlock
-                            className="mt-6"
-                            feature="opportunities"
-                            eyebrow="Trials · open sessions · places to fill"
-                            title="Straight from the club, soon."
-                            lede="Clubs will be able to post trials and open sessions here, and you’ll apply in about a minute. Leave your email and we’ll tell you when it opens."
-                        />
-                    </section>
+                    <ClubOpportunities programId={program.id} />
+                        <PublicHighlights slug={slug} />
 
                     {/* --- p2-b1 begin --- */}
                     {directory && (venue || programmes.length || directory.squad_count > 0) ? (

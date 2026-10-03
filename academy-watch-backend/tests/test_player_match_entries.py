@@ -48,6 +48,28 @@ def client(app):
     return app.test_client()
 
 
+@pytest.fixture(
+    params=[
+        datetime(2026, 10, 1, 23, 59, 59, tzinfo=UTC),
+        datetime(2026, 10, 2, 0, 0, 1, tzinfo=UTC),
+        datetime(2026, 10, 2, 12, tzinfo=UTC),
+    ],
+    ids=["before-utc-midnight", "after-utc-midnight", "utc-noon"],
+)
+def frozen_now(request, monkeypatch):
+    """Keep date inputs and their validators on one clock across UTC midnight."""
+    fixed_now = request.param
+
+    class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return fixed_now.astimezone(tz) if tz is not None else fixed_now.replace(tzinfo=None)
+
+    monkeypatch.setattr(player_matches_routes, "datetime", FrozenDateTime)
+    monkeypatch.setattr(season_rollup_service, "datetime", FrozenDateTime)
+    return fixed_now
+
+
 def _user(email: str) -> tuple[UserAccount, dict]:
     stem = email.split("@", 1)[0].replace(".", "-")
     user = UserAccount(
@@ -586,9 +608,9 @@ def test_stranger_minor_writes_are_neutral_like_unknown_subjects(client, subject
     assert db.session.get(PlayerMatchEntry, entry.id) is not None
 
 
-def test_positive_minor_boundary_is_strictly_under_eighteen(client):
+def test_positive_minor_boundary_is_strictly_under_eighteen(client, frozen_now):
     reporter, _ = _user("age-boundary-reporter@example.com")
-    today = datetime.now(UTC).date()
+    today = frozen_now.date()
 
     def _birthday(years_ago):
         try:
@@ -662,6 +684,102 @@ def test_adult_list_filters_and_paginates(client):
     assert client.get("/api/players/7001/matches?per_page=101").status_code == 400
 
 
+def test_lines_view_merges_sources_per_match_and_totals_those_lines(client):
+    owner, owner_headers = _user("lines-owner@example.com")
+    club_user, _club_headers = _user("lines-club@example.com")
+    _shadow(7101)
+    _claim(owner, player_api_id=7101)
+    _entry(7101, owner, match_date=date(2025, 9, 1))
+    club_row = _entry(7101, club_user, match_date=date(2025, 9, 1), source="club", status="club_confirmed")
+    club_row.opponent, club_row.minutes, club_row.goals = "  rivals   fc", 74, 0
+    _entry(7101, owner, match_date=date(2025, 9, 8), opponent="Durnsea &amp; District")
+    _entry(7101, owner, match_date=date(2025, 9, 15), status="disputed", opponent="Disputed Town")
+    _entry(7101, owner, match_date=date(2024, 9, 1), opponent="Old Opponent")
+    db.session.commit()
+
+    response = client.get("/api/players/7101/matches?view=lines")
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert set(payload) == {"view", "seasons", "truncated"}
+    assert (payload["view"], payload["truncated"]) == ("lines", False)
+    assert [season["season"] for season in payload["seasons"]] == [2025, 2024]
+    current = payload["seasons"][0]
+    assert [line["match_date"] for line in current["lines"]] == ["2025-09-08", "2025-09-01"]
+    self_only, merged = current["lines"]
+    assert (self_only["confirmation"], self_only["opponent"]) == ("self_reported", "Durnsea & District")
+    assert (merged["confirmation"], merged["self_report"], merged["minutes"]) == ("club_confirmed", "differs", 74)
+    assert current["totals"]["matches"] == 2
+    assert current["totals"]["minutes"] == 164 == sum(line["minutes"] for line in current["lines"])
+    assert (current["totals"]["club_confirmed"], current["totals"]["self_reported_only"]) == (1, 1)
+    assert not {"id", "editable", "reported_by_user_id", "note"} & set(merged)
+
+    # The owner gets the same read-only lines; a season pick narrows them.
+    assert client.get("/api/players/7101/matches?view=lines", headers=owner_headers).get_json() == payload
+    picked = client.get("/api/players/7101/matches?view=lines&season=2024").get_json()
+    assert [season["season"] for season in picked["seasons"]] == [2024]
+
+    assert client.get("/api/players/7101/matches?view=table").status_code == 400
+    assert client.get("/api/players/7101/matches?view=lines&source=club").status_code == 400
+
+
+def test_lines_view_never_drops_a_row_when_a_slot_is_ambiguous(client):
+    """Reviewers' probe: a double-header and a second own row used to vanish."""
+    first_club, _headers = _user("lines-club-a@example.com")
+    second_club, _headers = _user("lines-club-b@example.com")
+    owner, _headers = _user("lines-two-rows@example.com")
+    _shadow(8101)
+    for reporter, minutes in ((first_club, 45), (second_club, 60)):
+        row = _entry(8101, reporter, match_date=date(2025, 9, 1), source="club", status="club_confirmed")
+        row.minutes = minutes
+    for opponent in ("Town", "town"):
+        row = _entry(8101, owner, match_date=date(2025, 9, 8), opponent=opponent)
+        row.minutes = 45
+    db.session.commit()
+
+    raw = client.get("/api/players/8101/matches").get_json()
+    season = client.get("/api/players/8101/matches?view=lines").get_json()["seasons"][0]
+
+    assert raw["total"] == 4
+    assert len(season["lines"]) == 4
+    assert season["totals"]["matches"] == 4
+    assert season["totals"]["minutes"] == 195 == sum(row["minutes"] for row in raw["matches"])
+    assert (season["totals"]["club_confirmed"], season["totals"]["self_reported_only"]) == (2, 2)
+    assert all(line["shared_slot"] and line["self_report"] is None for line in season["lines"])
+    assert len({line["key"] for line in season["lines"]}) == 4
+
+
+def test_lines_view_keeps_the_minor_and_unknown_subject_rules_of_the_list(client):
+    guardian, guardian_headers = _user("lines-guardian@example.com")
+    stranger, stranger_headers = _user("lines-stranger@example.com")
+    _shadow(7102, birth_date=date(2012, 1, 1))
+    _claim(guardian, player_api_id=7102, relationship="guardian")
+    _entry(7102, guardian)
+
+    assert client.get("/api/players/7102/matches?view=lines").status_code == 404
+    assert client.get("/api/players/7102/matches?view=lines", headers=stranger_headers).status_code == 404
+    allowed = client.get("/api/players/7102/matches?view=lines", headers=guardian_headers)
+    assert allowed.status_code == 200
+    assert allowed.get_json()["seasons"][0]["totals"]["matches"] == 1
+    assert client.get("/api/players/999999/matches?view=lines").status_code == 404
+
+
+def test_lines_view_never_totals_part_of_a_season(client, monkeypatch):
+    reporter, _headers = _user("lines-truncated@example.com")
+    _shadow(7103)
+    for day in range(1, 4):
+        _entry(7103, reporter, match_date=date(2025, 9, day), opponent=f"Opponent {day}")
+    _entry(7103, reporter, match_date=date(2024, 9, 1), opponent="Older A")
+    _entry(7103, reporter, match_date=date(2024, 9, 2), opponent="Older B")
+    monkeypatch.setattr(player_matches_routes, "MERGED_LINES_ENTRY_LIMIT", 4)
+
+    payload = client.get("/api/players/7103/matches?view=lines").get_json()
+
+    assert payload["truncated"] is True
+    assert [season["season"] for season in payload["seasons"]] == [2025]
+    assert payload["seasons"][0]["totals"]["matches"] == 3
+
+
 @pytest.mark.parametrize(
     ("change", "expected_fragment"),
     [
@@ -672,10 +790,13 @@ def test_adult_list_filters_and_paginates(client):
         ({"opponent": "   "}, "opponent"),
         ({"home_away": "somewhere"}, "home_away"),
         ({"match_date": "1969-12-31"}, "1970-01-01"),
-        ({"match_date": (datetime.now(UTC).date() + timedelta(days=2)).isoformat()}, "future"),
+        ({"match_date": None}, "future"),
     ],
 )
-def test_write_validation_rejects_invalid_values(client, monkeypatch, change, expected_fragment):
+def test_write_validation_rejects_invalid_values(client, monkeypatch, frozen_now, change, expected_fragment):
+    if expected_fragment == "future":
+        # Compute after the validator clock is pinned, never during collection.
+        change = {"match_date": (frozen_now.date() + timedelta(days=2)).isoformat()}
     owner, headers = _user(f"validation-{expected_fragment}-{len(str(change))}@example.com")
     player_id = 8000 + owner.id
     _shadow(player_id)
@@ -688,7 +809,7 @@ def test_write_validation_rejects_invalid_values(client, monkeypatch, change, ex
     assert PlayerMatchEntry.query.filter_by(player_api_id=player_id).count() == 0
 
 
-def test_match_date_bounds_include_epoch_and_one_day_of_utc_slack(client, monkeypatch):
+def test_match_date_bounds_include_epoch_and_one_day_of_utc_slack(client, monkeypatch, frozen_now):
     owner, headers = _user("date-bound-owner@example.com")
     _shadow(8999)
     _claim(owner, player_api_id=8999)
@@ -697,7 +818,7 @@ def test_match_date_bounds_include_epoch_and_one_day_of_utc_slack(client, monkey
         "refresh_player",
         lambda *a, **k: {"cells": 1, "totals": 1},
     )
-    tomorrow = (datetime.now(UTC).date() + timedelta(days=1)).isoformat()
+    tomorrow = (frozen_now.date() + timedelta(days=1)).isoformat()
 
     epoch = client.post(
         "/api/players/8999/matches",

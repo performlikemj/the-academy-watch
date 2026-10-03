@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { CheckCircle2, Loader2, ShieldAlert } from 'lucide-react'
 
 import { useAuth, useAuthUI } from '@/context/AuthContext'
-import { APIService } from '@/lib/api'
+import { useGuarded, useViewerLifetime } from '@/hooks/useViewerState'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import {
@@ -39,8 +39,17 @@ function reportErrorMessage(error) {
 }
 
 export function ContentReportDialog({ subjectId, subjectType = 'player_profile', className }) {
+  // Requests and side effects go through this viewer's lifetime (see lib/viewer-lifetime.js).
+  const life = useViewerLifetime()
+  const api = life.api
   const { token } = useAuth()
-  const { openLoginModal, logout } = useAuthUI()
+  const authUI = useAuthUI()
+  const openLoginModal = useGuarded(life, authUI.openLoginModal)
+  // Sign out + sign-in prompt as ONE guarded step (see ShowcaseSection).
+  const expireSession = useGuarded(life, () => {
+    authUI.logout()
+    authUI.openLoginModal()
+  })
   const [open, setOpen] = useState(false)
   const [reason, setReason] = useState('inappropriate_content')
   const [details, setDetails] = useState('')
@@ -74,7 +83,7 @@ export function ContentReportDialog({ subjectId, subjectType = 'player_profile',
     setSubmitting(true)
     setError(null)
     try {
-      await APIService.submitContentReport({
+      await api.submitContentReport({
         subject_type: subjectType,
         subject_id: normalizedSubjectId,
         reason_code: reason,
@@ -83,10 +92,9 @@ export function ContentReportDialog({ subjectId, subjectType = 'player_profile',
       setSubmitted(true)
     } catch (requestError) {
       if (requestError?.status === 401) {
-        logout()
         setOpen(false)
         reset()
-        openLoginModal()
+        expireSession()
       } else {
         setError(reportErrorMessage(requestError))
       }

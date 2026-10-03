@@ -42,3 +42,11 @@
 
 - C4F3 final O1 edge: reverse browser1fail on unchanged repeated Europe/London hour; skip parsing all attendance-locked fields before restoring exact stored timestamps (including fractional seconds). Final affected17pass incl real Flask pending/accepted description changes; prior resumed32+related45 pass. Pre-guard cached snapshotcfb697aa full4366pass114skip0fail/Ruff602/Node219/lint0err195warn/build PASS. Final changed-head cached gates and pushedSHA are recorded in external C4F3 completion ledger; no --fresh/kill-retry/bypass.
 - C4F3 ancestors final recheck: C2F2 published38512c3d retains byte-identical58af1d88 migration; main784b1490/B3 51f30f5b and C1aafb11d5 current. Schemas/preapply equality unchanged. Own Vite stopped, both scratch DBs absent/sharedch02; final screenshot count51.
+
+- C4R (2026-10-03): pure refresh a054729b onto main8696a4de in progress; inherited files restored wholesale to main; C4-only delta recovered by reversing lane commits. Pending PC viewer boundary integration; no refreshed commit/push/gates yet. External evidence logs/C4R.identity.md.
+
+- C4R STOP per user2(d): viewer-boundary8PASS/2FAIL after adding newly mounted ScoutClubsTrials to the required component inventory; direct APIService and unguarded openLoginModal. Contact-lock static guard1PASS. Main keyed wrapper retained; lane chooser inside boundary. Narrow life.api/useGuarded migration awaits ruling; no full gates/PG/Playwright/push/CI, no scratch DB/server. Merge draft staged/uncommitted.
+
+- C4R2 (2026-10-03): rule2(d) narrow integration explicitly APPROVED; requests use viewer lifetime and auth/post-await callbacks guarded. Main viewer boundary restored unchanged; A→B held-response C4 browser regression required. Identity/gates/realPG/browser/push/CI in progress; no further permission needed within ruling.
+
+- C4R2 source ready: main8696a4de + exact reviewed C4 delta, approved life.api/guard exception; viewer boundary10PASS unchanged and focused108PASS/2browser opt-ins. OSV scan before frozen dependency restore PASS. Scratch aw_p2_c4 cloned empty ch02 schema and real flask db upgrade → p2c3 (single head, parentp2c2, RLS); C1 CI-model schema stampedp2c1 on owned aw_p2_c1. Final commit caches/PG/browser/CI receipts and pushedSHA go in external C4R2.final.md; no source changes after final gates without revalidation.

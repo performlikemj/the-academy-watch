@@ -39,6 +39,7 @@ from src.services.club_access import (
     scoped_signed_player_ids,
     scoped_squad_ids,
 )
+from src.services.contact_locks import database_conflict
 from src.services.public_player_subject import resolve_public_adult_subject, user_owns_subject
 from werkzeug.exceptions import HTTPException
 
@@ -84,6 +85,10 @@ def transaction(view):
             raise
         except Exception as error:
             db.session.rollback()
+            conflict = database_conflict(error, family="retry")
+            if conflict:
+                code, status = conflict
+                return jsonify(error=code), status
             code = getattr(getattr(error, "orig", None), "sqlstate", None)
             if isinstance(error, IntegrityError) or code in {"40001", "40P01"}:
                 return jsonify(error="retry_conflict"), 409
@@ -280,13 +285,13 @@ def list_feedback(*, manager=False):
     )
     result = []
     for candidate in candidates[: g.feedback_limit]:
-        rows = lock_thread(db.session, candidate, g.user_id)
+        rows = PlayerFeedback.query.filter_by(thread_id=candidate.thread_id).order_by(PlayerFeedback.revision).all()
         if manager and not _feedback_actor(candidate.program_id, candidate.player_api_id):
             raise FeedbackError("Club manager access denied", 403)
         row = next(item for item in rows if item.id == candidate.id)
         if row.revision != rows[-1].revision:
             continue
-        closed = observe_closure(db.session, row)
+        closed = durably_closed(db.session, row)
         if closed or not relationship_matches(db.session, row):
             if manager:
                 result.append(
@@ -405,6 +410,11 @@ def purge_feedback():
     candidates = query.order_by(PlayerFeedback.id).limit(501).all()
     counts = {"scanned": 0, "closed": 0, "expired": 0, "deleted": 0}
     now = utcnow()
+    from src.models.player_feedback import lock_invitation_batch
+
+    invitation_ids = {r.invitation_id for r in candidates[:500]}
+    invitations = ClubInvitation.query.filter(ClubInvitation.id.in_(invitation_ids)).all()
+    lock_invitation_batch(db.session, invitations, getattr(g, "user_id", None))
     for candidate in candidates[:500]:
         invitation = db.session.get(ClubInvitation, candidate.invitation_id)
         if invitation is None:

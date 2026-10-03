@@ -134,13 +134,18 @@ class LocalPlayer(db.Model):
 def without_minor_local_bridge(api_player_id):
     """Exclude minor and club-private bridges from public search/GOL surfaces."""
 
+    from sqlalchemy.orm import aliased
+    from src.services.club_player_publication import local_publication_filter
+
+    local = aliased(LocalPlayer)
+
     return ~sa.exists().where(
         sa.and_(
             sa.or_(
-                LocalPlayer.api_player_id == api_player_id,
-                LocalPlayer.id == -api_player_id,
+                local.api_player_id == api_player_id,
+                local.id == -api_player_id,
             ),
-            sa.or_(LocalPlayer.provenance == "club", local_player_is_minor(LocalPlayer)),
+            sa.or_(~local_publication_filter(local), local_player_is_minor(local)),
         )
     )
 
@@ -160,6 +165,8 @@ class PlayerProfileClaim(db.Model):
             "local_player_id",
             "user_account_id",
             unique=True,
+            postgresql_where=sa.text("verification_method IS NULL OR verification_method <> 'club_vouch_retired'"),
+            sqlite_where=sa.text("verification_method IS NULL OR verification_method <> 'club_vouch_retired'"),
         ),
         db.Index("ix_profile_claims_player", "player_api_id"),
         db.Index("ix_profile_claims_local_player", "local_player_id"),

@@ -4,8 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Textarea } from '@/components/ui/textarea'
 import { MessageSquare, Loader2, Send } from 'lucide-react'
-import { APIService } from '@/lib/api'
-
+import { useViewerKey, useViewerLifetime } from '@/hooks/useViewerState'
 function relativeTime(dateStr) {
   if (!dateStr) return ''
   const now = Date.now()
@@ -21,22 +20,33 @@ function relativeTime(dateStr) {
   return new Date(dateStr).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 }
 
-export function CommentSection({ newsletterId, playerId, title = 'Comments' }) {
+// Keyed on the viewer: it is also mounted on pages that do not remount on a
+// viewer change (the newsletter write-up), and a fresh instance per viewer is
+// what keeps one viewer's draft, error or late answer away from the next.
+export function CommentSection(props) {
+  const viewer = useViewerKey()
+  return <CommentSectionBody key={viewer} {...props} />
+}
+
+function CommentSectionBody({ newsletterId, playerId, title = 'Comments' }) {
+  // Requests and side effects go through this viewer's lifetime (see lib/viewer-lifetime.js).
+  const life = useViewerLifetime()
+  const api = life.api
   const [comments, setComments] = useState([])
   const [loading, setLoading] = useState(true)
   const [body, setBody] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState(null)
 
-  const isLoggedIn = !!APIService.userToken
+  const isLoggedIn = !!api.userToken
 
   const loadComments = useCallback(async () => {
     try {
       let data
       if (newsletterId) {
-        data = await APIService.listNewsletterComments(newsletterId)
+        data = await api.listNewsletterComments(newsletterId)
       } else if (playerId) {
-        data = await APIService.listPlayerComments(playerId)
+        data = await api.listPlayerComments(playerId)
       }
       setComments(Array.isArray(data) ? data : [])
     } catch {
@@ -44,7 +54,7 @@ export function CommentSection({ newsletterId, playerId, title = 'Comments' }) {
     } finally {
       setLoading(false)
     }
-  }, [newsletterId, playerId])
+  }, [api, newsletterId, playerId])
 
   useEffect(() => {
     loadComments()
@@ -58,9 +68,9 @@ export function CommentSection({ newsletterId, playerId, title = 'Comments' }) {
     setError(null)
     try {
       if (newsletterId) {
-        await APIService.createNewsletterComment(newsletterId, trimmed)
+        await api.createNewsletterComment(newsletterId, trimmed)
       } else if (playerId) {
-        await APIService.createPlayerComment(playerId, trimmed)
+        await api.createPlayerComment(playerId, trimmed)
       }
       setBody('')
       await loadComments()

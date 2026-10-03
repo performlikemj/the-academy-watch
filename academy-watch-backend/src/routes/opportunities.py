@@ -1,15 +1,18 @@
 """Dark launch APIs. Club resources are always addressed through their program."""
 
 from functools import wraps
+from uuid import UUID
 
 from flask import Blueprint, g, jsonify, request
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import case, func
+from sqlalchemy.exc import IntegrityError, OperationalError
 from src.auth import require_user_auth
 from src.extensions import limiter
 from src.models.league import db
-from src.models.opportunities import ClubOpportunity, OpportunityApplication, now
+from src.models.opportunities import ApplicationEvent, ClubOpportunity, OpportunityApplication, now
 from src.services import opportunities as service
 from src.services.club_access import require_club_permission
+from src.services.contact_locks import database_conflict
 
 opportunities_bp = Blueprint("opportunities", __name__)
 
@@ -44,6 +47,13 @@ def flagged(*, applications=False):
                 else:
                     db.session.rollback()
                 return jsonify(error=exc.code), exc.status
+            except OperationalError as exc:
+                db.session.rollback()
+                conflict = database_conflict(exc)
+                if conflict:
+                    code, status = conflict
+                    return jsonify(error=code, code=code, retryable=True), status
+                raise
             except IntegrityError:
                 db.session.rollback()
                 return jsonify(error="request_conflict"), 409
@@ -119,12 +129,31 @@ def club_opportunities(program_id):
         db.session.commit()
         return jsonify(opportunity=result), 201
     page = page_number()
+    activity = (
+        db.session.query(
+            OpportunityApplication.opportunity_id, func.max(ApplicationEvent.created_at).label("last_activity")
+        )
+        .join(ApplicationEvent, ApplicationEvent.application_id == OpportunityApplication.id)
+        .filter(OpportunityApplication.program_id == program_id)
+        .group_by(OpportunityApplication.opportunity_id)
+        .subquery()
+    )
+    recent = case(
+        (activity.c.last_activity > ClubOpportunity.updated_at, activity.c.last_activity),
+        else_=ClubOpportunity.updated_at,
+    )
     rows = (
         ClubOpportunity.query.filter_by(program_id=program_id)
-        .order_by(ClubOpportunity.created_at.desc())
+        .outerjoin(activity, activity.c.opportunity_id == ClubOpportunity.id)
+        .order_by(
+            case((ClubOpportunity.status == "published", 0), (ClubOpportunity.status == "draft", 2), else_=1),
+            recent.desc(),
+            ClubOpportunity.created_at.desc(),
+            ClubOpportunity.id,
+        )
         .offset((page - 1) * 30)
         .limit(31)
-        .with_for_update()
+        .with_for_update(of=ClubOpportunity)
         .all()
     )
     result = service.opportunity_page(rows[:30], program)
@@ -159,7 +188,16 @@ def close(program_id, opportunity_id):
 @require_user_auth
 @limiter.limit("60/minute", key_func=key)
 def claims():
-    return jsonify(claims=service.eligible_claims(g.user_id))
+    oid = request.args.get("opportunity_id")
+    if oid is not None:
+        try:
+            oid = str(UUID(oid))
+        except (ValueError, TypeError, AttributeError):
+            raise service.OpportunityError("Not found", 404) from None
+    row = service.opportunity(oid, public=True) if oid is not None else None
+    result = service.eligible_claims(g.user_id, row=row)
+    db.session.commit()
+    return jsonify(claims=result)
 
 
 @opportunities_bp.post("/opportunities/<uuid:opportunity_id>/applications")

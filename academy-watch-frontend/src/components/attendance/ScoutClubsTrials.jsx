@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { APIService } from '@/lib/api'
+import { useGuarded, useViewerLifetime } from '@/hooks/useViewerState'
+import { isStaleViewerError } from '@/lib/viewer-lifetime'
 import { useAuth, useAuthUI } from '@/context/AuthContext'
 import { ScoutSurface, ScoutHeader, DeskSectionTitle } from '@/components/scout/ScoutDesk'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -14,14 +15,18 @@ export function ScoutTabs({ clubs = false }) {
 }
 
 function AskToAttend({ item, onClose, onSent }) {
+  const life = useViewerLifetime()
+  const api = life.api
+  const close = useGuarded(life, onClose)
+  const sent = useGuarded(life, onSent)
   const [note, setNote] = useState('')
   const [confirmed, setConfirmed] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   async function submit(e) {
     e.preventDefault(); setBusy(true); setError('')
-    try { const data = await sendAttendance(`/opportunities/${item.id}/attendance`, { note, no_approach_confirmed: confirmed }); onSent(data.attendance); onClose() }
-    catch (err) { setError(attendanceError(err)) }
+    try { const data = await sendAttendance(`/opportunities/${item.id}/attendance`, { note, no_approach_confirmed: confirmed }, api); sent(data.attendance); close() }
+    catch (err) { if (!isStaleViewerError(err)) setError(attendanceError(err)) }
     finally { setBusy(false) }
   }
   return <Dialog open onOpenChange={value => { if (!value && !busy) onClose() }}><DialogContent className="dark c4-ask bg-night text-chalk max-h-[90dvh] overflow-y-auto">
@@ -37,8 +42,10 @@ function AskToAttend({ item, onClose, onSent }) {
 }
 
 export function ScoutClubsTrials() {
+  const life = useViewerLifetime()
+  const api = life.api
   const { token } = useAuth()
-  const { openLoginModal } = useAuthUI()
+  const openLoginModal = useGuarded(life, useAuthUI().openLoginModal)
   const [location, setLocation] = useState(null)
   const [radius, setRadius] = useState(50)
   const [query, setQuery] = useState('')
@@ -60,27 +67,27 @@ export function ScoutClubsTrials() {
     setVerified(false); setRequests([])
     if (!token) return
     try {
-      const profile = await APIService.request('/auth/me')
+      const profile = await api.request('/auth/me')
       if (!profile.is_verified_scout) return
       let next = null; const rows = []
-      do { const data = await APIService.request(`/me/scout-attendance${next ? `?after=${next}` : ''}`); rows.push(...data.attendance); next = data.next_cursor } while (next)
+      do { const data = await api.request(`/me/scout-attendance${next ? `?after=${next}` : ''}`); rows.push(...data.attendance); next = data.next_cursor } while (next)
       if (run === requestGeneration.current) { setRequests(rows); setVerified(true) }
-    } catch (err) { if (run === requestGeneration.current && err.status !== 403) setError(attendanceError(err)) }
-  }, [token])
+    } catch (err) { if (run === requestGeneration.current && !isStaleViewerError(err) && err.status !== 403) setError(attendanceError(err)) }
+  }, [api, token])
   useEffect(() => { refreshRequests(); return () => { requestGeneration.current++ } }, [refreshRequests])
   useEffect(() => {
     let active = true
     setLoading(true); setError('')
     const position = location ? { ...location, radius_km: radius } : {}
-    Promise.all([sendAttendance('/opportunities/search', { ...position, event_sessions: true, page }), sendAttendance('/club-directory/search', { ...position, ...(search ? { q: search } : {}), page })]).then(([posts, directory]) => {
+    Promise.all([sendAttendance('/opportunities/search', { ...position, event_sessions: true, page }, api), sendAttendance('/club-directory/search', { ...position, ...(search ? { q: search } : {}), page }, api)]).then(([posts, directory]) => {
       if (active) { setTrials(posts.opportunities); setClubs(directory.clubs); setMore(posts.has_more || directory.has_more) }
-    }).catch(err => { if (active) { setTrials([]); setClubs([]); setError(attendanceError(err)) } }).finally(() => { if (active) setLoading(false) })
+    }).catch(err => { if (active && !isStaleViewerError(err)) { setTrials([]); setClubs([]); setError(attendanceError(err)) } }).finally(() => { if (active) setLoading(false) })
     return () => { active = false }
-  }, [location, radius, search, page, reload])
+  }, [api, location, radius, search, page, reload])
   async function withdraw(row) {
     setBusy(true); setError('')
-    try { await sendAttendance(`/me/scout-attendance/${row.id}/withdraw`, { expected_version: row.version }); await refreshRequests() }
-    catch (err) { setError(attendanceError(err)) }
+    try { await sendAttendance(`/me/scout-attendance/${row.id}/withdraw`, { expected_version: row.version }, api); await refreshRequests() }
+    catch (err) { if (!isStaleViewerError(err)) setError(attendanceError(err)) }
     finally { setBusy(false) }
   }
   const distance = item => item.distance_km == null ? 'Distance unavailable' : `${item.distance_km} km from you`

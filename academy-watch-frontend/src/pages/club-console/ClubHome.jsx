@@ -1,3 +1,4 @@
+import { usePublicationFlag } from '@/hooks/usePublicationFlag'
 import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { PlayerPage } from './PlayerPage';
@@ -126,6 +127,7 @@ export function ClubHome({
   };
   const matchesQuery = value => (value || '').toLowerCase().includes(query.toLowerCase());
   const visibleSquads = squads.filter(s => matchesQuery(s.name) || members.some(m => m.squad_id === s.id && matchesQuery(m.display_name)));
+  const publicationEnabled = usePublicationFlag();
   const settingsViews = ['branding', 'squads', 'staff', 'profile', 'affiliations', 'roster'];
   const settingsTarget = ['branding', 'squads', 'staff', 'roster', 'profile'].find(v => viewAllowed[v]);
   const rail = [['Today', CalendarDays, 'today'], ['Club', Network, 'map'], ['Squads', Users, 'squad'], ['Matches', Film, 'matches'], ['Recruiting', Users, 'recruiting'], ['Scouts', Send, 'introductions'], ['Settings', Settings, settingsTarget || 'branding']].filter(([label, , target]) => label === 'Settings' ? Boolean(settingsTarget) : viewAllowed[target] !== false);
@@ -224,6 +226,7 @@ export function ClubHome({
           </div>
         </>}
         {/* --- p2-b2 begin --- */}
+        {publicationEnabled && allow('player_invitations') && <a className="block px-4 py-3 underline" href={`/club-publications/${programId}`}>Adult profile publication</a>}
         {view === 'recruiting' && <Recruiting key={program.id} program={program} squads={squads} />}
         {/* --- p2-b2 end --- */}
         {view === 'map' && <>

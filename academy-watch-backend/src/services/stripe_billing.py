@@ -1114,11 +1114,13 @@ def handle_webhook(raw_body: bytes, signature_header: str | None) -> tuple[dict,
     return {"received": True, "duplicate": False}, 200
 
 
-def admin_summary() -> dict:
+def admin_summary(*, paying_only=False) -> dict:
     now = utcnow()
     cutoff_30d = now - timedelta(days=30)
     cutoff_24h = now - timedelta(hours=24)
-    active_rows = BillingSubscription.query.filter(BillingSubscription.status.in_(ACTIVE_STATUSES)).all()
+    active_rows = BillingSubscription.query.filter(
+        BillingSubscription.status.in_(("active",) if paying_only else ACTIVE_STATUSES)
+    ).all()
     by_product: dict[str, int] = {}
     mrr_by_currency: dict[str, int] = {}
     active_currencies: set[str | None] = set()

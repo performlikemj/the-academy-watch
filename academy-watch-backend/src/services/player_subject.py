@@ -46,11 +46,14 @@ class PlayerSubject:
 
     @property
     def is_public(self) -> bool:
-        return (
-            self.is_adult
-            and not self.is_suppressed
-            and not (self.local_player is not None and self.local_player.provenance == "club")
-        )
+        return self.is_adult and not self.is_suppressed and self._club_public()
+
+    def _club_public(self):
+        if self.local_player is None or self.local_player.provenance != "club":
+            return True
+        from src.services.public_adult import is_public_adult
+
+        return is_public_adult(self.signed_id)
 
     @property
     def is_approved_adult_local(self) -> bool:
@@ -139,8 +142,14 @@ def resolve_player_subject(signed_id) -> PlayerSubject | None:
             status="approved",
             merged_into_local_player_id=None,
         ).first()
-        if local_player is None or local_player.provenance == "club":
+        if local_player is None:
             return None
+        if local_player.provenance == "club":
+            from src.services.club_player_publication import enabled
+            from src.services.public_adult import is_public_adult
+
+            if not enabled() or not is_public_adult(signed_id):
+                return None
         shadow = PlayerShadow.query.filter_by(player_api_id=signed_id, is_active=True).first()
         return PlayerSubject(
             signed_id=signed_id,

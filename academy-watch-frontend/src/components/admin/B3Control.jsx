@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { APIService } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -20,6 +20,23 @@ export function B3Gate({ flag, children }) {
     if (!flags) return <p role="status" className="text-muted-dark">Loading control room…</p>
     if (!flags[flag]) return <div className="space-y-4"><h1 className="display text-4xl">Page unavailable</h1><p className="text-muted-dark">This control-room page has not been enabled.</p><Link to="/admin/dashboard" className="underline">Back to Today</Link></div>
     return children
+}
+
+export function useControlTab(flag, choices, fallback) {
+    const flags = useControlFlags()
+    const [params, setParams] = useSearchParams()
+    const [localTab, setLocalTab] = useState(fallback)
+    const requested = params.get('tab')
+    const tab = flags?.[flag] && choices.includes(requested) ? requested : localTab
+    const select = value => {
+        setLocalTab(value)
+        if (flags?.[flag]) setParams(current => {
+            const next = new URLSearchParams(current)
+            next.set('tab', value)
+            return next
+        }, { replace: true })
+    }
+    return [tab, select]
 }
 
 export function useControlData(path) {
@@ -51,7 +68,7 @@ export function DetailPanel({ children, title }) {
 }
 
 export function Fact({ label, children }) {
-    return <div className="flex flex-wrap justify-between gap-x-5 gap-y-1 border-t border-hairline-dark py-3 text-sm"><span className="text-muted-dark">{label}</span><span className="break-words text-right">{children ?? '—'}</span></div>
+    return <div className="flex flex-wrap justify-between gap-x-5 gap-y-1 border-t border-hairline-dark py-3 text-sm"><span className="text-muted-dark">{label}</span><span className="min-w-0 max-w-full [overflow-wrap:anywhere] text-right">{children ?? '—'}</span></div>
 }
 
 export function QuietEmpty({ children }) {
@@ -85,8 +102,8 @@ export function ReasonAction({ label, action, onDone, disabled = false, target, 
 }
 
 export function Pagination({ data, offset, setOffset }) {
-    if (!data || data.total <= data.limit) return null
-    return <div className="mt-5 flex flex-wrap items-center gap-3"><Button variant="outline" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - data.limit))}>Previous</Button><span className="text-sm text-muted-dark">{offset + 1}–{Math.min(offset + data.limit, data.total)} of {data.total}</span><Button variant="outline" disabled={offset + data.limit >= data.total} onClick={() => setOffset(offset + data.limit)}>Next</Button></div>
+    if (!data || (offset === 0 && data.total <= data.limit)) return null
+    return <div className="mt-5 flex flex-wrap items-center gap-3"><Button variant="outline" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - data.limit))}>Previous</Button><span className="text-sm text-muted-dark">{offset >= data.total ? `0 on this page · ${data.total} total` : `${offset + 1}–${Math.min(offset + data.limit, data.total)} of ${data.total}`}</span><Button variant="outline" disabled={offset + data.limit >= data.total} onClick={() => setOffset(offset + data.limit)}>Next</Button></div>
 }
 
 

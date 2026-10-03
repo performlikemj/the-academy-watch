@@ -167,18 +167,14 @@ def governed_member_available(session, member):
 
 def lock_context(session, *, claim_id, program_id, account_ids):
     """Stable lock order shared by invitations and local attestation moderation."""
-    from src.models.funding import ClubProgram
-    from src.models.showcase import PlayerProfileClaim
+    from src.services.contact_locks import lock_contact_scope
 
+    scope = lock_contact_scope(session, program_id=program_id, claim_id=claim_id)
+    # Account locks follow the contact scope, never precede program locks.
     session.query(UserAccount).filter(UserAccount.id.in_(sorted({v for v in account_ids if v is not None}))).order_by(
         UserAccount.id
     ).populate_existing().with_for_update().all()
-    claim = session.query(PlayerProfileClaim).filter_by(id=claim_id).populate_existing().with_for_update().first()
-    program = (
-        session.query(ClubProgram).filter_by(id=program_id).populate_existing().with_for_update().first()
-        if program_id
-        else None
-    )
+    claim, program = scope.claims.get(claim_id), scope.programs.get(program_id)
     return claim, program
 
 
@@ -310,6 +306,16 @@ def resolve_invitation(session, invitation, actor_id, action, *, manager=False):
     from src.models.funding import ClubRosterMember
     from src.services.public_player_subject import resolve_public_adult_subject
 
+    binding_fields = (
+        "id",
+        "program_id",
+        "claim_id",
+        "recipient_user_id",
+        "created_by_user_id",
+        "source_manager_claim_id",
+        "player_api_id",
+    )
+    binding = tuple(getattr(invitation, field) for field in binding_fields)
     claim, _ = lock_context(
         session,
         claim_id=invitation.claim_id,
@@ -325,6 +331,10 @@ def resolve_invitation(session, invitation, actor_id, action, *, manager=False):
         else None
     )
     invitation = session.query(ClubInvitation).filter_by(id=invitation.id).populate_existing().with_for_update().one()
+    if tuple(getattr(invitation, field) for field in binding_fields) != binding:
+        from src.services.contact_locks import _retry
+
+        _retry()
     if manager and actor_grant is None:
         raise InvitationError("invitation_unavailable")
     if not manager and invitation.recipient_user_id != actor_id:
@@ -379,6 +389,9 @@ def revoke_relationship(session, invitation, claim, now):
 
     invitation.status = "revoked"
     invitation.revoked_at = now
+    from src.models.player_feedback import close_feedback
+
+    close_feedback(session, invitation_id=invitation.id, now=now)
     for member in (
         _roster_query(session, invitation)
         .filter_by(requires_player_acceptance=True, accepted_invitation_id=invitation.id)
@@ -406,16 +419,27 @@ def revoke_relationship(session, invitation, claim, now):
             profile.pending_club_program_id = None
             profile.pending_current_club_name = None
             # Retain the pending claim/status so review must revalidate the withdrawn selection.
-    contacts = (
+    from src.services.contact_locks import lock_contact_scope
+
+    candidates = (
         session.query(ContactRequest)
         .filter_by(claim_id=claim.id, club_program_id=invitation.program_id, routing_mode="club_included")
         .filter(ContactRequest.status.in_(["pending", "accepted"]))
         .order_by(ContactRequest.id)
-        .populate_existing()
-        .with_for_update()
         .all()
     )
-    for contact in contacts:
+    scope = lock_contact_scope(session, request_id=[r.id for r in candidates])
+    for candidate in candidates:
+        contact = scope.requests.get(candidate.id)
+        if (
+            contact is None
+            or contact.claim_id != claim.id
+            or contact.club_program_id != invitation.program_id
+            or contact.routing_mode != "club_included"
+        ):
+            continue
+        if contact.status not in ("pending", "accepted"):
+            continue
         contact.status = "declined"
         contact.club_consent_status = "declined"
         contact.club_consent_at = now
@@ -468,7 +492,16 @@ def local_attestation(session, claim, signed_id, payload, *, lock=True):
     }
 
 
-def list_invitations(session, *, recipient_id=None, program_id=None, player_api_id=None, limit=20, before=None):
+def list_invitations(
+    session,
+    *,
+    recipient_id=None,
+    program_id=None,
+    player_api_id=None,
+    limit=20,
+    before=None,
+    include_player_names=False,
+):
     from src.models.showcase import PlayerProfileClaim
     from src.services.public_player_subject import resolve_public_adult_subject
 
@@ -495,14 +528,22 @@ def list_invitations(session, *, recipient_id=None, program_id=None, player_api_
         )
     rows = []
     for row in query.order_by(ClubInvitation.created_at.desc(), ClubInvitation.id.desc()).yield_per(50):
-        if not resolve_public_adult_subject(row.player_api_id) or not claim_matches(
+        subject = resolve_public_adult_subject(row.player_api_id)
+        if not subject or not claim_matches(
             session, session.get(PlayerProfileClaim, row.claim_id), row.player_api_id, row.recipient_user_id
         ):
             continue
-        rows.append(row)
+        rows.append((row, subject.display_name))
         if len(rows) > limit:
             break
+    invitations = []
+    for row, name in rows[:limit]:
+        payload = invitation_dict(session, row)
+        if program_id is not None and include_player_names:
+            # Club managers already pass the adult-subject gate above; reuse its name.
+            payload["player_name"] = name
+        invitations.append(payload)
     return {
-        "invitations": [invitation_dict(session, row) for row in rows[:limit]],
-        "next_before": rows[limit - 1].id if len(rows) > limit else None,
+        "invitations": invitations,
+        "next_before": rows[limit - 1][0].id if len(rows) > limit else None,
     }
