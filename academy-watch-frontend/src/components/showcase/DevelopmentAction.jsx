@@ -1,7 +1,7 @@
 import '@/styles/floodlight-player.css'
 import { useEffect, useRef, useState } from 'react'
 import { CheckCircle2, ClipboardCheck, Flag, Sparkles } from 'lucide-react'
-import { APIService } from '@/lib/api'
+import { useViewerLifetime } from '@/hooks/useViewerState'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -30,6 +30,9 @@ export function DevelopmentActionSummary({ action }) {
 }
 
 export function FeedbackEvidencePicker({ programId, invitationId, disabled, onSelect, onFailure }) {
+  // Requests and side effects go through this viewer's lifetime (see lib/viewer-lifetime.js).
+  const life = useViewerLifetime()
+  const api = life.api
   const [rows, setRows] = useState(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -38,7 +41,7 @@ export function FeedbackEvidencePicker({ programId, invitationId, disabled, onSe
   async function load() {
     setBusy(true); setError(''); setRows(null)
     try {
-      const result = await APIService.request(`/club/${programId}/player-feedback/suggestions?invitation_id=${invitationId}`, { signal: lifetime.current.signal })
+      const result = await api.request(`/club/${programId}/player-feedback/suggestions?invitation_id=${invitationId}`, { signal: lifetime.current.signal })
       if (!lifetime.current.signal.aborted) setRows(result.suggestions || [])
     } catch (err) {
       if (lifetime.current.signal.aborted) return
@@ -61,6 +64,9 @@ export function DevelopmentProgress({ feedback, manager = false, programId, onUp
 }
 
 function ProgressForm({ feedback, manager, programId, onUpdated, onAccessLost }) {
+  // Requests and side effects go through this viewer's lifetime (see lib/viewer-lifetime.js).
+  const life = useViewerLifetime()
+  const api = life.api
   const progress = feedback.development_progress
   const [note, setNote] = useState(manager ? '' : progress?.reflection || '')
   const [busy, setBusy] = useState(false)
@@ -74,7 +80,7 @@ function ProgressForm({ feedback, manager, programId, onUpdated, onAccessLost })
     const path = manager ? `/club/${programId}/player-feedback/${feedback.thread_id}/progress-review` : `/me/player-feedback/${feedback.id}/progress`
     const body = { expected_version: progress?.version || 0, status, note: note.trim(), ...(manager ? { expected_revision: feedback.revision } : {}) }
     try {
-      const data = await APIService.request(path, { method: 'POST', body: JSON.stringify(body), signal: lifetime.current.signal })
+      const data = await api.request(path, { method: 'POST', body: JSON.stringify(body), signal: lifetime.current.signal })
       if (!lifetime.current.signal.aborted) onUpdated(data.feedback)
     } catch (err) {
       if (lifetime.current.signal.aborted) return

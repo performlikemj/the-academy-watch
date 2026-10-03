@@ -13,6 +13,12 @@ from flask import Blueprint, Response, g, jsonify, request, send_file, stream_wi
 from src.auth import require_api_key, require_user_auth
 from src.config.stripe_config import billing_enabled
 from src.extensions import limiter
+from src.services.gol_availability import (
+    MAINTENANCE_RETRY_SECONDS,
+    GolMaintenance,
+    assistant_under_maintenance,
+    maintenance_payload,
+)
 from src.services.gol_credits import (
     ClientMsgIdReused,
     CreditsExhausted,
@@ -20,6 +26,7 @@ from src.services.gol_credits import (
     QuestionRecoveryExhausted,
     balances,
     finish_execution,
+    has_recoverable_question_debit,
     reserve_question,
 )
 from src.services.scout_entitlements import decoded_bearer_role
@@ -36,6 +43,25 @@ def _sse(event_type: str, data: dict) -> str:
     return f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
 
 
+def _maintenance_response():
+    return (
+        jsonify(maintenance_payload()),
+        503,
+        {
+            "Retry-After": str(MAINTENANCE_RETRY_SECONDS),
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+def _maintenance_suggestions():
+    return (
+        jsonify(suggestions=[], maintenance=True, retry_after=MAINTENANCE_RETRY_SECONDS, **maintenance_payload()),
+        200,
+        {"Cache-Control": "no-store", "Retry-After": str(MAINTENANCE_RETRY_SECONDS)},
+    )
+
+
 @gol_bp.route("/gol/chat", methods=["POST"])
 @require_user_auth
 @limiter.limit("20/minute")
@@ -46,6 +72,20 @@ def gol_chat():
     Returns: text/event-stream with events: usage, token, data_card, tool_call, done, error
     """
     data = request.get_json(silent=True)
+    recover_only = assistant_under_maintenance()
+    if recover_only:
+        # Existing charged questions retain main's replay/lease/refund path.
+        # Fresh requests (including malformed bodies) must write nothing.
+        existing_id = data.get("client_msg_id") if isinstance(data, dict) else None
+        if not (
+            billing_enabled()
+            and decoded_bearer_role() != "admin"
+            and isinstance(existing_id, str)
+            and _CLIENT_MSG_ID_RE.fullmatch(existing_id)
+            and has_recoverable_question_debit(g.user, existing_id)
+        ):
+            return _maintenance_response()
+
     if not isinstance(data, dict):
         return jsonify({"error": "invalid_json"}), 400
     raw_message = data.get("message")
@@ -112,7 +152,11 @@ def gol_chat():
             allow_nan=False,
         )
         question_hash = hashlib.sha256(canonical.encode()).hexdigest()
-        reservation = reserve_question(g.user, client_msg_id, question_hash=question_hash, role=role)
+        reservation = reserve_question(
+            g.user, client_msg_id, question_hash=question_hash, role=role, recover_only=recover_only
+        )
+    except GolMaintenance:
+        return _maintenance_response()
     except (TypeError, ValueError):
         return jsonify({"error": "invalid_history_or_session"}), 400
     except QuestionInFlight:
@@ -138,7 +182,12 @@ def gol_chat():
     # Resolve replays before constructing a potentially unavailable model client.
     if not reservation.get("replay"):
         try:
+            if assistant_under_maintenance():
+                raise GolMaintenance
             service = GolService(model_override=model_override)
+        except GolMaintenance:
+            finish_execution(g.user, reservation, failed=True)
+            return _maintenance_response()
         except Exception:
             finish_execution(g.user, reservation, failed=True)
             logger.exception("Failed to initialize GolService")
@@ -273,12 +322,16 @@ def gol_chat():
 @gol_bp.route("/gol/suggestions", methods=["GET"])
 def gol_suggestions():
     """Get conversation starter suggestions."""
+    if assistant_under_maintenance():
+        return _maintenance_suggestions()
     try:
         from src.services.gol_service import GolService
 
         service = GolService()
         suggestions = service.get_suggestions()
         return jsonify({"suggestions": suggestions})
+    except GolMaintenance:
+        return _maintenance_suggestions()
     except Exception as e:
         logger.warning(f"Failed to get suggestions: {e}")
         return jsonify(

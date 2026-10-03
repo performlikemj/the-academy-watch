@@ -379,7 +379,7 @@ test('signed-in non-scout follows and unfollows independently of the scout watch
   await expect(controls.getByRole('button', { name: 'Follow', exact: true })).toBeEnabled()
   await expect(controls.getByText('1 fan', { exact: true })).toBeVisible()
 
-  await page.getByRole('button', { name: 'Watch this player' }).click()
+  await page.getByRole('button', { name: 'Add to watchlist' }).click()
   await expect.poll(() => requestsFor(state, '/api/scout/watchlist', 'POST').length).toBe(1)
 
   expect(fanMutations.map((request) => request.method)).toEqual(['POST', 'DELETE'])
