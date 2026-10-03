@@ -511,3 +511,30 @@ def test_unicode_punycode_domain_address():
     EmailLogFilter().filter(item)
     assert address not in item.getMessage()
     assert mask_email(address) in item.getMessage()
+
+
+def test_real_claim_mail_failure_preserves_response_warning_and_writer_id(app, monkeypatch, caplog):
+    caplog.set_level(logging.INFO)
+    editor = _ensure_user_account("editor@example.net")
+    editor.is_editor = True
+    writer = _ensure_user_account(EMAIL)
+    writer.managed_by_user_id = editor.id
+    writer.claimed_at = None
+    db.session.commit()
+    token = issue_user_token(editor.email)["token"]
+    send = Mock(side_effect=RuntimeError(f'provider rejected "{EMAIL}"'))
+    monkeypatch.setattr("src.services.email_service.email_service.send_claim_invitation", send)
+    response = app.test_client().post(
+        f"/api/editor/writers/{writer.id}/send-claim-invite",
+        headers={"Authorization": "Bearer " + token},
+    )
+    assert response.status_code == 200
+    assert response.json["email"] == EMAIL
+    assert response.json["warning"] == "Email delivery failed - share the link manually"
+    assert send.call_args.kwargs["to_email"] == EMAIL
+    assert EMAIL not in caplog.text
+    assert mask_email(EMAIL) in caplog.text
+    item = next(r for r in caplog.records if "Failed to send claim email" in r.getMessage())
+    assert item.levelno == logging.WARNING
+    assert f"writer_id={writer.id}" in item.getMessage()
+    assert "RuntimeError" in item.exc_text

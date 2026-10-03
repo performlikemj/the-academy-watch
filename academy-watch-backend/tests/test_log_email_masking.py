@@ -250,7 +250,7 @@ EMAIL_NAMES = {
 
 def email_name(value):
     name = value.lower()
-    return name in EMAIL_NAMES or name.endswith(("_email", "_emails")) or name.startswith("email_address")
+    return name in EMAIL_NAMES or "email" in name or "recipient" in name
 
 
 def unmasked_email_nodes(node):
@@ -291,6 +291,20 @@ def test_backend_logging_calls_mask_email_variables():
     paths = [*root.glob("*.py"), *(root / "src").rglob("*.py"), *(root / "scripts").rglob("*.py")]
     for path in paths:
         tree = ast.parse(path.read_text())
+        if path.relative_to(root).as_posix() == "src/services/email_service.py":
+            bindings = [
+                n.value
+                for n in ast.walk(tree)
+                if isinstance(n, ast.Assign)
+                and any(isinstance(t, ast.Name) and t.id == "masked_recipients" for t in n.targets)
+            ]
+            assert bindings and all(
+                isinstance(n, ast.ListComp)
+                and isinstance(n.elt, ast.Call)
+                and isinstance(n.elt.func, ast.Name)
+                and n.elt.func.id == "mask_email"
+                for n in bindings
+            ), "EmailService masked_recipients allowlist requires helper-produced values"
         for call in ast.walk(tree):
             if not isinstance(call, ast.Call):
                 continue
@@ -305,7 +319,11 @@ def test_backend_logging_calls_mask_email_variables():
                 continue
             for arg in [*call.args, *(kw.value for kw in call.keywords)]:
                 # Already-built masked recipient list in EmailService.
-                if isinstance(arg, ast.Name) and arg.id == "masked_recipients":
+                if (
+                    path.relative_to(root).as_posix() == "src/services/email_service.py"
+                    and isinstance(arg, ast.Name)
+                    and arg.id == "masked_recipients"
+                ):
                     continue
                 if unmasked_email_nodes(arg):
                     failures.append(f"{path.relative_to(root)}:{call.lineno}: {ast.unparse(call)}")
@@ -379,6 +397,10 @@ def test_verify_error_logging(auth_client, monkeypatch, caplog):
         ("invite_email", True),
         ("contact_email", True),
         ("email_address", True),
+        ("contact_email_address", True),
+        ("email_receiver", True),
+        ("notification_recipient_address", True),
+        ("masked_recipients", True),
         ("to", True),
         ("getattr(g, 'user_email', None)", True),
         ("mask_email(getattr(g, 'user_email', None))", False),

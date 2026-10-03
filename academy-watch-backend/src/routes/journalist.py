@@ -3892,8 +3892,8 @@ def send_claim_invite(writer_id):
                 inviter_name=editor.display_name,
             )
             logger.info("Sent claim invite to %s for writer %s", mask_email(writer.email), writer_id)
-        except Exception as email_err:
-            logger.warning(f"Failed to send claim email: {email_err}")
+        except Exception:
+            logger.warning("Failed to send claim email for writer_id=%s", writer.id, exc_info=True)
             # Still return success - token was generated
             return jsonify(
                 {
