@@ -57,3 +57,6 @@
 
 - Preliminary head2d5e142f passed all four gates (backend5580/1769skip, unit407, lint668, frontend0errors/203warnings/build) and combined browser235 (MYC1 78/staff9/mainUXBF1 148). The temporary untracked browser config participated in the gate fingerprint, so those receipts are preliminary.
 - Finalize combined selection as MYC1_MAIN_REGRESSIONS=1 in committed lane config; remove temporary config. New final commit needs clean-checkout gates and one browser run; no production-source change. This avoids reviewers missing the cached result after cleanup.
+
+- Additional late-answer boundary: b2df5e4b clean gates/browser passed, but an added real-component control proved a timed-out feature answer arriving BEFORE Retry could still cache OFF and yield empty. Baseline1FAIL (product finding); moved existing abandon call from Retry to local expiry (no new mechanism). Other consumers keep the original promise; stale cache writes now blocked immediately. Reversed control plus deadline/body/working-console controls4PASS; updated Node6PASS covers late body before Retry and fetch after Retry.
+- Final new head needs four cached gates + one combined236 browser run (MYC1 79/staff9/mainUXBF1 148). Main tests and production/C4 boundaries otherwise unchanged. Exact final delivery remains external.

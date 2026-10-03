@@ -3490,7 +3490,7 @@ export class APIService {
 let lastFeatures = null
 let pendingFeatures = null
 
-// Only MyClub's explicit Retry abandons a stuck shared read. Other consumers
+// Only MyClub's local expiry abandons a stuck shared read. Other consumers
 // keep awaiting its original promise, including a valid slow response.
 export function abandonMyClubFeatureRead() {
     pendingFeatures = null

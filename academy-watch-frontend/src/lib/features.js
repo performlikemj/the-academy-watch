@@ -17,5 +17,5 @@ export function loadFeatures(fetchFeatures) {
 }
 export function resetFeatures() { cached = null; inflight = null }
 
-// MyClub Retry releases only the pending bootstrap, retaining successful cache.
+// MyClub expiry releases only the pending bootstrap, retaining successful cache.
 export function releaseFeatureBootstrap() { inflight = null }

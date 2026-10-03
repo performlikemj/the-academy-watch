@@ -76,9 +76,14 @@ for (const bodyHeld of [false, true]) test(`MyClub expiry/retry releases shared 
   await rejection
   assert.equal(peekFeatures(), null)
   abandonMyClubFeatureRead()
-  assert.equal(await APIService.getFeatures(), flags)
   const stale = { club_staff_access: false }
-  old.resolve(bodyHeld ? stale : { ok: true, status: 200, json: async () => stale })
+  if (bodyHeld) {
+    old.resolve(stale)
+    assert.deepEqual(await directoryConsumer, stale)
+    assert.equal(peekFeatures(), null)
+  }
+  assert.equal(await APIService.getFeatures(), flags)
+  if (!bodyHeld) old.resolve({ ok: true, status: 200, json: async () => stale })
   assert.deepEqual(await directoryConsumer, stale)
   await drain()
   assert.equal(peekFeatures(), flags)

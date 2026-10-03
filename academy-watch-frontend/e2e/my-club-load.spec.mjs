@@ -543,6 +543,24 @@ test('sequential cold-start entry reads each get their own local deadline', asyn
   for (const source of ['staff', 'eligibility']) expect(state.calls.filter(p => p === endpoints[source])).toHaveLength(1)
 })
 
+test('expired features answering before Retry cannot cache an empty-club answer', async ({ page }) => {
+  const state = await mock(page, { role: 'staff-only' })
+  const hold = barrier()
+  state.hold = { endpoint: endpoints.features, ...hold, json: { club_staff_access: false } }
+  await page.clock.install()
+  await page.goto('/my-club?program=7&view=matches')
+  await expect.poll(() => state.calls.includes(endpoints.features)).toBe(true)
+  await page.clock.fastForward(60001)
+  await expect(page.getByText("We couldn't load your club. Try again.")).toBeVisible()
+  state.hold = null
+  hold.release()
+  await page.waitForTimeout(250)
+  await expect(page.getByText("We couldn't load your club. Try again.")).toBeVisible()
+  await page.getByRole('button', { name: 'Retry', exact: true }).click()
+  await expectConsole(page)
+  expect(state.calls.filter(p => p === endpoints.features)).toHaveLength(2)
+})
+
 for (const width of [390, 1440]) test(`granted console with additive error evidence${width}px`, async ({ page }) => {
   await page.setViewportSize({ width, height: 900 })
   const state = await mock(page)
