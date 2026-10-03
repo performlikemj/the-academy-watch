@@ -9,11 +9,14 @@ of the loader is the master's own shading, resampled once (Lanczos) to 3x of 144
 Layers (written into src/lib/academy-watch-logo.js as WebP data URIs):
   art   - the mark itself, greyscale + alpha: white embossed boot and wing, dark lace
           slots and seams, and the thin dark outline the icon draws around every shape
-  boot  - alpha mask of the boot (not the wing); painted with the dark detail colour
+  boot  - alpha mask of the boot (not the wing); painted ink, so the icon's dark lace
+          slots and seams stay dark in every phase
   shade - the boot's own light-to-dark range as alpha; painted with the club colour
   light - the boot's embossed highlights as alpha; painted white, never animated
+  trim  - the boot's outer keyline only (never a lace slot or seam); painted with the
+          phase's trim colour (gold for black-gold, transparent otherwise)
 Stacked, the boot becomes the icon recoloured: club colour where the icon is white,
-lighter on its highlights, darker on its bevels, the detail colour on the lace slots.
+lighter on its highlights, darker on its bevels, ink on the lace slots and seams.
 
 The wing / boot split uses the master's own regions: the wing is the two bright pieces
 (curled arm + feathers) that the artwork's dark seam already separates from the boot, so
@@ -42,6 +45,7 @@ BRIGHT = 128  # the white boot / wing pieces in the master
 SHAPE = 60  # their anti-aliased edges, above the #1A1A1A background
 LINE_CLOSE = 4  # output px: the thin dark outline the icon draws around every shape
 SLOT_CLOSE = 9  # output px: closes lace slots/seams (<18 px), not the stud gaps (~26 px)
+TRIM_WIDTH = LINE_CLOSE + 1  # output px: the outer keyline band of the boot
 # Boot luminance -> colour ramp: slots/seams 0, bevel ~0.8, body 1; highlights above it.
 SHADE_DARK, SHADE_LIGHT = 25, 236
 HIGHLIGHT_FROM, HIGHLIGHT_ALPHA = 236, 0.32
@@ -138,6 +142,10 @@ def build():
     boot_alpha = soft(boot)
     shade = np.clip((grey - SHADE_DARK) / (SHADE_LIGHT - SHADE_DARK), 0, 1) * boot_alpha
     light = np.clip((grey - HIGHLIGHT_FROM) / (255 - HIGHLIGHT_FROM), 0, 1) * HIGHLIGHT_ALPHA * boot_alpha
+    # Outer keyline: the dark band between the boot's shapes and the outside. Lace slots
+    # and seams are filled into the mark, so they are never within reach of the outside.
+    trim = boot & ~erode(mark, TRIM_WIDTH) & ~shapes
+    interior = erode(mark, TRIM_WIDTH + 3)
 
     def layer(alpha, values=None):
         values = np.full_like(alpha, 255) if values is None else values
@@ -149,6 +157,7 @@ def build():
         'boot': layer(boot_alpha).resize((size[0] // 2, size[1] // 2), Image.LANCZOS),
         'shade': layer(shade),
         'light': layer(light),
+        'trim': layer(soft(trim)),
     }
 
     # Probe points for tests, as fractions of the logo box: well inside the white wing,
@@ -162,7 +171,8 @@ def build():
     samples = {
         'wing': probes((owner == 1) & (grey > 245)),
         'body': probes(boot & (grey > 240)),
-        'detail': probes(boot & (grey < 40), inset=2),
+        'slots': probes(boot & interior & (grey < 40), inset=2),
+        'trim': probes(trim & (grey < 40), count=8, inset=1),
     }
     return layers, size, samples
 
@@ -172,6 +182,7 @@ ENCODING = {
     'boot': {'lossless': True},
     'shade': {'quality': 90, 'alpha_quality': 90},
     'light': {'quality': 90, 'alpha_quality': 80},
+    'trim': {'lossless': True},
 }
 
 

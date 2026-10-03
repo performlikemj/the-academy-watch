@@ -2,14 +2,16 @@
 import { test, expect } from '@playwright/test'
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import { CLEAT_CSS, CLEAT_MARK, CLUB_PALETTE, LOADER_WIDTH, LOADER_HEIGHT } from '../src/lib/cleat-loader.js'
+import { CLEAT_MARK, CLUB_PALETTE, INK } from '../src/lib/cleat-loader.js'
+import { CLEAT_CSS, LOADER_WIDTH, LOADER_HEIGHT } from '../src/lib/cleat-splash.js'
 import { LOGO_SAMPLES } from '../src/lib/academy-watch-logo.js'
 
 const output = process.env.N7_SCREENSHOTS
 const SURFACES = { chalk: '#F3F0E8', night: '#0B0E0D', navy: '#1F3E73' }
 const ICON = new URL('../../academy-watch-ios/AcademyWatch/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png', import.meta.url)
 const hex = value => [1, 3, 5].map(i => parseInt(value.slice(i, i + 2), 16))
-const rgb = value => `rgb(${hex(value).join(', ')})`
+// Fully transparent colours serialise with or without their channels; alpha 0 is what matters.
+const rgb = value => value.startsWith('rgba') ? /^rgba\(\d+, \d+, \d+, 0\)$/ : `rgb(${hex(value).join(', ')})`
 
 async function save(page, name, options = {}) {
   if (!output) return
@@ -17,7 +19,7 @@ async function save(page, name, options = {}) {
   await page.screenshot({ path: path.join(output, `${name}.png`), ...options })
 }
 async function pauseAt(page, time) {
-  await page.locator('.cleat-boot,.cleat-shade').evaluateAll((elements, time) => {
+  await page.locator('.cleat-shade,.cleat-trim').evaluateAll((elements, time) => {
     for (const el of elements) for (const animation of el.getAnimations()) { animation.pause(); animation.currentTime = time }
   }, time)
 }
@@ -59,7 +61,12 @@ async function mountLoader(page, background, surface) {
 }
 
 // Every phase: wing pixels stay the icon's white, the boot body takes the club colour,
-// the lace slots stay dark (gold on black), and the art keeps its shading (not a flat fill).
+// the icon's lace slots/seams stay dark ink, the outer keyline takes the trim colour
+// (gold only for black-gold), and the art keeps its shading (not a flat fill).
+async function assertDarkSlots(page, label) {
+  const { values: slots } = await probe(page, LOGO_SAMPLES.slots)
+  expect(slots.filter(pixel => near(pixel, hex(INK), 40)).length, `${label} lace slots ${JSON.stringify(slots)}`).toBeGreaterThanOrEqual(10)
+}
 async function assertPhases(page) {
   for (const [index, colour] of CLUB_PALETTE.entries()) {
     for (const time of [index * 1200, index * 1200 + 1100]) {
@@ -69,11 +76,15 @@ async function assertPhases(page) {
     }
     await pauseAt(page, index * 1200)
     await expect(page.locator('.cleat-shade')).toHaveCSS('background-color', rgb(colour.body))
-    await expect(page.locator('.cleat-boot')).toHaveCSS('background-color', rgb(colour.detail))
+    await expect(page.locator('.cleat-boot')).toHaveCSS('background-color', rgb(INK))
+    await expect(page.locator('.cleat-trim')).toHaveCSS('background-color', rgb(colour.trim))
     const body = await probe(page, LOGO_SAMPLES.body)
     expect(body.values.filter(pixel => lit(pixel, hex(colour.body), 18)).length, `${colour.name} body ${JSON.stringify(body.values)}`).toBeGreaterThanOrEqual(10)
-    const { values: detail } = await probe(page, LOGO_SAMPLES.detail)
-    expect(detail.filter(pixel => near(pixel, hex(colour.detail), 60)).length, `${colour.name} laces ${JSON.stringify(detail)}`).toBeGreaterThanOrEqual(8)
+    await assertDarkSlots(page, colour.name)
+    const { values: trim } = await probe(page, LOGO_SAMPLES.trim)
+    const gold = trim.filter(pixel => near(pixel, hex('#CFAE62'), 60)).length
+    if (colour.trim !== '#CFAE62') expect(gold, `${colour.name} keyline ${JSON.stringify(trim)}`).toBe(0)
+    else expect(gold, `${colour.name} keyline ${JSON.stringify(trim)}`).toBeGreaterThanOrEqual(5)
     expect(body.unique, 'real shaded artwork, not a flat fill').toBeGreaterThan(400)
   }
 }
@@ -81,10 +92,44 @@ async function assertPhases(page) {
 test.describe('loader logo', () => {
   test('markup and CSS: real artwork layers, request-free, wing never animated', () => {
     expect(CLEAT_MARK).toContain('data-brand-logo="academy-watch-winged-boot"')
-    for (const part of ['art', 'boot', 'shade', 'light']) expect(CLEAT_MARK).toContain(`data-brand-part="${part}"`)
+    for (const part of ['art', 'boot', 'shade', 'light', 'trim']) expect(CLEAT_MARK).toContain(`data-brand-part="${part}"`)
     expect(CLEAT_MARK).not.toMatch(/<svg|<path|<img|href=|src=/)
     expect([...CLEAT_CSS.matchAll(/url\(([^)]*)\)/g)].every(([, url]) => url.startsWith('data:image/webp;base64,'))).toBe(true)
-    expect(CLEAT_CSS).not.toMatch(/\.cleat-art\{[^}]*animation/)
+    expect(CLEAT_CSS).not.toMatch(/\.cleat-(art|boot|light)\{[^}]*animation/)
+  })
+
+  for (const scale of [1, 2, 3]) {
+    test.describe(`at ${scale}x`, () => {
+      test.use({ deviceScaleFactor: scale })
+      test(`lace slots stay dark in all six phases at ${scale}x`, async ({ page }) => {
+        await mountLoader(page, SURFACES.chalk)
+        for (const [index, colour] of CLUB_PALETTE.entries()) {
+          for (const time of [index * 1200, index * 1200 + 1100]) {
+            await pauseAt(page, time)
+            await assertDarkSlots(page, `${colour.name} @${time}ms ${scale}x`)
+          }
+        }
+      })
+    })
+  }
+
+  test('React loaders reuse the splash stylesheet: one copy of the artwork in the page', async ({ page }) => {
+    await mountLoader(page, SURFACES.chalk)
+    const sheets = await page.evaluate(() => [...document.querySelectorAll('style')].filter(el => el.textContent.includes('.cleat-mark{')).length)
+    expect(sheets).toBe(1)
+  })
+
+  for (const [name, background] of [['oklch', 'oklch(0.33 0.09 262)'], ['color-mix', 'color-mix(in oklab, #1F3E73 90%, transparent)'], ['rgb', '#1F3E73']]) {
+    test(`dark ${name} panels are detected as night`, async ({ page }) => {
+      await mountLoader(page, background)
+      await expect(page.locator('main .cleat-loader')).toHaveAttribute('data-surface', 'night')
+      await expect(page.locator('.cleat-mark')).toHaveCSS('filter', /drop-shadow/)
+    })
+  }
+
+  test('a gradient panel is not guessed from the page behind it', async ({ page }) => {
+    await mountLoader(page, 'linear-gradient(#1F3E73, #13294B)')
+    await expect(page.locator('main .cleat-loader')).not.toHaveAttribute('data-surface', /./)
   })
 
   for (const width of [1440, 390]) for (const [surfaceName, background] of Object.entries(SURFACES)) {
@@ -168,7 +213,7 @@ test.describe('loader proof', () => {
 
   async function sheet(page, scale) {
     const icon = `data:image/png;base64,${(await fs.readFile(ICON)).toString('base64')}`
-    const frozen = index => CLEAT_MARK.replace(/class="cleat-(boot|shade)"/g, `$& style="animation-delay:-${index * 1200}ms;animation-play-state:paused"`)
+    const frozen = index => CLEAT_MARK.replace(/class="cleat-(shade|trim)"/g, `$& style="animation-delay:-${index * 1200}ms;animation-play-state:paused"`)
     const cells = CLUB_PALETTE.map((colour, index) => `<figure><div class="cleat-loader" data-surface="SURFACE" style="min-height:0">${frozen(index)}</div><figcaption>${colour.name}</figcaption></figure>`).join('')
     const rows = Object.entries(SURFACES).map(([name, background]) => `<section style="background:${background};color:${name === 'chalk' ? '#0E1311' : '#F3F0E8'}"><h2>${name === 'navy' ? 'navy club console' : name}</h2><figure><img src="${icon}" width="144" height="144" alt=""><figcaption>app icon</figcaption></figure>${cells.replaceAll('SURFACE', name === 'chalk' ? 'chalk' : 'night')}</section>`).join('')
     await page.setViewportSize({ width: 1400, height: 700 })
@@ -192,7 +237,7 @@ test.describe('loader proof', () => {
       const iconSize = Math.round(LOADER_WIDTH * 304 / 253 * 1.6)
       const loaderStyle = `transform:scale(1.6);transform-origin:center;margin:${LOADER_HEIGHT * 0.3}px ${LOADER_WIDTH * 0.3}px`
       await page.setViewportSize({ width: 880, height: 420 })
-      await page.setContent(`<style>${CLEAT_CSS}body{margin:0;background:#9A9A9A;font:15px 'Helvetica Neue',sans-serif;color:#111}main{display:flex;gap:48px;align-items:center;justify-content:center;height:420px}figure{margin:0;display:flex;flex-direction:column;align-items:center;gap:14px}.cleat-loader{min-height:0;width:auto}.cleat-boot,.cleat-shade{animation-play-state:paused!important;animation-delay:0s!important}</style><main><figure><img src="${icon}" width="${iconSize}" height="${iconSize}" alt=""><figcaption>App icon</figcaption></figure><figure><div class="cleat-loader" data-surface="chalk" style="${loaderStyle}">${CLEAT_MARK}</div><figcaption>Web loader — green phase</figcaption></figure></main>`)
+      await page.setContent(`<style>${CLEAT_CSS}body{margin:0;background:#9A9A9A;font:15px 'Helvetica Neue',sans-serif;color:#111}main{display:flex;gap:48px;align-items:center;justify-content:center;height:420px}figure{margin:0;display:flex;flex-direction:column;align-items:center;gap:14px}.cleat-loader{min-height:0;width:auto}.cleat-shade,.cleat-trim{animation-play-state:paused!important;animation-delay:0s!important}</style><main><figure><img src="${icon}" width="${iconSize}" height="${iconSize}" alt=""><figcaption>App icon</figcaption></figure><figure><div class="cleat-loader" data-surface="chalk" style="${loaderStyle}">${CLEAT_MARK}</div><figcaption>Web loader — green phase</figcaption></figure></main>`)
       await page.screenshot({ path: path.join(output, 'side-by-side-icon-vs-loader-green.png') })
     })
   })

@@ -69,20 +69,20 @@ for (const width of [1440, 390]) {
       await page.setViewportSize({ width, height: width === 390 ? 844 : 900 })
       await mountLoader(page, surface)
       await expect(page.getByRole('status', { name: 'Loading', exact: true })).toBeVisible()
-      await expect(page.locator('.cleat-loader svg')).toHaveAttribute('data-brand-logo', 'academy-watch-winged-boot')
-      const frames = await page.locator('.cleat-body').evaluate(element => {
+      await expect(page.locator('.cleat-loader .cleat-mark')).toHaveAttribute('data-brand-logo', 'academy-watch-winged-boot')
+      const frames = await page.locator('.cleat-shade').evaluate(element => {
         const animation = element.getAnimations()[0]
         animation.pause()
         return [0, 1200, 2400, 3600, 4800, 6000, 7200].map(time => {
           animation.currentTime = time
-          return { fill: getComputedStyle(element).fill, opacity: getComputedStyle(element).fillOpacity }
+          return { fill: getComputedStyle(element).backgroundColor, opacity: getComputedStyle(element).opacity }
         })
       })
       expect(frames.map(frame => frame.fill)).toEqual(['rgb(15, 61, 46)', 'rgb(122, 20, 38)', 'rgb(31, 62, 115)', 'rgb(11, 14, 13)', 'rgb(227, 93, 24)', 'rgb(108, 172, 228)', 'rgb(15, 61, 46)'])
       expect(frames.every(frame => frame.opacity === '1')).toBe(true)
-      const transition = await page.locator('.cleat-body').evaluate(element => {
+      const transition = await page.locator('.cleat-shade').evaluate(element => {
         const animation = element.getAnimations()[0]
-        return [1000, 1100, 1200].map(time => { animation.currentTime = time; return getComputedStyle(element).fill })
+        return [1000, 1100, 1200].map(time => { animation.currentTime = time; return getComputedStyle(element).backgroundColor })
       })
       expect(transition[0]).toBe(frames[0].fill)
       expect(transition[2]).toBe(frames[1].fill)
@@ -90,14 +90,18 @@ for (const width of [1440, 390]) {
       expect(transition[1]).not.toBe(transition[2])
       const phases = ['green', 'claret', 'navy', 'black-gold', 'orange', 'sky']
       for (const [index, phase] of phases.entries()) {
-        await page.locator('.cleat-body,.cleat-accent').evaluateAll((elements, time) => {
+        await page.locator('.cleat-shade,.cleat-trim').evaluateAll((elements, time) => {
           for (const element of elements) { const animation = element.getAnimations()[0]; animation.pause(); animation.currentTime = time }
         }, index * 1200)
-        await expect(page.locator('.cleat-accent')).toHaveCSS('fill', index === 3 ? 'rgb(207, 174, 98)' : frames[index].fill)
-        await expect(page.locator('.cleat-wing')).toHaveCSS('fill', 'rgb(255, 255, 255)')
+        await expect(page.locator('.cleat-shade')).toHaveCSS('background-color', frames[index].fill)
+        // Gold only on the black-gold keyline; the lace slots (boot layer) stay ink throughout.
+        await expect(page.locator('.cleat-trim')).toHaveCSS('background-color', index === 3 ? 'rgb(207, 174, 98)' : /^rgba\(\d+, \d+, \d+, 0\)$/)
+        await expect(page.locator('.cleat-boot')).toHaveCSS('background-color', 'rgb(14, 19, 17)')
+        // The wing is the art layer: never animated, never recoloured.
+        expect(await page.locator('.cleat-art').evaluate(element => element.getAnimations().length)).toBe(0)
         await screenshot(page, `loader-${surface}-${size}-phase-${phase}`)
       }
-      await page.locator('.cleat-body,.cleat-accent').evaluateAll(elements => {
+      await page.locator('.cleat-shade,.cleat-trim').evaluateAll(elements => {
         for (const element of elements) element.getAnimations()[0].currentTime = 0
       })
       await screenshot(page, `loader-${surface}-${size}`)
@@ -138,12 +142,13 @@ test('reduced motion keeps both React and boot loaders still green', async ({ pa
   await page.route('**/src/main.jsx*', route => route.abort())
   await page.goto('/')
   await expect(page.getByRole('status', { name: 'Loading' })).toBeVisible()
-  expect(await page.locator('.cleat-body').evaluate(element => ({ fill: getComputedStyle(element).fill, opacity: getComputedStyle(element).fillOpacity, animations: element.getAnimations().length }))).toEqual({ fill: 'rgb(15, 61, 46)', opacity: '1', animations: 0 })
-  expect(await page.locator('.cleat-body,.cleat-accent').evaluateAll(elements => elements.every(element => element.getAnimations().length === 0))).toBe(true)
+  expect(await page.locator('.cleat-shade').evaluate(element => ({ fill: getComputedStyle(element).backgroundColor, opacity: getComputedStyle(element).opacity, animations: element.getAnimations().length }))).toEqual({ fill: 'rgb(15, 61, 46)', opacity: '1', animations: 0 })
+  expect(await page.locator('.cleat-mark span').evaluateAll(elements => elements.every(element => element.getAnimations().length === 0))).toBe(true)
   await page.unroute('**/src/main.jsx*')
   await mountLoader(page, 'night')
-  expect(await page.locator('.cleat-accent').evaluate(element => ({ fill: getComputedStyle(element).fill, animations: element.getAnimations().length }))).toEqual({ fill: 'rgb(15, 61, 46)', animations: 0 })
-  await expect(page.locator('.cleat-wing')).toHaveCSS('fill', 'rgb(255, 255, 255)')
+  expect(await page.locator('.cleat-shade').evaluate(element => ({ fill: getComputedStyle(element).backgroundColor, animations: element.getAnimations().length }))).toEqual({ fill: 'rgb(15, 61, 46)', animations: 0 })
+  expect(await page.locator('.cleat-mark span').evaluateAll(elements => elements.every(element => element.getAnimations().length === 0))).toBe(true)
+  await expect(page.locator('.cleat-trim')).toHaveCSS('background-color', /^rgba\(\d+, \d+, \d+, 0\)$/)
 })
 
 test('club saved zone wins over browser; editing retains the post zone', async ({ page }) => {
@@ -191,7 +196,8 @@ test('real club route uses the shared loader while waiting for clubs', async ({ 
     return route.fulfill({ json: {} })
   })
   await page.goto('/my-club')
-  await expect(page.locator('.cleat-loader svg')).toBeVisible()
+  await expect(page.locator('.cleat-loader .cleat-mark')).toBeVisible()
+  await expect(page.locator('.cleat-loader .cleat-mark')).toHaveCSS('width', '144px')
 })
 
 for (const failure of ['zone', 'shortOffset']) {

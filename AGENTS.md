@@ -110,9 +110,9 @@ Log one-liner in CONTINUITY.md's "Trivial Log" section.
 
 ## Codebase Patterns
 
-- The web loader's logo is the real app-icon artwork, never a trace or redraw: `academy-watch-frontend/scripts/build-loader-logo.py` builds the WebP layers in `src/lib/academy-watch-logo.js` from the brand master `public/assets/loan_army_assets/favicon-512x512.png` (the source of iOS AppIcon-1024/LaunchBoot; no vector master exists). Only the boot is recoloured, along the icon's own shading (lace slots stay dark, highlights stay light); the wing keeps its original white pixels and never moves. Dark surfaces (night, `.dark`, or any dark painted ancestor, e.g. a navy club console) get a light rim. Judge changes side by side with AppIcon-1024, not by shape alone.
+- The web loader's logo is the real app-icon artwork, never a trace or redraw: `academy-watch-frontend/scripts/build-loader-logo.py` builds the WebP layers in `src/lib/academy-watch-logo.js` from the brand master `public/assets/loan_army_assets/favicon-512x512.png` (the source of iOS AppIcon-1024/LaunchBoot; no vector master exists). Only the boot is recoloured, along the icon's own shading (lace slots and seams stay ink in every phase, highlights stay light; black-gold puts gold only on the outer keyline); the wing keeps its original white pixels and never moves. Dark surfaces (night, `.dark`, or any dark painted ancestor, e.g. a navy club console) get a light rim. Judge changes side by side with AppIcon-1024, not by shape alone.
 
-- Web loader primitives live in `academy-watch-frontend/src/lib/cleat-loader.js`; after edits run `node academy-watch-frontend/scripts/sync-cleat-splash.mjs` to refresh the request-free inline boot snapshot. The Node parity test protects both copies.
+- Web loader primitives: runtime markup/palette/surface detection in `academy-watch-frontend/src/lib/cleat-loader.js`; the CSS carrying the inline artwork in `src/lib/cleat-splash.js`, which app code must never import — it ships once, in index.html's splash `<style>` (outside `#root`, so it serves every React loader). After edits run `node academy-watch-frontend/scripts/sync-cleat-splash.mjs`. The Node test protects the parity and the no-import rule.
 
 > Agents: Add patterns here when you discover reusable conventions.
 
