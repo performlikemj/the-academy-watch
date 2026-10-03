@@ -14,7 +14,7 @@
   "Features/PlayerDetail/PlayerTakedownRequestView.swift": 1,
   "Features/PlayerDetail/PlayerFanSection.swift": 1,
   "Features/PlayerDetail/AddGameSheet.swift": 1,
-  "Features/PlayerDetail/PlayerDetailView.swift": 6,
+  "Features/PlayerDetail/PlayerDetailView.swift": 5,
   "Features/Lists/AddPlayerToListButton.swift": 2,
   "Features/Lists/ListsView.swift": 3,
   "Features/Auth/SignInView.swift": 1,
