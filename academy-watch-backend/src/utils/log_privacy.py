@@ -18,6 +18,10 @@ _FORMAT_WIDTH = re.compile(r"%(?:\([^)%]*\))?[-+ #0]*(\d+|\*)(?:\.(\d+|\*))?")
 _DELIMITERS = frozenset("@<>\"',;:=()[]{}/?\\\x00")
 
 
+class _LogException(Exception):
+    """Safe logging-only exception snapshot, with no application object/traceback."""
+
+
 class _MaskedEmail(str):
     """Provenance from our helper, never inferred from user-controlled spelling."""
 
@@ -68,7 +72,8 @@ def _scan_text(value):
             while start > floor and not value[start - 1].isspace() and value[start - 1] not in _DELIMITERS:
                 start -= 1
         # Avoid @handles, asset scale suffixes and numeric package versions.
-        host = "." in domain and domain.rsplit(".", 1)[-1].isalpha()
+        label = domain.rsplit(".", 1)[-1]
+        host = "." in domain and (label.isalpha() or label.startswith("xn--"))
         scale = domain.split(".", 1)[0]
         asset_scale = start > 0 and value[start - 1] == "/" and scale.endswith("x") and scale[:-1].isdigit()
         chained_at = end < len(value) and value[end] == "@"
@@ -196,7 +201,9 @@ class _Budget:
             tb = tb.tb_next
         if tb is not None:
             parts.append(_OMITTED)
-        parts.append(str(self.field(exc)))
+        name = type(exc).__name__
+        name = _scan_text(name) if len(name) <= 128 else "Exception"
+        parts.append(f"{name}: {self.field(exc.args)}")
         return "\n".join(parts)
 
 
@@ -232,8 +239,16 @@ class EmailLogFilter(logging.Filter):
                 message = f"{_FAILURE} template={budget.text(template)}"
             record.msg, record.args = message, ()
             if record.exc_info:
+                original_type = record.exc_info[0]
                 record.exc_text = budget.exception(record.exc_info[1], record.exc_info[2])
-                record.exc_info = None
+                # Preserve safe type metadata, without retaining raw error args,
+                # traceback frames or application objects on the LogRecord.
+                header = (
+                    original_type
+                    if original_type.__module__ == "builtins" and "@" not in original_type.__name__
+                    else _LogException
+                )
+                record.exc_info = (header, _LogException(record.exc_text), None)
             elif record.exc_text:
                 record.exc_text = budget.text(record.exc_text)
             safe = {}
@@ -252,6 +267,8 @@ class EmailLogFilter(logging.Filter):
                 exc_type = type(record.exc_info[1]).__name__ if record.exc_info else ""
             except Exception:
                 exc_type = "Exception"
+            if "@" in exc_type or "%" in exc_type or len(exc_type) > 128:
+                exc_type = "Exception"
             original = vars(record)
             level = original.get("levelno", logging.ERROR)
             level = level if type(level) is int else logging.ERROR
@@ -268,7 +285,7 @@ class EmailLogFilter(logging.Filter):
                 exc_info=None,
                 exc_text=f"{exc_type}: {_FAILURE}" if exc_type else None,
                 levelno=level,
-                levelname=logging.getLevelName(level),
+                levelname={50: "CRITICAL", 40: "ERROR", 30: "WARNING", 20: "INFO", 10: "DEBUG"}.get(level, "LOG"),
                 _email_privacy_done=_DONE,
             )
             record.__dict__ = safe

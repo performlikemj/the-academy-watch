@@ -486,3 +486,28 @@ def test_embedded_adjacent_addresses_cannot_survive_in_a_domain(text):
     item = record(text)
     EmailLogFilter().filter(item)
     assert "john@example.com" not in item.getMessage()
+
+
+def test_error_metadata_retained_without_raw_exception_objects(caplog):
+    logger = get_logger("privacy.error_metadata")
+    try:
+        raise RuntimeError(f"provider {EMAIL}")
+    except RuntimeError as error:
+        logger.exception("operation failed")
+        item = caplog.records[-1]
+        assert item.exc_info[0] is RuntimeError
+        assert item.exc_info[1] is not error
+        assert item.exc_info[2] is None
+        assert EMAIL not in str(item.exc_info[1])
+        assert "line " in item.exc_text
+        # Even a formatter which ignores cached exception text remains safe.
+        item.exc_text = None
+        assert EMAIL not in logging.Formatter().format(item)
+
+
+def test_unicode_punycode_domain_address():
+    address = "éloïse@example.xn--p1ai"
+    item = record(address)
+    EmailLogFilter().filter(item)
+    assert address not in item.getMessage()
+    assert mask_email(address) in item.getMessage()

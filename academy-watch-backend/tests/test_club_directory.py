@@ -1265,7 +1265,7 @@ def test_flag_off_an_oversized_search_is_still_answered_as_an_unrouted_path(app,
 
 
 def test_a_visitor_search_never_reaches_the_access_log(app, client, on):
-    """RB1-1: replay the real request through gunicorn's own access-log formatter (deployment default format)."""
+    """RB1-1: replay the real request through the deployed Gunicorn access-log format."""
     glogging = pytest.importorskip("gunicorn.glogging")
     from gunicorn.config import Config as GunicornConfig
 
@@ -1285,17 +1285,19 @@ def test_a_visitor_search_never_reaches_the_access_log(app, client, on):
     assert found.status_code == 200 and found.get_json()["total"] == 1
 
     environ = dict(seen[-1])
-    # Gunicorn logs the request line from RAW_URI: the path plus the query string, never the body.
+    # Replay original URI/body evidence against the deployed query-free access format.
     environ["RAW_URI"] = environ["PATH_INFO"] + (f"?{environ['QUERY_STRING']}" if environ["QUERY_STRING"] else "")
     config = GunicornConfig()
     config.set("accesslog", "-")
     dockerfile = Path(__file__).resolve().parent.parent.joinpath("Dockerfile").read_text()
-    assert '"--access-logfile", "-"' in dockerfile and "access-logformat" not in dockerfile
+    command = json.loads(next(line[4:] for line in dockerfile.splitlines() if line.startswith("CMD ")))
+    assert command[command.index("--access-logfile") + 1] == "-"
+    config.set("access_log_format", command[command.index("--access-logformat") + 1])
     atoms = glogging.Logger(config).atoms(
         SimpleNamespace(status="200 OK", sent=len(found.data), headers=list(found.headers)), [], environ, timedelta()
     )
     line = config.access_log_format % atoms
-    assert f'"POST {SEARCH_URL} HTTP/1.1" 200' in line
+    assert f"POST {SEARCH_URL} HTTP/1.1 200" in line
     for private in ("50.79", "-1.06", "lat", "lng", "radius", "HC1", "2AB"):
         assert private not in line, line
 

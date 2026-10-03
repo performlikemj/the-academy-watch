@@ -16,3 +16,5 @@
 - LOGPIIF1 targeted204 PASS + actual startup/force-basicConfig PASS; real auth/Mailgun/SMTP variants, emitted Gunicorn/SQLAlchemy/private/late output, CLI stderr, admin colliding masks, curator string team ID, bounded scan and failure controls. Current main fetched8696a4de; merging before final gates.
 
 - Main8696a4de integrated; sole continuity conflict retains both histories. Final-head lane tests/four governed cached gates, pushed SHA and CI are recorded in external LOGPIIF1.final.md; no migration/frontend/screenshot work in this logging fix round.
+
+- Head70c8ea9d full backend5600 PASS/1756 SKIP/2 FAIL: default-Gunicorn-format assumption and RuntimeError metadata contract. Corrected test to deployed format and retained safe exc_info type snapshot without raw exception/traceback objects. New final-head cached gates required.
