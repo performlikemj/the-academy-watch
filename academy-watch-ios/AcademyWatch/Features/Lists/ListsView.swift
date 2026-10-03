@@ -113,8 +113,7 @@ struct ListsView: View {
         if !authManager.isAuthenticated {
             signedOutState
         } else if viewModel.isLoading, viewModel.lists.isEmpty {
-            ProgressView("Loading your lists…")
-                .tint(AcademyColors.claret)
+            WingLiftLoadingView("Loading your lists…")
         } else if let message = viewModel.errorMessage, viewModel.lists.isEmpty {
             errorState(message: message)
         } else if viewModel.lists.isEmpty {
@@ -127,22 +126,22 @@ struct ListsView: View {
     private var signedOutState: some View {
         VStack(spacing: 16) {
             Image(systemName: "list.bullet.rectangle.portrait.fill")
-                .font(.system(size: 58))
-                .foregroundStyle(AcademyColors.claret)
+                .font(AcademyType.ui( 58))
+                .foregroundStyle(AcademyColors.accent)
                 .accessibilityHidden(true)
 
             VStack(spacing: 7) {
                 Text("Sign in to organize your scouting")
-                    .font(.title3.weight(.bold))
+                    .font(AcademyType.title3)
                 Text("Group players into named lists and keep each live shortlist in one place.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .font(AcademyType.subheadline)
+                    .foregroundStyle(AcademyColors.secondaryText)
                     .multilineTextAlignment(.center)
             }
 
             Button("Sign In", action: onSignInRequested)
-                .buttonStyle(.borderedProminent)
-                .tint(AcademyColors.claretFill)
+                .buttonStyle(FloodlightPillStyle())
+                .tint(AcademyColors.primaryFill)
                 .controlSize(.large)
         }
         .padding(28)
@@ -150,23 +149,20 @@ struct ListsView: View {
     }
 
     private var emptyState: some View {
-        ContentUnavailableView {
-            Label("No lists yet", systemImage: "list.bullet.rectangle")
-        } description: {
-            Text("Create a list, then add a tracked player or search worldwide.")
-        } actions: {
+        VStack(spacing: 14) {
+            FloodlightEmptyState(title: "No lists yet", systemImage: "list.bullet.rectangle", description: "Create a list, then add a tracked player or search worldwide.")
             Button("Create List") {
                 newListName = ""
                 isCreatingList = true
             }
             .accessibilityIdentifier("lists-create")
-            .buttonStyle(.borderedProminent)
-            .tint(AcademyColors.claretFill)
+            .buttonStyle(FloodlightPillStyle())
+            .tint(AcademyColors.primaryFill)
 
             Button("Search worldwide") {
                 isWorldwideSearchPresented = true
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(FloodlightPillStyle(variant: .outline))
         }
         .padding(24)
     }
@@ -174,14 +170,16 @@ struct ListsView: View {
     private func errorState(message: String) -> some View {
         ContentUnavailableView {
             Label("Lists unavailable", systemImage: "wifi.exclamationmark")
+                .font(AcademyType.title2)
+                .foregroundStyle(AcademyColors.text)
         } description: {
             Text(message)
         } actions: {
             Button("Try Again") {
                 Task { await viewModel.loadLists() }
             }
-            .buttonStyle(.borderedProminent)
-            .tint(AcademyColors.claretFill)
+            .buttonStyle(FloodlightPillStyle())
+            .tint(AcademyColors.primaryFill)
         }
         .padding(24)
     }
@@ -191,9 +189,9 @@ struct ListsView: View {
             if let message = viewModel.errorMessage {
                 Section {
                     Label(message, systemImage: "exclamationmark.triangle.fill")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
+                        .font(AcademyType.footnote)
+                        .foregroundStyle(AcademyColors.secondaryText)
+                }.listRowBackground(AcademyColors.background)
             }
 
             ForEach(viewModel.lists) { list in
@@ -215,7 +213,7 @@ struct ListsView: View {
                 }
             }
         }
-        .listStyle(.insetGrouped)
+        .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .refreshable {
             await viewModel.loadLists()
@@ -229,14 +227,14 @@ private struct FollowListRow: View {
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: list.isDefault ? "star.square.fill" : "list.bullet.rectangle.fill")
-                .font(.title2)
-                .foregroundStyle(AcademyColors.claret)
+                .font(AcademyType.title2)
+                .foregroundStyle(AcademyColors.accent)
                 .frame(width: 32)
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 7) {
                     Text(list.name)
-                        .font(.headline)
+                        .font(AcademyType.headline)
                         .lineLimit(1)
                     if list.isDefault {
                         BadgeView(text: "Default")
@@ -244,14 +242,14 @@ private struct FollowListRow: View {
                     if !list.isActive {
                         BadgeView(
                             text: "Paused",
-                            foregroundColor: .secondary,
-                            backgroundColor: Color(uiColor: .tertiarySystemFill)
+                            foregroundColor: AcademyColors.secondaryText,
+                            backgroundColor: AcademyColors.elevatedSurface
                         )
                     }
                 }
                 Text("\(list.followCount) \(list.followCount == 1 ? "follow" : "follows")")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .font(AcademyType.subheadline)
+                    .foregroundStyle(AcademyColors.secondaryText)
             }
         }
         .padding(.vertical, 5)
@@ -260,7 +258,7 @@ private struct FollowListRow: View {
 }
 
 @MainActor
-private struct FollowListDetailView: View {
+struct FollowListDetailView: View {
     let listID: Int
 
     @EnvironmentObject private var listsViewModel: FollowListsViewModel
@@ -280,11 +278,7 @@ private struct FollowListDetailView: View {
             if let list = listsViewModel.list(id: listID) {
                 detailList(list)
             } else {
-                ContentUnavailableView(
-                    "List unavailable",
-                    systemImage: "list.bullet.rectangle",
-                    description: Text("This list may have been removed.")
-                )
+                FloodlightEmptyState(title: "List unavailable", systemImage: "list.bullet.rectangle", description: "This list may have been removed.")
             }
         }
         .navigationTitle(listsViewModel.list(id: listID)?.name ?? "List")
@@ -299,8 +293,8 @@ private struct FollowListDetailView: View {
             Section {
                 if list.follows.isEmpty {
                     Text("Add a player from a player profile. Club, location and saved-filter follows created on the web will also appear here.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .font(AcademyType.subheadline)
+                        .foregroundStyle(AcademyColors.secondaryText)
                 } else {
                     ForEach(list.follows) { follow in
                         followRow(follow, list: list)
@@ -308,14 +302,14 @@ private struct FollowListDetailView: View {
                 }
             } header: {
                 Text("Follows · \(list.followCount)")
-            }
+            }.listRowBackground(AcademyColors.background)
 
             Section {
                 if let message = detailViewModel.errorMessage, detailViewModel.players.isEmpty {
                     VStack(spacing: 10) {
                         Label(message, systemImage: "exclamationmark.triangle.fill")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
+                            .font(AcademyType.footnote)
+                            .foregroundStyle(AcademyColors.secondaryText)
                         Button("Try Again") {
                             Task { await detailViewModel.reload() }
                         }
@@ -325,15 +319,14 @@ private struct FollowListDetailView: View {
                 } else if detailViewModel.players.isEmpty, detailViewModel.isLoading {
                     HStack {
                         Spacer()
-                        ProgressView("Resolving players…")
-                            .tint(AcademyColors.claret)
+                        WingLiftLoadingView("Resolving players…")
                         Spacer()
                     }
                     .padding(.vertical, 18)
                 } else if detailViewModel.players.isEmpty {
                     Text("No players resolve from this list yet.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .font(AcademyType.subheadline)
+                        .foregroundStyle(AcademyColors.secondaryText)
                 } else {
                     ForEach(detailViewModel.players) { player in
                         NavigationLink(value: ListsRoute.player(player.playerApiId)) {
@@ -341,7 +334,7 @@ private struct FollowListDetailView: View {
                         }
                         .buttonStyle(.plain)
                         .listRowInsets(EdgeInsets(top: 7, leading: 16, bottom: 7, trailing: 16))
-                        .listRowSeparator(.hidden)
+                        .listRowSeparator(.visible)
                         .listRowBackground(Color.clear)
                     }
 
@@ -352,7 +345,7 @@ private struct FollowListDetailView: View {
                             HStack {
                                 Spacer()
                                 if detailViewModel.isLoading {
-                                    ProgressView()
+                                    WingLiftLoadingView()
                                         .controlSize(.small)
                                 }
                                 Text(detailViewModel.isLoading ? "Loading…" : "Load more")
@@ -364,9 +357,9 @@ private struct FollowListDetailView: View {
                 }
             } header: {
                 Text("Resolved players · \(detailViewModel.players.count) of \(detailViewModel.total)")
-            }
+            }.listRowBackground(AcademyColors.background)
         }
-        .listStyle(.insetGrouped)
+        .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .refreshable {
             async let lists: Void = listsViewModel.loadLists()
@@ -418,22 +411,22 @@ private struct FollowLabelRow: View {
     var body: some View {
         HStack(spacing: 11) {
             Image(systemName: follow.kind.iconName)
-                .foregroundStyle(AcademyColors.claret)
+                .foregroundStyle(AcademyColors.accent)
                 .frame(width: 22)
             VStack(alignment: .leading, spacing: 2) {
                 Text(follow.label)
-                    .font(.subheadline.weight(.medium))
+                    .font(AcademyType.subheadline.weight(.medium))
                     .lineLimit(2)
                 if let note = follow.note, !note.isEmpty {
                     Text(note)
-                        .font(.caption)
+                        .font(AcademyType.caption)
                         .italic()
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(AcademyColors.secondaryText)
                         .lineLimit(2)
                 } else if follow.kind != .player {
                     Text(follow.kind.label)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(AcademyType.caption)
+                        .foregroundStyle(AcademyColors.secondaryText)
                 }
             }
         }
@@ -449,8 +442,8 @@ private struct ResolvedPlayerCard: View {
             if player.source == "shadow" {
                 BadgeView(
                     text: "WORLDWIDE SHADOW",
-                    foregroundColor: AcademyColors.claret,
-                    backgroundColor: AcademyColors.claretSoft
+                    foregroundColor: AcademyColors.accent,
+                    backgroundColor: AcademyColors.accentSoft
                 )
             }
             PlayerIdentityHeader(
@@ -463,9 +456,9 @@ private struct ResolvedPlayerCard: View {
             )
         }
         .padding(14)
-        .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .stroke(AcademyColors.separator.opacity(0.35), lineWidth: 0.5)
         }
     }

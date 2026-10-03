@@ -184,41 +184,82 @@ struct APIClient: GolAPIClientProtocol, PlayerClubAPIClientProtocol, ScoutAPICli
     CompareAPIClientProtocol,
     Sendable
 {
-    static let productionBaseURL = URL(
-        string: "https://api.theacademywatch.com/api"
-    )!
+    static let productionBaseURL = APIEndpointPolicy.production
 
-    /// Local transport is available only in Debug simulator builds; Release is always production.
-    static var defaultBaseURL: URL {
+    static var offlineFixtureActive: Bool {
         #if DEBUG && targetEnvironment(simulator)
-        if let raw = ProcessInfo.processInfo.environment["ACADEMY_LOCAL_API_URL"],
-           let url = URL(string: raw), url.scheme == "http",
-           ["localhost", "127.0.0.1", "::1"].contains(url.host ?? ""),
-           url.user == nil, url.password == nil, url.query == nil, url.fragment == nil,
-           url.path == "/api" {
-            return url
-        }
+        return Phase2Fixtures.active || FloodlightPreview.isActive || PlayerClubExperienceFixtures.mode != nil
+            || visualFixtureActive()
+        #else
+        return false
         #endif
-        return productionBaseURL
+    }
+
+    /// Standalone evidence roots are visual-only; their clients never reach URLSession.
+    static func visualFixtureActive(arguments: [String] = ProcessInfo.processInfo.arguments) -> Bool {
+        #if DEBUG && targetEnvironment(simulator)
+        return WingLiftLoadingView.fixtureElapsedSeconds(from: arguments) != nil
+            || OnboardingFixtureDestination.fromLaunchArguments(arguments) != nil
+            || FullCircleFixtureDestination.fromLaunchArguments(arguments) != nil
+        #else
+        return false
+        #endif
+    }
+
+    static var defaultBaseURL: URL {
+        (try? APIEndpointPolicy.resolve(
+            override: ProcessInfo.processInfo.environment["ACADEMY_LOCAL_API_URL"],
+            context: .current, offlineFixture: offlineFixtureActive)) ?? APIEndpointPolicy.offline
+    }
+
+    static var developerConfigurationError: String? {
+        do {
+            _ = try APIEndpointPolicy.resolve(
+                override: ProcessInfo.processInfo.environment["ACADEMY_LOCAL_API_URL"],
+                context: .current, offlineFixture: offlineFixtureActive)
+            return nil
+        } catch { return error.localizedDescription }
     }
 
     private let baseURL: URL
+    private let configurationError: Error?
     private let session: URLSession
+    private let phase2Session: URLSession
     private let authSession: (any AuthSessionProtocol)?
     private let requiredCredential: String?
     private let fixtureMode: String?
 
     init(
-        baseURL: URL = APIClient.defaultBaseURL,
+        baseURL: URL? = nil,
         session: URLSession = .shared,
         authSession: (any AuthSessionProtocol)? = nil,
         requiredCredential: String? = nil,
         fixtureMode: String? = nil
     ) {
-        self.baseURL = baseURL
-        self.session = session
+        let resolvedURL: URL
+        let error: Error?
+        do {
+            let candidate = try baseURL ?? APIEndpointPolicy.resolve(
+                override: ProcessInfo.processInfo.environment["ACADEMY_LOCAL_API_URL"],
+                context: .current, offlineFixture: Self.offlineFixtureActive || fixtureMode != nil)
+            try APIEndpointPolicy.validate(candidate, context: .current,
+                stubTransport: !(session.configuration.protocolClasses ?? []).isEmpty,
+                offlineFixture: Self.offlineFixtureActive || fixtureMode != nil)
+            resolvedURL = candidate
+            error = nil
+        } catch let failure {
+            resolvedURL = APIEndpointPolicy.offline
+            error = failure
+        }
+        self.baseURL = resolvedURL
+        self.configurationError = error
+        self.session = URLSession(configuration: session.configuration, delegate: APIOriginRedirectGuard(), delegateQueue: nil)
+        let privateConfiguration = Self.phase2SessionConfiguration()
+        privateConfiguration.protocolClasses = session.configuration.protocolClasses
+        self.phase2Session = URLSession(configuration: privateConfiguration, delegate: APIOriginRedirectGuard(), delegateQueue: nil)
         #if DEBUG && targetEnvironment(simulator)
         self.fixtureMode = fixtureMode ?? PlayerClubExperienceFixtures.mode
+            ?? (Self.visualFixtureActive() ? "visual" : nil)
         #else
         self.fixtureMode = nil
         #endif
@@ -233,6 +274,8 @@ struct APIClient: GolAPIClientProtocol, PlayerClubAPIClientProtocol, ScoutAPICli
     }
 
     static func golRequest(baseURL: URL, token: String, question: GolQuestion) throws -> URLRequest {
+        try APIEndpointPolicy.validate(baseURL, context: .current,
+            stubTransport: APIEndpointPolicy.Context.current.testHost)
         var request = URLRequest(url: baseURL.appendingPathComponent("gol/chat"))
         request.httpMethod = "POST"
         request.httpBody = try JSONEncoder().encode(question)
@@ -246,12 +289,24 @@ struct APIClient: GolAPIClientProtocol, PlayerClubAPIClientProtocol, ScoutAPICli
     }
 
     func streamGol(_ question: GolQuestion, onEvent: @escaping @MainActor @Sendable (GolSSEEvent) -> Void) async throws {
+        if let configurationError { throw configurationError }
         guard let token = await authSession?.accessToken(), !token.isEmpty,
               requiredCredential == nil || token == requiredCredential else {
             throw GolFailure.http(401, code: nil)
         }
         #if DEBUG && targetEnvironment(simulator)
-        // Offline experience fixtures must never send their synthetic credential over the network.
+        // Offline review and experience fixtures cannot send credentials over the network.
+        if Phase2Fixtures.active {
+            try await PlayerClubExperienceFixtures.streamGol(question, onEvent: onEvent)
+            return
+        }
+        if FloodlightPreview.isActive {
+            try await PreviewGolClient().streamGol(question, onEvent: onEvent)
+            return
+        }
+        if fixtureMode == "visual" {
+            throw ExperienceFixtureError.unmatchedRequest(method: "POST", path: "/api/gol/chat")
+        }
         if fixtureMode != nil {
             try await PlayerClubExperienceFixtures.streamGol(question, onEvent: onEvent)
             return
@@ -296,6 +351,8 @@ struct APIClient: GolAPIClientProtocol, PlayerClubAPIClientProtocol, ScoutAPICli
             request.setValue("application/json", forHTTPHeaderField: "Accept")
 
             #if DEBUG && targetEnvironment(simulator)
+            if FloodlightPreview.isActive || Phase2Fixtures.active { return }
+            if fixtureMode == "visual" { return }
             if let fixtureMode {
                 _ = try PlayerClubExperienceFixtures.data(for: request, mode: fixtureMode)
                 return
@@ -1026,11 +1083,60 @@ struct APIClient: GolAPIClientProtocol, PlayerClubAPIClientProtocol, ScoutAPICli
         }
     }
 
+    static func phase2SessionConfiguration() -> URLSessionConfiguration {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.urlCache = nil
+        configuration.httpCookieStorage = nil
+        configuration.urlCredentialStorage = nil
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        return configuration
+    }
+
+    private enum ResponseCredentialChanged: Error { case changed }
+
+    private static func normalizedCredential(_ value: String?) -> String? {
+        value.flatMap {
+            let trimmed = $0.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+    }
+
+    /// Never decode a response sent by a superseded credential.
+    private func checkResponseCredential(_ sentToken: String?) async throws {
+        try Task.checkCancellation()
+        guard Self.normalizedCredential(await authSession?.accessToken()) == sentToken else {
+            throw ResponseCredentialChanged.changed
+        }
+        try Task.checkCancellation()
+    }
+
     private func requestData(
         path: String,
         method: String,
         queryItems: [URLQueryItem],
-        body: Data?
+        body: Data?,
+        transport: URLSession? = nil,
+        retryCredentialChange: Bool = true
+    ) async throws -> (data: Data, receivedAt: TimeInterval) {
+        do {
+            return try await requestDataAttempt(path: path, method: method, queryItems: queryItems,
+                                                body: body, transport: transport)
+        } catch is ResponseCredentialChanged {
+            try Task.checkCancellation()
+            // Re-authorize a read once. Writes are never replayed, and bound
+            // private clients still require their original credential.
+            guard method == "GET", retryCredentialChange else { throw CancellationError() }
+            return try await requestData(path: path, method: method, queryItems: queryItems,
+                                         body: body, transport: transport, retryCredentialChange: false)
+        }
+    }
+
+    private func requestDataAttempt(
+        path: String,
+        method: String,
+        queryItems: [URLQueryItem],
+        body: Data?,
+        transport: URLSession?
     ) async throws -> (data: Data, receivedAt: TimeInterval) {
         let url = try makeURL(path: path, queryItems: queryItems)
         var request = URLRequest(url: url)
@@ -1041,11 +1147,7 @@ struct APIClient: GolAPIClientProtocol, PlayerClubAPIClientProtocol, ScoutAPICli
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
 
-        let token = await authSession?.accessToken()
-            .flatMap { value in
-                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-                return trimmed.isEmpty ? nil : trimmed
-            }
+        let token = Self.normalizedCredential(await authSession?.accessToken())
         if let requiredCredential, token != requiredCredential {
             throw APIClientError.httpStatus(401)
         }
@@ -1057,18 +1159,38 @@ struct APIClient: GolAPIClientProtocol, PlayerClubAPIClientProtocol, ScoutAPICli
 
         // Scout aggregation can approach 30 seconds during an Azure cold start.
         request.timeoutInterval = 60
-        if method == "GET", token == nil {
+        if path == "features" || path == "opportunities" || path.hasPrefix("opportunities/") || path.hasPrefix("programs/") || path == "club-directory/search" {
+            request.cachePolicy = .reloadIgnoringLocalCacheData
+            request.setValue("no-store", forHTTPHeaderField: "Cache-Control")
+        } else if method == "GET", token == nil {
             request.cachePolicy = .reloadRevalidatingCacheData
         }
 
         #if DEBUG && targetEnvironment(simulator)
+        if Phase2Fixtures.active {
+            if Phase2Fixtures.mode == "late-off", ["features", "opportunities/features"].contains(path) {
+                try await Task.sleep(for: .seconds(4))
+            }
+            let data = try await Phase2Fixtures.response(for: request)
+            try await checkResponseCredential(token)
+            return (data, ProcessInfo.processInfo.systemUptime)
+        }
+        if FloodlightPreview.isActive {
+            let data = try FloodlightPreview.data(for: request)
+            try await checkResponseCredential(token)
+            return (data, ProcessInfo.processInfo.systemUptime)
+        }
         if let fixtureMode {
+            guard fixtureMode != "visual" else {
+                throw ExperienceFixtureError.unmatchedRequest(method: method, path: request.url!.path)
+            }
             let data = try PlayerClubExperienceFixtures.data(for: request, mode: fixtureMode)
+            try await checkResponseCredential(token)
             return (data, ProcessInfo.processInfo.systemUptime)
         }
         #endif
 
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await (transport ?? session).data(for: request)
         let responseReceivedAt = ProcessInfo.processInfo.systemUptime
         guard let httpResponse = response as? HTTPURLResponse else {
             throw APIClientError.invalidResponse
@@ -1095,6 +1217,7 @@ struct APIClient: GolAPIClientProtocol, PlayerClubAPIClientProtocol, ScoutAPICli
             }
             throw APIClientError.httpStatus(httpResponse.statusCode)
         }
+        try await checkResponseCredential(token)
         return (data, responseReceivedAt)
     }
 
@@ -1105,6 +1228,7 @@ struct APIClient: GolAPIClientProtocol, PlayerClubAPIClientProtocol, ScoutAPICli
     }
 
     private func makeURL(path: String, queryItems: [URLQueryItem]) throws -> URL {
+        if let configurationError { throw configurationError }
         guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
             throw APIClientError.invalidURL
         }
@@ -1242,4 +1366,10 @@ private struct APIErrorPayload: Decodable {
     let message: String?
     let code: String?
     let cooldownDays: Int?
+}
+
+extension APIClient: Phase2API {
+    func phase2Data(path: String, method: String, query: [URLQueryItem], body: Data?) async throws -> Data {
+        try await requestData(path: path, method: method, queryItems: query, body: body, transport: phase2Session).data
+    }
 }

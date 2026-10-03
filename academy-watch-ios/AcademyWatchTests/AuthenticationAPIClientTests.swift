@@ -4,6 +4,116 @@ import XCTest
 @testable import AcademyWatch
 
 final class AuthenticationAPIClientTests: XCTestCase {
+    func testCredentialChangeRetriesPublicScoutGETWithCurrentCredential() async throws {
+        for replacement in [nil, "token-b"] as [String?] {
+            SuccessfulPrivateURLProtocol.headers = []
+            let auth = ReplacingAuthenticationSession(requestCredential: "token-a", replacementCredential: replacement)
+            let config = URLSessionConfiguration.ephemeral
+            config.protocolClasses = [SuccessfulPrivateURLProtocol.self]
+            let session = URLSession(configuration: config)
+            defer { session.invalidateAndCancel() }
+            let api = APIClient(baseURL: URL(string: "https://example.test/api")!, session: session, authSession: auth)
+            let response = try await api.fetchScoutPlayers(.init(page: 1, perPage: 30, search: "retained",
+                position: nil, status: nil, maximumAge: nil, sort: "name", order: .ascending))
+            XCTAssertEqual(response.total, 222, "Only the re-authorized response may be decoded")
+            XCTAssertEqual(SuccessfulPrivateURLProtocol.headers, ["Bearer token-a", replacement.map { "Bearer " + $0 }])
+        }
+    }
+
+    func testCredentialChangeRetriesPrivateGETWithoutPublishingOldAccount() async throws {
+        SuccessfulPrivateURLProtocol.headers = []
+        let auth = ReplacingAuthenticationSession(requestCredential: "token-a", replacementCredential: "token-b")
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [SuccessfulPrivateURLProtocol.self]
+        let session = URLSession(configuration: config)
+        defer { session.invalidateAndCancel() }
+        let api = APIClient(baseURL: URL(string: "https://example.test/api")!, session: session, authSession: auth)
+        let response = try await api.fetchWatchlistIDs()
+        XCTAssertEqual(response.playerIds, [222])
+        XCTAssertEqual(SuccessfulPrivateURLProtocol.headers, ["Bearer token-a", "Bearer token-b"])
+    }
+
+    func testBoundPrivateGETCannotRetryUnderAnotherAccount() async throws {
+        SuccessfulPrivateURLProtocol.headers = []
+        let auth = ReplacingAuthenticationSession(requestCredential: "token-a", replacementCredential: "token-b")
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [SuccessfulPrivateURLProtocol.self]
+        let session = URLSession(configuration: config)
+        defer { session.invalidateAndCancel() }
+        let api = APIClient(baseURL: URL(string: "https://example.test/api")!, session: session,
+                            authSession: auth, requiredCredential: "token-a")
+        do {
+            _ = try await api.fetchWatchlistIDs()
+            XCTFail("An account-bound client must refuse the replacement credential")
+        } catch APIClientError.httpStatus(401) {} catch { XCTFail("Unexpected error: \(error)") }
+        XCTAssertEqual(SuccessfulPrivateURLProtocol.headers, ["Bearer token-a"])
+    }
+
+    func testCredentialChangeNeverReplaysAWrite() async throws {
+        SuccessfulPrivateURLProtocol.headers = []
+        let auth = ReplacingAuthenticationSession(requestCredential: "token-a", replacementCredential: "token-b")
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [SuccessfulPrivateURLProtocol.self]
+        let session = URLSession(configuration: config)
+        defer { session.invalidateAndCancel() }
+        let api = APIClient(baseURL: URL(string: "https://example.test/api")!, session: session, authSession: auth)
+        do {
+            _ = try await api.phase2Data(path: "me/applications/test/withdraw", method: "POST", query: [], body: Data("{}".utf8))
+            XCTFail("A superseded write must be discarded")
+        } catch is CancellationError {} catch { XCTFail("Unexpected error: \(error)") }
+        XCTAssertEqual(SuccessfulPrivateURLProtocol.headers, ["Bearer token-a"])
+    }
+
+    func testRepeatedCredentialChangesStopAfterOneGETRetry() async throws {
+        SuccessfulPrivateURLProtocol.headers = []
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [SuccessfulPrivateURLProtocol.self]
+        let session = URLSession(configuration: config)
+        defer { session.invalidateAndCancel() }
+        let api = APIClient(baseURL: URL(string: "https://example.test/api")!, session: session,
+                            authSession: ContinuouslyChangingSession())
+        do {
+            _ = try await api.fetchWatchlistIDs()
+            XCTFail("A second credential change must stop the retry")
+        } catch is CancellationError {} catch { XCTFail("Unexpected error: \(error)") }
+        XCTAssertEqual(SuccessfulPrivateURLProtocol.headers.count, 2)
+    }
+
+    func testCredentialComparisonNormalizesStoredToken() async throws {
+        SuccessfulPrivateURLProtocol.headers = []
+        let auth = ReplacingAuthenticationSession(requestCredential: " token-a\n", replacementCredential: " token-a\n")
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [SuccessfulPrivateURLProtocol.self]
+        let session = URLSession(configuration: config)
+        defer { session.invalidateAndCancel() }
+        let api = APIClient(baseURL: URL(string: "https://example.test/api")!, session: session, authSession: auth)
+        _ = try await api.fetchWatchlistIDs()
+        XCTAssertEqual(SuccessfulPrivateURLProtocol.headers, ["Bearer token-a"])
+    }
+
+    @MainActor
+    func testRestoredSessionHydrationRetainsProfilesApplicationAndPrivateRouteIdentity() async {
+        let manager = AuthManager(authClient: ImmediateVerificationAuthClient(token: "unused"),
+                                  tokenStore: InMemoryTokenStore(initialToken: "restored-token"))
+        XCTAssertNil(manager.email)
+        let identity = manager.browseAccountIdentity
+        let profiles = MyProfilesViewModel(client: APIClient(fixtureMode: "development"))
+        let application = ApplicationDetailViewModel(id: Phase2FixtureTransport.applicationId,
+                                                     client: Phase2FixtureTransport(mode: "player"))
+        profiles.observeAccount(manager); application.observeAccount(manager)
+        await profiles.load(); await application.load()
+        let claims = profiles.claims.map(\.id)
+        XCTAssertFalse(claims.isEmpty); XCTAssertNotNil(application.application)
+        await manager.refreshAccount(using: VerifiedAccountClient())
+        XCTAssertEqual(manager.email, "alex.scout@example.com")
+        XCTAssertEqual(manager.browseAccountIdentity, identity)
+        XCTAssertEqual(profiles.claims.map(\.id), claims)
+        XCTAssertNotNil(application.application)
+        _ = try? await manager.verifyCode(email: "b@example.com", code: "code")
+        XCTAssertNotEqual(manager.browseAccountIdentity, identity)
+        XCTAssertTrue(profiles.claims.isEmpty); XCTAssertNil(application.application)
+    }
+
     func testAuthTokenResponseDecodesDerivedAccountRole() throws {
         let payload = #"""
         {
@@ -366,11 +476,11 @@ private final class AuthenticationStubURLProtocol: URLProtocol {
 
 private actor ReplacingAuthenticationSession: AuthSessionProtocol {
     private var credential: String?
-    private let replacementCredential: String
+    private let replacementCredential: String?
     private var didReplaceCredential = false
     private var didInvalidate = false
 
-    init(requestCredential: String, replacementCredential: String) {
+    init(requestCredential: String, replacementCredential: String?) {
         credential = requestCredential
         self.replacementCredential = replacementCredential
     }
@@ -577,4 +687,32 @@ private enum StubTokenStoreError: LocalizedError {
     var errorDescription: String? {
         "The test credential could not be deleted."
     }
+}
+
+private final class SuccessfulPrivateURLProtocol: URLProtocol {
+    nonisolated(unsafe) static var headers: [String?] = []
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: "HTTP/1.1",
+                                       headerFields: ["Content-Type": "application/json"])!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        Self.headers.append(request.value(forHTTPHeaderField: "Authorization"))
+        let value = request.value(forHTTPHeaderField: "Authorization") == "Bearer token-a" ? 111 : 222
+        let body = request.url!.path.contains("scout/players")
+            ? "{\"players\":[],\"total\":\(value),\"page\":1,\"per_page\":30,\"total_pages\":1}"
+            : "{\"player_ids\":[\(value)]}"
+        client?.urlProtocol(self, didLoad: Data(body.utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+}
+
+private actor ContinuouslyChangingSession: AuthSessionProtocol {
+    private var generation = 0
+    func accessToken() async -> String? {
+        generation += 1
+        return "token-\(generation)"
+    }
+    func invalidate() async {}
 }

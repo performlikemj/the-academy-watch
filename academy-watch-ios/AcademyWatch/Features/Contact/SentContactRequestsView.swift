@@ -14,25 +14,22 @@ struct SentContactRequestsView: View {
             AcademyColors.background.ignoresSafeArea()
 
             if viewModel.isLoading, !viewModel.hasLoaded {
-                ProgressView("Loading sent requests…")
-                    .tint(AcademyColors.claret)
+                WingLiftLoadingView("Loading sent requests…")
             } else if let error = viewModel.errorMessage, viewModel.requests.isEmpty {
                 ContentUnavailableView {
                     Label("Requests unavailable", systemImage: "paperplane")
+                .font(AcademyType.title2)
+                .foregroundStyle(AcademyColors.text)
                 } description: {
                     Text(error)
                 } actions: {
                     Button("Try Again") {
                         Task { await viewModel.reload() }
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(FloodlightPillStyle())
                 }
             } else if viewModel.requests.isEmpty {
-                ContentUnavailableView(
-                    "No introduction requests",
-                    systemImage: "paperplane",
-                    description: Text("Requests you send from claimed player profiles will appear here.")
-                )
+                FloodlightEmptyState(title: "No introduction requests", systemImage: "paperplane", description: "Requests you send from claimed player profiles will appear here.")
             } else {
                 requestsList
             }
@@ -44,8 +41,8 @@ struct SentContactRequestsView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     BadgeView(
                         text: "Fixture preview",
-                        foregroundColor: AcademyColors.loanAmber,
-                        backgroundColor: AcademyColors.loanAmber.opacity(0.12)
+                        foregroundColor: AcademyColors.warnText,
+                        backgroundColor: AcademyColors.warnText.opacity(0.12)
                     )
                 }
             }
@@ -66,8 +63,8 @@ struct SentContactRequestsView: View {
             LazyVStack(alignment: .leading, spacing: 12) {
                 if let error = viewModel.errorMessage {
                     Label(error, systemImage: "exclamationmark.triangle.fill")
-                        .font(.footnote)
-                        .foregroundStyle(.red)
+                        .font(AcademyType.footnote)
+                        .foregroundStyle(AcademyColors.danger)
                         .padding(.horizontal, 4)
                 }
 
@@ -81,14 +78,14 @@ struct SentContactRequestsView: View {
                 }
 
                 if viewModel.isLoadingMore {
-                    ProgressView("Loading more…")
+                    WingLiftLoadingView("Loading more…")
                         .frame(maxWidth: .infinity)
                         .padding()
                 }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 14)
-        }
+        }.background(AcademyColors.background)
         .refreshable {
             await viewModel.reload()
         }
@@ -142,9 +139,9 @@ struct SentContactRequestsView: View {
 
                 Spacer()
             }
-            .font(.caption.weight(.semibold))
+            .font(AcademyType.caption.weight(.medium))
             .buttonStyle(.plain)
-            .foregroundStyle(AcademyColors.claret)
+            .foregroundStyle(AcademyColors.accent)
             .padding(.horizontal, 14)
         }
     }
@@ -160,11 +157,11 @@ private struct ContactRequestCard: View {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(request.participants.player.displayName ?? "Player #\(request.playerApiId)")
-                        .font(.headline)
+                        .font(AcademyType.headline)
                         .lineLimit(1)
                     Text("Player #\(request.playerApiId)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(AcademyType.caption)
+                        .foregroundStyle(AcademyColors.secondaryText)
                 }
                 Spacer(minLength: 8)
                 ContactStatusBadge(status: request.status)
@@ -173,38 +170,38 @@ private struct ContactRequestCard: View {
             ContactRoutingBadge(request: request)
 
             Text(request.message)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .font(AcademyType.subheadline)
+                .foregroundStyle(AcademyColors.secondaryText)
                 .lineLimit(2)
 
             if let outcome = request.latestOutcome {
                 HStack(spacing: 7) {
                     Image(systemName: "flag.checkered")
-                        .foregroundStyle(AcademyColors.transitionPurple)
+                        .foregroundStyle(AcademyColors.secondaryText)
                     Text("Latest: \(outcome.stage.displayName)")
-                        .font(.caption.weight(.semibold))
+                        .font(AcademyType.caption.weight(.medium))
                     Spacer()
                     if request.messagingOpen {
                         Image(systemName: "chevron.right")
-                            .font(.caption.weight(.bold))
-                            .foregroundStyle(.tertiary)
+                            .font(AcademyType.caption.weight(.medium))
+                            .foregroundStyle(AcademyColors.secondaryText)
                     }
                 }
                 .padding(10)
                 .background(
-                    AcademyColors.transitionPurple.opacity(0.08),
+                    AcademyColors.secondaryText.opacity(0.08),
                     in: RoundedRectangle(cornerRadius: 10)
                 )
             } else {
                 HStack {
                     Label(formattedDate(request.createdAt), systemImage: "calendar")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(AcademyType.caption)
+                        .foregroundStyle(AcademyColors.secondaryText)
                     Spacer()
                     if request.messagingOpen {
                         Label("Open thread", systemImage: "bubble.left.and.bubble.right.fill")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(AcademyColors.claret)
+                            .font(AcademyType.caption.weight(.medium))
+                            .foregroundStyle(AcademyColors.accent)
                     }
                 }
             }
@@ -213,10 +210,10 @@ private struct ContactRequestCard: View {
                 Divider()
                 Button(role: .destructive, action: onWithdraw) {
                     HStack(spacing: 7) {
-                        if isWithdrawing { ProgressView().controlSize(.small) }
+                        if isWithdrawing { WingLiftLoadingView().controlSize(.small) }
                         Text(isWithdrawing ? "Withdrawing…" : "Withdraw request")
                     }
-                    .font(.subheadline.weight(.semibold))
+                    .font(AcademyType.subheadline.weight(.semibold))
                 }
                 .disabled(isWithdrawing)
                 .accessibilityIdentifier("withdraw-contact-request")
@@ -250,7 +247,7 @@ struct ContactRoutingBadge: View {
             badge(
                 text: "Club reviewing",
                 systemImage: "building.2.crop.circle",
-                color: AcademyColors.loanAmber
+                color: AcademyColors.warnText
             )
         case (.clubIncluded, .pending):
             EmptyView()
@@ -258,19 +255,19 @@ struct ContactRoutingBadge: View {
             badge(
                 text: "Consent declined",
                 systemImage: "xmark.shield.fill",
-                color: Color(uiColor: .systemRed)
+                color: AcademyColors.danger
             )
         case (.clubIncluded, .granted):
             badge(
                 text: "Club consent granted",
                 systemImage: "checkmark.shield.fill",
-                color: AcademyColors.positiveGreen
+                color: AcademyColors.good
             )
         case (.clubNotified, _):
             badge(
                 text: "Club notified",
                 systemImage: "bell.badge.fill",
-                color: AcademyColors.transitionPurple
+                color: AcademyColors.secondaryText
             )
         case (.direct, _), (.clubIncluded, nil):
             EmptyView()
@@ -282,7 +279,7 @@ struct ContactRoutingBadge: View {
             Image(systemName: systemImage)
             Text(text)
         }
-        .font(.caption.weight(.semibold))
+        .font(AcademyType.caption.weight(.medium))
         .foregroundStyle(color)
         .padding(.horizontal, 9)
         .padding(.vertical, 6)
@@ -307,11 +304,11 @@ struct ContactStatusBadge: View {
     private var color: Color {
         switch status {
         case .pending:
-            return AcademyColors.loanAmber
+            return AcademyColors.warnText
         case .accepted:
-            return AcademyColors.positiveGreen
+            return AcademyColors.good
         case .declined:
-            return Color(uiColor: .systemRed)
+            return AcademyColors.danger
         case .withdrawn, .expired:
             return .secondary
         }

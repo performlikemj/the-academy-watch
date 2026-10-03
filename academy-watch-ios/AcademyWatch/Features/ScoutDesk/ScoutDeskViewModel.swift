@@ -74,7 +74,11 @@ final class ScoutDeskViewModel: ObservableObject {
         initialPhase: ScoutPhase = .all
     ) {
         self.apiClient = apiClient
+        #if DEBUG && targetEnvironment(simulator)
+        self.responseCache = (FloodlightPreview.isActive || Phase2Fixtures.active) ? FloodlightPreviewCache() : responseCache
+        #else
         self.responseCache = responseCache
+        #endif
         self.pageSize = pageSize
         selectedPhase = initialPhase
         selectedSortKey = initialPhase.defaultSortKey
@@ -122,18 +126,18 @@ final class ScoutDeskViewModel: ObservableObject {
         isShowingCachedLeaderboards && isLoadingLeaderboards
     }
 
-    var shouldShowWingLiftLoadingCard: Bool {
+    var shouldShowLogoLoadingCard: Bool {
         isLoadingInitial && players.isEmpty && !hasCompletedFirstLoad
     }
 
     var shouldShowInlineInitialLoader: Bool {
-        isLoadingInitial && players.isEmpty && !shouldShowWingLiftLoadingCard
+        isLoadingInitial && players.isEmpty && !shouldShowLogoLoadingCard
     }
 
     func initialLoadFeedback(
         atUptime uptime: TimeInterval = ProcessInfo.processInfo.systemUptime
     ) -> ScoutInitialLoadFeedback? {
-        guard shouldShowWingLiftLoadingCard,
+        guard shouldShowLogoLoadingCard,
               let initialLoadStartedAt
         else { return nil }
 

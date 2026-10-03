@@ -3,6 +3,25 @@ import XCTest
 @testable import AcademyWatch
 
 final class PlayerClubExperienceTests: XCTestCase {
+    @MainActor
+    func testProfilesResetClearsClaimsAndDiscardsLateRead() async {
+        let api = ExperienceStub()
+        let model = MyProfilesViewModel(client: api)
+        await model.load()
+        XCTAssertEqual(model.claims.first?.playerName, "Maya")
+        await api.pauseClaims()
+        let pending = Task { await model.load() }
+        await api.waitForClaims()
+        model.resetAccount()
+        XCTAssertTrue(model.claims.isEmpty)
+        XCTAssertFalse(model.isLoading)
+        await api.releaseClaims()
+        await pending.value
+        XCTAssertTrue(model.claims.isEmpty)
+        XCTAssertNil(model.error)
+        XCTAssertFalse(model.isLoading)
+    }
+
     #if DEBUG && targetEnvironment(simulator)
     func testSimulatorRoleArgumentsSeedAndResetBeforeRootConstruction() throws {
         let suite = try XCTUnwrap(UserDefaults(suiteName: "ExperienceLaunchArgumentsTests"))
@@ -42,7 +61,7 @@ final class PlayerClubExperienceTests: XCTestCase {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [ExperienceFixtureDataTaskSpy.self]
         let client = APIClient(
-            baseURL: URL(string: "https://fixture.invalid/api")!,
+            baseURL: APIEndpointPolicy.offline,
             session: URLSession(configuration: configuration),
             fixtureMode: "player"
         )
@@ -311,6 +330,17 @@ private final class ExperienceFixtureDataTaskSpy: URLProtocol, @unchecked Sendab
 #endif
 
 private actor ExperienceStub: PlayerClubAPIClientProtocol {
+    private var claimsPaused = false
+    private var claimsStarted = false
+    private var claimsStartWaiter: CheckedContinuation<Void, Never>?
+    private var claimsWaiter: CheckedContinuation<Void, Never>?
+    func pauseClaims() { claimsPaused = true }
+    func waitForClaims() async {
+        if claimsStarted { return }
+        await withCheckedContinuation { claimsStartWaiter = $0 }
+    }
+    func releaseClaims() { claimsWaiter?.resume(); claimsWaiter = nil }
+
     private var denied = false
     private var conflict = false
     private var progress: PlayerDevelopmentProgress?
@@ -330,6 +360,12 @@ private actor ExperienceStub: PlayerClubAPIClientProtocol {
             developmentProgress: progress, canUpdateProgress: true)
     }
     func fetchMyProfileClaims() async throws -> PlayerClaimsResponse {
+        if claimsPaused {
+            await withCheckedContinuation { continuation in
+                claimsWaiter = continuation; claimsStarted = true
+                claimsStartWaiter?.resume(); claimsStartWaiter = nil
+            }
+        }
         try check()
         return PlayerClaimsResponse(claims: [
             PlayerProfileClaim(

@@ -5,9 +5,11 @@ struct CompareView: View {
     @StateObject private var viewModel: CompareViewModel
     @Environment(\.dismiss) private var dismiss
 
-    @ScaledMetric(relativeTo: .caption) private var labelColumnWidth: CGFloat = 112
-    @ScaledMetric(relativeTo: .caption) private var playerColumnWidth: CGFloat = 126
-    @ScaledMetric(relativeTo: .caption) private var playerHeaderHeight: CGFloat = 182
+    @ScaledMetric(relativeTo: .caption) private var scaledLabelWidth: CGFloat = 112
+    @ScaledMetric(relativeTo: .caption) private var scaledPlayerWidth: CGFloat = 120
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    private var labelColumnWidth: CGFloat { min(scaledLabelWidth, 140) }
+    private var playerColumnWidth: CGFloat { min(scaledPlayerWidth, 220) }
 
     init(
         playerIDs: [Int],
@@ -45,26 +47,23 @@ struct CompareView: View {
     @ViewBuilder
     private var content: some View {
         if viewModel.isLoading, viewModel.players.isEmpty {
-            ProgressView("Comparing players…")
-                .tint(AcademyColors.claretForeground)
+            WingLiftLoadingView("Comparing players…")
         } else if let message = viewModel.errorMessage, viewModel.players.isEmpty {
             ContentUnavailableView {
                 Label("Comparison unavailable", systemImage: "wifi.exclamationmark")
+                .font(AcademyType.title2)
+                .foregroundStyle(AcademyColors.text)
             } description: {
                 Text(message)
             } actions: {
                 Button("Try Again") {
                     Task { await viewModel.load() }
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(AcademyColors.claretFill)
+                .buttonStyle(FloodlightPillStyle())
+                .tint(AcademyColors.primaryFill)
             }
         } else if viewModel.players.isEmpty {
-            ContentUnavailableView(
-                "No players found",
-                systemImage: "person.2.slash",
-                description: Text("These players are not available for comparison.")
-            )
+            FloodlightEmptyState(title: "No players found", systemImage: "person.2.slash", description: "These players are not available for comparison.")
         } else {
             comparisonTable
         }
@@ -81,14 +80,14 @@ struct CompareView: View {
                     }
                 )
             )
-            .font(.subheadline.weight(.semibold))
-            .padding(.horizontal, 20)
+            .font(AcademyType.subheadline.weight(.semibold))
+            .padding(.horizontal, 16)
             .padding(.vertical, 12)
             .background(AcademyColors.surface)
             .accessibilityIdentifier("compare-include-availability")
 
             ScrollView(.vertical) {
-                ScrollView(.horizontal, showsIndicators: viewModel.players.count > 2) {
+                ScrollView(.horizontal, showsIndicators: viewModel.players.count > 2 || dynamicTypeSize.isAccessibilitySize) {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         playerHeaders
 
@@ -100,28 +99,29 @@ struct CompareView: View {
                         }
                     }
                     .background(AcademyColors.surface)
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                     .overlay {
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
                             .stroke(AcademyColors.separator.opacity(0.35), lineWidth: 0.5)
                     }
                     .padding(16)
-                }
-            }
+                }.background(AcademyColors.background)
+            }.background(AcademyColors.background)
         }
     }
 
     private var playerHeaders: some View {
-        HStack(alignment: .bottom, spacing: 0) {
+        HStack(alignment: .top, spacing: 0) {
             Color.clear
-                .frame(width: labelColumnWidth, height: playerHeaderHeight)
+                .frame(width: labelColumnWidth, height: 1)
 
             ForEach(viewModel.players) { player in
                 ComparePlayerHeader(player: player)
-                    .frame(width: playerColumnWidth, height: playerHeaderHeight, alignment: .bottom)
+                    .frame(width: playerColumnWidth, alignment: .top)
             }
         }
-        .background(Color(uiColor: .tertiarySystemGroupedBackground))
+        .frame(minHeight: 232, alignment: .top)
+        .background(AcademyColors.elevatedSurface)
         .overlay(alignment: .bottom) {
             Divider()
         }
@@ -129,16 +129,16 @@ struct CompareView: View {
 
     private func sectionHeader(_ title: String) -> some View {
         Text(title.uppercased())
-            .font(.caption2.weight(.bold))
+            .font(AcademyType.caption2.weight(.medium))
             .tracking(1.1)
-            .foregroundStyle(AcademyColors.claretForeground)
+            .foregroundStyle(AcademyColors.secondaryText)
             .padding(.horizontal, 12)
             .frame(
                 width: tableWidth,
                 height: 38,
                 alignment: .leading
             )
-            .background(Color(uiColor: .tertiarySystemGroupedBackground))
+            .background(AcademyColors.elevatedSurface)
     }
 
     private func statRow(_ row: CompareRow) -> some View {
@@ -159,8 +159,8 @@ struct CompareView: View {
 
         return HStack(spacing: 0) {
             Text(row.label)
-                .font(.caption.weight(.medium))
-                .foregroundStyle(.secondary)
+                .font(AcademyType.caption.weight(.medium))
+                .foregroundStyle(AcademyColors.secondaryText)
                 .padding(.horizontal, 10)
                 .frame(width: labelColumnWidth, alignment: .leading)
                 .frame(minHeight: 44)
@@ -168,15 +168,15 @@ struct CompareView: View {
             ForEach(values.indices, id: \.self) { index in
                 let isHighlighted = highlightedIndices.contains(index)
                 Text(values[index]?.displayValue ?? "—")
-                    .font(.subheadline.weight(isHighlighted ? .bold : .regular))
-                    .foregroundStyle(isHighlighted ? AcademyColors.claretForeground : Color.primary)
+                    .font(AcademyType.serif(24, relativeTo: .title3))
+                    .foregroundStyle(isHighlighted ? AcademyColors.accent : AcademyColors.text)
                     .monospacedDigit()
                     .lineLimit(2)
                     .minimumScaleFactor(0.72)
                     .multilineTextAlignment(.center)
                     .frame(width: playerColumnWidth, alignment: .center)
                     .frame(minHeight: 44)
-                    .background(isHighlighted ? AcademyColors.claretSoft : Color.clear)
+                    .background(isHighlighted ? AcademyColors.accentSoft : Color.clear)
             }
         }
         .overlay(alignment: .bottom) {
@@ -411,23 +411,25 @@ private struct ComparePlayerHeader: View {
             playerPhoto
 
             Text(player.profile.playerName)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.primary)
-                .lineLimit(2)
+                .font(AcademyType.serif(22, relativeTo: .headline))
+                .foregroundStyle(AcademyColors.text)
+                .lineLimit(3)
+                .fixedSize(horizontal: false, vertical: true)
                 .multilineTextAlignment(.center)
 
             Text(metadata)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
+                .font(AcademyType.caption2)
+                .foregroundStyle(AcademyColors.secondaryText)
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
 
             if let status = player.profile.status, !status.isEmpty {
                 BadgeView(text: displayStatus(status))
             }
 
             Text(player.profile.clubName ?? "Club unavailable")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+                .font(AcademyType.caption2)
+                .foregroundStyle(AcademyColors.secondaryText)
                 .lineLimit(2)
                 .multilineTextAlignment(.center)
         }
@@ -447,8 +449,7 @@ private struct ComparePlayerHeader: View {
                             .resizable()
                             .scaledToFill()
                     case .empty:
-                        ProgressView()
-                            .tint(AcademyColors.claret)
+                        WingLiftLoadingView()
                     case .failure:
                         photoPlaceholder
                     @unknown default:
@@ -460,10 +461,10 @@ private struct ComparePlayerHeader: View {
             }
         }
         .frame(width: 54, height: 54)
-        .background(Color(uiColor: .tertiarySystemFill))
+        .background(AcademyColors.elevatedSurface)
         .clipShape(Circle())
         .overlay {
-            Circle().stroke(AcademyColors.claret.opacity(0.18), lineWidth: 1)
+            Circle().stroke(AcademyColors.accent.opacity(0.18), lineWidth: 1)
         }
     }
 
@@ -471,7 +472,7 @@ private struct ComparePlayerHeader: View {
         Image(systemName: "person.crop.circle.fill")
             .resizable()
             .scaledToFit()
-            .foregroundStyle(.tertiary)
+            .foregroundStyle(AcademyColors.secondaryText)
     }
 
     private var metadata: String {

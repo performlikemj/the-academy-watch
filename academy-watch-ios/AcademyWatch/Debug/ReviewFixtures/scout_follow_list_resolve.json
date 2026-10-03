@@ -1,0 +1,21 @@
+{
+  "players": [
+    {
+      "player_api_id": 900001,
+      "player_name": "Sample Player",
+      "source": "tracked",
+      "team_name": "Sample Academy",
+      "status": "on_loan",
+      "photo": null
+    },
+    {
+      "player_api_id": 900002,
+      "player_name": "Sample Player",
+      "source": "shadow",
+      "team_name": "Sample Academy",
+      "status": null,
+      "photo": null
+    }
+  ],
+  "total": 2
+}

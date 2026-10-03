@@ -26,6 +26,7 @@ struct AccountView: View {
     let fixtureDestination: FullCircleFixtureDestination?
     let onSignInRequested: () -> Void
     let onGolRequested: () -> Void
+    var phase2Membership: ClubMembership? = nil
 
     @State private var isDeleteAccountPresented = false
     @State private var hasApprovedPlayerClaim = false
@@ -124,23 +125,26 @@ struct AccountView: View {
                 VStack(spacing: 18) {
                     Button(action: onGolRequested) {
                         HStack(spacing: 14) {
-                            Image(systemName: "bubble.left.and.bubble.right.fill").font(.title2)
+                            Image(systemName: "bubble.left.and.bubble.right.fill").font(AcademyType.title2)
                             VStack(alignment: .leading, spacing: 4) {
-                                Text("Ask GOL").font(.headline)
-                                Text("Your football AI assistant").font(.subheadline)
+                                Text("Ask GOL").font(AcademyType.headline)
+                                Text("Your football AI assistant").font(AcademyType.subheadline)
                             }
                             Spacer()
                             Image(systemName: "chevron.right")
                         }
                         .padding(18)
-                        .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 16))
+                        .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 10))
                     }
                     .buttonStyle(.plain)
-                    .foregroundStyle(AcademyColors.claretForeground)
+                    .foregroundStyle(AcademyColors.accent)
                     .accessibilityLabel("Ask GOL, your football AI assistant")
                     .accessibilityIdentifier("gol-entry")
                     if displaysSignedInAccount {
                         signedInHeader
+                        if let membership = phase2Membership, membership.access.canManageAccess {
+                            NavigationLink { StaffAccessView(programId: membership.id, client: apiClient) } label: { Label("Staff & access", systemImage: "person.badge.key") }.accessibilityIdentifier("account-staff-access")
+                        }
                         identityOnboardingSection
                         verificationSection
                         contactSection
@@ -151,9 +155,9 @@ struct AccountView: View {
                     homeExperienceSection
                     legalSection
                 }
-                .padding(.horizontal, 18)
+                .padding(.horizontal, 16)
                 .padding(.vertical, 22)
-            }
+            }.background(AcademyColors.background)
             .accessibilityIdentifier("account-scroll")
         }
         .navigationTitle("Account")
@@ -165,12 +169,11 @@ struct AccountView: View {
         .sheet(item: $exportFile, onDismiss: removeExportFile) { file in
             ActivityView(activityItems: [file.url])
         }
-        .task(id: authManager.isAuthenticated) {
-            guard authManager.isAuthenticated else {
-                hasApprovedPlayerClaim = false
-                hasAnyPlayerClaim = false
-                return
-            }
+        .task(id: authManager.accountIdentity) {
+            let identity = authManager.accountIdentity
+            hasApprovedPlayerClaim = false
+            hasAnyPlayerClaim = false
+            guard authManager.isAuthenticated else { return }
             #if DEBUG
             if fixtureDestination == .deleteAccount {
                 isDeleteAccountPresented = true
@@ -179,11 +182,13 @@ struct AccountView: View {
             #endif
             do {
                 let response = try await apiClient.fetchMyProfileClaims()
+                guard identity == authManager.accountIdentity, !Task.isCancelled else { return }
                 hasApprovedPlayerClaim = response.claims.contains {
                     $0.relationshipType == "player" && $0.status == .approved
                 }
                 hasAnyPlayerClaim = !response.claims.isEmpty
             } catch {
+                guard identity == authManager.accountIdentity, !Task.isCancelled else { return }
                 hasApprovedPlayerClaim = incomingRequestsViewModel.ownsApprovedPlayerClaim
             }
         }
@@ -196,7 +201,7 @@ struct AccountView: View {
     private var homeExperienceSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("App experience")
-                .font(.title3.weight(.bold))
+                .font(AcademyType.title3)
                 .padding(.horizontal, 4)
 
             Menu {
@@ -210,21 +215,21 @@ struct AccountView: View {
             } label: {
                 HStack(spacing: 13) {
                     Image(systemName: "rectangle.3.group.fill")
-                        .font(.title2)
-                        .foregroundStyle(AcademyColors.claret)
+                        .font(AcademyType.title2)
+                        .foregroundStyle(AcademyColors.accent)
                         .frame(width: 34)
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Home experience").font(.headline)
+                        Text("Home experience").font(AcademyType.headline)
                         Text("Choose which part of Academy Watch opens first.")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                            .font(AcademyType.subheadline)
+                            .foregroundStyle(AcademyColors.secondaryText)
                     }
                     Spacer(minLength: 6)
                     Text(ExperienceRole(rawValue: roleValue)?.selectionTitle ?? "Not chosen")
-                        .font(.subheadline.weight(.semibold))
+                        .font(AcademyType.subheadline.weight(.semibold))
                     Image(systemName: "chevron.up.chevron.down")
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(.tertiary)
+                        .font(AcademyType.caption.weight(.medium))
+                        .foregroundStyle(AcademyColors.secondaryText)
                 }
                 .padding(16)
                 .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 17))
@@ -238,27 +243,27 @@ struct AccountView: View {
         VStack(spacing: 12) {
             ZStack {
                 Circle()
-                    .fill(AcademyColors.claretSoft)
+                    .fill(AcademyColors.accentSoft)
                     .frame(width: 76, height: 76)
                 Image(systemName: "person.crop.circle.fill")
-                    .font(.system(size: 54))
-                    .foregroundStyle(AcademyColors.claret)
+                    .font(AcademyType.ui( 54))
+                    .foregroundStyle(AcademyColors.accent)
             }
 
             VStack(spacing: 4) {
                 Text(authManager.displayName ?? "Academy Watch member")
-                    .font(.title2.weight(.bold))
+                    .font(AcademyType.title2)
                 if let email = authManager.email {
                     Text(email)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .font(AcademyType.subheadline)
+                        .foregroundStyle(AcademyColors.secondaryText)
                 }
             }
 
             VStack(spacing: 9) {
                 HStack {
                     Label("Identity", systemImage: "person.text.rectangle")
-                        .font(.subheadline.weight(.semibold))
+                        .font(AcademyType.subheadline.weight(.semibold))
                     Spacer()
                     BadgeView(text: identityName)
                 }
@@ -267,25 +272,25 @@ struct AccountView: View {
 
                 HStack {
                     Label("Scout verification", systemImage: "checkmark.shield")
-                        .font(.subheadline.weight(.semibold))
+                        .font(AcademyType.subheadline.weight(.semibold))
                     Spacer()
                     if authManager.isVerifiedScout {
                         BadgeView(
                             text: "Verified scout",
-                            foregroundColor: AcademyColors.positiveGreen,
-                            backgroundColor: AcademyColors.positiveGreen.opacity(0.12)
+                            foregroundColor: AcademyColors.good,
+                            backgroundColor: AcademyColors.good.opacity(0.12)
                         )
                     } else if authManager.accountRole == .scout {
                         BadgeView(
                             text: "Scout unverified",
-                            foregroundColor: AcademyColors.loanAmber,
-                            backgroundColor: AcademyColors.loanAmber.opacity(0.12)
+                            foregroundColor: AcademyColors.warnText,
+                            backgroundColor: AcademyColors.warnText.opacity(0.12)
                         )
                     } else {
                         BadgeView(
                             text: "Not scout-verified",
-                            foregroundColor: .secondary,
-                            backgroundColor: Color.secondary.opacity(0.1)
+                            foregroundColor: AcademyColors.secondaryText,
+                            backgroundColor: AcademyColors.secondaryText.opacity(0.1)
                         )
                     }
                 }
@@ -293,17 +298,10 @@ struct AccountView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(20)
-        .background(
-            LinearGradient(
-                colors: [AcademyColors.surface, AcademyColors.claretSoft.opacity(0.5)],
-                startPoint: .top,
-                endPoint: .bottomTrailing
-            ),
-            in: RoundedRectangle(cornerRadius: 21)
-        )
+        .background(AcademyColors.background, in: RoundedRectangle(cornerRadius: 10))
         .overlay {
-            RoundedRectangle(cornerRadius: 21)
-                .stroke(AcademyColors.claret.opacity(0.14), lineWidth: 0.75)
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(AcademyColors.hairline, lineWidth: 1)
         }
         .accessibilityIdentifier("account-signed-in")
     }
@@ -341,27 +339,27 @@ struct AccountView: View {
         } label: {
             HStack(spacing: 13) {
                 Image(systemName: authManager.isVerifiedScout ? "checkmark.shield.fill" : "checkmark.shield")
-                    .font(.title2)
-                    .foregroundStyle(authManager.isVerifiedScout ? AcademyColors.positiveGreen : AcademyColors.claret)
+                    .font(AcademyType.title2)
+                    .foregroundStyle(authManager.isVerifiedScout ? AcademyColors.good : AcademyColors.accent)
                     .frame(width: 34)
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Scout Verification")
-                        .font(.headline)
+                        .font(AcademyType.headline)
                     Text(
                         authManager.isVerifiedScout
                             ? "Your professional scouting role is verified."
                             : "Apply or check your verification status."
                     )
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .font(AcademyType.subheadline)
+                    .foregroundStyle(AcademyColors.secondaryText)
                     .multilineTextAlignment(.leading)
                 }
 
                 Spacer(minLength: 6)
                 Image(systemName: "chevron.right")
-                    .font(.subheadline.weight(.bold))
-                    .foregroundStyle(.tertiary)
+                    .font(AcademyType.subheadline.weight(.semibold))
+                    .foregroundStyle(AcademyColors.secondaryText)
             }
             .padding(16)
             .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 17))
@@ -380,14 +378,14 @@ struct AccountView: View {
                     } label: {
                         HStack(spacing: 13) {
                             Image(systemName: "tray.full.fill")
-                                .font(.title2)
-                                .foregroundStyle(AcademyColors.claret)
+                                .font(AcademyType.title2)
+                                .foregroundStyle(AcademyColors.accent)
                                 .frame(width: 34)
 
                             VStack(alignment: .leading, spacing: 4) {
                                 HStack(spacing: 8) {
                                     Text("Incoming Introductions")
-                                        .font(.headline)
+                                        .font(AcademyType.headline)
                                     if incomingRequestsViewModel.hasLoaded,
                                        !incomingRequestsViewModel.requests.isEmpty {
                                         BadgeView(
@@ -396,19 +394,19 @@ struct AccountView: View {
                                     }
                                 }
                                 Text("Review scout introductions for your claimed player profile.")
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
+                                    .font(AcademyType.subheadline)
+                                    .foregroundStyle(AcademyColors.secondaryText)
                                     .multilineTextAlignment(.leading)
                             }
 
                             Spacer(minLength: 6)
                             if incomingRequestsViewModel.isLoading,
                                !incomingRequestsViewModel.hasLoaded {
-                                ProgressView().controlSize(.small)
+                                WingLiftLoadingView().controlSize(.small)
                             } else {
                                 Image(systemName: "chevron.right")
-                                    .font(.subheadline.weight(.bold))
-                                    .foregroundStyle(.tertiary)
+                                    .font(AcademyType.subheadline.weight(.semibold))
+                                    .foregroundStyle(AcademyColors.secondaryText)
                             }
                         }
                         .padding(16)
@@ -423,31 +421,31 @@ struct AccountView: View {
                 } label: {
                     HStack(spacing: 13) {
                         Image(systemName: "paperplane.fill")
-                            .font(.title2)
-                            .foregroundStyle(AcademyColors.claret)
+                            .font(AcademyType.title2)
+                            .foregroundStyle(AcademyColors.accent)
                             .frame(width: 34)
 
                         VStack(alignment: .leading, spacing: 4) {
                             HStack(spacing: 8) {
                                 Text("Sent Requests")
-                                    .font(.headline)
+                                    .font(AcademyType.headline)
                                 if sentRequestsViewModel.hasLoaded, !sentRequestsViewModel.requests.isEmpty {
                                     BadgeView(text: sentRequestsViewModel.requests.count.formatted())
                                 }
                             }
                             Text("Track requests, accepted threads, and outcomes.")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
+                                .font(AcademyType.subheadline)
+                                .foregroundStyle(AcademyColors.secondaryText)
                                 .multilineTextAlignment(.leading)
                         }
 
                         Spacer(minLength: 6)
                         if sentRequestsViewModel.isLoading, !sentRequestsViewModel.hasLoaded {
-                            ProgressView().controlSize(.small)
+                            WingLiftLoadingView().controlSize(.small)
                         } else {
                             Image(systemName: "chevron.right")
-                                .font(.subheadline.weight(.bold))
-                                .foregroundStyle(.tertiary)
+                                .font(AcademyType.subheadline.weight(.semibold))
+                                .foregroundStyle(AcademyColors.secondaryText)
                         }
                     }
                     .padding(16)
@@ -472,23 +470,23 @@ struct AccountView: View {
             } label: {
                 HStack(spacing: 13) {
                     Image(systemName: "square.and.arrow.down")
-                        .font(.title2)
-                        .foregroundStyle(AcademyColors.claret)
+                        .font(AcademyType.title2)
+                        .foregroundStyle(AcademyColors.accent)
                         .frame(width: 34)
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Export my data").font(.headline)
+                        Text("Export my data").font(AcademyType.headline)
                         Text("Download a copy of everything we store about you")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                            .font(AcademyType.subheadline)
+                            .foregroundStyle(AcademyColors.secondaryText)
                             .multilineTextAlignment(.leading)
                     }
                     Spacer(minLength: 6)
                     if exportState == .loading {
-                        ProgressView().controlSize(.small)
+                        WingLiftLoadingView().controlSize(.small)
                     } else {
                         Image(systemName: "chevron.right")
-                            .font(.subheadline.weight(.bold))
-                            .foregroundStyle(.tertiary)
+                            .font(AcademyType.subheadline.weight(.semibold))
+                            .foregroundStyle(AcademyColors.secondaryText)
                     }
                 }
                 .padding(16)
@@ -504,14 +502,14 @@ struct AccountView: View {
                         "We couldn’t prepare your export. Check your connection and try again.",
                         systemImage: "exclamationmark.triangle.fill"
                     )
-                    .font(.footnote)
-                    .foregroundStyle(Color(uiColor: .systemRed))
+                    .font(AcademyType.footnote)
+                    .foregroundStyle(AcademyColors.danger)
                     .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 4)
                     Button("Retry") {
                         Task { await exportAccountData() }
                     }
-                    .font(.footnote.weight(.semibold))
+                    .font(AcademyType.footnote.weight(.semibold))
                 }
                 .padding(.horizontal, 4)
             }
@@ -521,19 +519,19 @@ struct AccountView: View {
             } label: {
                 HStack(spacing: 13) {
                     Image(systemName: "person.crop.circle.badge.xmark")
-                        .font(.title2)
-                        .foregroundStyle(AcademyColors.claret)
+                        .font(AcademyType.title2)
+                        .foregroundStyle(AcademyColors.accent)
                         .frame(width: 34)
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Blocked users").font(.headline)
+                        Text("Blocked users").font(AcademyType.headline)
                         Text("Review people you’ve blocked or unblock them.")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                            .font(AcademyType.subheadline)
+                            .foregroundStyle(AcademyColors.secondaryText)
                     }
                     Spacer()
                     Image(systemName: "chevron.right")
-                        .font(.subheadline.weight(.bold))
-                        .foregroundStyle(.tertiary)
+                        .font(AcademyType.subheadline.weight(.semibold))
+                        .foregroundStyle(AcademyColors.secondaryText)
                 }
                 .padding(16)
                 .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 17))
@@ -541,6 +539,16 @@ struct AccountView: View {
             .buttonStyle(.plain)
             .accessibilityIdentifier("account-blocked-users")
 
+            #if DEBUG && targetEnvironment(simulator)
+            if Phase2Fixtures.active && ProcessInfo.processInfo.arguments.contains("-reviewAccountSwitch") {
+                Button("Switch fixture account") {
+                    Task {
+                        _ = try? await authManager.verifyCode(email: "second@fixture.invalid", code: "123456")
+                    }
+                }.accessibilityIdentifier("fixture-account-switch")
+                Text(authManager.email ?? "signed-out").accessibilityIdentifier("fixture-account-identity")
+            }
+            #endif
             Button(role: .destructive) {
                 authManager.signOut()
             } label: {
@@ -548,7 +556,7 @@ struct AccountView: View {
                     .frame(maxWidth: .infinity)
                     .frame(height: 44)
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(FloodlightPillStyle(variant: .outline))
 
             Button(role: .destructive) {
                 isDeleteAccountPresented = true
@@ -557,7 +565,7 @@ struct AccountView: View {
                     .frame(maxWidth: .infinity)
                     .frame(height: 44)
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(FloodlightPillStyle(variant: .outline))
             .accessibilityIdentifier("account-delete-account")
         }
     }
@@ -597,35 +605,35 @@ struct AccountView: View {
         VStack(spacing: 18) {
             if let confirmation = authManager.accountDeletionConfirmationMessage {
                 Label(confirmation, systemImage: "checkmark.circle.fill")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(AcademyColors.positiveGreen)
+                    .font(AcademyType.subheadline.weight(.semibold))
+                    .foregroundStyle(AcademyColors.good)
                     .multilineTextAlignment(.center)
                     .accessibilityIdentifier("account-deletion-confirmation")
             }
             Image(systemName: "person.crop.circle.badge.checkmark")
-                .font(.system(size: 62))
-                .foregroundStyle(AcademyColors.claret)
+                .font(AcademyType.ui( 62))
+                .foregroundStyle(AcademyColors.accent)
             Text("Your scout account")
-                .font(.title2.weight(.bold))
+                .font(AcademyType.title2)
             Text("Sign in to apply for scout verification, manage introduction requests, and continue accepted conversations.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .font(AcademyType.subheadline)
+                .foregroundStyle(AcademyColors.secondaryText)
                 .multilineTextAlignment(.center)
             Button("Sign In", action: onSignInRequested)
-                .buttonStyle(.borderedProminent)
-                .tint(AcademyColors.claretFill)
+                .buttonStyle(FloodlightPillStyle())
+                .tint(AcademyColors.primaryFill)
                 .frame(maxWidth: .infinity)
                 .accessibilityIdentifier("account-sign-in")
         }
         .padding(24)
         .frame(maxWidth: .infinity)
-        .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 20))
+        .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 10))
     }
 
-    private var legalSection: some View {
+    var legalSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Legal")
-                .font(.title3.weight(.bold))
+                .font(AcademyType.title3)
                 .padding(.horizontal, 4)
 
             VStack(spacing: 0) {
@@ -633,19 +641,19 @@ struct AccountView: View {
                     LegalSafariLink(destination: destination) {
                         HStack(spacing: 13) {
                             Image(systemName: destination.systemImage)
-                                .font(.body.weight(.semibold))
-                                .foregroundStyle(AcademyColors.claret)
+                                .font(AcademyType.body.weight(.semibold))
+                                .foregroundStyle(AcademyColors.accent)
                                 .frame(width: 28)
 
                             Text(destination.title)
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(.primary)
+                                .font(AcademyType.subheadline.weight(.semibold))
+                                .foregroundStyle(AcademyColors.text)
 
                             Spacer(minLength: 6)
 
                             Image(systemName: "arrow.up.right.square")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(.tertiary)
+                                .font(AcademyType.subheadline.weight(.semibold))
+                                .foregroundStyle(AcademyColors.secondaryText)
                         }
                         .padding(.horizontal, 16)
                         .frame(minHeight: 50)
@@ -701,24 +709,24 @@ private struct DeleteAccountSheet: View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 20) {
                 Image(systemName: "trash.circle.fill")
-                    .font(.system(size: 54))
-                    .foregroundStyle(Color(uiColor: .systemRed))
+                    .font(AcademyType.ui( 54))
+                    .foregroundStyle(AcademyColors.danger)
 
                 Text("Delete your account")
-                    .font(.title2.weight(.bold))
+                    .font(AcademyType.title2)
 
                 Text("Deletion is immediate and irreversible. Your sign-in account, profile claims, watchlist, lists, contact requests and messages, reports, and other content you submitted will be deleted or anonymized where records must be retained.")
-                    .font(.body)
-                    .foregroundStyle(.secondary)
+                    .font(AcademyType.body)
+                    .foregroundStyle(AcademyColors.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
 
                 Label("You will be signed out on this device.", systemImage: "key.slash")
-                    .font(.subheadline.weight(.semibold))
+                    .font(AcademyType.subheadline.weight(.semibold))
 
                 if let errorMessage {
                     Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
-                        .font(.footnote)
-                        .foregroundStyle(Color(uiColor: .systemRed))
+                        .font(AcademyType.footnote)
+                        .foregroundStyle(AcademyColors.danger)
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
@@ -729,15 +737,15 @@ private struct DeleteAccountSheet: View {
                 } label: {
                     HStack {
                         Spacer()
-                        if isDeleting { ProgressView() }
+                        if isDeleting { WingLiftLoadingView() }
                         Text(isDeleting ? "Deleting…" : "Continue to Delete")
                             .fontWeight(.semibold)
                         Spacer()
                     }
                     .frame(height: 44)
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(Color(uiColor: .systemRed))
+                .buttonStyle(FloodlightPillStyle())
+                .tint(AcademyColors.danger)
                 .disabled(isDeleting)
                 .accessibilityIdentifier("confirm-account-deletion-step-one")
             }

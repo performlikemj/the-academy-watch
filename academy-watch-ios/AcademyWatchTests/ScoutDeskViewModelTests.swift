@@ -25,7 +25,7 @@ final class ScoutDeskViewModelTests: XCTestCase {
         )
 
         XCTAssertTrue(viewModel.isLoadingInitial)
-        XCTAssertTrue(viewModel.shouldShowWingLiftLoadingCard)
+        XCTAssertTrue(viewModel.shouldShowLogoLoadingCard)
         XCTAssertFalse(viewModel.shouldShowInlineInitialLoader)
 
         let loadTask = Task {
@@ -36,7 +36,7 @@ final class ScoutDeskViewModelTests: XCTestCase {
         XCTAssertTrue(viewModel.isLoadingInitial)
         XCTAssertTrue(viewModel.players.isEmpty)
         XCTAssertFalse(viewModel.hasCompletedFirstLoad)
-        XCTAssertTrue(viewModel.shouldShowWingLiftLoadingCard)
+        XCTAssertTrue(viewModel.shouldShowLogoLoadingCard)
         XCTAssertFalse(viewModel.shouldShowInlineInitialLoader)
         let requestCountsDuringSeasonDiscovery = await client.requestCounts()
         XCTAssertEqual(requestCountsDuringSeasonDiscovery.players, 0)
@@ -49,7 +49,7 @@ final class ScoutDeskViewModelTests: XCTestCase {
     }
 
     @MainActor
-    func testTrueFirstLoadShowsWingLiftCardWhileWaitingForContent() async throws {
+    func testTrueFirstLoadShowsLogoCardWhileWaitingForContent() async throws {
         let playersResponse = try capturedPlayersResponse()
         let client = SuspendedScoutAPIClient(
             playersResponse: playersResponse,
@@ -72,10 +72,10 @@ final class ScoutDeskViewModelTests: XCTestCase {
         XCTAssertTrue(viewModel.isLoadingInitial)
         XCTAssertTrue(viewModel.players.isEmpty)
         XCTAssertFalse(viewModel.hasCompletedFirstLoad)
-        XCTAssertTrue(viewModel.shouldShowWingLiftLoadingCard)
+        XCTAssertTrue(viewModel.shouldShowLogoLoadingCard)
         XCTAssertFalse(viewModel.shouldShowInlineInitialLoader)
         XCTAssertNotEqual(
-            viewModel.shouldShowWingLiftLoadingCard,
+            viewModel.shouldShowLogoLoadingCard,
             viewModel.shouldShowInlineInitialLoader
         )
 
@@ -115,10 +115,10 @@ final class ScoutDeskViewModelTests: XCTestCase {
 
         XCTAssertTrue(viewModel.isLoadingInitial)
         XCTAssertTrue(viewModel.players.isEmpty)
-        XCTAssertFalse(viewModel.shouldShowWingLiftLoadingCard)
+        XCTAssertFalse(viewModel.shouldShowLogoLoadingCard)
         XCTAssertTrue(viewModel.shouldShowInlineInitialLoader)
         XCTAssertNotEqual(
-            viewModel.shouldShowWingLiftLoadingCard,
+            viewModel.shouldShowLogoLoadingCard,
             viewModel.shouldShowInlineInitialLoader
         )
         XCTAssertNil(viewModel.initialLoadFeedback())
@@ -128,7 +128,7 @@ final class ScoutDeskViewModelTests: XCTestCase {
     }
 
     @MainActor
-    func testWarmCacheDisarmsWingLiftCardBeforeLaterCacheMiss() async throws {
+    func testWarmCacheDisarmsLogoCardBeforeLaterCacheMiss() async throws {
         let playersResponse = try capturedPlayersResponse()
         let leaderboardsResponse = ScoutLeaderboardsResponse(
             leaderboards: ["top_scorers": Array(playersResponse.players.prefix(1))],
@@ -151,7 +151,7 @@ final class ScoutDeskViewModelTests: XCTestCase {
         await client.waitUntilBothRequestsStart()
 
         XCTAssertTrue(viewModel.hasCompletedFirstLoad)
-        XCTAssertFalse(viewModel.shouldShowWingLiftLoadingCard)
+        XCTAssertFalse(viewModel.shouldShowLogoLoadingCard)
 
         let filterReload = Task {
             await viewModel.selectAgePreset(.under18)
@@ -160,7 +160,7 @@ final class ScoutDeskViewModelTests: XCTestCase {
 
         XCTAssertTrue(viewModel.isLoadingInitial)
         XCTAssertTrue(viewModel.players.isEmpty)
-        XCTAssertFalse(viewModel.shouldShowWingLiftLoadingCard)
+        XCTAssertFalse(viewModel.shouldShowLogoLoadingCard)
 
         await client.releaseRequests()
         await initialLoad.value

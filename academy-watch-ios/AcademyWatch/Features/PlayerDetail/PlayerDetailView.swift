@@ -111,8 +111,7 @@ struct PlayerDetailView: View {
             AcademyColors.background.ignoresSafeArea()
 
             if viewModel.isLoading(.profile), viewModel.profile == nil {
-                ProgressView("Loading player…")
-                    .tint(AcademyColors.claret)
+                WingLiftLoadingView("Loading player…")
             } else if let message = viewModel.errorMessage(for: .profile), viewModel.profile == nil {
                 PlayerDetailPageError(message: message) {
                     Task { await viewModel.reload() }
@@ -121,11 +120,7 @@ struct PlayerDetailView: View {
             } else if let profile = viewModel.profile {
                 detailContent(profile: profile)
             } else if viewModel.hasAttemptedLoad {
-                ContentUnavailableView(
-                    "Player unavailable",
-                    systemImage: "person.crop.circle.badge.questionmark",
-                    description: Text("No profile was returned for player #\(viewModel.playerID).")
-                )
+                FloodlightEmptyState(title: "Player unavailable", systemImage: "person.crop.circle.badge.questionmark", description: "No profile was returned for player #\(viewModel.playerID).")
             }
         }
         .navigationTitle(viewModel.profile?.name ?? "Player Detail")
@@ -187,11 +182,13 @@ struct PlayerDetailView: View {
             async let showcaseLoad: Void = showcaseViewModel.loadIfNeeded()
             _ = await (detailLoad, showcaseLoad)
         }
-        .task(id: authManager.isAuthenticated) {
+        .task(id: authManager.accountIdentity) {
+            claimViewModel.resetAccount()
             guard !prioritizesIntroductionFixture else { return }
             await claimViewModel.load(isAuthenticated: authManager.isAuthenticated)
         }
-        .task(id: authManager.isAuthenticated) {
+        .task(id: authManager.accountIdentity) {
+            fanViewModel.resetAccount()
             // The count endpoint is anonymous-OK; auth only changes the
             // caller's own `following` flag, so re-resolve on auth changes.
             await fanViewModel.refresh()
@@ -244,24 +241,24 @@ struct PlayerDetailView: View {
                             isAddGamePresented = true
                         } label: {
                             Label("Add a game", systemImage: "figure.soccer")
-                                .font(.subheadline.weight(.semibold))
+                                .font(AcademyType.subheadline.weight(.semibold))
                         }
-                        .buttonStyle(.bordered)
-                        .tint(AcademyColors.claret)
+                        .buttonStyle(FloodlightPillStyle(variant: .outline))
+                        .tint(AcademyColors.accent)
                         .accessibilityIdentifier("add-game-open")
                     }
                     ShowcaseSectionView(viewModel: showcaseViewModel)
                     if !prioritizesIntroductionFixture {
                         introductionSection(profile: profile)
                     }
-                    seasonSection(profile: profile)
+                    seasonSection(profile: profile).id("review-season")
                     recentFormSection
                     journeySection(profile: profile)
                     availabilitySection
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 14)
-            }
+            }.background(AcademyColors.background)
             .refreshable {
                 async let detailReload: Void = viewModel.reload()
                 async let showcaseReload: Void = showcaseViewModel.reload()
@@ -274,6 +271,14 @@ struct PlayerDetailView: View {
                 }
             }
             .accessibilityIdentifier("player-detail-scroll")
+            #if DEBUG && targetEnvironment(simulator)
+            .task {
+                if FloodlightPreview.screen == "season" {
+                    try? await Task.sleep(for: .milliseconds(800))
+                    proxy.scrollTo("review-season", anchor: .top)
+                }
+            }
+            #endif
             .task {
                 guard prioritizesInterestSignalsFixture else { return }
                 try? await Task.sleep(for: .milliseconds(300))
@@ -354,8 +359,8 @@ struct PlayerDetailView: View {
 
                 if stats.clubs.isEmpty {
                     Text("Club-level totals are not available for this season.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+                        .font(AcademyType.footnote)
+                        .foregroundStyle(AcademyColors.secondaryText)
                         .padding(.horizontal, 2)
                 } else {
                     ForEach(Array(stats.clubs.enumerated()), id: \.offset) { _, club in
@@ -407,7 +412,7 @@ struct PlayerDetailView: View {
                         }
                     }
                     .padding(.vertical, 1)
-                }
+                }.background(AcademyColors.background)
             }
         }
     }
@@ -439,8 +444,8 @@ struct PlayerDetailView: View {
 
                 if viewModel.timelineEntries.allSatisfy({ $0.minutes == nil }) {
                     Label("Journey minutes are not exposed by the current public feed.", systemImage: "info.circle")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(AcademyType.caption)
+                        .foregroundStyle(AcademyColors.secondaryText)
                         .padding(.leading, 30)
                 }
             }
@@ -480,6 +485,8 @@ struct PlayerDetailView: View {
 }
 
 private struct PlayerProfileHeader: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     let profile: PlayerProfile
     let birthDate: String?
 
@@ -489,7 +496,7 @@ private struct PlayerProfileHeader: View {
 
             VStack(spacing: 7) {
                 Text(profile.name)
-                    .font(.system(.largeTitle, design: .rounded, weight: .bold))
+                    .font(AcademyType.largeTitle)
                     .multilineTextAlignment(.center)
                     .minimumScaleFactor(0.75)
 
@@ -508,8 +515,8 @@ private struct PlayerProfileHeader: View {
 
                 if !metadataLine.isEmpty {
                     Text(metadataLine)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .font(AcademyType.subheadline)
+                        .foregroundStyle(AcademyColors.secondaryText)
                 }
             }
 
@@ -521,11 +528,11 @@ private struct PlayerProfileHeader: View {
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text(clubName)
-                            .font(.headline)
+                            .font(AcademyType.headline)
                         if let clubOriginLine = profile.clubOriginLine {
                             Text(clubOriginLine)
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
+                                .font(AcademyType.subheadline)
+                                .foregroundStyle(AcademyColors.secondaryText)
                         }
                     }
                     Spacer()
@@ -534,30 +541,19 @@ private struct PlayerProfileHeader: View {
         }
         .padding(18)
         .frame(maxWidth: .infinity)
-        .background(
-            LinearGradient(
-                colors: [AcademyColors.surface, AcademyColors.claretSoft.opacity(0.45)],
-                startPoint: .top,
-                endPoint: .bottomTrailing
-            ),
-            in: RoundedRectangle(cornerRadius: 22, style: .continuous)
-        )
-        .overlay {
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(AcademyColors.claret.opacity(0.16), lineWidth: 0.75)
-        }
+        .overlay(alignment: .bottom) { Rectangle().fill(AcademyColors.hairline).frame(height: 1) }
     }
 
     @ViewBuilder
     private var profilePhoto: some View {
         Group {
             if let photoURL = profile.photoURL {
-                AsyncImage(url: photoURL, transaction: Transaction(animation: .easeInOut(duration: 0.2))) { phase in
+                AsyncImage(url: photoURL, transaction: Transaction(animation: reduceMotion ? nil : .easeInOut(duration: 0.2))) { phase in
                     switch phase {
                     case let .success(image):
                         image.resizable().scaledToFill()
                     case .empty:
-                        ProgressView().tint(AcademyColors.claret)
+                        WingLiftLoadingView()
                     case .failure:
                         photoPlaceholder
                     @unknown default:
@@ -569,13 +565,12 @@ private struct PlayerProfileHeader: View {
             }
         }
         .frame(width: 132, height: 132)
-        .background(Color(uiColor: .tertiarySystemFill))
+        .background(AcademyColors.elevatedSurface)
         .clipShape(Circle())
         .overlay {
-            Circle().stroke(Color.white.opacity(0.9), lineWidth: 4)
-            Circle().stroke(AcademyColors.claret.opacity(0.28), lineWidth: 1)
+            Circle().stroke(AcademyColors.chalk.opacity(0.9), lineWidth: 4)
+            Circle().stroke(AcademyColors.accent.opacity(0.28), lineWidth: 1)
         }
-        .shadow(color: AcademyColors.claret.opacity(0.16), radius: 12, y: 5)
         .accessibilityLabel("Photo of \(profile.name)")
     }
 
@@ -583,7 +578,7 @@ private struct PlayerProfileHeader: View {
         Image(systemName: "person.crop.circle.fill")
             .resizable()
             .scaledToFit()
-            .foregroundStyle(.tertiary)
+            .foregroundStyle(AcademyColors.secondaryText)
     }
 
     private var clubLogo: some View {
@@ -592,18 +587,18 @@ private struct PlayerProfileHeader: View {
                 AsyncImage(url: logoURL) { image in
                     image.resizable().scaledToFit()
                 } placeholder: {
-                    ProgressView().controlSize(.small)
+                    WingLiftLoadingView().controlSize(.small)
                 }
             } else {
                 Image(systemName: "shield.fill")
                     .resizable()
                     .scaledToFit()
-                    .foregroundStyle(AcademyColors.claret)
+                    .foregroundStyle(AcademyColors.accent)
                     .padding(7)
             }
         }
         .frame(width: 42, height: 42)
-        .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 10))
+        .background(AcademyColors.elevatedSurface, in: RoundedRectangle(cornerRadius: 10))
         .accessibilityHidden(true)
     }
 
@@ -655,7 +650,7 @@ private struct SeasonOverviewCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Overall")
-                .font(.headline)
+                .font(AcademyType.headline)
 
             if stats.hasHeadlineData {
                 SeasonMetricGroup(
@@ -671,15 +666,15 @@ private struct SeasonOverviewCard: View {
                 )
             } else {
                 Label("Counting totals unavailable for this coverage snapshot.", systemImage: "info.circle")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .font(AcademyType.footnote)
+                    .foregroundStyle(AcademyColors.secondaryText)
             }
 
             if let comparisonSource = stats.provenance?.sourceLabel {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text("Minutes coverage comparison")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(AcademyType.caption)
+                        .foregroundStyle(AcademyColors.secondaryText)
                     Spacer(minLength: 4)
                     SourceBadge(text: comparisonSource)
                 }
@@ -687,14 +682,14 @@ private struct SeasonOverviewCard: View {
 
             if let detailText = stats.provenance?.detailText {
                 Text(detailText)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(AcademyType.caption)
+                    .foregroundStyle(AcademyColors.secondaryText)
             }
 
             if !stats.hasDetailedGoalkeeperCoverage, isGoalkeeper {
                 Text("Goalkeeper event detail is unavailable at this coverage level.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .font(AcademyType.caption2)
+                    .foregroundStyle(AcademyColors.secondaryText)
             }
         }
         .detailCardStyle()
@@ -751,12 +746,12 @@ private struct SeasonClubCard: View {
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(club.teamName)
-                        .font(.headline)
+                        .font(AcademyType.headline)
                     if let competitionCount {
                         HStack(spacing: 6) {
                             Text("\(competitionCount) competition\(competitionCount == 1 ? "" : "s")")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .font(AcademyType.caption)
+                                .foregroundStyle(AcademyColors.secondaryText)
                             SourceBadge(text: "career season data")
                         }
                     }
@@ -767,8 +762,8 @@ private struct SeasonClubCard: View {
                 if isCurrent {
                     BadgeView(
                         text: "Current",
-                        foregroundColor: AcademyColors.positiveGreen,
-                        backgroundColor: AcademyColors.positiveGreen.opacity(0.12)
+                        foregroundColor: AcademyColors.good,
+                        backgroundColor: AcademyColors.good.opacity(0.12)
                     )
                 }
             }
@@ -797,18 +792,18 @@ private struct SeasonClubCard: View {
                 AsyncImage(url: logoURL) { image in
                     image.resizable().scaledToFit()
                 } placeholder: {
-                    ProgressView().controlSize(.small)
+                    WingLiftLoadingView().controlSize(.small)
                 }
             } else {
                 Image(systemName: "shield.fill")
                     .resizable()
                     .scaledToFit()
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(AcademyColors.secondaryText)
                     .padding(7)
             }
         }
         .frame(width: 40, height: 40)
-        .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 9))
+        .background(AcademyColors.elevatedSurface, in: RoundedRectangle(cornerRadius: 9))
         .accessibilityHidden(true)
     }
 }
@@ -822,9 +817,9 @@ private struct SeasonMetricGroup: View {
         VStack(alignment: .leading, spacing: 7) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(title.uppercased())
-                    .font(.caption2.weight(.bold))
+                    .font(AcademyType.caption2.weight(.medium))
                     .tracking(0.35)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AcademyColors.secondaryText)
                 Spacer(minLength: 4)
                 if let sourceLabel {
                     SourceBadge(text: sourceLabel)
@@ -853,19 +848,18 @@ private struct DetailMetricCell: View {
     var body: some View {
         VStack(spacing: 2) {
             Text(metric.value)
-                .font(.subheadline.weight(.bold))
+                .font(AcademyType.serif(36, relativeTo: .title2))
                 .monospacedDigit()
                 .lineLimit(1)
                 .minimumScaleFactor(0.72)
             Text(metric.label.uppercased())
-                .font(.caption2.weight(.semibold))
+                .font(AcademyType.caption2.weight(.medium))
                 .tracking(0.25)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(AcademyColors.secondaryText)
                 .lineLimit(1)
                 .minimumScaleFactor(0.72)
         }
-        .frame(maxWidth: .infinity, minHeight: 48)
-        .background(Color(uiColor: .tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 9))
+        .frame(maxWidth: .infinity, minHeight: 72)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(metric.label), \(metric.value)")
     }
@@ -877,11 +871,11 @@ private struct RecentMatchCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
             Text(compactDate(fixture.fixtureDate))
-                .font(.caption.weight(.bold))
-                .foregroundStyle(AcademyColors.claret)
+                .font(AcademyType.caption.weight(.medium))
+                .foregroundStyle(AcademyColors.accent)
 
             Text(fixture.opponent ?? "Opponent unavailable")
-                .font(.subheadline.weight(.semibold))
+                .font(AcademyType.subheadline.weight(.semibold))
                 .lineLimit(2)
                 .frame(minHeight: 38, alignment: .topLeading)
 
@@ -896,9 +890,9 @@ private struct RecentMatchCard: View {
         .padding(12)
         .frame(width: 174, alignment: .topLeading)
         .frame(minHeight: 142, alignment: .topLeading)
-        .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .stroke(AcademyColors.separator.opacity(0.35), lineWidth: 0.5)
         }
     }
@@ -906,11 +900,11 @@ private struct RecentMatchCard: View {
     private func matchValue(label: String, value: String) -> some View {
         VStack(spacing: 1) {
             Text(value)
-                .font(.caption.weight(.bold))
+                .font(AcademyType.caption.weight(.medium))
                 .monospacedDigit()
             Text(label)
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(.secondary)
+                .font(AcademyType.caption2.weight(.medium))
+                .foregroundStyle(AcademyColors.secondaryText)
         }
         .frame(maxWidth: .infinity)
     }
@@ -926,10 +920,10 @@ private struct JourneyTimeline: View {
                 HStack(alignment: .top, spacing: 11) {
                     VStack(spacing: 0) {
                         Circle()
-                            .fill(isCurrent(entry) ? AcademyColors.claret : Color(uiColor: .tertiarySystemFill))
+                            .fill(isCurrent(entry) ? AcademyColors.accent : AcademyColors.elevatedSurface)
                             .frame(width: 15, height: 15)
                             .overlay {
-                                Circle().stroke(AcademyColors.claret.opacity(0.42), lineWidth: 1)
+                                Circle().stroke(AcademyColors.accent.opacity(0.42), lineWidth: 1)
                             }
                         if index < entries.count - 1 {
                             Rectangle()
@@ -966,10 +960,10 @@ private struct JourneyTimelineCard: View {
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(entry.seasonLabel)
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(AcademyColors.claret)
+                        .font(AcademyType.caption.weight(.medium))
+                        .foregroundStyle(AcademyColors.accent)
                     Text(entry.clubName)
-                        .font(.headline)
+                        .font(AcademyType.headline)
                         .lineLimit(2)
                 }
 
@@ -978,8 +972,8 @@ private struct JourneyTimelineCard: View {
                 if isCurrent {
                     BadgeView(
                         text: "Current",
-                        foregroundColor: AcademyColors.positiveGreen,
-                        backgroundColor: AcademyColors.positiveGreen.opacity(0.12)
+                        foregroundColor: AcademyColors.good,
+                        backgroundColor: AcademyColors.good.opacity(0.12)
                     )
                 }
             }
@@ -991,14 +985,14 @@ private struct JourneyTimelineCard: View {
                 if let entryType = entry.entryType {
                     BadgeView(
                         text: displayStatus(entryType),
-                        foregroundColor: .secondary,
-                        backgroundColor: Color(uiColor: .tertiarySystemFill)
+                        foregroundColor: AcademyColors.secondaryText,
+                        backgroundColor: AcademyColors.elevatedSurface
                     )
                 }
                 if entry.competitionCount > 0 {
                     Text("\(entry.competitionCount) comp\(entry.competitionCount == 1 ? "" : "s")")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                        .font(AcademyType.caption2)
+                        .foregroundStyle(AcademyColors.secondaryText)
                 }
             }
 
@@ -1022,8 +1016,8 @@ private struct JourneyTimelineCard: View {
                entry.assists == nil,
                entry.minutes == nil {
                 Text("Season totals unavailable")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(AcademyType.caption)
+                    .foregroundStyle(AcademyColors.secondaryText)
             }
         }
         .detailCardStyle()
@@ -1035,13 +1029,13 @@ private struct JourneyTimelineCard: View {
                 AsyncImage(url: logoURL) { image in
                     image.resizable().scaledToFit()
                 } placeholder: {
-                    ProgressView().controlSize(.mini)
+                    WingLiftLoadingView().controlSize(.mini)
                 }
             } else {
                 Image(systemName: "shield.fill")
                     .resizable()
                     .scaledToFit()
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(AcademyColors.secondaryText)
                     .padding(5)
             }
         }
@@ -1052,11 +1046,11 @@ private struct JourneyTimelineCard: View {
     private func timelineStat(_ label: String, _ value: String) -> some View {
         VStack(alignment: .leading, spacing: 1) {
             Text(value)
-                .font(.subheadline.weight(.bold))
+                .font(AcademyType.subheadline.weight(.semibold))
                 .monospacedDigit()
             Text(label)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+                .font(AcademyType.caption2)
+                .foregroundStyle(AcademyColors.secondaryText)
         }
     }
 }
@@ -1068,12 +1062,12 @@ private struct AvailabilityCard: View {
         HStack(alignment: .top, spacing: 14) {
             VStack(spacing: 1) {
                 Text(availability.summary.totalAbsences?.formatted() ?? "—")
-                    .font(.system(.title, design: .rounded, weight: .bold))
-                    .foregroundStyle(AcademyColors.claret)
+                    .font(AcademyType.title)
+                    .foregroundStyle(AcademyColors.accent)
                     .monospacedDigit()
                 Text("ABSENCES")
-                    .font(.caption2.weight(.bold))
-                    .foregroundStyle(.secondary)
+                    .font(AcademyType.caption2.weight(.medium))
+                    .foregroundStyle(AcademyColors.secondaryText)
             }
             .frame(width: 72)
 
@@ -1081,14 +1075,14 @@ private struct AvailabilityCard: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 Text("Latest reason")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(AcademyType.caption)
+                    .foregroundStyle(AcademyColors.secondaryText)
                 Text(availability.summary.lastAbsence?.reason ?? "Unavailable")
-                    .font(.headline)
+                    .font(AcademyType.headline)
                 if let date = availability.summary.lastAbsence?.date {
                     Text(compactDate(date))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(AcademyType.caption)
+                        .foregroundStyle(AcademyColors.secondaryText)
                 }
             }
             Spacer(minLength: 0)
@@ -1104,23 +1098,10 @@ private struct DetailSectionHeader: View {
     var badge: String?
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline) {
-            Label(title, systemImage: iconName)
-                .font(.caption.weight(.bold))
-                .tracking(1.05)
-                .foregroundStyle(AcademyColors.claret)
-            Spacer()
-            if let badge {
-                SourceBadge(text: badge)
-            }
-            if let detail {
-                Text(detail)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
-            }
+        VStack(alignment: .leading, spacing: 8) {
+            FloodlightSectionHeader(title: title.capitalized, counter: detail)
+            if let badge { SourceBadge(text: badge) }
         }
-        .padding(.horizontal, 2)
     }
 }
 
@@ -1129,11 +1110,11 @@ private struct SourceBadge: View {
 
     var body: some View {
         Label(text, systemImage: "checkmark.seal")
-            .font(.caption2.weight(.semibold))
-            .foregroundStyle(.secondary)
+            .font(AcademyType.caption2.weight(.medium))
+            .foregroundStyle(AcademyColors.secondaryText)
             .padding(.horizontal, 7)
             .padding(.vertical, 4)
-            .background(Color(uiColor: .tertiarySystemFill), in: Capsule())
+            .background(AcademyColors.elevatedSurface, in: Capsule())
             .accessibilityLabel("Data source: \(text)")
     }
 }
@@ -1143,10 +1124,10 @@ private struct PlayerDetailLoadingCard: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            ProgressView().tint(AcademyColors.claret)
+            WingLiftLoadingView()
             Text(label)
-                .font(.footnote)
-                .foregroundStyle(.secondary)
+                .font(AcademyType.footnote)
+                .foregroundStyle(AcademyColors.secondaryText)
         }
         .frame(maxWidth: .infinity, minHeight: 76)
         .detailCardStyle()
@@ -1161,11 +1142,11 @@ private struct PlayerDetailEmptyCard: View {
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             Image(systemName: iconName)
-                .font(.title3)
-                .foregroundStyle(AcademyColors.claret)
+                .font(AcademyType.title3)
+                .foregroundStyle(AcademyColors.accent)
             VStack(alignment: .leading, spacing: 3) {
-                Text(title).font(.subheadline.weight(.semibold))
-                Text(message).font(.footnote).foregroundStyle(.secondary)
+                Text(title).font(AcademyType.subheadline.weight(.semibold))
+                Text(message).font(AcademyType.footnote).foregroundStyle(AcademyColors.secondaryText)
             }
             Spacer(minLength: 0)
         }
@@ -1180,16 +1161,17 @@ private struct PlayerDetailInlineError: View {
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(AcademyColors.claret)
+                .foregroundStyle(AcademyColors.accent)
             Text(message)
-                .font(.footnote)
-                .foregroundStyle(.secondary)
+                .font(AcademyType.footnote)
+                .foregroundStyle(AcademyColors.secondaryText)
             Spacer(minLength: 4)
             Button("Retry", action: retry)
-                .font(.footnote.weight(.semibold))
+                .font(AcademyType.footnote.weight(.semibold))
         }
         .padding(12)
-        .background(AcademyColors.claretSoft, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(AcademyColors.accentSoft, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .tint(AcademyColors.secondaryText)
     }
 }
 
@@ -1200,25 +1182,23 @@ private struct PlayerDetailPageError: View {
     var body: some View {
         ContentUnavailableView {
             Label("Player unavailable", systemImage: "wifi.exclamationmark")
+                .font(AcademyType.title2)
+                .foregroundStyle(AcademyColors.text)
         } description: {
             Text(message)
         } actions: {
             Button("Try Again", action: retry)
-                .buttonStyle(.borderedProminent)
-                .tint(AcademyColors.claretFill)
+                .buttonStyle(FloodlightPillStyle())
+                .tint(AcademyColors.primaryFill)
         }
     }
 }
 
 private extension View {
     func detailCardStyle() -> some View {
-        padding(14)
+        padding(.vertical, 14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 15, style: .continuous)
-                    .stroke(AcademyColors.separator.opacity(0.35), lineWidth: 0.5)
-            }
+            .overlay(alignment: .bottom) { Rectangle().fill(AcademyColors.hairline).frame(height: 1) }
     }
 }
 
@@ -1241,12 +1221,12 @@ private func displayStatus(_ status: String) -> String {
 
 private func statusColor(_ status: String) -> Color {
     switch status {
-    case "academy": AcademyColors.academyBlue
-    case "on_loan": AcademyColors.loanAmber
-    case "first_team": AcademyColors.positiveGreen
-    case "sold": AcademyColors.transitionPurple
+    case "academy": AcademyColors.secondaryText
+    case "on_loan": AcademyColors.warnText
+    case "first_team": AcademyColors.good
+    case "sold": AcademyColors.secondaryText
     case "released", "left": .secondary
-    default: AcademyColors.claret
+    default: AcademyColors.accent
     }
 }
 

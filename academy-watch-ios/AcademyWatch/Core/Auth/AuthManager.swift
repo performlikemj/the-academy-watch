@@ -4,6 +4,8 @@ import Foundation
 @MainActor
 final class AuthManager: ObservableObject, AuthSessionProtocol {
     @Published private(set) var state: AuthState
+    /// Session boundary, stable while /auth/me hydrates the saved account.
+    @Published private(set) var accountIdentity: String = "signed-out"
     @Published private(set) var signOutErrorMessage: String?
     @Published private(set) var accountDeletionConfirmationMessage: String?
 
@@ -49,6 +51,7 @@ final class AuthManager: ObservableObject, AuthSessionProtocol {
                     isVerifiedScout: false
                 )
         }
+        accountIdentity = state.isAuthenticated ? UUID().uuidString : "signed-out"
         signOutErrorMessage = nil
         accountDeletionConfirmationMessage = nil
     }
@@ -85,6 +88,7 @@ final class AuthManager: ObservableObject, AuthSessionProtocol {
         }
         try tokenStore.saveToken(response.token)
         token = response.token
+        accountIdentity = UUID().uuidString
         signOutErrorMessage = nil
         accountDeletionConfirmationMessage = nil
         state = .signedIn(
@@ -146,6 +150,7 @@ final class AuthManager: ObservableObject, AuthSessionProtocol {
         }
 
         token = nil
+        accountIdentity = "signed-out"
         state = .signedOut
         protectedResponseCache.removeAllCachedResponses()
     }
@@ -162,6 +167,7 @@ final class AuthManager: ObservableObject, AuthSessionProtocol {
         accountGeneration &+= 1
         try deletePersistedCredential()
         token = nil
+        accountIdentity = "signed-out"
         state = .signedOut
         signOutErrorMessage = nil
         accountDeletionConfirmationMessage = "Your account and associated personal data were deleted."

@@ -29,6 +29,20 @@
             buildForAnalyzing = "NO">
             <BuildableReference
                BuildableIdentifier = "primary"
+               BlueprintIdentifier = "255845D799AE3D84EA91AB47"
+               BuildableName = "AcademyWatchTests.xctest"
+               BlueprintName = "AcademyWatchTests"
+               ReferencedContainer = "container:AcademyWatch.xcodeproj">
+            </BuildableReference>
+         </BuildActionEntry>
+         <BuildActionEntry
+            buildForTesting = "YES"
+            buildForRunning = "NO"
+            buildForProfiling = "NO"
+            buildForArchiving = "NO"
+            buildForAnalyzing = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
                BlueprintIdentifier = "2BF913805A5A17908892F84D"
                BuildableName = "AcademyWatchUITests.xctest"
                BlueprintName = "AcademyWatchUITests"
@@ -41,7 +55,7 @@
       buildConfiguration = "Debug"
       selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"
       selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
-      shouldUseLaunchSchemeArgsEnv = "YES"
+      shouldUseLaunchSchemeArgsEnv = "NO"
       onlyGenerateCoverageForSpecifiedTargets = "NO"
       systemAttachmentLifetime = "keepNever">
       <MacroExpansion>
@@ -56,6 +70,17 @@
       <Testables>
          <TestableReference
             skipped = "NO"
+            parallelizable = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "255845D799AE3D84EA91AB47"
+               BuildableName = "AcademyWatchTests.xctest"
+               BlueprintName = "AcademyWatchTests"
+               ReferencedContainer = "container:AcademyWatch.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
+         <TestableReference
+            skipped = "NO"
             parallelizable = "NO"
             useTestSelectionWhitelist = "YES">
             <BuildableReference
@@ -66,6 +91,9 @@
                ReferencedContainer = "container:AcademyWatch.xcodeproj">
             </BuildableReference>
             <SelectedTests>
+               <Test
+                  Identifier = "Phase2UITests">
+               </Test>
                <Test
                   Identifier = "PlayerClubExperienceUITests">
                </Test>
@@ -80,6 +108,13 @@
       </Testables>
       <CommandLineArguments>
       </CommandLineArguments>
+      <EnvironmentVariables>
+         <EnvironmentVariable
+            key = "ACADEMY_LOCAL_API_URL"
+            value = "http://127.0.0.1:9/api"
+            isEnabled = "YES">
+         </EnvironmentVariable>
+      </EnvironmentVariables>
    </TestAction>
    <LaunchAction
       buildConfiguration = "Debug"
@@ -101,6 +136,15 @@
             ReferencedContainer = "container:AcademyWatch.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
+      <CommandLineArguments>
+      </CommandLineArguments>
+      <EnvironmentVariables>
+         <EnvironmentVariable
+            key = "ACADEMY_LOCAL_API_URL"
+            value = "https://basecamp.tail37b60.ts.net:15443/api"
+            isEnabled = "YES">
+         </EnvironmentVariable>
+      </EnvironmentVariables>
    </LaunchAction>
    <ProfileAction
       buildConfiguration = "Release"

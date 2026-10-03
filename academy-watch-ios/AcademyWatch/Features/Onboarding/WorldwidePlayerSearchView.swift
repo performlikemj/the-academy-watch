@@ -37,14 +37,14 @@ struct WorldwidePlayerSearchView: View {
                     }
                     if let error = viewModel.errorMessage {
                         Label(error, systemImage: "exclamationmark.triangle.fill")
-                            .font(.footnote)
-                            .foregroundStyle(Color(uiColor: .systemRed))
+                            .font(AcademyType.footnote)
+                            .foregroundStyle(AcademyColors.danger)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     results
                 }
                 .padding(18)
-            }
+            }.background(AcademyColors.background)
         }
         .navigationTitle("Search worldwide")
         .navigationBarTitleDisplayMode(.inline)
@@ -54,18 +54,18 @@ struct WorldwidePlayerSearchView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 7) {
             Label("WORLDWIDE", systemImage: "globe.europe.africa.fill")
-                .font(.caption.weight(.bold))
+                .font(AcademyType.caption.weight(.medium))
                 .tracking(1.1)
-                .foregroundStyle(AcademyColors.claret)
+                .foregroundStyle(AcademyColors.accent)
             Text(purpose == .claimSelf ? "Check the global universe" : "Follow any player into a list")
-                .font(.title2.weight(.bold))
+                .font(AcademyType.title2)
             Text(
                 purpose == .claimSelf
                     ? "Open the right profile, then use “This is me.” Player self-claims are reviewed and limited to adults aged 18 or older."
                     : "Players outside tracked coverage are clearly marked Worldwide. Adding one may create a shadow record so tracking can begin; no statistics are invented."
             )
-            .font(.subheadline)
-            .foregroundStyle(.secondary)
+            .font(AcademyType.subheadline)
+            .foregroundStyle(AcademyColors.secondaryText)
             .fixedSize(horizontal: false, vertical: true)
         }
         .padding(18)
@@ -80,19 +80,19 @@ struct WorldwidePlayerSearchView: View {
                 .submitLabel(.search)
                 .onSubmit { Task { await viewModel.search() } }
                 .padding(13)
-                .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 12))
+                .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 10))
                 .accessibilityIdentifier("worldwide-player-query")
             Button {
                 Task { await viewModel.search() }
             } label: {
                 if viewModel.isSearching {
-                    ProgressView().controlSize(.small)
+                    WingLiftLoadingView().controlSize(.small)
                 } else {
                     Image(systemName: "magnifyingglass")
                 }
             }
-            .buttonStyle(.borderedProminent)
-            .tint(AcademyColors.claretFill)
+            .buttonStyle(FloodlightPillStyle())
+            .tint(AcademyColors.primaryFill)
             .disabled(viewModel.isSearching)
             .accessibilityLabel("Search worldwide")
         }
@@ -102,11 +102,7 @@ struct WorldwidePlayerSearchView: View {
     private var results: some View {
         if viewModel.players.isEmpty, viewModel.hasSearched, !viewModel.isSearching,
            viewModel.errorMessage == nil {
-            ContentUnavailableView(
-                "No worldwide players found",
-                systemImage: "person.crop.circle.badge.questionmark",
-                description: Text("Check the spelling or try a longer version of the name.")
-            )
+            FloodlightEmptyState(title: "No worldwide players found", systemImage: "person.crop.circle.badge.questionmark", description: "Check the spelling or try a longer version of the name.")
         } else {
             LazyVStack(spacing: 11) {
                 ForEach(viewModel.players) { player in
@@ -126,13 +122,13 @@ struct WorldwidePlayerSearchView: View {
             } label: {
                 Label("Open", systemImage: "chevron.right")
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(FloodlightPillStyle(variant: .outline))
         } else {
             let availableLists = listsViewModel.lists.filter { !$0.isDefault }
             if availableLists.isEmpty {
                 Text("Create a list first")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(AcademyType.caption)
+                    .foregroundStyle(AcademyColors.secondaryText)
             } else {
                 Menu {
                     ForEach(availableLists) { list in
@@ -147,13 +143,13 @@ struct WorldwidePlayerSearchView: View {
                     }
                 } label: {
                     if viewModel.pendingPlayerID == player.playerApiId {
-                        ProgressView().controlSize(.small)
+                        WingLiftLoadingView().controlSize(.small)
                     } else {
                         Label("Add", systemImage: "plus")
                     }
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(AcademyColors.claretFill)
+                .buttonStyle(FloodlightPillStyle())
+                .tint(AcademyColors.primaryFill)
                 .disabled(viewModel.pendingPlayerID != nil)
             }
         }
@@ -165,19 +161,19 @@ struct WorldwidePlayerSearchView: View {
                 confirmation.shadowCreated ? "Worldwide tracking started" : "Added to your list",
                 systemImage: "checkmark.circle.fill"
             )
-            .font(.headline)
-            .foregroundStyle(AcademyColors.positiveGreen)
+            .font(AcademyType.headline)
+            .foregroundStyle(AcademyColors.good)
             Text("\(confirmation.playerName) was added to \(confirmation.listName).")
-                .font(.subheadline)
+                .font(AcademyType.subheadline)
             if confirmation.shadowCreated {
                 Text("A clearly badged shadow profile was created. Coverage may be limited while verified data is collected.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .font(AcademyType.footnote)
+                    .foregroundStyle(AcademyColors.secondaryText)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
-        .background(AcademyColors.positiveGreen.opacity(0.10), in: RoundedRectangle(cornerRadius: 16))
+        .background(AcademyColors.good.opacity(0.10), in: RoundedRectangle(cornerRadius: 10))
         .accessibilityIdentifier("worldwide-follow-confirmation")
     }
 }
@@ -193,20 +189,20 @@ private struct WorldwidePlayerRow<Action: View>: View {
             } placeholder: {
                 Image(systemName: "person.crop.circle.fill")
                     .resizable()
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(AcademyColors.secondaryText)
             }
             .frame(width: 48, height: 48)
             .clipShape(Circle())
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
-                    Text(player.name).font(.headline).lineLimit(1)
+                    Text(player.name).font(AcademyType.headline).lineLimit(1)
                     BadgeView(
                         text: player.tracked ? "TRACKED" : (player.shadow ? "WORLDWIDE SHADOW" : "WORLDWIDE"),
-                        foregroundColor: player.tracked ? AcademyColors.positiveGreen : AcademyColors.claret,
+                        foregroundColor: player.tracked ? AcademyColors.good : AcademyColors.accent,
                         backgroundColor: player.tracked
-                            ? AcademyColors.positiveGreen.opacity(0.10)
-                            : AcademyColors.claretSoft
+                            ? AcademyColors.good.opacity(0.10)
+                            : AcademyColors.accentSoft
                     )
                 }
                 Text(
@@ -215,15 +211,15 @@ private struct WorldwidePlayerRow<Action: View>: View {
                         .joined(separator: " · ")
                         .nonEmpty ?? "Details unavailable —"
                 )
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(AcademyType.caption)
+                .foregroundStyle(AcademyColors.secondaryText)
                 .lineLimit(2)
             }
             Spacer(minLength: 4)
             action()
         }
         .padding(14)
-        .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 16))
+        .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 10))
     }
 }
 

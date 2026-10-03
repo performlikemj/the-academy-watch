@@ -42,9 +42,9 @@ struct PlayerTakedownRequestSheet: View {
                         .fixedSize(horizontal: false, vertical: true)
                 } icon: {
                     Image(systemName: "person.crop.circle.badge.minus")
-                        .foregroundStyle(AcademyColors.claret)
+                        .foregroundStyle(AcademyColors.accent)
                 }
-            }
+            }.listRowBackground(AcademyColors.background)
 
             Section("Who are you?") {
                 Picker("Requester", selection: $viewModel.requesterRole) {
@@ -59,7 +59,7 @@ struct PlayerTakedownRequestSheet: View {
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .accessibilityIdentifier("takedown-contact-email")
-            }
+            }.listRowBackground(AcademyColors.background)
 
             Section("Why should this profile be removed?") {
                 TextEditor(text: $viewModel.statement)
@@ -71,9 +71,9 @@ struct PlayerTakedownRequestSheet: View {
                         }
                     }
                 Text("Include enough detail for us to verify that you are the player or are authorized to act for them. \(viewModel.statement.count)/2,000")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+                    .font(AcademyType.caption)
+                    .foregroundStyle(AcademyColors.secondaryText)
+            }.listRowBackground(AcademyColors.background)
 
             if viewModel.state == .failed {
                 Section {
@@ -81,9 +81,9 @@ struct PlayerTakedownRequestSheet: View {
                         PlayerTakedownRequestViewModel.genericErrorMessage,
                         systemImage: "exclamationmark.triangle.fill"
                     )
-                    .font(.footnote)
-                    .foregroundStyle(Color(uiColor: .systemRed))
-                }
+                    .font(AcademyType.footnote)
+                    .foregroundStyle(AcademyColors.danger)
+                }.listRowBackground(AcademyColors.background)
             }
 
             Section {
@@ -93,7 +93,7 @@ struct PlayerTakedownRequestSheet: View {
                     HStack {
                         Spacer()
                         if viewModel.state == .submitting {
-                            ProgressView()
+                            WingLiftLoadingView()
                         }
                         Text(submitButtonTitle)
                             .fontWeight(.semibold)
@@ -104,24 +104,26 @@ struct PlayerTakedownRequestSheet: View {
                 .accessibilityIdentifier("submit-takedown-request")
             } footer: {
                 Text("Submitting a request does not indicate whether a profile exists or what action will be taken.")
-            }
+            }.listRowBackground(AcademyColors.background)
         }
+        .scrollContentBackground(.hidden)
+        .background(AcademyColors.background)
     }
 
     private var confirmationContent: some View {
         VStack(spacing: 18) {
             Image(systemName: "checkmark.shield.fill")
-                .font(.system(size: 54))
-                .foregroundStyle(AcademyColors.positiveGreen)
+                .font(AcademyType.ui( 54))
+                .foregroundStyle(AcademyColors.good)
             Text(PlayerTakedownRequestViewModel.confirmationMessage)
-                .font(.title3.weight(.semibold))
+                .font(AcademyType.title3)
                 .multilineTextAlignment(.center)
             Text("You may close this form now.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .font(AcademyType.subheadline)
+                .foregroundStyle(AcademyColors.secondaryText)
             Button("Done") { dismiss() }
-                .buttonStyle(.borderedProminent)
-                .tint(AcademyColors.claretFill)
+                .buttonStyle(FloodlightPillStyle())
+                .tint(AcademyColors.primaryFill)
         }
         .padding(28)
     }

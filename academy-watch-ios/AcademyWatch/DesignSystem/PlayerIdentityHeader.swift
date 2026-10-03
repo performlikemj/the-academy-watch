@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct PlayerIdentityHeader: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let name: String
     let photoURL: URL?
     let position: String?
@@ -15,22 +16,22 @@ struct PlayerIdentityHeader: View {
 
             VStack(alignment: .leading, spacing: 5) {
                 Text(name)
-                    .font(.headline)
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
+                    .font(AcademyType.serif(26, relativeTo: .headline))
+                    .foregroundStyle(AcademyColors.text)
+                    .fixedSize(horizontal: false, vertical: true)
 
                 if let metadata, !metadata.isEmpty {
                     Text(metadata)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                        .font(AcademyType.subheadline)
+                        .foregroundStyle(AcademyColors.secondaryText)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
 
                 if let club, !club.isEmpty {
                     Label(club, systemImage: "shield.fill")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                        .font(AcademyType.caption)
+                        .foregroundStyle(AcademyColors.secondaryText)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
 
                 if position != nil || status != nil {
@@ -49,7 +50,7 @@ struct PlayerIdentityHeader: View {
                 }
             }
 
-            Spacer(minLength: reservesTrailingControlSpace ? 34 : 0)
+            Spacer(minLength: reservesTrailingControlSpace ? 44 : 0)
         }
     }
 
@@ -57,15 +58,14 @@ struct PlayerIdentityHeader: View {
     private var playerPhoto: some View {
         Group {
             if let photoURL {
-                AsyncImage(url: photoURL, transaction: Transaction(animation: .easeInOut(duration: 0.2))) { phase in
+                AsyncImage(url: photoURL, transaction: Transaction(animation: reduceMotion ? nil : .easeInOut(duration: 0.2))) { phase in
                     switch phase {
                     case let .success(image):
                         image
                             .resizable()
                             .scaledToFill()
                     case .empty:
-                        ProgressView()
-                            .tint(AcademyColors.claret)
+                        WingLiftLoadingView()
                     case .failure:
                         photoPlaceholder
                     @unknown default:
@@ -77,10 +77,10 @@ struct PlayerIdentityHeader: View {
             }
         }
         .frame(width: 60, height: 60)
-        .background(Color(uiColor: .tertiarySystemFill))
+        .background(AcademyColors.elevatedSurface)
         .clipShape(Circle())
         .overlay {
-            Circle().stroke(AcademyColors.claret.opacity(0.18), lineWidth: 1)
+            Circle().stroke(AcademyColors.accent.opacity(0.18), lineWidth: 1)
         }
         .accessibilityLabel("Photo of \(name)")
     }
@@ -89,7 +89,7 @@ struct PlayerIdentityHeader: View {
         Image(systemName: "person.crop.circle.fill")
             .resizable()
             .scaledToFit()
-            .foregroundStyle(.tertiary)
+            .foregroundStyle(AcademyColors.secondaryText)
     }
 
     private static func displayStatus(_ status: String) -> String {
@@ -101,12 +101,12 @@ struct PlayerIdentityHeader: View {
 
     private static func statusColor(_ status: String) -> Color {
         switch status {
-        case "academy": AcademyColors.academyBlue
-        case "on_loan": AcademyColors.loanAmber
-        case "first_team": AcademyColors.positiveGreen
-        case "sold": AcademyColors.transitionPurple
+        case "academy": AcademyColors.secondaryText
+        case "on_loan": AcademyColors.warnText
+        case "first_team": AcademyColors.good
+        case "sold": AcademyColors.secondaryText
         case "released", "left": .secondary
-        default: AcademyColors.claret
+        default: AcademyColors.accent
         }
     }
 }

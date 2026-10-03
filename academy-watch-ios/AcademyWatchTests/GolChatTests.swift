@@ -260,6 +260,49 @@ final class GolChatTests: XCTestCase {
         XCTAssertTrue(model.messages.isEmpty)
     }
 
+    func testConversationActionsDoNotDiscardPendingSuggestions() async {
+        for action in ["send", "retry", "stop", "new-chat"] {
+            let client = DelayedGolSuggestionsClient()
+            let model = GolChatViewModel(client: client)
+            let load = Task { await model.loadSuggestions() }
+            await client.waitForRead()
+            model.send("A typed question before suggestions arrive")
+            if action == "retry" {
+                for _ in 0..<20 where model.isStreaming { await Task.yield() }
+                XCTAssertTrue(model.canRetry)
+                model.retry()
+            }
+            if action == "stop" { model.stop() }
+            if action == "new-chat" { model.newChat() }
+            await client.finish()
+            await load.value
+            model.newChat()
+            XCTAssertEqual(model.suggestions, ["Old account suggestion"], action)
+        }
+    }
+
+    func testFailedSuggestionsKeepDefaultsAfterNewChatWhileLoading() async {
+        let client = DelayedGolSuggestionsClient()
+        let model = GolChatViewModel(client: client)
+        let load = Task { await model.loadSuggestions() }
+        await client.waitForRead()
+        model.newChat()
+        await client.finish(fail: true)
+        await load.value
+        XCTAssertEqual(model.suggestions, ["Which academy players should I watch?", "Explain academy pathways"])
+    }
+
+    func testAccountResetDiscardsLateSuggestions() async {
+        let client = DelayedGolSuggestionsClient()
+        let model = GolChatViewModel(client: client)
+        let load = Task { await model.loadSuggestions() }
+        await client.waitForRead()
+        model.resetAccount()
+        await client.finish()
+        await load.value
+        XCTAssertTrue(model.suggestions.isEmpty)
+    }
+
     func testHTTPFailures() async {
         let cases: [(Int, String, Bool, Bool)] = [
             (401, "unauthorized", false, true), (402, "credits_exhausted", false, true), (403, "scout_pro_required", false, true),
@@ -428,4 +471,26 @@ private actor GolTestClient: GolAPIClientProtocol {
             }
         }
     }
+}
+
+private actor DelayedGolSuggestionsClient: GolAPIClientProtocol {
+    private var response: CheckedContinuation<[String], Error>?
+    private var started: CheckedContinuation<Void, Never>?
+    func golSuggestions() async throws -> [String] {
+        try await withCheckedThrowingContinuation { continuation in
+            response = continuation
+            started?.resume()
+            started = nil
+        }
+    }
+    func waitForRead() async {
+        guard response == nil else { return }
+        await withCheckedContinuation { started = $0 }
+    }
+    func finish(fail: Bool = false) {
+        if fail { response?.resume(throwing: URLError(.timedOut)) }
+        else { response?.resume(returning: ["Old account suggestion"]) }
+        response = nil
+    }
+    func streamGol(_ question: GolQuestion, onEvent: @escaping @MainActor @Sendable (GolSSEEvent) -> Void) async throws {}
 }

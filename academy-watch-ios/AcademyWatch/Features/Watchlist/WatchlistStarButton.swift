@@ -23,16 +23,15 @@ struct WatchlistStarButton: View {
         Button(action: toggleWatchlist) {
             Group {
                 if isPending {
-                    ProgressView()
+                    WingLiftLoadingView()
                         .controlSize(.small)
-                        .tint(AcademyColors.claret)
                 } else {
                     Image(systemName: isWatched ? "star.fill" : "star")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(isWatched ? Color.orange : AcademyColors.claret)
+                        .font(AcademyType.ui( 16, weight: .semibold))
+                        .foregroundStyle(isWatched ? AcademyColors.warnText : AcademyColors.accent)
                 }
             }
-            .frame(width: 34, height: 34)
+            .frame(width: 44, height: 44)
             .background(
                 showsBackground ? AcademyColors.surface.opacity(0.96) : Color.clear,
                 in: Circle()

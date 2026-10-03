@@ -62,6 +62,8 @@
 - B2F4: main9f329ea5 refresh tree matches reviewed b5c7864d; canonical legacy-zone parity, two-thread PostgreSQL PATCH/close races, held-mail deferral/lift/permanent failure, neutral applicant/reservation UI and dark counts None regressions. Hand-back `~/codex-runs/aw-redesign/logs/B2F4.final.md`.
 - Final B2F4 refresh includes main/N3 `adea5177`. Shared `public_adult_ids` retains N3 trusted upstream DOB/journey controls and the B2 reconciliation-only hold bypass; public reads use its default hold enforcement. Combined full pytest3954 passed/69 skipped/zero failures; PG19/Node211/Playwright32/Ruff-format/lint/build pass.
 
+- Native editor private DTOs include `created_at` and the server-derived `trial_invite_deadline`; neither field is public. Backend-only release commit `8305283b` is independent of the review-only native PR.
+
 ## UXB staging polish
 
 - Club pages use the public opportunity list filtered by program; flag off keeps the original teaser, on with no results shows a quiet empty state.

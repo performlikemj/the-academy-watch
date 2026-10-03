@@ -7,6 +7,7 @@ final class IncomingContactRequestsViewModel: ObservableObject {
     @Published private(set) var isLoading = false
     @Published private(set) var isLoadingMore = false
     @Published private(set) var hasLoaded = false
+    @Published private(set) var isComplete = false
     @Published private(set) var errorMessage: String?
     @Published private(set) var respondingRequestIDs: Set<String> = []
     @Published private(set) var ownsApprovedPlayerClaim = false
@@ -41,11 +42,14 @@ final class IncomingContactRequestsViewModel: ObservableObject {
             total = response.total
             ownsApprovedPlayerClaim = true
             hasLoaded = true
+            isComplete = true
             isFixturePreview = true
             availability.recordSuccess()
         }
         #endif
     }
+
+    var actionableRequests: [ContactRequest] { requests.filter { $0.canPlayerRespond } }
 
     var canLoadMore: Bool {
         ownsApprovedPlayerClaim
@@ -126,6 +130,7 @@ final class IncomingContactRequestsViewModel: ObservableObject {
         isLoading = false
         isLoadingMore = false
         hasLoaded = false
+        isComplete = false
         errorMessage = nil
         respondingRequestIDs = []
         responseRevisions = [:]
@@ -134,6 +139,7 @@ final class IncomingContactRequestsViewModel: ObservableObject {
 
     private func performFullLoad(revision: Int) async {
         isLoading = true
+        isComplete = false
         errorMessage = nil
         defer {
             if revision == loadRevision {
@@ -163,19 +169,31 @@ final class IncomingContactRequestsViewModel: ObservableObject {
             requests = []
             total = 0
             hasLoaded = true
+            isComplete = true
             return
         }
 
         do {
-            let response = try await apiClient.fetchIncomingContactRequests(
-                limit: pageSize,
-                offset: 0
-            )
-            guard revision == loadRevision, !Task.isCancelled else { return }
+            // Home needs every actionable request, including older introductions.
+            // Advance by fetched rows (not unique IDs) when offset pages shift.
+            var offset = 0
+            var rows: [ContactRequest] = []
+            var seen: Set<String> = []
+            var response: ContactRequestsResponse
+            repeat {
+                response = try await apiClient.fetchIncomingContactRequests(limit: pageSize, offset: offset)
+                guard revision == loadRevision, !Task.isCancelled else { return }
+                guard !response.requests.isEmpty || offset >= response.total else {
+                    throw APIClientError.server(statusCode: 500, message: "Introductions could not be checked. Please refresh.")
+                }
+                rows.append(contentsOf: response.requests.filter { seen.insert($0.id).inserted })
+                offset += response.requests.count
+            } while offset < response.total
             availability.recordSuccess()
-            requests = response.requests
-            total = response.total
+            requests = rows
+            total = rows.count
             hasLoaded = true
+            isComplete = true
         } catch {
             guard revision == loadRevision else { return }
             guard !Self.isCancellation(error) else { return }

@@ -170,6 +170,20 @@ struct ContactRequest: Decodable, Equatable, Identifiable, Sendable {
     let participants: ContactRequestParticipants
     let latestOutcome: ContactOutcome?
 
+    var canPlayerRespond: Bool {
+        status == .pending && (routingMode != .clubIncluded || clubConsentStatus == .granted)
+    }
+    var playerActionEyebrow: String {
+        routingMode == .clubIncluded ? "Introduction · club said yes" : "Introduction · reply needed"
+    }
+    var playerActionDetail: String {
+        switch routingMode {
+        case .direct: "The decision is yours. Choose whether to talk."
+        case .clubNotified: "Your club was notified. The decision is yours."
+        case .clubIncluded: "Your club agreed. The decision is yours."
+        }
+    }
+
     init(
         id: String,
         playerApiId: Int,
@@ -367,7 +381,7 @@ enum ContactOutcomeStage: String, Codable, CaseIterable, Equatable, Sendable {
     var displayName: String {
         switch self {
         case .contacted: "Contacted"
-        case .trialScheduled: "Trial scheduled"
+        case .trialScheduled: "Trial booked"
         case .trialCompleted: "Trial completed"
         case .signed: "Signed"
         case .noFit: "No fit"

@@ -60,9 +60,12 @@ If no LLM key is available, opt in to `--fixture-model`: only
 synthetic timed tokens. Nothing in the shipped application stubs chat responses.
 The football API credential is still needed by the backend's normal startup.
 
-The application accepts `ACADEMY_LOCAL_API_URL` only in Debug simulator builds,
-only for an HTTP loopback `/api` URL. Release always defaults to the production
-API. The integration test skips unless explicitly given a loopback address.
+The application accepts `ACADEMY_LOCAL_API_URL` for an exact HTTP(S) loopback
+`/api` URL or `https://basecamp.tail37b60.ts.net:15443/api`. Debug, simulator
+and XCTest hosts refuse production and fail closed on missing or invalid
+configuration. Explicit Debug simulator fixtures stay offline. Only a non-test
+Release device build can default to production. Startup, ordinary reads and
+streaming share this policy; redirects cannot change origin.
 
 The test attaches five screenshots: signed out, starter prompts, streaming,
 completed answer, and exhausted questions. Export with:

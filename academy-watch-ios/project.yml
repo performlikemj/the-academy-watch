@@ -18,12 +18,20 @@ targets:
     deploymentTarget: "17.0"
     sources:
       - path: AcademyWatch
+        excludes:
+          - "**/*.md"
     info:
       path: AcademyWatch/Info.plist
       properties:
         CFBundleDisplayName: Academy Watch
         CFBundleShortVersionString: $(MARKETING_VERSION)
         ITSAppUsesNonExemptEncryption: false
+        UIAppFonts:
+          - InstrumentSerif-Regular.ttf
+          - InstrumentSerif-Italic.ttf
+          - Geist.ttf
+          - GeistMono.ttf
+        NSLocationWhenInUseUsageDescription: Find approved clubs near your location. Your location is used only when you ask to search nearby.
         LSRequiresIPhoneOS: true
         UILaunchScreen:
           UIColorName: LaunchBackground
@@ -45,6 +53,11 @@ targets:
     deploymentTarget: "17.0"
     sources:
       - path: AcademyWatchTests
+        excludes:
+          - Fixtures/Phase2
+      - path: AcademyWatchTests/Fixtures/Phase2
+        type: folder
+        buildPhase: resources
     dependencies:
       - target: AcademyWatch
     settings:
@@ -79,7 +92,12 @@ schemes:
         AcademyWatch: all
         AcademyWatchTests: [test]
         AcademyWatchUITests: [test]
+    run:
+      environmentVariables:
+        ACADEMY_LOCAL_API_URL: https://basecamp.tail37b60.ts.net:15443/api
     test:
+      environmentVariables:
+        ACADEMY_LOCAL_API_URL: http://127.0.0.1:9/api
       targets:
         - AcademyWatchTests
         - name: AcademyWatchUITests
@@ -90,7 +108,12 @@ schemes:
       targets:
         AcademyWatch: all
         AcademyWatchUITests: [test]
+    run:
+      environmentVariables:
+        ACADEMY_LOCAL_API_URL: https://basecamp.tail37b60.ts.net:15443/api
     test:
+      environmentVariables:
+        ACADEMY_LOCAL_API_URL: http://127.0.0.1:9/api
       captureScreenshotsAutomatically: false
       targets:
         - AcademyWatchUITests
@@ -99,12 +122,20 @@ schemes:
     build:
       targets:
         AcademyWatch: all
+        AcademyWatchTests: [test]
         AcademyWatchUITests: [test]
+    run:
+      environmentVariables:
+        ACADEMY_LOCAL_API_URL: https://basecamp.tail37b60.ts.net:15443/api
     test:
+      environmentVariables:
+        ACADEMY_LOCAL_API_URL: http://127.0.0.1:9/api
       captureScreenshotsAutomatically: false
       targets:
+        - AcademyWatchTests
         - name: AcademyWatchUITests
           selectedTests:
+            - Phase2UITests
             - PlayerClubExperienceUITests
             - JourneyRunnerUITests
             - GolChatUITests

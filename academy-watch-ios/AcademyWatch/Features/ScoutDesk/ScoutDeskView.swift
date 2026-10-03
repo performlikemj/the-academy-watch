@@ -3,6 +3,7 @@ import SwiftUI
 
 @MainActor
 struct ScoutDeskView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @EnvironmentObject private var authManager: AuthManager
     @StateObject private var viewModel: ScoutDeskViewModel
     @State private var navigationPath: [Int]
@@ -66,30 +67,48 @@ struct ScoutDeskView: View {
             ZStack {
                 AcademyColors.background.ignoresSafeArea()
 
+                ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 14) {
+                        VStack(alignment: .leading, spacing: 10) {
+                            FloodlightEyebrow(text: "THE SCOUT DESK")
+                            (Text("Who are you\n").font(AcademyType.serif(44, relativeTo: .largeTitle))
+                             + Text("looking for?").font(AcademyType.serif(44, italic: true, relativeTo: .largeTitle)).foregroundColor(AcademyColors.displayAccent))
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 16)
                         phaseSwitcher
 
                         if let description = viewModel.selectedPhase.description {
                             Text(description + " Missing detailed coverage is shown as —.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .font(AcademyType.caption)
+                                .foregroundStyle(AcademyColors.secondaryText)
                                 .padding(.horizontal, 16)
                         }
 
-                        leaderboardsSection
                         filtersSection
-                        resultsHeader
+                        resultsHeader.id("review-results")
                         resultsContent
+                        leaderboardsSection.padding(.top, 20)
                     }
                     .padding(.vertical, 12)
-                }
+                }.background(AcademyColors.background)
                 .refreshable {
                     await viewModel.reload()
                 }
                 .accessibilityIdentifier("scout-desk-scroll")
                 .allowsHitTesting(!isShowingInitialLoadingCard)
                 .accessibilityHidden(isShowingInitialLoadingCard)
+                #if DEBUG && targetEnvironment(simulator)
+                .task(id: viewModel.isLoadingInitial) {
+                    if !viewModel.isLoadingInitial, ["scout-empty", "scout-error"].contains(FloodlightPreview.screen ?? "") {
+                        try? await Task.sleep(for: .milliseconds(800))
+                        proxy.scrollTo("review-results", anchor: .top)
+                    }
+                }
+                #endif
+                }
 
                 if isShowingInitialLoadingCard {
                     TimelineView(.periodic(from: .now, by: 1)) { _ in
@@ -103,7 +122,7 @@ struct ScoutDeskView: View {
                 }
             }
             .animation(
-                .easeInOut(duration: 0.45),
+                reduceMotion ? nil : .easeInOut(duration: 0.2),
                 value: isShowingInitialLoadingCard
             )
             .navigationTitle("Scout Desk")
@@ -191,14 +210,14 @@ struct ScoutDeskView: View {
                 return
             }
             guard !Task.isCancelled, isShowingInitialLoadingCard else { return }
-            withAnimation(.easeInOut(duration: 0.3)) {
+            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
                 revealsTabBarDuringInitialLoad = true
             }
         }
     }
 
     private var isShowingInitialLoadingCard: Bool {
-        navigationPath.isEmpty && viewModel.shouldShowWingLiftLoadingCard
+        navigationPath.isEmpty && viewModel.shouldShowLogoLoadingCard
     }
 
     private var hidesTabBarForInitialGrace: Bool {
@@ -214,12 +233,12 @@ struct ScoutDeskView: View {
                         Task { await viewModel.selectPhase(phase) }
                     } label: {
                         Text(phase.label)
-                            .font(.caption.weight(.semibold))
+                            .font(AcademyType.caption.weight(.medium))
                             .padding(.horizontal, 14)
                             .padding(.vertical, 9)
-                            .foregroundStyle(isSelected ? AcademyColors.claretOnFill : Color.primary)
+                            .foregroundStyle(isSelected ? AcademyColors.onPrimary : AcademyColors.text)
                             .background(
-                                isSelected ? AcademyColors.claretFill : AcademyColors.surface,
+                                isSelected ? AcademyColors.primaryFill : AcademyColors.surface,
                                 in: Capsule()
                             )
                             .overlay {
@@ -236,7 +255,7 @@ struct ScoutDeskView: View {
                 }
             }
             .padding(.horizontal, 16)
-        }
+        }.background(AcademyColors.background)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Phase of play")
     }
@@ -245,25 +264,24 @@ struct ScoutDeskView: View {
         VStack(alignment: .leading, spacing: 9) {
             HStack {
                 Label("LEADERBOARDS", systemImage: "chart.bar.fill")
-                    .font(.caption.weight(.bold))
+                    .font(AcademyType.caption.weight(.medium))
                     .tracking(1.1)
-                    .foregroundStyle(AcademyColors.claret)
+                    .foregroundStyle(AcademyColors.accent)
 
                 Spacer()
 
                 Text(viewModel.leaderboardsSeasonLabel)
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                    .font(AcademyType.caption2.weight(.medium))
+                    .foregroundStyle(AcademyColors.secondaryText)
                     .monospacedDigit()
 
                 if viewModel.isUpdatingCachedLeaderboards {
                     Label("Updating…", systemImage: "arrow.triangle.2.circlepath")
-                        .font(.caption2.weight(.medium))
-                        .foregroundStyle(.secondary)
+                        .font(AcademyType.caption2.weight(.medium))
+                        .foregroundStyle(AcademyColors.secondaryText)
                 } else if viewModel.isLoadingLeaderboards {
-                    ProgressView()
+                    WingLiftLoadingView()
                         .controlSize(.small)
-                        .tint(AcademyColors.claret)
                 }
             }
             .padding(.horizontal, 16)
@@ -286,7 +304,7 @@ struct ScoutDeskView: View {
                     }
                 }
                 .padding(.horizontal, 16)
-            }
+            }.background(AcademyColors.background)
 
         }
     }
@@ -295,17 +313,17 @@ struct ScoutDeskView: View {
         VStack(alignment: .leading, spacing: 9) {
             HStack {
                 Text("FILTERS")
-                    .font(.caption.weight(.bold))
+                    .font(AcademyType.caption.weight(.medium))
                     .tracking(1.1)
-                    .foregroundStyle(AcademyColors.claret)
+                    .foregroundStyle(AcademyColors.accent)
                 Spacer()
                 Text(
                     viewModel.isLoadingInitial && viewModel.players.isEmpty
                         ? "Loading…"
                         : "\(viewModel.totalPlayers.formatted()) \(viewModel.totalPlayers == 1 ? "player" : "players")"
                 )
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(AcademyType.caption)
+                    .foregroundStyle(AcademyColors.secondaryText)
                     .monospacedDigit()
             }
 
@@ -324,12 +342,12 @@ struct ScoutDeskView: View {
                             Task { await viewModel.selectAgePreset(preset) }
                         } label: {
                             Text(preset.label)
-                                .font(.caption.weight(.semibold))
+                                .font(AcademyType.caption.weight(.medium))
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 7)
-                                .foregroundStyle(isSelected ? AcademyColors.claretOnFill : Color.primary)
+                                .foregroundStyle(isSelected ? AcademyColors.onPrimary : AcademyColors.text)
                                 .background(
-                                    isSelected ? AcademyColors.claretFill : Color(uiColor: .tertiarySystemFill),
+                                    isSelected ? AcademyColors.primaryFill : AcademyColors.elevatedSurface,
                                     in: Capsule()
                                 )
                         }
@@ -337,12 +355,13 @@ struct ScoutDeskView: View {
                         .accessibilityAddTraits(isSelected ? .isSelected : [])
                     }
                 }
-            }
+            }.background(AcademyColors.background)
 
             HStack(spacing: 9) {
                 Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AcademyColors.secondaryText)
                 TextField("Search players by name…", text: searchBinding)
+                    .textFieldStyle(.plain)
                     .textInputAutocapitalization(.words)
                     .autocorrectionDisabled()
                     .submitLabel(.search)
@@ -353,17 +372,17 @@ struct ScoutDeskView: View {
                         viewModel.setSearchText("")
                     } label: {
                         Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(AcademyColors.secondaryText)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Clear search")
                 }
             }
             .padding(.horizontal, 12)
-            .frame(height: 42)
-            .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+            .frame(minHeight: 46)
+            .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             .overlay {
-                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .stroke(AcademyColors.separator.opacity(0.35), lineWidth: 0.5)
             }
 
@@ -428,27 +447,24 @@ struct ScoutDeskView: View {
     private var resultsHeader: some View {
         HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("GLOBAL TALENT")
-                    .font(.caption.weight(.bold))
-                    .tracking(1.1)
-                    .foregroundStyle(AcademyColors.claret)
+                FloodlightSectionHeader(title: "Players", counter: "\(viewModel.totalPlayers.formatted()) FOUND")
                 Text("Ranked by \(viewModel.selectedSortLabel.lowercased())")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(AcademyType.caption)
+                    .foregroundStyle(AcademyColors.secondaryText)
                 Text(viewModel.playersSeasonLabel)
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                    .font(AcademyType.caption2.weight(.medium))
+                    .foregroundStyle(AcademyColors.secondaryText)
                     .monospacedDigit()
             }
             Spacer()
             if viewModel.isUpdatingCachedPlayers {
                 Label("Updating…", systemImage: "arrow.triangle.2.circlepath")
-                    .font(.caption2.weight(.medium))
-                    .foregroundStyle(.secondary)
+                    .font(AcademyType.caption2.weight(.medium))
+                    .foregroundStyle(AcademyColors.secondaryText)
             } else if viewModel.selectedSortOrder == .ascending {
                 Label("Low to high", systemImage: "arrow.up")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .font(AcademyType.caption2)
+                    .foregroundStyle(AcademyColors.secondaryText)
             }
         }
         .padding(.horizontal, 16)
@@ -460,20 +476,18 @@ struct ScoutDeskView: View {
             TimelineView(.periodic(from: .now, by: 1)) { _ in
                 VStack(spacing: 7) {
                     if let feedback = viewModel.initialLoadFeedback() {
-                        ProgressView()
-                            .tint(AcademyColors.claret)
+                        WingLiftLoadingView()
                         Text(feedback.title)
-                            .font(.subheadline.weight(.semibold))
+                            .font(AcademyType.subheadline.weight(.semibold))
                         Text(feedback.detail)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .font(AcademyType.caption)
+                            .foregroundStyle(AcademyColors.secondaryText)
                             .monospacedDigit()
                         Text("First visits can take about 30 seconds.")
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
+                            .font(AcademyType.caption2)
+                            .foregroundStyle(AcademyColors.secondaryText)
                     } else {
-                        ProgressView("Scouting talent…")
-                            .tint(AcademyColors.claret)
+                        WingLiftLoadingView("Scouting talent…")
                     }
                 }
                 .frame(maxWidth: .infinity)
@@ -489,19 +503,21 @@ struct ScoutDeskView: View {
         } else if viewModel.players.isEmpty {
             ContentUnavailableView {
                 Label("No players found", systemImage: "person.3")
+                .font(AcademyType.title2)
+                .foregroundStyle(AcademyColors.text)
             } description: {
                 Text("Try another filter, search worldwide, or add a pending local player profile.")
             } actions: {
                 Button("Search worldwide") {
                     presentAuthenticatedAdd { isWorldwideAddPresented = true }
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(AcademyColors.claretFill)
+                .buttonStyle(FloodlightPillStyle())
+                .tint(AcademyColors.primaryFill)
 
                 Button("Add a player") {
                     presentAuthenticatedAdd { isLocalAddPresented = true }
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(FloodlightPillStyle(variant: .outline))
             }
             .padding(.horizontal, 16)
         } else {
@@ -547,21 +563,20 @@ struct ScoutDeskView: View {
             if viewModel.isLoadingNextPage {
                 HStack {
                     Spacer()
-                    ProgressView()
-                        .tint(AcademyColors.claret)
+                    WingLiftLoadingView()
                         .padding(.vertical, 16)
                     Spacer()
                 }
             } else if let message = viewModel.paginationErrorMessage {
                 VStack(spacing: 8) {
                     Text(message)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+                        .font(AcademyType.footnote)
+                        .foregroundStyle(AcademyColors.secondaryText)
                         .multilineTextAlignment(.center)
                     Button("Try loading more") {
                         Task { await viewModel.retryNextPage() }
                     }
-                    .font(.footnote.weight(.semibold))
+                    .font(AcademyType.footnote.weight(.semibold))
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 12)
@@ -583,30 +598,30 @@ struct ScoutDeskView: View {
                 "\(selectedPlayerIDs.count) of 4 selected",
                 systemImage: "rectangle.on.rectangle.angled"
             )
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(.primary)
+            .font(AcademyType.subheadline.weight(.semibold))
+            .foregroundStyle(AcademyColors.text)
 
             Spacer(minLength: 0)
 
             Button("Compare") {
                 isComparePresented = true
             }
-            .buttonStyle(.borderedProminent)
-            .tint(AcademyColors.claretFill)
+            .buttonStyle(FloodlightPillStyle())
+            .tint(AcademyColors.primaryFill)
             .controlSize(.small)
             .disabled(selectedPlayerIDs.count < 2)
 
             Button {
-                withAnimation(.easeInOut(duration: 0.2)) {
+                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
                     selectedPlayerIDs = []
                 }
             } label: {
                 Image(systemName: "xmark")
-                    .font(.caption.weight(.bold))
+                    .font(AcademyType.caption.weight(.medium))
                     .frame(width: 28, height: 28)
             }
             .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(AcademyColors.secondaryText)
             .accessibilityLabel("Clear comparison selection")
         }
         .padding(.leading, 15)
@@ -617,7 +632,7 @@ struct ScoutDeskView: View {
             Capsule()
                 .stroke(AcademyColors.separator.opacity(0.35), lineWidth: 0.5)
         }
-        .shadow(color: .black.opacity(0.14), radius: 12, y: 5)
+
         .accessibilityElement(children: .contain)
     }
 
@@ -626,7 +641,7 @@ struct ScoutDeskView: View {
         let hasReachedLimit = selectedPlayerIDs.count >= 4
 
         return Button {
-            withAnimation(.easeInOut(duration: 0.18)) {
+            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.18)) {
                 if isSelected {
                     selectedPlayerIDs.removeAll { $0 == player.playerId }
                 } else if !hasReachedLimit {
@@ -635,9 +650,9 @@ struct ScoutDeskView: View {
             }
         } label: {
             Image(systemName: isSelected ? "checkmark.square.fill" : "square")
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(isSelected ? AcademyColors.claret : Color.secondary)
-                .frame(width: 34, height: 34)
+                .font(AcademyType.ui( 16, weight: .semibold))
+                .foregroundStyle(isSelected ? AcademyColors.accent : AcademyColors.secondaryText)
+                .frame(width: 44, height: 44)
                 .background(AcademyColors.surface.opacity(0.96), in: Circle())
                 .overlay {
                     Circle()
@@ -664,21 +679,21 @@ private struct FilterMenuLabel: View {
     var body: some View {
         HStack(spacing: 7) {
             Image(systemName: iconName)
-                .foregroundStyle(AcademyColors.claret)
+                .foregroundStyle(AcademyColors.accent)
             Text(value)
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
             Spacer(minLength: 2)
             Image(systemName: "chevron.down")
-                .font(.caption2.weight(.bold))
-                .foregroundStyle(.secondary)
+                .font(AcademyType.caption2.weight(.medium))
+                .foregroundStyle(AcademyColors.secondaryText)
         }
-        .font(.caption.weight(.semibold))
+        .font(AcademyType.caption.weight(.medium))
         .padding(.horizontal, 11)
         .frame(maxWidth: .infinity, minHeight: 42)
-        .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+        .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 11, style: .continuous)
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .stroke(AcademyColors.separator.opacity(0.35), lineWidth: 0.5)
         }
     }
@@ -697,16 +712,16 @@ private struct ScoutLeaderboardCard: View {
         VStack(spacing: 0) {
             HStack(spacing: 7) {
                 Image(systemName: definition.iconName)
-                    .foregroundStyle(AcademyColors.claret)
+                    .foregroundStyle(AcademyColors.accent)
                 Text(definition.title.uppercased())
-                    .font(.caption2.weight(.bold))
+                    .font(AcademyType.caption2.weight(.medium))
                     .tracking(0.7)
                     .lineLimit(1)
                 Spacer()
             }
             .padding(.horizontal, 12)
             .frame(height: 36)
-            .background(Color(uiColor: .tertiarySystemGroupedBackground))
+            .background(AcademyColors.elevatedSurface)
 
             Divider()
 
@@ -715,14 +730,14 @@ private struct ScoutLeaderboardCard: View {
                     ForEach(0 ..< 3, id: \.self) { index in
                         HStack(spacing: 9) {
                             Circle()
-                                .fill(Color(uiColor: .tertiarySystemFill))
+                                .fill(AcademyColors.elevatedSurface)
                                 .frame(width: 24, height: 24)
                             RoundedRectangle(cornerRadius: 4)
-                                .fill(Color(uiColor: .tertiarySystemFill))
+                                .fill(AcademyColors.elevatedSurface)
                                 .frame(width: 120, height: 11)
                             Spacer()
                             RoundedRectangle(cornerRadius: 4)
-                                .fill(Color(uiColor: .tertiarySystemFill))
+                                .fill(AcademyColors.elevatedSurface)
                                 .frame(width: 34, height: 18)
                         }
                         .padding(.horizontal, 12)
@@ -733,8 +748,8 @@ private struct ScoutLeaderboardCard: View {
                 .accessibilityLabel("Loading \(definition.title)")
             } else if topEntries.isEmpty {
                 Text("No data yet")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .font(AcademyType.footnote)
+                    .foregroundStyle(AcademyColors.secondaryText)
                     .frame(maxWidth: .infinity, minHeight: 129)
             } else {
                 VStack(spacing: 0) {
@@ -744,22 +759,22 @@ private struct ScoutLeaderboardCard: View {
                                 RankChip(rank: index + 1)
                                 VStack(alignment: .leading, spacing: 1) {
                                     Text(player.playerName)
-                                        .font(.caption.weight(.semibold))
+                                        .font(AcademyType.caption.weight(.medium))
                                         .lineLimit(1)
                                     Text(player.loanTeamName ?? player.primaryTeamName ?? "Club unavailable")
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
+                                        .font(AcademyType.caption2)
+                                        .foregroundStyle(AcademyColors.secondaryText)
                                         .lineLimit(1)
                                 }
                                 Spacer(minLength: 5)
                                 VStack(alignment: .trailing, spacing: 0) {
                                     Text(player.leaderboardValue(for: definition.metric))
-                                        .font(.caption.weight(.bold))
-                                        .foregroundStyle(AcademyColors.claret)
+                                        .font(AcademyType.caption.weight(.medium))
+                                        .foregroundStyle(AcademyColors.accent)
                                         .monospacedDigit()
                                     Text(definition.suffix.uppercased())
-                                        .font(.system(size: 8, weight: .medium))
-                                        .foregroundStyle(.secondary)
+                                        .font(AcademyType.ui( 8, weight: .medium))
+                                        .foregroundStyle(AcademyColors.secondaryText)
                                 }
                             }
                             .contentShape(Rectangle())
@@ -780,10 +795,10 @@ private struct ScoutLeaderboardCard: View {
             }
         }
         .frame(width: 286, height: 166, alignment: .top)
-        .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .stroke(AcademyColors.separator.opacity(0.35), lineWidth: 0.5)
         }
     }
@@ -794,7 +809,7 @@ private struct RankChip: View {
 
     var body: some View {
         Text(String(rank))
-            .font(.caption2.weight(.bold))
+            .font(AcademyType.caption2.weight(.medium))
             .foregroundStyle(foregroundColor)
             .frame(width: 24, height: 24)
             .background(backgroundColor, in: Circle())
@@ -807,14 +822,14 @@ private struct RankChip: View {
     }
 
     private var foregroundColor: Color {
-        rank == 1 ? .white : .primary
+        rank == 1 ? AcademyColors.onPrimary : AcademyColors.text
     }
 
     private var backgroundColor: Color {
         switch rank {
-        case 1: AcademyColors.claretFill
-        case 2: Color(red: 0.94, green: 0.80, blue: 0.36).opacity(0.45)
-        default: Color(uiColor: .tertiarySystemFill)
+        case 1: AcademyColors.primaryFill
+        case 2: AcademyColors.accentSoft
+        default: AcademyColors.elevatedSurface
         }
     }
 }
@@ -847,12 +862,7 @@ struct ScoutPlayerRow: View {
                 }
             }
         }
-        .padding(14)
-        .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(AcademyColors.separator.opacity(0.35), lineWidth: 0.5)
-        }
+        .floodlightRow()
         .accessibilityElement(children: .contain)
     }
 
@@ -894,14 +904,14 @@ private struct StatCell: View {
     var body: some View {
         VStack(spacing: 3) {
             Text(value)
-                .font(.subheadline.weight(.semibold))
+                .font(AcademyType.serif(28, relativeTo: .title3))
                 .monospacedDigit()
-                .foregroundStyle(.primary)
+                .foregroundStyle(AcademyColors.text)
                 .lineLimit(1)
                 .minimumScaleFactor(0.72)
             Text(label)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+                .font(AcademyType.caption2)
+                .foregroundStyle(AcademyColors.secondaryText)
                 .lineLimit(1)
                 .minimumScaleFactor(0.72)
         }
@@ -918,16 +928,17 @@ private struct ScoutInlineErrorView: View {
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(AcademyColors.claret)
+                .foregroundStyle(AcademyColors.accent)
             Text(message)
-                .font(.footnote)
-                .foregroundStyle(.secondary)
+                .font(AcademyType.footnote)
+                .foregroundStyle(AcademyColors.secondaryText)
             Spacer(minLength: 4)
             Button("Retry", action: retry)
-                .font(.footnote.weight(.semibold))
+                .font(AcademyType.footnote.weight(.semibold))
         }
         .padding(12)
-        .background(AcademyColors.claretSoft, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(AcademyColors.accentSoft, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .tint(AcademyColors.secondaryText)
     }
 }
 
@@ -938,12 +949,14 @@ private struct ScoutErrorView: View {
     var body: some View {
         ContentUnavailableView {
             Label("Scout Desk unavailable", systemImage: "wifi.exclamationmark")
+                .font(AcademyType.title2)
+                .foregroundStyle(AcademyColors.text)
         } description: {
             Text(message)
         } actions: {
             Button("Try Again", action: retry)
-                .buttonStyle(.borderedProminent)
-                .tint(AcademyColors.claretFill)
+                .buttonStyle(FloodlightPillStyle())
+                .tint(AcademyColors.primaryFill)
         }
     }
 }

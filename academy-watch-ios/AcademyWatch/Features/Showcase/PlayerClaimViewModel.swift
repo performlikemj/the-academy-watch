@@ -86,7 +86,7 @@ final class PlayerClaimViewModel: ObservableObject {
 
     func load(isAuthenticated: Bool) async {
         guard isAuthenticated else {
-            resetForSignOut()
+            resetAccount()
             return
         }
         #if DEBUG
@@ -300,7 +300,7 @@ final class PlayerClaimViewModel: ObservableObject {
         ownerProfileErrorMessage = nil
     }
 
-    private func resetForSignOut() {
+    func resetAccount() {
         revision += 1
         claim = nil
         isLoading = false

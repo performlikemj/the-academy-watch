@@ -13,6 +13,7 @@ final class PlayerFanViewModel: ObservableObject {
 
     private let apiClient: any PlayerFanAPIClientProtocol
     private var loadRevision = 0
+    private var accountRevision = 0
 
     init(
         playerID: Int,
@@ -25,6 +26,15 @@ final class PlayerFanViewModel: ObservableObject {
     func loadIfNeeded() async {
         guard !hasLoaded else { return }
         await refresh()
+    }
+
+    func resetAccount() {
+        accountRevision += 1
+        loadRevision += 1
+        summary = nil
+        isPending = false
+        actionErrorMessage = nil
+        hasLoaded = false
     }
 
     func refresh() async {
@@ -67,15 +77,17 @@ final class PlayerFanViewModel: ObservableObject {
         // Invalidate any count read that began before this mutation so it
         // cannot overwrite the optimistic state when it finishes later.
         loadRevision += 1
+        let account = accountRevision
         isPending = true
         actionErrorMessage = nil
-        defer { isPending = false }
+        defer { if account == accountRevision { isPending = false } }
 
         if summary.following == true {
             let rollback = summary
             self.summary = PlayerFanSummary(fans: max(0, summary.fans - 1), following: false)
             do {
                 let response = try await apiClient.unfollowPlayer(playerID: playerID)
+                guard account == accountRevision else { return }
                 if response.deleted == false {
                     self.summary = PlayerFanSummary(fans: rollback.fans, following: false)
                 } else {
@@ -85,6 +97,7 @@ final class PlayerFanViewModel: ObservableObject {
                     )
                 }
             } catch {
+                guard account == accountRevision else { return }
                 self.summary = rollback
                 actionErrorMessage = Self.actionMessage(for: error, fallback: "Could not unfollow. Try again.")
             }
@@ -93,8 +106,10 @@ final class PlayerFanViewModel: ObservableObject {
             self.summary = PlayerFanSummary(fans: summary.fans + 1, following: true)
             do {
                 let response = try await apiClient.followPlayer(playerID: playerID)
+                guard account == accountRevision else { return }
                 self.summary = PlayerFanSummary(fans: response.fans, following: response.following)
             } catch {
+                guard account == accountRevision else { return }
                 self.summary = rollback
                 actionErrorMessage = Self.actionMessage(for: error, fallback: "Could not follow. Try again.")
             }
@@ -124,11 +139,11 @@ struct PlayerFanSectionView: View {
                 HStack(spacing: 12) {
                     Label {
                         Text("\(summary.fans) \(summary.fans == 1 ? "fan" : "fans")")
-                            .font(.subheadline.weight(.semibold))
+                            .font(AcademyType.subheadline.weight(.semibold))
                             .monospacedDigit()
                     } icon: {
                         Image(systemName: "person.2.fill")
-                            .foregroundStyle(AcademyColors.claret)
+                            .foregroundStyle(AcademyColors.accent)
                     }
                     .accessibilityLabel("\(summary.fans) \(summary.fans == 1 ? "fan" : "fans")")
 
@@ -138,25 +153,25 @@ struct PlayerFanSectionView: View {
                         followButton(isFollowing: summary.following == true)
                     } else {
                         Button("Sign in to follow", action: onSignInRequested)
-                            .font(.subheadline.weight(.semibold))
-                            .buttonStyle(.bordered)
-                            .tint(AcademyColors.claret)
+                            .font(AcademyType.subheadline.weight(.semibold))
+                            .buttonStyle(FloodlightPillStyle(variant: .outline))
+                            .tint(AcademyColors.accent)
                             .accessibilityIdentifier("player-fan-sign-in")
                     }
                 }
 
                 if let message = viewModel.actionErrorMessage {
                     Label(message, systemImage: "exclamationmark.triangle.fill")
-                        .font(.caption)
-                        .foregroundStyle(Color(uiColor: .systemRed))
+                        .font(AcademyType.caption)
+                        .foregroundStyle(AcademyColors.danger)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 16))
+            .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 10))
             .overlay {
-                RoundedRectangle(cornerRadius: 16)
+                RoundedRectangle(cornerRadius: 10)
                     .stroke(AcademyColors.separator.opacity(0.35), lineWidth: 0.75)
             }
             .accessibilityElement(children: .contain)
@@ -172,20 +187,19 @@ struct PlayerFanSectionView: View {
         } label: {
             HStack(spacing: 6) {
                 if viewModel.isPending {
-                    ProgressView()
+                    WingLiftLoadingView()
                         .controlSize(.small)
-                        .tint(isFollowing ? AcademyColors.claret : AcademyColors.claretOnFill)
                 }
                 Text(isFollowing ? "Following" : "Follow")
                 if isFollowing {
                     Image(systemName: "checkmark")
                 }
             }
-            .font(.subheadline.weight(.semibold))
+            .font(AcademyType.subheadline.weight(.semibold))
         }
-        .buttonStyle(.borderedProminent)
-        .tint(isFollowing ? AcademyColors.claretSoft : AcademyColors.claretFill)
-        .foregroundStyle(isFollowing ? AcademyColors.claret : AcademyColors.claretOnFill)
+        .buttonStyle(FloodlightPillStyle())
+        .tint(isFollowing ? AcademyColors.accentSoft : AcademyColors.primaryFill)
+        .foregroundStyle(isFollowing ? AcademyColors.accent : AcademyColors.onPrimary)
         .disabled(viewModel.isPending)
         .accessibilityIdentifier(isFollowing ? "player-fan-unfollow" : "player-fan-follow")
         .accessibilityLabel(isFollowing ? "Following, tap to unfollow" : "Follow this player")

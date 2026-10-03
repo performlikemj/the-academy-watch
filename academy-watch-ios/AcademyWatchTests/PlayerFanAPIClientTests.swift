@@ -227,6 +227,38 @@ final class PlayerFanAPIClientTests: XCTestCase {
     }
 
     @MainActor
+    func testAccountResetDropsFollowingAndLateCountResponse() async {
+        let client = FanRefreshRaceClient()
+        let viewModel = PlayerFanViewModel(playerID: 403_064, apiClient: client)
+        await viewModel.loadIfNeeded()
+        XCTAssertNotNil(viewModel.summary)
+        let refresh = Task { await viewModel.refresh() }
+        await client.waitForSecondFetchToStart()
+        viewModel.resetAccount()
+        XCTAssertNil(viewModel.summary)
+        await client.finishSecondFetch()
+        await refresh.value
+        XCTAssertNil(viewModel.summary)
+        XCTAssertFalse(viewModel.hasLoaded)
+        XCTAssertFalse(viewModel.isPending)
+    }
+
+    @MainActor
+    func testAccountResetDropsLateFollowMutation() async {
+        let client = FanMutationRaceClient()
+        let viewModel = PlayerFanViewModel(playerID: 403_064, apiClient: client)
+        await viewModel.loadIfNeeded()
+        let follow = Task { await viewModel.toggleFollow(isAuthenticated: true, onSignInRequested: {}) }
+        await client.waitForFollow()
+        viewModel.resetAccount()
+        await client.finishFollow()
+        await follow.value
+        XCTAssertNil(viewModel.summary)
+        XCTAssertFalse(viewModel.isPending)
+        XCTAssertNil(viewModel.actionErrorMessage)
+    }
+
+    @MainActor
     func testSignedOutToggleRoutesToSignInWithoutTouchingState() async {
         let client = FanStubClient(countResult: .success(
             PlayerFollowerCountResponse(playerApiId: 403_064, fans: 12, following: nil, shareUrl: nil)
@@ -416,4 +448,28 @@ private actor FanRefreshRaceClient: PlayerFanAPIClientProtocol {
     func unfollowPlayer(playerID _: Int) async throws -> PlayerUnfollowResponse {
         throw URLError(.unsupportedURL)
     }
+}
+
+private actor FanMutationRaceClient: PlayerFanAPIClientProtocol {
+    private var response: CheckedContinuation<PlayerFollowResponse, Never>?
+    private var started: CheckedContinuation<Void, Never>?
+    func fetchFollowerCount(playerID: Int) async throws -> PlayerFollowerCountResponse {
+        .init(playerApiId: playerID, fans: 12, following: false, shareUrl: nil)
+    }
+    func followPlayer(playerID: Int) async throws -> PlayerFollowResponse {
+        await withCheckedContinuation { continuation in
+            response = continuation
+            started?.resume()
+            started = nil
+        }
+    }
+    func waitForFollow() async {
+        guard response == nil else { return }
+        await withCheckedContinuation { started = $0 }
+    }
+    func finishFollow() {
+        response?.resume(returning: .init(playerApiId: 403_064, following: true, fans: 13, created: true))
+        response = nil
+    }
+    func unfollowPlayer(playerID: Int) async throws -> PlayerUnfollowResponse { throw URLError(.unsupportedURL) }
 }

@@ -33,13 +33,13 @@ struct ClubOnboardingView: View {
                             Label("Claim another club", systemImage: "plus")
                                 .frame(maxWidth: .infinity)
                         }
-                        .buttonStyle(.borderedProminent)
-                        .tint(AcademyColors.claretFill)
+                        .buttonStyle(FloodlightPillStyle())
+                        .tint(AcademyColors.primaryFill)
                     }
                     claimsSection
                 }
                 .padding(18)
-            }
+            }.background(AcademyColors.background)
         }
         .navigationTitle("Represent a club")
         .navigationBarTitleDisplayMode(.inline)
@@ -53,14 +53,14 @@ struct ClubOnboardingView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {
             Label("CLUB IDENTITY", systemImage: "shield.lefthalf.filled")
-                .font(.caption.weight(.bold))
+                .font(AcademyType.caption.weight(.medium))
                 .tracking(1.1)
-                .foregroundStyle(AcademyColors.claret)
+                .foregroundStyle(AcademyColors.accent)
             Text("Represent a club or academy?")
-                .font(.title2.weight(.bold))
+                .font(AcademyType.title2)
             Text("Claims are reviewed. Use your real role and select the exact club you represent; pending claims do not grant club access.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .font(AcademyType.subheadline)
+                .foregroundStyle(AcademyColors.secondaryText)
         }
         .padding(18)
         .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 19))
@@ -69,15 +69,15 @@ struct ClubOnboardingView: View {
     private var benefits: some View {
         VStack(alignment: .leading, spacing: 9) {
             Label("What verified clubs get", systemImage: "checkmark.shield.fill")
-                .font(.headline)
-                .foregroundStyle(AcademyColors.positiveGreen)
+                .font(AcademyType.headline)
+                .foregroundStyle(AcademyColors.good)
             Text("Roster vouching is available now: approved club officials can confirm player affiliations and help review player claims connected to their club. Roster, match video and player reports live in the web console.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .font(AcademyType.subheadline)
+                .foregroundStyle(AcademyColors.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(16)
-        .background(AcademyColors.positiveGreen.opacity(0.09), in: RoundedRectangle(cornerRadius: 16))
+        .background(AcademyColors.good.opacity(0.09), in: RoundedRectangle(cornerRadius: 10))
     }
 
     @ViewBuilder
@@ -87,29 +87,29 @@ struct ClubOnboardingView: View {
         } else {
         VStack(alignment: .leading, spacing: 15) {
             Text("CLAIM A CLUB")
-                .font(.caption.weight(.bold))
+                .font(AcademyType.caption.weight(.medium))
                 .tracking(1.1)
-                .foregroundStyle(AcademyColors.claret)
+                .foregroundStyle(AcademyColors.accent)
 
             HStack(spacing: 8) {
                 TextField("Search club or academy", text: $viewModel.searchQuery)
                     .submitLabel(.search)
                     .onSubmit { Task { await viewModel.searchClubs() } }
                     .padding(12)
-                    .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 11))
+                    .background(AcademyColors.elevatedSurface, in: RoundedRectangle(cornerRadius: 10))
                     .accessibilityIdentifier("club-search")
                 Button {
                     Task { await viewModel.searchClubs() }
                 } label: {
-                    if viewModel.isSearching { ProgressView().controlSize(.small) }
+                    if viewModel.isSearching { WingLiftLoadingView().controlSize(.small) }
                     else { Image(systemName: "magnifyingglass") }
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(FloodlightPillStyle(variant: .outline))
                 .disabled(viewModel.isSearching)
             }
 
             if let error = viewModel.error(for: .club) {
-                Text(error).font(.caption).foregroundStyle(Color(uiColor: .systemRed))
+                Text(error).font(AcademyType.caption).foregroundStyle(AcademyColors.danger)
             }
 
             if !viewModel.searchResults.apiTeams.isEmpty || !viewModel.searchResults.localClubs.isEmpty {
@@ -118,8 +118,8 @@ struct ClubOnboardingView: View {
 
             if let selected = viewModel.selectedClub {
                 Label(selected.name, systemImage: "checkmark.circle.fill")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(AcademyColors.positiveGreen)
+                    .font(AcademyType.subheadline.weight(.semibold))
+                    .foregroundStyle(AcademyColors.good)
             }
 
             OnboardingTextField(
@@ -131,22 +131,22 @@ struct ClubOnboardingView: View {
             )
 
             VStack(alignment: .leading, spacing: 6) {
-                Text("Evidence or context (optional)").font(.subheadline.weight(.semibold))
+                Text("Evidence or context (optional)").font(AcademyType.subheadline.weight(.semibold))
                 TextEditor(text: $viewModel.message)
                     .frame(minHeight: 86)
                     .padding(8)
                     .scrollContentBackground(.hidden)
-                    .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 11))
+                    .background(AcademyColors.elevatedSurface, in: RoundedRectangle(cornerRadius: 10))
                     .accessibilityIdentifier("club-claim-message")
                 if let error = viewModel.error(for: .message) {
-                    Text(error).font(.caption).foregroundStyle(Color(uiColor: .systemRed))
+                    Text(error).font(AcademyType.caption).foregroundStyle(AcademyColors.danger)
                 }
             }
 
             if let error = viewModel.errorMessage {
                 Label(error, systemImage: "exclamationmark.triangle.fill")
-                    .font(.footnote)
-                    .foregroundStyle(Color(uiColor: .systemRed))
+                    .font(AcademyType.footnote)
+                    .foregroundStyle(AcademyColors.danger)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
@@ -154,18 +154,18 @@ struct ClubOnboardingView: View {
                 Task { await viewModel.submit() }
             } label: {
                 HStack {
-                    if viewModel.isSubmitting { ProgressView().controlSize(.small) }
+                    if viewModel.isSubmitting { WingLiftLoadingView().controlSize(.small) }
                     Text(viewModel.isSubmitting ? "Submitting…" : "Submit club claim")
                 }
                 .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(AcademyColors.claretFill)
+            .buttonStyle(FloodlightPillStyle())
+            .tint(AcademyColors.primaryFill)
             .disabled(viewModel.isSubmitting)
             .accessibilityIdentifier("club-claim-submit")
         }
         .padding(17)
-        .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 18))
+        .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 10))
         .accessibilityIdentifier("club-claim-form")
         }
     }
@@ -174,30 +174,30 @@ struct ClubOnboardingView: View {
         VStack(alignment: .leading, spacing: 11) {
             HStack {
                 Image(systemName: "clock.badge.checkmark.fill")
-                    .font(.title)
-                    .foregroundStyle(AcademyColors.loanAmber)
+                    .font(AcademyType.title)
+                    .foregroundStyle(AcademyColors.warnText)
                 Spacer()
                 BadgeView(
                     text: "PENDING",
-                    foregroundColor: AcademyColors.loanAmber,
-                    backgroundColor: AcademyColors.loanAmber.opacity(0.12)
+                    foregroundColor: AcademyColors.warnText,
+                    backgroundColor: AcademyColors.warnText.opacity(0.12)
                 )
             }
-            Text("Club claim pending review").font(.title3.weight(.bold))
+            Text("Club claim pending review").font(AcademyType.title3)
             Text("Your claim for \(claim.clubName ?? "this club") was submitted. Pending claims grant no club permissions.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .font(AcademyType.subheadline)
+                .foregroundStyle(AcademyColors.secondaryText)
             if let code = claim.verificationCode {
-                Text("Verification code").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                Text(code).font(.title3.monospaced().weight(.bold)).textSelection(.enabled)
+                Text("Verification code").font(AcademyType.caption.weight(.medium)).foregroundStyle(AcademyColors.secondaryText)
+                Text(code).font(AcademyType.mono(24, weight: .medium, relativeTo: .title3)).textSelection(.enabled)
             }
             Text("Open the claim below to add a public HTTPS proof URL. Proof checking helps review but does not approve the claim automatically.")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
+                .font(AcademyType.footnote)
+                .foregroundStyle(AcademyColors.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(18)
-        .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 18))
+        .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 10))
         .accessibilityIdentifier("club-claim-pending")
     }
 
@@ -227,33 +227,33 @@ struct ClubOnboardingView: View {
     @ViewBuilder
     private var claimsSection: some View {
         if viewModel.isLoading, viewModel.claims.isEmpty {
-            ProgressView("Loading your club claims…")
+            WingLiftLoadingView("Loading your club claims…")
                 .frame(maxWidth: .infinity)
         } else if !viewModel.claims.isEmpty {
             VStack(alignment: .leading, spacing: 11) {
                 Text("MY CLUB CLAIMS")
-                    .font(.caption.weight(.bold))
+                    .font(AcademyType.caption.weight(.medium))
                     .tracking(1.1)
-                    .foregroundStyle(AcademyColors.claret)
+                    .foregroundStyle(AcademyColors.accent)
                 ForEach(viewModel.claims) { claim in
                     NavigationLink {
                         ClubClaimDetailView(claimID: claim.id, viewModel: viewModel)
                     } label: {
                         HStack(spacing: 12) {
                             Image(systemName: "shield.fill")
-                                .font(.title2)
-                                .foregroundStyle(AcademyColors.claret)
+                                .font(AcademyType.title2)
+                                .foregroundStyle(AcademyColors.accent)
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(claim.clubName ?? "Club #\(claim.teamApiId ?? claim.localClubId ?? 0)")
-                                    .font(.headline)
-                                Text(claim.roleTitle).font(.subheadline).foregroundStyle(.secondary)
+                                    .font(AcademyType.headline)
+                                Text(claim.roleTitle).font(AcademyType.subheadline).foregroundStyle(AcademyColors.secondaryText)
                             }
                             Spacer()
                             BadgeView(text: claim.status.uppercased())
-                            Image(systemName: "chevron.right").foregroundStyle(.tertiary)
+                            Image(systemName: "chevron.right").foregroundStyle(AcademyColors.secondaryText)
                         }
                         .padding(15)
-                        .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 16))
+                        .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 10))
                     }
                     .buttonStyle(.plain)
                 }
@@ -272,15 +272,15 @@ private struct ClubSearchResultButton: View {
         Button(action: action) {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(name).font(.subheadline.weight(.semibold))
-                    Text(detail).font(.caption).foregroundStyle(.secondary)
+                    Text(name).font(AcademyType.subheadline.weight(.semibold))
+                    Text(detail).font(AcademyType.caption).foregroundStyle(AcademyColors.secondaryText)
                 }
                 Spacer()
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .foregroundStyle(isSelected ? AcademyColors.positiveGreen : Color.secondary.opacity(0.55))
+                    .foregroundStyle(isSelected ? AcademyColors.good : AcademyColors.secondaryText.opacity(0.55))
             }
             .padding(11)
-            .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 11))
+            .background(AcademyColors.elevatedSurface, in: RoundedRectangle(cornerRadius: 10))
         }
         .buttonStyle(.plain)
     }
@@ -303,16 +303,16 @@ struct ClubClaimDetailView: View {
                     VStack(alignment: .leading, spacing: 17) {
                         VStack(alignment: .leading, spacing: 9) {
                             HStack {
-                                Text(claim.clubName ?? "Club claim").font(.title2.weight(.bold))
+                                Text(claim.clubName ?? "Club claim").font(AcademyType.title2)
                                 Spacer()
                                 BadgeView(text: claim.status.uppercased())
                             }
-                            Text(claim.roleTitle).font(.subheadline).foregroundStyle(.secondary)
+                            Text(claim.roleTitle).font(AcademyType.subheadline).foregroundStyle(AcademyColors.secondaryText)
                             Text("Verification: \(claim.verificationStatus.replacingOccurrences(of: "_", with: " "))")
-                                .font(.footnote.weight(.semibold))
+                                .font(AcademyType.footnote.weight(.semibold))
                         }
                         .padding(18)
-                        .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 18))
+                        .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 10))
 
                         if claim.status == "pending" {
                             proofStep(claim)
@@ -322,27 +322,27 @@ struct ClubClaimDetailView: View {
                                     Label("Manage your club on the web", systemImage: "arrow.up.right.square")
                                         .frame(maxWidth: .infinity)
                                 }
-                                .buttonStyle(.borderedProminent)
-                                .tint(AcademyColors.claretFill)
+                                .buttonStyle(FloodlightPillStyle())
+                                .tint(AcademyColors.primaryFill)
                                 .accessibilityIdentifier("club-console-link")
 
                                 Text("Roster, match video and player reports live in the web console.")
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
+                                    .font(AcademyType.subheadline)
+                                    .foregroundStyle(AcademyColors.secondaryText)
                                     .fixedSize(horizontal: false, vertical: true)
                             }
                             .padding(17)
-                            .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 18))
+                            .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 10))
                         }
 
                         Text(claimStatusCopy(claim.status))
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
+                            .font(AcademyType.footnote)
+                            .foregroundStyle(AcademyColors.secondaryText)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     .padding(18)
                 }
-            }
+            }.background(AcademyColors.background)
         }
         .navigationTitle("Club claim")
         .navigationBarTitleDisplayMode(.inline)
@@ -362,35 +362,35 @@ struct ClubClaimDetailView: View {
     private func proofStep(_ claim: ClubClaim) -> some View {
         VStack(alignment: .leading, spacing: 11) {
             Label("Proof verification", systemImage: "link.badge.plus")
-                .font(.headline)
+                .font(AcademyType.headline)
             if let code = claim.verificationCode {
                 Text("Place this code on a public club-controlled social profile:")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                Text(code).font(.title3.monospaced().weight(.bold)).textSelection(.enabled)
+                    .font(AcademyType.subheadline)
+                    .foregroundStyle(AcademyColors.secondaryText)
+                Text(code).font(AcademyType.mono(24, weight: .medium, relativeTo: .title3)).textSelection(.enabled)
             }
             TextField("https://public-proof-url", text: $proofURL)
                 .keyboardType(.URL)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .padding(12)
-                .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 11))
+                .background(AcademyColors.elevatedSurface, in: RoundedRectangle(cornerRadius: 10))
             if let error = viewModel.error(for: .proofURL) {
-                Text(error).font(.caption).foregroundStyle(Color(uiColor: .systemRed))
+                Text(error).font(AcademyType.caption).foregroundStyle(AcademyColors.danger)
             }
             if verified {
                 Label("Proof check completed. Review is still required.", systemImage: "checkmark.circle.fill")
-                    .font(.footnote)
-                    .foregroundStyle(AcademyColors.positiveGreen)
+                    .font(AcademyType.footnote)
+                    .foregroundStyle(AcademyColors.good)
             }
             Button("Check public proof") {
                 Task { verified = await viewModel.verify(claim, proofURL: proofURL) }
             }
-            .buttonStyle(.borderedProminent)
-            .tint(AcademyColors.claretFill)
+            .buttonStyle(FloodlightPillStyle())
+            .tint(AcademyColors.primaryFill)
             .disabled(viewModel.verifyingClaimID != nil || proofURL.isEmpty)
         }
         .padding(17)
-        .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 18))
+        .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 10))
     }
 }

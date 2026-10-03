@@ -20,10 +20,10 @@ struct AddPlayerToListButton: View {
             }
         } label: {
             Label("Add to list", systemImage: "text.badge.plus")
-                .font(.subheadline.weight(.semibold))
+                .font(AcademyType.subheadline.weight(.semibold))
         }
-        .buttonStyle(.bordered)
-        .tint(AcademyColors.claret)
+        .buttonStyle(FloodlightPillStyle(variant: .outline))
+        .tint(AcademyColors.accent)
         .sheet(isPresented: $isListPickerPresented) {
             PlayerListPicker(
                 playerID: playerID,
@@ -74,11 +74,12 @@ private struct PlayerListPicker: View {
     @ViewBuilder
     private var content: some View {
         if viewModel.isLoading, viewModel.lists.isEmpty {
-            ProgressView("Loading lists…")
-                .tint(AcademyColors.claret)
+            WingLiftLoadingView("Loading lists…")
         } else if availableLists.isEmpty {
             ContentUnavailableView {
                 Label("No lists available", systemImage: "list.bullet.rectangle")
+                .font(AcademyType.title2)
+                .foregroundStyle(AcademyColors.text)
             } description: {
                 Text("Create a named list from the Lists tab, then add \(playerName).")
             }
@@ -87,8 +88,8 @@ private struct PlayerListPicker: View {
             List {
                 if let message = viewModel.errorMessage {
                     Label(message, systemImage: "exclamationmark.triangle.fill")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+                        .font(AcademyType.footnote)
+                        .foregroundStyle(AcademyColors.secondaryText)
                 }
 
                 ForEach(availableLists) { list in
@@ -116,28 +117,28 @@ private struct PlayerListPicker: View {
                     } label: {
                         HStack(spacing: 12) {
                             Image(systemName: list.isDefault ? "star.square.fill" : "list.bullet.rectangle.fill")
-                                .foregroundStyle(AcademyColors.claret)
+                                .foregroundStyle(AcademyColors.accent)
                                 .frame(width: 26)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(list.name)
-                                    .font(.headline)
-                                    .foregroundStyle(.primary)
+                                    .font(AcademyType.headline)
+                                    .foregroundStyle(AcademyColors.text)
                                 Text("\(list.followCount) \(list.followCount == 1 ? "follow" : "follows")")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                                    .font(AcademyType.caption)
+                                    .foregroundStyle(AcademyColors.secondaryText)
                             }
                             Spacer()
                             if isAdded {
                                 Label("Added", systemImage: "checkmark.circle.fill")
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(.green)
+                                    .font(AcademyType.caption.weight(.medium))
+                                    .foregroundStyle(AcademyColors.good)
                                     .labelStyle(.titleAndIcon)
                             } else if isPending {
-                                ProgressView()
+                                WingLiftLoadingView()
                                     .controlSize(.small)
                             } else {
                                 Image(systemName: "plus.circle")
-                                    .foregroundStyle(AcademyColors.claret)
+                                    .foregroundStyle(AcademyColors.accent)
                             }
                         }
                         .padding(.vertical, 4)

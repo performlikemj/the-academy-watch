@@ -16,13 +16,15 @@ struct GolChatView: View {
                 } else {
                     ContentUnavailableView {
                         Label("Ask GOL", systemImage: "bubble.left.and.bubble.right")
+                .font(AcademyType.title2)
+                .foregroundStyle(AcademyColors.text)
                     } description: {
                         Text("Sign in to ask about academy players and football pathways.")
                     } actions: {
                         Button("Sign in") { showsSignIn = true }
-                            .buttonStyle(.borderedProminent)
-                            .tint(AcademyColors.claretFill)
-                            .foregroundStyle(AcademyColors.claretOnFill)
+                            .buttonStyle(FloodlightPillStyle())
+                            .tint(AcademyColors.primaryFill)
+                            .foregroundStyle(AcademyColors.onPrimary)
                             .accessibilityIdentifier("gol-sign-in")
                     }
                 }
@@ -52,7 +54,7 @@ struct GolChatView: View {
         .interactiveDismissDisabled(model.isStreaming)
         .onAppear { model.prepareForPresentation() }
         .sheet(isPresented: $showsSignIn) { SignInView(authManager: authManager) }
-        .task(id: authManager.isAuthenticated) {
+        .task(id: authManager.accountIdentity) {
             if authManager.isAuthenticated { await model.loadSuggestions() }
         }
     }
@@ -68,8 +70,8 @@ struct GolChatView: View {
                         ) { message in
                             VStack(alignment: .leading, spacing: 10) {
                                 Text(message.role == "user" ? "You" : "GOL")
-                                    .font(.caption.weight(.bold))
-                                    .foregroundStyle(AcademyColors.claretForeground)
+                                    .font(AcademyType.caption.weight(.medium))
+                                    .foregroundStyle(AcademyColors.accent)
                                 if !message.content.isEmpty {
                                     Text(
                                         message.role == "assistant"
@@ -85,36 +87,36 @@ struct GolChatView: View {
                                 }
                                 if message.cutShort {
                                     Label("Answer cut short", systemImage: "pause.circle")
-                                        .font(.caption).foregroundStyle(.secondary)
+                                        .font(AcademyType.caption).foregroundStyle(AcademyColors.secondaryText)
                                         .accessibilityIdentifier("gol-cut-short")
                                 }
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(16)
-                            .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 16))
+                            .background(AcademyColors.surface, in: RoundedRectangle(cornerRadius: 10))
                         }
                         if model.isStreaming {
                             HStack {
-                                ProgressView()
+                                WingLiftLoadingView()
                                 Text(model.isUsingTool ? "Looking up football data…" : "GOL is answering…")
-                                    .font(.footnote)
+                                    .font(AcademyType.footnote)
                             }
                             .accessibilityIdentifier("gol-streaming")
                         }
                         if let failure = model.failure {
                             Text(failure.message)
-                                .font(.callout)
+                                .font(AcademyType.callout)
                                 .accessibilityIdentifier("gol-error")
                             if model.canRetry {
                                 Button("Retry answer") { model.retry() }
-                                    .buttonStyle(.bordered)
+                                    .buttonStyle(FloodlightPillStyle(variant: .outline))
                                     .accessibilityIdentifier("gol-retry")
                             }
                         }
                         Color.clear.frame(height: 1).id("gol-bottom")
                     }
                     .padding(18)
-                }
+                }.background(AcademyColors.background)
                 .accessibilityIdentifier("gol-messages")
                 .scrollDismissesKeyboard(.interactively)
                 .onChange(of: model.messages.last?.content) { _, _ in
@@ -129,21 +131,21 @@ struct GolChatView: View {
     private var welcome: some View {
         VStack(alignment: .leading, spacing: 16) {
             Image(systemName: "bubble.left.and.bubble.right.fill")
-                .font(.largeTitle).foregroundStyle(AcademyColors.claretForeground).accessibilityHidden(true)
-            Text("Explore the game with GOL").font(.title2.bold())
+                .font(AcademyType.largeTitle).foregroundStyle(AcademyColors.accent).accessibilityHidden(true)
+            Text("Explore the game with GOL").font(AcademyType.title2)
             Text("Ask about academy players, their progress and their next steps.")
-                .foregroundStyle(.secondary)
+                .foregroundStyle(AcademyColors.secondaryText)
             ForEach(Array(model.suggestions.enumerated()), id: \.offset) { index, suggestion in
                 Button {
                     submit(suggestion)
                 } label: {
                     Text(verbatim: suggestion).multilineTextAlignment(.leading).padding(.vertical, 5)
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(FloodlightPillStyle(variant: .outline))
                 .accessibilityIdentifier(index == 0 ? "gol-suggestion-0" : "gol-suggestion-\(index)")
                 .disabled(!model.canSend)
             }
-            Text("GOL can make mistakes. Check important details.").font(.caption).foregroundStyle(.secondary)
+            Text("GOL can make mistakes. Check important details.").font(AcademyType.caption).foregroundStyle(AcademyColors.secondaryText)
         }
     }
 
@@ -151,7 +153,7 @@ struct GolChatView: View {
         VStack(alignment: .leading, spacing: 8) {
             if let questionsLeft = model.questionsLeft {
                 Text("Questions left: \(questionsLeft)")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(AcademyType.caption).foregroundStyle(AcademyColors.secondaryText)
                     .accessibilityIdentifier("gol-usage")
             }
             HStack(alignment: .bottom, spacing: 12) {
@@ -161,13 +163,13 @@ struct GolChatView: View {
                     .accessibilityLabel("Your question for GOL")
                     .accessibilityIdentifier("gol-composer")
                     .padding(12)
-                    .background(AcademyColors.background, in: RoundedRectangle(cornerRadius: 12))
+                    .background(AcademyColors.background, in: RoundedRectangle(cornerRadius: 10))
                     .disabled(!model.canSend)
                 if model.isStreaming {
                     Button {
                         model.stop()
                     } label: {
-                        Image(systemName: "stop.circle.fill").font(.title).frame(minWidth: 44, minHeight: 44)
+                        Image(systemName: "stop.circle.fill").font(AcademyType.title).frame(minWidth: 44, minHeight: 44)
                     }
                     .accessibilityLabel("Stop GOL answer")
                     .accessibilityIdentifier("gol-stop")
@@ -175,7 +177,7 @@ struct GolChatView: View {
                     Button {
                         submit(draft)
                     } label: {
-                        Image(systemName: "arrow.up.circle.fill").font(.title).frame(
+                        Image(systemName: "arrow.up.circle.fill").font(AcademyType.title).frame(
                             minWidth: 44, minHeight: 44)
                     }
                     .accessibilityLabel("Send question")
@@ -199,8 +201,8 @@ private struct GolDataCardView: View {
     let card: GolJSON
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(verbatim: title).font(.subheadline.bold())
-            Text(verbatim: GolCardSummary(card: card).text).font(.footnote)
+            Text(verbatim: title).font(AcademyType.subheadline.bold())
+            Text(verbatim: GolCardSummary(card: card).text).font(AcademyType.footnote)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
