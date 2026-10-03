@@ -149,7 +149,7 @@ def separated_season_stats(player_id, season, legacy, *, merged_total=_UNREAD_TO
         if selected["available"]:
             legacy.update(selected["totals"])
             legacy["source"] = selected["source"]
-            legacy["provenance"] = {"primary_source": selected["primary_source"]}
+            legacy["provenance"] = {**merged_provenance, "primary_source": selected["primary_source"]}
             legacy["clubs"] = [
                 {
                     "team_api_id": c["id"],

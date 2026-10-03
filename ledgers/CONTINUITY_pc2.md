@@ -82,3 +82,10 @@
 
 - Corrected targeted checks:12PASS (URL/partialundo/dryrollback/reader/cache/missing-source assertions/PG4000); browser2newcasesPASS at1440/390. Corrected scale legacydesk1.940s/boards3.440s, rebuiltprojection.217s/desk.467s/boards.548s, max12109binds, zero rebuilt merges. SourcecategoryNone is intentional when there is no total; existing assertions updated.
 - Final verification receipts and completion state will be external PC2F2.final.md so exact-head gates stay valid. No dependency restore/lockfile or native build; no migration change relative to C4 main.
+
+## PC2F3 — review union, 2026-10-03
+- Done: PC2F2 pushed760641c9; four gates/PG47/browser83+2optional skips/CI6 success; receipts logs/PC2F2.final.md. X/O third reports and binding directive read; cross files absent per dispatch. origin/main e510612a already ancestor (fetch current).
+- Now: reverse provider-orphan eight-cell probe inside existing all-surface matrix; fix only shared projection, preserve privacy/previous regressions. Also frozen provenance, all-src import boundary and libpq environment/service validation. O legacy projection cost documented with measured budget.
+- Next: targeted proof, final-head four cached gates + PG lane + one own browser run/screenshots; push, bounded25min CI, external logs/PC2F3.final.md; no schema/production/staging/deploy/merge.
+- Done: shared provider fallback handles absent old/canonical reports; frozen provenance preserved; all-src import/read guard reverses56+7allowed-file variants; libpq env/service validation reverses10 probes. Targeted120PASS/1PG skip; matrix8fixture configsPASS after CSV explicit-ID/flag-OFF stats addition. PG50 budget11baseline→22report/27provider,1=50; one44-IDprovider batch/request. CLI dry8/7/6figures/2losses0.661s; resume2+6, repeatedfull/partial undo7/6skip[-2] proven. Full receipts external PC2F3-{queries,rebuild}.json. No migration/frontend/dependency changes; maine510612a already included.
+- Now: final source validation/delivery; exact final-head receipts and DONE are authoritative in external logs/PC2F3.final.md and BUS after push.

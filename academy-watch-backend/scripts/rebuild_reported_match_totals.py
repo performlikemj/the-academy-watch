@@ -236,6 +236,10 @@ def main(argv=None):
     url = make_url(uri) if uri else None
     if url is None or url.drivername != "postgresql+psycopg":
         parser.error("set PC2_DATABASE_URL explicitly with postgresql+psycopg://")
+    # A libpq service/environment target can replace the URL authority. Keep
+    # hostless local rehearsals only when no implicit target is present.
+    if "service" in url.query or any(os.getenv(k) for k in ("PGHOST", "PGHOSTADDR", "PGSERVICE", "PGSERVICEFILE")):
+        parser.error("libpq environment/service targets are not allowed; use only PC2_DATABASE_URL")
     # libpq query hosts override the authority, including socket-style URLs.
     hosts = [url.host] if url.host else []
     for value in url.normalized_query.get("host", ()):

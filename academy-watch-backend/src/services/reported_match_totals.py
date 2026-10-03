@@ -224,14 +224,20 @@ def scout_totals_projection(identity, season, *, session=None, eligibility_cache
         if stale_ids
         else {}
     )
-    positive = {pid for pid, _ in totals if pid > 0}
+    # Absence is a projected result too: an orphan/disputed report must not
+    # conceal real provider facts merely because no provider rollup exists yet.
+    # Scope compatibility work to selected stored reporting identities; feeders
+    # load each provider source once for the whole set, never per player.
+    kept_reports = eligible & canonical & candidates
+    withheld_reports = {r.player_api_id for r in stored if r.primary_source in report_sources} - kept_reports
+    positive = {pid for pid in ({pid for pid, _ in totals} | withheld_reports) - providers if pid > 0}
     if positive:
         from src.services.season_rollup_service import provider_totals_batch
 
         for pid, provider in provider_totals_batch(positive, season, session=session).items():
             totals[(pid, season)] = provider
     names = list(table.c.keys())
-    keep_report = and_(table.c.player_api_id.in_(eligible & canonical & candidates), scope)
+    keep_report = and_(table.c.player_api_id.in_(kept_reports), scope)
     existing = select(
         *table.c, and_(table.c.player_api_id.in_(positive | (eligible & canonical)), scope).label("pc2_override")
     ).where(scope, or_(table.c.primary_source.not_in(report_sources), keep_report))

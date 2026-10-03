@@ -405,8 +405,72 @@ def test_one_mixed_fixture_equal_on_every_surface_before_and_after_rebuild(
                         assists=2,
                     )
                 )
+    # RPC2V3-X: withheld report cells must retain genuine provider facts even
+    # before a provider total has been stored (four cell shapes x two freezes).
+    provider_orphans = set()
+    fixture = Fixture.query.filter_by(season=SEASON).first()
+    for index, (canonical, disputed) in enumerate(((False, False), (False, True), (True, False), (True, True))):
+        pid = 95000 + index
+        name = f"Provider {'canonical' if canonical else 'old'} {'disputed' if disputed else 'orphan'}"
+        ids[name] = pid
+        provider_orphans.add(pid)
+        db.session.add(
+            TrackedPlayer(player_api_id=pid, team_id=team.id, player_name=name, birth_date="2000-01-01", is_active=True)
+        )
+        db.session.add_all(
+            [
+                ScoutWatchlistEntry(user_account_id=_user_id, player_api_id=pid),
+                Follow(list_id=list_id, kind="player", selector={"player_api_id": pid}),
+                FixturePlayerStats(
+                    fixture_id=fixture.id,
+                    player_api_id=pid,
+                    team_api_id=9001,
+                    minutes=87,
+                    goals=2,
+                    assists=1,
+                    yellows=0,
+                    reds=0,
+                    position="M",
+                ),
+                PlayerSeasonTotal(
+                    player_api_id=pid,
+                    season=SEASON,
+                    level_group="senior",
+                    computed_at=now,
+                    primary_source="matches" if canonical else "club",
+                    appearances=2,
+                    minutes=154,
+                    goals=13,
+                    assists=2,
+                    source_breakdown={"matches": {"revision": 2}} if canonical else {},
+                ),
+            ]
+        )
+        if disputed:
+            for source in ("club", "self"):
+                db.session.add(
+                    PlayerMatchEntry(
+                        player_api_id=pid,
+                        season=SEASON,
+                        match_date=date(2025, 9, 1),
+                        source=source,
+                        status="disputed",
+                        reported_by_user_id=_user_id,
+                        opponent="Disputed private fact",
+                        home_away="home",
+                        minutes=90,
+                        goals=13,
+                        assists=2,
+                    )
+                )
     db.session.commit()
     monkeypatch.setattr("src.utils.academy_classifier.is_academy_product", lambda *a, **k: True)
+    # Flag-OFF /stats retains the fixture-list adapter. Disable its legacy
+    # provider refresh for this stored-facts proof, including unfrozen reads.
+    monkeypatch.setattr(
+        "src.api_football_client.APIFootballClient._fetch_player_team_season_totals_api",
+        lambda *a, **kw: {"games_played": 0},
+    )
     if provider_kind == "cache":
         provider = ids["Provider"]
         FixturePlayerStats.query.filter_by(player_api_id=provider).delete()
@@ -437,7 +501,9 @@ def test_one_mixed_fixture_equal_on_every_surface_before_and_after_rebuild(
     monkeypatch.setenv("API_FOOTBALL_FROZEN", frozen)
     expected = {}
     for name, player_id in ids.items():
-        if name == "Provider":
+        if player_id in provider_orphans:
+            expected[player_id] = (1, 87, 2, 1, 0, 0, None, None)
+        elif name == "Provider":
             expected[player_id] = (
                 (1, 90, 2, 1, 0, 0, None, None) if provider_kind == "fixtures" else (4, 360, 3, 2, 1, 0, 0, None)
             )
@@ -456,8 +522,20 @@ def test_one_mixed_fixture_equal_on_every_surface_before_and_after_rebuild(
     proof = {}
     for stage in ("old cells", "rebuilt"):
         got, rows = surfaces(client, headers, list_id)
+        selected_csv = client.get(
+            f"/api/scout/export.csv?season={SEASON}&ids=" + ",".join(map(str, provider_orphans)), headers=headers
+        )
+        assert selected_csv.status_code == 200
+        got["CSV explicit IDs"] = {
+            int(p["player_id"]): tuple(
+                int(p[k]) if p[k] else None
+                for k in ("appearances", "minutes", "goals", "assists", "yellows", "reds", "saves", "goals_conceded")
+            )
+            for p in csv.DictReader(io.StringIO(selected_csv.get_data(as_text=True)))
+        }
+        assert set(got["CSV explicit IDs"]) == provider_orphans
         for surface, numbers in got.items():
-            for player_id in ids.values():
+            for player_id in provider_orphans if surface == "CSV explicit IDs" else ids.values():
                 if surface.startswith("leaderboards") and player_id in absent_ids | {ids["Tobi Olawale"]}:
                     continue  # no-stat rows are not ranking candidates
                 if player_id in absent_ids | {ids["Tobi Olawale"]}:
@@ -484,6 +562,8 @@ def test_one_mixed_fixture_equal_on_every_surface_before_and_after_rebuild(
             numbers = {p["player_id"]: _numbers(p) for p in roster}
             assert numbers[mirror] == expected[mirror], (stage, path, numbers)
             assert numbers[ids["Provider"]] == expected[ids["Provider"]], (stage, path, numbers)
+            for pid in provider_orphans:
+                assert numbers[pid] == expected[pid], (stage, path, pid, numbers[pid])
             for pid in absent_ids:
                 assert all(value in {None, 0} for value in numbers[pid]), (stage, path, pid, numbers[pid])
             got[path] = numbers
@@ -537,9 +617,29 @@ def test_one_mixed_fixture_equal_on_every_surface_before_and_after_rebuild(
                 assert player["provenance"]["source_label"] == "No recorded totals"
             else:
                 assert _numbers(player["totals"]) == expected[player_id]
+                if player_id in provider_orphans:
+                    assert player["per90"]["goals"] == round(2 * 90 / 87, 2)
+                    assert player["per90"]["assists"] == round(90 / 87, 2)
+                    assert player["provenance"]["primary_source"] == "fixtures"
+                    assert player["provenance"]["source_category"] == "api"
+                    assert player["provenance"]["source_label"] == "API-reported"
+        season_numbers = {}
         for name, player_id in ids.items():
             if player_id in absent_ids | {ids["Tobi Olawale"]}:
                 season = client.get(f"/api/players/{player_id}/season-stats?season={SEASON}").get_json()
+                season_numbers[player_id] = tuple(
+                    season.get(k)
+                    for k in (
+                        "appearances",
+                        "minutes",
+                        "goals",
+                        "assists",
+                        "yellows",
+                        "reds",
+                        "saves",
+                        "goals_conceded",
+                    )
+                )
                 assert all(season[k] in {None, 0} for k in ("appearances", "minutes", "goals", "assists")), season
                 stats = client.get(f"/api/players/{player_id}/stats?season={SEASON}").get_json()
                 if isinstance(stats, dict):
@@ -565,6 +665,36 @@ def test_one_mixed_fixture_equal_on_every_surface_before_and_after_rebuild(
                 )
                 == expected[player_id]
             ), (name, season)
+            season_numbers[player_id] = expected[player_id]
+            if frozen == "1" and player_id in provider_orphans | (
+                {ids["Provider"]} if provider_kind == "fixtures" and provider_rollup else set()
+            ):
+                provenance = season["provenance"]
+                assert {
+                    "primary_source",
+                    "reconcile_flag",
+                    "fixtures_minutes",
+                    "journey_minutes",
+                } <= provenance.keys()
+                if "season_stats" in flags:
+                    assert "computed_at" in provenance
+                else:
+                    assert {"source", "delta_pct"} <= provenance.keys()
+                assert provenance["primary_source"] == "fixtures"
+                assert provenance["reconcile_flag"] == "journey-under-sync"
+                assert provenance["fixtures_minutes"] == expected[player_id][1]
+                assert provenance["journey_minutes"] == 0
+        got["player season-stats/iOS season"] = season_numbers
+        if "player_stats" not in flags:
+            fixtures_by_player = {}
+            for pid in provider_orphans:
+                response = client.get(f"/api/players/{pid}/stats?season={SEASON}")
+                assert response.status_code == 200, response.json
+                assert isinstance(response.json, list) and len(response.json) == 1, response.json
+                fixture = response.json[0]
+                assert (fixture["minutes"], fixture["goals"], fixture["assists"]) == expected[pid][1:4]
+                fixtures_by_player[pid] = (len(response.json), fixture["minutes"], fixture["goals"], fixture["assists"])
+            got["player-stats/iOS flag-OFF fixture list"] = fixtures_by_player
         if "player_stats" in flags:
             summaries = {}
             for name, pid in ids.items():
@@ -612,11 +742,50 @@ def test_one_mixed_fixture_equal_on_every_surface_before_and_after_rebuild(
         Path(os.environ["PC2_PROOF_PATH"]).write_text(json.dumps(proof, indent=2))
 
 
-def test_50_row_query_budget_is_constant(app, monkeypatch):
+@pytest.mark.parametrize("provider_orphans", [False, True])
+def test_50_row_query_budget_is_constant(app, monkeypatch, provider_orphans):
     from src.routes import scout
 
     ids, _user, _list = seed_personas()
     for index in range(44):
+        if provider_orphans:
+            pid = 96000 + index
+            db.session.add_all(
+                [
+                    TrackedPlayer(
+                        player_api_id=pid,
+                        team_id=Team.query.filter_by(team_id=9001).one().id,
+                        player_name=f"Provider orphan {index}",
+                        birth_date="2000-01-01",
+                        is_active=True,
+                    ),
+                    PlayerSeasonTotal(
+                        player_api_id=pid,
+                        season=SEASON,
+                        level_group="senior",
+                        computed_at=datetime.now(UTC),
+                        primary_source="matches",
+                        minutes=154,
+                        appearances=2,
+                        goals=13,
+                        assists=2,
+                        source_breakdown={"matches": {"revision": 2}},
+                    ),
+                ]
+            )
+            # One missing provider identity exercises the fifth cache batch too.
+            if index < 43:
+                db.session.add(
+                    FixturePlayerStats(
+                        fixture_id=Fixture.query.first().id,
+                        player_api_id=pid,
+                        team_api_id=9001,
+                        minutes=87,
+                        goals=2,
+                        assists=1,
+                    )
+                )
+            continue
         local = LocalPlayer(
             display_name=f"Adult {index}",
             normalized_name=f"adult {index}",
@@ -634,6 +803,14 @@ def test_50_row_query_budget_is_constant(app, monkeypatch):
     db.session.commit()
     counts = {}
     statements = []
+    provider_batches = []
+    provider_batch = rollup.provider_totals_batch
+
+    def recorded_provider_batch(ids, season, **kw):
+        provider_batches.append(set(ids))
+        return provider_batch(ids, season, **kw)
+
+    monkeypatch.setattr(rollup, "provider_totals_batch", recorded_provider_batch)
 
     def record(_conn, _cursor, statement, _parameters, _context, _executemany):
         statements.append(statement)
@@ -660,10 +837,15 @@ def test_50_row_query_budget_is_constant(app, monkeypatch):
             assert len(response.get_json()["players"]) == size
             counts[f"after{size}"] = len(statements)
         assert counts["after50"] == counts["after1"]
-        assert counts["after50"] <= counts["before50"] + 11
+        if provider_orphans:
+            assert provider_batches == [set(range(96000, 96044))] * 2
+        assert counts["after50"] <= counts["before50"] + (16 if provider_orphans else 11)
         print("PC2 query counts", counts)
         if os.environ.get("PC2_QUERY_PROOF_PATH"):
-            Path(os.environ["PC2_QUERY_PROOF_PATH"]).write_text(json.dumps(counts, indent=2))
+            path = Path(os.environ["PC2_QUERY_PROOF_PATH"])
+            proof = json.loads(path.read_text()) if path.exists() else {}
+            proof["withheld provider" if provider_orphans else "reported baseline"] = counts
+            path.write_text(json.dumps(proof, indent=2))
     finally:
         event.remove(db.engine, "before_cursor_execute", record)
 
