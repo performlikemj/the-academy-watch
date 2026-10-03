@@ -171,6 +171,10 @@ jobs:
         working-directory: academy-watch-frontend
         run: pnpm exec playwright test --config playwright.uxb.config.js
 
+      - name: Run club console reload regressions
+        working-directory: academy-watch-frontend
+        run: pnpm exec playwright test --config playwright.my-club.config.js
+
   contact-lock-postgres:
     name: Contact Lock PostgreSQL Regressions
     runs-on: ubuntu-latest
