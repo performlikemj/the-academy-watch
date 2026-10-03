@@ -550,7 +550,7 @@ def test_flag_off_golden_json_and_sql(frozen_app, monkeypatch, path, rollups):
             event.remove(db.engine, "before_cursor_execute", record)
 
     with monkeypatch.context() as baseline:
-        baseline.setattr(public_data, "separated_season_stats", lambda pid, season, legacy: legacy)
+        baseline.setattr(public_data, "separated_season_stats", lambda pid, season, legacy, **kw: legacy)
         baseline.setitem(frozen_app.after_request_funcs, "players", [])
         baseline.setitem(frozen_app.after_request_funcs, "journey", [])
         baseline.setattr(

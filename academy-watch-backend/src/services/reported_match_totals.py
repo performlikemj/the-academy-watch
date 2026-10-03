@@ -101,6 +101,9 @@ def reported_totals(
     for row in rows:
         entry = match_line_input(dict(row._mapping))
         entry["_scope"] = (entry["club_program_id"] or 0, entry["club_name"])
+        # Pair with display labels, but persist storage labels for the JSON
+        # boundary to decode once. Literal user entities must survive.
+        entry["_stored_competition"] = row.competition
         grouped[(entry["player_api_id"], entry["season"])].append(entry)
     result = {}
     for (player_id, entry_season), entries in grouped.items():
@@ -132,7 +135,7 @@ def reported_totals(
                     "name": name,
                     **{k: season_totals(group)[k] for k in ("appearances", "minutes", "goals", "assists")},
                     "competition_tiers": list(
-                        dict.fromkeys(line["competition"] for line in group if line.get("competition"))
+                        dict.fromkeys(line["_stored_competition"] for line in group if line.get("_stored_competition"))
                     ),
                 }
                 for (club_id, name), group in clubs.items()
