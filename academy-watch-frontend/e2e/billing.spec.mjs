@@ -371,6 +371,7 @@ test('admin revenue renders mixed-currency MRR without invalid placeholders', as
     if (url.pathname === '/api/admin/tracking-requests') return route.fulfill({ json: [] }).then(() => true)
     if (url.pathname === '/api/admin/player-links/pending') return route.fulfill({ json: [] }).then(() => true)
     if (url.pathname === '/api/admin/scout-verifications') return route.fulfill({ json: { total: 0, items: [] } }).then(() => true)
+    if (url.pathname === '/api/admin/funding/claims') return route.fulfill({ json: { claims: [] } }).then(() => true)
     if (url.pathname === '/api/admin/reports') return route.fulfill({ json: { total: 0, items: [] } }).then(() => true)
     return false
   }, { signedIn: true })
