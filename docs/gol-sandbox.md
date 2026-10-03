@@ -317,9 +317,11 @@ Both paths validate frames and plain results. Native timedelta identity,
 datetime/timedelta units, timezone, category, index frequency and multi-level
 metadata are preserved. Custom index frequencies that cannot be represented by
 the canonical frequency string are refused by both paths. Supported timezones
-are exact standard `ZoneInfo` directory entries and `datetime.timezone` offsets
+are exact cached standard `ZoneInfo` directory entries and `datetime.timezone` offsets
 in whole minutes, with arbitrary plain names preserved. Other timezone
-implementations and sub-minute offsets are refused by shared validation: pandas
+implementations, uncached/file-loaded zone objects and sub-minute offsets are
+refused by shared validation. A file-loaded zone's key need not identify its
+rules; only canonical cached entries can be reconstructed by key. Pandas
 cannot consistently reconstruct their Timestamp/typed-column semantics. String
 extension storage must be Python, with either NA or NaN missing semantics; other
 storage and extension dtypes refuse in both paths. Integer values are limited

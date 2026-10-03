@@ -120,7 +120,7 @@ def timezone_shape(zone):
         if offset.microseconds or offset.seconds % 60:
             return None
         return ZONE_SHAPES["fixed"]
-    if type(zone) is ZoneInfo and type(zone.key) is str and zone.key in TIMEZONE_NAMES:
+    if type(zone) is ZoneInfo and type(zone.key) is str and zone.key in TIMEZONE_NAMES and zone is ZoneInfo(zone.key):
         return ZONE_SHAPES["zoneinfo"]
     return None
 

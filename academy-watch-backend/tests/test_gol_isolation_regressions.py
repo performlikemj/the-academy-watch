@@ -765,6 +765,34 @@ def test_noncanonical_timezone_refuses_identically():
         b"".join(stream_request("result=len(df)", {"df": frame}))
 
 
+@pytest.mark.parametrize("source", ["file", "uncached"])
+@pytest.mark.parametrize("kind", ["datetime", "timestamp", "column", "index"])
+def test_noncanonical_zoneinfo_rules_refuse_identically(source, kind):
+    import struct
+    from zoneinfo import ZoneInfo
+
+    from src.services.gol_capabilities import plain_value
+
+    if source == "file":
+        name = b"Fixture\0"
+        header = b"TZif\0" + bytes(15) + struct.pack(">6l", 0, 0, 0, 0, 1, len(name))
+        rules = header + struct.pack(">lbb", 9 * 3600, 0, 0) + name
+        zone = ZoneInfo.from_file(io.BytesIO(rules), key="Europe/London")
+    else:
+        zone = ZoneInfo.no_cache("Europe/London")
+    value = datetime(2026, 1, 1, tzinfo=zone)
+    with pytest.raises(AnalysisRefused):
+        plain_value(value)
+    if kind in {"datetime", "timestamp"}:
+        frame = pd.DataFrame({"x": pd.Series([value if kind == "datetime" else pd.Timestamp(value)], dtype=object)})
+    else:
+        index = pd.date_range(value, periods=2, freq="D")
+        frame = pd.DataFrame({"x": index}) if kind == "column" else pd.DataFrame({"x": [1, 2]}, index=index)
+    assert sandbox._execute_analysis("result=len(df)", {"df": frame})["error"] == ERROR
+    with pytest.raises(AnalysisRefused):
+        b"".join(stream_request("result=len(df)", {"df": frame}))
+
+
 @pytest.mark.parametrize("kind", ["datetime", "timestamp", "column", "index"])
 def test_subminute_timezone_refuses_identically(kind):
     zone = timezone(timedelta(seconds=30, microseconds=1), "Fixture Seconds")
