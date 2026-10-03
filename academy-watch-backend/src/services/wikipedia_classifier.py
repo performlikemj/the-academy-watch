@@ -93,7 +93,9 @@ def classify_loan_row(
 
     try:
         content = response.choices[0].message.content
-        print(f"classifier response: {content}")
+        from src.utils.log_privacy import get_logger
+
+        get_logger(__name__).info("classifier response: %s", content)
     except (AttributeError, IndexError) as exc:
         raise RuntimeError(f"Unexpected Groq response format: {response}") from exc
 

@@ -10,7 +10,6 @@ This module contains shared authentication code used across blueprints:
 
 import hmac
 import json
-import logging
 import os
 import re
 import time
@@ -25,9 +24,10 @@ from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 # UserAccount serializers outside the production app factory.
 import src.models.trust  # noqa: F401
 from src.models.league import UserAccount, db
+from src.utils.log_privacy import get_logger, mask_email
 from src.utils.sanitize import sanitize_plain_text
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Blueprint for any shared auth utilities that need to be registered
 auth_utilities_bp = Blueprint("auth_utilities", __name__)
@@ -229,7 +229,9 @@ def issue_user_token(email: str, ttl_seconds: int = USER_TOKEN_TTL_SECONDS, role
             if user.created_at is not None:
                 payload["account_created_at"] = user.created_at.isoformat()
     token = s.dumps(payload)
-    logger.info("Issued auth token payload for %s with role=%s", email, role)
+    logger.info(
+        "Issued auth token payload for %s with role=%s user_id=%s", mask_email(email), role, payload.get("user_id")
+    )
     return {"token": token, "expires_in": ttl_seconds}
 
 
@@ -384,10 +386,10 @@ def require_api_key(f):
 
         if not token_data:
             logger.warning(
-                "Admin token missing or invalid ip=%s endpoint=%s auth_sample=%s",
+                "Admin token missing or invalid ip=%s endpoint=%s auth_present=%s",
                 client_ip,
                 request.endpoint,
-                auth_header[:32],
+                bool(auth_header),
             )
             return jsonify({"error": "Admin login required", "message": "Provide a valid admin Bearer token"}), 401
 
@@ -407,28 +409,32 @@ def require_api_key(f):
 
         if not provided_key:
             logger.warning(
-                "Admin API key missing ip=%s user=%s endpoint=%s auth_sample=%s",
+                "Admin API key missing ip=%s user=%s user_id=%s endpoint=%s auth_present=%s",
                 client_ip,
-                getattr(g, "user_email", None),
+                mask_email(getattr(g, "user_email", None)),
+                token_data.get("user_id"),
                 request.endpoint,
-                auth_header[:32],
+                bool(auth_header),
             )
             return jsonify({"error": "Admin API key required", "message": "Send X-API-Key in the request headers"}), 401
 
         if provided_key != required_api_key:
             logger.warning(
-                "Invalid admin credential ip=%s user=%s endpoint=%s key=%s",
+                "Invalid admin credential ip=%s user=%s user_id=%s endpoint=%s key=%s",
                 client_ip,
-                getattr(g, "user_email", None),
+                mask_email(getattr(g, "user_email", None)),
+                token_data.get("user_id"),
                 request.endpoint,
                 masked_key,
             )
             return jsonify({"error": "Invalid admin credential", "message": "Access denied"}), 403
 
+        g.log_actor_id = token_data.get("user_id")
         logger.info(
-            "Admin dual auth granted ip=%s user=%s endpoint=%s key=%s",
+            "Admin dual auth granted ip=%s user=%s user_id=%s endpoint=%s key=%s",
             client_ip,
-            getattr(g, "user_email", None),
+            mask_email(getattr(g, "user_email", None)),
+            token_data.get("user_id"),
             request.endpoint,
             masked_key,
         )
@@ -479,7 +485,9 @@ def require_curator_auth(f):
 
         # Step 2: Check curator role
         if not getattr(g.user, "is_curator", False):
-            logger.warning("Curator access denied for user %s (not a curator)", g.user_email)
+            logger.warning(
+                "Curator access denied for user %s (not a curator) user_id=%s", mask_email(g.user_email), g.user_id
+            )
             return jsonify({"error": "Curator access required"}), 403
 
         # Step 3: Validate X-Curator-Key
@@ -493,10 +501,10 @@ def require_curator_auth(f):
             return jsonify({"error": "X-Curator-Key header required"}), 401
 
         if provided_key != required_key:
-            logger.warning("Invalid curator key from user %s", g.user_email)
+            logger.warning("Invalid curator key from user %s user_id=%s", mask_email(g.user_email), g.user_id)
             return jsonify({"error": "Invalid curator credential"}), 403
 
-        logger.info("Curator auth granted for user %s", g.user_email)
+        logger.info("Curator auth granted for user %s user_id=%s", mask_email(g.user_email), g.user_id)
         return f(*args, **kwargs)
 
     return decorated
@@ -707,6 +715,7 @@ def _ensure_user_account(email: str) -> UserAccount:
     )
     db.session.add(user)
     db.session.flush()
+    logger.info("Created user account email=%s user_id=%s", mask_email(email), user.id)
     return user
 
 

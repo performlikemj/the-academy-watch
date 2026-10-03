@@ -1,4 +1,3 @@
-import logging
 import os
 import re
 import secrets
@@ -30,10 +29,11 @@ from src.routes.api import (
     require_api_key,
     require_user_auth,
 )
+from src.utils.log_privacy import email_exc_info, get_logger, mask_email, redact_email_text
 from src.utils.team_utils import get_all_team_name_variations
 
 journalist_bp = Blueprint("journalist", __name__)
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def _user_serializer() -> URLSafeTimedSerializer:
@@ -2449,7 +2449,13 @@ def submit_coverage_request():
         db.session.add(coverage_request)
         db.session.commit()
 
-        logger.info(f"Writer {user.id} ({user.email}) submitted coverage request for {coverage_type}: {team_name}")
+        logger.info(
+            "Writer %s (%s) submitted coverage request for %s: %s",
+            user.id,
+            mask_email(user.email),
+            coverage_type,
+            team_name,
+        )
 
         return jsonify({"message": "Coverage request submitted", "request": coverage_request.to_dict()}), 201
 
@@ -3550,7 +3556,10 @@ def create_placeholder_writer():
         db.session.commit()
 
         logger.info(
-            f"Editor {editor.id} created placeholder writer {writer.id} ({writer.email or writer.display_name})"
+            "Editor %s created placeholder writer %s (%s)",
+            editor.id,
+            writer.id,
+            mask_email(writer.email) if writer.email else writer.display_name,
         )
 
         return jsonify({"message": "Placeholder writer created", "writer": writer.to_dict()}), 201
@@ -3882,9 +3891,14 @@ def send_claim_invite(writer_id):
                 claim_url=claim_url,
                 inviter_name=editor.display_name,
             )
-            logger.info(f"Sent claim invite to {writer.email} for writer {writer_id}")
+            logger.info("Sent claim invite to %s for writer %s", mask_email(writer.email), writer_id)
         except Exception as email_err:
-            logger.warning(f"Failed to send claim email: {email_err}")
+            logger.warning(
+                "Failed to send claim email: %s writer_id=%s",
+                redact_email_text(email_err, (writer.email,)),
+                writer.id,
+                exc_info=email_exc_info((writer.email,)),
+            )
             # Still return success - token was generated
             return jsonify(
                 {
@@ -3976,7 +3990,7 @@ def complete_claim():
         # Issue auth token for the writer
         auth_data = issue_user_token(writer.email, role="user")
 
-        logger.info(f"Writer {writer.id} ({writer.email}) claimed their account")
+        logger.info("Writer %s (%s) claimed their account", writer.id, mask_email(writer.email))
 
         return jsonify({"message": "Account claimed successfully", "user": writer.to_dict(), **auth_data})
 

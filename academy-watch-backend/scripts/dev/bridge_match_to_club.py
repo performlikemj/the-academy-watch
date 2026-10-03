@@ -22,6 +22,8 @@ BACKEND_ROOT = Path(__file__).resolve().parents[2]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
+from src.utils.log_privacy import mask_email
+
 os.environ.setdefault("SKIP_API_HANDSHAKE", "1")
 
 ALLOW_ENV = "ALLOW_FIXTURE_BRIDGE"
@@ -400,7 +402,7 @@ def bridge_match_to_club(*, match_id: int, manager_email: str, program_name: str
 
     manager = UserAccount.query.filter(func.lower(UserAccount.email) == normalized_email).first()
     if manager is None:
-        raise BridgeRefused(f"manager account {normalized_email!r} was not found")
+        raise BridgeRefused(f"manager account {mask_email(normalized_email)!r} was not found")
     match = db.session.get(VideoMatch, match_id)
     if match is None:
         raise BridgeRefused(f"video match {match_id} was not found")
@@ -479,7 +481,7 @@ def print_summary(summary: dict) -> None:
     print("\nFixture bridge summary")
     print(f"Match ID: {summary['match_id']}")
     print(f"Program: {summary['program_name']} (id={summary['program_id']})")
-    print(f"Manager: {summary['manager_email']}")
+    print(f"Manager: {mask_email(summary['manager_email'])}")
     print()
     print(f"{'Resource':<24} {'Created':>8} {'Existing':>9}")
     print(f"{'-' * 24} {'-' * 8} {'-' * 9}")

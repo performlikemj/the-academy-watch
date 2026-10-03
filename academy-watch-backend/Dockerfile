@@ -59,8 +59,9 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
     CMD curl -f http://localhost:5001/api/health || exit 1
 
 # Run the application with Gunicorn (production-grade WSGI server)
+# Access logs omit query strings, Referer and User-Agent; handler filtering masks paths.
 # Optimized for cold start: fewer workers (2 vs 4), preload app code, longer timeout
-CMD ["gunicorn", "-w", "2", "--threads", "2", "--preload", "--timeout", "120", "-b", "0.0.0.0:5001", "--access-logfile", "-", "--error-logfile", "-", "src.main:app"]
+CMD ["gunicorn", "--logger-class", "src.utils.privacy_gunicorn.PrivacyGunicornLogger", "-w", "2", "--threads", "2", "--preload", "--timeout", "120", "-b", "0.0.0.0:5001", "--access-logfile", "-", "--access-logformat", "%(t)s %(h)s %(m)s %(U)s %(H)s %(s)s %(b)s %(L)s", "--error-logfile", "-", "src.main:app"]
 
 # Environment variables will be set by Azure Container Apps:
 # ADMIN_API_KEY - Your secure admin API key

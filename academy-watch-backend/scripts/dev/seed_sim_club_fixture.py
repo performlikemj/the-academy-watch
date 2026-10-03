@@ -142,11 +142,12 @@ def seed_sim_fixture(*, manager_email: str) -> dict:
     from src.models.showcase import LocalPlayer
     from src.models.video import VideoMatch, VideoRosterEntry, VideoTracklet
     from src.services.coach_brief import brief_payload
+    from src.utils.log_privacy import mask_email
 
     normalized_email = manager_email.strip().lower()
     manager = UserAccount.query.filter(func.lower(UserAccount.email) == normalized_email).first()
     if manager is None:
-        raise SimFixtureRefused(f"sim fixture manager account {normalized_email!r} was not found")
+        raise SimFixtureRefused(f"sim fixture manager account {mask_email(normalized_email)!r} was not found")
 
     now = datetime.now(UTC)
     program = ClubProgram.query.filter_by(slug=SIM_PROGRAM_SLUG).first()

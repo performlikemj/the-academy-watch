@@ -1,0 +1,42 @@
+# LOGPII — mask email addresses in logs
+- Goal: logging-only masking across backend auth, mail, notifications, admin and scripts; no API/migration/frontend changes.
+- Branch: fix/log-email-masking; base main 3949cbac.
+- Done: shared helper, explicit address masking, masked tracebacks/structured fields, provider-body omission, root/subprocess handler protection; source scan and runtime controls.
+- Validation: focused129 PASS (53 new logging/helper/guard controls + 76 existing auth/result checks); Ruff/format and diff checks PASS; OSV547 no issues before frozen frontend dependency restore.
+- Now: implementation complete; final-head gated delivery and CI receipts maintained in external `~/codex-runs/aw-redesign/logs/LOGPII.final.md`.
+- Next: focused capture/guard tests; final commit; four cached gates; push; ready PR; bounded 25-minute CI.
+- Constraints: governed foreground commands; no merge/production actions; BUS DONE only after push with SHA.
+- Acceptance: helper safe on malformed/non-string inputs and short locals; no full addresses in captured logs; IDs retained where available; exhaustive changed/unchanged inventory in external LOGPII.final.md.
+
+- Final-gate correction: d99c4949 full backend5174 PASS/1716 SKIP/3 FAIL exposed legacy `_mask_email` dry-run consumers; restored original preview behavior, shared logging mask retained. Affected profile controls and corrected final-head gates follow; exact delivery state external.
+- Corrected focused156 PASS (all53 new logging controls +103 existing auth/result/profile-notification checks); legacy dry-run outputs retained. Corrected final-head four cached gates running once.
+
+- LOGPIIF1 in progress: reviewed both independent findings (cross files absent by lead direction); union covers scanner/handlers/CLI/admin correlation/performance/fail-closed/guard/structured types/token snippets. Explicit masks remain; final merge-main, targeted regressions, four cached gates and push pending.
+
+- LOGPIIF1 targeted204 PASS + actual startup/force-basicConfig PASS; real auth/Mailgun/SMTP variants, emitted Gunicorn/SQLAlchemy/private/late output, CLI stderr, admin colliding masks, curator string team ID, bounded scan and failure controls. Current main fetched8696a4de; merging before final gates.
+
+- Main8696a4de integrated; sole continuity conflict retains both histories. Final-head lane tests/four governed cached gates, pushed SHA and CI are recorded in external LOGPIIF1.final.md; no migration/frontend/screenshot work in this logging fix round.
+
+- Head70c8ea9d full backend5600 PASS/1756 SKIP/2 FAIL: default-Gunicorn-format assumption and RuntimeError metadata contract. Corrected test to deployed format and retained safe exc_info type snapshot without raw exception/traceback objects. New final-head cached gates required.
+
+-75d63450 four gates PASS (5604 backend/1756 skipped;403 frontend;658 lint files;build),213 focused PASS and push verified. Final audit broadens guard to any email/recipient name/key and constrains helper-list allowlist; claim-mail warning retains level and writer ID with safe trace. Follow-up final-head gates/push/CI external.
+
+- LOGPIIF2 in progress: X1–X4 / O1–O6 union; fixed-message/safe-metadata source audit, whole-token Unicode-agnostic backstop, no text budgets, non-string/extra-key preservation, classifier stdout and raw traceback cleanup. Reviewer probes/property/10 MB/access-header tests, main merge, final cached gates, push and bounded CI pending.
+
+- LOGPIIF2 source audit: 1,825 output calls inventoried; 1,534 converted in132 files. AST comparison after removing output/logging/imports matches original application behavior (development log-message construction is the sole extra change). Targeted114 PASS covers real delivery/classifier and numeric job-summary preservation. Focused437 PASS caught one mapping-repr loss; corrected native positional mapping rendering and regression control. Complete final inventory and final-head receipts maintained externally.
+
+- Main e510612a integrated in d97ddcf3; AGENTS/CONTINUITY conflicts retain both histories. New scout-retention stdout counter guarded; source AST guard now covers1,826 calls. No lane-authored migration/frontend/UI changes; main migration retained verbatim. Final-head validation/push/CI receipts external LOGPIIF2.final.md.
+
+- a9f0a861 full gate5845 PASS/1769 SKIP/13 FAIL exposed logging regressions: validated highlight dry-run output keys omitted (3) and shared media fixed warning labels omitted (10). Corrected known-key grammar and source-label validation; existing tests unchanged, added malicious-label/validated-key controls. New final-head four cached gates required; external receipts retain initial failed cache.
+
+- LOGPIIF3 in progress: both V3 findings read; source-wide metadata rewrite superseded. Restore main diagnostics; only email-bearing sites remain explicit. Final main comparison, leak/diagnostic tests, four governed gates, push and bounded CI pending.
+
+- LOGPIIF3 narrowed source: unrelated files restored byte-for-byte to current main e510612a. Explicit auth/mail/admin/writer/CLI email masks remain; native provider diagnostics/tracebacks retained, known spaced destinations redacted. Actual Gunicorn Worker.handle_error + bind/control-address controls pass. Focused448 PASS (4 existing warnings); reviewed source lint/diff PASS. Final source commit, four cached gates, push and bounded CI receipts maintained in external LOGPIIF3.final.md with complete inventory in LOGPIIF3.inventory.md / audit.json. No lane migration/frontend/UI changes.
+
+- LOGPIIF3 final preservation probe found cyclic argument repr gained a nesting level during copying. Ordinary arguments now render natively; only helper-mask arguments need substitution. Added cyclic/sparse-set parity control. New final commit/gates/push/CI supersede 45535e9a receipts, which remain recorded externally.
+
+- Main advanced to84dac1d2 (MYC1F3) during c75 validation; c75 four gates PASS (5882 backend/1769 skipped;403 Node;674 lint;build) and302 lane PASS retained externally. Merged current main after foreground gate completed; sole continuity conflict keeps both histories. Inherited frontend/workflow unchanged from main; final merged-head four gates/delivery receipts external.
+
+- LOGPIIF4 in progress: V4 X/O findings read (cross files absent). Native safe-extra identity and traceback spacing regressions; combining-local masking and accepted over-masking docs. Classifier address-bearing provider-response regression retained. Final main merge, targeted tests, four cached gates and push pending. Substantive inventories: `~/codex-runs/aw-redesign/logs/LOGPIIF3.inventory.md` and forthcoming `LOGPIIF4.inventory.md`; final.md summaries are not inventory authorities.
+
+- LOGPIIF4 source complete: focused74 PASS + real academy outer-failure parity1 PASS; Ruff/format/diff PASS. Safe structured exceptions/objects/cycles retain native identity, unsafe str/repr stays masked; snapshots strip exactly one traceback newline. NFC/combining local tests and OTP/terminal capture/compact-JSON docs included. Main84dac1d2 already an ancestor (fresh fetch). Final-head gates, lane tests, pushed SHA and bounded CI receipts are authoritative in `~/codex-runs/aw-redesign/logs/LOGPIIF4.inventory.md`; no merge or source changes pending.

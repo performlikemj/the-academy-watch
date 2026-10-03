@@ -175,7 +175,8 @@ class TestVerifyLoginCode:
 
         audit_records = [record for record in caplog.records if "audit_event=review_login_used" in record.message]
         assert len(audit_records) == 2
-        assert all("app.review@example.com" in record.message for record in audit_records)
+        assert all("ap…@example.com" in record.message for record in audit_records)
+        assert "app.review@example.com" not in caplog.text
         assert "Review-Code_2026" not in caplog.text
 
     @pytest.mark.parametrize(

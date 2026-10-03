@@ -70,6 +70,7 @@ from src.routes.showcase import showcase_bp
 from src.routes.teams import teams_bp
 from src.routes.trust import trust_bp
 from src.routes.video import video_bp
+from src.utils.log_privacy import protect_log_handlers
 
 # isort: split
 # --- p2-b2 begin ---
@@ -106,6 +107,7 @@ from src.services.scout_attendance import register_notifications as register_att
 dotenv.load_dotenv(dotenv.find_dotenv())
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+protect_log_handlers()
 logger = logging.getLogger(__name__)
 
 logger.info("🚀 Starting Flask application...")

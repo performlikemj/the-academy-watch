@@ -1,7 +1,6 @@
 """Service for managing newsletter deadlines and auto-publishing"""
 
 import json
-import logging
 import os
 from datetime import UTC, datetime, timedelta
 
@@ -9,8 +8,9 @@ import requests
 from flask import render_template
 from src.models.league import Newsletter, NewsletterCommentary, NewsletterDigestQueue, UserAccount, UserSubscription, db
 from src.utils.legacy_pages import legacy_public_url
+from src.utils.log_privacy import email_exc_info, get_logger, mask_email, redact_email_text
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def get_current_week_key() -> str:
@@ -281,14 +281,30 @@ def _send_single_digest(user_id: int, week_key: str) -> dict:
                     entry.sent_at = now
                 db.session.commit()
 
-                logger.info(f"Sent digest to {user.email} with {len(newsletter_data)} newsletters")
+                logger.info(
+                    "Sent digest to %s user_id=%s with %s newsletters",
+                    mask_email(user.email),
+                    user.id,
+                    len(newsletter_data),
+                )
                 return {"success": True, "newsletter_count": len(newsletter_data), "email": user.email}
             else:
-                logger.error(f"Digest webhook failed: {response.status_code} - {response.text[:500]}")
+                logger.error(
+                    "Digest webhook failed: %s - %s to=%s user_id=%s",
+                    response.status_code,
+                    redact_email_text(response.text[:500], (user.email,)),
+                    mask_email(user.email),
+                    user.id,
+                )
                 return {"success": False, "error": f"Webhook returned {response.status_code}"}
 
         except requests.RequestException as e:
-            logger.exception(f"Error sending digest webhook to {user.email}")
+            logger.exception(
+                "Error sending digest webhook to %s user_id=%s",
+                mask_email(user.email),
+                user.id,
+                exc_info=email_exc_info((user.email,)),
+            )
             return {"success": False, "error": str(e)}
 
     except Exception as e:
