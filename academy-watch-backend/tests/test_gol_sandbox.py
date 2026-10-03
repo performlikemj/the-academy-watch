@@ -185,7 +185,7 @@ def test_legitimate_matches_raw_library_reference(name, code, frames):
     exec(code, reference)  # trusted local corpus only
     expected = _legacy_format_result(reference["result"])
     expected["display"] = "table"
-    actual = sandbox.execute_analysis(code, frames)
+    actual = sandbox._execute_analysis(code, frames)
     assert actual == expected
     json.dumps(actual, allow_nan=False)
 
@@ -200,7 +200,7 @@ def test_non_allowlisted_library_attributes_are_refused(module, names, facade_in
         if not name.startswith("_") and name not in allowed:
             with pytest.raises(AnalysisRefused):
                 guarded_getattr(facade, name)
-            response = sandbox.execute_analysis(f"result={'pd' if facade_index == 0 else 'np'}.{name}", {})
+            response = sandbox._execute_analysis(f"result={'pd' if facade_index == 0 else 'np'}.{name}", {})
             assert response["result_type"] == "error"
     for name in allowed:
         assert not isinstance(guarded_getattr(facade, name), ModuleType)
@@ -273,11 +273,11 @@ def test_frame_subclass_is_not_formatted():
 
 @pytest.mark.parametrize("key", ["pd", "np", "type", "_getattr_", "academy_comparison"])
 def test_namespace_cannot_override_capabilities(key):
-    assert sandbox.execute_analysis("result=1", {key: pd.DataFrame()})["error"] == ERROR
+    assert sandbox._execute_analysis("result=1", {key: pd.DataFrame()})["error"] == ERROR
 
 
 def test_untrusted_input_object_refused():
-    assert sandbox.execute_analysis("result=1", {"df": pd.DataFrame({"x": [Hostile()]})})["error"] == ERROR
+    assert sandbox._execute_analysis("result=1", {"df": pd.DataFrame({"x": [Hostile()]})})["error"] == ERROR
 
 
 def test_write_and_facade_guards():
@@ -288,26 +288,26 @@ def test_write_and_facade_guards():
 
 def test_request_frames_not_mutated(frames):
     original = frames["teams"].copy()
-    response = sandbox.execute_analysis("teams.loc[0,'name']='Test'\nresult=teams", frames)
+    response = sandbox._execute_analysis("teams.loc[0,'name']='Test'\nresult=teams", frames)
     assert response["result_type"] == "table"
     pd.testing.assert_frame_equal(frames["teams"], original)
 
 
 def test_loop_bounded_inside_exception_handler(monkeypatch):
     monkeypatch.setattr(sandbox, "MAX_PYTHON_STEPS", 100)
-    response = sandbox.execute_analysis("while True:\n try:\n  x=1\n except Exception:\n  pass", {})
+    response = sandbox._execute_analysis("while True:\n try:\n  x=1\n except Exception:\n  pass", {})
     assert response["error"] == "Analysis exceeded its execution limit."
 
 
 def test_allocation_bound_before_call(monkeypatch):
     calls = []
     monkeypatch.setattr(np, "zeros", lambda *a, **kw: calls.append(True))
-    assert sandbox.execute_analysis("result=np.zeros((1000001,))", {})["error"] == SIZE_ERROR
+    assert sandbox._execute_analysis("result=np.zeros((1000001,))", {})["error"] == SIZE_ERROR
     assert not calls
 
 
 def test_compilation_bound():
-    assert sandbox.execute_analysis("x=1\n" * 6000, {})["error"] == SIZE_ERROR
+    assert sandbox._execute_analysis("x=1\n" * 6000, {})["error"] == SIZE_ERROR
 
 
 def test_plain_conversion():
@@ -322,7 +322,7 @@ def test_helper_no_network_fallback(frames, monkeypatch):
     calls = []
     monkeypatch.setattr(team_resolver, "resolve_team_name", lambda *a, **kw: calls.append(True))
     frames["fixture_stats"]["team_api_id"] = 999999
-    response = sandbox.execute_analysis("result=active_academy_pipeline()", frames)
+    response = sandbox._execute_analysis("result=active_academy_pipeline()", frames)
     assert response["result_type"] == "table"
     assert not calls
 
@@ -389,7 +389,7 @@ def _legacy_safe_value(v):
 
 
 def test_datetime_cells_are_serializable_and_keep_offset():
-    response = sandbox.execute_analysis(
+    response = sandbox._execute_analysis(
         "result=pd.DataFrame({'date':[pd.Timestamp('2026-07-01',tz='Europe/London')]})", {}
     )
     assert response["rows"] == [["2026-07-01T00:00:00+01:00"]]
@@ -398,7 +398,7 @@ def test_datetime_cells_are_serializable_and_keep_offset():
 
 def test_nested_input_lists_are_request_local():
     frame = pd.DataFrame({"ids": [[1, 2]]})
-    response = sandbox.execute_analysis("df['ids'].iloc[0].append(3)\nresult=df", {"df": frame})
+    response = sandbox._execute_analysis("df['ids'].iloc[0].append(3)\nresult=df", {"df": frame})
     assert response["rows"] == [[[1, 2, 3]]]
     assert frame.iloc[0, 0] == [1, 2]
 
@@ -413,26 +413,27 @@ def test_nested_input_lists_are_request_local():
     ],
 )
 def test_invalid_code_and_errors_do_not_echo_details(code, error):
-    response = sandbox.execute_analysis(code, {"df": pd.DataFrame({"x": [1]})})
+    response = sandbox._execute_analysis(code, {"df": pd.DataFrame({"x": [1]})})
     assert response == {"result_type": "error", "error": error, "display": "table"}
 
 
 def test_large_dtype_is_refused_before_allocation(monkeypatch):
     calls = []
     monkeypatch.setattr(np, "zeros", lambda *a, **kw: calls.append(True))
-    response = sandbox.execute_analysis("result=np.zeros(1,dtype='U100000000')", {})
+    response = sandbox._execute_analysis("result=np.zeros(1,dtype='U100000000')", {})
     assert response["error"] == SIZE_ERROR
     assert not calls
 
 
 def test_output_cap_and_unsafe_tail():
-    response = sandbox.execute_analysis("result=pd.DataFrame({'x':list(range(110))})", {})
+    response = sandbox._execute_analysis("result=pd.DataFrame({'x':list(range(110))})", {})
     assert response["truncated"] and response["total_rows"] == 110
     assert len(response["rows"]) == 100
-    refused = sandbox.execute_analysis("result=pd.DataFrame({'x':[1]*101+[sum]})", {})
+    refused = sandbox._execute_analysis("result=pd.DataFrame({'x':[1]*101+[sum]})", {})
     assert refused["error"] == ERROR
 
 
+@pytest.mark.skipif(__import__("sys").platform != "linux", reason="Production analysis isolation requires Linux")
 def test_service_tool_and_completion_use_boundary(frames, monkeypatch):
     from types import SimpleNamespace as NS
 
@@ -440,6 +441,9 @@ def test_service_tool_and_completion_use_boundary(frames, monkeypatch):
     from src.services.gol_service import GolService
 
     monkeypatch.setenv("API_FOOTBALL_FROZEN", "true")
+    monkeypatch.setenv("GOL_PROVIDER", "openai")
+    monkeypatch.setenv("GOL_MAINTENANCE", "false")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-not-a-real-key")
     for code, ok in [
         ("result=teams[['name']]", True),
         ("result=pd.non_allowlisted_attribute", False),
@@ -447,7 +451,7 @@ def test_service_tool_and_completion_use_boundary(frames, monkeypatch):
         ("result={'x':sum}", False),
     ]:
         service = GolService.__new__(GolService)
-        service.df_cache = NS(get_frames=lambda app: frames)
+        service.df_cache = NS(get_frames=lambda app, names=None: frames)
         service.model = "local-test-model"
         arguments = json.dumps({"code": code, "display": "table"})
         tool = NS(index=0, id="local-tool", function=NS(name="run_analysis", arguments=arguments))
@@ -467,7 +471,7 @@ def test_service_tool_and_completion_use_boundary(frames, monkeypatch):
 
 def test_all_helpers_have_real_outputs(frames):
     for call in HELPERS:
-        response = sandbox.execute_analysis(f"result={call}", frames)
+        response = sandbox._execute_analysis(f"result={call}", frames)
         assert response["result_type"] == "table"
         assert response["rows"]
 
@@ -584,7 +588,7 @@ def test_ordinary_analysis_matches_main(name, code, frames):
     exec(code, reference)
     expected = _legacy_format_result(reference["result"])
     expected["display"] = "table"
-    assert sandbox.execute_analysis(code, frames) == expected
+    assert sandbox._execute_analysis(code, frames) == expected
 
 
 @pytest.mark.parametrize("rows", [100_000, 200_000])
@@ -611,13 +615,15 @@ def test_production_size_analysis_matches_main(rows, code):
     exec(code, reference)
     expected = _legacy_format_result(reference["result"])
     expected["display"] = "table"
-    assert sandbox.execute_analysis(code, {"df": frame}) == expected
+    assert sandbox._execute_analysis(code, {"df": frame}) == expected
 
 
 def test_interval_period_text_results():
-    response = sandbox.execute_analysis("result=pd.cut(pd.Series([18,20,24]),bins=[17,19,21,25]).value_counts()", {})
+    response = sandbox._execute_analysis("result=pd.cut(pd.Series([18,20,24]),bins=[17,19,21,25]).value_counts()", {})
     assert response["rows"] == [["(17, 19]", 1], ["(19, 21]", 1], ["(21, 25]", 1]]
-    response = sandbox.execute_analysis("result=pd.Series(pd.date_range('2026-01-01',periods=2)).dt.to_period('M')", {})
+    response = sandbox._execute_analysis(
+        "result=pd.Series(pd.date_range('2026-01-01',periods=2)).dt.to_period('M')", {}
+    )
     assert response["rows"] == [[0, "2026-01"], [1, "2026-01"]]
 
 
@@ -664,7 +670,7 @@ def test_fixed_error_categories_and_service_hints():
         ('result="x"*10001', SIZE_ERROR),
     ]
     for code, error in categories:
-        response = sandbox.execute_analysis(code, {"df": pd.DataFrame({"x": [1]})})
+        response = sandbox._execute_analysis(code, {"df": pd.DataFrame({"x": [1]})})
         assert response["error"] == error
     assert "column" in GolService._sanitize_for_llm({"error": categories[1][1]})["error"]
     assert "Import" in GolService._sanitize_for_llm({"error": categories[3][1]})["error"]
@@ -1093,7 +1099,7 @@ def test_window_corpus_covers_every_allowed_method():
 
 
 def test_current_timestamp_without_timezone():
-    response = sandbox.execute_analysis("result=pd.Timestamp.now().strftime('%Y-%m-%d')", {})
+    response = sandbox._execute_analysis("result=pd.Timestamp.now().strftime('%Y-%m-%d')", {})
     assert response["value"] == pd.Timestamp.now().strftime("%Y-%m-%d")
 
 
@@ -1103,7 +1109,7 @@ def test_restricted_loop_wall_clock_deadline(monkeypatch):
     monkeypatch.setattr(sandbox, "TIMEOUT_SECONDS", 0.05)
     monkeypatch.setattr(sandbox, "MAX_PYTHON_STEPS", 3_000_000)
     start = time.monotonic()
-    response = sandbox.execute_analysis("while True:\n try:\n  x=1\n except Exception:\n  pass", {})
+    response = sandbox._execute_analysis("while True:\n try:\n  x=1\n except Exception:\n  pass", {})
     assert response["error"] in {"Analysis exceeded its execution limit.", "Analysis timed out (10s limit)"}
     assert time.monotonic() - start < 1
 
@@ -1142,14 +1148,14 @@ def test_decimal_plain_scalars_and_result_formatting(text, expected):
     from src.services.gol_capabilities import validate_frame
 
     validate_frame(frame)
-    assert sandbox.execute_analysis("result=stats", {"stats": frame})["rows"] == [[expected], [None]]
+    assert sandbox._execute_analysis("result=stats", {"stats": frame})["rows"] == [[expected], [None]]
 
 
 def test_decimal_input_does_not_block_other_frames(frames):
     assert frames["fixture_stats"]["decimal_rating"].dtype == object
-    result = sandbox.execute_analysis("result=teams", frames)
+    result = sandbox._execute_analysis("result=teams", frames)
     assert result["result_type"] == "table"
-    result = sandbox.execute_analysis("result=fixture_stats['decimal_rating'].sum()", frames)
+    result = sandbox._execute_analysis("result=fixture_stats['decimal_rating'].sum()", frames)
     assert result == {"result_type": "scalar", "value": 101.7, "display": "table"}
 
 

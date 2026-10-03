@@ -12,7 +12,6 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from functools import lru_cache
 from types import FunctionType, GeneratorType, ModuleType
-from zoneinfo import available_timezones
 
 import numpy as np
 import pandas as pd
@@ -22,6 +21,16 @@ from pandas.core.indexing import _AtIndexer, _iAtIndexer, _iLocIndexer, _LocInde
 from pandas.core.strings.accessor import StringMethods
 from pandas.core.window import Expanding, Rolling
 from RestrictedPython.Guards import safer_getattr
+from src.services.gol_plain_shapes import (
+    FRAME_SHAPES,
+    INDEX_SHAPES,
+    TIMEZONE_NAMES,
+    VALUE_SHAPES,
+    canonical_frequency,
+    canonical_timestamp,
+    dtype_shape,
+    timezone_shape,
+)
 
 ERROR = "Analysis refused: unsupported operation or result."
 MAX_ARRAY_CELLS = 1_000_000
@@ -29,7 +38,6 @@ MAX_VALUE_ITEMS = 20_000
 MAX_VALUE_DEPTH = 20
 MAX_STRING_CHARS = 10_000
 SIZE_ERROR = "Analysis exceeded its size limit."
-TIMEZONE_NAMES = frozenset(available_timezones())
 
 
 class AnalysisSizeLimit(ValueError):
@@ -474,6 +482,8 @@ def plain_value(value, depth=0, budget=None, cap_strings=False):
     if budget[0] < 0 or depth > MAX_VALUE_DEPTH:
         raise AnalysisSizeLimit(SIZE_ERROR)
     kind = type(value)
+    if kind not in VALUE_SHAPES:
+        raise AnalysisRefused(ERROR)
     if value is None or value is pd.NA or value is pd.NaT:
         return None
     if kind is str:
@@ -481,6 +491,8 @@ def plain_value(value, depth=0, budget=None, cap_strings=False):
             raise AnalysisSizeLimit(SIZE_ERROR)
         return value
     if kind in (bool, int):
+        if kind is int and value.bit_length() > 14_000:
+            raise AnalysisRefused(ERROR)
         return value
     if kind is float:
         return value if math.isfinite(value) else None
@@ -494,16 +506,20 @@ def plain_value(value, depth=0, budget=None, cap_strings=False):
     if kind is np.bool_:
         return bool(value)
     if kind in (pd.Timestamp, datetime, date):
-        # Custom tzinfo has executable callbacks too.
+        # Timezone values use reviewed exact types and transport rules.
         if kind in (pd.Timestamp, datetime) and value.tzinfo is not None:
-            if type(value.tzinfo).__module__ not in {"datetime", "pytz", "pytz.tzfile", "pytz.tzinfo", "zoneinfo"}:
+            if timezone_shape(value.tzinfo) is None:
                 raise AnalysisRefused(ERROR)
+        if kind is pd.Timestamp and not canonical_timestamp(value):
+            raise AnalysisRefused(ERROR)
         return value.isoformat()
     if kind is pd.Interval:
         plain_value(value.left, depth + 1, budget, cap_strings)
         plain_value(value.right, depth + 1, budget, cap_strings)
         return str(value)
     if kind is pd.Period:
+        if not canonical_frequency(value.freq):
+            raise AnalysisRefused(ERROR)
         return str(value)
     if kind in (pd.Timedelta, timedelta):
         return str(value)
@@ -513,6 +529,8 @@ def plain_value(value, depth=0, budget=None, cap_strings=False):
         out = {}
         for key, v in value.items():
             if type(key) not in (str, bool, int, float):
+                raise AnalysisRefused(ERROR)
+            if type(key) is float and not math.isfinite(key):
                 raise AnalysisRefused(ERROR)
             plain_value(key, depth + 1, budget, cap_strings)
             out[str(key)] = plain_value(v, depth + 1, budget, cap_strings)
@@ -530,48 +548,27 @@ def safe_helper(helper):
     return call
 
 
-_PLAIN_DTYPES = tuple(
-    type(getattr(pd, name)())
-    for name in (
-        "StringDtype",
-        "Int8Dtype",
-        "Int16Dtype",
-        "Int32Dtype",
-        "Int64Dtype",
-        "UInt8Dtype",
-        "UInt16Dtype",
-        "UInt32Dtype",
-        "UInt64Dtype",
-        "Float32Dtype",
-        "Float64Dtype",
-        "BooleanDtype",
-    )
-)
-
-
 def _validate_dtype(dtype):
-    """Return False only when Python object cells need individual checks."""
-    if type(dtype) is pd.CategoricalDtype:
-        validate_values(dtype.categories)
-    elif (isinstance(dtype, np.dtype) and dtype.kind in "biufmMUS") or type(dtype) in _PLAIN_DTYPES:
-        pass
-    elif type(dtype) is pd.DatetimeTZDtype:
-        if type(dtype.tz).__module__ not in {"datetime", "pytz", "pytz.tzfile", "pytz.tzinfo", "zoneinfo"}:
-            raise AnalysisRefused(ERROR)
-    elif type(dtype) is pd.PeriodDtype:
-        pass
-    elif type(dtype) is pd.IntervalDtype:
-        if not isinstance(dtype.subtype, np.dtype) or dtype.subtype.kind not in "iufmM":
-            raise AnalysisRefused(ERROR)
-    elif isinstance(dtype, np.dtype) and dtype.kind == "O":
-        return False
-    else:
+    """Admission uses the same finite shape table as the transport encoder."""
+    row = dtype_shape(dtype)
+    if row is None:
         raise AnalysisRefused(ERROR)
+    if row.name == "category":
+        validate_values(dtype.categories)
+    if row.name == "object":
+        return False
     return True
 
 
 def validate_values(values):
     """Typed arrays cannot hide Python objects; inspect only object/category data."""
+    if isinstance(values, pd.Index) and type(values) not in INDEX_SHAPES:
+        raise AnalysisRefused(ERROR)
+    if type(values) in (pd.DatetimeIndex, pd.TimedeltaIndex) and values.freq is not None:
+        # Only canonical frequency text is carried by the plain-data boundary.
+        # Custom calendars must be refused equally by both execution paths.
+        if not canonical_frequency(values.freq):
+            raise AnalysisRefused(ERROR)
     if isinstance(values, pd.MultiIndex):
         for level in values.levels:
             validate_values(level)
@@ -582,6 +579,8 @@ def validate_values(values):
 
 def validate_frame(frame):
     """Validate the whole frame before copying metadata or converting output."""
+    if type(frame) not in FRAME_SHAPES:
+        raise AnalysisRefused(ERROR)
     plain_value(frame.attrs)
     plain_value(list(frame.index.names))
     validate_values(frame.index)

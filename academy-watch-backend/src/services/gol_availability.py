@@ -23,7 +23,11 @@ def maintenance_enabled() -> bool:
 
 
 def assistant_under_maintenance() -> bool:
-    return maintenance_enabled() or not provider_config()[1]
+    if maintenance_enabled() or not provider_config()[1]:
+        return True
+    from src.services.gol_isolation import isolation_ready
+
+    return not isolation_ready()
 
 
 def maintenance_payload() -> dict:

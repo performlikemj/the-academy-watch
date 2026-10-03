@@ -1,0 +1,64 @@
+# Process isolation for the analysis tool
+
+- Goal: second OS boundary after the existing analysis allowlist.
+- Constraints: local only; no migration/frontend change; release after #1135; assistant stays under maintenance.
+- Base: d9489aee / feat/gol-analysis-isolation.
+- Now: SBX2F2 union implemented: shared finite admission/wire table, generated per-row frame/result parity, fixed timezone/index metadata, transient readiness/output handling, memory-only health and operational notes.
+- Next: final source-head lane tests and four cached gates, push and bounded CI; external SBX2F2 hand-back.
+- Contract: CONTRACT | SBX2 | One fresh exec child per analysis, env={}, close_fds, three pipes, private temp cwd. Versioned column JSON (base64 fixed numeric buffers and tagged plain object values; no pickle) capped128MiB input/2MiB output; existing restricted executor and formatter run synchronously only after OS policy installs. Linux requires Landlock ABI>=3 + no_new_privs + libseccomp syscall allowlist denying network/process creation/other-process access; macOS refuses isolation and pauses chat/suggestions (trusted tests only). CPU10s, wall deadline parent SIGKILL+wait, address-space cap Linux plus parent RSS cap on both, file-size0/core0/nproc0/nice10. Missing policy -> neutral refusal, never parent execution. Preload analysis-only modules before filesystem lockdown; no Flask/DB imports; helpers use passed frames. Per-call startup and real-schema100k/200k transport measured locally and non-root Docker0.5CPU/1Gi before pool decision. Azure kernel support remains unverified locally and is a release prerequisite; separate credential-free ACA job/container is the stronger infrastructure option. No migration/frontend change. Released after1135; assistant stays under maintenance.
+
+- Milestone: synchronous first-layer executor, plain column transport, Linux Landlock/seccomp and macOS Seatbelt, parent SIGKILL/reap and container-wide memory admission implemented.
+- Focused evidence: macOS22 PASS/1Linux-only skip (before string codec/expanded admission controls); Linux17 PASS/1 test fixture correction required (limit snapshot before lockdown). Ordinary corpus178/183 initially; five lazy imports/timezone failures addressed, focused affected cases22 PASS.
+- Machine governor: expanded controls and Linux image rebuild queued normally; no command terminated/retried or bypassed.
+- Upstream: #1135 merged53127a54; current mainf18abf6b includes player-card changes. Merge main after implementation commit before final gates.
+
+- Targeted: macOS545PASS/2SKIP; two environment-dependent service/SQLite checks corrected with explicit test configuration and2PASS. Native Linux0.5CPU/1GiB220PASS (maintenance checked on macOS and final full CI). Parent DTO controls9PASS. Real PostgreSQL/psycopg ten-frame loader2PASS; owned aw_sbxf2 dropped (count0).
+- Performance final JSON: external logs/SBX2/measurements-{linux,macos}.json; Linux medians100k1.211s/200k1.536s, startup0.526s/0.473s; no pool. Final RSS448MiB Linux/640MiB macOS accommodates measured platform allocator differences; LinuxAS768MiB.
+- Lifecycle: Linux parent-death SIGKILL plus20s child backup alarm added; Linux disallows handler/mask/timer changes. Final focused lifecycle controls and gates next.
+
+- Final focused lifecycle: macOS31PASS/2Linux-only skips; non-rootLinux0.5CPU/1GiB32PASS, including parent-exit death/reaping. Additional scalar transport checks preserve NumPy precision/type and named timezone semantics. All first-layer capabilities remain unchanged.
+- OSV passed before frozen frontend dependency restore; no lockfile/frontend source change.
+- Final verification/delivery is recorded externally in `~/codex-runs/aw-redesign/logs/SBX2.final.md`; avoid post-gate repository edits solely for receipts.
+
+- Current main3949cbac integrated; only documentation/ledger conflicts, resolved by preserving all incoming state plus this lane's additions. No own frontend or migration delta. Final implementation commit16f1b5c4; exact delivery-head gates/CI remain authoritative externally.
+
+- SBX2F1 scope: X1/O8 macOS signals; X2 cancellable parent-crash cleanup; X3/O7 temporal fidelity; O1 timezone cache; O2 referenced-frame scope/input limits; O3 readiness and fixed operator signals; O4 stream transport/admission/headroom; O5 formatting preload; O6 deadline/busy hints; O9 temp lookup/empty-dir cleanup/complete hand-back; O10 real failing-policy tests and required Linux CI coverage.
+- Decision: production isolation is Linux-only. macOS refuses without a child; a named trusted test helper exercises the first layer/codec only, with no runtime fallback. Linux policy, signals, immutable timers and parent death remain mandatory.
+- Decision: admit before cache copies, select conservative AST/helper dependencies, stream column JSON rather than retain a full payload, check cgroup headroom and assign child limits from remaining budget; measure local full-app baseline under the production container envelope.
+- Final fix receipts will live in external logs/SBX2F1.final.md and SBX2F1.report.md; repository source freezes before final gates.
+
+- SBX2F1 implementation: Linux-only mandatory policy; streamed referenced-frame transport; temporal fidelity; real cached readiness/health and fixed logs; dynamic cgroup admission; mandatory Linux policy coverage and full-app container-memory CI.
+- SBX2F1 targeted: native non-root Linux aarch640.5CPU/1GiB641PASS/0SKIP; macOS portable602PASS/296Linux-or-PostgreSQL skips. Real PostgreSQL loader probe exposed a macOS-only test expectation, corrected to a clearly named trusted codec/reference path; Linux still executes children.
+- SBX2F1 measurements: Linux100k/200k bootstrap315/322ms, serialize126/267ms, end-to-end780/1018ms; full Flask preload/two workers/two threads peak739033088bytes, no OOM, two200k row-wise successes/two10s busy refusals. Exact receipts external logs/SBX2F1/.
+- SBX2F1 source freeze follows main integration and final focused loader validation; final cached gates/push/CI are recorded externally rather than editing source after gates. No migration/frontend screenshot changes. Production kernel remains UNCONFIRMED; maintenance is unchanged.
+
+- Main e510612a merged (#1135 already included); only AGENTS/CONTINUITY append conflicts, both histories preserved. PostgreSQL expected head inherited verbatim as p2c3; incoming migration/front-end files are unmodified. Own PR diff remains process isolation only. Corrected local PostgreSQL loader2PASS; owned aw_sbxf2 dropped in finally.
+
+- Integrated full gate de06ae22 found1 stale private cache fixture (5854PASS/2064SKIP); fixture now marks its direct seed complete and checks both full/scoped DOB eligibility. Focused1PASS. Runtime eligibility remains unchanged.
+- Fully populated two-worker/all-ten-frame caches: baseline454279168bytes, peak832688128 (~794MiB), two row-wise tables/two reduced-RSS refusals, OOM/max counters0 and workers exit0. Added --warm-caches CI pressure case; final source freeze/gates follow this evidence.
+- Main-integrated real PostgreSQL loader2PASS; current dynamic migration-head assertion inherited unchanged, aw_sbxf2 removed. Preapply files unchanged from main, no new migration contract.
+
+- SBX2F1 delivery now confirmed: GitHub37115197784 all seven jobs SUCCESS; Linux6150PASS/1769SKIP, mandatory isolation coverage had no skips. F2 retains Linux-only production policy; macOS pauses assistant chat/suggestions, trusted test helpers only.
+
+- SBX2F2 X1/O transport: fixed-offset names, UTC/automatic-name identity, Timestamp unit/fold, structured typed timezone, categorical/index/frame metadata. Object Index stays object. Generated table requires every admitted family to have a wire rule and recipe; unsupported custom zones, sub-minute offsets, string storage, nonfinite dictionary keys and >14,000-bit integers refuse equally. Original ordinary corpus remains unchanged.
+- SBX2F2 X2/O1/O3: parser recursion/result depth/string limits normalize to bad_output, never pause readiness; loader errors are per-analysis neutral; headroom is retry-later. Only definitive bootstrap failure revokes policy; READY refreshes owned slot/PID evidence, cold/expired contention uses proof or one-second unknown retry. Health reports memory-only policy/maintenance/provider state; independent trusted operator command documented.
+- SBX2F2 O4/O5: documented 75%-wire/input-size alerts and growth capacity; partial cache is not a transaction snapshot; macOS pauses whole assistant; preserve Gunicorn exec-form PID1/adopted-child reaping. Real Gunicorn reaper tested with parent-death child.
+- Targeted before source freeze: Linux1011PASS/0SKIP (original641 controls retained plus generated parity); final object-index/atomic readiness/reaper controls61PASS/0SKIP; portable generated194PASS, original sandbox/SQLite255PASS/2 optional skips. Final exact-source run/gates are authoritative externally.
+- Measurements Linux0.5CPU/1GiB:100k/200k serialize177/221ms, bootstrap299/308ms, end-to-end718/1000ms, childRSS108/133MiB. Full Flask two workers/two threads, all ten200k caches: peak833228800bytes (~795MiB), one table/two RSS/busy refusal, OOM/max counters0, workers exit0. No child reuse/pool.
+- Current origin/main e510612a already integrated (#1135 included); merge check required before final gates. No own schema/frontend/screenshot change; source freezes before external receipts.
+
+- CI at13ba3f40: pressure cold case safely returned3 busy/1 deadline, peak685363200bytes, workers0/OOM0; its any-success assertion was too strict for the deliberately large row-wise CPU workload. Measurement now separately requires both workers to return exact ordinary table rows/columns before pressure, and requires every pressure response to be success or fixed resource refusal in both cold/warm cases. Runtime policies/deadlines unchanged. Reproduce controlled all-refusal case via external test-only probe; new final source gates/push required.
+
+- Current main84dac1d2/#1137 integrated before final gates. Sole CONTINUITY append conflict preserved both lane histories; incoming MyClub files/workflow step are verbatim main, no own frontend delta. Revised measurement: both ordinary controls succeeded (~0.4s each); forced all-pressure-refusal cold case4 valid errors/OOM0/workers0, and full warm case peak795275264bytes (~759MiB)/OOM0/workers0. Final exact-source gates and Linux lane follow externally.
+
+- Final structural control found file-loaded ZoneInfo can have rules different from its known key. Shared timezone admission now requires canonical cached ZoneInfo identity; file-loaded/uncached objects refuse equally in frame/result paths. Eight object/Timestamp/column/index regressions added. Prior0076 CI memory/PostgreSQL succeeded; final source gates/native lane required after this admission refinement. Main84dac1d2 remains integrated; no limits/policy change.
+
+- Canonical-zone targeted portable matrix198PASS/190Linux-only skips,174deselected; the final native Linux run must have0skips. No command killed/retried; earlier final-head receipts retained as history, new source requires its own cached gates. All local owned images/containers removed before final source refinement.
+
+- Composite structural probe: native Linux boolean and extended-float interval dtypes were admitted by schema validation but not the scalar wire. Interval subtypes now have explicit table rows (integer widths, float32/64), generated endian/closure/null cases and shared refusal of unsupported subtypes. Only targeted tests during refinement; normal machine-wide governor queues retained. accff068 CI all7SUCCESS within bounded watch; final subtype source still requires native lane/gates/push.
+
+- Period offset probe also demonstrated normalize=True metadata lost by frequency text. Shared scalar/dtype admission now requires canonical period frequency, with ordinary frequency families generated and12 normalization object/column/index refusals. Targeted interval recipe needed explicit closed= to match its dtype; fixed before further checks. Final source not frozen until expanded structural matrix passes.
+
+- Temporal boundary variants added to generated rows: native datetime preserves wall fields directly (year1/9999, gap/fold); object Timestamp inconsistent gap states now refuse equally via canonical instant/wall check. Portable target exposed the gap normalization before source freeze; finite transport rules and shared metadata predicates now cover those boundaries explicitly.
+
+- Expanded structural portable matrix305PASS/290Linux-only skips,182deselected, including all interval subtype/endian/closure/null and temporal boundary rules. Final refreshed origin/main remains84dac1d2. Freeze source, then four cached gates and immutable production-image native lane; all exact delivery receipts remain external. No own migration/frontend delta.

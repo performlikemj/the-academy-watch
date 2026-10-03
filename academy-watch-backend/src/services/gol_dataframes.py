@@ -14,6 +14,20 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 TTL_SECONDS = 300  # 5 minutes
+FRAME_NAMES = frozenset(
+    {
+        "teams",
+        "tracked",
+        "journeys",
+        "journey_entries",
+        "cohorts",
+        "cohort_members",
+        "fixtures",
+        "team_profiles",
+        "players",
+        "fixture_stats",
+    }
+)
 
 
 class DataFrameCache:
@@ -24,22 +38,30 @@ class DataFrameCache:
         self._cache: dict[str, pd.DataFrame] = {}
         self._lock = threading.Lock()
         self._loaded_at: float = 0
+        self._complete_cache = False
         DataFrameCache._instance = self
 
-    def get_frames(self, app) -> dict[str, pd.DataFrame]:
-        """Return cached DataFrames, refreshing if TTL expired. Returns copies."""
+    def get_frames(self, app, names=None) -> dict[str, pd.DataFrame]:
+        """Refresh only requested frames; admission precedes request-local copies."""
+        if names is not None:
+            names = set(names) & FRAME_NAMES
+        if names is not None and not names:
+            return {}
         now = time.time()
-        if now - self._loaded_at < TTL_SECONDS and self._cache:
-            return self._adult_frames(app, self._cache)
-
         with self._lock:
-            # Double-check after acquiring lock
-            if now - self._loaded_at < TTL_SECONDS and self._cache:
-                return self._adult_frames(app, self._cache)
-            self._cache = self._load_all(app)
-            self._loaded_at = time.time()
-            logger.info("GOL DataFrame cache refreshed (%d frames)", len(self._cache))
-            return self._adult_frames(app, self._cache)
+            if now - self._loaded_at >= TTL_SECONDS:
+                self._cache = {}
+                self._complete_cache = False
+                self._loaded_at = now
+            missing = None if names is None else set(names) - self._cache.keys()
+            if (names is None and not self._complete_cache) or missing:
+                self._cache.update(self._load_all(app, names=missing))
+                self._complete_cache = names is None or self._complete_cache
+                logger.info("GOL DataFrame cache refreshed (%d frames)", len(self._cache))
+            selected = (
+                self._cache if names is None else {name: frame for name, frame in self._cache.items() if name in names}
+            )
+            return self._adult_frames(app, selected)
 
     @staticmethod
     def _adult_frames(app, frames):
@@ -61,7 +83,7 @@ class DataFrameCache:
                 for name, frame in frames.items()
             }
 
-    def _load_all(self, app) -> dict[str, pd.DataFrame]:
+    def _load_all(self, app, names=None) -> dict[str, pd.DataFrame]:
         """Load all DataFrames from the database."""
         from src.models.league import db
 
@@ -69,146 +91,156 @@ class DataFrameCache:
             engine = db.engine
             frames = {}
 
-            frames["teams"] = self._load_query(
-                engine,
-                """
-                SELECT
-                    t.id, t.team_id, t.name, t.country,
-                    l.name AS league_name,
-                    t.is_tracked, t.season
-                FROM teams t
-                LEFT JOIN leagues l ON t.league_id = l.id
-                WHERE t.season = (SELECT MAX(season) FROM teams)
-            """,
-            )
+            if names is None or "teams" in names:
+                frames["teams"] = self._load_query(
+                    engine,
+                    """
+                    SELECT
+                        t.id, t.team_id, t.name, t.country,
+                        l.name AS league_name,
+                        t.is_tracked, t.season
+                    FROM teams t
+                    LEFT JOIN leagues l ON t.league_id = l.id
+                    WHERE t.season = (SELECT MAX(season) FROM teams)
+                """,
+                )
 
-            frames["tracked"] = self._load_query(
-                engine,
-                """
-                SELECT
-                    tp.player_api_id, tp.player_name, tp.position,
-                    tp.nationality, tp.age, tp.team_id,
-                    t.name AS parent_club,
-                    pj.origin_club_name AS academy_club,
-                    tp.status, tp.current_level,
-                    tp.current_club_name, tp.data_source, tp.is_active,
-                    tp.updated_at
-                FROM tracked_players tp
-                LEFT JOIN teams t ON tp.team_id = t.id
-                LEFT JOIN player_journeys pj ON tp.journey_id = pj.id
-                WHERE tp.is_active = true
-            """,
-            )
+            if names is None or "tracked" in names:
+                frames["tracked"] = self._load_query(
+                    engine,
+                    """
+                    SELECT
+                        tp.player_api_id, tp.player_name, tp.position,
+                        tp.nationality, tp.age, tp.team_id,
+                        t.name AS parent_club,
+                        pj.origin_club_name AS academy_club,
+                        tp.status, tp.current_level,
+                        tp.current_club_name, tp.data_source, tp.is_active,
+                        tp.updated_at
+                    FROM tracked_players tp
+                    LEFT JOIN teams t ON tp.team_id = t.id
+                    LEFT JOIN player_journeys pj ON tp.journey_id = pj.id
+                    WHERE tp.is_active = true
+                """,
+                )
 
-            frames["journeys"] = self._load_query(
-                engine,
-                """
-                SELECT
-                    player_api_id, player_name, nationality, birth_date,
-                    origin_club_name, origin_year,
-                    current_club_name, current_level,
-                    first_team_debut_season, first_team_debut_club,
-                    total_clubs, total_first_team_apps, total_youth_apps,
-                    total_loan_apps, total_goals, total_assists,
-                    academy_club_ids
-                FROM player_journeys
-            """,
-            )
+            if names is None or "journeys" in names:
+                frames["journeys"] = self._load_query(
+                    engine,
+                    """
+                    SELECT
+                        player_api_id, player_name, nationality, birth_date,
+                        origin_club_name, origin_year,
+                        current_club_name, current_level,
+                        first_team_debut_season, first_team_debut_club,
+                        total_clubs, total_first_team_apps, total_youth_apps,
+                        total_loan_apps, total_goals, total_assists,
+                        academy_club_ids
+                    FROM player_journeys
+                """,
+                )
 
-            frames["journey_entries"] = self._load_query(
-                engine,
-                """
-                SELECT
-                    je.journey_id,
-                    pj.player_api_id,
-                    je.season, je.club_api_id, je.club_name,
-                    je.league_name, je.level, je.entry_type,
-                    je.is_youth, je.appearances, je.goals,
-                    je.assists, je.minutes
-                FROM player_journey_entries je
-                JOIN player_journeys pj ON je.journey_id = pj.id
-            """,
-            )
+            if names is None or "journey_entries" in names:
+                frames["journey_entries"] = self._load_query(
+                    engine,
+                    """
+                    SELECT
+                        je.journey_id,
+                        pj.player_api_id,
+                        je.season, je.club_api_id, je.club_name,
+                        je.league_name, je.level, je.entry_type,
+                        je.is_youth, je.appearances, je.goals,
+                        je.assists, je.minutes
+                    FROM player_journey_entries je
+                    JOIN player_journeys pj ON je.journey_id = pj.id
+                """,
+                )
 
-            frames["cohorts"] = self._load_query(
-                engine,
-                """
-                SELECT
-                    c.id, c.team_api_id,
-                    COALESCE(c.team_name, t.name) AS team_name,
-                    COALESCE(c.league_name, t_league.name) AS league_name,
-                    c.league_level,
-                    c.season, c.total_players, c.players_first_team,
-                    c.players_on_loan, c.players_still_academy, c.players_released,
-                    c.sync_status
-                FROM academy_cohorts c
-                LEFT JOIN teams t ON c.team_api_id = t.team_id
-                    AND t.season = (SELECT MAX(season) FROM teams)
-                LEFT JOIN leagues t_league ON t.league_id = t_league.id
-                WHERE c.total_players > 0
-            """,
-            )
+            if names is None or "cohorts" in names:
+                frames["cohorts"] = self._load_query(
+                    engine,
+                    """
+                    SELECT
+                        c.id, c.team_api_id,
+                        COALESCE(c.team_name, t.name) AS team_name,
+                        COALESCE(c.league_name, t_league.name) AS league_name,
+                        c.league_level,
+                        c.season, c.total_players, c.players_first_team,
+                        c.players_on_loan, c.players_still_academy, c.players_released,
+                        c.sync_status
+                    FROM academy_cohorts c
+                    LEFT JOIN teams t ON c.team_api_id = t.team_id
+                        AND t.season = (SELECT MAX(season) FROM teams)
+                    LEFT JOIN leagues t_league ON t.league_id = t_league.id
+                    WHERE c.total_players > 0
+                """,
+                )
 
-            frames["cohort_members"] = self._load_query(
-                engine,
-                """
-                SELECT
-                    cohort_id, player_api_id, player_name, position,
-                    nationality, current_club_name, current_level,
-                    current_status, appearances_in_cohort, goals_in_cohort,
-                    first_team_debut_season, total_first_team_apps,
-                    total_clubs, total_loan_spells, journey_synced
-                FROM cohort_members
-                WHERE journey_synced = true
-            """,
-            )
+            if names is None or "cohort_members" in names:
+                frames["cohort_members"] = self._load_query(
+                    engine,
+                    """
+                    SELECT
+                        cohort_id, player_api_id, player_name, position,
+                        nationality, current_club_name, current_level,
+                        current_status, appearances_in_cohort, goals_in_cohort,
+                        first_team_debut_season, total_first_team_apps,
+                        total_clubs, total_loan_spells, journey_synced
+                    FROM cohort_members
+                    WHERE journey_synced = true
+                """,
+                )
 
-            frames["fixtures"] = self._load_query(
-                engine,
-                """
-                SELECT
-                    id, fixture_id_api, date_utc, season,
-                    competition_name,
-                    home_team_api_id, away_team_api_id,
-                    home_goals, away_goals
-                FROM fixtures
-            """,
-            )
+            if names is None or "fixtures" in names:
+                frames["fixtures"] = self._load_query(
+                    engine,
+                    """
+                    SELECT
+                        id, fixture_id_api, date_utc, season,
+                        competition_name,
+                        home_team_api_id, away_team_api_id,
+                        home_goals, away_goals
+                    FROM fixtures
+                """,
+                )
 
-            frames["team_profiles"] = self._load_query(
-                engine,
-                """
-                SELECT team_id, name, country, logo_url
-                FROM team_profiles
-            """,
-            )
+            if names is None or "team_profiles" in names:
+                frames["team_profiles"] = self._load_query(
+                    engine,
+                    """
+                    SELECT team_id, name, country, logo_url
+                    FROM team_profiles
+                """,
+                )
 
-            frames["players"] = self._load_query(
-                engine,
-                """
-                SELECT player_id AS player_api_id, name AS player_name
-                FROM players
-            """,
-            )
+            if names is None or "players" in names:
+                frames["players"] = self._load_query(
+                    engine,
+                    """
+                    SELECT player_id AS player_api_id, name AS player_name
+                    FROM players
+                """,
+                )
 
-            frames["fixture_stats"] = self._load_query(
-                engine,
-                """
-                SELECT
-                    fs.fixture_id, fs.player_api_id, fs.team_api_id,
-                    f.season, f.date_utc, f.competition_name,
-                    fs.minutes, fs.position, fs.rating,
-                    fs.formation, fs.grid, fs.formation_position,
-                    fs.goals, fs.assists, fs.saves, fs.yellows, fs.reds,
-                    fs.shots_total, fs.shots_on,
-                    fs.passes_total, fs.passes_key,
-                    fs.tackles_total, fs.tackles_blocks, fs.tackles_interceptions,
-                    fs.duels_total, fs.duels_won,
-                    fs.dribbles_success, fs.fouls_drawn, fs.fouls_committed
-                FROM fixture_player_stats fs
-                JOIN fixtures f ON fs.fixture_id = f.id
-            """,
-            )
+            if names is None or "fixture_stats" in names:
+                frames["fixture_stats"] = self._load_query(
+                    engine,
+                    """
+                    SELECT
+                        fs.fixture_id, fs.player_api_id, fs.team_api_id,
+                        f.season, f.date_utc, f.competition_name,
+                        fs.minutes, fs.position, fs.rating,
+                        fs.formation, fs.grid, fs.formation_position,
+                        fs.goals, fs.assists, fs.saves, fs.yellows, fs.reds,
+                        fs.shots_total, fs.shots_on,
+                        fs.passes_total, fs.passes_key,
+                        fs.tackles_total, fs.tackles_blocks, fs.tackles_interceptions,
+                        fs.duels_total, fs.duels_won,
+                        fs.dribbles_success, fs.fouls_drawn, fs.fouls_committed
+                    FROM fixture_player_stats fs
+                    JOIN fixtures f ON fs.fixture_id = f.id
+                """,
+                )
 
             return frames
 

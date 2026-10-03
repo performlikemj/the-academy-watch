@@ -70,6 +70,33 @@ from src.routes.players import players_bp
 from src.routes.teams import teams_bp
 
 
+@pytest.fixture(autouse=True)
+def trusted_analysis_unit_readiness(monkeypatch):
+    """Portable unit tests mock readiness, never OS policy or process execution.
+
+    macOS has no production analysis runtime. Trusted first-layer tests call the
+    private executor explicitly; real process tests remain required on Linux.
+    Readiness integration tests restore the real function explicitly.
+    """
+    if sys.platform != "linux":
+        from src.services import gol_isolation
+
+        monkeypatch.setattr(gol_isolation, "isolation_ready", lambda: True)
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """Required Linux analysis policy coverage must never disappear as skips."""
+    if sys.platform != "linux":
+        return
+    reporter = session.config.pluginmanager.getplugin("terminalreporter")
+    if reporter and any(
+        report.nodeid.split("::")[0].endswith(("test_gol_isolation.py", "test_gol_isolation_regressions.py"))
+        for report in reporter.stats.get("skipped", [])
+    ):
+        reporter.write_sep("=", "Required Linux analysis isolation coverage was skipped")
+        session.exitstatus = 1
+
+
 @pytest.fixture
 def app(tmp_path):
     root_dir = Path(__file__).resolve().parent.parent

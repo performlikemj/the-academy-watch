@@ -9,6 +9,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     gcc \
     curl \
+    libseccomp2 \
     fontconfig \
     fonts-dejavu-core \
     libpango-1.0-0 \

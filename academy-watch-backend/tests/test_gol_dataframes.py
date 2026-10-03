@@ -1,5 +1,6 @@
 """Real SQL loaders must supply frames accepted by the analysis boundary."""
 
+import io
 import json
 import os
 from datetime import date, datetime
@@ -20,6 +21,25 @@ from src.services.gol_capabilities import plain_value, validate_frame
 from src.services.gol_dataframes import DataFrameCache
 from src.services.gol_sandbox import execute_analysis
 from src.services.gol_service import GolService
+
+
+def trusted_loader_analysis_for_test(code, frames, display="table", description=""):
+    """Portable loader/codec reference; Linux always exercises the real child."""
+    if os.uname().sysname == "Linux":
+        return execute_analysis(code, frames, display, description)
+    from src.services.gol_sandbox import _execute_analysis
+    from src.services.gol_wire import read_request, stream_request
+
+    supplied = frames() if callable(frames) else frames
+    restored_code, restored = read_request(io.BytesIO(b"".join(stream_request(code, supplied))))
+    return _execute_analysis(restored_code, restored, display, description)
+
+
+@pytest.fixture(autouse=True)
+def analysis_available(monkeypatch):
+    monkeypatch.setenv("GOL_PROVIDER", "openai")
+    monkeypatch.setenv("GOL_MAINTENANCE", "false")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-not-a-real-key")
 
 
 def test_sqlite_numeric_loader():
@@ -46,7 +66,13 @@ def test_sqlite_numeric_loader():
         frame = DataFrameCache._load_query(engine, "SELECT * FROM loader_values")
         assert len(frame) == 2 and frame.rating.dtype == "float64"
         validate_frame(frame)
-        assert execute_analysis("result=values", {"values": frame})["result_type"] == "table"
+        from src.services.gol_sandbox import _execute_analysis
+
+        assert _execute_analysis("result=values", {"values": frame})["result_type"] == "table"
+        if os.uname().sysname == "Linux":
+            assert execute_analysis("result=values", {"values": frame})["result_type"] == "table"
+        else:
+            assert execute_analysis("result=values", {"values": frame})["error"] == "maintenance"
     finally:
         engine.dispose()
 
@@ -268,7 +294,7 @@ def pg_loader():
             db.engine.dispose()
 
 
-def test_postgres_full_loader_frames_and_service(pg_loader, record_property):
+def test_postgres_full_loader_frames_and_service(pg_loader, record_property, monkeypatch):
     cache = DataFrameCache()
     queries = []
 
@@ -301,7 +327,7 @@ def test_postgres_full_loader_frames_and_service(pg_loader, record_property):
     for name, frame in raw.items():
         assert len(frame) == 3, name  # Failed queries must never pass as empty frames.
         validate_frame(frame)
-        assert execute_analysis(f"result={name}.head()", raw)["result_type"] == "table", name
+        assert trusted_loader_analysis_for_test(f"result={name}.head()", raw)["result_type"] == "table", name
     assert raw["fixture_stats"].rating.dtype == "float64"
     assert raw["fixture_stats"].rating.isna().sum() == 1
     assert isinstance(raw["journeys"].academy_club_ids.iloc[0], list)
@@ -315,8 +341,8 @@ def test_postgres_full_loader_frames_and_service(pg_loader, record_property):
         assert type(native_stats.rating.dropna().iloc[0]) is Decimal
         validate_frame(native_stats)
         native_frames = {**raw, "fixture_stats": native_stats}
-        assert execute_analysis("result=teams.head()", native_frames)["result_type"] == "table"
-        assert execute_analysis("result=fixture_stats.head()", native_frames)["result_type"] == "table"
+        assert trusted_loader_analysis_for_test("result=teams.head()", native_frames)["result_type"] == "table"
+        assert trusted_loader_analysis_for_test("result=fixture_stats.head()", native_frames)["result_type"] == "table"
         # The actual loader selects JSON arrays, dates/timestamps, NULLs and text.
         # Cover PostgreSQL native date/array/object-JSON values through the same query loader too.
         probe = cache._load_query(
@@ -329,7 +355,19 @@ def test_postgres_full_loader_frames_and_service(pg_loader, record_property):
         )
         assert len(probe) == 2
         validate_frame(probe)
-        assert execute_analysis("result=probe", {**raw, "probe": probe})["result_type"] == "table"
+        assert trusted_loader_analysis_for_test("result=probe", {**raw, "probe": probe})["result_type"] == "table"
+        queries.clear()
+        sa.event.listen(db.engine, "before_cursor_execute", remember_query)
+        try:
+            selected = cache._load_all(pg_loader, names={"teams"})
+        finally:
+            sa.event.remove(db.engine, "before_cursor_execute", remember_query)
+        assert set(selected) == {"teams"} and len(queries) == 1
+        pd.testing.assert_frame_equal(selected["teams"], raw["teams"])
+        if os.uname().sysname != "Linux":
+            assert execute_analysis("result=teams", raw)["error"] == "maintenance"
+            # Explicit trusted service-unit path, never a runtime fallback.
+            monkeypatch.setattr("src.services.gol_service.execute_analysis", trusted_loader_analysis_for_test)
         service = GolService.__new__(GolService)
         service.df_cache = cache
         result = service._execute_tool("run_analysis", {"code": "result=teams.head()"})
