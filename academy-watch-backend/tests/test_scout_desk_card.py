@@ -1,8 +1,10 @@
 """Scout desk card fields: the 'open to an introduction' filter, availability and introduction state."""
 
+import os
 from datetime import date, timedelta
 
 import pytest
+import sqlalchemy as sa
 from flask import Flask
 from sqlalchemy import event, text
 from src.auth import _ensure_user_account, issue_user_token
@@ -18,6 +20,16 @@ SCOUT = "desk-scout@example.com"
 PLAYER_IDS = list(range(2001, 2011))
 
 
+def _database_uri():
+    """In-memory SQLite, or — opt-in — a local scratch PostgreSQL database (created and dropped by the caller)."""
+    uri = os.getenv("SD_POSTGRES_URL")
+    if not uri:
+        return "sqlite:///:memory:"
+    parsed = sa.engine.make_url(uri)
+    assert parsed.database == "aw_sd_scratch" and parsed.host in {"localhost", "127.0.0.1"}
+    return uri
+
+
 @pytest.fixture
 def desk_app(monkeypatch):
     monkeypatch.setenv("SKIP_API_HANDSHAKE", "1")
@@ -28,18 +40,20 @@ def desk_app(monkeypatch):
     monkeypatch.delenv("SCOUT_INCLUDE_LOCAL_PLAYERS", raising=False)
     monkeypatch.delenv("SEASON_ROLLUP_READS", raising=False)
 
+    from src.routes.contact import contact_bp
     from src.routes.scout import scout_bp
 
     app = Flask(__name__)
     app.config.update(
         TESTING=True,
         SECRET_KEY="desk-card-secret",
-        SQLALCHEMY_DATABASE_URI="sqlite:///:memory:",
+        SQLALCHEMY_DATABASE_URI=_database_uri(),
         SQLALCHEMY_TRACK_MODIFICATIONS=False,
         RATELIMIT_ENABLED=False,
     )
     db.init_app(app)
     app.register_blueprint(scout_bp, url_prefix="/api")
+    app.register_blueprint(contact_bp, url_prefix="/api")
 
     with app.app_context():
         # The narrow club registry projection, as in tests/test_contact.py.
@@ -52,13 +66,27 @@ def desk_app(monkeypatch):
                     "emergency_hidden BOOLEAN NOT NULL)"
                 )
             )
+            connection.execute(
+                text(
+                    "CREATE TABLE IF NOT EXISTS club_program_managers ("
+                    "id INTEGER PRIMARY KEY, program_id INTEGER NOT NULL, "
+                    "user_account_id INTEGER NOT NULL, status VARCHAR(20) NOT NULL)"
+                )
+            )
         db.create_all()
         _seed_players()
         yield app
         db.session.remove()
-        db.drop_all()
-        with db.engine.begin() as connection:
-            connection.execute(text("DROP TABLE IF EXISTS club_programs"))
+        if db.engine.dialect.name == "postgresql":
+            # The scratch database is ours alone: empty it wholesale.
+            with db.engine.begin() as connection:
+                connection.execute(text("DROP SCHEMA public CASCADE"))
+                connection.execute(text("CREATE SCHEMA public"))
+        else:
+            db.drop_all()
+            with db.engine.begin() as connection:
+                connection.execute(text("DROP TABLE IF EXISTS club_program_managers"))
+                connection.execute(text("DROP TABLE IF EXISTS club_programs"))
 
 
 @pytest.fixture
@@ -104,7 +132,7 @@ def _headers(email=SCOUT):
     return {"Authorization": f"Bearer {issue_user_token(email)['token']}"}
 
 
-def _claim(player_api_id, *, email=None, status="approved", relationship_type="player"):
+def _claim(player_api_id, *, email=None, status="approved", relationship_type="player", reviewed_days_ago=0):
     owner = _user(email or f"owner-{player_api_id}@example.com")
     claim = PlayerProfileClaim(
         user_account_id=owner.id,
@@ -112,11 +140,16 @@ def _claim(player_api_id, *, email=None, status="approved", relationship_type="p
         relationship_type=relationship_type,
         contract_status="free_agent" if relationship_type == "player" else "unknown",
         status=status,
-        reviewed_at=utcnow() if status == "approved" else None,
+        reviewed_at=utcnow() - timedelta(days=reviewed_days_ago) if status != "pending" else None,
     )
     db.session.add(claim)
     db.session.commit()
     return claim
+
+
+def _block(blocker_id, blocked_id):
+    db.session.add(UserBlock(blocker_user_id=blocker_id, blocked_user_id=blocked_id))
+    db.session.commit()
 
 
 def _request(scout_email, player_api_id, *, status="pending", created_days_ago=1, **fields):
@@ -278,7 +311,7 @@ class TestWatchlistIntroductionState:
         db.session.execute(
             text(
                 "INSERT INTO club_programs (id, name, platform_status, emergency_hidden) "
-                "VALUES (7, 'Quillmere Athletic', 'approved', 0)"
+                "VALUES (7, 'Quillmere Athletic', 'approved', false)"
             )
         )
         db.session.commit()
@@ -315,18 +348,55 @@ class TestWatchlistIntroductionState:
         assert _introductions(client)[2001]["declined_by"] == "club"
 
     @pytest.mark.parametrize("scout_blocks", [True, False])
-    def test_a_block_in_either_direction_hides_the_state(self, client, scout_blocks):
+    def test_a_block_reads_like_any_player_who_cannot_be_asked(self, client, scout_blocks):
+        # Never visible by omission: the same neutral answer as a player with no claim,
+        # and the blocked claimant's thread is hidden as the sent box hides it.
         claim = _claim(2001)
         _watch(SCOUT, 2001, 2002)
         _request(SCOUT, 2001, status="accepted", claim_id=claim.id)
         scout = _user(SCOUT)
-        pair = (scout.id, claim.user_account_id) if scout_blocks else (claim.user_account_id, scout.id)
-        db.session.add(UserBlock(blocker_user_id=pair[0], blocked_user_id=pair[1]))
-        db.session.commit()
+        _block(*((scout.id, claim.user_account_id) if scout_blocks else (claim.user_account_id, scout.id)))
 
         intro = _introductions(client)
 
-        assert intro[2001] is None
+        assert intro[2001] == intro[2002] == {"state": "none", "can_ask": False}
+
+    @pytest.mark.parametrize("other_status,other_relationship", [("rejected", "player"), ("approved", "guardian")])
+    def test_a_block_by_someone_who_is_not_the_requests_claimant_hides_nothing(
+        self, client, other_status, other_relationship
+    ):
+        # Reviewers' probe: a rejected (or guardian) claim by a blocked account must not hide
+        # the scout's thread with the real claimant, nor forbid asking.
+        owner_claim = _claim(2001)
+        other = _claim(
+            2001, email="someone-else@example.com", status=other_status, relationship_type=other_relationship
+        )
+        _claim(2002)
+        _claim(2002, email="someone-else@example.com", status=other_status, relationship_type=other_relationship)
+        _watch(SCOUT, 2001, 2002)
+        _request(SCOUT, 2001, claim_id=owner_claim.id)
+        _block(other.user_account_id, _user(SCOUT).id)
+
+        intro = _introductions(client)
+
+        assert (intro[2001]["state"], intro[2001]["can_ask"]) == ("pending", False)
+        assert intro[2002] == {"state": "none", "can_ask": True}
+
+    def test_the_target_is_the_newest_approved_self_claim_and_only_its_owner_can_block(self, client):
+        # Reviewers' probe: old approved claim A blocks the scout, newer approved claim B does not.
+        blocked_old = _claim(2001, email="old-claimant@example.com", reviewed_days_ago=30)
+        _claim(2001, email="new-claimant@example.com", reviewed_days_ago=1)
+        # The other way round: the newest claimant is the one behind the block.
+        _claim(2002, email="fine-claimant@example.com", reviewed_days_ago=30)
+        blocked_new = _claim(2002, email="blocking-claimant@example.com", reviewed_days_ago=1)
+        _watch(SCOUT, 2001, 2002)
+        scout = _user(SCOUT)
+        _block(blocked_old.user_account_id, scout.id)
+        _block(scout.id, blocked_new.user_account_id)
+
+        intro = _introductions(client)
+
+        assert intro[2001] == {"state": "none", "can_ask": True}
         assert intro[2002] == {"state": "none", "can_ask": False}
 
     def test_nothing_is_said_when_the_contact_rail_is_off(self, client, monkeypatch):
@@ -384,3 +454,155 @@ class TestWatchlistIntroductionState:
 
         assert one == ten
         assert ten[1] == 1
+
+
+# ---- The projection and the real route must agree -------------------------
+# Each case is set up once, then asked twice: what does the watchlist say
+# (``can_ask``), and what does POST /contact/requests actually do?
+
+
+def _verified(email=SCOUT):
+    from src.models.trust import ScoutVerification
+
+    user = _user(email)
+    db.session.add(
+        ScoutVerification(
+            user_account_id=user.id,
+            full_name="Desk Scout",
+            organization="Fixture Recruitment",
+            role_title="Scout",
+            statement="I recruit adult players.",
+            evidence_urls=["https://example.com/scout"],
+            status="approved",
+            reviewed_at=utcnow(),
+        )
+    )
+    db.session.commit()
+    return user
+
+
+def _case_no_claim():
+    pass
+
+
+def _case_approved_self_claim():
+    _claim(2001)
+
+
+def _case_claim_still_pending():
+    _claim(2001, status="pending")
+
+
+def _case_guardian_claim_only():
+    _claim(2001, relationship_type="guardian")
+
+
+def _case_pending_request():
+    _request(SCOUT, 2001, claim_id=_claim(2001).id)
+
+
+def _case_accepted_request():
+    _request(SCOUT, 2001, status="accepted", responded_at=utcnow(), claim_id=_claim(2001).id)
+
+
+def _case_declined_inside_the_cool_off():
+    _request(SCOUT, 2001, status="declined", created_days_ago=5, responded_at=utcnow() - timedelta(days=2))
+    _claim(2001)
+
+
+def _case_declined_long_ago():
+    _request(SCOUT, 2001, status="declined", created_days_ago=90, responded_at=utcnow() - timedelta(days=80))
+    _claim(2001)
+
+
+def _case_withdrawn():
+    _request(SCOUT, 2001, status="withdrawn", claim_id=_claim(2001).id)
+
+
+def _case_past_its_expiry_but_not_yet_written():
+    _request(SCOUT, 2001, created_days_ago=20, claim_id=_claim(2001).id)
+
+
+def _case_scout_blocks_the_claimant():
+    _block(_user(SCOUT).id, _claim(2001).user_account_id)
+
+
+def _case_claimant_blocks_the_scout():
+    _block(_claim(2001).user_account_id, _user(SCOUT).id)
+
+
+def _case_older_claimant_blocks_newer_does_not():
+    old = _claim(2001, email="old-claimant@example.com", reviewed_days_ago=30)
+    _claim(2001, email="new-claimant@example.com", reviewed_days_ago=1)
+    _block(old.user_account_id, _user(SCOUT).id)
+
+
+def _case_newest_claimant_blocks():
+    _claim(2001, email="old-claimant@example.com", reviewed_days_ago=30)
+    new = _claim(2001, email="new-claimant@example.com", reviewed_days_ago=1)
+    _block(new.user_account_id, _user(SCOUT).id)
+
+
+def _case_rejected_claimant_blocks():
+    _claim(2001)
+    rejected = _claim(2001, email="rejected@example.com", status="rejected")
+    _block(rejected.user_account_id, _user(SCOUT).id)
+
+
+def _case_hidden_active_request_to_a_blocked_older_claimant():
+    # The thread is hidden (its claimant is blocked) but it still occupies the one active slot.
+    old = _claim(2001, email="old-claimant@example.com", reviewed_days_ago=30)
+    _claim(2001, email="new-claimant@example.com", reviewed_days_ago=1)
+    _request(SCOUT, 2001, claim_id=old.id)
+    _block(old.user_account_id, _user(SCOUT).id)
+
+
+def _case_another_scouts_request():
+    _claim(2001)
+    _request("other-scout@example.com", 2001, status="accepted")
+
+
+PARITY_CASES = [
+    (_case_no_claim, False),
+    (_case_approved_self_claim, True),
+    (_case_claim_still_pending, False),
+    (_case_guardian_claim_only, False),
+    (_case_pending_request, False),
+    (_case_accepted_request, False),
+    (_case_declined_inside_the_cool_off, False),
+    (_case_declined_long_ago, True),
+    (_case_withdrawn, True),
+    (_case_past_its_expiry_but_not_yet_written, True),
+    (_case_scout_blocks_the_claimant, False),
+    (_case_claimant_blocks_the_scout, False),
+    (_case_older_claimant_blocks_newer_does_not, True),
+    (_case_newest_claimant_blocks, False),
+    (_case_rejected_claimant_blocks, True),
+    (_case_hidden_active_request_to_a_blocked_older_claimant, False),
+    (_case_another_scouts_request, True),
+]
+
+
+@pytest.mark.parametrize("arrange,allowed", PARITY_CASES, ids=[case.__name__[6:] for case, _ in PARITY_CASES])
+def test_what_the_lists_offer_is_what_the_contact_route_does(client, monkeypatch, arrange, allowed):
+    monkeypatch.setattr("src.routes.contact.send_club_courtesy_notice", lambda *_a, **_k: None)
+    monkeypatch.setattr("src.routes.contact.send_club_consent_notice", lambda *_a, **_k: None)
+    _verified()
+    _watch(SCOUT, 2001)
+    arrange()
+    headers = _headers()
+
+    watchlist = _introductions(client)[2001]
+    desk = {
+        row["player_id"]: row
+        for row in client.get("/api/scout/players?sort=name&per_page=100", headers=headers).get_json()["players"]
+    }[2001]["introduction"]
+    created = client.post(
+        "/api/contact/requests",
+        json={"player_api_id": 2001, "message": "Hello", "permission_attestation": True},
+        headers=headers,
+    )
+
+    assert watchlist == desk
+    assert watchlist["can_ask"] is allowed
+    assert (created.status_code == 201) is allowed, created.get_json()

@@ -38,7 +38,7 @@ test('contact entry points are gated on the /api/features contact_rail flag', as
   assert.ok(app.includes("if (contactRail === true) items.push({ path: '/introductions', label: 'Introductions', icon: Send })"), 'nav item behind the flag')
   assert.ok(app.includes('}, [adminUnlocked, contactRail, isJournalist, isCurator, playerProfiles])'), 'nav memo re-computes when the flag answers')
   const scout = await fs.readFile(scoutFile, 'utf8')
-  assert.ok(scout.includes('contactRail === true && player.contactable ? ('), 'Introduce button behind the flag')
+  assert.ok(scout.includes("const offer = contactRail === true ? deskIntroduction(player, { signedIn: Boolean(auth?.token) }) : null"), 'Introduce button behind the flag')
   assert.ok(scout.includes("const chips = DESK_CHIPS.filter((chip) => !chip.contactRailOnly || contactRail === true)"), 'the "Open to an introduction" filter is behind the flag')
   const nav = await fs.readFile(deskNavFile, 'utf8')
   assert.ok(nav.includes('const links = DESK_LINKS.filter((link) => !link.contactRailOnly || contactRail === true)'), 'the Introductions desk link is behind the flag')

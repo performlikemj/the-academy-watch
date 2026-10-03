@@ -2,8 +2,9 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import {
-  DESK_CHIPS, NO_MATCHES, boardsWithRows, deskFigures, deskFilterParams, deskMeta, deskPhotos, deskStatus,
-  figuresSource, initialResultView, introductionThreadPath, introductionView, watchClub, watchRole,
+  DESK_CHIPS, NO_MATCHES, boardsWithRows, deskFigures, deskFilterParams, deskIntroduction, deskMeta, deskPhotos, deskStatus,
+  figuresSource, hiddenFilterActive, initialResultView, introductionThreadPath, introductionView, leaderEntries,
+  storedResultView, viewOwnerTag, watchClub, watchRole, withResultView,
 } from '../src/lib/scout-desk.js'
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
@@ -104,9 +105,71 @@ test('club · age, and which image the tile gets', () => {
 
 test('only boards that have rows are shown', () => {
   const phase = [{ key: 'top_scorers' }, { key: 'top_assists' }, { key: 'most_minutes' }]
-  assert.deepEqual(boardsWithRows({ top_scorers: [{ player_id: 1 }], top_assists: [], most_minutes: null }, phase), [{ key: 'top_scorers' }])
+  const provider = { player_id: 1, provenance: { source_category: 'api' } }
+  assert.deepEqual(boardsWithRows({ top_scorers: [provider], top_assists: [], most_minutes: null }, phase), [{ key: 'top_scorers' }])
   assert.deepEqual(boardsWithRows({}, phase), [])
   assert.deepEqual(boardsWithRows(null, phase), [])
+})
+
+test('a leader whose figure could differ from the player page is not printed (review O5)', () => {
+  const provider = { player_id: 1, goals: 6, provenance: { source_category: 'api' } }
+  const legacyClub = { player_id: -2, goals: 1, provenance: { source_category: 'club', primary_source: 'club' } }
+  const mergedClub = { ...legacyClub, player_id: -3, club_confirmed: true }
+  assert.deepEqual(leaderEntries([provider, legacyClub, mergedClub]), [provider, mergedClub])
+  assert.deepEqual(boardsWithRows({ top_scorers: [legacyClub] }, [{ key: 'top_scorers' }]), [])
+  assert.deepEqual(leaderEntries(null), [])
+})
+
+test('the view choice belongs to the viewer: another account\'s choice is never used (review X4)', () => {
+  const a = viewOwnerTag('token-of-a')
+  const b = viewOwnerTag('token-of-b')
+  assert.match(a, /^u[0-9a-f]{8}$/)
+  assert.notEqual(a, b)
+  assert.equal(viewOwnerTag(null), 'public')
+  assert.ok(!a.includes('token-of-a'), 'the credential is stored')
+  let raw = withResultView(null, a, 'table')
+  assert.equal(storedResultView(raw, a), 'table')
+  assert.equal(storedResultView(raw, b), null)
+  assert.equal(storedResultView(raw, 'public'), null)
+  raw = withResultView(raw, b, 'cards')
+  assert.equal(storedResultView(raw, a), 'table')
+  assert.equal(storedResultView(raw, b), 'cards')
+  // Garbage, the old device-wide value and unknown views are ignored; the list of owners stays short.
+  for (const bad of ['table', '[]', '{"x":1', null, undefined, JSON.stringify({ [a]: 'grid' })]) assert.equal(storedResultView(bad, a), null)
+  for (let index = 0; index < 20; index += 1) raw = withResultView(raw, `u${index}`, 'table')
+  assert.equal(Object.keys(JSON.parse(raw)).length, 8)
+  assert.equal(storedResultView(raw, 'u19'), 'table')
+  const desk = read('../src/pages/ScoutPage.jsx')
+  assert.ok(!/localStorage\.setItem\(RESULT_VIEW_KEY, next\)/.test(desk), 'the choice is stored for the device')
+})
+
+test('a filter set with the table tools is never applied out of sight (review O1)', () => {
+  assert.equal(hiddenFilterActive({}), false)
+  assert.equal(hiddenFilterActive({ status: 'all', source: 'club' }), false) // the chip shows it
+  assert.equal(hiddenFilterActive({ status: 'on_loan' }), true)
+  assert.equal(hiddenFilterActive({ source: 'self' }), true)
+  assert.equal(hiddenFilterActive({ source: 'api' }), true)
+  const desk = read('../src/pages/ScoutPage.jsx')
+  assert.match(desk, /const toolsShown = resultView === 'table' \|\| moreFilters \|\| filterHidden/)
+})
+
+test('the desk offers exactly what the contact rules would accept (reviews X2 / O2)', () => {
+  const signedIn = { signedIn: true }
+  const thread = (id) => ({ kind: 'thread', to: `/introductions?request=${id}` })
+  // A reachable pending / accepted request: its thread, never a second request.
+  assert.deepEqual(deskIntroduction({ contactable: true, introduction: { state: 'pending', request_id: 'r-1', can_ask: false } }, signedIn), thread('r-1'))
+  assert.deepEqual(deskIntroduction({ contactable: true, introduction: { state: 'accepted', request_id: 'r-2', can_ask: false } }, signedIn), thread('r-2'))
+  assert.equal(deskIntroduction({ contactable: true, introduction: { state: 'pending', request_id: 'r-3', closed: true, can_ask: false } }, signedIn), null)
+  // Ask only when the server says a new request would be accepted.
+  assert.deepEqual(deskIntroduction({ contactable: true, introduction: { state: 'none', can_ask: true } }, signedIn), { kind: 'ask' })
+  assert.deepEqual(deskIntroduction({ contactable: true, introduction: { state: 'withdrawn', can_ask: true } }, signedIn), { kind: 'ask' })
+  // Cooling off, blocked (neutral state) or not claimable: nothing — even though the row is "contactable".
+  assert.equal(deskIntroduction({ contactable: true, introduction: { state: 'declined', can_ask: false } }, signedIn), null)
+  assert.equal(deskIntroduction({ contactable: true, introduction: { state: 'none', can_ask: false } }, signedIn), null)
+  // Signed out (or no projected state): the row's flag decides, as before; the form asks for sign-in.
+  assert.deepEqual(deskIntroduction({ contactable: true, introduction: { state: 'pending' } }, { signedIn: false }), { kind: 'ask' })
+  assert.deepEqual(deskIntroduction({ contactable: true }, signedIn), { kind: 'ask' })
+  assert.equal(deskIntroduction({ contactable: false }, signedIn), null)
 })
 
 const YEAR = new Date().getFullYear()

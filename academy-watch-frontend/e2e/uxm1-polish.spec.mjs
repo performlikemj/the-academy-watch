@@ -9,8 +9,15 @@ async function mocks(page, { verified = false, signedIn = true, incoming = true,
   const seen = []
   await page.addInitScript((signedIn) => {
     localStorage.setItem('academyWatch.playerOnboardingPromptDismissed.v1', 'true')
-    // These checks read the desk's table; the desk now starts on cards.
-    localStorage.setItem('aw.scout.view', 'table')
+    // These checks read the desk's table; the desk starts on cards, so store "table" as this
+    // viewer's choice (keyed by lib/scout-desk.js::viewOwnerTag — FNV-1a of the credential).
+    const tag = (token) => {
+      if (!token) return 'public'
+      let hash = 0x811c9dc5
+      for (let index = 0; index < token.length; index += 1) hash = Math.imul(hash ^ token.charCodeAt(index), 0x01000193) >>> 0
+      return `u${hash.toString(16).padStart(8, '0')}`
+    }
+    localStorage.setItem('aw.scout.view.v2', JSON.stringify({ [tag(signedIn ? 'test-token' : null)]: 'table' }))
     if (signedIn) localStorage.setItem('academy_watch_user_token', 'test-token')
   }, signedIn)
   await page.route('**/api/**', async (route) => {

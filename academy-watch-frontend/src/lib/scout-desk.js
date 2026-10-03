@@ -9,10 +9,45 @@ export const RESULT_VIEWS = [
   { value: 'cards', label: 'Cards' },
   { value: 'table', label: 'Table' },
 ]
-export const RESULT_VIEW_KEY = 'aw.scout.view'
+export const RESULT_VIEW_KEY = 'aw.scout.view.v2'
+const VIEW_OWNERS_KEPT = 8
+
+// Who a stored view choice belongs to. The credential itself is never stored:
+// a short one-way tag of it is (FNV-1a, 32 bit), 'public' when signed out.
+export function viewOwnerTag(token) {
+  if (!token) return 'public'
+  let hash = 0x811c9dc5
+  for (let index = 0; index < token.length; index += 1) {
+    hash ^= token.charCodeAt(index)
+    hash = Math.imul(hash, 0x01000193) >>> 0
+  }
+  return `u${hash.toString(16).padStart(8, '0')}`
+}
+
+function readViewChoices(raw) {
+  try {
+    const parsed = JSON.parse(raw || '{}')
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+// The view this viewer chose last on this device, or null. Another account's choice is never used.
+export function storedResultView(raw, owner) {
+  const view = readViewChoices(raw)[owner]
+  return RESULT_VIEWS.some((option) => option.value === view) ? view : null
+}
+
+// The stored value after `owner` chooses `view` (most recent owners kept).
+export function withResultView(raw, owner, view) {
+  const { [owner]: _previous, ...others } = readViewChoices(raw)
+  const kept = Object.entries(others).slice(-(VIEW_OWNERS_KEPT - 1))
+  return JSON.stringify(Object.fromEntries([...kept, [owner, view]]))
+}
 
 // Cards on phones, always (the table scrolls sideways there). On wider screens
-// the last choice made on this device wins; with none, cards.
+// the viewer's own last choice wins; with none, cards.
 export function initialResultView({ phone = false, stored = null } = {}) {
   if (phone) return 'cards'
   return RESULT_VIEWS.some((option) => option.value === stored) ? stored : 'cards'
@@ -124,9 +159,38 @@ export function deskPhotos(player) {
   return { photoUrl: player?.approved_photo_url || null, faceUrl: player?.approved_photo_url ? null : player?.player_photo || null }
 }
 
+// A leader row may be printed only when its figure may be: not a club- or
+// player-entered total that could differ from the player's page.
+export function leaderEntries(entries) {
+  return (Array.isArray(entries) ? entries : []).filter((player) => deskFigures(player).kind !== 'withheld')
+}
+
 // Boards worth showing: only those that have rows.
 export function boardsWithRows(boards, phaseBoards = []) {
-  return phaseBoards.filter((board) => Array.isArray(boards?.[board.key]) && boards[board.key].length > 0)
+  return phaseBoards.filter((board) => leaderEntries(boards?.[board.key]).length > 0)
+}
+
+// Pathway status and a non-chip source are set with the table's tools; while
+// one is on, the tools stay on screen in either view so it can be seen and cleared.
+export function hiddenFilterActive({ status = 'all', source = 'all' } = {}) {
+  return status !== 'all' || (source !== 'all' && source !== 'club')
+}
+
+/**
+ * The introduction control on a desk row — what the contact rules would accept:
+ *   { kind: 'thread', to }  the caller already has a reachable pending / accepted request,
+ *   { kind: 'ask' }         a new request would be accepted (`can_ask`),
+ *   null                    nothing to offer (blocked, cooling off, closed, not claimable).
+ * Without the caller's projected state (signed out, or a server that does not
+ * send it) the row's `contactable` flag decides, as before.
+ */
+export function deskIntroduction(player, { signedIn = false } = {}) {
+  const introduction = signedIn ? player?.introduction : null
+  if (!introduction) return player?.contactable ? { kind: 'ask' } : null
+  if (introduction.state === 'pending' || introduction.state === 'accepted') {
+    return introduction.closed ? null : { kind: 'thread', to: introductionThreadPath(introduction) }
+  }
+  return introduction.can_ask ? { kind: 'ask' } : null
 }
 
 // ---- Watchlist: where this scout's introduction to a player stands ----------

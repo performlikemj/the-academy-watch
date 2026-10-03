@@ -141,6 +141,24 @@ export function IntroductionsPage() {
     load(box)
   }, [box, load, auth?.token])
 
+  // The requested thread changed while the page stayed open (a link, Back / Forward):
+  // select it if it is one of the caller's own loaded requests — never an id outside them.
+  // Runs on a change of the requested id only; the first arrival is handled by the initial load.
+  useEffect(() => {
+    if (!requestedId || box == null) return
+    const target = requests.sent.some((r) => r.id === requestedId)
+      ? 'sent'
+      : requests.inbox.some((r) => r.id === requestedId) ? 'inbox' : null
+    if (!target) return
+    if (target === box) {
+      setSelectedId(requestedId)
+    } else {
+      pendingSelection.current = requestedId
+      setBox(target)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requestedId])
+
   const applyUpdate = useCallback((updated) => {
     setRequests((current) => ({ ...current, [box]: upsertRequest(current[box], updated) }))
   }, [box])

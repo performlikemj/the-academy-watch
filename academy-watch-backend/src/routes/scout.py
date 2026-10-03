@@ -1703,13 +1703,7 @@ def scout_watchlist():
         entries = [entry for entry in entries if entry.player_api_id in adult_ids]
         suppressed_ids = _active_suppressed_subject_ids(entry.player_api_id for entry in entries)
         players = _watched_player_dicts([entry.player_api_id for entry in entries])
-        tracked = list(players.values())
-        _attach_contactable(tracked)
-        introductions = introductions_for(
-            user,
-            [player["player_id"] for player in tracked],
-            contactable_ids={player["player_id"] for player in tracked if player["contactable"]},
-        )
+        introductions = introductions_for(user, list(players))
         return jsonify(
             {
                 "entries": [

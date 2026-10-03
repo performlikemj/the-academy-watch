@@ -1,8 +1,9 @@
-/* global document */
+/* global document, window, PopStateEvent */
 import fs from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { test, expect } from '@playwright/test'
+import { RESULT_VIEW_KEY, viewOwnerTag } from '../src/lib/scout-desk.js'
 
 // Every person, club and league below is fictional (the staging story's world).
 // Screenshots are written only when SD_SHOTS_DIR is set.
@@ -42,13 +43,13 @@ const API = { source_category: 'api', source_label: 'API-reported', primary_sour
 const LONG_NAME = 'Maximilian-Alexander Oluwaseun Featherstonehaugh-Abernathy'
 const LONG_CLUB = 'Quillmere Athletic & Wendleshire Community Sports Association'
 const deskRows = [
-  { id: 1, player_id: -12, player_name: 'Kofi Asante-Reid', position: 'RB · RWB', age: 27, primary_team_name: 'Quillmere Athletic', approved_photo_url: '/fixture-photos/portrait.svg', club_confirmed: true, appearances: 1, minutes_played: 90, provenance: CLUB, availability: 'not_looking', contactable: true },
-  { id: 2, player_id: -15, player_name: 'Reuben Castellane', position: 'CM · AM', age: 23, primary_team_name: 'Quillmere Athletic', appearances: 1, minutes_played: 72, goals: 1, provenance: SELF, availability: 'open_to_moves', contactable: true },
+  { id: 1, player_id: -12, player_name: 'Kofi Asante-Reid', position: 'RB · RWB', age: 27, primary_team_name: 'Quillmere Athletic', approved_photo_url: '/fixture-photos/portrait.svg', club_confirmed: true, appearances: 1, minutes_played: 90, provenance: CLUB, availability: 'not_looking', contactable: true, introduction: { state: 'none', can_ask: true } },
+  { id: 2, player_id: -15, player_name: 'Reuben Castellane', position: 'CM · AM', age: 23, primary_team_name: 'Quillmere Athletic', appearances: 1, minutes_played: 72, goals: 1, provenance: SELF, availability: 'open_to_moves', contactable: true, introduction: { state: 'none', can_ask: true } },
   { id: 3, player_id: -21, player_name: 'Tobi Olawale', position: 'Left-back', age: 24, primary_team_name: 'Quillmere Athletic', provenance: SELF, contactable: true, introduction: { state: 'pending', request_id: 'r-tobi', waiting_on: 'club', can_ask: false } },
   { id: 4, player_id: -22, player_name: 'Nabil Ferhane', position: 'Attack', age: 20, primary_team_name: 'Quillmere Athletic', provenance: SELF, contactable: true, introduction: { state: 'accepted', request_id: 'r-nabil', conversation_open: true, can_ask: false } },
-  { id: 5, player_id: -23, player_name: 'Emeka Nwosu-Clarke', position: 'Centre-back', age: 19, primary_team_name: 'Quillmere Athletic', provenance: SELF, contactable: false },
-  { id: 6, player_id: -24, player_name: 'Seren Maddox', position: 'Centre-back', age: 26, primary_team_name: 'Thrandby Wrens', provenance: SELF, contactable: false },
-  { id: 7, player_id: -17, player_name: LONG_NAME, position: 'Attacking midfielder / second striker', age: 22, primary_team_name: LONG_CLUB, appearances: 3, minutes_played: 254, goals: 1, assists: 1, club_confirmed: true, provenance: MIXED, availability: 'trial_available', contactable: true },
+  { id: 5, player_id: -23, player_name: 'Emeka Nwosu-Clarke', position: 'Centre-back', age: 19, primary_team_name: 'Quillmere Athletic', provenance: SELF, contactable: false, introduction: { state: 'none', can_ask: false } },
+  { id: 6, player_id: -24, player_name: 'Seren Maddox', position: 'Centre-back', age: 26, primary_team_name: 'Thrandby Wrens', provenance: SELF, contactable: false, introduction: { state: 'none', can_ask: false } },
+  { id: 7, player_id: -17, player_name: LONG_NAME, position: 'Attacking midfielder / second striker', age: 22, primary_team_name: LONG_CLUB, appearances: 3, minutes_played: 254, goals: 1, assists: 1, club_confirmed: true, provenance: MIXED, availability: 'trial_available', contactable: true, introduction: { state: 'declined', request_id: 'r-max', can_ask: false, ask_again_from: '2026-10-25T09:00:00' } },
   { id: 8, player_id: 42, player_name: 'Test Prospect', position: 'Midfielder', age: 20, primary_team_name: 'Test Academy', loan_team_name: 'Test Town', status: 'on_loan', player_photo: '/fixture-photos/headshot.svg', appearances: 30, minutes_played: 2412, goals: 6, assists: 4, avg_rating: 7.12, provenance: API, contactable: false, pc2: false },
 ].map(({ pc2 = true, ...row }) => ({
   nationality: 'England', status: null, recent_form: [], goals: 0, assists: 0, appearances: 0, minutes_played: 0, avg_rating: null,
@@ -87,7 +88,7 @@ async function installApiMocks(page, {
   boards = {}, entries = [], holdPlayers = null, playersStatus = () => 200, sent = [],
 } = {}) {
   const calls = []
-  const state = { entries: structuredClone(entries), posts: [] }
+  const state = { entries: structuredClone(entries), rows: structuredClone(rows), posts: [] }
   await page.route('**/fixture-photos/*', (route) => {
     const body = PHOTOS[new URL(route.request().url()).pathname]
     return body ? route.fulfill({ contentType: 'image/svg+xml', body }) : route.fulfill({ status: 404, body: '' })
@@ -109,7 +110,7 @@ async function installApiMocks(page, {
       if (status !== 200) return route.fulfill({ status, json: { error: 'temporarily unavailable' } })
       // The server filters; the mock does the same so a chip is proven by its request AND its result.
       const params = url.searchParams
-      let result = rows
+      let result = state.rows
       if (params.get('search')) result = result.filter((row) => row.player_name.toLowerCase().includes(params.get('search').toLowerCase()))
       if (params.get('contactable') === '1') result = result.filter((row) => row.contactable)
       if (params.get('source')) result = result.filter((row) => row.provenance.source_category === params.get('source'))
@@ -137,7 +138,10 @@ async function installApiMocks(page, {
       const body = JSON.parse(request.postData())
       state.posts.push(body)
       const target = state.entries.find((item) => item.player_api_id === body.player_api_id)
-      if (target) target.introduction = { state: 'pending', request_id: 'r-new', created_at: '2026-10-03T11:00:00', waiting_on: 'player', conversation_open: false, can_ask: false }
+      const pending = { state: 'pending', request_id: 'r-new', created_at: '2026-10-03T11:00:00', waiting_on: 'player', conversation_open: false, can_ask: false }
+      if (target) target.introduction = pending
+      const deskRow = state.rows.find((item) => item.player_id === body.player_api_id)
+      if (deskRow) deskRow.introduction = pending
       return route.fulfill({ status: 201, json: { contact_request: { id: 'r-new', player_api_id: body.player_api_id, status: 'pending' } } })
     }
     if (pathname === '/api/contact/requests') {
@@ -268,6 +272,12 @@ for (const viewport of VIEWPORTS) {
         expect(Math.min(box.width, box.height)).toBeGreaterThanOrEqual(44)
       }
       await expect(emeka.getByRole('button', { name: /Introduce yourself/ })).toHaveCount(0)
+      // The introduction control is what the server would accept: the existing thread for a
+      // pending / accepted request (never a second request), nothing during a decline cool-off.
+      await expect(tobi.getByRole('link', { name: 'Open your introduction to Tobi Olawale' })).toHaveAttribute('href', '/introductions?request=r-tobi')
+      await expect(cards.filter({ hasText: 'Nabil Ferhane' }).getByRole('link', { name: 'Open your introduction to Nabil Ferhane' })).toHaveAttribute('href', '/introductions?request=r-nabil')
+      await expect(page.getByRole('button', { name: /Introduce yourself to (Tobi Olawale|Nabil Ferhane|Maximilian)/ })).toHaveCount(0)
+      await expect(long.getByRole('link', { name: /introduction/i })).toHaveCount(0)
       await expectNoSidewaysScroll(page)
       await shot(page, `01-discover-cards-${viewport.name}`)
     })
@@ -522,11 +532,101 @@ for (const viewport of VIEWPORTS) {
   })
 }
 
-test('desktop keeps the last view; a phone starts on cards whatever was stored', async ({ page }) => {
-  await page.addInitScript(() => localStorage.setItem('aw.scout.view', 'table'))
+const storeView = (page, token, view) => page.addInitScript(([key, owner, value]) => {
+  if (!localStorage.getItem(key)) localStorage.setItem(key, JSON.stringify({ [owner]: value }))
+}, [RESULT_VIEW_KEY, viewOwnerTag(token), view])
+
+test('a phone starts on cards whatever this viewer stored', async ({ page }) => {
+  await storeView(page, 'mock-user-token', 'table')
   await openDesk(page, VIEWPORTS[1])
   await expect(cardsOf(page)).toHaveCount(deskRows.length)
   await expect(page.getByRole('table')).toHaveCount(0)
+})
+
+test('the view choice is the viewer’s own: the next account on the device does not inherit it', async ({ page }) => {
+  // Reviewer's probe: scout A chooses Table, then scout B signs in on the same browser.
+  await page.clock.setFixedTime(TODAY)
+  await page.setViewportSize(VIEWPORTS[0])
+  await signIn(page, 'token-a')
+  await installApiMocks(page)
+  await page.goto('/scout')
+  const view = page.getByRole('group', { name: 'Show players as' })
+  await view.getByRole('button', { name: 'Table' }).click()
+  await expect(page.getByRole('table')).toBeVisible()
+
+  await changeViewer(page, 'token-b')
+  await expect(view.getByRole('button', { name: 'Cards' })).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByRole('table')).toHaveCount(0)
+  // Nothing of the credential is written to storage.
+  const stored = await page.evaluate((key) => localStorage.getItem(key), RESULT_VIEW_KEY)
+  expect(stored).not.toContain('token-a')
+  expect(JSON.parse(stored)).toEqual({ [viewOwnerTag('token-a')]: 'table' })
+
+  // A's own choice is still there when A comes back.
+  await changeViewer(page, 'token-a')
+  await expect(view.getByRole('button', { name: 'Table' })).toHaveAttribute('aria-pressed', 'true')
+  await changeViewer(page, null)
+  await expect(view.getByRole('button', { name: 'Cards' })).toHaveAttribute('aria-pressed', 'true')
+})
+
+for (const viewport of VIEWPORTS) {
+  test(`${viewport.name}px: a filter set with the table tools stays visible and clearable in the cards view`, async ({ page }) => {
+    // Reviewer's probe: Table -> Status "On loan" -> Cards used to filter out of sight.
+    const { calls } = await openDesk(page, viewport)
+    await expect(cardsOf(page)).toHaveCount(deskRows.length)
+    const more = page.getByRole('button', { name: 'Sort and more filters' })
+    await expect(page.getByRole('combobox', { name: 'Filter by pathway status' })).toHaveCount(0)
+    expect((await more.boundingBox()).height).toBeGreaterThanOrEqual(44)
+    // Sort and the pathway filter are reachable from the cards view (phones never see the table).
+    await more.click()
+    await page.getByRole('combobox', { name: 'Sort by' }).click()
+    await page.getByRole('option', { name: 'Name' }).click()
+    await expect.poll(() => lastPlayersQuery(calls)?.get('sort')).toBe('name')
+    await page.getByRole('combobox', { name: 'Filter by pathway status' }).click()
+    await page.getByRole('option', { name: 'On loan' }).click()
+    await expect.poll(() => lastPlayersQuery(calls)?.get('status')).toBe('on_loan')
+
+    // While it is on, the tools cannot be put away — in either view.
+    await expect(page.getByRole('button', { name: 'More filters on' })).toBeDisabled()
+    await expect(page.getByRole('combobox', { name: 'Filter by pathway status' })).toContainText('On loan')
+    if (viewport.width >= 768) {
+      const view = page.getByRole('group', { name: 'Show players as' })
+      await view.getByRole('button', { name: 'Table' }).click()
+      await view.getByRole('button', { name: 'Cards' }).click()
+      await expect(page.getByRole('combobox', { name: 'Filter by pathway status' })).toContainText('On loan')
+    }
+    await shot(page, `09-cards-with-table-filter-on-${viewport.name}`)
+
+    await page.getByRole('combobox', { name: 'Filter by pathway status' }).click()
+    await page.getByRole('option', { name: 'All statuses' }).click()
+    await expect.poll(() => lastPlayersQuery(calls)?.get('status') ?? null).toBe(null)
+    await page.getByRole('button', { name: 'Fewer filters' }).click()
+    await expect(page.getByRole('combobox', { name: 'Filter by pathway status' })).toHaveCount(0)
+  })
+}
+
+test('asking from a card: afterwards the card shows the thread, not a second request', async ({ page }) => {
+  const { state } = await openDesk(page, VIEWPORTS[0])
+  const kofi = cardsOf(page).filter({ hasText: 'Kofi Asante-Reid' })
+  await kofi.getByRole('button', { name: 'Introduce yourself to Kofi Asante-Reid' }).click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByRole('textbox', { name: 'Message to Kofi Asante-Reid' }).fill('I watched you against Skerraby.')
+  await dialog.getByRole('button', { name: 'Send introduction' }).click()
+  await expect(dialog.getByText('Sent. You will see the reply under your introductions.')).toBeVisible()
+  expect(state.posts).toHaveLength(1)
+  await dialog.getByRole('button', { name: 'Done' }).click()
+  await expect(kofi.getByRole('link', { name: 'Open your introduction to Kofi Asante-Reid' })).toHaveAttribute('href', '/introductions?request=r-new')
+  await expect(kofi.getByRole('button', { name: /Introduce yourself/ })).toHaveCount(0)
+  await expect(kofi).toContainText('Introduction pending')
+})
+
+test('the table offers the same introduction control as the cards', async ({ page }) => {
+  await storeView(page, 'mock-user-token', 'table')
+  await openDesk(page, VIEWPORTS[0])
+  const table = page.getByRole('table')
+  await expect(table.getByRole('link', { name: 'Open your introduction to Tobi Olawale' })).toHaveAttribute('href', '/introductions?request=r-tobi')
+  await expect(table.getByRole('button', { name: 'Introduce yourself to Kofi Asante-Reid' })).toBeVisible()
+  await expect(table.getByRole('button', { name: /Introduce yourself to (Tobi Olawale|Nabil Ferhane|Maximilian|Emeka)/ })).toHaveCount(0)
 })
 
 test('frozen provider mode: nothing on the desk implies live provider stats', async ({ page }) => {
@@ -560,6 +660,23 @@ test('a payload without the merged-lines fields prints no club- or player-entere
     await expect(card.getByRole('img', { name: 'Club-confirmed' })).toHaveCount(0)
   }
   await expect(cards.filter({ hasText: 'Test Prospect' })).toContainText('30 apps')
+
+  // The table of the same page prints dashes for those rows, and the provider's figures as before.
+  await page.getByRole('group', { name: 'Show players as' }).getByRole('button', { name: 'Table' }).click()
+  const kofiRow = page.getByRole('row').filter({ hasText: 'Kofi Asante-Reid' })
+  await expect(kofiRow).not.toContainText('164')
+  await expect(page.getByRole('row').filter({ hasText: 'Test Prospect' })).toContainText('2,412')
+})
+
+test('leaders leave out a row whose figure could differ from the player page', async ({ page }) => {
+  const legacyClub = { id: 1, player_id: -12, player_name: 'Kofi Asante-Reid', primary_team_name: 'Quillmere Athletic', goals: 2, minutes_played: 164, provenance: CLUB }
+  await openDesk(page, VIEWPORTS[0], { boards: { top_scorers: [byId(42), legacyClub], top_assists: [], most_minutes: [legacyClub], best_per90: [] } })
+  const leaders = page.getByTestId('scout-leaders')
+  await expect(leaders.getByRole('heading', { name: 'Top Scorers' })).toBeVisible()
+  await expect(leaders).toContainText('Test Prospect')
+  await expect(leaders).not.toContainText('Kofi Asante-Reid')
+  // A board left with no printable row is not drawn.
+  await expect(leaders.getByRole('heading', { name: 'Most Minutes' })).toHaveCount(0)
 })
 
 test('"Open to an introduction" and the introduce control exist only where introductions do', async ({ page }) => {
@@ -659,5 +776,14 @@ test('"Open thread" lands on that thread in Introductions', async ({ page }) => 
   await page.goto('/introductions?request=r-tobi')
   const selected = page.locator('button[aria-current="true"]')
   await expect(selected).toHaveCount(1)
+  await expect(selected).toContainText('Tobi Olawale')
+
+  // Reviewer's probe: the requested id changes without a reload (a link, Back / Forward).
+  await page.evaluate(() => { window.history.pushState({}, '', '/introductions?request=r-other'); window.dispatchEvent(new PopStateEvent('popstate')) })
+  await expect(selected).toContainText('Reuben Castellane')
+  await page.goBack()
+  await expect(selected).toContainText('Tobi Olawale')
+  // An id that is not one of the caller's own requests selects nothing new.
+  await page.evaluate(() => { window.history.pushState({}, '', '/introductions?request=r-someone-elses'); window.dispatchEvent(new PopStateEvent('popstate')) })
   await expect(selected).toContainText('Tobi Olawale')
 })

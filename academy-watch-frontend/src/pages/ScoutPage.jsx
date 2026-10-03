@@ -23,7 +23,8 @@ import { PlayerCard } from '@/components/player-card/PlayerCard'
 import { viewerKey } from '@/lib/player-card'
 import {
   DESK_CHIPS, NO_MATCHES, RESULT_VIEWS, RESULT_VIEW_KEY, boardsWithRows, deskClubName, deskFigures,
-  deskFilterParams, deskMeta, deskPhotos, deskStatus, initialResultView,
+  deskFilterParams, deskIntroduction, deskMeta, deskPhotos, deskStatus, hiddenFilterActive, initialResultView,
+  leaderEntries, storedResultView, viewOwnerTag, withResultView,
 } from '@/lib/scout-desk'
 import { cn } from '@/lib/utils'
 import { saveBlobAs } from '@/lib/download'
@@ -33,7 +34,7 @@ import { formatSeasonLabel, withSeasonParam } from '@/lib/seasons'
 import {
   Loader2, Search, ArrowUpDown, ArrowLeft, ArrowRight,
   Trophy, Zap, Clock, Gauge, X, GitCompareArrows, Globe,
-  Star, Link2,
+  Star, Link2, MessageSquare,
   Crosshair, Sparkles, Send, Swords, Shield, ShieldCheck, Hand, UserPlus,
 } from 'lucide-react'
 import { STATUS_BADGE_CLASSES } from '../lib/theme-constants'
@@ -54,12 +55,12 @@ function normalizeSignedPlayerId(value) {
 // Stable identity, so the guarded saver is made once per lifetime.
 const saveScoutCsv = (blob) => saveBlobAs(blob, 'academy-watch-scout-export.csv')
 
-// Cards on phones; on wider screens the last choice made on this device.
-function startingResultView() {
+// Cards on phones; on wider screens this viewer's own last choice on this device.
+function startingResultView(token) {
   if (typeof window === 'undefined') return 'cards'
   let stored = null
   try {
-    stored = window.localStorage.getItem(RESULT_VIEW_KEY)
+    stored = storedResultView(window.localStorage.getItem(RESULT_VIEW_KEY), viewOwnerTag(token))
   } catch {
     // Storage can be unavailable in privacy-restricted browser contexts.
   }
@@ -552,21 +553,23 @@ function ScoutDeskBody() {
   })
   const [order, setOrder] = useState('desc')
   const [page, setPage] = useState(1)
-  const [resultView, setResultView] = useState(startingResultView)
+  const auth = useAuth()
+  // The view choice belongs to the viewer (the desk is keyed on the viewer, so this is read afresh per account).
+  const [resultView, setResultView] = useState(() => startingResultView(auth?.token))
   const changeResultView = useCallback((next) => {
     setResultView(next)
     try {
-      window.localStorage.setItem(RESULT_VIEW_KEY, next)
+      window.localStorage.setItem(RESULT_VIEW_KEY, withResultView(window.localStorage.getItem(RESULT_VIEW_KEY), viewOwnerTag(auth?.token), next))
     } catch {
       // Storage can be unavailable in privacy-restricted browser contexts.
     }
-  }, [])
+  }, [auth?.token])
+  const [moreFilters, setMoreFilters] = useState(false)
 
   const [compareIds, setCompareIds] = useState([])
   const [compareOpen, setCompareOpen] = useState(false)
   const searchTimer = useRef(null)
 
-  const auth = useAuth()
   const contactRail = useContactRail()
   const openLoginModal = useGuarded(life, useAuthUI().openLoginModal)
   const saveCsv = useGuarded(life, saveScoutCsv)
@@ -879,8 +882,19 @@ function ScoutDeskBody() {
     </div>
   )
 
-  const introduceControl = (player, className, iconClass) => (
-    contactRail === true && player.contactable ? (auth?.token && !canIntroduce ? (
+  // The introduction control offers what the contact rules would accept for this
+  // viewer (deskIntroduction): the existing thread, a new request, or nothing.
+  const introduceControl = (player, className, iconClass) => {
+    const offer = contactRail === true ? deskIntroduction(player, { signedIn: Boolean(auth?.token) }) : null
+    if (!offer) return null
+    if (offer.kind === 'thread') {
+      return (
+        <Link to={offer.to} className={className} aria-label={`Open your introduction to ${player.player_name}`} title="Open thread">
+          <MessageSquare className={iconClass} aria-hidden="true" />
+        </Link>
+      )
+    }
+    return auth?.token && !canIntroduce ? (
       <Link to="/scout/verification" className={className} aria-label="Get verified to introduce yourself" title="Get verified to introduce yourself">
         <Send className={iconClass} aria-hidden="true" />
       </Link>
@@ -894,8 +908,14 @@ function ScoutDeskBody() {
       >
         <Send className={iconClass} aria-hidden="true" />
       </button>
-    )) : null
-  )
+    )
+  }
+
+  // The table's tools (pathway status, source, sort) are always shown with the
+  // table; in the cards view they open on request and stay open while one of
+  // their filters is on, so no filter is ever applied out of sight.
+  const filterHidden = hiddenFilterActive({ status, source })
+  const toolsShown = resultView === 'table' || moreFilters || filterHidden
 
   return (
     <ScoutSurface>
@@ -976,6 +996,18 @@ function ScoutDeskBody() {
                   {chip.label}
                 </button>
               ))}
+              {resultView === 'cards' ? (
+                <button
+                  type="button"
+                  onClick={() => setMoreFilters((open) => !open)}
+                  aria-expanded={toolsShown}
+                  aria-controls="scout-table-tools"
+                  disabled={filterHidden}
+                  className="h-11 rounded-full px-3 text-sm text-[#C9C5BA] underline underline-offset-4 hover:text-chalk focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:no-underline"
+                >
+                  {filterHidden ? 'More filters on' : toolsShown ? 'Fewer filters' : 'Sort and more filters'}
+                </button>
+              ) : null}
             </div>
             <div className="flex items-center gap-3">
               <span className="font-mono text-xs uppercase tracking-[0.16em] tabular-nums text-muted-dark" data-testid="scout-result-count" aria-live="polite">
@@ -1001,8 +1033,8 @@ function ScoutDeskBody() {
         </ScoutHeader>
 
         {/* The table's own tools: pathway status, source and sort, as before. */}
-        {resultView === 'table' ? (
-          <section aria-label="Table filters" className="mb-4 grid grid-cols-1 gap-2 sm:grid-cols-3 lg:flex lg:flex-row">
+        {toolsShown ? (
+          <section id="scout-table-tools" aria-label="Table filters" className="mb-4 grid grid-cols-1 gap-2 sm:grid-cols-3 lg:flex lg:flex-row">
             <Select value={status} onValueChange={setStatus}>
               <SelectTrigger className={`${selectTriggerClass} lg:w-48`} aria-label="Filter by pathway status">
                 <SelectValue placeholder="Status" />
@@ -1157,6 +1189,8 @@ function ScoutDeskBody() {
                   players.map((player) => {
                     const selected = compareIds.includes(String(player.player_id))
                     const watched = !!watchedIds?.has(player.player_id)
+                    // Same rule as the cards: a figure that could differ from the player's page is not printed.
+                    const figuresWithheld = deskFigures(player).kind === 'withheld'
                     return (
                       <tr key={player.id} className={`transition-colors duration-150 hover:bg-chalk/[0.035] ${selected ? 'bg-gold/[0.06]' : ''}`}>
                         <td className="px-2 py-3 whitespace-nowrap">
@@ -1206,7 +1240,7 @@ function ScoutDeskBody() {
                         </td>
                         {statColumns.map((col) => (
                           <td key={col.label} className={`px-3 py-3 text-right font-mono text-[13px] tabular-nums ${col.cellClass || 'text-chalk/85'}`}>
-                            {col.render(player)}
+                            {figuresWithheld ? '—' : col.render(player)}
                           </td>
                         ))}
                       </tr>
@@ -1248,7 +1282,7 @@ function ScoutDeskBody() {
                 <LeaderboardCard
                   key={board.key}
                   board={board}
-                  entries={boards[board.key]}
+                  entries={leaderEntries(boards[board.key])}
                   season={selectedSeason ?? resolvedSeason}
                   seasonOverride={seasonOverride}
                 />
@@ -1298,6 +1332,7 @@ function ScoutDeskBody() {
           open={canIntroduce && !!auth?.token && !!introducePlayer}
           onOpenChange={(next) => { if (!next) setIntroducePlayer(null) }}
           player={introducePlayer}
+          onSent={() => setReloads((n) => n + 1)}
         />
       </div>
     </ScoutSurface>
