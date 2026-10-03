@@ -13127,6 +13127,11 @@ def get_team_players(team_identifier):
                     "reds": int(row.reds or 0),
                 }
 
+        if not use_rollup and requested_season is None:
+            from src.utils.academy_window import stats_season_with_data
+
+            player_stats_map = live_stats_by_player(players, stats_season_with_data(db.session))
+
         # Batch-fetch Player records for photo and position enrichment (1 query)
         all_player_api_ids = [tp.player_api_id for tp in players]
         player_records_map = {}

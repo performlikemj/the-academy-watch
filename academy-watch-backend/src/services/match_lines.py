@@ -33,6 +33,17 @@ _KEEPER_FIELDS = ("saves", "goals_conceded")
 FULL_MATCH_MINUTES = 90
 
 
+def match_line_input(entry: Mapping) -> dict:
+    """Decode stored display labels once; never alter stored match/grouping keys."""
+    from src.utils.sanitize import display_plain_text
+
+    return {
+        **entry,
+        "opponent": display_plain_text(entry.get("opponent")),
+        "competition": display_plain_text(entry.get("competition")),
+    }
+
+
 def opponent_key(opponent) -> str:
     """Match identity for an opponent label: trim, collapse spaces, lower-case."""
     return " ".join(str(opponent or "").split()).lower()
@@ -71,6 +82,17 @@ def _reports_agree(club: Mapping, own: Mapping) -> bool:
 
 def _line(key: str, match_date: str, shown: Mapping, *, confirmed: bool, own: Mapping | None, shared: bool) -> dict:
     return {
+        # Optional private rollup attribution follows the exact winning row.
+        # Public route inputs omit it; no identity or author data is added.
+        **({"_scope": shown["_scope"]} if "_scope" in shown else {}),
+        **(
+            {
+                "_stored_competition": shown.get("_stored_competition")
+                or (own.get("_stored_competition") if own else None)
+            }
+            if "_stored_competition" in shown
+            else {}
+        ),
         "key": key,
         "season": shown.get("season"),
         "match_date": match_date,

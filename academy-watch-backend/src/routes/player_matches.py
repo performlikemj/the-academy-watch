@@ -22,7 +22,7 @@ from src.services.player_suppression import (
     neutral_player_not_found,
 )
 from src.utils.academy_window import current_stats_season
-from src.utils.sanitize import display_plain_text, sanitize_plain_text
+from src.utils.sanitize import sanitize_plain_text
 
 player_matches_bp = Blueprint("player_matches", __name__)
 logger = logging.getLogger(__name__)
@@ -329,11 +329,13 @@ def _merged_lines_payload(player_api_id: int, season: int | None) -> dict:
         cut_season = rows[MERGED_LINES_ENTRY_LIMIT].season
         rows = [row for row in rows[:MERGED_LINES_ENTRY_LIMIT] if row.season != cut_season]
     seasons = match_lines.seasons_from_entries(
-        {
-            **{field: getattr(row, field) for field in _LINE_SOURCE_FIELDS},
-            "competition": display_plain_text(row.competition),
-            "opponent": display_plain_text(row.opponent),
-        }
+        match_lines.match_line_input(
+            {
+                **{field: getattr(row, field) for field in _LINE_SOURCE_FIELDS},
+                "competition": row.competition,
+                "opponent": row.opponent,
+            }
+        )
         for row in rows
     )
     return {"view": "lines", "seasons": seasons, "truncated": truncated}
@@ -347,7 +349,9 @@ def list_player_matches(player_api_id: int):
         if subject is None:
             return neutral_player_not_found()
         user = _optional_authenticated_user()
-        if subject["is_minor"]:
+        from src.services.reported_match_totals import public_report_ids
+
+        if player_api_id not in public_report_ids([player_api_id]):
             can_read = bool(
                 user
                 and (

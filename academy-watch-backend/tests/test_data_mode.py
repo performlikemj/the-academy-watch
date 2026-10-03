@@ -229,7 +229,7 @@ def test_db_reads_and_source_separation(frozen_app, monkeypatch):
         assert data["public_match_data"]["totals"]["goals"] == 4, data
         assert data["club_verified"]["totals"]["goals"] == 2
         assert data["self_reported"]["totals"]["goals"] == 3
-        assert data["goals"] == 2
+        assert data["goals"] == 4
         assert data["as_of"].startswith("2026-05-20")
     for url in ["profile", "journey?sync=true", "journey/map?sync=true", "availability"]:
         response = client.get(f"/api/players/990001/{url}")
@@ -477,7 +477,8 @@ def test_club_correction_dispute_and_public_fallback(frozen_app):
     db.session.commit()
     client = frozen_app.test_client()
     result = client.get("/api/players/990001/season-stats?season=2025").json
-    assert result["goals"] == 5
+    assert result["goals"] == 4
+    assert result["club_verified"]["totals"]["goals"] == 5
     assert result["public_match_data"]["totals"]["goals"] == 4
     club.status = "disputed"
     db.session.commit()
@@ -549,7 +550,7 @@ def test_flag_off_golden_json_and_sql(frozen_app, monkeypatch, path, rollups):
             event.remove(db.engine, "before_cursor_execute", record)
 
     with monkeypatch.context() as baseline:
-        baseline.setattr(public_data, "separated_season_stats", lambda pid, season, legacy: legacy)
+        baseline.setattr(public_data, "separated_season_stats", lambda pid, season, legacy, **kw: legacy)
         baseline.setitem(frozen_app.after_request_funcs, "players", [])
         baseline.setitem(frozen_app.after_request_funcs, "journey", [])
         baseline.setattr(
@@ -650,7 +651,7 @@ def test_frozen_clean_sheets_survive(frozen_app, monkeypatch):
     response = frozen_app.test_client().get("/api/players/990001/season-stats?season=2025")
     assert response.status_code == 200, response.json
     assert response.json["clean_sheets"] == 1
-    assert response.json["goals"] == 2
+    assert response.json["goals"] == 4
 
 
 def test_frozen_limited_stats_use_db_compute(frozen_app, monkeypatch):

@@ -237,12 +237,12 @@ class TestTeamRosterStatAttribution:
         assert _by_id(slug["loans"], 1001)["goals"] == 9
         assert _by_id(squad["players"], 1001)["goals"] == 9
 
-    def test_squad_no_param_keeps_legacy_shape_and_all_time_stats(self, teams_client, roster_seeded):
+    def test_squad_no_param_keeps_shape_and_matches_player_season(self, teams_client, roster_seeded):
         data = teams_client.get(f"/api/teams/{roster_seeded}/players").get_json()
 
         assert set(data) == {"team", "players", "total"}
         full = _by_id(data["players"], 1001)
-        assert (full["appearances"], full["minutes_played"], full["goals"]) == (3, 260, 12)
+        assert (full["appearances"], full["minutes_played"], full["goals"]) == (2, 170, 3)
 
     def test_rollup_flag_uses_totals_and_provenance(self, teams_client, roster_seeded, monkeypatch):
         monkeypatch.setenv("SEASON_ROLLUP_READS", "teams")

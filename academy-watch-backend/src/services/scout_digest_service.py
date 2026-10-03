@@ -171,13 +171,65 @@ def _load_snapshot(entry) -> dict | None:
         return None
 
 
+def _prime_number_totals(player_ids, cache):
+    """Run-owned batch: shared source selection, never per-entry rollup refresh."""
+    from src.services.reported_match_totals import effective_totals, saved_shadow_totals
+    from src.services.season_rollup_service import provider_totals_batch
+    from src.utils.academy_window import stats_season_with_data
+
+    memo = cache.setdefault("__pc2_numbers__", {})
+    pending = set(player_ids) - set(memo)
+    if not pending:
+        return
+    eligible = cached_public_adult_ids(pending, cache)
+    tracked_rows = TrackedPlayer.query.filter(
+        TrackedPlayer.player_api_id.in_(eligible),
+        TrackedPlayer.is_active.is_(True),
+        TrackedPlayer.data_source != "owning-club",
+    ).all()
+    tracked = {row.player_api_id for row in tracked_rows}
+    if "__pc2_season__" not in cache:
+        cache["__pc2_season__"] = stats_season_with_data(db.session)
+    season = cache["__pc2_season__"]
+    from src.utils.feature_flags import rollup_reads_enabled
+
+    if not rollup_reads_enabled("season_stats"):
+        from src.utils.team_season_stats import live_stats_by_player
+
+        live = live_stats_by_player(tracked_rows, season)
+        memo.update((pid, {**live[pid], "season": season} if pid in live else None) for pid in tracked)
+        memo.update(saved_shadow_totals(eligible - tracked, eligibility_cache=cache))
+        memo.update((pid, None) for pid in pending - eligible)
+        return
+    totals = effective_totals(tracked, season, eligibility_cache=cache)
+    providers = provider_totals_batch(tracked - set(totals), season) if tracked - set(totals) else {}
+    for pid in tracked:
+        total = totals.get(pid)
+        row = (
+            {k: getattr(total, k) for k in ("appearances", "minutes", "goals", "assists")}
+            if total
+            else providers.get(pid, {})
+        )
+        if not row:
+            memo[pid] = None
+            continue
+        memo[pid] = {
+            **row,
+            "minutes_played": row.get("minutes"),
+            "season": season,
+            "provenance": {"primary_source": total.primary_source if total else row.get("primary_source")},
+        }
+    memo.update(saved_shadow_totals(eligible - tracked, eligibility_cache=cache))
+    memo.update((pid, None) for pid in pending - eligible)
+
+
 def _player_state(player_api_id: int, cache: dict, api_client=None) -> dict:
     """Memoised per run — many users watch the same players, so stats and
     injuries and adult eligibility (including exclusions) are computed once
     per player. Eligibility has its own namespace and guards cached states.
 
     Returns a dict with ``kind`` in {tracked, shadow, none}. A tracked player
-    NEVER goes through the shadow branch (compute_stats stays authoritative);
+    NEVER goes through the shadow branch (shared season selection stays authoritative);
     only players with no active tracked row fall back to a PlayerShadow.
     """
     if player_api_id not in cached_public_adult_ids([player_api_id], cache):
@@ -190,7 +242,7 @@ def _player_state(player_api_id: int, cache: dict, api_client=None) -> dict:
             "kind": "tracked",
             "tracked": tracked_player,
             "shadow": None,
-            "stats": tracked_player.compute_stats(),
+            "stats": cache.get("__pc2_numbers__", {}).get(player_api_id) or tracked_player.compute_stats(),
             "absences": _absence_count(api_client, player_api_id),
         }
     else:
@@ -200,7 +252,7 @@ def _player_state(player_api_id: int, cache: dict, api_client=None) -> dict:
                 "kind": "shadow",
                 "tracked": None,
                 "shadow": shadow,
-                "stats": _shadow_stats(player_api_id),
+                "stats": cache.get("__pc2_numbers__", {}).get(player_api_id) or _shadow_stats(player_api_id),
                 "absences": None,
             }
         else:
@@ -218,11 +270,12 @@ def _entry_update(entry, cache: dict, api_client=None) -> dict | None:
     tracked player nor an active shadow. ``entry`` is a ScoutWatchlistEntry
     (watchlist path) or a FollowPlayerSnapshot (list path) — both expose
     player_api_id / last_snapshot / note."""
+    _prime_number_totals([entry.player_api_id], cache)
     state = _player_state(entry.player_api_id, cache, api_client=api_client)
     if state["kind"] == "none":
         return None
 
-    stats = state["stats"]
+    stats = cache["__pc2_numbers__"].get(entry.player_api_id) or state["stats"]
     previous = _load_snapshot(entry)
 
     if state["kind"] == "tracked":
@@ -295,6 +348,8 @@ def _entry_update(entry, cache: dict, api_client=None) -> dict | None:
         "goals": int(stats.get("goals") or 0),
         "assists": int(stats.get("assists") or 0),
         "minutes_played": int(stats.get("minutes_played") or 0),
+        "season": stats.get("season"),
+        "provenance": stats.get("provenance"),
         "status": status,
         "absences": absences if absences is not None else int((previous or {}).get("absences") or 0),
         "taken_at": datetime.now(UTC).isoformat(),
@@ -309,6 +364,8 @@ def _entry_update(entry, cache: dict, api_client=None) -> dict | None:
         "status": status,
         "is_new": previous is None,
         "season_line": season_line,
+        "season": stats.get("season"),
+        "provenance": stats.get("provenance"),
         "chips": chips,
         "headline": card_headline,
         "note": entry.note,
@@ -397,6 +454,7 @@ def _render_digest(user: UserAccount, flat_updates: list[dict], groups=None, gro
 def build_user_digest(user: UserAccount, entries: list[ScoutWatchlistEntry], api_client=None) -> dict | None:
     """Render one watchlist user's (flat) digest; None when nothing to send."""
     cache: dict = {}
+    _prime_number_totals([entry.player_api_id for entry in entries], cache)
     flat_updates = [u for u in (_entry_update(entry, cache, api_client=api_client) for entry in entries) if u]
     return _render_digest(user, flat_updates)
 
@@ -446,6 +504,7 @@ def _build_list_updates(user: UserAccount, lists, cache: dict, api_client=None, 
     for follow_list in lists:
         resolved = resolve_list(follow_list, limit=follow_list.player_cap, eligibility_cache=cache)
         cards = []
+        _prime_number_totals([item["player_api_id"] for item in resolved], cache)
         for item in resolved:
             pid = item["player_api_id"]
             if pid in seen:
@@ -469,6 +528,7 @@ def _assemble_user_updates(user: UserAccount, watchlist_entries, routed_lists, c
     the grouped sections come from ``routed_lists`` and exclude any player
     already on the watchlist (watchlist wins) so a player is never shown twice.
     """
+    _prime_number_totals([entry.player_api_id for entry in watchlist_entries], cache)
     flat_updates = [u for u in (_entry_update(e, cache, api_client=api_client) for e in watchlist_entries) if u]
     seen = {entry.player_api_id for entry in watchlist_entries}
     groups, group_updates = _build_list_updates(user, routed_lists, cache, api_client=api_client, seen=seen)

@@ -167,6 +167,7 @@ test('an empty or grain-sourced stats response is not provider data', () => {
   // Rollup totals whose headline is the club or the player are the match grain.
   assert.equal(providerTotals({ appearances: 1, minutes: 90, provenance: { primary_source: 'club' } }), null)
   assert.equal(providerTotals({ appearances: 4, minutes: 300, provenance: { primary_source: 'user' } }), null)
+  assert.equal(providerTotals({ appearances: 3, minutes: 254, source: 'season-rollup', provenance: { primary_source: 'matches' } }), null)
   assert.equal(providerTotals({ appearances: 0, minutes: 0, source: 'none' }), null)
   assert.equal(providerTotals(null), null)
   assert.equal(providerTotals({ appearances: 3, minutes: 0, source: 'limited-coverage' }).appearances, 3)

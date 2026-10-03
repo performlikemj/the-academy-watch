@@ -2,13 +2,17 @@
 
 from sqlalchemy import func
 from src.models.league import PlayerStatsCache, db
-from src.models.season_rollup import PlayerSeasonTotal
 from src.models.weekly import Fixture, FixturePlayerStats
 
 
-def rollup_provenance(total: PlayerSeasonTotal) -> dict:
+def rollup_provenance(total) -> dict:
     """The stable five-key public provenance contract."""
     return {
+        **{
+            k: v
+            for k, v in ((total.source_breakdown or {}).get("matches") or {}).items()
+            if k in {"club_confirmed", "self_reported_only"}
+        },
         "primary_source": total.primary_source,
         "reconcile_flag": total.reconcile_flag,
         "fixtures_minutes": total.fixtures_minutes,
@@ -17,18 +21,20 @@ def rollup_provenance(total: PlayerSeasonTotal) -> dict:
     }
 
 
-def rollup_stats_by_player(player_api_ids: list[int], season: int) -> tuple[dict[int, dict], dict[int, list]]:
+def rollup_stats_by_player(
+    player_api_ids: list[int], season: int, *, compatibility=False
+) -> tuple[dict[int, dict], dict[int, list]]:
     """Read one source-selected totals row per current roster member."""
     if not player_api_ids:
         return {}, {}
-    rows = PlayerSeasonTotal.query.filter(
-        PlayerSeasonTotal.player_api_id.in_(player_api_ids),
-        PlayerSeasonTotal.season == season,
-        PlayerSeasonTotal.level_group == "senior",
-    ).all()
+    from src.services.reported_match_totals import effective_totals
+
+    rows = effective_totals(player_api_ids, season).values()
     stats = {}
     clubs = {}
     for total in rows:
+        if compatibility and total.primary_source not in {"club", "user", "matches", "cache"}:
+            continue  # retain the flag-off live provider adapter, as on the player page
         stats[total.player_api_id] = {
             "appearances": total.appearances,
             "goals": total.goals,
@@ -79,7 +85,8 @@ def live_stats_by_player(tracked_players: list, season: int) -> dict[int, dict]:
             func.coalesce(func.sum(FixturePlayerStats.goals), 0).label("goals"),
             func.coalesce(func.sum(FixturePlayerStats.assists), 0).label("assists"),
             func.coalesce(func.sum(FixturePlayerStats.minutes), 0).label("minutes_played"),
-            func.coalesce(func.sum(FixturePlayerStats.saves), 0).label("saves"),
+            func.sum(FixturePlayerStats.saves).label("saves"),
+            func.sum(FixturePlayerStats.goals_conceded).label("goals_conceded"),
             func.coalesce(func.sum(FixturePlayerStats.yellows), 0).label("yellows"),
             func.coalesce(func.sum(FixturePlayerStats.reds), 0).label("reds"),
         )
@@ -93,11 +100,13 @@ def live_stats_by_player(tracked_players: list, season: int) -> dict[int, dict]:
     )
     for row in fixture_rows:
         stats[row.player_api_id] = {
+            "provenance": {"primary_source": "fixtures"},
             "appearances": int(row.appearances or 0),
             "goals": int(row.goals or 0),
             "assists": int(row.assists or 0),
             "minutes_played": int(row.minutes_played or 0),
-            "saves": int(row.saves or 0),
+            "saves": int(row.saves) if row.saves is not None else None,
+            "goals_conceded": int(row.goals_conceded) if row.goals_conceded is not None else None,
             "yellows": int(row.yellows or 0),
             "reds": int(row.reds or 0),
         }
@@ -106,6 +115,7 @@ def live_stats_by_player(tracked_players: list, season: int) -> dict[int, dict]:
         player.player_api_id for player in tracked_players if player.data_depth in ("events_only", "profile_only")
     ]
     if not limited_ids:
+        stats.update(rollup_stats_by_player(player_api_ids, season, compatibility=True)[0])
         return stats
     for player_api_id in limited_ids:
         stats.pop(player_api_id, None)
@@ -126,6 +136,7 @@ def live_stats_by_player(tracked_players: list, season: int) -> dict[int, dict]:
 
     for row in cache_query.group_by(PlayerStatsCache.player_api_id).all():
         stats[row.player_api_id] = {
+            "provenance": {"primary_source": "cache"},
             "appearances": int(row.appearances or 0),
             "goals": int(row.goals or 0),
             "assists": int(row.assists or 0),
@@ -134,4 +145,5 @@ def live_stats_by_player(tracked_players: list, season: int) -> dict[int, dict]:
             "yellows": int(row.yellows or 0),
             "reds": int(row.reds or 0),
         }
+    stats.update(rollup_stats_by_player(player_api_ids, season, compatibility=True)[0])
     return stats

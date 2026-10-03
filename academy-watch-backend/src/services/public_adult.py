@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from hashlib import sha256
 
 import sqlalchemy as sa
+from flask import has_request_context, request
 from src.models.follow import PlayerShadow
 from src.models.journey import PlayerJourney
 from src.models.league import db
@@ -178,6 +179,11 @@ def gol_public_adult_ids(signed_ids):
     return public_adult_ids(signed_ids, allow_journeys=True)
 
 
+def request_public_adult_cache():
+    """One policy memo per HTTP request; outside a request return a fresh memo."""
+    return request.environ.setdefault("public_adult_eligibility_cache", {}) if has_request_context() else {}
+
+
 def filter_public_adult_query(query, signed_id_column, *, eligibility_cache=None, allow_journeys=False):
     """Filter constrained candidates before ordering, pagination or ranking.
 
@@ -189,7 +195,9 @@ def filter_public_adult_query(query, signed_id_column, *, eligibility_cache=None
     if allow_journeys:
         eligible = gol_public_adult_ids(ids)
     else:
-        eligible = cached_public_adult_ids(ids, eligibility_cache if eligibility_cache is not None else {})
+        eligible = cached_public_adult_ids(
+            ids, eligibility_cache if eligibility_cache is not None else request_public_adult_cache()
+        )
     return query.filter(signed_id_column.in_(eligible)).execution_options(public_adult_candidate_count=len(eligible))
 
 

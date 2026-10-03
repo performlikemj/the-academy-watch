@@ -271,13 +271,10 @@ const players = {
   },
 }
 
-// What /scout/players returns today. For club- or player-entered seasons the
-// rollup counts the club's rows only, so these figures can differ from the
-// player's page (Reuben: 15 club rows here, 22 matches on his page) — which is
-// why the card must not print them. Provider-sourced rows keep their counters.
+// Corrected /scout/players totals use the same merged lines as the player page.
 const scoutRows = [
-  { id: 1, player_id: -12, player_name: 'Kofi Asante-Reid', position: 'Right-back', primary_team_name: 'Quillmere Athletic', appearances: 1, minutes_played: 90, provenance: { source: 'club' }, player_photo: null },
-  { id: 2, player_id: -15, player_name: 'Reuben Castellane', position: 'Midfielder', primary_team_name: 'Quillmere Athletic', appearances: 15, minutes_played: 1238, provenance: { source: 'club' }, player_photo: '/fixture-photos/portrait.svg' },
+  { id: 1, player_id: -12, player_name: 'Kofi Asante-Reid', position: 'Right-back', primary_team_name: 'Quillmere Athletic', appearances: 1, minutes_played: 90, provenance: { source: 'club' }, player_photo: null, approved_photo_url: '/fixture-photos/portrait.svg', bio_line: 'Right-back at Quillmere Athletic. Tom & Jerry FC captain; fast > strong.', club_confirmed: true },
+  { id: 2, player_id: -15, player_name: 'Reuben Castellane', position: 'Midfielder', primary_team_name: 'Quillmere Athletic', appearances: totalsOf(players['-15'].lines).appearances, minutes_played: totalsOf(players['-15'].lines).minutes, provenance: { primary_source: 'matches', source_category: 'mixed', source_label: 'Merged match entries', club_confirmed: totalsOf(players['-15'].lines).club_confirmed, self_reported_only: totalsOf(players['-15'].lines).self_reported_only }, player_photo: '/fixture-photos/portrait.svg' },
   { id: 3, player_id: -14, player_name: 'Olu Adeyemi-Clarke', position: 'Winger', primary_team_name: null, appearances: 0, minutes_played: 0, provenance: { source: 'self' }, player_photo: null, contactable: false },
   { id: 4, player_id: -17, player_name: 'Maximilian-Alexander Oluwaseun Featherstonehaugh-Abernathy', position: 'Attacking midfielder', primary_team_name: 'Quillmere Athletic & Wendleshire Community Sports Association', appearances: 2, minutes_played: 180, provenance: { source: 'self' }, player_photo: null },
   { id: 5, player_id: -19, player_name: 'Tamsin Holloway', position: 'Goalkeeper', primary_team_name: 'Quillmere Athletic', appearances: 3, minutes_played: 270, provenance: { source: 'club' }, player_photo: null },
@@ -336,7 +333,7 @@ async function installApiMocks(page, { frozen = false, contactRail = true, watch
       }
       if (resource === 'season-stats') {
         const provider = { appearances: 30, minutes: 2412, goals: 6, assists: 4, yellows: 3, reds: 0, avg_rating: 7.12 }
-        const grain = totalsOf(player.lines.filter((entry) => entry.confirmation === 'club_confirmed'))
+        const grain = totalsOf(player.lines)
         const asked = Number(url.searchParams.get('season') || 2026)
         if (gate) await gate(asked)
         const seasonStatus = seasonStatsStatus()
@@ -344,8 +341,8 @@ async function installApiMocks(page, { frozen = false, contactRail = true, watch
         const providerHasSeason = player.provider && (!player.providerSeasons || player.providerSeasons.includes(asked))
         const base = providerHasSeason
           ? { ...provider, source: 'season-rollup', provenance: { primary_source: 'journey', reconcile_flag: null } }
-          // What the rollup says today for a community player: the club's rows only.
-          : { appearances: grain.appearances, minutes: grain.minutes, goals: grain.goals, assists: grain.assists, source: 'season-rollup', provenance: { primary_source: 'club' } }
+          // PC2 reports use the same canonical merged lines as the read view.
+          : { appearances: grain.appearances, minutes: grain.minutes, goals: grain.goals, assists: grain.assists, source: 'season-rollup', provenance: { primary_source: 'matches' } }
         const separated = frozen ? {
           public_match_data: providerHasSeason
             ? { available: true, as_of: '2026-09-28T09:00:00+00:00', totals: provider }
@@ -587,15 +584,19 @@ for (const viewport of VIEWPORTS) {
       await expect(cards).toHaveCount(scoutRows.length)
       const kofi = cards.filter({ hasText: 'Kofi Asante-Reid' })
       await expect(kofi.getByRole('link', { name: 'Kofi Asante-Reid' })).toHaveAttribute('href', '/players/-12')
-      await expect(kofi).toContainText('Right-back at Quillmere Athletic.')
-      // Club- and player-entered seasons: no apps/minutes on the card (the desk's
-      // figures and the player's page are counted differently until they share one source).
-      for (const name of ['Kofi Asante-Reid', 'Reuben Castellane', 'Tamsin Holloway', 'Olu Adeyemi-Clarke']) {
+      await expect(kofi).toContainText('Right-back at Quillmere Athletic. Tom & Jerry FC captain; fast > strong.')
+      await expect(kofi).not.toContainText('&amp;')
+      for (const name of ['Kofi Asante-Reid', 'Reuben Castellane', 'Tamsin Holloway']) {
         const card = cards.filter({ hasText: name })
-        await expect(card).not.toContainText(/\bapps?\b/)
-        await expect(card).not.toContainText(/\bmin\b/)
-        await expect(card.getByRole('img', { name: 'Club-confirmed' })).toHaveCount(0)
+        const row = scoutRows.find((p) => p.player_name === name)
+        await expect(card).toContainText(`${row.appearances} ${row.appearances === 1 ? 'app' : 'apps'}`)
+        await expect(card).toContainText(`${row.minutes_played.toLocaleString('en-GB')} min`)
       }
+      await expect(kofi).toHaveAttribute('data-photo', 'yes')
+      await expect(kofi.getByRole('img', { name: 'Club-confirmed' })).toHaveCount(1)
+      const empty = cards.filter({ hasText: 'Olu Adeyemi-Clarke' })
+      await expect(empty).not.toContainText(/\bapps?\b/)
+      await expect(empty).not.toContainText(/\bmin\b/)
       // Provider-sourced figures are the same totals the player's page shows.
       const provider = cards.filter({ hasText: 'Test Prospect' })
       await expect(provider).toContainText('30 apps')
@@ -1845,3 +1846,32 @@ test.describe('replay of a captured staging player', () => {
     })
   }
 })
+
+for (const viewport of VIEWPORTS) {
+  test(`${viewport.name}px: mixed totals keep their label and the desk can select them`, async ({ page }) => {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height })
+    await signIn(page)
+    const calls = await installApiMocks(page)
+    const reuben = scoutRows.find((p) => p.player_name === 'Reuben Castellane')
+    await page.route('**/api/scout/compare**', (route) => route.fulfill({ json: {
+      season: 2026, players: [{ profile: reuben, totals: { appearances: reuben.appearances, minutes_played: reuben.minutes_played, goals: 2, assists: 5 }, per90: {}, provenance: reuben.provenance }],
+    } }))
+    await page.goto('/scout?compare=-15,-12')
+    const dialog = page.getByRole('dialog')
+    const mixed = dialog.locator('[data-provenance-source="mixed"]')
+    await expect(mixed).toHaveText('Club + self-reported')
+    await expect(mixed).toHaveAttribute('title', `${reuben.provenance.club_confirmed} club-confirmed matches; ${reuben.provenance.self_reported_only} self-reported only.`)
+    await shot(page, `12-mixed-compare-${viewport.name}`)
+    await page.keyboard.press('Escape')
+    const filter = page.getByRole('combobox', { name: 'Filter by stats source' })
+    await filter.click()
+    await page.getByRole('option', { name: 'Club + self-reported', exact: true }).click()
+    await expect(filter).toHaveText('Club + self-reported')
+    await expect.poll(() => calls.some((call) => call.startsWith('GET /api/scout/players?') && new URL(call.slice(4), 'http://fixture.test').searchParams.get('source') === 'mixed')).toBe(true)
+    await page.getByRole('group', { name: 'Show players as' }).getByRole('button', { name: 'Table' }).click()
+    const row = page.getByRole('row').filter({ hasText: 'Reuben Castellane' })
+    await expect(row.locator('[data-provenance-source="mixed"]')).toHaveText('Club + self-reported')
+    await shot(page, `13-mixed-desk-${viewport.name}`)
+    await expectNoSidewaysScroll(page)
+  })
+}

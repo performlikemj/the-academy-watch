@@ -80,7 +80,7 @@ def test_provider_bridge_status_and_query_counts_match_main(parity, monkeypatch,
     counts = {
         "/api/players/7001/journey": 9,
         "/api/players/7001/profile": 11,
-        "/api/players/7001/season-stats": 21,
+        "/api/players/7001/season-stats": 24,  # PC2 reuses the selected total; C1 adds none
         "/sitemap.xml": 1,
     }
     assert len(statements) == counts[path]

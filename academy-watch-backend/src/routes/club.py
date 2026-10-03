@@ -47,7 +47,6 @@ from src.models.journey import PlayerJourney
 from src.models.league import Team, db
 from src.models.player_match_entry import ClubResult, PlayerMatchEntry
 from src.models.player_suppression import PlayerSuppression
-from src.models.season_rollup import PlayerSeasonTotal
 from src.models.showcase import LocalPlayer, local_player_is_minor
 from src.models.tracked_player import TrackedPlayer
 from src.models.video import VideoMatch, VideoPlayerReport, VideoRosterEntry, VideoTracklet
@@ -78,6 +77,7 @@ from src.services.player_identity import retained_shadow_identity_exists
 from src.services.player_subject import PlayerSubject, resolve_player_subject
 from src.services.player_suppression import is_local_player_suppressed, is_player_suppressed
 from src.services.public_player_subject import resolve_public_adult_subject
+from src.services.reported_match_totals import current_club_evidence_totals
 from src.utils.academy_window import age_from_birth_date, current_stats_season
 from src.utils.sanitize import display_plain_text, is_safe_https_url, sanitize_plain_text
 
@@ -740,7 +740,7 @@ def _club_season_stats(
     member_id: int,
     player_name: str | None,
     is_minor: bool,
-    total: PlayerSeasonTotal | None,
+    total,
 ) -> dict | None:
     metadata = {
         "club_roster_member_id": member_id,
@@ -1511,13 +1511,11 @@ def _stable_result_payloads(rows: list[ClubResult]) -> list[dict]:
     }
     subjects = _batched_public_adult_subjects({entry.player_api_id for entry in entries})
     totals = (
-        {
-            (total.player_api_id, total.season, total.level_group): total
-            for total in PlayerSeasonTotal.query.filter(
-                PlayerSeasonTotal.player_api_id.in_({entry.player_api_id for entry in entries}),
-                PlayerSeasonTotal.season.in_({entry.season for entry in entries}),
-            ).all()
-        }
+        current_club_evidence_totals(
+            {entry.player_api_id for entry in entries},
+            {entry.season for entry in entries},
+            authorized_ids=set(subjects),
+        )
         if entries
         else {}
     )

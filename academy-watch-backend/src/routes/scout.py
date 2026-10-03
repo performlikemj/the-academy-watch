@@ -29,7 +29,7 @@ from datetime import date
 
 import bleach
 from flask import Blueprint, Response, g, jsonify, request
-from sqlalchemy import Integer, String, and_, case, cast, exists, func, literal, or_, tuple_
+from sqlalchemy import Integer, String, and_, case, cast, exists, func, literal, or_, select, tuple_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import aliased
 from src.auth import _ensure_user_account, _safe_error_payload, require_api_key, require_user_auth
@@ -38,7 +38,6 @@ from src.models.follow import Follow, FollowList, FollowPlayerSnapshot, PlayerSh
 from src.models.journey import PlayerJourney
 from src.models.league import PlayerStatsCache, Team, UserAccount, db
 from src.models.scout_watchlist import ScoutWatchlistEntry
-from src.models.season_rollup import PlayerSeasonTotal
 from src.models.showcase import (
     LocalPlayer,
     PlayerProfileClaim,
@@ -64,7 +63,14 @@ from src.services.player_suppression import (
     public_player_visible_filter,
     without_active_suppression,
 )
-from src.services.public_adult import filter_public_adult_query, is_public_adult, public_adult_ids
+from src.services.public_adult import (
+    filter_public_adult_query,
+    is_public_adult,
+    public_adult_ids,
+    request_public_adult_cache,
+)
+from src.services.reported_match_totals import saved_shadow_totals, scout_totals_projection
+from src.services.scout_card import attach_card_fields
 from src.services.scout_entitlements import decoded_bearer_role, scout_entitlements
 from src.services.stripe_billing import require_billing_rail
 from src.utils.data_mode import api_enabled_route, api_football_frozen, newsletters_enabled_route
@@ -166,7 +172,7 @@ CSV_HEADER = [
     "primary_source",
 ]
 
-VALID_SOURCES = frozenset({"api", "club", "self"})
+VALID_SOURCES = frozenset({"api", "club", "self", "mixed"})
 API_ROLLUP_SOURCES = ("fixtures", "journey", "apss", "shadow")
 SOURCE_LABELS = {
     "api": "API-reported",
@@ -545,12 +551,20 @@ def _scout_identity_subquery(*, include_local=None):
 
 
 def _base_scout_query(
-    requested_season=None, *, allow_rollup=True, legacy_season=None, include_local=None, adult_filter=True
+    requested_season=None,
+    *,
+    allow_rollup=True,
+    legacy_season=None,
+    include_local=None,
+    adult_filter=True,
+    player_ids=None,
 ):
     """Normalized player-universe rows joined to one season's stats."""
     from src.utils.academy_window import resolve_stats_season, stats_season_with_data
 
     identity = _scout_identity_subquery(include_local=include_local)
+    if player_ids is not None:
+        identity = select(identity).where(identity.c.player_api_id.in_(player_ids)).subquery()
     rollup_enabled = allow_rollup and rollup_reads_enabled("scout")
     if rollup_enabled:
         # Keep the same fixtures-keyed discovery resolver used everywhere else;
@@ -561,32 +575,44 @@ def _base_scout_query(
             surface="discovery",
             allow_history=True,
         )
-        goals = PlayerSeasonTotal.goals.label("goals")
-        assists = PlayerSeasonTotal.assists.label("assists")
-        minutes = PlayerSeasonTotal.minutes.label("minutes_played")
-        appearances = PlayerSeasonTotal.appearances.label("appearances")
-        avg_rating = PlayerSeasonTotal.avg_rating.label("avg_rating")
+        totals_table = scout_totals_projection(identity, season)
+        totals = totals_table.c
+        goals = totals.goals.label("goals")
+        assists = totals.assists.label("assists")
+        minutes = totals.minutes.label("minutes_played")
+        appearances = totals.appearances.label("appearances")
+        avg_rating = totals.avg_rating.label("avg_rating")
         rollup_phase_columns = {
-            "yellows": PlayerSeasonTotal.yellows,
-            "reds": PlayerSeasonTotal.reds,
-            "saves": PlayerSeasonTotal.saves,
-            "goals_conceded": PlayerSeasonTotal.goals_conceded,
+            "yellows": totals.yellows,
+            "reds": totals.reds,
+            "saves": totals.saves,
+            "goals_conceded": totals.goals_conceded,
         }
         phase_column_exprs = {
             key: rollup_phase_columns.get(key, literal(None, type_=Integer)).label(key) for key in PHASE_STAT_KEYS
         }
         rollup_fields = [
-            PlayerSeasonTotal.id.is_(None).label("rollup_missing"),
-            PlayerSeasonTotal.primary_source.label("rollup_primary_source"),
-            PlayerSeasonTotal.reconcile_flag.label("rollup_reconcile_flag"),
-            PlayerSeasonTotal.fixtures_minutes.label("rollup_fixtures_minutes"),
-            PlayerSeasonTotal.journey_minutes.label("rollup_journey_minutes"),
-            PlayerSeasonTotal.computed_at.label("rollup_computed_at"),
+            totals.id.is_(None).label("rollup_missing"),
+            totals.primary_source.label("rollup_primary_source"),
+            totals.reconcile_flag.label("rollup_reconcile_flag"),
+            totals.fixtures_minutes.label("rollup_fixtures_minutes"),
+            totals.journey_minutes.label("rollup_journey_minutes"),
+            totals.computed_at.label("rollup_computed_at"),
         ]
     else:
         # API-backed rows retain the legacy aggregate when the flag is off;
         # club/self rows still read their indivisible authoritative total.
-        season = legacy_season if legacy_season is not None else stats_season_with_data(db.session)
+        season = (
+            legacy_season
+            if legacy_season is not None
+            else (
+                resolve_stats_season(db.session, requested=requested_season, surface="discovery", allow_history=True)
+                if requested_season is not None
+                else stats_season_with_data(db.session)
+            )
+        )
+        totals_table = scout_totals_projection(identity, season)
+        totals = totals_table.c
         fps = _fixture_stats_subquery(season)
         cache = _cache_stats_subquery()
         # Club/self totals are the only authoritative representation of those
@@ -594,37 +620,41 @@ def _base_scout_query(
         # values, even while the general Scout rollup cutover flag is off.
         uses_reported_total = or_(
             identity.c.is_local,
-            PlayerSeasonTotal.primary_source.in_(("club", "user")),
+            totals.pc2_override,
+            totals.primary_source.in_(("club", "user", "matches", "cache")),
         )
 
         goals = case(
-            (uses_reported_total, func.coalesce(PlayerSeasonTotal.goals, 0)),
+            (uses_reported_total, func.coalesce(totals.goals, 0)),
             else_=func.coalesce(fps.c.goals, cache.c.goals, 0),
         ).label("goals")
         assists = case(
-            (uses_reported_total, func.coalesce(PlayerSeasonTotal.assists, 0)),
+            (uses_reported_total, func.coalesce(totals.assists, 0)),
             else_=func.coalesce(fps.c.assists, cache.c.assists, 0),
         ).label("assists")
         minutes = case(
-            (uses_reported_total, func.coalesce(PlayerSeasonTotal.minutes, 0)),
+            (uses_reported_total, func.coalesce(totals.minutes, 0)),
             else_=func.coalesce(fps.c.minutes_played, cache.c.minutes_played, 0),
         ).label("minutes_played")
         appearances = case(
-            (uses_reported_total, func.coalesce(PlayerSeasonTotal.appearances, 0)),
+            (uses_reported_total, func.coalesce(totals.appearances, 0)),
             else_=func.coalesce(fps.c.appearances, cache.c.appearances, 0),
         ).label("appearances")
-        avg_rating = case((uses_reported_total, PlayerSeasonTotal.avg_rating), else_=fps.c.avg_rating).label(
-            "avg_rating"
-        )
+        avg_rating = case((uses_reported_total, totals.avg_rating), else_=fps.c.avg_rating).label("avg_rating")
         reported_phase_columns = {
-            "yellows": PlayerSeasonTotal.yellows,
-            "reds": PlayerSeasonTotal.reds,
-            "saves": PlayerSeasonTotal.saves,
-            "goals_conceded": PlayerSeasonTotal.goals_conceded,
+            "yellows": totals.yellows,
+            "reds": totals.reds,
+            "saves": totals.saves,
+            "goals_conceded": totals.goals_conceded,
         }
         phase_column_exprs = {
             key: case(
-                (uses_reported_total, reported_phase_columns.get(key, literal(None, type_=Integer))),
+                (
+                    uses_reported_total
+                    if key in reported_phase_columns
+                    else and_(uses_reported_total, totals.primary_source != "fixtures"),
+                    reported_phase_columns.get(key, literal(None, type_=Integer)),
+                ),
                 else_=getattr(fps.c, key),
             ).label(key)
             for key in PHASE_STAT_KEYS
@@ -648,11 +678,12 @@ def _base_scout_query(
         identity.c.birth_year,
     ).label("age")
 
-    primary_source = PlayerSeasonTotal.primary_source.label("provenance_primary_source")
+    primary_source = totals.primary_source.label("provenance_primary_source")
     source_category = case(
-        (PlayerSeasonTotal.primary_source == "club", literal("club")),
-        (PlayerSeasonTotal.primary_source == "user", literal("self")),
-        (PlayerSeasonTotal.primary_source.in_(API_ROLLUP_SOURCES), literal("api")),
+        (totals.primary_source == "club", literal("club")),
+        (totals.primary_source == "matches", literal("mixed")),
+        (totals.primary_source == "user", literal("self")),
+        (totals.primary_source.in_(API_ROLLUP_SOURCES), literal("api")),
         (identity.c.player_api_id < 0, literal("self")),
         else_=literal("api"),
     ).label("source_category")
@@ -677,7 +708,9 @@ def _base_scout_query(
             *phase_stats,
             *rollup_fields,
             primary_source,
+            totals.source_breakdown.label("pc2_source_breakdown"),
             source_category,
+            totals.pc2_override.label("pc2_override"),
         )
         .select_from(identity)
         .outerjoin(PlayerJourney, PlayerJourney.player_api_id == identity.c.player_api_id)
@@ -690,11 +723,11 @@ def _base_scout_query(
             cache.c.player_api_id == identity.c.player_api_id,
         )
     query = query.outerjoin(
-        PlayerSeasonTotal,
+        totals_table,
         and_(
-            PlayerSeasonTotal.player_api_id == identity.c.player_api_id,
-            PlayerSeasonTotal.season == season,
-            PlayerSeasonTotal.level_group == "senior",
+            totals.player_api_id == identity.c.player_api_id,
+            totals.season == season,
+            totals.level_group == "senior",
         ),
     )
     columns = {
@@ -731,7 +764,7 @@ def _apply_source_filter(query, columns, *, exclude_self_by_default=False):
     if raw_source:
         query = query.filter(columns["source_category"] == raw_source)
     elif exclude_self_by_default:
-        query = query.filter(columns["source_category"] != "self")
+        query = query.filter(columns["source_category"].not_in(("self", "mixed")))
     return query, None
 
 
@@ -836,9 +869,20 @@ def _row_to_dict(row):
     source_category = row.source_category
     payload["provenance"] = {
         "source_category": source_category,
-        "source_label": SOURCE_LABELS[source_category],
+        "source_label": "Merged match entries"
+        if row.provenance_primary_source == "matches"
+        else SOURCE_LABELS[source_category],
         "primary_source": row.provenance_primary_source,
+        **{
+            k: ((row.pc2_source_breakdown or {}).get("matches") or {}).get(k)
+            for k in ("club_confirmed", "self_reported_only")
+            if k in ((row.pc2_source_breakdown or {}).get("matches") or {})
+        },
     }
+    if row.provenance_primary_source is None and not any(
+        payload.get(k) for k in ("appearances", "minutes_played", "goals", "assists")
+    ):
+        payload["provenance"].update(source_category=None, source_label="No recorded totals")
     if is_rollup_row and not row.rollup_missing:
         payload["provenance"].update(
             {
@@ -856,7 +900,15 @@ def _row_to_dict(row):
     has_detailed = not is_rollup_row and row.tackles is not None
     payload["has_detailed_stats"] = has_detailed
     for key in PHASE_STAT_KEYS:
-        value = getattr(row, key) if has_detailed or is_rollup_row else None
+        reported_field = (
+            row.provenance_primary_source in {"club", "user", "matches", "cache"} or row.pc2_override
+        ) and key in {
+            "yellows",
+            "reds",
+            "saves",
+            "goals_conceded",
+        }
+        value = getattr(row, key) if has_detailed or is_rollup_row or reported_field else None
         # GK stats (saves/goals_conceded/penalty_saved/clean_sheets) stay NULL
         # for outfielders even with full fixture coverage — keep them null.
         payload[key] = int(value) if value is not None else None
@@ -1003,6 +1055,7 @@ def scout_players():
         rows = query.offset((page - 1) * per_page).limit(per_page).all()
 
         players = [_row_to_dict(row) for row in rows]
+        attach_card_fields(players)
         _attach_contactable(players)
         _attach_recent_form(players)
 
@@ -1098,13 +1151,13 @@ def scout_leaderboards():
             db.session,
             requested=requested_season,
             surface="discovery",
-            allow_history=use_rollup,
+            allow_history=use_rollup or _local_players_enabled(),
         )
 
         # Immutable base queries and one caller-owned eligibility snapshot serve
         # every board, including the mixed rollup/fixture phases.
         base_queries = {}
-        eligibility_cache = {}
+        eligibility_cache = request_public_adult_cache()
 
         def board(sort_key, extra_min_minutes=0, board_order="desc"):
             board_uses_rollup = use_rollup and sort_key in ROLLUP_LEADERBOARD_SORT_KEYS
@@ -1206,74 +1259,6 @@ def _compare_fixture_totals(player_id: int, season: int):
     )
 
 
-def _compare_rollup_totals(total: PlayerSeasonTotal | None) -> tuple[dict, dict | None]:
-    """Project one source-selected rollup row into the compare contract.
-
-    Fixture-primary rows are enriched separately from the matching fixture
-    aggregate; every other source leaves rich fixture-only fields unknown.
-    """
-    rich_fields = {
-        key: None
-        for key in (
-            "shots_total",
-            "shots_on",
-            "passes_total",
-            "key_passes",
-            "dribbles_attempts",
-            "dribbles_success",
-            "tackles",
-            "interceptions",
-            "duels_total",
-            "duels_won",
-            "fouls_drawn",
-            "penalty_saved",
-            "clean_sheets",
-        )
-    }
-    if total is None:
-        return (
-            {
-                "appearances": None,
-                "goals": None,
-                "assists": None,
-                "minutes_played": None,
-                "avg_rating": None,
-                "yellows": None,
-                "reds": None,
-                "saves": None,
-                "goals_conceded": None,
-                "stats_coverage": "season-rollup",
-                "rollup_missing": True,
-                **rich_fields,
-            },
-            None,
-        )
-    provenance = {
-        "primary_source": total.primary_source,
-        "reconcile_flag": total.reconcile_flag,
-        "fixtures_minutes": total.fixtures_minutes,
-        "journey_minutes": total.journey_minutes,
-        "computed_at": total.computed_at.isoformat() if total.computed_at else None,
-    }
-    return (
-        {
-            "appearances": total.appearances,
-            "goals": total.goals,
-            "assists": total.assists,
-            "minutes_played": total.minutes,
-            "avg_rating": float(total.avg_rating) if total.avg_rating is not None else None,
-            "yellows": total.yellows,
-            "reds": total.reds,
-            "saves": total.saves,
-            "goals_conceded": total.goals_conceded,
-            "stats_coverage": "season-rollup",
-            "rollup_missing": False,
-            **rich_fields,
-        },
-        provenance,
-    )
-
-
 def _compare_candidate_totals(candidate):
     """Project a normalized Scout row without crossing its chosen source."""
 
@@ -1341,7 +1326,7 @@ def scout_compare():
         except ValueError:
             return jsonify({"error": "ids must be integers"}), 400
 
-        from src.utils.academy_window import resolve_stats_season, stats_season_with_data
+        from src.utils.academy_window import resolve_stats_season
 
         # One season figure per player, summed across EVERY club the player
         # appeared for — mirrors the season-scoped /scout/players list and
@@ -1357,32 +1342,25 @@ def scout_compare():
             db.session,
             requested=requested_season,
             surface="discovery",
-            allow_history=use_rollup,
+            allow_history=use_rollup or _local_players_enabled(),
         )
-        # Preserve the unflagged aggregate exactly; the resolved value is still
-        # echoed so callers can label the compatibility path deterministically.
-        stats_season = resolved_season if use_rollup else stats_season_with_data(db.session)
-        rollup_totals = (
-            {
-                total.player_api_id: total
-                for total in PlayerSeasonTotal.query.filter(
-                    PlayerSeasonTotal.player_api_id.in_(player_ids),
-                    PlayerSeasonTotal.season == resolved_season,
-                    PlayerSeasonTotal.level_group == "senior",
-                ).all()
-            }
-            if use_rollup
-            else {}
-        )
+        # An explicit season scopes both the projection and the legacy adapter;
+        # the resolved value is echoed for the caller's label.
+        stats_season = resolved_season
 
-        candidate_query, candidate_columns = _base_scout_query(requested_season, adult_filter=False)
+        candidate_query, candidate_columns = _base_scout_query(
+            requested_season, adult_filter=False, player_ids=player_ids
+        )
         candidate_query = candidate_query.filter(candidate_columns["player_api_id"].in_(player_ids))
         candidate_query, source_error = _apply_source_filter(candidate_query, candidate_columns)
         if source_error:
             return source_error
         candidate_query = filter_public_adult_query(candidate_query, candidate_columns["player_api_id"])
         candidate_payloads = {}
+        projected_provider_ids = set()
         for candidate_row in candidate_query.all():
+            if candidate_row.pc2_override:
+                projected_provider_ids.add(candidate_row.player_api_id)
             candidate_payload = _row_to_dict(candidate_row)
             candidate_payloads[candidate_payload["player_id"]] = candidate_payload
 
@@ -1443,16 +1421,24 @@ def scout_compare():
             if not tracked_player:
                 continue
 
-            uses_reported_candidate = candidate["provenance"]["source_category"] in {"club", "self"}
-            if uses_reported_candidate:
+            uses_reported_candidate = candidate["provenance"]["source_category"] in {"club", "self", "mixed"}
+            if (
+                uses_reported_candidate
+                or player_id in projected_provider_ids
+                or candidate["provenance"]["primary_source"] == "cache"
+            ):
                 totals = _compare_candidate_totals(candidate)
-                row = None
-            elif use_rollup:
-                total = rollup_totals.get(player_id)
-                totals, _legacy_provenance = _compare_rollup_totals(total)
                 row = (
                     _compare_fixture_totals(player_id, resolved_season)
-                    if total is not None and total.primary_source == "fixtures"
+                    if candidate["provenance"]["primary_source"] == "fixtures"
+                    else None
+                )
+            elif use_rollup:
+                # Absence is authoritative too: never reopen a stored report.
+                totals = _compare_candidate_totals(candidate)
+                row = (
+                    _compare_fixture_totals(player_id, resolved_season)
+                    if candidate["provenance"]["primary_source"] == "fixtures"
                     else None
                 )
             else:
@@ -1613,15 +1599,16 @@ def _current_user_account():
     return user
 
 
-def _watched_player_dicts(player_api_ids):
+def _watched_player_dicts(player_api_ids, season=None):
     """Enriched scout-row dicts keyed by player_api_id (missing when inactive)."""
     ids = [pid for pid in set(player_api_ids) if pid]
     if not ids:
         return {}
-    query, columns = _base_scout_query(include_local=True, adult_filter=False)
+    query, columns = _base_scout_query(season, include_local=True, adult_filter=False, player_ids=ids)
     query = query.filter(columns["player_api_id"].in_(ids))
     rows = filter_public_adult_query(query, columns["player_api_id"]).all()
     players = [_row_to_dict(row) for row in rows]
+    attach_card_fields(players)
     _attach_recent_form(players)
     return {p["player_id"]: p for p in players}
 
@@ -1675,7 +1662,7 @@ def scout_watchlist():
         adult_ids = public_adult_ids(entry.player_api_id for entry in entries)
         entries = [entry for entry in entries if entry.player_api_id in adult_ids]
         suppressed_ids = _active_suppressed_subject_ids(entry.player_api_id for entry in entries)
-        players = _watched_player_dicts([entry.player_api_id for entry in entries])
+        players = _watched_player_dicts([entry.player_api_id for entry in entries], request.args.get("season") or None)
         return jsonify(
             {
                 "entries": [
@@ -1907,9 +1894,8 @@ def scout_export_csv():
     other filters except sort/order. Capped at 1000 rows.
     """
     try:
-        query, columns = _base_scout_query(request.args.get("season") or None, adult_filter=False)
-
         raw_ids = [p.strip() for p in request.args.get("ids", "").split(",") if p.strip()]
+        player_ids = None
         if raw_ids:
             if len(raw_ids) > WATCHLIST_LIMIT:
                 return jsonify({"error": f"At most {WATCHLIST_LIMIT} ids can be exported"}), 400
@@ -1917,6 +1903,10 @@ def scout_export_csv():
                 player_ids = [int(p) for p in raw_ids]
             except ValueError:
                 return jsonify({"error": "ids must be integers"}), 400
+        query, columns = _base_scout_query(
+            request.args.get("season") or None, adult_filter=False, player_ids=player_ids
+        )
+        if raw_ids:
             query = query.filter(columns["player_api_id"].in_(player_ids))
             query, error = _apply_source_filter(query, columns)
             if error:
@@ -2598,7 +2588,8 @@ def scout_list_resolve(list_id):
 
         tracked_ids = [item["player_api_id"] for item in page if item["source"] == "tracked"]
         shadow_ids = [item["player_api_id"] for item in page if item["source"] == "shadow"]
-        tracked_dicts = _watched_player_dicts(tracked_ids)
+        tracked_dicts = _watched_player_dicts(tracked_ids + shadow_ids, request.args.get("season") or None)
+        shadow_stats = saved_shadow_totals(set(shadow_ids) - set(tracked_dicts), request.args.get("season") or None)
         shadows = {}
         if shadow_ids:
             for shadow in PlayerShadow.query.filter(PlayerShadow.player_api_id.in_(shadow_ids)).all():
@@ -2631,6 +2622,25 @@ def scout_list_resolve(list_id):
                         "team_name": shadow.current_club_name if shadow else None,
                         "status": None,
                         "photo": shadow.photo_url if shadow else None,
+                    }
+                )
+        for player in players:
+            enriched = tracked_dicts.get(player["player_api_id"]) or shadow_stats.get(player["player_api_id"])
+            if enriched:
+                player.update(
+                    {
+                        key: enriched.get(key)
+                        for key in (
+                            "appearances",
+                            "minutes_played",
+                            "goals",
+                            "assists",
+                            "yellows",
+                            "reds",
+                            "saves",
+                            "goals_conceded",
+                            "provenance",
+                        )
                     }
                 )
         return jsonify({"players": players, "total": total})

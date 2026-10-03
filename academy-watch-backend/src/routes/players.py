@@ -8,6 +8,7 @@ This blueprint handles:
 """
 
 import logging
+from types import SimpleNamespace
 
 from flask import Blueprint, current_app, g, jsonify, request
 from src.auth import _safe_error_payload, require_user_auth, resolve_bearer_user
@@ -18,7 +19,6 @@ from src.models.league import (
     Team,
     db,
 )
-from src.models.season_rollup import PlayerSeasonCell, PlayerSeasonTotal
 from src.models.tracked_player import TrackedPlayer
 from src.services.fan_follow_service import (
     CannotFollowOwnProfile,
@@ -32,6 +32,7 @@ from src.services.player_subject import resolve_player_subject
 from src.services.player_suppression import hide_suppressed_player, neutral_player_not_found
 from src.services.public_player_subject import resolve_public_adult_subject
 from src.services.reach_metrics import fan_counts, is_fan
+from src.services.reported_match_totals import effective_source_cells, effective_total
 from src.utils.data_mode import api_football_frozen
 from src.utils.feature_flags import rollup_reads_enabled
 from src.utils.sanitize import display_plain_text
@@ -212,9 +213,14 @@ def _season_provenance(player_id: int, season: int) -> dict:
     }
 
 
-def _rollup_provenance(total: PlayerSeasonTotal) -> dict:
+def _rollup_provenance(total: SimpleNamespace) -> dict:
     """Stable public provenance shape for a precomputed totals row."""
     return {
+        **{
+            k: v
+            for k, v in ((total.source_breakdown or {}).get("matches") or {}).items()
+            if k in {"club_confirmed", "self_reported_only"}
+        },
         "primary_source": total.primary_source,
         "reconcile_flag": total.reconcile_flag,
         "fixtures_minutes": total.fixtures_minutes,
@@ -223,7 +229,7 @@ def _rollup_provenance(total: PlayerSeasonTotal) -> dict:
     }
 
 
-def _rollup_summary(total: PlayerSeasonTotal, season: int) -> dict:
+def _rollup_summary(total: SimpleNamespace, season: int) -> dict:
     """Headline fields copied verbatim from one totals row (never re-summed)."""
     return {
         "season": season,
@@ -282,16 +288,8 @@ def _local_program_names(club_api_ids) -> dict[int, str]:
 
 def _rollup_source_breakdown(player_id: int, season: int) -> dict[str, list[dict]]:
     """Fine-grained cells grouped by source without cross-source arithmetic."""
-    cells = (
-        PlayerSeasonCell.query.filter_by(player_api_id=player_id, season=season, level_group="senior")
-        .order_by(
-            PlayerSeasonCell.source,
-            PlayerSeasonCell.club_api_id,
-            PlayerSeasonCell.competition_tier,
-            PlayerSeasonCell.id,
-        )
-        .all()
-    )
+    cells = [SimpleNamespace(**c) for c in effective_source_cells(player_id, season) if c["level_group"] == "senior"]
+    cells.sort(key=lambda c: (c.source, c.club_api_id, c.competition_tier))
     local_program_names = _local_program_names(cell.club_api_id for cell in cells)
 
     breakdown: dict[str, list[dict]] = {}
@@ -326,7 +324,7 @@ def _rollup_source_breakdown(player_id: int, season: int) -> dict[str, list[dict
     return breakdown
 
 
-def _rollup_clubs(total: PlayerSeasonTotal) -> list[dict]:
+def _rollup_clubs(total: SimpleNamespace) -> list[dict]:
     """Adapt the compact totals-row club array to the existing endpoint keys."""
     clubs = total.clubs or []
     club_api_ids = {club.get("id") for club in clubs if isinstance(club.get("id"), int)}
@@ -418,7 +416,7 @@ def get_public_player_stats(player_id: int):
                 db.session,
                 requested=requested_season,
                 surface="discovery",
-                allow_history=rollup_enabled,
+                allow_history=rollup_enabled or not external_player,
             )
         except ValueError as ve:
             return jsonify({"error": str(ve)}), 400
@@ -607,11 +605,7 @@ def get_public_player_stats(player_id: int):
         if not rollup_enabled:
             return jsonify(result)
 
-        total = PlayerSeasonTotal.query.filter_by(
-            player_api_id=player_id,
-            season=season,
-            level_group="senior",
-        ).one_or_none()
+        total = effective_total(player_id, season)
         if total is None:
             summary = _live_match_summary(result, season)
             provenance = {"source": "live-fallback"}
@@ -899,7 +893,7 @@ def get_public_player_season_stats(player_id: int):
                 db.session,
                 requested=requested_season,
                 surface="discovery",
-                allow_history=rollup_enabled,
+                allow_history=rollup_enabled or not external_player,
             )
         except ValueError as ve:
             return jsonify({"error": str(ve)}), 400
@@ -923,14 +917,16 @@ def get_public_player_season_stats(player_id: int):
             "clubs": [],
         }
 
-        total = None
-        if rollup_enabled:
-            total = PlayerSeasonTotal.query.filter_by(
-                player_api_id=player_id,
-                season=season_start_year,
-                level_group="senior",
-            ).one_or_none()
-
+        total = effective_total(player_id, season_start_year)
+        if (
+            external_player
+            and not rollup_enabled
+            and total is not None
+            and total.primary_source in {"fixtures", "journey", "apss", "shadow"}
+        ):
+            # Retain the established provider adapter (including rich keeper
+            # fields) while its cutover flag is OFF. Reports cannot replace it.
+            total = None
         if total is not None:
             summary = _rollup_summary(total, season_start_year)
             clubs = _rollup_clubs(total)
@@ -949,7 +945,7 @@ def get_public_player_season_stats(player_id: int):
                     "source_breakdown": _rollup_source_breakdown(player_id, season_start_year),
                 }
             )
-            return jsonify(separated_season_stats(player_id, season_start_year, result))
+            return jsonify(separated_season_stats(player_id, season_start_year, result, merged_total=total))
 
         # On-read provenance for the resolved season — computed once here so every
         # return path below (limited-coverage, shadow, main) carries it. Additive:
@@ -1044,7 +1040,7 @@ def get_public_player_season_stats(player_id: int):
                     }
                 ]
 
-            return jsonify(separated_season_stats(player_id, season_start_year, result))
+            return jsonify(separated_season_stats(player_id, season_start_year, result, merged_total=total))
 
         if not all_tracked:
             # Shadow player fallback — no tracked rows, but a worldwide-followed
@@ -1066,7 +1062,7 @@ def get_public_player_season_stats(player_id: int):
                         .filter(PlayerShadowStats.player_api_id == player_id)
                         .scalar()
                     )
-                if target_season is not None and requested_season is None and api_football_frozen():
+                if target_season is not None and requested_season is None:
                     season_start_year = target_season
                     result["season"] = f"{target_season}/{target_season + 1}"
                 totals = (
@@ -1089,6 +1085,7 @@ def get_public_player_season_stats(player_id: int):
                 result["goals"] = goals
                 result["assists"] = assists
                 result["minutes"] = minutes
+                result.update(yellows=None, reds=None, saves=None, goals_conceded=None)
                 result["source"] = "shadow"
                 result["stats_coverage"] = "limited"
                 if shadow.current_club_name:
@@ -1103,7 +1100,7 @@ def get_public_player_season_stats(player_id: int):
                             "is_current": True,
                         }
                     ]
-            return jsonify(separated_season_stats(player_id, season_start_year, result))
+            return jsonify(separated_season_stats(player_id, season_start_year, result, merged_total=total))
 
         # Build list of clubs from FixturePlayerStats (source of truth for which
         # clubs the player actually played for this season) rather than deriving
@@ -1252,8 +1249,10 @@ def get_public_player_season_stats(player_id: int):
                 result["yellows"] = int(stats_query.total_yellows or 0)
                 result["reds"] = int(stats_query.total_reds or 0)
                 result["avg_rating"] = round(float(stats_query.avg_rating or 0), 2) if stats_query.avg_rating else None
-                result["saves"] = int(stats_query.total_saves or 0)
-                result["goals_conceded"] = int(stats_query.total_goals_conceded or 0)
+                result["saves"] = int(stats_query.total_saves) if stats_query.total_saves is not None else None
+                result["goals_conceded"] = (
+                    int(stats_query.total_goals_conceded) if stats_query.total_goals_conceded is not None else None
+                )
                 result["local_appearances"] = local_appearances
 
                 if local_appearances > result.get("appearances", 0) or result["source"] == "none":
@@ -1279,7 +1278,7 @@ def get_public_player_season_stats(player_id: int):
 
             result["clean_sheets"] = clean_sheets_query.clean_sheets if clean_sheets_query else 0
 
-        return jsonify(separated_season_stats(player_id, season_start_year, result))
+        return jsonify(separated_season_stats(player_id, season_start_year, result, merged_total=total))
 
     except Exception as e:
         logger.error(f"Error fetching season stats for player_id={player_id}: {e}")
@@ -1515,7 +1514,17 @@ def public_data_labels(response):
         payload.update(public_match_data=metadata, as_of=metadata["as_of"], source_label=metadata["source"])
         if "summary" in payload and api_football_frozen():
             summary = payload["summary"]
-            separated = separated_season_stats(player_id, summary["season"], dict(summary))
+            provenance = payload.get("provenance") or {}
+            # The route already source-selected and authorized this summary.
+            # Retain it when adding frozen evidence panels, without another read.
+            primary_source = provenance.get("primary_source")
+            selected = SimpleNamespace(**summary, primary_source=primary_source) if primary_source else None
+            separated = separated_season_stats(
+                player_id,
+                summary["season"],
+                {**summary, "provenance": provenance},
+                merged_total=selected,
+            )
             payload["summary"] = {key: separated[key] for key in summary}
             for key in ("public_match_data", "club_verified", "self_reported"):
                 payload[key] = separated[key]

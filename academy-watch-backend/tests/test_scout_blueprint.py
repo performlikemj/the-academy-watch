@@ -8,6 +8,7 @@ from flask import Flask
 from src.models.follow import PlayerShadow
 from src.models.journey import PlayerJourney
 from src.models.league import League, PlayerStatsCache, Team, UserAccount, db
+from src.models.player_match_entry import PlayerMatchEntry
 from src.models.season_rollup import PlayerSeasonTotal
 from src.models.showcase import LocalPlayer, PlayerProfileClaim
 from src.models.tracked_player import TrackedPlayer
@@ -247,7 +248,7 @@ def seeded_players(scout_app):
 
 @pytest.fixture
 def approved_local_player(scout_app):
-    """Approved adult local identity with a self-reported season total."""
+    """Approved adult local identity with reports backing its season total."""
 
     local = LocalPlayer(
         display_name="Local Breakout",
@@ -263,6 +264,28 @@ def approved_local_player(scout_app):
     db.session.flush()
     signed_id = -local.id
     local.api_player_id = signed_id
+    reporter = UserAccount(
+        email="local-reporter@example.com", display_name="Local reporter", display_name_lower="local reporter"
+    )
+    db.session.add(reporter)
+    db.session.flush()
+    db.session.add_all(
+        PlayerMatchEntry(
+            player_api_id=signed_id,
+            season=2025,
+            source="self",
+            status="self_reported",
+            reported_by_user_id=reporter.id,
+            match_date=date(2025, 9, i + 1),
+            opponent=f"Opponent {i}",
+            home_away="home",
+            minutes=80,
+            goals=int(i < 7),
+            assists=int(i < 4),
+            yellows=int(i == 0),
+        )
+        for i in range(9)
+    )
     db.session.add(
         PlayerShadow(
             player_api_id=signed_id,
@@ -455,12 +478,34 @@ class TestLocalPlayerUniverse:
             "source_category": "self",
             "source_label": "Self-reported",
             "primary_source": "user",
+            "club_confirmed": 0,
+            "self_reported_only": 9,
         }
 
     def test_source_filter_has_identical_categories(
         self, scout_client, seeded_players, approved_local_player, monkeypatch
     ):
         monkeypatch.setenv("SCOUT_INCLUDE_LOCAL_PLAYERS", "true")
+        reporter = UserAccount(
+            email="club-reporter@example.com", display_name="Club reporter", display_name_lower="club reporter"
+        )
+        db.session.add(reporter)
+        db.session.flush()
+        db.session.add(
+            PlayerMatchEntry(
+                player_api_id=1002,
+                season=2025,
+                source="club",
+                status="club_confirmed",
+                reported_by_user_id=reporter.id,
+                match_date=date(2025, 9, 1),
+                opponent="Report opponent",
+                home_away="home",
+                minutes=90,
+                goals=6,
+                assists=2,
+            )
+        )
         db.session.add(
             PlayerSeasonTotal(
                 player_api_id=1002,
@@ -476,6 +521,15 @@ class TestLocalPlayerUniverse:
                 computed_at=datetime(2026, 9, 2, tzinfo=UTC),
             )
         )
+        db.session.commit()
+
+        # A stale club total cannot replace this player's real provider facts.
+        provider_rows = scout_client.get("/api/scout/players?source=api&sort=name").get_json()["players"]
+        provider = next(row for row in provider_rows if row["player_id"] == 1002)
+        assert (provider["goals"], provider["minutes_played"]) == (0, 90)
+        assert scout_client.get("/api/scout/players?source=club").get_json()["players"] == []
+        # Exercise the club-only category once there are no provider facts.
+        FixturePlayerStats.query.filter_by(player_api_id=1002).delete()
         db.session.commit()
 
         all_ids = {
