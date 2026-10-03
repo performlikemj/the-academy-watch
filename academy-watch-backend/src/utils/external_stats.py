@@ -7,7 +7,6 @@ from datetime import date
 from typing import Any
 
 from src.services.stats_parser import parse_stats_from_text
-from src.utils.log_privacy import log_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +24,7 @@ def fetch_external_stats(
         if competition:
             query += f" {competition}"
 
-        logger.info("🔍 Searching for external stats: %s", log_metadata(query))
+        logger.info(f"🔍 Searching for external stats: {query}")
 
         # Use Brave to get search results
         # We reuse BravePlayerCollection logic or just use the underlying search function if available.
@@ -59,12 +58,10 @@ def fetch_external_stats(
         stats = parse_stats_from_text(combined_text, player_name, team_name)
 
         if stats:
-            logger.info(
-                "✅ Successfully extracted external stats for %s: %s", log_metadata(player_name), log_metadata(stats)
-            )
+            logger.info(f"✅ Successfully extracted external stats for {player_name}: {stats}")
             return stats
 
     except Exception as e:
-        logger.warning("Failed to fetch external stats: %s", log_metadata(e))
+        logger.warning(f"Failed to fetch external stats: {e}")
 
     return {}

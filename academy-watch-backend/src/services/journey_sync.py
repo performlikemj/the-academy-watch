@@ -41,7 +41,6 @@ from src.utils.academy_classifier import (
 )
 from src.utils.affiliates import resolve_senior_id, senior_base_name
 from src.utils.geocoding import get_team_coordinates
-from src.utils.log_privacy import log_metadata
 from src.utils.player_names import clean_name, is_placeholder_name, resolve_player_name
 
 logger = logging.getLogger(__name__)
@@ -449,7 +448,7 @@ class JourneySyncService:
         from src.utils.data_mode import require_api_enabled
 
         require_api_enabled()
-        logger.info("Starting journey sync for player %s", log_metadata(player_api_id))
+        logger.info(f"Starting journey sync for player {player_api_id}")
         self.last_sync_used_transfer_evidence = False
 
         try:
@@ -476,9 +475,7 @@ class JourneySyncService:
             if heartbeat_fn:
                 heartbeat_fn()
 
-            logger.info(
-                "Found %s seasons for player %s: %s", len(seasons), log_metadata(player_api_id), log_metadata(seasons)
-            )
+            logger.info(f"Found {len(seasons)} seasons for player {player_api_id}: {seasons}")
 
             # Determine which seasons to sync
             already_synced = set(journey.seasons_synced or [])
@@ -526,10 +523,7 @@ class JourneySyncService:
                     # Process statistics into entries
                     for stat in player_data.get("statistics", []):
                         if not self._is_official_competition(stat):
-                            logger.debug(
-                                "Skipping non-official competition: %s",
-                                log_metadata(stat.get("league", {}).get("name")),
-                            )
+                            logger.debug(f"Skipping non-official competition: {stat.get('league', {}).get('name')}")
                             continue
                         entry = self._create_entry_from_stat(journey.id, season, stat, player_api_id)
                         if entry:
@@ -538,12 +532,7 @@ class JourneySyncService:
                 except APICallBudgetExceeded:
                     raise
                 except Exception as e:
-                    logger.warning(
-                        "Failed to fetch season %s for player %s: %s",
-                        log_metadata(season),
-                        log_metadata(player_api_id),
-                        log_metadata(e),
-                    )
+                    logger.warning(f"Failed to fetch season {season} for player {player_api_id}: {e}")
                     continue
 
                 if heartbeat_fn and (season_idx + 1) % 3 == 0:
@@ -654,9 +643,7 @@ class JourneySyncService:
             try:
                 self._auto_geocode_clubs(journey)
             except Exception as e:
-                logger.warning(
-                    "_auto_geocode_clubs failed for player %s: %s", log_metadata(player_api_id), log_metadata(e)
-                )
+                logger.warning(f"_auto_geocode_clubs failed for player {player_api_id}: {e}")
 
             # Update sync tracking
             journey.seasons_synced = sorted(set((journey.seasons_synced or []) + seasons_to_sync))
@@ -678,15 +665,13 @@ class JourneySyncService:
             except Exception as rollup_err:
                 logger.warning(
                     "season-rollup refresh failed for player %s: %s",
-                    log_metadata(player_api_id),
-                    log_metadata(rollup_err),
+                    player_api_id,
+                    rollup_err,
                 )
 
             db.session.commit()
             self.last_sync_used_transfer_evidence = transfers is not None
-            logger.info(
-                "Successfully synced journey for player %s: %s entries", log_metadata(player_api_id), len(all_entries)
-            )
+            logger.info(f"Successfully synced journey for player {player_api_id}: {len(all_entries)} entries")
 
             return journey
 
@@ -696,7 +681,7 @@ class JourneySyncService:
             raise
         except Exception as e:
             self.last_sync_used_transfer_evidence = False
-            logger.error("Failed to sync journey for player %s: %s", log_metadata(player_api_id), log_metadata(e))
+            logger.error(f"Failed to sync journey for player {player_api_id}: {e}")
             db.session.rollback()
 
             # Try to save error state
@@ -706,9 +691,7 @@ class JourneySyncService:
                     journey.sync_error = str(e)
                     db.session.commit()
             except Exception as save_err:
-                logger.error(
-                    "Failed to save sync_error for player %s: %s", log_metadata(player_api_id), log_metadata(save_err)
-                )
+                logger.error(f"Failed to save sync_error for player {player_api_id}: {save_err}")
                 db.session.rollback()
 
             return None
@@ -722,7 +705,7 @@ class JourneySyncService:
         except APICallBudgetExceeded:
             raise
         except Exception as e:
-            logger.error("Failed to get seasons for player %s: %s", log_metadata(player_api_id), log_metadata(e))
+            logger.error(f"Failed to get seasons for player {player_api_id}: {e}")
             return []
 
     def _get_player_season_data(self, player_api_id: int, season: int) -> dict | None:
@@ -734,12 +717,7 @@ class JourneySyncService:
         except APICallBudgetExceeded:
             raise
         except Exception as e:
-            logger.error(
-                "Failed to get player %s season %s: %s",
-                log_metadata(player_api_id),
-                log_metadata(season),
-                log_metadata(e),
-            )
+            logger.error(f"Failed to get player {player_api_id} season {season}: {e}")
             return None
 
     def _create_entry_from_stat(
@@ -939,7 +917,7 @@ class JourneySyncService:
         except APICallBudgetExceeded:
             raise
         except Exception as e:
-            logger.warning("Failed to get transfers for player %s: %s", log_metadata(player_api_id), log_metadata(e))
+            logger.warning(f"Failed to get transfers for player {player_api_id}: {e}")
             return None
 
     def _resolve_durable_transfer_state(
@@ -1242,12 +1220,8 @@ class JourneySyncService:
             removed = [e for e in group if e is not winner]
             for e in removed:
                 logger.debug(
-                    "Dedup: removed %s/%s season %s (dup of %s/%s)",
-                    log_metadata(e.club_name),
-                    log_metadata(e.league_name),
-                    log_metadata(e.season),
-                    log_metadata(winner.club_name),
-                    log_metadata(winner.league_name),
+                    f"Dedup: removed {e.club_name}/{e.league_name} season {e.season} "
+                    f"(dup of {winner.club_name}/{winner.league_name})"
                 )
 
             result.append(winner)
@@ -1380,10 +1354,10 @@ class JourneySyncService:
             entry.transfer_fee = best_move.fee
             logger.debug(
                 "Set permanent transfer metadata date=%s fee=%r for %s season %s",
-                log_metadata(entry.transfer_date),
-                log_metadata(entry.transfer_fee),
-                log_metadata(entry.club_name),
-                log_metadata(entry.season),
+                entry.transfer_date,
+                entry.transfer_fee,
+                entry.club_name,
+                entry.season,
             )
 
     def _correct_club_ids_from_transfers(
@@ -1526,11 +1500,9 @@ class JourneySyncService:
 
             if final_move is not None and club_id != entry.club_api_id:
                 logger.info(
-                    "Correcting entry: %s (season %s) → %s (walked transfer chain back to the club active before season end %s)",
-                    log_metadata(entry.club_name),
-                    log_metadata(entry.season),
-                    log_metadata(final_move["out_name"]),
-                    log_metadata(season_end),
+                    f"Correcting entry: {entry.club_name} (season {entry.season}) "
+                    f"→ {final_move['out_name']} (walked transfer chain back to the "
+                    f"club active before season end {season_end})"
                 )
                 entry.club_api_id = final_move["out_id"]
                 entry.club_name = final_move["out_name"]
@@ -1538,7 +1510,7 @@ class JourneySyncService:
                 corrected += 1
 
         if corrected:
-            logger.info("Corrected %s entries with wrong club from post-transfer API data", log_metadata(corrected))
+            logger.info(f"Corrected {corrected} entries with wrong club from post-transfer API data")
 
     def _merge_corrected_duplicates(self, entries: list) -> list:
         """Merge entries that share (club_api_id, league_api_id, season).
@@ -1574,7 +1546,7 @@ class JourneySyncService:
             result.append(winner)
 
         if merged:
-            logger.info("Merged %s duplicate entries after club ID correction", log_metadata(merged))
+            logger.info(f"Merged {merged} duplicate entries after club ID correction")
 
         return result
 
@@ -1692,11 +1664,8 @@ class JourneySyncService:
                         entry.entry_type = "integration"
                         reclassified = True
                         logger.debug(
-                            "Reclassified %s season %s as integration (first-team at %s in %s)",
-                            log_metadata(entry.club_name),
-                            log_metadata(entry.season),
-                            log_metadata(club_name),
-                            log_metadata(debut),
+                            f"Reclassified {entry.club_name} season {entry.season} as "
+                            f"integration (first-team at {club_name} in {debut})"
                         )
                         break
                 if reclassified:
@@ -1706,11 +1675,8 @@ class JourneySyncService:
                 if same_club_debut is not None and entry.season > same_club_debut:
                     entry.entry_type = "development"
                     logger.debug(
-                        "Reclassified %s season %s as development (first-team debut at %s in %s)",
-                        log_metadata(entry.club_name),
-                        log_metadata(entry.season),
-                        log_metadata(parent_name),
-                        log_metadata(same_club_debut),
+                        f"Reclassified {entry.club_name} season {entry.season} as "
+                        f"development (first-team debut at {parent_name} in {same_club_debut})"
                     )
 
         # Pass 2: transfer-based integration detection
@@ -1740,9 +1706,8 @@ class JourneySyncService:
                 if transfer_year is None or entry.season is None or transfer_year <= entry.season + 1:
                     entry.entry_type = "integration"
                     logger.debug(
-                        "Reclassified %s season %s as integration (permanent transfer destination)",
-                        log_metadata(entry.club_name),
-                        log_metadata(entry.season),
+                        f"Reclassified {entry.club_name} season {entry.season} as "
+                        f"integration (permanent transfer destination)"
                     )
 
         # Pass 3: age-at-entry validation
@@ -1760,11 +1725,9 @@ class JourneySyncService:
                     if age_at_first >= 21:
                         entry.entry_type = "integration"
                         logger.debug(
-                            "Reclassified %s season %s as integration (age %s at first youth appearance, season %s)",
-                            log_metadata(entry.club_name),
-                            log_metadata(entry.season),
-                            log_metadata(age_at_first),
-                            log_metadata(first_season),
+                            f"Reclassified {entry.club_name} season {entry.season} as "
+                            f"integration (age {age_at_first} at first youth appearance, "
+                            f"season {first_season})"
                         )
 
     def _update_journey_aggregates(
@@ -1923,7 +1886,7 @@ class JourneySyncService:
         if resolution is None:
             logger.info(
                 "Journey %s: current status unchanged because no transfer evidence was supplied",
-                log_metadata(getattr(journey, "id", None)),
+                getattr(journey, "id", None),
             )
             return False
 
@@ -2385,9 +2348,7 @@ class JourneySyncService:
 
         if unresolved:
             logger.warning(
-                "Could not resolve academy parent club for player %s: %s",
-                log_metadata(journey.player_api_id),
-                log_metadata(set(unresolved)),
+                f"Could not resolve academy parent club for player {journey.player_api_id}: {set(unresolved)}"
             )
 
         # ── Transfer gate: remove clubs the player was permanently transferred TO ──
@@ -2406,9 +2367,8 @@ class JourneySyncService:
             removed = academy_ids & permanent_dest_ids
             if removed:
                 logger.info(
-                    "Transfer gate: removing %s from academy_club_ids for player %s (permanent transfer destinations)",
-                    log_metadata(removed),
-                    log_metadata(journey.player_api_id),
+                    f"Transfer gate: removing {removed} from academy_club_ids "
+                    f"for player {journey.player_api_id} (permanent transfer destinations)"
                 )
                 academy_ids -= permanent_dest_ids
 
@@ -2567,22 +2527,16 @@ class JourneySyncService:
                     tp.team.team_id, row_last_season=tp.last_academy_season, row_status=tp.status
                 ):
                     logger.info(
-                        "Stored-attribution floor kept %s TrackedPlayer %s for player %s at %s (no fresh academy evidence this run; established in-window academy row)",
-                        log_metadata(tp.data_source),
-                        log_metadata(tp.id),
-                        log_metadata(journey.player_api_id),
-                        log_metadata(tp.team.name),
+                        f"Stored-attribution floor kept {tp.data_source} TrackedPlayer "
+                        f"{tp.id} for player {journey.player_api_id} at {tp.team.name} "
+                        f"(no fresh academy evidence this run; established in-window academy row)"
                     )
                     continue
                 tp.is_active = False
                 why = "outside the academy tracking window" if tp.team.team_id in aged_out else "not an academy origin"
                 logger.info(
-                    "Deactivated %s TrackedPlayer %s for player %s at %s (%s)",
-                    log_metadata(tp.data_source),
-                    log_metadata(tp.id),
-                    log_metadata(journey.player_api_id),
-                    log_metadata(tp.team.name),
-                    log_metadata(why),
+                    f"Deactivated {tp.data_source} TrackedPlayer {tp.id} for player "
+                    f"{journey.player_api_id} at {tp.team.name} ({why})"
                 )
 
         # The owning (non-academy) club must not track this player at all:
@@ -2606,18 +2560,15 @@ class JourneySyncService:
                         # loan) and this run produced no fresh evidence — keep
                         # the academy row instead of nuking it as a buyer.
                         logger.info(
-                            "Stored-attribution floor kept TrackedPlayer %s for player %s at %s (owning club is an established in-window academy origin)",
-                            log_metadata(tp.id),
-                            log_metadata(journey.player_api_id),
-                            log_metadata(tp.team.name),
+                            f"Stored-attribution floor kept TrackedPlayer {tp.id} for player "
+                            f"{journey.player_api_id} at {tp.team.name} "
+                            f"(owning club is an established in-window academy origin)"
                         )
                         continue
                     tp.is_active = False
                     logger.info(
-                        "Deactivated TrackedPlayer %s for player %s at owning club %s (owning club is not an academy origin)",
-                        log_metadata(tp.id),
-                        log_metadata(journey.player_api_id),
-                        log_metadata(tp.team.name),
+                        f"Deactivated TrackedPlayer {tp.id} for player {journey.player_api_id} "
+                        f"at owning club {tp.team.name} (owning club is not an academy origin)"
                     )
 
         if not keep_ids:
@@ -2697,9 +2648,7 @@ class JourneySyncService:
                 # Skip status/loan updates for pinned players — manual corrections persist
                 if existing.pinned_parent:
                     logger.debug(
-                        "Skipping status update for pinned player %s at team %s",
-                        log_metadata(journey.player_api_id),
-                        log_metadata(team.name),
+                        f"Skipping status update for pinned player {journey.player_api_id} at team {team.name}"
                     )
                     continue
                 # Provenance + window both hold — revive rows that earlier
@@ -2716,10 +2665,8 @@ class JourneySyncService:
                     if existing.data_source == "owning-club":
                         existing.data_source = "journey-sync"
                     logger.info(
-                        "Reactivated TrackedPlayer %s for player %s at %s (academy origin inside tracking window)",
-                        log_metadata(existing.id),
-                        log_metadata(journey.player_api_id),
-                        log_metadata(team.name),
+                        f"Reactivated TrackedPlayer {existing.id} for player "
+                        f"{journey.player_api_id} at {team.name} (academy origin inside tracking window)"
                     )
                 # Only re-derive status when transfers were available (a real
                 # journey sync). The recompute-academy attribution sweep passes
@@ -2846,11 +2793,7 @@ class JourneySyncService:
             added += 1
 
         if added:
-            logger.info(
-                "Auto-geocoded %s club locations for player %s",
-                log_metadata(added),
-                log_metadata(journey.player_api_id),
-            )
+            logger.info(f"Auto-geocoded {added} club locations for player {journey.player_api_id}")
 
 
 def seed_club_locations():
@@ -3361,5 +3304,5 @@ def seed_club_locations():
             added += 1
 
     db.session.commit()
-    logger.info("Seeded %s club locations", log_metadata(added))
+    logger.info(f"Seeded {added} club locations")
     return added

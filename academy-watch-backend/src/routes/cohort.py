@@ -19,7 +19,6 @@ from src.routes.api import require_api_key
 from src.services.cohort_service import CohortService
 from src.utils.background_jobs import create_background_job
 from src.utils.data_mode import api_enabled_route
-from src.utils.log_privacy import safe_exc_info
 
 cohort_bp = Blueprint("cohort", __name__)
 logger = logging.getLogger(__name__)
@@ -66,7 +65,7 @@ def admin_seed_cohort():
         cohort = service.discover_cohort(int(team_api_id), int(league_api_id), int(season))
         return jsonify(cohort.to_dict(include_members=True)), 201
     except Exception as e:
-        logger.exception("admin_seed_cohort failed", exc_info=safe_exc_info())
+        logger.exception("admin_seed_cohort failed")
         return jsonify({"error": str(e)}), 500
 
 
@@ -118,7 +117,7 @@ def admin_sync_cohort_journeys(cohort_id):
     except ValueError as e:
         return jsonify({"error": str(e)}), 404
     except Exception as e:
-        logger.exception("admin_sync_cohort_journeys failed", exc_info=safe_exc_info())
+        logger.exception("admin_sync_cohort_journeys failed")
         return jsonify({"error": str(e)}), 500
 
 
@@ -135,7 +134,7 @@ def admin_refresh_cohort_stats(cohort_id):
         service.refresh_cohort_stats(cohort_id)
         return jsonify(cohort.to_dict())
     except Exception as e:
-        logger.exception("admin_refresh_cohort_stats failed", exc_info=safe_exc_info())
+        logger.exception("admin_refresh_cohort_stats failed")
         return jsonify({"error": str(e)}), 500
 
 

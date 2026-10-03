@@ -41,7 +41,6 @@ from src.utils.affiliates import senior_base_name
 from src.utils.background_jobs import has_running_job
 from src.utils.data_mode import job_entrypoint
 from src.utils.job_utils import is_job_paused, teams_with_active_tracked_players
-from src.utils.log_privacy import log_metadata, safe_exc_info
 from src.utils.supported_leagues import DEFAULT_CRAWL_LEAGUE_IDS, get_supported_leagues
 
 logger = logging.getLogger(__name__)
@@ -156,11 +155,13 @@ def _daily_budget() -> int:
         value = int(raw)
     except (TypeError, ValueError):
         logger.warning(
-            "Invalid TRANSFER_SYNC_DAILY_BUDGET=%r; using %d", log_metadata(raw), log_metadata(DEFAULT_DAILY_BUDGET)
+            "Invalid TRANSFER_SYNC_DAILY_BUDGET=%r; using %d",
+            raw,
+            DEFAULT_DAILY_BUDGET,
         )
         return DEFAULT_DAILY_BUDGET
     if value < 0:
-        logger.warning("Negative TRANSFER_SYNC_DAILY_BUDGET=%r; using 0", log_metadata(raw))
+        logger.warning("Negative TRANSFER_SYNC_DAILY_BUDGET=%r; using 0", raw)
         return 0
     return value
 
@@ -246,7 +247,7 @@ def _cadence_run_lock():
                     {"lock_key": _POSTGRES_ADVISORY_LOCK_KEY},
                 )
             except Exception:
-                logger.exception("Failed to release transfer cadence advisory lock", exc_info=safe_exc_info())
+                logger.exception("Failed to release transfer cadence advisory lock")
         connection.close()
 
 
@@ -279,12 +280,12 @@ def _load_setting(key: str, *, strict: bool = False) -> dict[str, Any] | None:
     except (json.JSONDecodeError, TypeError) as exc:
         if strict:
             raise RuntimeError(f"Malformed JSON in AdminSetting {key}") from exc
-        logger.warning("Ignoring malformed JSON in AdminSetting %s", log_metadata(key))
+        logger.warning("Ignoring malformed JSON in AdminSetting %s", key)
         return None
     if not isinstance(value, dict):
         if strict:
             raise RuntimeError(f"Non-object JSON in AdminSetting {key}")
-        logger.warning("Ignoring non-object JSON in AdminSetting %s", log_metadata(key))
+        logger.warning("Ignoring non-object JSON in AdminSetting %s", key)
         return None
     return value
 
@@ -420,7 +421,7 @@ def _tracked_scan_targets() -> list[TeamScanTarget]:
         team = team_by_db_id.get(team_db_id)
         api_team_id = _int_or_none(team.team_id if team else None)
         if api_team_id is None or api_team_id <= 0:
-            logger.warning("Skipping tracked Team db_id=%s without a valid API team id", log_metadata(team_db_id))
+            logger.warning("Skipping tracked Team db_id=%s without a valid API team id", team_db_id)
             continue
         bucket = grouped.setdefault(api_team_id, {"db_team_ids": set(), "player_api_ids": set()})
         bucket["db_team_ids"].add(team_db_id)
@@ -638,7 +639,7 @@ def _process_delta_queue(
 
         transfers = _durable_transfers(player_api_id)
         if not transfers:
-            logger.warning("Delta player %d has no durable transfer rows; leaving queued", log_metadata(player_api_id))
+            logger.warning("Delta player %d has no durable transfer rows; leaving queued", player_api_id)
             continue
         entry = state["players"].get(str(player_api_id)) or {}
         raw_pending_keys = entry.get("pending_keys") or []
@@ -647,7 +648,8 @@ def _process_delta_queue(
         }
         if len(pending_keys) != len(raw_pending_keys):
             logger.error(
-                "Delta player %d has malformed pending transfer identities; leaving queued", log_metadata(player_api_id)
+                "Delta player %d has malformed pending transfer identities; leaving queued",
+                player_api_id,
             )
             continue
         durable_keys = {
@@ -659,7 +661,7 @@ def _process_delta_queue(
         if missing_keys:
             logger.error(
                 "Delta player %d is missing %d expected durable transfer row(s); leaving queued",
-                log_metadata(player_api_id),
+                player_api_id,
                 len(missing_keys),
             )
             continue
@@ -671,20 +673,19 @@ def _process_delta_queue(
                 prefetched_transfers=transfers,
             )
         except APICallBudgetExceeded:
-            logger.info("API call budget exhausted while syncing delta player %d", log_metadata(player_api_id))
+            logger.info("API call budget exhausted while syncing delta player %d", player_api_id)
             break
         except Exception as exc:
             db.session.rollback()
-            logger.exception(
-                "Delta journey sync failed for player %d", log_metadata(player_api_id), exc_info=safe_exc_info()
-            )
+            logger.exception("Delta journey sync failed for player %d", player_api_id)
             summary.errors.append(f"delta player {player_api_id}: {exc}")
             continue
 
         transfers_applied = bool(getattr(service, "last_sync_used_transfer_evidence", False))
         if journey is None or journey.sync_error or not transfers_applied:
             logger.warning(
-                "Delta player %d did not complete a transfers-fed sync; leaving queued", log_metadata(player_api_id)
+                "Delta player %d did not complete a transfers-fed sync; leaving queued",
+                player_api_id,
             )
             continue
 
@@ -742,13 +743,11 @@ def _run_delta(
                 persist_events=False,
             )
         except APICallBudgetExceeded:
-            logger.info("API call budget exhausted before team %d scan", log_metadata(target.api_team_id))
+            logger.info("API call budget exhausted before team %d scan", target.api_team_id)
             break
         except Exception as exc:
             db.session.rollback()
-            logger.error(
-                "Transfer delta scan failed for API team %d: %s", log_metadata(target.api_team_id), log_metadata(exc)
-            )
+            logger.error("Transfer delta scan failed for API team %d: %s", target.api_team_id, exc)
             summary.errors.append(f"team {target.api_team_id}: {exc}")
             continue
 
@@ -1000,7 +999,7 @@ def _run_sweep(
             if dry_run:
                 logger.info(
                     "Sweep dry-run: tranche=%s queued=%d; journey sync skipped",
-                    log_metadata(tranche),
+                    tranche,
                     len(queue.get("remaining") or []),
                 )
                 break
@@ -1021,18 +1020,13 @@ def _run_sweep(
                 except APICallBudgetExceeded:
                     logger.info(
                         "API call budget exhausted while syncing %s sweep player %d",
-                        log_metadata(tranche),
-                        log_metadata(player_api_id),
+                        tranche,
+                        player_api_id,
                     )
                     break
                 except Exception as exc:
                     db.session.rollback()
-                    logger.exception(
-                        "%s sweep sync failed for player %d",
-                        log_metadata(tranche),
-                        log_metadata(player_api_id),
-                        exc_info=safe_exc_info(),
-                    )
+                    logger.exception("%s sweep sync failed for player %d", tranche, player_api_id)
                     summary.errors.append(f"{tranche} sweep player {player_api_id}: {exc}")
                     continue
 
@@ -1040,8 +1034,8 @@ def _run_sweep(
                 if journey is None or journey.sync_error or not transfers_applied:
                     logger.warning(
                         "%s sweep player %d did not complete a transfers-fed sync; leaving queued",
-                        log_metadata(tranche),
-                        log_metadata(player_api_id),
+                        tranche,
+                        player_api_id,
                     )
                     continue
 
@@ -1094,9 +1088,7 @@ def _run_local_refresh(
             break
         except Exception as exc:
             db.session.rollback()
-            logger.error(
-                "Local transfer refresh failed for Team db_id=%d: %s", log_metadata(team_db_id), log_metadata(exc)
-            )
+            logger.error("Local transfer refresh failed for Team db_id=%d: %s", team_db_id, exc)
             summary.errors.append(f"local team {team_db_id}: {exc}")
 
 
@@ -1147,12 +1139,12 @@ def _run_locked(
 
     logger.info(
         "Transfer cadence starting. requested_mode=%s plan=%s in_window=%s deadline_week=%s dry_run=%s budget=%d",
-        log_metadata(mode or "auto"),
-        log_metadata(plan),
-        log_metadata(window.in_window),
-        log_metadata(window.deadline_week),
-        log_metadata(dry_run),
-        log_metadata(budget.limit),
+        mode or "auto",
+        plan,
+        window.in_window,
+        window.deadline_week,
+        dry_run,
+        budget.limit,
     )
 
     if plan == ["local"]:
@@ -1189,19 +1181,21 @@ def _run_locked(
         remainder_queued=_queued_player_count(),
     )
     logger.info(
-        "Transfer cadence summary: teams_scanned=%d new_transfers_found=%d players_flagged=%d players_resynced=%d api_calls_this_run=%d daily_api_calls=%d/%d remainder_queued=%d modes=%s",
-        log_metadata(result["teams_scanned"]),
-        log_metadata(result["new_transfers_found"]),
-        log_metadata(result["players_flagged"]),
-        log_metadata(result["players_resynced"]),
-        log_metadata(result["api_calls_spent_this_run"]),
-        log_metadata(result["api_calls_spent"]),
-        log_metadata(result["api_call_budget"]),
-        log_metadata(result["remainder_queued"]),
-        log_metadata(",".join(result["modes"]) or "none"),
+        "Transfer cadence summary: teams_scanned=%d new_transfers_found=%d "
+        "players_flagged=%d players_resynced=%d api_calls_this_run=%d "
+        "daily_api_calls=%d/%d remainder_queued=%d modes=%s",
+        result["teams_scanned"],
+        result["new_transfers_found"],
+        result["players_flagged"],
+        result["players_resynced"],
+        result["api_calls_spent_this_run"],
+        result["api_calls_spent"],
+        result["api_call_budget"],
+        result["remainder_queued"],
+        ",".join(result["modes"]) or "none",
     )
     if result["errors"]:
-        logger.warning("Transfer cadence completed with errors: %s", json.dumps(log_metadata(result["errors"])))
+        logger.warning("Transfer cadence completed with errors: %s", json.dumps(result["errors"]))
     return result
 
 

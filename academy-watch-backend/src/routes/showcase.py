@@ -797,9 +797,7 @@ def _media_dict(media: PlayerShowcaseMedia, *, include_preview: bool = False, ad
             try:
                 payload["pending_preview_url"] = showcase_media_storage.pending_preview_url(media.blob_path)
             except Exception as exc:
-                logger.warning(
-                    "Unable to mint pending preview for media %s: %s", log_metadata(media.id), log_metadata(exc)
-                )
+                logger.warning("Unable to mint pending preview for media %s: %s", media.id, exc)
                 payload["pending_preview_url"] = None
     return payload
 
@@ -1147,7 +1145,7 @@ def _cleanup_failed_publication(public_url: str | None, media_id: int) -> None:
     try:
         showcase_media_storage.delete_published(public_url)
     except Exception as exc:
-        logger.error("Failed to compensate public blob for media %s: %s", log_metadata(media_id), log_metadata(exc))
+        logger.error("Failed to compensate public blob for media %s: %s", media_id, exc)
 
 
 def _cleanup_failed_pending_upload(blob_path: str, media_id: int) -> None:
@@ -1155,9 +1153,7 @@ def _cleanup_failed_pending_upload(blob_path: str, media_id: int) -> None:
     try:
         showcase_media_storage.delete_pending(blob_path)
     except Exception as exc:
-        logger.warning(
-            "Failed to delete invalid pending blob for media %s: %s", log_metadata(media_id), log_metadata(exc)
-        )
+        logger.warning("Failed to delete invalid pending blob for media %s: %s", media_id, exc)
 
 
 def _subject_photos(subject: ShowcaseSubject, *, include_unapproved: bool) -> list[dict]:
@@ -1403,7 +1399,7 @@ def _verified_footage(player_api_id: int) -> list[dict]:
             )
         return out
     except Exception as exc:
-        logger.warning("verified_footage failed for player %s: %s", log_metadata(player_api_id), log_metadata(exc))
+        logger.warning("verified_footage failed for player %s: %s", player_api_id, exc)
         return []
 
 
@@ -1475,7 +1471,7 @@ def search_clubs():
             }
         )
     except Exception as e:
-        logger.error("Error in search_clubs: %s", log_metadata(e))
+        logger.error("Error in search_clubs: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to search clubs")), 500
 
 
@@ -1562,7 +1558,7 @@ def create_local_club():
         if conflict:
             code, status = conflict
             return jsonify(error=code, code=code, retryable=True), status
-        logger.error("Error in create_local_club: %s", log_metadata(e))
+        logger.error("Error in create_local_club: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to create local club")), 500
 
 
@@ -1761,7 +1757,7 @@ def create_local_player():
         if conflict:
             code, status = conflict
             return jsonify(error=code, code=code, retryable=True), status
-        logger.error("Error in create_local_player: %s", log_metadata(e))
+        logger.error("Error in create_local_player: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to create local player")), 500
 
 
@@ -1864,7 +1860,7 @@ def get_local_player(lp_id: int):
             payload["merged_into"] = merged_into
         return jsonify(payload)
     except Exception as e:
-        logger.error("Error in get_local_player: %s", log_metadata(e))
+        logger.error("Error in get_local_player: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to load local player")), 500
 
 
@@ -1885,7 +1881,7 @@ def get_local_player_showcase(lp_id: int):
             return jsonify({"error": "local player not found"}), 404
         return jsonify(_subject_showcase_payload(_local_subject(player.id), auth_context=auth_context))
     except Exception as e:
-        logger.error("Error in get_local_player_showcase: %s", log_metadata(e))
+        logger.error("Error in get_local_player_showcase: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to load showcase")), 500
 
 
@@ -1915,7 +1911,7 @@ def get_player_showcase(player_api_id: int):
             subject = _api_subject(player_api_id)
         return jsonify(_subject_showcase_payload(subject))
     except Exception as e:
-        logger.error("Error in get_player_showcase: %s", log_metadata(e))
+        logger.error("Error in get_player_showcase: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to load showcase")), 500
 
 
@@ -2196,7 +2192,7 @@ def submit_profile_claim(player_api_id: int):
         if conflict:
             code, status = conflict
             return jsonify(error=code, code=code, retryable=True), status
-        logger.error("Error in submit_profile_claim: %s", log_metadata(e))
+        logger.error("Error in submit_profile_claim: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to submit claim")), 500
 
 
@@ -2234,7 +2230,7 @@ def my_claims():
         if conflict:
             code, status = conflict
             return jsonify(error=code, code=code, retryable=True), status
-        logger.error("Error in my_claims: %s", log_metadata(e))
+        logger.error("Error in my_claims: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to load claims")), 500
 
 
@@ -2275,7 +2271,7 @@ def verify_my_claim(claim_id: int):
         if conflict:
             code, status = conflict
             return jsonify(error=code, code=code, retryable=True), status
-        logger.error("Error in verify_my_claim: %s", log_metadata(e))
+        logger.error("Error in verify_my_claim: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to verify claim proof")), 500
 
 
@@ -2391,7 +2387,7 @@ def my_interest_signals():
             }
         )
     except Exception as e:
-        logger.error("Error in my_interest_signals: %s", log_metadata(e))
+        logger.error("Error in my_interest_signals: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to load interest signals")), 500
 
 
@@ -2488,7 +2484,7 @@ def submit_club_official_claim():
         if conflict:
             code, status = conflict
             return jsonify(error=code, code=code, retryable=True), status
-        logger.error("Error in submit_club_official_claim: %s", log_metadata(e))
+        logger.error("Error in submit_club_official_claim: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to submit club-official claim")), 500
 
 
@@ -2518,7 +2514,7 @@ def my_club_claims():
         if conflict:
             code, status = conflict
             return jsonify(error=code, code=code, retryable=True), status
-        logger.error("Error in my_club_claims: %s", log_metadata(e))
+        logger.error("Error in my_club_claims: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to load club-official claims")), 500
 
 
@@ -2560,7 +2556,7 @@ def verify_my_club_claim(claim_id: int):
         if conflict:
             code, status = conflict
             return jsonify(error=code, code=code, retryable=True), status
-        logger.error("Error in verify_my_club_claim: %s", log_metadata(e))
+        logger.error("Error in verify_my_club_claim: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to verify club-official claim proof")), 500
 
 
@@ -2640,7 +2636,7 @@ def my_club():
         if conflict:
             code, status = conflict
             return jsonify(error=code, code=code, retryable=True), status
-        logger.error("Error in my_club: %s", log_metadata(e))
+        logger.error("Error in my_club: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to load club workspace")), 500
 
 
@@ -2702,7 +2698,7 @@ def confirm_club_affiliation(aff_id: int):
         if conflict:
             code, status = conflict
             return jsonify(error=code, code=code, retryable=True), status
-        logger.error("Error in confirm_club_affiliation: %s", log_metadata(e))
+        logger.error("Error in confirm_club_affiliation: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to confirm affiliation")), 500
 
 
@@ -2723,7 +2719,7 @@ def reject_club_affiliation(aff_id: int):
         if conflict:
             code, status = conflict
             return jsonify(error=code, code=code, retryable=True), status
-        logger.error("Error in reject_club_affiliation: %s", log_metadata(e))
+        logger.error("Error in reject_club_affiliation: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to reject affiliation")), 500
 
 
@@ -2786,7 +2782,7 @@ def vouch_for_player_claim(claim_id: int):
         if conflict:
             code, status = conflict
             return jsonify(error=code, code=code, retryable=True), status
-        logger.error("Error in vouch_for_player_claim: %s", log_metadata(e))
+        logger.error("Error in vouch_for_player_claim: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to vouch for player claim")), 500
 
 
@@ -2894,7 +2890,7 @@ def _create_subject_affiliation(subject: ShowcaseSubject):
         if conflict:
             code, status = conflict
             return jsonify(error=code, code=code, retryable=True), status
-        logger.error("Error in create_player_affiliation: %s", log_metadata(e))
+        logger.error("Error in create_player_affiliation: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to create affiliation")), 500
 
 
@@ -2938,7 +2934,7 @@ def _delete_subject_affiliation(subject: ShowcaseSubject, aff_id: int):
         if conflict:
             code, status = conflict
             return jsonify(error=code, code=code, retryable=True), status
-        logger.error("Error in delete_player_affiliation: %s", log_metadata(e))
+        logger.error("Error in delete_player_affiliation: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to delete affiliation")), 500
 
 
@@ -3206,7 +3202,7 @@ def _upsert_subject_showcase_profile(subject: ShowcaseSubject):
         if conflict:
             code, status = conflict
             return jsonify(error=code, code=code, retryable=True), status
-        logger.error("Error in upsert_showcase_profile: %s", log_metadata(e))
+        logger.error("Error in upsert_showcase_profile: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to save profile")), 500
 
 
@@ -3301,7 +3297,7 @@ def _create_subject_showcase_photo(subject: ShowcaseSubject):
         if conflict:
             code, status = conflict
             return jsonify(error=code, code=code, retryable=True), status
-        logger.error("Error in create_showcase_photo: %s", log_metadata(e))
+        logger.error("Error in create_showcase_photo: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to create photo upload")), 500
 
 
@@ -3365,9 +3361,7 @@ def _complete_subject_showcase_photo(subject: ShowcaseSubject, media_id: int):
             validate_photo(raw)
         except Exception as exc:
             _cleanup_failed_pending_upload(media.blob_path, media.id)
-            logger.warning(
-                "Photo validation failed during completion for media %s: %s", log_metadata(media.id), log_metadata(exc)
-            )
+            logger.warning("Photo validation failed during completion for media %s: %s", media.id, exc)
             return jsonify({"error": "Photo could not be validated"}), 422
 
         media.size_bytes = len(raw)
@@ -3384,7 +3378,7 @@ def _complete_subject_showcase_photo(subject: ShowcaseSubject, media_id: int):
         if conflict:
             code, status = conflict
             return jsonify(error=code, code=code, retryable=True), status
-        logger.error("Error in complete_showcase_photo: %s", log_metadata(e))
+        logger.error("Error in complete_showcase_photo: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to complete photo upload")), 500
 
 
@@ -3446,7 +3440,7 @@ def _reorder_subject_showcase_photos(subject: ShowcaseSubject):
         if conflict:
             code, status = conflict
             return jsonify(error=code, code=code, retryable=True), status
-        logger.error("Error in reorder_showcase_photos: %s", log_metadata(e))
+        logger.error("Error in reorder_showcase_photos: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to reorder photos")), 500
 
 
@@ -3503,7 +3497,7 @@ def _set_primary_subject_showcase_photo(subject: ShowcaseSubject, media_id: int)
         if conflict:
             code, status = conflict
             return jsonify(error=code, code=code, retryable=True), status
-        logger.error("Error in set_primary_showcase_photo: %s", log_metadata(e))
+        logger.error("Error in set_primary_showcase_photo: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to set primary photo")), 500
 
 
@@ -3557,7 +3551,7 @@ def _delete_subject_showcase_photo(subject: ShowcaseSubject, media_id: int):
         if conflict:
             code, status = conflict
             return jsonify(error=code, code=code, retryable=True), status
-        logger.error("Error in delete_showcase_photo: %s", log_metadata(e))
+        logger.error("Error in delete_showcase_photo: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to delete photo")), 500
 
 
@@ -3619,7 +3613,7 @@ def _add_subject_reel_item(subject: ShowcaseSubject):
         if conflict:
             code, status = conflict
             return jsonify(error=code, code=code, retryable=True), status
-        logger.error("Error in add_reel_item: %s", log_metadata(e))
+        logger.error("Error in add_reel_item: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to add reel item")), 500
 
 
@@ -3676,7 +3670,7 @@ def _reorder_subject_reel(subject: ShowcaseSubject):
         if conflict:
             code, status = conflict
             return jsonify(error=code, code=code, retryable=True), status
-        logger.error("Error in reorder_reel: %s", log_metadata(e))
+        logger.error("Error in reorder_reel: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to reorder reel")), 500
 
 
@@ -3720,7 +3714,7 @@ def _delete_subject_reel_item(subject: ShowcaseSubject, link_id: int):
         if conflict:
             code, status = conflict
             return jsonify(error=code, code=code, retryable=True), status
-        logger.error("Error in delete_reel_item: %s", log_metadata(e))
+        logger.error("Error in delete_reel_item: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to delete reel item")), 500
 
 
@@ -3748,7 +3742,7 @@ def admin_list_club_claims():
             out.append(payload)
         return jsonify({"claims": out})
     except Exception as e:
-        logger.error("Error in admin_list_club_claims: %s", log_metadata(e))
+        logger.error("Error in admin_list_club_claims: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to load club-official claims")), 500
 
 
@@ -3808,12 +3802,7 @@ def admin_review_club_claim(claim_id: int):
 
                 send_club_claim_decision_email(claim, action)
             except Exception:
-                logger.exception(
-                    "Failed to dispatch %s email for club claim %s",
-                    log_metadata(action),
-                    log_metadata(claim_id),
-                    exc_info=safe_exc_info(),
-                )
+                logger.exception("Failed to dispatch %s email for club claim %s", action, claim_id)
         return jsonify({"claim": _club_claim_dict(claim, include_verification_code=False)})
     except ClubConsoleBridgeConflict as e:
         db.session.rollback()
@@ -3824,7 +3813,7 @@ def admin_review_club_claim(claim_id: int):
         if conflict:
             code, status = conflict
             return jsonify(error=code, code=code, retryable=True), status
-        logger.error("Error in admin_review_club_claim: %s", log_metadata(e))
+        logger.error("Error in admin_review_club_claim: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to review club-official claim")), 500
 
 
@@ -3857,7 +3846,7 @@ def admin_recheck_club_claim(claim_id: int):
         if conflict:
             code, status = conflict
             return jsonify(error=code, code=code, retryable=True), status
-        logger.error("Error in admin_recheck_club_claim: %s", log_metadata(e))
+        logger.error("Error in admin_recheck_club_claim: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to re-check club-official claim proof")), 500
 
 
@@ -3875,7 +3864,7 @@ def admin_list_local_clubs():
         clubs = query.order_by(LocalClub.created_at.desc(), LocalClub.id.desc()).all()
         return jsonify({"clubs": [_local_club_dict(club) for club in clubs]})
     except Exception as e:
-        logger.error("Error in admin_list_local_clubs: %s", log_metadata(e))
+        logger.error("Error in admin_list_local_clubs: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to load local clubs")), 500
 
 
@@ -3912,7 +3901,7 @@ def admin_review_local_club(club_id: int):
         if conflict:
             code, status = conflict
             return jsonify(error=code, code=code, retryable=True), status
-        logger.error("Error in admin_review_local_club: %s", log_metadata(e))
+        logger.error("Error in admin_review_local_club: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to review local club")), 500
 
 
@@ -3966,7 +3955,7 @@ def admin_merge_local_club(club_id: int):
         if conflict:
             code, status = conflict
             return jsonify(error=code, code=code, retryable=True), status
-        logger.error("Error in admin_merge_local_club: %s", log_metadata(e))
+        logger.error("Error in admin_merge_local_club: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to merge local club")), 500
 
 
@@ -3996,7 +3985,7 @@ def admin_link_local_club_api(club_id: int):
         if conflict:
             code, status = conflict
             return jsonify(error=code, code=code, retryable=True), status
-        logger.error("Error in admin_link_local_club_api: %s", log_metadata(e))
+        logger.error("Error in admin_link_local_club_api: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to link local club")), 500
 
 
@@ -4024,7 +4013,7 @@ def admin_list_local_players():
             out.append(payload)
         return jsonify({"players": out})
     except Exception as e:
-        logger.error("Error in admin_list_local_players: %s", log_metadata(e))
+        logger.error("Error in admin_list_local_players: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to load local players")), 500
 
 
@@ -4079,7 +4068,7 @@ def _legacy_negative_identity_conflict(player_api_id: int):
 
     legacy_player = Player.query.filter_by(player_id=player_api_id).with_for_update().first()
     if legacy_player is not None and player_api_id not in _logged_orphan_legacy_player_ids:
-        logger.warning("Ignoring orphan legacy players row for reserved negative id %s", log_metadata(player_api_id))
+        logger.warning("Ignoring orphan legacy players row for reserved negative id %s", player_api_id)
         _logged_orphan_legacy_player_ids.add(player_api_id)
     return None
 
@@ -4155,7 +4144,7 @@ def admin_review_local_player(lp_id: int):
         if conflict:
             code, status = conflict
             return jsonify(error=code, code=code, retryable=True), status
-        logger.error("Error in admin_review_local_player: %s", log_metadata(e))
+        logger.error("Error in admin_review_local_player: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to review local player")), 500
 
 
@@ -4480,7 +4469,7 @@ def admin_merge_local_player(lp_id: int):
         if conflict:
             code, status = conflict
             return jsonify(error=code, code=code, retryable=True), status
-        logger.error("Error in admin_merge_local_player: %s", log_metadata(e))
+        logger.error("Error in admin_merge_local_player: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to merge local player")), 500
 
 
@@ -5334,7 +5323,7 @@ def admin_link_local_player_api(lp_id: int):
         if conflict:
             code, status = conflict
             return jsonify(error=code, code=code, retryable=True), status
-        logger.error("Error in admin_link_local_player_api: %s", log_metadata(e))
+        logger.error("Error in admin_link_local_player_api: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to link local player")), 500
 
 
@@ -5366,7 +5355,7 @@ def admin_list_affiliations():
             }
         )
     except Exception as e:
-        logger.error("Error in admin_list_affiliations: %s", log_metadata(e))
+        logger.error("Error in admin_list_affiliations: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to load affiliations")), 500
 
 
@@ -5411,7 +5400,7 @@ def admin_review_affiliation(aff_id: int):
         if conflict:
             code, status = conflict
             return jsonify(error=code, code=code, retryable=True), status
-        logger.error("Error in admin_review_affiliation: %s", log_metadata(e))
+        logger.error("Error in admin_review_affiliation: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to review affiliation")), 500
 
 
@@ -5452,7 +5441,7 @@ def admin_list_showcase_media():
             }
         )
     except Exception as e:
-        logger.error("Error in admin_list_showcase_media: %s", log_metadata(e))
+        logger.error("Error in admin_list_showcase_media: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to load showcase media")), 500
 
 
@@ -5509,9 +5498,7 @@ def admin_review_showcase_media(media_id: int):
                     code, status = conflict
                     return jsonify(error=code, code=code, retryable=True), status
                 _cleanup_failed_publication(published_url, media.id)
-                logger.warning(
-                    "Photo processing/publish failed for media %s: %s", log_metadata(media.id), log_metadata(exc)
-                )
+                logger.warning("Photo processing/publish failed for media %s: %s", media.id, exc)
                 return jsonify({"error": "Photo could not be processed or published"}), 422
 
             media.public_url = published_url
@@ -5530,9 +5517,7 @@ def admin_review_showcase_media(media_id: int):
                 if conflict:
                     code, status = conflict
                     return jsonify(error=code, code=code, retryable=True), status
-                logger.warning(
-                    "Pending photo delete failed for rejected media %s: %s", log_metadata(media.id), log_metadata(exc)
-                )
+                logger.warning("Pending photo delete failed for rejected media %s: %s", media.id, exc)
                 return jsonify({"error": "Photo could not be rejected because its upload could not be deleted"}), 422
             media.status = "rejected"
             media.public_url = None
@@ -5561,7 +5546,7 @@ def admin_review_showcase_media(media_id: int):
             code, status = conflict
             return jsonify(error=code, code=code, retryable=True), status
         _cleanup_failed_publication(published_url, media_id)
-        logger.error("Error in admin_review_showcase_media: %s", log_metadata(e))
+        logger.error("Error in admin_review_showcase_media: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to review showcase media")), 500
 
 
@@ -5619,7 +5604,7 @@ def admin_list_claims():
             out.append(payload)
         return jsonify({"claims": out})
     except Exception as e:
-        logger.error("Error in admin_list_claims: %s", log_metadata(e))
+        logger.error("Error in admin_list_claims: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to load claims")), 500
 
 
@@ -5653,7 +5638,7 @@ def admin_recheck_claim(claim_id: int):
         if conflict:
             code, status = conflict
             return jsonify(error=code, code=code, retryable=True), status
-        logger.error("Error in admin_recheck_claim: %s", log_metadata(e))
+        logger.error("Error in admin_recheck_claim: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to re-check claim proof")), 500
 
 
@@ -5717,12 +5702,7 @@ def admin_review_claim(claim_id: int):
 
                 send_player_claim_decision_email(claim, action, _resolve_claim_player_name(claim))
             except Exception:
-                logger.exception(
-                    "Failed to dispatch %s email for player claim %s",
-                    log_metadata(action),
-                    log_metadata(claim_id),
-                    exc_info=safe_exc_info(),
-                )
+                logger.exception("Failed to dispatch %s email for player claim %s", action, claim_id)
         return jsonify({"claim": _profile_claim_dict(claim)})
     except Exception as e:
         db.session.rollback()
@@ -5730,7 +5710,7 @@ def admin_review_claim(claim_id: int):
         if conflict:
             code, status = conflict
             return jsonify(error=code, code=code, retryable=True), status
-        logger.error("Error in admin_review_claim: %s", log_metadata(e))
+        logger.error("Error in admin_review_claim: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to review claim")), 500
 
 
@@ -5771,7 +5751,7 @@ def admin_list_profiles():
             out.append(payload)
         return jsonify({"profiles": out})
     except Exception as e:
-        logger.error("Error in admin_list_profiles: %s", log_metadata(e))
+        logger.error("Error in admin_list_profiles: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to load profiles")), 500
 
 
@@ -5878,7 +5858,7 @@ def _admin_review_subject_profile(subject: ShowcaseSubject):
         if conflict:
             code, status = conflict
             return jsonify(error=code, code=code, retryable=True), status
-        logger.error("Error in admin_review_profile: %s", log_metadata(e))
+        logger.error("Error in admin_review_profile: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to review profile")), 500
 
 
@@ -5936,7 +5916,7 @@ def admin_list_video_rosters():
             )
         return jsonify({"rosters": out})
     except Exception as e:
-        logger.error("Error in admin_list_video_rosters: %s", log_metadata(e))
+        logger.error("Error in admin_list_video_rosters: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to load video rosters")), 500
 
 
@@ -5989,7 +5969,7 @@ def admin_link_video_roster(roster_id: int):
         if conflict:
             code, status = conflict
             return jsonify(error=code, code=code, retryable=True), status
-        logger.error("Error in admin_link_video_roster: %s", log_metadata(e))
+        logger.error("Error in admin_link_video_roster: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to link roster entry")), 500
 
 
@@ -6028,7 +6008,7 @@ def admin_player_search():
                 break
         return jsonify({"players": out})
     except Exception as e:
-        logger.error("Error in admin_player_search: %s", log_metadata(e))
+        logger.error("Error in admin_player_search: %s", e)
         return jsonify(_safe_error_payload(e, "Failed to search players")), 500
 
 
@@ -6041,7 +6021,6 @@ from src.routes.club import (
     _invitation_rate_rejected,
     _require_relationships,
 )
-from src.utils.log_privacy import log_metadata, safe_exc_info
 
 
 def _subject_player_claim(subject, user_id):

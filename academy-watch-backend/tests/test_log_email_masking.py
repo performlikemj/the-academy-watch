@@ -141,7 +141,7 @@ def test_verify_invalid_code_and_database_error(auth_client, monkeypatch, caplog
 
 
 @pytest.mark.parametrize("outcome", ["success", "client_error", "retry", "timeout", "exception"])
-def test_mailgun_logs_without_provider_body(monkeypatch, caplog, outcome):
+def test_mailgun_logs_keep_redacted_provider_diagnostics(monkeypatch, caplog, outcome):
     caplog.set_level(logging.INFO)
     monkeypatch.setenv("MAILGUN_API_KEY", "test-key")
     monkeypatch.setenv("MAILGUN_DOMAIN", "example.org")
@@ -162,7 +162,7 @@ def test_mailgun_logs_without_provider_body(monkeypatch, caplog, outcome):
     result = service.send_email(to=[EMAIL, OTHER], subject="test", html="body", text="body", use_fallback=False)
     assert result.success == (outcome == "success")
     assert_private(caplog, EMAIL, OTHER)
-    assert "PRIVATE_PROVIDER_BODY" not in caplog.text
+    assert ("PRIVATE_PROVIDER_BODY" in caplog.text) == (outcome in {"client_error", "retry"})
     assert post.call_args.kwargs["data"]["to"] == [EMAIL, OTHER]
 
 
@@ -219,7 +219,7 @@ def test_n8n_digest_logs(app, monkeypatch, caplog, outcome):
     assert result["success"] == (outcome == "success")
     assert_private(caplog)
     assert f"user_id={user.id}" in caplog.text
-    assert "PRIVATE_PROVIDER_BODY" not in caplog.text
+    assert ("PRIVATE_PROVIDER_BODY" in caplog.text) == (outcome == "error")
     assert post.call_args.kwargs["json"]["email"] == EMAIL
 
 
@@ -234,7 +234,7 @@ def test_compatibility_mail_helper_exception(app, monkeypatch, caplog):
 
 
 # No address-bearing exceptions: only booleans/counts are safe without masking.
-SAFE_WRAPPERS = {"mask_email", "log_metadata", "safe_exc_info", "bool", "len"}
+SAFE_WRAPPERS = {"mask_email", "redact_email_text", "email_exc_info", "bool", "len"}
 EMAIL_NAMES = {
     "email",
     "user_email",

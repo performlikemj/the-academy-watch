@@ -19,7 +19,6 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import and_, exists, update
 from src.models.league import db
 from src.models.video import VideoAnalysisJob, VideoMatch
-from src.utils.log_privacy import log_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -50,9 +49,7 @@ def enqueue(job_id: str) -> str:
                 sender.send_messages(ServiceBusMessage(job_id))
         return "service-bus"
     except Exception as e:
-        logger.warning(
-            "service bus enqueue failed for job %s (DB poll covers it): %s", log_metadata(job_id), log_metadata(e)
-        )
+        logger.warning("service bus enqueue failed for job %s (DB poll covers it): %s", job_id, e)
         return "db-poll"
 
 
@@ -160,7 +157,7 @@ def reap_stale_jobs() -> int:
         return 0
     moved = _move_orphaned_matches_to_failed({row[0] for row in reaped})
     db.session.commit()
-    logger.warning("stale-failed %d video job(s); %d match(es) moved to failed", len(reaped), log_metadata(moved))
+    logger.warning("stale-failed %d video job(s); %d match(es) moved to failed", len(reaped), moved)
     return len(reaped)
 
 

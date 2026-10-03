@@ -15,14 +15,13 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from src.api_football_client import APIFootballClient
-from src.utils.log_privacy import log_metadata
 
 
 def main():
     try:
         client = APIFootballClient()
     except Exception as e:
-        print(f"Failed to init client: {log_metadata(e)}")
+        print(f"Failed to init client: {e}")
         return
 
     print(f"API Key present: {bool(client.api_key)}")
@@ -47,12 +46,12 @@ def main():
 
     if not target_team:
         target_team = teams[0]["team"]
-        print(f"Barnet not found, using {log_metadata(target_team['name'])}")
+        print(f"Barnet not found, using {target_team['name']}")
     else:
-        print(f"Found team: {log_metadata(target_team['name'])} (ID: {log_metadata(target_team['id'])})")
+        print(f"Found team: {target_team['name']} (ID: {target_team['id']})")
 
     # 2. Get fixtures for this team
-    print(f"Fetching fixtures for {log_metadata(target_team['name'])}...")
+    print(f"Fetching fixtures for {target_team['name']}...")
     fixtures = client.get_fixtures_for_team(target_team["id"], 2023, "2023-08-01", "2023-09-01")
 
     if not fixtures:
@@ -61,9 +60,7 @@ def main():
 
     fixture = fixtures[0]
     fixture_id = fixture["fixture"]["id"]
-    print(
-        f"Checking fixture: {log_metadata(fixture['fixture']['date'])} vs {log_metadata(fixture['teams']['away']['name'])} (ID: {log_metadata(fixture_id)})"
-    )
+    print(f"Checking fixture: {fixture['fixture']['date']} vs {fixture['teams']['away']['name']} (ID: {fixture_id})")
 
     # 3. Check /fixtures/players endpoint directly (should be empty/sparse)
     print("Fetching raw /fixtures/players response...")
@@ -79,14 +76,14 @@ def main():
             start_xi = lineups["response"][0]["startXI"]
             if start_xi:
                 player = start_xi[0]["player"]
-                print(f"Found player in lineup: {log_metadata(player['name'])} (ID: {log_metadata(player['id'])})")
+                print(f"Found player in lineup: {player['name']} (ID: {player['id']})")
 
                 # Pass fixture object to enable external search context
-                print(f"Calling get_player_stats_for_fixture for {log_metadata(player['name'])}...")
+                print(f"Calling get_player_stats_for_fixture for {player['name']}...")
                 stats = client.get_player_stats_for_fixture(player["id"], 2023, fixture_id, fixture_obj=fixture)
 
                 print("Stats returned:")
-                print(log_metadata(stats))
+                print(stats)
 
                 # Check if we have detailed stats
                 if stats and stats.get("statistics"):
@@ -94,8 +91,8 @@ def main():
                     shots = s.get("shots", {}).get("total")
                     rating = s.get("rating")
                     print("\nDetailed Stats Check:")
-                    print(f"  Shots: {log_metadata(shots)}")
-                    print(f"  Rating: {log_metadata(rating)}")
+                    print(f"  Shots: {shots}")
+                    print(f"  Rating: {rating}")
 
                     if shots is not None or rating is not None:
                         print("✅ SUCCESS: Detailed stats found (likely via external search)!")
@@ -110,7 +107,7 @@ def main():
 
     else:
         print("✅ Player stats FOUND in /fixtures/players endpoint! (Unexpected but good)")
-        print("   Sample data:", log_metadata(players_response[0]["players"][0]["statistics"][0]))
+        print("   Sample data:", players_response[0]["players"][0]["statistics"][0])
 
 
 if __name__ == "__main__":

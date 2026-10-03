@@ -40,7 +40,6 @@ from src.services.stripe_connect import (
     test_connect_configured,
 )
 from src.utils.legacy_pages import legacy_public_url
-from src.utils.log_privacy import log_metadata, safe_exc_info
 from src.utils.sanitize import is_safe_https_url, sanitize_plain_text
 
 logger = logging.getLogger(__name__)
@@ -474,7 +473,7 @@ def admin_create_funding_league():
         return jsonify({"error": "league is already registered"}), 409
     except Exception as exc:
         db.session.rollback()
-        logger.exception("Failed to create funding league", exc_info=safe_exc_info())
+        logger.exception("Failed to create funding league")
         return jsonify(_safe_error_payload(exc, "Failed to create league")), 500
 
 
@@ -565,7 +564,7 @@ def admin_update_funding_league(league_id):
         return jsonify({"error": "league update conflicts with an existing registry row"}), 409
     except Exception as exc:
         db.session.rollback()
-        logger.exception("Failed to update funding league", exc_info=safe_exc_info())
+        logger.exception("Failed to update funding league")
         return jsonify(_safe_error_payload(exc, "Failed to update league")), 500
 
 
@@ -591,7 +590,7 @@ def admin_delete_funding_league(league_id):
         return jsonify({"error": str(exc)}), 400
     except Exception as exc:
         db.session.rollback()
-        logger.exception("Failed to delete funding league", exc_info=safe_exc_info())
+        logger.exception("Failed to delete funding league")
         return jsonify(_safe_error_payload(exc, "Failed to delete league")), 500
 
 
@@ -799,7 +798,7 @@ def submit_program_claim():
         return jsonify({"error": "this club or league claim already exists"}), 409
     except Exception as exc:
         db.session.rollback()
-        logger.exception("Failed to submit club program claim", exc_info=safe_exc_info())
+        logger.exception("Failed to submit club program claim")
         return jsonify(_safe_error_payload(exc, "Failed to submit claim")), 500
 
 
@@ -918,11 +917,7 @@ def approve_program_claim(claim_id):
                 try:
                     _apply_connect_result(account, create_express_organization_onboarding(program))
                 except Exception as exc:  # approval survives an integration outage; badge remains off
-                    logger.exception(
-                        "Test Connect onboarding failed for program %s",
-                        log_metadata(program.id),
-                        exc_info=safe_exc_info(),
-                    )
+                    logger.exception("Test Connect onboarding failed for program %s", program.id)
                     connect_error = type(exc).__name__
                     account.requirements_due = ["connect.onboarding_retry_required"]
 
@@ -946,7 +941,7 @@ def approve_program_claim(claim_id):
         return jsonify({"error": str(exc)}), 400
     except Exception as exc:
         db.session.rollback()
-        logger.exception("Failed to approve club program claim", exc_info=safe_exc_info())
+        logger.exception("Failed to approve club program claim")
         return jsonify(_safe_error_payload(exc, "Failed to approve claim")), 500
 
 
@@ -989,7 +984,7 @@ def reject_program_claim(claim_id):
         return jsonify({"error": str(exc)}), 400
     except Exception as exc:
         db.session.rollback()
-        logger.exception("Failed to reject club program claim", exc_info=safe_exc_info())
+        logger.exception("Failed to reject club program claim")
         return jsonify(_safe_error_payload(exc, "Failed to reject claim")), 500
 
 
@@ -1053,7 +1048,7 @@ def revoke_program_claim(claim_id):
         return jsonify({"error": str(exc)}), 400
     except Exception as exc:
         db.session.rollback()
-        logger.exception("Failed to revoke club program claim", exc_info=safe_exc_info())
+        logger.exception("Failed to revoke club program claim")
         return jsonify(_safe_error_payload(exc, "Failed to revoke claim")), 500
 
 
@@ -1099,9 +1094,7 @@ def sync_program_connect_account(program_id):
         return jsonify({"error": str(exc)}), 400
     except Exception as exc:
         db.session.rollback()
-        logger.exception(
-            "Failed to sync test Connect account for program %s", log_metadata(program_id), exc_info=safe_exc_info()
-        )
+        logger.exception("Failed to sync test Connect account for program %s", program_id)
         return jsonify(_safe_error_payload(exc, "Failed to sync test Connect account")), 502
 
 
@@ -1384,7 +1377,7 @@ def save_program(slug):
         return jsonify({"error": str(exc)}), 400
     except Exception as exc:
         db.session.rollback()
-        logger.exception("Failed to save program", exc_info=safe_exc_info())
+        logger.exception("Failed to save program")
         return jsonify(_safe_error_payload(exc, "Failed to save program")), 500
 
 

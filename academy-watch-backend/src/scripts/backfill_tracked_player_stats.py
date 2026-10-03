@@ -19,7 +19,6 @@ import sys
 
 # Add project root to path (two levels up from src/scripts/)
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
-from src.utils.log_privacy import log_metadata
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 log = logging.getLogger(__name__)
@@ -41,7 +40,7 @@ def backfill_current_club_db_id(dry_run=False):
         TrackedPlayer.current_club_db_id.is_(None),
     ).all()
 
-    log.info("[club_db_id] Found %s TrackedPlayer rows to backfill", len(players))
+    log.info(f"[club_db_id] Found {len(players)} TrackedPlayer rows to backfill")
     updated = 0
     missing_teams = set()
 
@@ -55,18 +54,16 @@ def backfill_current_club_db_id(dry_run=False):
 
     if missing_teams:
         log.warning(
-            "[club_db_id] %s team API IDs not found in DB: %s%s",
-            len(missing_teams),
-            log_metadata(sorted(missing_teams)[:20]),
-            log_metadata("..." if len(missing_teams) > 20 else ""),
+            f"[club_db_id] {len(missing_teams)} team API IDs not found in DB: "
+            f"{sorted(missing_teams)[:20]}{'...' if len(missing_teams) > 20 else ''}"
         )
 
     if not dry_run:
         db.session.commit()
-        log.info("[club_db_id] Updated %s rows", log_metadata(updated))
+        log.info(f"[club_db_id] Updated {updated} rows")
     else:
         db.session.rollback()
-        log.info("[club_db_id] DRY RUN — would update %s rows", log_metadata(updated))
+        log.info(f"[club_db_id] DRY RUN — would update {updated} rows")
 
 
 def backfill_player_stats_cache(dry_run=False):
@@ -81,7 +78,7 @@ def check_coverage(dry_run=False):
 
     log.info("[coverage] AcademyPlayer table dropped — checking TrackedPlayer only")
     active_aps = []  # No more AcademyPlayer rows
-    log.info("[coverage] Checking %s active AcademyPlayer rows", len(active_aps))
+    log.info(f"[coverage] Checking {len(active_aps)} active AcademyPlayer rows")
 
     gaps = []
     for ap in active_aps:
@@ -101,17 +98,11 @@ def check_coverage(dry_run=False):
             )
 
     if gaps:
-        log.warning("[coverage] %s active AcademyPlayer rows have NO matching TrackedPlayer:", len(gaps))
+        log.warning(f"[coverage] {len(gaps)} active AcademyPlayer rows have NO matching TrackedPlayer:")
         for g in gaps[:30]:
-            log.warning(
-                "  AP#%s %s (%s → %s)",
-                log_metadata(g["ap_id"]),
-                log_metadata(g["player_name"]),
-                log_metadata(g["primary_team"]),
-                log_metadata(g["loan_team"]),
-            )
+            log.warning(f"  AP#{g['ap_id']} {g['player_name']} ({g['primary_team']} → {g['loan_team']})")
         if len(gaps) > 30:
-            log.warning("  ... and %s more", log_metadata(len(gaps) - 30))
+            log.warning(f"  ... and {len(gaps) - 30} more")
     else:
         log.info("[coverage] All active AcademyPlayer rows have a matching TrackedPlayer")
 

@@ -15,7 +15,6 @@ from src.routes.api import require_api_key
 from src.services.academy_sync_service import academy_sync_service
 from src.services.player_suppression import hide_suppressed_player
 from src.utils.data_mode import api_enabled_route, api_football_frozen
-from src.utils.log_privacy import log_metadata
 
 academy_bp = Blueprint("academy", __name__)
 logger = logging.getLogger(__name__)
@@ -84,7 +83,7 @@ def create_academy_league():
     db.session.add(league)
     db.session.commit()
 
-    logger.info("Created academy league: %s (%s)", log_metadata(name), log_metadata(api_league_id))
+    logger.info(f"Created academy league: {name} ({api_league_id})")
 
     return jsonify(
         {
@@ -146,7 +145,7 @@ def delete_academy_league(league_id):
     db.session.delete(league)
     db.session.commit()
 
-    logger.info("Deleted academy league: %s (%s)", log_metadata(league.name), log_metadata(league.api_league_id))
+    logger.info(f"Deleted academy league: {league.name} ({league.api_league_id})")
 
     return jsonify({"message": "League deleted"})
 

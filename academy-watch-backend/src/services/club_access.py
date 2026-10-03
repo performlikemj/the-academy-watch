@@ -40,7 +40,6 @@ from src.auth import require_user_auth
 from src.models.club_access import INVITE_ROLES, ClubAccessGrant, ClubAccessGrantSquad, ClubStaffInvite
 from src.models.league import db
 from src.services.club_registry import is_manager_of_approved_program
-from src.utils.log_privacy import get_logger, log_metadata, safe_exc_info
 
 DENIED_ERROR = "Club manager access denied"
 
@@ -1103,7 +1102,7 @@ def send_invite_email(invite, token, program_name) -> bool:
     Delivery is synchronous (no daemon thread); the invite row is authoritative and "resend" = re-invite.
     """
     from src.services.email_service import email_service
-    from src.utils.log_privacy import mask_email
+    from src.utils.log_privacy import email_exc_info, get_logger, mask_email
 
     subject, text, html = invite_email_content(program_name, invite.role, invite_link(token))
     from src.auth import _is_production
@@ -1111,16 +1110,13 @@ def send_invite_email(invite, token, program_name) -> bool:
     if not _is_production() and os.getenv("FLASK_ENV", "").lower() not in ("stage", "staging"):
         # Same convention as the dev login code: local testing without a mail provider. Never in production.
         get_logger(__name__).info(
-            "[DEV] Staff invite id=%s link for %s: %s",
-            log_metadata(invite.id),
-            mask_email(invite.email),
-            log_metadata(invite_link(token)),
+            "[DEV] Staff invite id=%s link for %s: %s", invite.id, mask_email(invite.email), invite_link(token)
         )
     try:
         result = email_service.send_email(to=invite.email, subject=subject, html=html, text=text, tags=["staff-invite"])
         return bool(getattr(result, "success", False))
     except Exception:
         get_logger(__name__).exception(
-            "Staff invite email failed invite_id=%s", log_metadata(invite.id), exc_info=safe_exc_info()
+            "Staff invite email failed invite_id=%s", invite.id, exc_info=email_exc_info((invite.email,))
         )
         return False

@@ -12,7 +12,6 @@ from src.api_football_client import APIFootballClient
 from src.models.league import AcademyAppearance, AcademyLeague, AcademyPlayerSeasonStats, db
 from src.models.tracked_player import TrackedPlayer
 from src.services.big6_seeding_service import RateLimiter
-from src.utils.log_privacy import log_metadata, safe_exc_info
 from src.utils.player_names import clean_name
 
 logger = logging.getLogger(__name__)
@@ -50,7 +49,7 @@ class AcademySyncService:
                 updated.append(league.name)
         if updated:
             db.session.commit()
-            logger.info("Updated season to %s for: %s", log_metadata(current), log_metadata(", ".join(updated)))
+            logger.info(f"Updated season to {current} for: {', '.join(updated)}")
 
     def sync_league(
         self,
@@ -75,7 +74,7 @@ class AcademySyncService:
 
         require_api_enabled()
         if not league.sync_enabled:
-            logger.info("Sync disabled for league %s", log_metadata(league.name))
+            logger.info(f"Sync disabled for league {league.name}")
             return {"status": "skipped", "reason": "sync_disabled"}
 
         # Auto-update season if stale
@@ -89,13 +88,7 @@ class AcademySyncService:
 
         season = season or league.season or _current_season()
 
-        logger.info(
-            "Syncing %s (%s) from %s to %s",
-            log_metadata(league.name),
-            log_metadata(league.api_league_id),
-            log_metadata(date_from),
-            log_metadata(date_to),
-        )
+        logger.info(f"Syncing {league.name} ({league.api_league_id}) from {date_from} to {date_to}")
 
         results = {
             "league_id": league.id,
@@ -117,10 +110,10 @@ class AcademySyncService:
             )
 
             if not fixtures:
-                logger.info("No fixtures found for %s", log_metadata(league.name))
+                logger.info(f"No fixtures found for {league.name}")
                 return results
 
-            logger.info("Found %s fixtures for %s", len(fixtures), log_metadata(league.name))
+            logger.info(f"Found {len(fixtures)} fixtures for {league.name}")
 
             # Get tracked player IDs for matching
             tracked_player_ids = self._get_tracked_player_ids()
@@ -138,16 +131,12 @@ class AcademySyncService:
 
                     if (i + 1) % 10 == 0:
                         logger.info(
-                            "  %s: %s/%s fixtures processed (%s created, %s updated)",
-                            log_metadata(league.name),
-                            log_metadata(i + 1),
-                            len(fixtures),
-                            log_metadata(results["appearances_created"]),
-                            log_metadata(results["appearances_updated"]),
+                            f"  {league.name}: {i + 1}/{len(fixtures)} fixtures processed "
+                            f"({results['appearances_created']} created, {results['appearances_updated']} updated)"
                         )
                 except Exception as e:
                     error_msg = f"Error processing fixture {fixture.get('fixture', {}).get('id')}: {str(e)}"
-                    logger.error("Log event: %s", log_metadata(error_msg))
+                    logger.error(error_msg)
                     results["errors"].append(error_msg)
 
             # Update last synced timestamp
@@ -157,16 +146,13 @@ class AcademySyncService:
         except Exception as e:
             db.session.rollback()
             error_msg = f"Error syncing league {league.name}: {str(e)}"
-            logger.exception("Log event: %s", log_metadata(error_msg), exc_info=safe_exc_info())
+            logger.exception(error_msg)
             results["errors"].append(error_msg)
 
         logger.info(
-            "Sync complete for %s: %s fixtures, %s created, %s updated, %s errors",
-            log_metadata(league.name),
-            log_metadata(results["fixtures_processed"]),
-            log_metadata(results["appearances_created"]),
-            log_metadata(results["appearances_updated"]),
-            len(results["errors"]),
+            f"Sync complete for {league.name}: {results['fixtures_processed']} fixtures, "
+            f"{results['appearances_created']} created, {results['appearances_updated']} updated, "
+            f"{len(results['errors'])} errors"
         )
         return results
 
@@ -213,7 +199,7 @@ class AcademySyncService:
             )
             return resp.get("response", [])
         except Exception as e:
-            logger.error("Error fetching fixtures for league %s: %s", log_metadata(league_id), log_metadata(e))
+            logger.error(f"Error fetching fixtures for league {league_id}: {e}")
             return []
 
     def _get_tracked_player_ids(self) -> dict[int, int]:
@@ -257,7 +243,7 @@ class AcademySyncService:
         try:
             fixture_date = date.fromisoformat(fixture_date_str)
         except ValueError:
-            logger.warning("Invalid fixture date: %s", log_metadata(fixture_date_str))
+            logger.warning(f"Invalid fixture date: {fixture_date_str}")
             return {"created": 0, "updated": 0}
 
         teams = fixture.get("teams", {})
@@ -474,7 +460,7 @@ class AcademySyncService:
                 added.append(f"{name} ({country})")
         if added:
             db.session.commit()
-            logger.info("Seeded %s European youth leagues: %s", len(added), log_metadata(", ".join(added)))
+            logger.info(f"Seeded {len(added)} European youth leagues: {', '.join(added)}")
 
     def sync_academy_stats_for_players(
         self,
@@ -519,10 +505,8 @@ class AcademySyncService:
             return {"players_checked": 0, "stats_created": 0, "stats_updated": 0, "errors": []}
 
         logger.info(
-            "Syncing academy stats for %s players across seasons %s (%s leagues)",
-            len(rows),
-            log_metadata(seasons),
-            len(academy_league_ids),
+            f"Syncing academy stats for {len(rows)} players "
+            f"across seasons {seasons} ({len(academy_league_ids)} leagues)"
         )
 
         results = {
@@ -574,26 +558,21 @@ class AcademySyncService:
                 if (i + 1) % 25 == 0:
                     db.session.commit()
                     logger.info(
-                        "  Progress: %s/%s players (%s created, %s updated)",
-                        log_metadata(i + 1),
-                        len(rows),
-                        log_metadata(results["stats_created"]),
-                        log_metadata(results["stats_updated"]),
+                        f"  Progress: {i + 1}/{len(rows)} players "
+                        f"({results['stats_created']} created, {results['stats_updated']} updated)"
                     )
 
             except Exception as e:
                 db.session.rollback()
                 error_msg = f"Error syncing player {player_api_id} ({player_name}): {e}"
-                logger.error("Log event: %s", log_metadata(error_msg))
+                logger.error(error_msg)
                 results["errors"].append(error_msg)
 
         db.session.commit()
         logger.info(
-            "Academy player stats sync complete: %s players, %s created, %s updated, %s errors",
-            log_metadata(results["players_checked"]),
-            log_metadata(results["stats_created"]),
-            log_metadata(results["stats_updated"]),
-            len(results["errors"]),
+            f"Academy player stats sync complete: {results['players_checked']} players, "
+            f"{results['stats_created']} created, {results['stats_updated']} updated, "
+            f"{len(results['errors'])} errors"
         )
         return results
 

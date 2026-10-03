@@ -25,7 +25,6 @@ from src.services.profile_activity_notification_service import (
     MAX_PROFILE_ACTIVITY_USERS,
     send_profile_activity_notifications,
 )
-from src.utils.log_privacy import log_metadata, safe_exc_info
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -43,11 +42,13 @@ def _max_sends_from_env() -> int:
         value = int(raw)
     except (TypeError, ValueError):
         logger.warning(
-            "Invalid PROFILE_ACTIVITY_MAX_SENDS=%r; using %d", log_metadata(raw), log_metadata(DEFAULT_MAX_SENDS)
+            "Invalid PROFILE_ACTIVITY_MAX_SENDS=%r; using %d",
+            raw,
+            DEFAULT_MAX_SENDS,
         )
         return DEFAULT_MAX_SENDS
     if value < 0:
-        logger.warning("Negative PROFILE_ACTIVITY_MAX_SENDS=%r; using 0", log_metadata(raw))
+        logger.warning("Negative PROFILE_ACTIVITY_MAX_SENDS=%r; using 0", raw)
         return 0
     return value
 
@@ -84,9 +85,7 @@ def run(*, dry_run: bool = False, max_sends: int = DEFAULT_MAX_SENDS, now=None) 
                 now=run_now,
             )
         except Exception:
-            logger.exception(
-                "Profile activity notification job failed at cursor=%r", log_metadata(cursor), exc_info=safe_exc_info()
-            )
+            logger.exception("Profile activity notification job failed at cursor=%r", cursor)
             summary["errors"] += 1
             break
 
@@ -98,8 +97,8 @@ def run(*, dry_run: bool = False, max_sends: int = DEFAULT_MAX_SENDS, now=None) 
         if attempts < 0 or attempts > remaining:
             logger.error(
                 "Profile activity page exceeded its remaining budget: remaining=%r attempts=%r",
-                log_metadata(remaining),
-                log_metadata(attempts),
+                remaining,
+                attempts,
             )
             summary["errors"] += 1
             break
@@ -116,9 +115,9 @@ def run(*, dry_run: bool = False, max_sends: int = DEFAULT_MAX_SENDS, now=None) 
         if isinstance(next_cursor, bool) or not isinstance(next_cursor, int) or next_cursor <= current_cursor:
             logger.error(
                 "Profile activity paging returned a non-advancing cursor: cursor=%r next_cursor=%r users_considered=%r",
-                log_metadata(cursor),
-                log_metadata(next_cursor),
-                log_metadata(page.get("users_considered")),
+                cursor,
+                next_cursor,
+                page.get("users_considered"),
             )
             summary["errors"] += 1
             break
@@ -138,7 +137,7 @@ def main(argv: list[str] | None = None) -> int:
     dry_run = args.dry_run or os.getenv("PROFILE_ACTIVITY_DRY_RUN", "").strip().lower() in _TRUE_VALUES
     with app.app_context():
         summary = run(dry_run=dry_run, max_sends=_max_sends_from_env())
-    print(json.dumps(log_metadata(summary), sort_keys=True, separators=(",", ":")), flush=True)
+    print(json.dumps(summary, sort_keys=True, separators=(",", ":")), flush=True)
     return 1 if summary["errors"] else 0
 
 

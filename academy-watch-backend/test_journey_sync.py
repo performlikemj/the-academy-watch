@@ -20,31 +20,30 @@ except ImportError:
 
 from src.api_football_client import APIFootballClient
 from src.services.journey_sync import JourneySyncService
-from src.utils.log_privacy import log_metadata
 
 
 def test_api_connection():
     """Test that API connection works"""
     print("Testing API connection...")
     client = APIFootballClient()
-    print(f"✅ API connected, mode: {log_metadata(client.mode)}")
+    print(f"✅ API connected, mode: {client.mode}")
     return client
 
 
 def test_get_player_seasons(client, player_id=284324):
     """Test getting player seasons"""
-    print(f"\nTesting get player seasons for player {log_metadata(player_id)} (Garnacho)...")
+    print(f"\nTesting get player seasons for player {player_id} (Garnacho)...")
 
     response = client._make_request("players/seasons", {"player": player_id})
     seasons = response.get("response", [])
 
-    print(f"✅ Found {len(seasons)} seasons: {log_metadata(seasons)}")
+    print(f"✅ Found {len(seasons)} seasons: {seasons}")
     return seasons
 
 
 def test_get_player_season_data(client, player_id=284324, season=2021):
     """Test getting player data for a season"""
-    print(f"\nTesting get player data for season {log_metadata(season)}...")
+    print(f"\nTesting get player data for season {season}...")
 
     response = client._make_request("players", {"id": player_id, "season": season})
     data = response.get("response", [])
@@ -54,7 +53,7 @@ def test_get_player_season_data(client, player_id=284324, season=2021):
         player = player_data.get("player", {})
         stats = player_data.get("statistics", [])
 
-        print(f"✅ Player: {log_metadata(player.get('name'))}")
+        print(f"✅ Player: {player.get('name')}")
         print(f"   Stats entries: {len(stats)}")
 
         for stat in stats:
@@ -62,9 +61,7 @@ def test_get_player_season_data(client, player_id=284324, season=2021):
             league = stat.get("league", {}).get("name", "Unknown")
             apps = stat.get("games", {}).get("appearences", 0)
             goals = stat.get("goals", {}).get("total", 0)
-            print(
-                f"   - {log_metadata(team)} | {log_metadata(league)} | {log_metadata(apps)} apps | {log_metadata(goals)} goals"
-            )
+            print(f"   - {team} | {league} | {apps} apps | {goals} goals")
 
         return player_data
     else:
@@ -87,15 +84,13 @@ def test_classification(service):
     for team, league, expected in test_cases:
         result = service._classify_level(team, league)
         status = "✅" if result == expected else "❌"
-        print(
-            f"   {log_metadata(status)} {log_metadata(team)} / {log_metadata(league)} → {log_metadata(result)} (expected: {log_metadata(expected)})"
-        )
+        print(f"   {status} {team} / {league} → {result} (expected: {expected})")
 
 
 def main():
-    print(log_metadata("=" * 60))
+    print("=" * 60)
     print("Journey Sync Service Test")
-    print(log_metadata("=" * 60))
+    print("=" * 60)
 
     # Test API
     client = test_api_connection()
@@ -113,9 +108,9 @@ def main():
     service = JourneySyncService(client)
     test_classification(service)
 
-    print(log_metadata("\n" + "=" * 60))
+    print("\n" + "=" * 60)
     print("All tests completed!")
-    print(log_metadata("=" * 60))
+    print("=" * 60)
 
 
 if __name__ == "__main__":

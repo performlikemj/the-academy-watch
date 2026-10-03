@@ -14,6 +14,7 @@ Two shapes share one delta engine:
 """
 
 import json
+import logging
 import os
 from datetime import UTC, datetime
 
@@ -26,9 +27,8 @@ from src.models.showcase import without_minor_local_bridge
 from src.models.tracked_player import TrackedPlayer
 from src.services.player_suppression import public_player_visible_filter
 from src.services.public_adult import cached_public_adult_ids
-from src.utils.log_privacy import get_logger, log_metadata, safe_exc_info
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 MAX_DIGEST_USERS = 200
 # One run touches at most this many entries across all users — keeps a
@@ -157,7 +157,7 @@ def _absence_count(api_client, player_api_id: int) -> int | None:
     try:
         return len(api_client.get_player_injuries(player_api_id) or [])
     except Exception as exc:
-        logger.warning("Absence lookup failed for player %s: %s", log_metadata(player_api_id), log_metadata(exc))
+        logger.warning("Absence lookup failed for player %s: %s", player_api_id, exc)
         return None
 
 
@@ -621,7 +621,7 @@ def send_scout_digests(
                 tags=["scout-digest"],
             )
         except Exception:
-            logger.exception("Scout digest send failed for user %s", log_metadata(user_id), exc_info=safe_exc_info())
+            logger.exception("Scout digest send failed for user %s", user_id)
             errors += 1
             skipped += 1
             last_processed = user_id

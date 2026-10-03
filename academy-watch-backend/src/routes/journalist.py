@@ -29,7 +29,7 @@ from src.routes.api import (
     require_api_key,
     require_user_auth,
 )
-from src.utils.log_privacy import get_logger, log_metadata, mask_email, safe_exc_info
+from src.utils.log_privacy import email_exc_info, get_logger, mask_email, redact_email_text
 from src.utils.team_utils import get_all_team_name_variations
 
 journalist_bp = Blueprint("journalist", __name__)
@@ -291,7 +291,7 @@ def assign_teams(journalist_id):
             try:
                 tid_int = int(tid)
             except (TypeError, ValueError):
-                print(f"[ASSIGN TEAMS] Skipping invalid team id: {log_metadata(tid)}")
+                print(f"[ASSIGN TEAMS] Skipping invalid team id: {tid}")
                 continue
 
             # Frontend sends API team_ids; resolve them to the current season's DB PK
@@ -509,7 +509,7 @@ def search_commentaries():
         )
 
     except Exception as e:
-        logger.error("Commentary search error: %s", log_metadata(e))
+        logger.error(f"Commentary search error: {e}")
         return jsonify(_safe_error_payload(e, "Search failed")), 500
 
 
@@ -652,7 +652,7 @@ def _get_player_week_stats(player_id: int, week_start, week_end, current_club_ap
 
         return results
     except Exception as e:
-        logger.warning("Failed to get player week stats: %s", log_metadata(e))
+        logger.warning(f"Failed to get player week stats: {e}")
         # Rollback to handle PostgreSQL aborted transaction state
         try:
             db.session.rollback()
@@ -874,7 +874,7 @@ def _get_season_stats(player_id: int, season: int = None, current_club_api_id: i
 
         return results
     except Exception as e:
-        logger.warning("Failed to get season stats: %s", log_metadata(e))
+        logger.warning(f"Failed to get season stats: {e}")
         # Rollback to handle PostgreSQL aborted transaction state
         try:
             db.session.rollback()
@@ -1133,7 +1133,7 @@ def get_chart_data():
                         player_id, start_date, end_date, current_club_api_id=current_club_api_id
                     )
                 except (ValueError, TypeError) as e:
-                    logger.warning("Invalid date format: %s", log_metadata(e))
+                    logger.warning(f"Invalid date format: {e}")
             else:
                 return jsonify({"error": "week_start and week_end required for date_range=week"}), 400
 
@@ -1240,7 +1240,7 @@ def get_chart_data():
         return jsonify(response)
 
     except Exception as e:
-        logger.exception("Failed to get chart data", exc_info=safe_exc_info())
+        logger.exception("Failed to get chart data")
         return jsonify(_safe_error_payload(e, "Failed to fetch chart data")), 500
 
 
@@ -1364,7 +1364,7 @@ def get_commentary_public(commentary_id: int):
         return jsonify(data)
 
     except Exception as e:
-        logger.exception("Failed to fetch commentary", exc_info=safe_exc_info())
+        logger.exception("Failed to fetch commentary")
         return jsonify(_safe_error_payload(e, "Failed to fetch commentary")), 500
 
 
@@ -1433,7 +1433,7 @@ def get_loan_destinations():
         return jsonify({"destinations": destinations})
 
     except Exception as e:
-        logger.exception("Failed to fetch loan destinations", exc_info=safe_exc_info())
+        logger.exception("Failed to fetch loan destinations")
         return jsonify({"error": "Failed to fetch loan destinations"}), 500
 
 
@@ -1580,7 +1580,7 @@ def get_writer_available_players_endpoint():
 
         return jsonify(result)
     except Exception as e:
-        logger.exception("Failed to fetch available players", exc_info=safe_exc_info())
+        logger.exception("Failed to fetch available players")
         return jsonify(_safe_error_payload(e, "Failed to fetch available players")), 500
 
 
@@ -1747,7 +1747,7 @@ def _render_chart_block_to_html(
         </div>
         '''
     except Exception as e:
-        logger.warning("Failed to render chart image: %s", log_metadata(e))
+        logger.warning(f"Failed to render chart image: {e}")
         chart_type = block.get("chart_type", "chart")
         return _get_chart_placeholder_html(chart_type, "Chart unavailable")
 
@@ -1885,7 +1885,7 @@ def _fetch_chart_data_for_rendering(
                     player_id, start_date, end_date, current_club_api_id=current_club_api_id
                 )
             except (ValueError, TypeError) as e:
-                logger.warning("Invalid date format for chart rendering: %s", log_metadata(e))
+                logger.warning(f"Invalid date format for chart rendering: {e}")
                 return None
         elif date_range == "month":
             end_date = datetime.now(UTC).date()
@@ -1985,7 +1985,7 @@ def _fetch_chart_data_for_rendering(
         return response
 
     except Exception as e:
-        logger.exception("Failed to fetch chart data for rendering: %s", log_metadata(e), exc_info=safe_exc_info())
+        logger.exception(f"Failed to fetch chart data for rendering: {e}")
         # Rollback to handle PostgreSQL aborted transaction state
         try:
             db.session.rollback()
@@ -2041,9 +2041,7 @@ def create_update_commentary():
 
             author = target_writer
             on_behalf_of = user
-            logger.info(
-                "Editor %s creating commentary on behalf of writer %s", log_metadata(user.id), log_metadata(author.id)
-            )
+            logger.info(f"Editor {user.id} creating commentary on behalf of writer {author.id}")
         elif not user.is_journalist:
             return jsonify({"error": "Not authorized as a writer"}), 403
 
@@ -2249,18 +2247,18 @@ def create_update_commentary():
             sanitized_content = sanitize_commentary_html(data.get("content", ""))
             structured_blocks = None
 
-        print(f"\n{log_metadata('=' * 60)}")
+        print(f"\n{'=' * 60}")
         print("[CREATE COMMENTARY DEBUG]")
-        print(f"{log_metadata('=' * 60)}")
+        print(f"{'=' * 60}")
         print("Creating commentary with:")
-        print(f"  team_id (after resolution): {log_metadata(team_id)}")
-        print(f"  player_id: {log_metadata(data.get('player_id'))}")
-        print(f"  commentary_type: {log_metadata(data.get('commentary_type', 'summary'))}")
-        print(f"  week_start_date: {log_metadata(week_start)} (type: {log_metadata(type(week_start))})")
-        print(f"  week_end_date: {log_metadata(week_end)} (type: {log_metadata(type(week_end))})")
-        print(f"  title: {log_metadata(data.get('title'))}")
-        print(f"  has_structured_blocks: {log_metadata(structured_blocks is not None)}")
-        print(f"{log_metadata('=' * 60)}\n")
+        print(f"  team_id (after resolution): {team_id}")
+        print(f"  player_id: {data.get('player_id')}")
+        print(f"  commentary_type: {data.get('commentary_type', 'summary')}")
+        print(f"  week_start_date: {week_start} (type: {type(week_start)})")
+        print(f"  week_end_date: {week_end} (type: {type(week_end)})")
+        print(f"  title: {data.get('title')}")
+        print(f"  has_structured_blocks: {structured_blocks is not None}")
+        print(f"{'=' * 60}\n")
 
         # Handle contributor attribution
         contributor_id = data.get("contributor_id")
@@ -2309,7 +2307,7 @@ def create_update_commentary():
         return jsonify(commentary.to_dict()), 201
 
     except Exception as e:
-        logger.exception("Failed to save commentary", exc_info=safe_exc_info())
+        logger.exception("Failed to save commentary")
         db.session.rollback()
         return jsonify(_safe_error_payload(e, "Failed to save commentary")), 500
 
@@ -2338,7 +2336,7 @@ def delete_writer_commentary(commentary_id):
         db.session.commit()
         return jsonify({"message": "Commentary deleted"})
     except Exception as e:
-        logger.exception("Failed to delete commentary", exc_info=safe_exc_info())
+        logger.exception("Failed to delete commentary")
         db.session.rollback()
         return jsonify(_safe_error_payload(e, "Failed to delete commentary")), 500
 
@@ -2370,7 +2368,7 @@ def get_writer_coverage_requests():
 
         return jsonify([r.to_dict() for r in requests])
     except Exception as e:
-        logger.exception("Failed to fetch coverage requests", exc_info=safe_exc_info())
+        logger.exception("Failed to fetch coverage requests")
         return jsonify(_safe_error_payload(e, "Failed to fetch coverage requests")), 500
 
 
@@ -2453,16 +2451,16 @@ def submit_coverage_request():
 
         logger.info(
             "Writer %s (%s) submitted coverage request for %s: %s",
-            log_metadata(user.id),
+            user.id,
             mask_email(user.email),
-            log_metadata(coverage_type),
-            log_metadata(team_name),
+            coverage_type,
+            team_name,
         )
 
         return jsonify({"message": "Coverage request submitted", "request": coverage_request.to_dict()}), 201
 
     except Exception as e:
-        logger.exception("Failed to submit coverage request", exc_info=safe_exc_info())
+        logger.exception("Failed to submit coverage request")
         db.session.rollback()
         return jsonify(_safe_error_payload(e, "Failed to submit coverage request")), 500
 
@@ -2496,7 +2494,7 @@ def cancel_coverage_request(request_id):
         return jsonify({"message": "Coverage request cancelled"})
 
     except Exception as e:
-        logger.exception("Failed to cancel coverage request", exc_info=safe_exc_info())
+        logger.exception("Failed to cancel coverage request")
         db.session.rollback()
         return jsonify(_safe_error_payload(e, "Failed to cancel coverage request")), 500
 
@@ -2560,18 +2558,13 @@ def get_player_stats(player_id):
                     # Sync if API has more games than we have locally
                     if api_appearances > local_count:
                         logger.info(
-                            "Writer stats sync: Player %s at team %s: API=%s, local=%s. Syncing...",
-                            log_metadata(player_id),
-                            log_metadata(loan_team.team_id),
-                            log_metadata(api_appearances),
-                            log_metadata(local_count),
+                            f"Writer stats sync: Player {player_id} at team {loan_team.team_id}: "
+                            f"API={api_appearances}, local={local_count}. Syncing..."
                         )
                         _sync_player_club_fixtures(player_id, loan_team.team_id, season, player_name=loaned.player_name)
                 except Exception as sync_err:
                     # Don't fail the request if sync fails - just log and continue with local data
-                    logger.warning(
-                        "Auto-sync failed for player %s: %s", log_metadata(player_id), log_metadata(sync_err)
-                    )
+                    logger.warning(f"Auto-sync failed for player {player_id}: {sync_err}")
 
         # Query stats joined with fixture to get date
         stats_query = (
@@ -2707,7 +2700,7 @@ def get_journalist_own_stats():
         )
 
     except Exception as e:
-        logger.exception("Failed to fetch journalist stats", exc_info=safe_exc_info())
+        logger.exception("Failed to fetch journalist stats")
         return jsonify(_safe_error_payload(e, "Failed to fetch statistics")), 500
 
 
@@ -3057,7 +3050,7 @@ def get_newsletter_journalist_view(newsletter_id):
         )
 
     except Exception as e:
-        logger.exception("Failed to fetch newsletter journalist view", exc_info=safe_exc_info())
+        logger.exception("Failed to fetch newsletter journalist view")
         return jsonify(_safe_error_payload(e, "Failed to fetch newsletter view")), 500
 
 
@@ -3092,7 +3085,7 @@ def get_journalist_public_stats(journalist_id):
         )
 
     except Exception as e:
-        logger.exception("Failed to fetch public journalist stats", exc_info=safe_exc_info())
+        logger.exception("Failed to fetch public journalist stats")
         return jsonify(_safe_error_payload(e, "Failed to fetch statistics")), 500
 
 
@@ -3147,7 +3140,7 @@ def get_admin_journalist_stats():
         )
 
     except Exception as e:
-        logger.exception("Failed to fetch admin journalist stats", exc_info=safe_exc_info())
+        logger.exception("Failed to fetch admin journalist stats")
         return jsonify(_safe_error_payload(e, "Failed to fetch statistics")), 500
 
 
@@ -3200,7 +3193,7 @@ def admin_list_coverage_requests():
         )
 
     except Exception as e:
-        logger.exception("Failed to list coverage requests", exc_info=safe_exc_info())
+        logger.exception("Failed to list coverage requests")
         return jsonify(_safe_error_payload(e, "Failed to list coverage requests")), 500
 
 
@@ -3255,14 +3248,12 @@ def admin_approve_coverage_request(request_id):
 
         db.session.commit()
 
-        logger.info(
-            "Approved coverage request %s for user %s", log_metadata(request_id), log_metadata(coverage_request.user_id)
-        )
+        logger.info(f"Approved coverage request {request_id} for user {coverage_request.user_id}")
 
         return jsonify({"message": "Coverage request approved", "request": coverage_request.to_dict()})
 
     except Exception as e:
-        logger.exception("Failed to approve coverage request", exc_info=safe_exc_info())
+        logger.exception("Failed to approve coverage request")
         db.session.rollback()
         return jsonify(_safe_error_payload(e, "Failed to approve coverage request")), 500
 
@@ -3288,14 +3279,12 @@ def admin_deny_coverage_request(request_id):
 
         db.session.commit()
 
-        logger.info(
-            "Denied coverage request %s for user %s", log_metadata(request_id), log_metadata(coverage_request.user_id)
-        )
+        logger.info(f"Denied coverage request {request_id} for user {coverage_request.user_id}")
 
         return jsonify({"message": "Coverage request denied", "request": coverage_request.to_dict()})
 
     except Exception as e:
-        logger.exception("Failed to deny coverage request", exc_info=safe_exc_info())
+        logger.exception("Failed to deny coverage request")
         db.session.rollback()
         return jsonify(_safe_error_payload(e, "Failed to deny coverage request")), 500
 
@@ -3349,7 +3338,7 @@ def admin_assign_loan_teams(journalist_id):
         )
 
     except Exception as e:
-        logger.exception("Failed to assign loan teams", exc_info=safe_exc_info())
+        logger.exception("Failed to assign loan teams")
         db.session.rollback()
         return jsonify(_safe_error_payload(e, "Failed to assign loan teams")), 500
 
@@ -3376,7 +3365,7 @@ def admin_get_journalist_assignments(journalist_id):
         )
 
     except Exception as e:
-        logger.exception("Failed to get journalist assignments", exc_info=safe_exc_info())
+        logger.exception("Failed to get journalist assignments")
         return jsonify(_safe_error_payload(e, "Failed to get assignments")), 500
 
 
@@ -3412,7 +3401,7 @@ def submit_manual_player():
         return jsonify(submission.to_dict()), 201
 
     except Exception as e:
-        logger.exception("Failed to submit manual player", exc_info=safe_exc_info())
+        logger.exception("Failed to submit manual player")
         db.session.rollback()
         return jsonify(_safe_error_payload(e, "Failed to submit manual player")), 500
 
@@ -3432,7 +3421,7 @@ def list_manual_submissions():
         return jsonify([s.to_dict() for s in submissions])
 
     except Exception as e:
-        logger.exception("Failed to list manual submissions", exc_info=safe_exc_info())
+        logger.exception("Failed to list manual submissions")
         return jsonify(_safe_error_payload(e, "Failed to list manual submissions")), 500
 
 
@@ -3503,7 +3492,7 @@ def list_managed_writers():
         return jsonify({"writers": result, "count": len(result)})
 
     except Exception as e:
-        logger.exception("Failed to list managed writers", exc_info=safe_exc_info())
+        logger.exception("Failed to list managed writers")
         return jsonify(_safe_error_payload(e, "Failed to list managed writers")), 500
 
 
@@ -3568,15 +3557,15 @@ def create_placeholder_writer():
 
         logger.info(
             "Editor %s created placeholder writer %s (%s)",
-            log_metadata(editor.id),
-            log_metadata(writer.id),
-            log_metadata(mask_email(writer.email) if writer.email else writer.display_name),
+            editor.id,
+            writer.id,
+            mask_email(writer.email) if writer.email else writer.display_name,
         )
 
         return jsonify({"message": "Placeholder writer created", "writer": writer.to_dict()}), 201
 
     except Exception as e:
-        logger.exception("Failed to create placeholder writer", exc_info=safe_exc_info())
+        logger.exception("Failed to create placeholder writer")
         db.session.rollback()
         return jsonify(_safe_error_payload(e, "Failed to create placeholder writer")), 500
 
@@ -3636,7 +3625,7 @@ def get_placeholder_writer(writer_id):
         return jsonify(data)
 
     except Exception as e:
-        logger.exception("Failed to get placeholder writer", exc_info=safe_exc_info())
+        logger.exception("Failed to get placeholder writer")
         return jsonify(_safe_error_payload(e, "Failed to get placeholder writer")), 500
 
 
@@ -3699,7 +3688,7 @@ def update_placeholder_writer(writer_id):
         return jsonify({"message": "Writer updated", "writer": writer.to_dict()})
 
     except Exception as e:
-        logger.exception("Failed to update placeholder writer", exc_info=safe_exc_info())
+        logger.exception("Failed to update placeholder writer")
         db.session.rollback()
         return jsonify(_safe_error_payload(e, "Failed to update placeholder writer")), 500
 
@@ -3739,12 +3728,12 @@ def delete_placeholder_writer(writer_id):
         db.session.delete(writer)
         db.session.commit()
 
-        logger.info("Editor %s deleted placeholder writer %s", log_metadata(editor.id), log_metadata(writer_id))
+        logger.info(f"Editor {editor.id} deleted placeholder writer {writer_id}")
 
         return jsonify({"message": "Writer deleted"})
 
     except Exception as e:
-        logger.exception("Failed to delete placeholder writer", exc_info=safe_exc_info())
+        logger.exception("Failed to delete placeholder writer")
         db.session.rollback()
         return jsonify(_safe_error_payload(e, "Failed to delete placeholder writer")), 500
 
@@ -3792,7 +3781,7 @@ def editor_assign_teams(writer_id):
         return jsonify({"message": "Teams assigned", "count": len(assignments)})
 
     except Exception as e:
-        logger.exception("Failed to assign teams to managed writer", exc_info=safe_exc_info())
+        logger.exception("Failed to assign teams to managed writer")
         db.session.rollback()
         return jsonify(_safe_error_payload(e, "Failed to assign teams")), 500
 
@@ -3849,7 +3838,7 @@ def editor_assign_loan_teams(writer_id):
         return jsonify({"message": "Loan teams assigned", "count": len(assignments)})
 
     except Exception as e:
-        logger.exception("Failed to assign loan teams to managed writer", exc_info=safe_exc_info())
+        logger.exception("Failed to assign loan teams to managed writer")
         db.session.rollback()
         return jsonify(_safe_error_payload(e, "Failed to assign loan teams")), 500
 
@@ -3902,10 +3891,13 @@ def send_claim_invite(writer_id):
                 claim_url=claim_url,
                 inviter_name=editor.display_name,
             )
-            logger.info("Sent claim invite to %s for writer %s", mask_email(writer.email), log_metadata(writer_id))
-        except Exception:
+            logger.info("Sent claim invite to %s for writer %s", mask_email(writer.email), writer_id)
+        except Exception as email_err:
             logger.warning(
-                "Failed to send claim email for writer_id=%s", log_metadata(writer.id), exc_info=safe_exc_info()
+                "Failed to send claim email: %s writer_id=%s",
+                redact_email_text(email_err, (writer.email,)),
+                writer.id,
+                exc_info=email_exc_info((writer.email,)),
             )
             # Still return success - token was generated
             return jsonify(
@@ -3920,7 +3912,7 @@ def send_claim_invite(writer_id):
         return jsonify({"message": "Claim invitation sent", "email": writer.email})
 
     except Exception as e:
-        logger.exception("Failed to send claim invite", exc_info=safe_exc_info())
+        logger.exception("Failed to send claim invite")
         db.session.rollback()
         return jsonify(_safe_error_payload(e, "Failed to send claim invitation")), 500
 
@@ -3956,7 +3948,7 @@ def validate_claim_token():
         )
 
     except Exception as e:
-        logger.exception("Failed to validate claim token", exc_info=safe_exc_info())
+        logger.exception("Failed to validate claim token")
         return jsonify(_safe_error_payload(e, "Failed to validate token")), 500
 
 
@@ -3998,12 +3990,12 @@ def complete_claim():
         # Issue auth token for the writer
         auth_data = issue_user_token(writer.email, role="user")
 
-        logger.info("Writer %s (%s) claimed their account", log_metadata(writer.id), mask_email(writer.email))
+        logger.info("Writer %s (%s) claimed their account", writer.id, mask_email(writer.email))
 
         return jsonify({"message": "Account claimed successfully", "user": writer.to_dict(), **auth_data})
 
     except Exception as e:
-        logger.exception("Failed to complete claim", exc_info=safe_exc_info())
+        logger.exception("Failed to complete claim")
         db.session.rollback()
         return jsonify(_safe_error_payload(e, "Failed to claim account")), 500
 
@@ -4035,7 +4027,7 @@ def get_writer_contributors():
         return jsonify([c.to_dict() for c in contributors])
 
     except Exception as e:
-        logger.exception("Failed to get contributors", exc_info=safe_exc_info())
+        logger.exception("Failed to get contributors")
         return jsonify(_safe_error_payload(e, "Failed to get contributors")), 500
 
 
@@ -4083,12 +4075,12 @@ def create_contributor():
         db.session.add(contributor)
         db.session.commit()
 
-        logger.info("Contributor %s created by user %s", log_metadata(contributor.id), log_metadata(user.id))
+        logger.info(f"Contributor {contributor.id} created by user {user.id}")
 
         return jsonify(contributor.to_dict()), 201
 
     except Exception as e:
-        logger.exception("Failed to create contributor", exc_info=safe_exc_info())
+        logger.exception("Failed to create contributor")
         db.session.rollback()
         return jsonify(_safe_error_payload(e, "Failed to create contributor")), 500
 
@@ -4150,12 +4142,12 @@ def update_contributor(contributor_id):
 
         db.session.commit()
 
-        logger.info("Contributor %s updated by user %s", log_metadata(contributor.id), log_metadata(user.id))
+        logger.info(f"Contributor {contributor.id} updated by user {user.id}")
 
         return jsonify(contributor.to_dict())
 
     except Exception as e:
-        logger.exception("Failed to update contributor", exc_info=safe_exc_info())
+        logger.exception("Failed to update contributor")
         db.session.rollback()
         return jsonify(_safe_error_payload(e, "Failed to update contributor")), 500
 
@@ -4183,11 +4175,11 @@ def delete_contributor(contributor_id):
         contributor.is_active = False
         db.session.commit()
 
-        logger.info("Contributor %s deleted by user %s", log_metadata(contributor.id), log_metadata(user.id))
+        logger.info(f"Contributor {contributor.id} deleted by user {user.id}")
 
         return jsonify({"message": "Contributor deleted successfully"})
 
     except Exception as e:
-        logger.exception("Failed to delete contributor", exc_info=safe_exc_info())
+        logger.exception("Failed to delete contributor")
         db.session.rollback()
         return jsonify(_safe_error_payload(e, "Failed to delete contributor")), 500

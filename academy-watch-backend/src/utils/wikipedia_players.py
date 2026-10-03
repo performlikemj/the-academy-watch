@@ -12,7 +12,6 @@ from functools import lru_cache
 import requests
 from src.mcp.brave import brave_search
 from src.services.wikipedia_classifier import classify_loan_row
-from src.utils.log_privacy import log_metadata, safe_exc_info
 
 logger = logging.getLogger(__name__)
 
@@ -98,8 +97,8 @@ def extract_wikipedia_players(
 
     logger.debug(
         "[wiki-loans] parsing senior career table for player=%s season=%s",
-        log_metadata(player_name),
-        log_metadata(season_year),
+        player_name,
+        season_year,
     )
 
     for cells in _parse_table_rows(wikitext):
@@ -154,8 +153,8 @@ def extract_wikipedia_players(
         logger.info(
             "[wiki-loans] extracted %d loan rows for player=%s season=%s",
             len(dedup),
-            log_metadata(player_name),
-            log_metadata(season_year),
+            player_name,
+            season_year,
         )
     return list(dedup.values())
 
@@ -179,9 +178,9 @@ def fetch_wikitext(title: str) -> str:
         raise RuntimeError(f"Wikipedia error for '{title}': {payload['error']}")
     wikitext = payload.get("parse", {}).get("wikitext", {}).get("*", "")
     if not isinstance(wikitext, str):
-        logger.warning("[wiki-loans] empty wikitext for title=%s", log_metadata(title))
+        logger.warning("[wiki-loans] empty wikitext for title=%s", title)
         return ""
-    logger.debug("[wiki-loans] fetched wikitext for title=%s (len=%d)", log_metadata(title), len(wikitext))
+    logger.debug("[wiki-loans] fetched wikitext for title=%s (len=%d)", title, len(wikitext))
     return wikitext
 
 
@@ -203,7 +202,7 @@ def search_wikipedia_title(query: str, *, context: str = "") -> str | None:
         "origin": "*",
     }
 
-    logger.info("[wiki-loans] Wikipedia search query='%s' context='%s'", log_metadata(query), log_metadata(context))
+    logger.info("[wiki-loans] Wikipedia search query='%s' context='%s'", query, context)
     try:
         response = _http().get(endpoint, params=params, timeout=10)
         if response.status_code in (429, 403):
@@ -215,26 +214,18 @@ def search_wikipedia_title(query: str, *, context: str = "") -> str | None:
     except requests.HTTPError as exc:
         status = getattr(exc.response, "status_code", None) if getattr(exc, "response", None) is not None else None
         logger.warning(
-            "[wiki-loans] Wikipedia search HTTPError status=%s query='%s' context='%s'",
-            log_metadata(status),
-            log_metadata(query),
-            log_metadata(context),
+            "[wiki-loans] Wikipedia search HTTPError status=%s query='%s' context='%s'", status, query, context
         )
         return None
     except Exception as exc:  # pragma: no cover - unexpected network issues
-        logger.warning(
-            "[wiki-loans] Wikipedia search error for query='%s' context='%s': %s",
-            log_metadata(query),
-            log_metadata(context),
-            log_metadata(exc),
-        )
+        logger.warning("[wiki-loans] Wikipedia search error for query='%s' context='%s': %s", query, context, exc)
         return None
     matches = payload.get("query", {}).get("search", [])
     if not matches:
-        logger.info("[wiki-loans] no Wikipedia match for '%s'", log_metadata(search_query))
+        logger.info("[wiki-loans] no Wikipedia match for '%s'", search_query)
         return None
     title = matches[0].get("title")
-    logger.debug("[wiki-loans] search match title='%s'", log_metadata(title))
+    logger.debug("[wiki-loans] search match title='%s'", title)
     return title
 
 
@@ -253,7 +244,7 @@ def _extract_section(wikitext: str, headings: list[str]) -> str:
             target_index = heading_indices[h_lower]
             break
     if target_index is None:
-        logger.debug("[wiki-loans] no matching section for headings=%s", log_metadata(headings))
+        logger.debug("[wiki-loans] no matching section for headings=%s", headings)
         return ""
 
     start_pos = matches[target_index].end()
@@ -263,9 +254,7 @@ def _extract_section(wikitext: str, headings: list[str]) -> str:
             end_pos = m.start()
             break
     section_text = wikitext[start_pos:end_pos]
-    logger.debug(
-        "[wiki-loans] extracted section '%s' length=%d", log_metadata(headings[target_index]), len(section_text)
-    )
+    logger.debug("[wiki-loans] extracted section '%s' length=%d", headings[target_index], len(section_text))
     return section_text
 
 
@@ -334,7 +323,7 @@ def extract_team_loan_candidates(wikitext: str, season_year: int) -> list[dict[s
     logger.info(
         "[wiki-loans] extracted %d loan candidates from team page for season %s",
         len(results),
-        log_metadata(season_year),
+        season_year,
     )
     return results
 
@@ -368,12 +357,12 @@ def collect_player_loans_from_wikipedia(
 
     for player in players:
         if not isinstance(player, dict):
-            logger.debug("[wiki-loans] skipping non-dict player payload: %r", log_metadata(player))
+            logger.debug("[wiki-loans] skipping non-dict player payload: %r", player)
             continue
 
         player_name = player.get("name") or player.get("player_name") or player.get("full_name")
         if not player_name:
-            logger.debug("[wiki-loans] skipping player with missing name: %r", log_metadata(player))
+            logger.debug("[wiki-loans] skipping player with missing name: %r", player)
             continue
 
         parent_club = player.get("parent_club") or player.get("team_name") or "Unknown Club"
@@ -396,7 +385,7 @@ def collect_player_loans_from_wikipedia(
                 if parent_club and parent_club != "Unknown Club":
                     wiki_title = search_wikipedia_title(f"{last_name}", context=f"footballer {parent_club}")
         if not wiki_title:
-            logger.info("[wiki-loans] no Wikipedia title resolved for player=%s", log_metadata(player_name))
+            logger.info("[wiki-loans] no Wikipedia title resolved for player=%s", player_name)
             continue
 
         try:
@@ -407,9 +396,8 @@ def collect_player_loans_from_wikipedia(
             else:
                 logger.exception(
                     "[wiki-loans] unable to fetch wikitext for player=%s title=%s",
-                    log_metadata(player_name),
-                    log_metadata(wiki_title),
-                    exc_info=safe_exc_info(),
+                    player_name,
+                    wiki_title,
                 )
             continue
 
@@ -423,9 +411,7 @@ def collect_player_loans_from_wikipedia(
         # Fallback: If no loans found on Wikipedia, try Brave Search
         if not rows:
             try:
-                logger.info(
-                    "[wiki-loans] No Wikipedia loans found for %s, trying Brave Search...", log_metadata(player_name)
-                )
+                logger.info("[wiki-loans] No Wikipedia loans found for %s, trying Brave Search...", player_name)
                 # Search query: "Player Name loan {season_year}"
                 # We pass empty strings for since/until to ignore date filtering for now,
                 # relying on the snippet content and classifier.
@@ -455,16 +441,10 @@ def collect_player_loans_from_wikipedia(
                                 "source_url": res.get("url"),
                             }
                         )
-                        logger.info(
-                            "✅ Found loan via Brave: %s -> %s",
-                            log_metadata(player_name),
-                            log_metadata(data.get("loan_club")),
-                        )
+                        logger.info(f"✅ Found loan via Brave: {player_name} -> {data.get('loan_club')}")
 
             except Exception as e:
-                logger.warning(
-                    "[wiki-loans] Brave search fallback failed for %s: %s", log_metadata(player_name), log_metadata(e)
-                )
+                logger.warning(f"[wiki-loans] Brave search fallback failed for {player_name}: {e}")
 
         for row in rows:
             row.setdefault("player_name", player_name)

@@ -19,7 +19,6 @@ from src.models.league import League, Player, PlayerFlag, Team
 from src.models.tracked_player import TrackedPlayer
 from src.services.wikipedia_classifier import classify_loan_row
 from src.utils.brave_players import BravePlayerCollection, collect_players_from_brave
-from src.utils.log_privacy import log_metadata, safe_exc_info
 from src.utils.wikipedia_players import (
     collect_player_loans_from_wikipedia,
     extract_team_loan_candidates,
@@ -299,9 +298,7 @@ def _task_update_sofascore_id(
     created = False
     now = datetime.now(UTC)
 
-    logger.info(
-        "[sofa] update requested player_id=%s sofascore_id=%s", log_metadata(player_id), log_metadata(sofascore_id)
-    )
+    logger.info("[sofa] update requested player_id=%s sofascore_id=%s", player_id, sofascore_id)
 
     if normalized_sofa:
         existing = (
@@ -328,12 +325,7 @@ def _task_update_sofascore_id(
     record.updated_at = now
 
     session.commit()
-    logger.info(
-        "[sofa] saved player_id=%s sofascore_id=%s created=%s",
-        log_metadata(player_id),
-        log_metadata(normalized_sofa),
-        log_metadata(created),
-    )
+    logger.info("[sofa] saved player_id=%s sofascore_id=%s created=%s", player_id, normalized_sofa, created)
 
     summary = (
         f"Assigned Sofascore id {normalized_sofa} to player #{player_id}"
@@ -388,12 +380,12 @@ def _diff_loan_rows(
 ) -> tuple[list[dict[str, Any]], int]:
     logger.info(
         "[sandbox-diff] start team=%s season=%s rows=%s apply_changes=%s use_openai=%s source=%s",
-        log_metadata(getattr(team, "name", None)),
-        log_metadata(season_year),
+        getattr(team, "name", None),
+        season_year,
         len(rows or []),
-        log_metadata(apply_changes),
-        log_metadata(use_openai),
-        log_metadata(data_source),
+        apply_changes,
+        use_openai,
+        data_source,
     )
     if not rows:
         return [], 0
@@ -430,9 +422,9 @@ def _diff_loan_rows(
         if present:
             logger.debug(
                 "[sandbox-diff] already present player=%s loan_team=%s season=%s",
-                log_metadata(player_name),
-                log_metadata(loan_team_name),
-                log_metadata(season_value),
+                player_name,
+                loan_team_name,
+                season_value,
             )
 
         payload_row: dict[str, Any] = {
@@ -481,12 +473,12 @@ def _diff_loan_rows(
                 logger.info(
                     "[sandbox-diff] classified valid=%s conf=%s player=%s parent=%s loan=%s season=%s reason=%s",
                     bool(classification.get("valid")),
-                    log_metadata(classification.get("confidence")),
-                    log_metadata(classification.get("player_name") or player_name),
-                    log_metadata(classification.get("parent_club") or parent_club or parent_hint),
-                    log_metadata(classification.get("loan_club") or loan_team_name),
-                    log_metadata(classification.get("season_start_year") or season_value),
-                    log_metadata((classification.get("reason") or "")[:160]),
+                    classification.get("confidence"),
+                    classification.get("player_name") or player_name,
+                    classification.get("parent_club") or parent_club or parent_hint,
+                    classification.get("loan_club") or loan_team_name,
+                    classification.get("season_start_year") or season_value,
+                    (classification.get("reason") or "")[:160],
                 )
             except Exception:
                 pass
@@ -496,10 +488,10 @@ def _diff_loan_rows(
                 resolved_player = classification.get("player_name") or player_name
                 logger.info(
                     "[sandbox-diff] applying change create TrackedPlayer for player=%s parent=%s loan=%s source=%s",
-                    log_metadata(resolved_player),
-                    log_metadata(team.name),
-                    log_metadata(current_club_name),
-                    log_metadata(data_source),
+                    resolved_player,
+                    team.name,
+                    current_club_name,
+                    data_source,
                 )
 
                 loan_team = (
@@ -549,20 +541,20 @@ def _diff_loan_rows(
                         created_count += 1
                         logger.info(
                             "[sandbox-diff] created TrackedPlayer player=%s team_id=%s loan_team=%s",
-                            log_metadata(resolved_player),
-                            log_metadata(team.id),
-                            log_metadata(current_club_name),
+                            resolved_player,
+                            team.id,
+                            current_club_name,
                         )
                     else:
                         logger.info(
                             "[sandbox-diff] skipping create for player=%s: no api_player_id resolved",
-                            log_metadata(resolved_player),
+                            resolved_player,
                         )
                 else:
                     logger.info(
                         "[sandbox-diff] TrackedPlayer already exists for player=%s loan_team=%s; skipping",
-                        log_metadata(resolved_player),
-                        log_metadata(current_club_name),
+                        resolved_player,
+                        current_club_name,
                     )
 
         if not present:
@@ -570,9 +562,9 @@ def _diff_loan_rows(
             if not apply_changes:
                 logger.info(
                     "[sandbox-diff] missing candidate (no write) player=%s loan_team=%s season=%s",
-                    log_metadata(player_name),
-                    log_metadata(loan_team_name),
-                    log_metadata(season_value),
+                    player_name,
+                    loan_team_name,
+                    season_value,
                 )
         # Soft duplicate gate: if name is fuzzy-equal to an existing row for same team
         try:
@@ -583,15 +575,19 @@ def _diff_loan_rows(
                 payload_row["possible_duplicate"] = True
                 logger.info(
                     "[sandbox-diff] possible duplicate by fuzzy match player=%s loan_team=%s",
-                    log_metadata(player_name),
-                    log_metadata(loan_team_name),
+                    player_name,
+                    loan_team_name,
                 )
         except Exception:
             pass
 
     if apply_changes and created_count:
         context.db_session.commit()
-    logger.info("[sandbox-diff] complete created=%s missing=%s", log_metadata(created_count), len(missing))
+    logger.info(
+        "[sandbox-diff] complete created=%s missing=%s",
+        created_count,
+        len(missing),
+    )
 
     return missing, created_count
 
@@ -1054,10 +1050,10 @@ def _task_wiki_loan_diff(
 ) -> SandboxTaskResult:
     logger.info(
         "[wiki-loans] wiki-loan-diff start: season=%s team_name=%s team_db_id=%s api_team_id=%s use_api_roster=%s",
-        log_metadata(params.get("season")),
-        log_metadata(params.get("team_name")),
-        log_metadata(params.get("team_db_id")),
-        log_metadata(params.get("api_team_id")),
+        params.get("season"),
+        params.get("team_name"),
+        params.get("team_db_id"),
+        params.get("api_team_id"),
         bool(params.get("use_api_roster")),
     )
     season_param = params.get("season")
@@ -1135,19 +1131,16 @@ def _task_wiki_loan_diff(
             logger.warning("[wiki-loans] API roster requested but api_client is missing")
         else:
             logger.info(
-                "[wiki-loans] fetching API roster team_id=%s season=%s",
-                log_metadata(getattr(team, "team_id", None)),
-                log_metadata(season_year),
+                "[wiki-loans] fetching API roster team_id=%s season=%s", getattr(team, "team_id", None), season_year
             )
             try:
                 api_response = context.api_client.get_team_players(team.team_id, season_year)
             except Exception as exc:  # pragma: no cover - upstream errors handled via admin UI
                 logger.exception(
                     "[wiki-loans] failed to fetch API roster for team_id=%s season=%s: %s",
-                    log_metadata(team.team_id),
-                    log_metadata(season_year),
-                    log_metadata(exc),
-                    exc_info=safe_exc_info(),
+                    team.team_id,
+                    season_year,
+                    exc,
                 )
                 api_response = []
             logger.info("[wiki-loans] API roster response items=%s", len(api_response or []))
@@ -1175,10 +1168,7 @@ def _task_wiki_loan_diff(
 
             api_roster_count = len(player_payloads)
             logger.info(
-                "[wiki-loans] mapped roster players=%s for team=%s season=%s",
-                log_metadata(api_roster_count),
-                log_metadata(team.name),
-                log_metadata(season_year),
+                "[wiki-loans] mapped roster players=%s for team=%s season=%s", api_roster_count, team.name, season_year
             )
             if player_payloads:
                 before_rows = len(wiki_rows)
@@ -1191,7 +1181,7 @@ def _task_wiki_loan_diff(
                 )
                 logger.info(
                     "[wiki-loans] wiki rows added from roster scan=%s total=%s",
-                    log_metadata(len(wiki_rows) - before_rows),
+                    len(wiki_rows) - before_rows,
                     len(wiki_rows),
                 )
 
@@ -1347,11 +1337,11 @@ def _task_brave_loan_diff(
 ) -> SandboxTaskResult:
     logger.info(
         "[brave-loans] brave-loan-diff start season=%s team=%s limit=%s strict_range=%s run_all=%s",
-        log_metadata(params.get("season")),
-        log_metadata(params.get("team_name") or params.get("team_db_id") or params.get("api_team_id")),
-        log_metadata(params.get("result_limit")),
-        log_metadata(params.get("strict_range")),
-        log_metadata(params.get("run_all_teams")),
+        params.get("season"),
+        params.get("team_name") or params.get("team_db_id") or params.get("api_team_id"),
+        params.get("result_limit"),
+        params.get("strict_range"),
+        params.get("run_all_teams"),
     )
 
     season_param = params.get("season")
@@ -1406,12 +1396,7 @@ def _task_brave_loan_diff(
                 strict_range=strict_range,
             )
         except BraveApiError as exc:
-            logger.exception(
-                "[brave-loans] collection failed for team=%s season=%s",
-                log_metadata(team_name),
-                log_metadata(season_year),
-                exc_info=safe_exc_info(),
-            )
+            logger.exception("[brave-loans] collection failed for team=%s season=%s", team_name, season_year)
             errors.append({"team": team_name, "error": str(exc)})
             continue
 

@@ -24,7 +24,6 @@ from src.services.club_access import (
 from src.services.club_player_profile import profile_payload
 from src.services.photo_processing import process_photo
 from src.services.player_suppression import is_local_player_suppressed
-from src.utils.log_privacy import safe_exc_info
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +37,7 @@ def _delete_previous(path, prefix):
         try:
             storage.delete_club_photo(path)
         except Exception:
-            logger.exception("Could not remove previous private club photo", exc_info=safe_exc_info())
+            logger.exception("Could not remove previous private club photo")
 
 
 def register(club_bp):
@@ -141,7 +140,7 @@ def register(club_bp):
         try:
             storage.delete_pending(grant["path"])
         except Exception:
-            logger.exception("Could not remove completed club photo upload", exc_info=safe_exc_info())
+            logger.exception("Could not remove completed club photo upload")
         if previous != path:
             _delete_previous(previous, prefix)
         return jsonify(

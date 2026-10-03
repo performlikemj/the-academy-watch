@@ -72,7 +72,6 @@ from src.models.showcase import LocalPlayer, local_player_is_minor
 from src.models.tracked_player import TrackedPlayer
 from src.models.weekly import Fixture, FixturePlayerStats
 from src.utils.academy_window import age_from_birth_date
-from src.utils.log_privacy import log_metadata, safe_exc_info
 
 logger = logging.getLogger(__name__)
 
@@ -1053,12 +1052,7 @@ def flush_player_refresh_queue(session=None) -> int:
             refreshed += 1
         except Exception:
             dirty.add((player_api_id, season))
-            logger.exception(
-                "season-rollup refresh failed for player=%s season=%s",
-                log_metadata(player_api_id),
-                log_metadata(season),
-                exc_info=safe_exc_info(),
-            )
+            logger.exception("season-rollup refresh failed for player=%s season=%s", player_api_id, season)
 
     session.commit()
     return refreshed

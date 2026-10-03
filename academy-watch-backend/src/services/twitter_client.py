@@ -28,7 +28,6 @@ from typing import Any
 
 import requests
 from src.utils.keyvault import load_secret
-from src.utils.log_privacy import log_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -260,7 +259,7 @@ class TwitterClient:
         }
 
         url = f"{X_API_BASE}{RECENT_SEARCH_PATH}"
-        logger.info("X API search: query=%r max=%d", log_metadata(full_query), log_metadata(api_max))
+        logger.info("X API search: query=%r max=%d", full_query, api_max)
         resp = self._session.get(url, params=params, timeout=self._timeout)
         if resp.status_code != 200:
             raise TwitterAPIError(resp.status_code, resp.text)

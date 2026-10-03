@@ -21,7 +21,6 @@ from src.services.club_publication_hold import held_subject_ids
 from src.services.player_suppression import public_player_visible_filter
 from src.services.public_player_subject import resolve_public_adult_subject
 from src.utils import legacy_pages
-from src.utils.log_privacy import log_metadata, safe_exc_info
 
 logger = logging.getLogger(__name__)
 
@@ -66,10 +65,10 @@ def _env_nonnegative_int(name: str, default: int) -> int:
     try:
         value = int(raw_value)
     except ValueError:
-        logger.warning("Ignoring invalid %s value %r", log_metadata(name), log_metadata(raw_value))
+        logger.warning("Ignoring invalid %s value %r", name, raw_value)
         return default
     if value < 0:
-        logger.warning("Ignoring negative %s value %r", log_metadata(name), log_metadata(raw_value))
+        logger.warning("Ignoring negative %s value %r", name, raw_value)
         return default
     return value
 
@@ -81,10 +80,10 @@ def _env_nonnegative_float(name: str, default: float) -> float:
     try:
         value = float(raw_value)
     except ValueError:
-        logger.warning("Ignoring invalid %s value %r", log_metadata(name), log_metadata(raw_value))
+        logger.warning("Ignoring invalid %s value %r", name, raw_value)
         return default
     if not math.isfinite(value) or value < 0:
-        logger.warning("Ignoring invalid %s value %r", log_metadata(name), log_metadata(raw_value))
+        logger.warning("Ignoring invalid %s value %r", name, raw_value)
         return default
     return value
 
@@ -184,8 +183,8 @@ def _render_sitemap_xml() -> bytes:
         if time.monotonic() - build_started_at >= build_budget_seconds:
             logger.warning(
                 "Sitemap player build budget reached after checking %d candidates and emitting %d players",
-                log_metadata(candidates_checked),
-                log_metadata(players_emitted),
+                candidates_checked,
+                players_emitted,
             )
             break
         candidates_checked += 1
@@ -237,7 +236,7 @@ def _run_background_build(app) -> None:
             _cache.pop("publication_enabled", None)
         _cache_generation += 1
     except Exception:
-        logger.exception("Background sitemap build failed", exc_info=safe_exc_info())
+        logger.exception("Background sitemap build failed")
     finally:
         _building = False
         _build_thread = None
@@ -262,7 +261,7 @@ def _start_background_build(app, expected_generation: int) -> bool:
         _build_thread = thread
         thread.start()
     except Exception:
-        logger.exception("Could not start background sitemap build", exc_info=safe_exc_info())
+        logger.exception("Could not start background sitemap build")
         _building = False
         _build_thread = None
         _build_lock.release()

@@ -27,7 +27,6 @@ from src.services.stripe_billing import (
     subscription_payload,
     subscriptions_for_user,
 )
-from src.utils.log_privacy import log_metadata, safe_exc_info
 
 logger = logging.getLogger(__name__)
 billing_bp = Blueprint("billing", __name__)
@@ -85,7 +84,7 @@ def billing_config():
         currency = details.get("currency")
         if currency is not None and currency != "usd":
             if pack_id not in _non_usd_pack_warnings:
-                logger.warning("Ignoring non-USD GOL credit pack %s", log_metadata(pack_id))
+                logger.warning("Ignoring non-USD GOL credit pack %s", pack_id)
                 _non_usd_pack_warnings.add(pack_id)
             continue
         payload = {
@@ -147,7 +146,7 @@ def billing_checkout():
         return jsonify({"error": exc.code}), exc.status
     except Exception:
         db.session.rollback()
-        logger.exception("Stripe checkout creation failed", exc_info=safe_exc_info())
+        logger.exception("Stripe checkout creation failed")
         return jsonify({"error": "checkout_failed"}), 500
 
 
@@ -163,7 +162,7 @@ def billing_portal():
         return jsonify({"error": exc.code}), exc.status
     except Exception:
         db.session.rollback()
-        logger.exception("Stripe billing portal creation failed", exc_info=safe_exc_info())
+        logger.exception("Stripe billing portal creation failed")
         return jsonify({"error": "portal_failed"}), 500
 
 

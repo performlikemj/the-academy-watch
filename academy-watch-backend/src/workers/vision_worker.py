@@ -46,7 +46,6 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
-from src.utils.log_privacy import log_metadata, safe_exc_info
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("vision_worker")
@@ -206,7 +205,7 @@ def _probe_frame_size(video_path: Path) -> list[int] | None:
         streams = json.loads(result.stdout).get("streams") or []
         return _coerce_frame_size(streams[0]) if streams else None
     except (OSError, subprocess.SubprocessError, TypeError, ValueError, json.JSONDecodeError) as exc:
-        log.warning("could not probe source frame size for %s: %s", log_metadata(video_path), log_metadata(exc))
+        log.warning("could not probe source frame size for %s: %s", video_path, exc)
         return None
 
 
@@ -304,7 +303,7 @@ def _brief_context(match, roster_entries, roster_members) -> dict | None:
         if skipped_roster:
             log.warning(
                 "video match %s: roster briefs skipped because the match has no kit colour",
-                log_metadata(_row_value(match, "id", "unknown")),
+                _row_value(match, "id", "unknown"),
             )
         return {
             "schema_version": BRIEF_CONTEXT_SCHEMA_VERSION,
@@ -388,20 +387,11 @@ def _persist_box_tracks(match, job_id: str, tracks_path: Path, fragments: list[d
         video_storage.upload_json(blob_path, payload)
         match.boxes_blob_path = blob_path
         db.session.commit()
-        log.info(
-            "video match %s: persisted %d box tracks to %s",
-            log_metadata(match_id),
-            len(payload),
-            log_metadata(blob_path),
-        )
+        log.info("video match %s: persisted %d box tracks to %s", match_id, len(payload), blob_path)
         return blob_path
     except Exception:
         db.session.rollback()
-        log.warning(
-            "video match %s completed but box tracks could not be persisted",
-            log_metadata(match_id),
-            exc_info=safe_exc_info(),
-        )
+        log.warning("video match %s completed but box tracks could not be persisted", match_id, exc_info=True)
         return None
 
 
@@ -411,7 +401,7 @@ def _download_footage(blob_path: str, dest: Path, expected_etag: str) -> None:
     if not expected_etag:
         raise RuntimeError("verified footage ETag is missing")
     url = mint_read_sas(blob_path)
-    log.info("downloading footage to %s", log_metadata(dest))
+    log.info("downloading footage to %s", dest)
     command = [
         "curl",
         "-fsSL",
@@ -472,7 +462,7 @@ def _keepalive(app, job_id: str, stop: threading.Event, fenced: threading.Event,
             try:
                 alive = heartbeat(job_id, stage="detect")
             except Exception:  # a blip must not kill the worker; the next tick retries
-                log.exception("keepalive heartbeat failed", exc_info=safe_exc_info())
+                log.exception("keepalive heartbeat failed")
                 continue
             if not alive:
                 fenced.set()
@@ -490,7 +480,7 @@ def _run_pipeline(
     if not cmd_template:
         raise RuntimeError("VIDEO_PIPELINE_CMD is not set (vision image misconfigured)")
     cmd = _build_pipeline_cmd(cmd_template, video_path, out_dir, match, context_path, brief_path)
-    log.info("running pipeline: %s", log_metadata(" ".join(cmd)))
+    log.info("running pipeline: %s", " ".join(cmd))
     subprocess.run(cmd, check=True)
 
 
@@ -564,7 +554,7 @@ def process_job(app, job_id: str) -> bool:
                     except (KeyError, OSError, TypeError, ValueError):
                         log.warning(
                             "video match %s captions could not read fragment spans; using stored chain spans",
-                            log_metadata(match.id),
+                            match.id,
                         )
                 tracklets = list(
                     db.session.query(VideoTracklet)
@@ -620,8 +610,8 @@ def process_job(app, job_id: str) -> bool:
                 except Exception as exc:
                     log.warning(
                         "video match %s: private brief input could not be prepared: %s",
-                        log_metadata(match.id),
-                        log_metadata(type(exc).__name__),
+                        match.id,
+                        type(exc).__name__,
                     )
                     raise RuntimeError("private brief input could not be prepared") from None
             stop, fenced = threading.Event(), threading.Event()
@@ -654,22 +644,20 @@ def process_job(app, job_id: str) -> bool:
                         artifacts[opt] = json.loads(p.read_text())
                 complete_job_with_artifacts(job_id, artifacts, gpu_seconds=gpu_seconds)
                 _persist_box_tracks(match, job_id, out_dir / "tracks.npz", artifacts["fragments"])
-        log.info("job %s succeeded", log_metadata(job_id))
+        log.info("job %s succeeded", job_id)
         return True
     except JobFenced as e:
         # Another actor (reaper + requeue, or a cancel) owns this job/match now. Write nothing.
-        log.warning("job %s fenced: %s — results discarded", log_metadata(job_id), log_metadata(e))
+        log.warning("job %s fenced: %s — results discarded", job_id, e)
         db.session.rollback()
         return False
     except Exception as e:
-        log.exception("job %s failed", log_metadata(job_id), exc_info=safe_exc_info())
+        log.exception("job %s failed", job_id)
         db.session.rollback()
         # Compare-and-swap in the queue service: only a job that is STILL running flips (a reaper/requeue may own it
         # by now), and its match moves to failed only if no other job is live for it.
         if not fail_running_job(job_id, error=str(e), gpu_seconds=round(time.monotonic() - t0, 1)):
-            log.warning(
-                "job %s was no longer running; someone else owns it — nothing overwritten", log_metadata(job_id)
-            )
+            log.warning("job %s was no longer running; someone else owns it — nothing overwritten", job_id)
         return False
 
 
@@ -685,7 +673,7 @@ def main() -> None:
 
         if pinned:
             if not claim_job(pinned, worker_id, pipeline_kind):
-                log.info("job %s unavailable or kind-mismatched — exiting", log_metadata(pinned))
+                log.info("job %s unavailable or kind-mismatched — exiting", pinned)
                 return
             ok = process_job(app, pinned)
             sys.exit(0 if ok else 1)
@@ -699,7 +687,7 @@ def main() -> None:
                 continue
             idle = 0
             process_job(app, job.id)
-        log.info("idle for %ds — exiting", log_metadata(IDLE_POLL_SECONDS * IDLE_EXIT_AFTER_POLLS))
+        log.info("idle for %ds — exiting", IDLE_POLL_SECONDS * IDLE_EXIT_AFTER_POLLS)
 
 
 if __name__ == "__main__":

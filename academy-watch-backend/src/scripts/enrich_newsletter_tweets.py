@@ -17,7 +17,6 @@ import argparse
 import sys
 
 from src.utils.data_mode import job_entrypoint
-from src.utils.log_privacy import log_metadata
 
 
 @job_entrypoint
@@ -56,7 +55,7 @@ def main() -> int:
 
         newsletter = Newsletter.query.get(args.newsletter_id)
         if not newsletter:
-            print(f"Newsletter {log_metadata(args.newsletter_id)} not found.", file=sys.stderr)
+            print(f"Newsletter {args.newsletter_id} not found.", file=sys.stderr)
             return 1
 
         team_id = args.team_id or newsletter.team_id
@@ -73,7 +72,9 @@ def main() -> int:
             return 1
 
         print(
-            f"Enriching newsletter {log_metadata(args.newsletter_id)} ({log_metadata(newsletter.week_start_date)} → {log_metadata(newsletter.week_end_date)}) for team {log_metadata(team_id)}"
+            f"Enriching newsletter {args.newsletter_id} "
+            f"({newsletter.week_start_date} → {newsletter.week_end_date}) "
+            f"for team {team_id}"
         )
 
         if args.dry_run:
@@ -92,16 +93,14 @@ def main() -> int:
                 end = f"{newsletter.week_end_date.isoformat()}T23:59:59Z"
                 raw = service._search_tweets(ctx, start, end)
                 quality = service._quality_filter(raw, ctx)
-                print(f"\n  {log_metadata(ctx.player_name)} ({log_metadata(ctx.full_name)}, {log_metadata(ctx.club)})")
+                print(f"\n  {ctx.player_name} ({ctx.full_name}, {ctx.club})")
                 print(f"    Raw: {len(raw)} | Quality: {len(quality)}")
                 for tw in quality:
-                    print(
-                        f'    [{log_metadata(tw.score)}] @{log_metadata(tw.author_username)}: "{log_metadata(tw.text[:80])}..." ({log_metadata(tw.accept_reason)})'
-                    )
+                    print(f'    [{tw.score}] @{tw.author_username}: "{tw.text[:80]}..." ({tw.accept_reason})')
             return 0
 
         result = service.enrich_newsletter(args.newsletter_id, team_id)
-        print(f"\nDone: {log_metadata(result)}")
+        print(f"\nDone: {result}")
         return 0
 
 

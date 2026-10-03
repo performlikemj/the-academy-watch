@@ -20,7 +20,6 @@ from src.services.youth_competition_resolver import (
     resolve_youth_team_for_parent,
 )
 from src.utils.background_jobs import is_job_cancelled, update_job
-from src.utils.log_privacy import log_metadata
 from src.utils.team_resolver import resolve_team_name
 
 logger = logging.getLogger(__name__)
@@ -69,7 +68,7 @@ class RateLimiter:
             if sleep_time > 0:
                 if self.heartbeat_fn:
                     self.heartbeat_fn()
-                logger.info("Rate limit: sleeping %ss (minute cap)", log_metadata(sleep_time))
+                logger.info(f"Rate limit: sleeping {sleep_time:.1f}s (minute cap)")
                 time.sleep(sleep_time)
 
         # Check per-day cap
@@ -152,7 +151,7 @@ def run_big6_seed(
     update_job(job_id, total=total_combos, progress=0)
     logger.info(
         "Seed: %d combos across %d teams in %d countries",
-        log_metadata(total_combos),
+        total_combos,
         len(team_ids),
         len(team_country_map),
     )
@@ -169,9 +168,7 @@ def run_big6_seed(
     cohort_ids = []
     for idx, (team_id, league_meta, season) in enumerate(combos):
         if is_job_cancelled(job_id):
-            logger.info(
-                "Big 6 seed cancelled during Phase 1 at combo %d/%d", log_metadata(idx), log_metadata(total_combos)
-            )
+            logger.info("Big 6 seed cancelled during Phase 1 at combo %d/%d", idx, total_combos)
             return {"cancelled": True, "phase": "discovery", "cohorts_created": len(cohort_ids)}
 
         league_id = int(league_meta.get("league_id"))
@@ -197,9 +194,9 @@ def run_big6_seed(
                 skipped_no_youth_team += 1
                 logger.info(
                     "Skipping combo: no youth team found for parent='%s' league=%s season=%s",
-                    log_metadata(team_name),
-                    log_metadata(league_name),
-                    log_metadata(season),
+                    team_name,
+                    league_name,
+                    season,
                 )
                 continue
 
@@ -231,11 +228,7 @@ def run_big6_seed(
                     )
             except Exception as cache_err:
                 logger.warning(
-                    "Cache clearing failed for combo %s/%s/%s: %s",
-                    log_metadata(team_name),
-                    log_metadata(league_name),
-                    log_metadata(season),
-                    log_metadata(cache_err),
+                    "Cache clearing failed for combo %s/%s/%s: %s", team_name, league_name, season, cache_err
                 )
 
             # Call discover_cohort directly in the main thread.
@@ -277,29 +270,23 @@ def run_big6_seed(
                 if is_dup:
                     cohort.sync_status = "duplicate"
                     db.session.commit()
-                    logger.info("Skipping duplicate cohort id=%s (>80%% overlap)", log_metadata(cohort.id))
+                    logger.info("Skipping duplicate cohort id=%s (>80%% overlap)", cohort.id)
                     continue
                 cohort_ids.append(cohort.id)
             else:
                 skipped_empty_cohorts += 1
                 logger.info(
                     "Skipping empty cohort id=%s (%s/%s/%s, query_team=%s %s)",
-                    log_metadata(cohort.id),
-                    log_metadata(team_name),
-                    log_metadata(league_name),
-                    log_metadata(season),
-                    log_metadata(query_team_id),
-                    log_metadata(query_team_name),
+                    cohort.id,
+                    team_name,
+                    league_name,
+                    season,
+                    query_team_id,
+                    query_team_name,
                 )
 
         except Exception as e:
-            logger.error(
-                "Failed to discover cohort %s/%s/%s: %s",
-                log_metadata(team_name),
-                log_metadata(league_name),
-                log_metadata(season),
-                log_metadata(e),
-            )
+            logger.error(f"Failed to discover cohort {team_name}/{league_name}/{season}: {e}")
             continue
 
     if not cohort_ids:
@@ -335,7 +322,7 @@ def run_big6_seed(
             unique_members.append(m)
 
     total_players = len(unique_members)
-    logger.info("Big 6 seed: %s unique players to sync journeys", log_metadata(total_players))
+    logger.info(f"Big 6 seed: {total_players} unique players to sync journeys")
 
     update_job(
         job_id, total=total_combos + total_players, progress=total_combos, current_player="Starting journey sync"
@@ -369,10 +356,7 @@ def run_big6_seed(
             break
         if idx % 10 == 0 and is_job_cancelled(job_id):
             logger.info(
-                "Big 6 seed cancelled during Phase 2 at player %d/%d (%d synced)",
-                log_metadata(idx),
-                log_metadata(total_players),
-                log_metadata(synced_count),
+                "Big 6 seed cancelled during Phase 2 at player %d/%d (%d synced)", idx, total_players, synced_count
             )
             return {
                 "cancelled": True,
@@ -406,9 +390,9 @@ def run_big6_seed(
                 elapsed = time.time() - t0
                 logger.warning(
                     "Journey sync failed for player %s after %.1fs: %s",
-                    log_metadata(member.player_api_id),
-                    log_metadata(elapsed),
-                    log_metadata(sync_exc),
+                    member.player_api_id,
+                    elapsed,
+                    sync_exc,
                 )
                 db.session.rollback()
                 _mark_player_sync_failure(member.player_api_id, str(sync_exc))
@@ -418,9 +402,9 @@ def run_big6_seed(
             if elapsed > player_timeout:
                 logger.warning(
                     "Journey sync slow for player %s: %.1fs (limit %ds)",
-                    log_metadata(member.player_api_id),
-                    log_metadata(elapsed),
-                    log_metadata(player_timeout),
+                    member.player_api_id,
+                    elapsed,
+                    player_timeout,
                 )
 
             if journey and not sync_error:
@@ -464,37 +448,37 @@ def run_big6_seed(
             if "daily api call limit" in err_msg or "daily quota" in err_msg:
                 logger.warning(
                     "Daily API limit reached at player %d/%d (%d synced so far), saving progress",
-                    log_metadata(idx + 1),
-                    log_metadata(total_players),
-                    log_metadata(synced_count),
+                    idx + 1,
+                    total_players,
+                    synced_count,
                 )
                 quota_exhausted = True
                 break
-            logger.warning("Failed journey sync for player %s: %s", log_metadata(member.player_api_id), log_metadata(e))
+            logger.warning(f"Failed journey sync for player {member.player_api_id}: {e}")
             _mark_player_sync_failure(member.player_api_id, str(e))
         except Exception as e:
-            logger.warning("Failed journey sync for player %s: %s", log_metadata(member.player_api_id), log_metadata(e))
+            logger.warning(f"Failed journey sync for player {member.player_api_id}: {e}")
             _mark_player_sync_failure(member.player_api_id, str(e))
 
         if (idx + 1) % 50 == 0:
             logger.info(
                 "Journey sync progress: %d/%d (%.0f%%), %d synced",
-                log_metadata(idx + 1),
-                log_metadata(total_players),
-                log_metadata((idx + 1) / total_players * 100),
-                log_metadata(synced_count),
+                idx + 1,
+                total_players,
+                (idx + 1) / total_players * 100,
+                synced_count,
             )
 
     if quota_exhausted:
         remaining = total_players - (idx + 1)
         logger.warning(
             "Journey sync stopped early: %d/%d completed, %d remaining (re-run to continue)",
-            log_metadata(synced_count),
-            log_metadata(total_players),
-            log_metadata(remaining),
+            synced_count,
+            total_players,
+            remaining,
         )
     else:
-        logger.info("Journey sync complete: %d/%d synced", log_metadata(synced_count), log_metadata(total_players))
+        logger.info("Journey sync complete: %d/%d synced", synced_count, total_players)
 
     # ── Phase 3: Refresh stats ──
     update_job(job_id, current_player="Refreshing cohort stats")
@@ -502,7 +486,7 @@ def run_big6_seed(
         try:
             cohort_service.refresh_cohort_stats(cohort_id)
         except Exception as e:
-            logger.warning("Failed to refresh stats for cohort %s: %s", log_metadata(cohort_id), log_metadata(e))
+            logger.warning(f"Failed to refresh stats for cohort {cohort_id}: {e}")
 
     # Mark cohorts by actual sync coverage.
     now = datetime.now(UTC)
@@ -528,15 +512,15 @@ def run_big6_seed(
                 c.sync_status = "partial"
                 c.journeys_synced_at = now
         except Exception as e:
-            logger.warning("Failed to mark cohort %s complete: %s", log_metadata(cohort_id), log_metadata(e))
+            logger.warning(f"Failed to mark cohort {cohort_id} complete: {e}")
     db.session.commit()
 
     logger.info(
         "Big 6 seed complete: %d cohorts, %d/%d players synced%s",
         len(cohort_ids),
-        log_metadata(synced_count),
-        log_metadata(total_players),
-        log_metadata(" (quota exhausted)" if quota_exhausted else ""),
+        synced_count,
+        total_players,
+        " (quota exhausted)" if quota_exhausted else "",
     )
     return {
         "cohorts_created": len(cohort_ids),

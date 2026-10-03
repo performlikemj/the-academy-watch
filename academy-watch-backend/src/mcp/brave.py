@@ -4,7 +4,6 @@ from email.utils import parsedate_to_datetime
 from typing import Any
 
 import requests
-from src.utils.log_privacy import log_metadata
 
 BASE_URL = "https://api.search.brave.com/res/v1"
 WEB_ENDPOINT = f"{BASE_URL}/web/search"
@@ -30,7 +29,7 @@ def _dbg(msg: str):
     if not _DEBUG_BRAVE:
         return
     try:
-        print(f"[BRAVE DBG] {log_metadata(msg)}")
+        print(f"[BRAVE DBG] {msg}")
     except Exception:
         pass
 

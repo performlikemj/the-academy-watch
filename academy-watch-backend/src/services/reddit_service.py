@@ -11,7 +11,6 @@ from typing import Optional
 
 import praw
 from prawcore.exceptions import PrawcoreException
-from src.utils.log_privacy import log_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -92,12 +91,12 @@ class RedditService:
 
             # Verify authentication by accessing the user
             _ = self._reddit.user.me()
-            logger.info("Successfully authenticated as Reddit user: %s", log_metadata(self.username))
+            logger.info(f"Successfully authenticated as Reddit user: {self.username}")
 
             return self._reddit
 
         except PrawcoreException as e:
-            logger.error("Reddit authentication failed: %s", log_metadata(e))
+            logger.error(f"Reddit authentication failed: {e}")
             raise RedditAuthenticationError(f"Failed to authenticate with Reddit: {e}")
 
     def post_to_subreddit(self, subreddit_name: str, title: str, body: str, flair_text: str | None = None) -> dict:
@@ -127,7 +126,7 @@ class RedditService:
 
             submission = subreddit.submit(title=title, selftext=body, flair_text=flair_text)
 
-            logger.info("Successfully posted to r/%s: %s", log_metadata(subreddit_name), log_metadata(submission.id))
+            logger.info(f"Successfully posted to r/{subreddit_name}: {submission.id}")
 
             return {
                 "post_id": submission.id,
@@ -137,11 +136,11 @@ class RedditService:
 
         except PrawcoreException as e:
             error_msg = str(e)
-            logger.error("Failed to post to r/%s: %s", log_metadata(subreddit_name), log_metadata(error_msg))
+            logger.error(f"Failed to post to r/{subreddit_name}: {error_msg}")
             raise RedditPostingError(f"Failed to post to r/{subreddit_name}: {error_msg}")
         except Exception as e:
             error_msg = str(e)
-            logger.error("Unexpected error posting to r/%s: %s", log_metadata(subreddit_name), log_metadata(error_msg))
+            logger.error(f"Unexpected error posting to r/{subreddit_name}: {error_msg}")
             raise RedditPostingError(f"Unexpected error: {error_msg}")
 
     def delete_post(self, post_id: str) -> bool:
@@ -160,11 +159,11 @@ class RedditService:
             reddit = self.authenticate()
             submission = reddit.submission(id=post_id)
             submission.delete()
-            logger.info("Successfully deleted Reddit post: %s", log_metadata(post_id))
+            logger.info(f"Successfully deleted Reddit post: {post_id}")
             return True
 
         except PrawcoreException as e:
-            logger.error("Failed to delete Reddit post %s: %s", log_metadata(post_id), log_metadata(e))
+            logger.error(f"Failed to delete Reddit post {post_id}: {e}")
             raise RedditPostingError(f"Failed to delete post: {e}")
 
     def get_post_info(self, post_id: str) -> dict | None:
@@ -192,7 +191,7 @@ class RedditService:
             }
 
         except PrawcoreException as e:
-            logger.warning("Could not fetch Reddit post %s: %s", log_metadata(post_id), log_metadata(e))
+            logger.warning(f"Could not fetch Reddit post {post_id}: {e}")
             return None
 
 

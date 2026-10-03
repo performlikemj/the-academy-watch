@@ -13,7 +13,6 @@ with redirect_stdout(sys.stderr):
     from src.main import app
 
 from src.services.notification_outbox import dispatch_due
-from src.utils.log_privacy import log_metadata
 
 
 def main(argv=None):
@@ -22,7 +21,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
     with app.app_context():
         summary = dispatch_due(limit=args.limit)
-    print(json.dumps(log_metadata(summary), sort_keys=True))
+    print(json.dumps(summary, sort_keys=True))
     return 1 if summary["failed"] or summary["retry"] or summary["errors"] else 0
 
 

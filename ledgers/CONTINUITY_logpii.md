@@ -28,3 +28,7 @@
 - Main e510612a integrated in d97ddcf3; AGENTS/CONTINUITY conflicts retain both histories. New scout-retention stdout counter guarded; source AST guard now covers1,826 calls. No lane-authored migration/frontend/UI changes; main migration retained verbatim. Final-head validation/push/CI receipts external LOGPIIF2.final.md.
 
 - a9f0a861 full gate5845 PASS/1769 SKIP/13 FAIL exposed logging regressions: validated highlight dry-run output keys omitted (3) and shared media fixed warning labels omitted (10). Corrected known-key grammar and source-label validation; existing tests unchanged, added malicious-label/validated-key controls. New final-head four cached gates required; external receipts retain initial failed cache.
+
+- LOGPIIF3 in progress: both V3 findings read; source-wide metadata rewrite superseded. Restore main diagnostics; only email-bearing sites remain explicit. Final main comparison, leak/diagnostic tests, four governed gates, push and bounded CI pending.
+
+- LOGPIIF3 narrowed source: unrelated files restored byte-for-byte to current main e510612a. Explicit auth/mail/admin/writer/CLI email masks remain; native provider diagnostics/tracebacks retained, known spaced destinations redacted. Actual Gunicorn Worker.handle_error + bind/control-address controls pass. Focused448 PASS (4 existing warnings); reviewed source lint/diff PASS. Final source commit, four cached gates, push and bounded CI receipts maintained in external LOGPIIF3.final.md with complete inventory in LOGPIIF3.inventory.md / audit.json. No lane migration/frontend/UI changes.

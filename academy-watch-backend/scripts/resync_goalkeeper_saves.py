@@ -29,7 +29,6 @@ from datetime import datetime
 
 # Add the src directory to the path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from src.utils.log_privacy import log_metadata
 
 
 def main():
@@ -46,13 +45,13 @@ def main():
     from src.models.weekly import Fixture, FixturePlayerStats
 
     with app.app_context():
-        print(log_metadata("=" * 60))
+        print("=" * 60)
         print("Goalkeeper Saves Re-sync Script")
-        print(log_metadata("=" * 60))
-        print(f"Mode: {log_metadata('DRY RUN' if args.dry_run else 'LIVE UPDATE')}")
-        print(f"Limit: {log_metadata(args.limit)} fixtures")
+        print("=" * 60)
+        print(f"Mode: {'DRY RUN' if args.dry_run else 'LIVE UPDATE'}")
+        print(f"Limit: {args.limit} fixtures")
         if args.player_id:
-            print(f"Player filter: {log_metadata(args.player_id)}")
+            print(f"Player filter: {args.player_id}")
         print()
 
         # Find goalkeeper stats with missing saves data
@@ -93,7 +92,7 @@ def main():
             season = fixture.season or datetime.now().year
 
             print(
-                f"Processing: Player {log_metadata(player_id)}, Fixture {log_metadata(fixture_id_api)} ({log_metadata(fixture.date_utc.date() if fixture.date_utc else 'N/A')})"
+                f"Processing: Player {player_id}, Fixture {fixture_id_api} ({fixture.date_utc.date() if fixture.date_utc else 'N/A'})"
             )
 
             try:
@@ -110,7 +109,7 @@ def main():
                         goals_conceded = goals_block.get("conceded")
 
                         if saves is not None:
-                            print(f"  -> Found saves: {log_metadata(saves)}, conceded: {log_metadata(goals_conceded)}")
+                            print(f"  -> Found saves: {saves}, conceded: {goals_conceded}")
 
                             if not args.dry_run:
                                 stats.saves = saves
@@ -120,7 +119,7 @@ def main():
 
                             updated += 1
                         else:
-                            print(f"  -> No saves data in API response (goals block: {log_metadata(goals_block)})")
+                            print(f"  -> No saves data in API response (goals block: {goals_block})")
                             skipped += 1
                     else:
                         print("  -> Empty statistics in response")
@@ -133,16 +132,16 @@ def main():
                 time.sleep(args.delay)
 
             except Exception as e:
-                print(f"  -> ERROR: {log_metadata(e)}")
+                print(f"  -> ERROR: {e}")
                 errors += 1
 
         print()
-        print(log_metadata("=" * 60))
+        print("=" * 60)
         print("Summary")
-        print(log_metadata("=" * 60))
-        print(f"Updated: {log_metadata(updated)}")
-        print(f"Skipped: {log_metadata(skipped)}")
-        print(f"Errors: {log_metadata(errors)}")
+        print("=" * 60)
+        print(f"Updated: {updated}")
+        print(f"Skipped: {skipped}")
+        print(f"Errors: {errors}")
 
         if args.dry_run:
             print()

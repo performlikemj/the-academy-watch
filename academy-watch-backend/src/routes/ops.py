@@ -16,7 +16,6 @@ from src.auth import _safe_error_payload, require_api_key
 from src.models.journey import PlayerJourney, PlayerJourneyEntry
 from src.models.league import AdminSetting, BackgroundJob, db
 from src.models.tracked_player import TrackedPlayer
-from src.utils.log_privacy import safe_exc_info
 from src.utils.supported_leagues import get_crawl_league_ids, get_supported_leagues
 
 ops_bp = Blueprint("ops", __name__)
@@ -118,5 +117,5 @@ def admin_ops_overview():
             }
         )
     except Exception as e:
-        logger.exception("admin_ops_overview failed", exc_info=safe_exc_info())
+        logger.exception("admin_ops_overview failed")
         return jsonify(_safe_error_payload(e, "Failed to build ops overview")), 500

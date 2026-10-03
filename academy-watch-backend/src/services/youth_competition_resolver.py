@@ -11,7 +11,6 @@ import re
 from typing import Any
 
 from src.utils.academy_classifier import strip_youth_suffix
-from src.utils.log_privacy import log_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -292,9 +291,7 @@ def resolve_youth_leagues(
                 )
                 continue
         except Exception as exc:
-            logger.warning(
-                "Youth league resolution failed for '%s': %s", log_metadata(target["name"]), log_metadata(exc)
-            )
+            logger.warning("Youth league resolution failed for '%s': %s", target["name"], exc)
 
         resolved.append(fallback_entry)
 

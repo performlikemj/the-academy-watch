@@ -33,7 +33,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from src.main import app
 from src.models.league import AcademyLeague, LoanedPlayer, Team, db
-from src.utils.log_privacy import log_metadata
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("full_rebuild")
@@ -83,9 +82,9 @@ YOUTH_LEAGUES_DATA = [
 
 
 def banner(stage_num, title):
-    print(f"\n{log_metadata('=' * 60)}")
-    print(f"  Stage {log_metadata(stage_num)}: {log_metadata(title)}")
-    print(f"{log_metadata('=' * 60)}\n")
+    print(f"\n{'=' * 60}")
+    print(f"  Stage {stage_num}: {title}")
+    print(f"{'=' * 60}\n")
 
 
 def confirm(message, auto_yes=False):
@@ -106,7 +105,7 @@ def stage_0_preflight(team_ids, seasons, dry_run):
         db.session.execute(db.text("SELECT 1"))
         print("  [OK] Database connection")
     except Exception as e:
-        print(f"  [FAIL] Database connection: {log_metadata(e)}")
+        print(f"  [FAIL] Database connection: {e}")
         return False
 
     # Check API quota
@@ -116,7 +115,7 @@ def stage_0_preflight(team_ids, seasons, dry_run):
         today_total = APIUsageDaily.today_total()
         pct = (today_total / 7000) * 100
         status = "WARN" if pct > 50 else "OK"
-        print(f"  [{log_metadata(status)}] API calls today: {log_metadata(today_total)}/7000 ({log_metadata(pct)}%)")
+        print(f"  [{status}] API calls today: {today_total}/7000 ({pct:.0f}%)")
         if pct > 80:
             print("  WARNING: API quota is >80% used. Consider running tomorrow.")
     except Exception:
@@ -131,10 +130,10 @@ def stage_0_preflight(team_ids, seasons, dry_run):
             name = team_row.name if team_row else str(t)
         team_names.append(name)
     combos = len(team_ids) * 6 * len(seasons)  # 6 youth leagues
-    print(f"\n  Teams: {log_metadata(', '.join(team_names))}")
-    print(f"  Seasons: {log_metadata(seasons)}")
-    print(f"  Cohort combos: {log_metadata(combos)}")
-    print(f"  Mode: {log_metadata('DRY RUN' if dry_run else 'LIVE')}")
+    print(f"\n  Teams: {', '.join(team_names)}")
+    print(f"  Seasons: {seasons}")
+    print(f"  Cohort combos: {combos}")
+    print(f"  Mode: {'DRY RUN' if dry_run else 'LIVE'}")
 
     return True
 
@@ -162,12 +161,12 @@ def stage_1_clean(dry_run):
     for name, model in tables:
         count = model.query.count()
         if dry_run:
-            print(f"  [DRY] Would delete {log_metadata(count)} {log_metadata(name)} records")
+            print(f"  [DRY] Would delete {count} {name} records")
         else:
             if count > 0:
                 model.query.delete()
                 db.session.commit()
-            print(f"  Deleted {log_metadata(count)} {log_metadata(name)} records")
+            print(f"  Deleted {count} {name} records")
 
     if not dry_run:
         print("\n  Clean slate complete.")
@@ -187,11 +186,11 @@ def stage_2_seed_leagues(dry_run):
 
         if existing:
             skipped += 1
-            print(f"  [SKIP] {log_metadata(league_data['name'])} (already exists)")
+            print(f"  [SKIP] {league_data['name']} (already exists)")
             continue
 
         if dry_run:
-            print(f"  [DRY] Would create {log_metadata(league_data['name'])}")
+            print(f"  [DRY] Would create {league_data['name']}")
             created += 1
             continue
 
@@ -212,7 +211,7 @@ def stage_2_seed_leagues(dry_run):
     if not dry_run and created:
         db.session.commit()
 
-    print(f"\n  Created: {log_metadata(created)}, Skipped: {log_metadata(skipped)}")
+    print(f"\n  Created: {created}, Skipped: {skipped}")
 
 
 # ── Stage 3: Cohort discovery + journey sync ──────────────────────────
@@ -223,7 +222,7 @@ def stage_3_cohorts(team_ids, seasons, dry_run):
 
     if dry_run:
         combos = len(team_ids) * 6 * len(seasons)
-        print(f"  [DRY] Would discover {log_metadata(combos)} cohort combos")
+        print(f"  [DRY] Would discover {combos} cohort combos")
         print("  [DRY] Would sync journeys for all unique players found")
         return {"cohorts_created": 0, "players_synced": 0}
 
@@ -245,9 +244,9 @@ def stage_3_cohorts(team_ids, seasons, dry_run):
     )
     elapsed = time.time() - start
 
-    print(f"\n  Cohorts created: {log_metadata(result.get('cohorts_created', 0))}")
-    print(f"  Players synced: {log_metadata(result.get('players_synced', 0))}")
-    print(f"  Elapsed: {log_metadata(elapsed / 60)} minutes")
+    print(f"\n  Cohorts created: {result.get('cohorts_created', 0)}")
+    print(f"  Players synced: {result.get('players_synced', 0)}")
+    print(f"  Elapsed: {elapsed / 60:.1f} minutes")
 
     return result
 
@@ -280,12 +279,12 @@ def stage_4_tracked_players(team_ids, seasons, dry_run):
         if not team_name:
             _team_row = Team.query.filter_by(team_id=api_team_id).order_by(Team.season.desc()).first()
             team_name = _team_row.name if _team_row else str(api_team_id)
-        print(f"\n  Processing {log_metadata(team_name)} (api_id={log_metadata(api_team_id)})...")
+        print(f"\n  Processing {team_name} (api_id={api_team_id})...")
 
         # Find the Team row (most recent season)
         team = Team.query.filter_by(team_id=api_team_id).order_by(Team.season.desc()).first()
         if not team:
-            print(f"    [WARN] No Team row found for api_id={log_metadata(api_team_id)}, skipping")
+            print(f"    [WARN] No Team row found for api_id={api_team_id}, skipping")
             total_errors.append(f"{team_name}: no Team row")
             continue
 
@@ -314,12 +313,7 @@ def stage_4_tracked_players(team_ids, seasons, dry_run):
                             all_squad_player_ids.add(int(pid))
                     squad_data.extend(season_squad)
                 except Exception as e:
-                    logger.warning(
-                        "Squad fetch failed for %s season %d: %s",
-                        log_metadata(team_name),
-                        log_metadata(fetch_season),
-                        log_metadata(e),
-                    )
+                    logger.warning("Squad fetch failed for %s season %d: %s", team_name, fetch_season, e)
 
             print(
                 f"    Source 2 (squad): {len(all_squad_player_ids)} unique across {len(list(seasons_to_fetch))} seasons"
@@ -351,11 +345,11 @@ def stage_4_tracked_players(team_ids, seasons, dry_run):
                     if journey and parent_api_id in (journey.academy_club_ids or []):
                         candidate_ids[pid] = journey
                 except Exception as sync_err:
-                    logger.warning("Journey sync failed for %d: %s", log_metadata(pid), log_metadata(sync_err))
+                    logger.warning("Journey sync failed for %d: %s", pid, sync_err)
 
-            print(f"    Squad journey syncs: {log_metadata(synced)}")
+            print(f"    Squad journey syncs: {synced}")
         else:
-            print(f"    [DRY] Would fetch squads for seasons {log_metadata(list(seasons_to_fetch))}")
+            print(f"    [DRY] Would fetch squads for seasons {list(seasons_to_fetch)}")
 
         # ── Source 3: CohortMember records ──
         cohort_ids = [c.id for c in AcademyCohort.query.filter_by(team_api_id=parent_api_id).all()]
@@ -440,20 +434,20 @@ def stage_4_tracked_players(team_ids, seasons, dry_run):
                 created += 1
             except Exception as entry_err:
                 errors.append(f"Player {pid}: {entry_err}")
-                logger.warning("TrackedPlayer error for %d: %s", log_metadata(pid), log_metadata(entry_err))
+                logger.warning("TrackedPlayer error for %d: %s", pid, entry_err)
 
         db.session.commit()
-        print(f"    Created: {log_metadata(created)}, Skipped: {log_metadata(skipped)}, Errors: {len(errors)}")
+        print(f"    Created: {created}, Skipped: {skipped}, Errors: {len(errors)}")
         total_created += created
         total_skipped += skipped
         total_errors.extend(errors)
 
-    print(f"\n  Total TrackedPlayers created: {log_metadata(total_created)}")
-    print(f"  Total skipped: {log_metadata(total_skipped)}")
+    print(f"\n  Total TrackedPlayers created: {total_created}")
+    print(f"  Total skipped: {total_skipped}")
     if total_errors:
         print(f"  Errors: {len(total_errors)}")
         for err in total_errors[:10]:
-            print(f"    - {log_metadata(err)}")
+            print(f"    - {err}")
 
     return {"created": total_created, "skipped": total_skipped, "errors": len(total_errors)}
 
@@ -488,7 +482,7 @@ def stage_5_link_journeys(dry_run):
         db.session.commit()
 
     action = "Would link" if dry_run else "Linked"
-    print(f"  {log_metadata(action)} {log_metadata(linked)} players to existing journeys")
+    print(f"  {action} {linked} players to existing journeys")
 
 
 # ── Stage 6: Refresh statuses ─────────────────────────────────────────
@@ -542,10 +536,10 @@ def stage_6_refresh_statuses(team_ids, dry_run):
         db.session.commit()
 
     action = "Would update" if dry_run else "Updated"
-    print(f"  {log_metadata(action)} {log_metadata(updated)} players")
+    print(f"  {action} {updated} players")
     print("\n  Status breakdown:")
     for status, count in sorted(status_counts.items()):
-        print(f"    {log_metadata(status)}: {log_metadata(count)}")
+        print(f"    {status}: {count}")
 
 
 # ── Stage 7: Seed club locations ──────────────────────────────────────
@@ -557,7 +551,7 @@ def stage_7_locations(dry_run):
     from src.models.journey import ClubLocation
 
     existing = ClubLocation.query.count()
-    print(f"  Existing locations: {log_metadata(existing)}")
+    print(f"  Existing locations: {existing}")
 
     if dry_run:
         print("  [DRY] Would seed club locations for major clubs")
@@ -566,7 +560,7 @@ def stage_7_locations(dry_run):
     from src.services.journey_sync import seed_club_locations
 
     added = seed_club_locations()
-    print(f"  Added {log_metadata(added)} new club locations")
+    print(f"  Added {added} new club locations")
 
 
 # ── Stage 8: Summary ──────────────────────────────────────────────────
@@ -579,8 +573,8 @@ def stage_8_summary(team_ids):
     from src.models.journey import ClubLocation, PlayerJourney, PlayerJourneyEntry
     from src.models.tracked_player import TrackedPlayer
 
-    print(f"  {'Table'} {'Count'}")
-    print(f"  {log_metadata('-' * 25)} {log_metadata('-' * 8)}")
+    print(f"  {'Table':<25} {'Count':>8}")
+    print(f"  {'-' * 25} {'-' * 8}")
 
     tables = [
         ("AcademyCohort", AcademyCohort),
@@ -593,13 +587,11 @@ def stage_8_summary(team_ids):
 
     for name, model in tables:
         count = model.query.count()
-        print(f"  {log_metadata(name)} {log_metadata(count)}")
+        print(f"  {name:<25} {count:>8}")
 
     # Per-team breakdown
-    print(f"\n  {'Team'} {'Tracked'} {'Academy'} {'On Loan'} {'1st Team'}")
-    print(
-        f"  {log_metadata('-' * 25)} {log_metadata('-' * 8)} {log_metadata('-' * 8)} {log_metadata('-' * 8)} {log_metadata('-' * 8)}"
-    )
+    print(f"\n  {'Team':<25} {'Tracked':>8} {'Academy':>8} {'On Loan':>8} {'1st Team':>8}")
+    print(f"  {'-' * 25} {'-' * 8} {'-' * 8} {'-' * 8} {'-' * 8}")
 
     for api_id in team_ids:
         team = Team.query.filter_by(team_id=api_id).order_by(Team.season.desc()).first()
@@ -611,9 +603,7 @@ def stage_8_summary(team_ids):
         on_loan = TrackedPlayer.query.filter_by(team_id=team.id, is_active=True, status="on_loan").count()
         first_team = TrackedPlayer.query.filter_by(team_id=team.id, is_active=True, status="first_team").count()
 
-        print(
-            f"  {log_metadata(team.name)} {log_metadata(total)} {log_metadata(academy)} {log_metadata(on_loan)} {log_metadata(first_team)}"
-        )
+        print(f"  {team.name:<25} {total:>8} {academy:>8} {on_loan:>8} {first_team:>8}")
 
     print()
 
@@ -665,22 +655,21 @@ def main():
             season_for_lookup = max(seasons)
             league_row = League.query.filter_by(league_id=args.league).first()
             if not league_row:
-                print(f"\n  [FAIL] League {log_metadata(args.league)} not found in DB. Run sync-teams first.")
+                print(f"\n  [FAIL] League {args.league} not found in DB. Run sync-teams first.")
                 sys.exit(1)
             league_teams = Team.query.filter_by(league_id=league_row.id, season=season_for_lookup).all()
             if not league_teams:
-                print(
-                    f"\n  [FAIL] No teams found for league {log_metadata(args.league)} season {log_metadata(season_for_lookup)}."
-                )
-                print(f"  Run: POST /api/sync-teams/{log_metadata(season_for_lookup)}")
+                print(f"\n  [FAIL] No teams found for league {args.league} season {season_for_lookup}.")
+                print(f"  Run: POST /api/sync-teams/{season_for_lookup}")
                 sys.exit(1)
             team_ids = [t.team_id for t in league_teams if t.team_id not in exclude_ids]
             print(
-                f"\n  Discovered {len(team_ids)} teams from league {log_metadata(league_row.name)} (season {log_metadata(season_for_lookup)}, excluded {len(exclude_ids)})"
+                f"\n  Discovered {len(team_ids)} teams from league {league_row.name} "
+                f"(season {season_for_lookup}, excluded {len(exclude_ids)})"
             )
-        print(log_metadata("\n" + "=" * 60))
+        print("\n" + "=" * 60)
         print("  FULL ACADEMY REBUILD")
-        print(log_metadata("=" * 60))
+        print("=" * 60)
 
         start_time = time.time()
 
@@ -726,7 +715,7 @@ def main():
         stage_8_summary(team_ids)
 
         elapsed = time.time() - start_time
-        print(f"  Total time: {log_metadata(elapsed / 60)} minutes")
+        print(f"  Total time: {elapsed / 60:.1f} minutes")
         print("  Done!\n")
 
 

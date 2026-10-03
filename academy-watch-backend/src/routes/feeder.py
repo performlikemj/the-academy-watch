@@ -6,7 +6,6 @@ Public read-only endpoints that show which academies feed a club's squad.
 import logging
 
 from flask import Blueprint, jsonify, request
-from src.utils.log_privacy import log_metadata, safe_exc_info
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +38,7 @@ def get_competition_teams(league_api_id):
         teams = service.get_competition_teams(league_api_id, season)
         return jsonify({"teams": teams, "season": season, "league_api_id": league_api_id})
     except Exception as e:
-        logger.error("Failed to fetch competition teams: %s", log_metadata(e), exc_info=safe_exc_info())
+        logger.error(f"Failed to fetch competition teams: {e}", exc_info=True)
         return jsonify({"error": "Failed to fetch teams"}), 500
 
 
@@ -59,10 +58,5 @@ def get_squad_origins(team_api_id):
         result = service.get_squad_origins(team_api_id, league_api_id=league, season=season)
         return jsonify(result)
     except Exception as e:
-        logger.error(
-            "Failed to fetch squad origins for team %s: %s",
-            log_metadata(team_api_id),
-            log_metadata(e),
-            exc_info=safe_exc_info(),
-        )
+        logger.error(f"Failed to fetch squad origins for team {team_api_id}: {e}", exc_info=True)
         return jsonify({"error": "Failed to fetch squad origins"}), 500

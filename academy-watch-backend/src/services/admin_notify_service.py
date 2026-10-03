@@ -12,7 +12,7 @@ import os
 import threading
 from datetime import UTC, datetime
 
-from src.utils.log_privacy import get_logger, log_metadata, mask_email, safe_exc_info
+from src.utils.log_privacy import email_exc_info, get_logger, mask_email
 
 logger = get_logger(__name__)
 
@@ -43,7 +43,7 @@ def _notify_in_background(subject: str, text: str, html: str) -> None:
         logger.info("Admin notification skipped: ADMIN_EMAILS not configured")
         return
 
-    logger.info("Queuing admin notification to %s: %s", mask_email(admin_email), log_metadata(subject))
+    logger.info("Queuing admin notification to %s: %s", mask_email(admin_email), subject)
 
     from src.services.email_service import email_service
 
@@ -62,9 +62,7 @@ def _notify_in_background(subject: str, text: str, html: str) -> None:
                         tags=["admin-notification"],
                     )
                     logger.info(
-                        "Admin notification sent: %s success=%s",
-                        log_metadata(subject),
-                        log_metadata(result.success if result else "unknown"),
+                        "Admin notification sent: %s success=%s", subject, result.success if result else "unknown"
                     )
             else:
                 result = email_service.send_email(
@@ -76,11 +74,11 @@ def _notify_in_background(subject: str, text: str, html: str) -> None:
                 )
                 logger.info(
                     "Admin notification sent (no app ctx): %s success=%s",
-                    log_metadata(subject),
-                    log_metadata(result.success if result else "unknown"),
+                    subject,
+                    result.success if result else "unknown",
                 )
         except Exception:
-            logger.exception("Failed to send admin notification: %s", log_metadata(subject), exc_info=safe_exc_info())
+            logger.exception("Failed to send admin notification: %s", subject, exc_info=email_exc_info((admin_email,)))
 
     thread = threading.Thread(target=_send, daemon=True)
     thread.start()
@@ -119,7 +117,7 @@ def notify_new_user(email: str, display_name: str | None = None) -> None:
         )
         _notify_in_background(subject, text, html)
     except Exception:
-        logger.exception("notify_new_user failed for %s", mask_email(email), exc_info=safe_exc_info())
+        logger.exception("notify_new_user failed for %s", mask_email(email), exc_info=email_exc_info((email,)))
 
 
 def notify_subscription_change(
@@ -165,7 +163,9 @@ def notify_subscription_change(
         )
         _notify_in_background(subject, text, html)
     except Exception:
-        logger.exception("notify_subscription_change failed for %s", mask_email(email), exc_info=safe_exc_info())
+        logger.exception(
+            "notify_subscription_change failed for %s", mask_email(email), exc_info=email_exc_info((email,))
+        )
 
 
 def notify_tracking_request(team_name: str, email: str | None = None, reason: str | None = None) -> None:
@@ -185,7 +185,7 @@ def notify_tracking_request(team_name: str, email: str | None = None, reason: st
         html = _simple_html(["<strong>New tracking request</strong>"] + lines)
         _notify_in_background(subject, text, html)
     except Exception:
-        logger.exception("notify_tracking_request failed for %s", log_metadata(team_name), exc_info=safe_exc_info())
+        logger.exception("notify_tracking_request failed for %s", team_name)
 
 
 def notify_contact_request(
@@ -218,9 +218,7 @@ def notify_contact_request(
         html = _simple_html([f"<strong>New {route_label.lower()} contact request</strong>"] + lines)
         _notify_in_background(subject, text, html)
     except Exception:
-        logger.exception(
-            "notify_contact_request failed for %s", log_metadata(contact_request_id), exc_info=safe_exc_info()
-        )
+        logger.exception("notify_contact_request failed for %s", contact_request_id)
 
 
 def notify_unsubscribe(email: str, team_name: str | None = None) -> None:
@@ -238,4 +236,4 @@ def notify_unsubscribe(email: str, team_name: str | None = None) -> None:
         html = _simple_html(["<strong>User unsubscribed</strong>"] + lines)
         _notify_in_background(subject, text, html)
     except Exception:
-        logger.exception("notify_unsubscribe failed for %s", mask_email(email), exc_info=safe_exc_info())
+        logger.exception("notify_unsubscribe failed for %s", mask_email(email), exc_info=email_exc_info((email,)))

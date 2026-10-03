@@ -37,7 +37,6 @@ from src.services.radar_stats_service import (  # noqa: E402
     _team_league_from_api,
     resolve_player_league,
 )
-from src.utils.log_privacy import log_metadata
 
 dotenv.load_dotenv(dotenv.find_dotenv())
 
@@ -158,13 +157,11 @@ def main() -> None:
     app = _make_app()
     with app.app_context():
         team = _resolve_team(args.team, args.team_api_id)
-        print(log_metadata("=" * 100))
-        print(
-            f"VERIFY radar league resolution for: {log_metadata(team.name)}  (Team.id={log_metadata(team.id)}, team_api_id={log_metadata(team.team_id)})"
-        )
+        print("=" * 100)
+        print(f"VERIFY radar league resolution for: {team.name}  (Team.id={team.id}, team_api_id={team.team_id})")
         if args.season:
-            print(f"Season: {log_metadata(args.season)}")
-        print(log_metadata("=" * 100))
+            print(f"Season: {args.season}")
+        print("=" * 100)
 
         tracked = (
             TrackedPlayer.query.filter(TrackedPlayer.team_id == team.id, TrackedPlayer.is_active.is_(True))
@@ -180,8 +177,8 @@ def main() -> None:
             f"  {'flag':<9} {'status':<11} {'name':<26} {'current club':<26} "
             f"{'resolved league':<26} {'local-DB league':<26}"
         )
-        print(log_metadata(header))
-        print(log_metadata("  " + "-" * (len(header) - 2)))
+        print(header)
+        print("  " + "-" * (len(header) - 2))
 
         for tp in tracked:
             resolved = resolve_player_league(tp.player_api_id, season=args.season)
@@ -210,29 +207,32 @@ def main() -> None:
                 f"{resolved_label[:25]:<26} "
                 f"{local_label[:25]:<26}"
             )
-            print(log_metadata(line))
+            print(line)
 
             if verdict in ("SUSPECT", "NO_LEAGUE"):
                 suspects.append((tp, resolved, local))
 
         print("\nCounts:")
         for k, v in counts.items():
-            print(f"  {log_metadata(k)} {log_metadata(v)}")
+            print(f"  {k:<10} {v}")
 
         if suspects:
             print(f"\nDetail on {len(suspects)} flagged row(s):")
             for tp, resolved, local in suspects:
                 print(
-                    f"  - id={log_metadata(tp.id)} api={log_metadata(tp.player_api_id)} {log_metadata(tp.player_name)}  status={log_metadata(tp.status)}  pinned_parent={log_metadata(tp.pinned_parent)}"
+                    f"  - id={tp.id} api={tp.player_api_id} {tp.player_name}  "
+                    f"status={tp.status}  pinned_parent={tp.pinned_parent}"
                 )
                 print(
-                    f"      current_club_api_id={log_metadata(tp.current_club_api_id)}  current_club_db_id={log_metadata(tp.current_club_db_id)}  current_club_name={log_metadata(tp.current_club_name)!r}"
+                    f"      current_club_api_id={tp.current_club_api_id}  "
+                    f"current_club_db_id={tp.current_club_db_id}  "
+                    f"current_club_name={tp.current_club_name!r}"
                 )
-                print(f"      resolve_player_league → {log_metadata(resolved)}")
-                print(f"      local teams.league_id → {log_metadata(local)}")
+                print(f"      resolve_player_league → {resolved}")
+                print(f"      local teams.league_id → {local}")
                 if tp.current_club_api_id:
                     api_lookup = _team_league_from_api(tp.current_club_api_id, args.season or _default_season())
-                    print(f"      API-Football says   → {log_metadata(api_lookup)}")
+                    print(f"      API-Football says   → {api_lookup}")
 
         print("\nDONE")
 

@@ -21,7 +21,6 @@ from src.extensions import limiter
 from src.models.league import db
 from src.models.product_event import ProductEvent
 from src.services.public_player_subject import resolve_public_adult_subject
-from src.utils.log_privacy import safe_exc_info
 from werkzeug.exceptions import HTTPException, RequestEntityTooLarge
 
 events_bp = Blueprint("events", __name__)
@@ -172,7 +171,7 @@ def ingest_events():
                 with db.session.begin_nested():
                     subject = resolve_public_adult_subject(player_api_id)
             except Exception:
-                logger.exception("Failed to resolve a profile-view subject", exc_info=safe_exc_info())
+                logger.exception("Failed to resolve a profile-view subject")
                 continue
             if subject is None:
                 continue

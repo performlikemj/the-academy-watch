@@ -7,7 +7,6 @@ import os
 import time
 
 import stripe
-from src.utils.log_privacy import log_metadata, safe_exc_info
 
 logger = logging.getLogger(__name__)
 
@@ -145,9 +144,7 @@ def price_details(price_id: str) -> dict:
         _price_cache[price_id] = (now, details)
         return details
     except Exception:
-        logger.warning(
-            "Stripe price lookup failed for configured price %s", log_metadata(price_id), exc_info=safe_exc_info()
-        )
+        logger.warning("Stripe price lookup failed for configured price %s", price_id, exc_info=True)
         _price_cache[price_id] = (now, {})
         return {}
 

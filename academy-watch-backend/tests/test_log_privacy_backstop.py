@@ -148,7 +148,7 @@ def test_candidate_scan_linear_control(suffix):
 def test_malformed_or_expansive_format_never_raises(message, args):
     item = record(message, args)
     assert EmailLogFilter().filter(item)
-    assert "withheld" in item.getMessage()
+    assert "privacy formatting failed" in item.getMessage()
     assert item.levelno == logging.ERROR
 
 
@@ -337,7 +337,7 @@ def test_real_cli_missing_manager_stderr(app, monkeypatch, capsys, module_name):
     output = capsys.readouterr().err
     assert EMAIL not in output
     assert mask_email(EMAIL) in output
-    assert "fixture operation refused" in output
+    assert "was not found" in output
 
 
 def test_admin_mask_collision_retains_actor_and_no_bearer_sample(app, monkeypatch, caplog):
@@ -409,7 +409,7 @@ def test_mapping_format_width_limit():
     EmailLogFilter().filter(item)
     assert time.perf_counter() - start < 0.5
     assert EMAIL not in item.getMessage()
-    assert "withheld" in item.getMessage()
+    assert "privacy formatting failed" in item.getMessage()
 
 
 @pytest.mark.parametrize("size", [2000, 8000])

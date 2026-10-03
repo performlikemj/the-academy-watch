@@ -9,7 +9,6 @@ from functools import lru_cache
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
-from src.utils.log_privacy import log_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -97,5 +96,5 @@ def parse_stats_from_text(
         return stats.model_dump(exclude_none=True)
 
     except Exception as e:
-        logger.error("Error parsing stats with Groq: %s", log_metadata(e))
+        logger.error(f"Error parsing stats with Groq: {e}")
         return {}

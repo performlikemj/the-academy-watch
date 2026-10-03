@@ -23,7 +23,6 @@ from src.services.gol_availability import (
 )
 from src.services.gol_dataframes import DataFrameCache
 from src.services.gol_sandbox import execute_analysis
-from src.utils.log_privacy import log_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -528,7 +527,7 @@ class GolService:
             yield from self._run_completion(messages)
 
         except Exception as e:
-            logger.error("GOL chat error: %s", log_metadata(e))
+            logger.error(f"GOL chat error: {e}")
             yield {"event": "error", "data": {"message": str(e)}}
 
     @staticmethod
@@ -666,15 +665,13 @@ class GolService:
                                 except TypeError as ser_err:
                                     logger.error(
                                         "data_card serialization failed: %s | result_type=%s keys=%s",
-                                        log_metadata(ser_err),
-                                        log_metadata(result.get("result_type")),
-                                        log_metadata(list(result.keys())),
+                                        ser_err,
+                                        result.get("result_type"),
+                                        list(result.keys()),
                                     )
                                     for k, v in result.items():
                                         if not isinstance(v, (str, int, float, bool, list, dict, type(None))):
-                                            logger.error(
-                                                "  key=%s type=%s", log_metadata(k), log_metadata(type(v).__name__)
-                                            )
+                                            logger.error("  key=%s type=%s", k, type(v).__name__)
                                     result = {"result_type": "error", "error": "Result could not be serialized"}
                                 yield {"event": "data_card", "data": {"type": "analysis_result", "payload": result}}
 
@@ -689,8 +686,8 @@ class GolService:
                             except TypeError as ser_err:
                                 logger.error(
                                     "LLM tool result serialization failed: %s | result_type=%s",
-                                    log_metadata(ser_err),
-                                    log_metadata(llm_result.get("result_type")),
+                                    ser_err,
+                                    llm_result.get("result_type"),
                                 )
                                 tool_content = json.dumps(
                                     {"result_type": "error", "error": "Result could not be serialized"}
@@ -801,7 +798,7 @@ class GolService:
             else:
                 return {"error": f"Unknown tool: {name}"}
         except Exception as e:
-            logger.error("Tool %s failed: %s", log_metadata(name), log_metadata(e))
+            logger.error(f"Tool {name} failed: {e}")
             return {"result_type": "error", "error": str(e)}
 
     def _tool_lookup_player(self, name: str, team: str = None) -> dict:
@@ -849,7 +846,7 @@ class GolService:
             return {"results": results}
 
         except Exception as e:
-            logger.warning("Web search failed: %s", log_metadata(e))
+            logger.warning(f"Web search failed: {e}")
             return {"error": f"Search failed: {str(e)}"}
 
     def get_suggestions(self) -> list:

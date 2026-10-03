@@ -24,8 +24,6 @@ import urllib.request
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
-from src.utils.log_privacy import log_metadata
-
 logger = logging.getLogger(__name__)
 
 _BASE = "https://api.twitter.com/2"
@@ -38,7 +36,7 @@ _DEBUG = os.getenv("TWITTER_DEBUG", "0").lower() in ("1", "true", "yes", "on")
 def _dbg(msg: str) -> None:
     if _DEBUG:
         try:
-            print(f"[TWITTER] {log_metadata(msg)}")
+            print(f"[TWITTER] {msg}")
         except Exception:
             pass
 
@@ -330,10 +328,10 @@ class TwitterEnrichmentService:
             if e.code == 403 and self._use_archive:
                 self._use_archive = False
                 return self._api_call(query, start, end)
-            logger.warning("Twitter API %d: %s", log_metadata(e.code), log_metadata(e.read().decode()[:200]))
+            logger.warning("Twitter API %d: %s", e.code, e.read().decode()[:200])
             return None
         except Exception as exc:
-            logger.warning("Twitter API error: %s", log_metadata(exc))
+            logger.warning("Twitter API error: %s", exc)
             return None
 
     # ── Hard gates + scoring ─────────────────────────────────────────────
@@ -476,10 +474,5 @@ class TwitterEnrichmentService:
 
         if created:
             db.session.commit()
-            logger.info(
-                "Twitter: %s → %d candidates (newsletter %d)",
-                log_metadata(ctx.player_name),
-                log_metadata(created),
-                log_metadata(newsletter_id),
-            )
+            logger.info("Twitter: %s → %d candidates (newsletter %d)", ctx.player_name, created, newsletter_id)
         return created

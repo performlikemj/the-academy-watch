@@ -10,7 +10,6 @@ from src.services.account import AccountDeletionUnavailable, build_account_expor
 from src.services.account_standing import require_account_access
 from src.services.contact_locks import database_conflict
 from src.services.stripe_billing import BillingError
-from src.utils.log_privacy import safe_exc_info
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +36,7 @@ def export_account_data():
         if conflict:
             code, status = conflict
             return jsonify(error=code, code=code, retryable=True), status
-        logger.exception("Failed to export account data", exc_info=safe_exc_info())
+        logger.exception("Failed to export account data")
         return jsonify(_safe_error_payload(exc, "Failed to export account data")), 500
 
 
@@ -73,7 +72,7 @@ def delete_current_account():
         if conflict:
             code, status = conflict
             return jsonify(error=code, code=code, retryable=True), status
-        logger.exception("Failed to delete account", exc_info=safe_exc_info())
+        logger.exception("Failed to delete account")
         return jsonify(_safe_error_payload(exc, "Failed to delete account")), 500
 
 

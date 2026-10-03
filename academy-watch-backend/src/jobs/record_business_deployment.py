@@ -3,10 +3,9 @@
 from src.main import app
 from src.models.league import db
 from src.services.admin_control_business import observe_deployment
-from src.utils.log_privacy import log_metadata
 
 if __name__ == "__main__":
     with app.app_context():
         row = observe_deployment()
         db.session.commit()
-        print(log_metadata("deployment state recorded" if row else "disabled or deployment identity unavailable"))
+        print("deployment state recorded" if row else "disabled or deployment identity unavailable")

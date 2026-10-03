@@ -28,7 +28,6 @@ from src.services.player_suppression import (
     public_player_visible_filter,
     without_active_suppression,
 )
-from src.utils.log_privacy import log_metadata, safe_exc_info
 from src.utils.sanitize import is_safe_https_url, sanitize_plain_text
 
 logger = logging.getLogger(__name__)
@@ -194,7 +193,7 @@ def mint_shadow(player_api_id, seed=None, requested_by=None, api_client=None):
         if client is not None:
             profile = client.get_player_profile(player_api_id) or {}
     except Exception:
-        logger.warning("Shadow profile fetch failed for %s; falling back to seed", log_metadata(player_api_id))
+        logger.warning("Shadow profile fetch failed for %s; falling back to seed", player_api_id)
         profile = {}
 
     info = (profile.get("player") if isinstance(profile, dict) else None) or {}
@@ -274,13 +273,13 @@ def search_players(q, api_client=None):
         if client is not None:
             rows = client.search_player_profiles_global(query) or []
     except Exception:
-        logger.warning("Global profile search failed for %r", log_metadata(query))
+        logger.warning("Global profile search failed for %r", query)
         rows = []
     if not rows and client is not None:
         try:
             rows = client.search_player_profiles(query) or []
         except Exception:
-            logger.warning("Fallback player search failed for %r", log_metadata(query))
+            logger.warning("Fallback player search failed for %r", query)
             rows = []
 
     adult_ids = public_adult_profile_ids(rows)
@@ -552,9 +551,7 @@ def refresh_shadows(limit=25, cursor=None, api_client=None) -> dict:
                     profiles_refreshed += 1
                 shadow.last_profile_sync_at = now
         except Exception:
-            logger.exception(
-                "Shadow refresh failed for player %s", log_metadata(shadow.player_api_id), exc_info=safe_exc_info()
-            )
+            logger.exception("Shadow refresh failed for player %s", shadow.player_api_id)
             failed += 1
             continue
 

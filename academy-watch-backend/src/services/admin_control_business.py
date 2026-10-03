@@ -12,7 +12,6 @@ from src.models.billing import BillingCustomer, BillingSubscription
 from src.models.gol_credits import GolCreditLedger
 from src.models.league import db
 from src.utils.data_mode import api_football_frozen, newsletters_frozen
-from src.utils.log_privacy import log_metadata, safe_exc_info
 
 
 def enabled():
@@ -73,9 +72,7 @@ def project_cash_isolated(event_type, obj, event_id, created):
     except Exception:
         db.session.rollback()
         logging.getLogger(__name__).exception(
-            "Cash projection failed for %s; signed replay or reconcile repairs it",
-            log_metadata(event_id),
-            exc_info=safe_exc_info(),
+            "Cash projection failed for %s; signed replay or reconcile repairs it", event_id
         )
     finally:
         db.session.remove()
@@ -323,7 +320,7 @@ def record_business_boot(app):
                 db.session.flush()
             db.session.commit()
         except Exception:
-            logging.getLogger(__name__).exception("Business deployment observation deferred", exc_info=safe_exc_info())
+            logging.getLogger(__name__).exception("Business deployment observation deferred")
             # Concurrent workers or temporarily unavailable schema/database.
             db.session.rollback()
 

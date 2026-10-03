@@ -42,7 +42,6 @@ if str(PROJECT_ROOT) not in sys.path:
 from src.models.league import db  # noqa: E402
 from src.routes.season_rollup import _candidate_player_ids  # noqa: E402
 from src.services import season_rollup_service  # noqa: E402
-from src.utils.log_privacy import log_metadata, safe_exc_info
 
 logger = logging.getLogger(__name__)
 
@@ -165,7 +164,7 @@ def _build_db_uri_from_components() -> str:
         try:
             port_value = int(port_raw)
         except ValueError:
-            logger.warning("DB_PORT value %r is invalid; ignoring port", log_metadata(port_raw))
+            logger.warning("DB_PORT value %r is invalid; ignoring port", port_raw)
     url = URL.create(
         drivername="postgresql+psycopg",
         username=_env_value("DB_USER"),
@@ -275,10 +274,7 @@ def _print_dry_run(args: argparse.Namespace) -> None:
             after=args.after,
             limit=args.limit,
         )
-    print(
-        f"candidates={log_metadata(count)} first_id={log_metadata(first_id)} last_id={log_metadata(last_id)}",
-        flush=True,
-    )
+    print(f"candidates={count} first_id={first_id} last_id={last_id}", flush=True)
 
 
 def _process_batch(
@@ -304,16 +300,16 @@ def _process_batch(
             failed_ids.append(player_api_id)
             logger.exception(
                 "season-rollup cold-build skipped player=%s season=%s",
-                log_metadata(player_api_id),
-                log_metadata(season),
-                exc_info=safe_exc_info(),
+                player_api_id,
+                season,
             )
 
     db.session.commit()
     elapsed = perf_counter() - started_at
     average_ms = elapsed * 1000 / attempted if attempted else 0.0
     print(
-        f"processed={log_metadata(successful)} failed={len(failed_ids)} last_id={log_metadata(player_ids[-1])} elapsed={log_metadata(elapsed)}s avg_per_player={log_metadata(average_ms)}ms",
+        f"processed={successful} failed={len(failed_ids)} last_id={player_ids[-1]} "
+        f"elapsed={elapsed:.1f}s avg_per_player={average_ms:.1f}ms",
         flush=True,
     )
     return successful, attempted
@@ -372,7 +368,8 @@ def run(args: argparse.Namespace) -> int:
     elapsed = perf_counter() - started_at
     average_ms = elapsed * 1000 / attempted if attempted else 0.0
     print(
-        f"summary processed={log_metadata(successful)} failed={len(failed_ids)} failed_ids={log_metadata(failed_ids)} total_elapsed={log_metadata(elapsed)}s avg_per_player={log_metadata(average_ms)}ms",
+        f"summary processed={successful} failed={len(failed_ids)} failed_ids={failed_ids} "
+        f"total_elapsed={elapsed:.1f}s avg_per_player={average_ms:.1f}ms",
         flush=True,
     )
     return 0
@@ -390,7 +387,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 db.session.rollback()
                 raise
     except Exception:
-        logger.exception("season-rollup cold-build fatal error", exc_info=safe_exc_info())
+        logger.exception("season-rollup cold-build fatal error")
         return 1
 
 

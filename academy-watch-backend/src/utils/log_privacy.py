@@ -1,21 +1,23 @@
-"""Logging-only privacy: controlled metadata and linear whole-token redaction."""
+"""Logging-only privacy: explicit email masks and linear whole-token redaction."""
 
 import logging
 import re
 import sys
 import traceback
 from collections import OrderedDict, defaultdict
+from datetime import date, time, timedelta
+from decimal import Decimal
+from enum import Enum
+from pathlib import PurePath
 from secrets import token_hex
+from uuid import UUID
 
 # This cap belongs only to the explicit address helper, never to log records.
 MAX_LOG_CHARS = 65536
 _DELIMITERS = frozenset("@<>\"',;:=()[]{}/?\\\x00")
 _TOKEN = re.compile(r"\S+")
-_IDENTIFIER = re.compile(r"[A-Za-z0-9_.:-]+\Z")
-_LABEL = re.compile(r"[A-Za-z0-9 .;:_-]+\Z")
-_HIGHLIGHT_KEY = re.compile(r"highlights/[a-f0-9-]{36}/[a-f0-9-]{36}\.mp4\Z")
 _FORMAT_WIDTH = re.compile(r"%(?:\([^)%]*\))?[-+ #0]*(\d+|\*)(?:\.(\d+|\*))?")
-_FAILURE = "[log message withheld: privacy formatting failed]"
+_FAILURE = "[privacy formatting failed]"
 _DONE = object()
 _STANDARD_FIELDS = frozenset(vars(logging.LogRecord("", 0, "", 0, "", (), None))) | {"message", "asctime"}
 
@@ -73,63 +75,33 @@ def _text(value):
         return _redact_tokens(value)
 
 
-def log_metadata(value):
-    """Source boundary: IDs/counts/types/masked recipients, never free text.
+def redact_email_text(value, addresses=()):
+    """Mask known destinations (including malformed spacing), then @ tokens.
 
-    Application call sites use fixed templates. Arbitrary names, request text,
-    subjects, provider bodies and errors are not diagnostic metadata.
+    Used only for mail/auth error text. Preserve provider codes and diagnostics;
+    delivery/result objects and exceptions remain untouched.
     """
-    try:
-        if type(value) is _MaskedEmail or value is None or isinstance(value, (bool, int, float)):
-            return value
-        if isinstance(value, BaseException):
-            return _text(type(value).__name__)
-        if isinstance(value, str):
-            return value if _IDENTIFIER.fullmatch(value) or _HIGHLIGHT_KEY.fullmatch(value) else "[text omitted]"
-        if isinstance(value, dict):
-            safe = {}
-            collision = 0
-            for key, item in value.items():
-                safe_key = log_metadata(key)
-                if safe_key in safe:
-                    collision += 1
-                    while f"privacy_extra_{collision}" in safe:
-                        collision += 1
-                    safe_key = f"privacy_extra_{collision}"
-                safe[safe_key] = log_metadata(item)
-            return safe
-        if isinstance(value, (list, tuple)):
-            items = [log_metadata(item) for item in value]
-            return tuple(items) if isinstance(value, tuple) else items
-        return "[details omitted]"
-    except Exception:
-        return "[details omitted]"
+    text = _render(value)
+    for address in addresses:
+        if isinstance(address, str) and address and any(c.isspace() for c in address):
+            text = text.replace(address, "[masked]")
+    return _text(text)
 
 
-def log_label(value):
-    """Controlled ASCII event labels; no address/URL/encoding syntax.
-
-    Shared warning callers supply fixed source labels. Validate at their shared
-    emission boundary instead of treating a plain variable as a template.
-    """
-    try:
-        return value if isinstance(value, str) and _LABEL.fullmatch(value) else "[event label omitted]"
-    except Exception:
-        return "[event label omitted]"
+class _RenderedTraceback(Exception):
+    """Helper-owned complete traceback already scrubbed of known recipients."""
 
 
-def safe_exc_info():
-    """Source boundary for request/provider errors: class and complete stack.
-
-    Do not attach original messages, chained provider responses or request
-    objects to records. The backstop still handles third-party exception text.
-    """
+def email_exc_info(addresses=()):
+    """Keep the native class, message, chain and stack; redact only addresses."""
     kind, error, tb = sys.exc_info()
     if kind is None:
         return None
-    name = _text(kind.__name__)
-    header = kind if kind.__module__ == "builtins" else _LogException
-    return header, _LogException(f"{name}: exception details omitted"), tb
+    try:
+        rendered = "".join(traceback.format_exception(kind, error, tb))
+        return kind, _RenderedTraceback(redact_email_text(rendered, addresses)), None
+    except Exception:
+        return kind, _RenderedTraceback(f"{kind.__name__}: {redact_email_text(error, addresses)}"), None
 
 
 def _render(value):
@@ -192,7 +164,13 @@ class _Fields:
                 return _text(_render(value))
             finally:
                 self.active.remove(ident)
-        return _text(_render(value))
+        rendered = _render(value)
+        redacted = _text(rendered)
+        return (
+            value
+            if redacted == rendered and isinstance(value, (date, time, timedelta, Decimal, Enum, UUID, PurePath))
+            else redacted
+        )
 
     def message(self, record):
         # Exactly logging's normal message coercion, before %-formatting.
@@ -305,7 +283,11 @@ class EmailLogFilter(logging.Filter):
         try:
             if record.exc_info and record.exc_info[0] is not None:
                 kind, error, tb = record.exc_info
-                rendered = _text("".join(traceback.format_exception(kind, error, tb)))
+                rendered = (
+                    str(error)
+                    if type(error) is _RenderedTraceback
+                    else _text("".join(traceback.format_exception(kind, error, tb)))
+                )
                 record.exc_text = rendered
                 header = kind if kind.__module__ == "builtins" and "@" not in kind.__name__ else _LogException
                 record.exc_info = (header, _LogException(rendered), None)

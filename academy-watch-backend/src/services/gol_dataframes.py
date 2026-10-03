@@ -10,7 +10,6 @@ import threading
 import time
 
 import pandas as pd
-from src.utils.log_privacy import log_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -228,5 +227,5 @@ class DataFrameCache:
             # uses float64 (with NaN for SQL NULL), as pandas' default already did.
             return pd.read_sql_query(sql, engine, coerce_float=True)
         except Exception as e:
-            logger.error("Failed to load DataFrame: %s — %s", log_metadata(sql[:60]), log_metadata(e))
+            logger.error("Failed to load DataFrame: %s — %s", sql[:60], e)
             return pd.DataFrame()

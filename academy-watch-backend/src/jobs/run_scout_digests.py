@@ -19,7 +19,6 @@ from src.main import app
 from src.routes.scout import _get_api_client
 from src.services.scout_digest_service import MAX_DIGEST_USERS, send_scout_digests
 from src.utils.data_mode import job_entrypoint
-from src.utils.log_privacy import log_metadata, safe_exc_info
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -38,11 +37,13 @@ def _api_budget_limit() -> int:
         value = int(raw)
     except (TypeError, ValueError):
         logger.warning(
-            "Invalid SCOUT_DIGEST_API_BUDGET=%r; using %d", log_metadata(raw), log_metadata(DEFAULT_API_BUDGET)
+            "Invalid SCOUT_DIGEST_API_BUDGET=%r; using %d",
+            raw,
+            DEFAULT_API_BUDGET,
         )
         return DEFAULT_API_BUDGET
     if value < 0:
-        logger.warning("Negative SCOUT_DIGEST_API_BUDGET=%r; using 0", log_metadata(raw))
+        logger.warning("Negative SCOUT_DIGEST_API_BUDGET=%r; using 0", raw)
         return 0
     return value
 
@@ -119,15 +120,15 @@ def run(dry_run: bool = False, min_interval_hours: int = DEFAULT_MIN_INTERVAL_HO
             if isinstance(next_cursor, bool) or not isinstance(next_cursor, int) or next_cursor <= cursor:
                 logger.error(
                     "Scout digest paging returned a non-advancing cursor: cursor=%r next_cursor=%r users_considered=%r",
-                    log_metadata(cursor),
-                    log_metadata(next_cursor),
-                    log_metadata(page.get("users_considered")),
+                    cursor,
+                    next_cursor,
+                    page.get("users_considered"),
                 )
                 summary["errors"] += 1
                 break
             cursor = next_cursor
     except Exception:
-        logger.exception("Scout digest job failed at cursor=%r", log_metadata(cursor), exc_info=safe_exc_info())
+        logger.exception("Scout digest job failed at cursor=%r", cursor)
         summary["errors"] += 1
 
     summary["would_send"] = summary["users_considered"] - summary["skipped"]
@@ -164,7 +165,7 @@ def main(argv: list[str] | None = None) -> int:
     dry_run = args.dry_run or os.getenv("SCOUT_DIGEST_DRY_RUN", "").strip().lower() in ("1", "true", "yes", "on")
     with app.app_context():
         summary = run(dry_run=dry_run, min_interval_hours=args.min_interval_hours)
-    print(json.dumps(log_metadata(summary), sort_keys=True, separators=(",", ":")), flush=True)
+    print(json.dumps(summary, sort_keys=True, separators=(",", ":")), flush=True)
     return 1 if summary["errors"] else 0
 
 

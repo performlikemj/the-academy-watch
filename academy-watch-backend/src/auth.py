@@ -24,7 +24,7 @@ from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 # UserAccount serializers outside the production app factory.
 import src.models.trust  # noqa: F401
 from src.models.league import UserAccount, db
-from src.utils.log_privacy import get_logger, log_metadata, mask_email, safe_exc_info
+from src.utils.log_privacy import get_logger, mask_email
 from src.utils.sanitize import sanitize_plain_text
 
 logger = get_logger(__name__)
@@ -81,7 +81,7 @@ def _review_login_accounts() -> dict[str, dict[str, str]]:
             email = entry.get("email")
             code = entry.get("code")
             if not isinstance(email, str) or not email.strip() or not isinstance(code, str) or not code:
-                logger.error("REVIEW_LOGIN_ACCOUNTS.%s requires non-empty email and code strings", log_metadata(state))
+                logger.error("REVIEW_LOGIN_ACCOUNTS.%s requires non-empty email and code strings", state)
                 continue
             normalized_email = email.strip().lower()
             if normalized_email in accounts:
@@ -230,10 +230,7 @@ def issue_user_token(email: str, ttl_seconds: int = USER_TOKEN_TTL_SECONDS, role
                 payload["account_created_at"] = user.created_at.isoformat()
     token = s.dumps(payload)
     logger.info(
-        "Issued auth token payload for %s with role=%s user_id=%s",
-        mask_email(email),
-        log_metadata(role),
-        log_metadata(payload.get("user_id")),
+        "Issued auth token payload for %s with role=%s user_id=%s", mask_email(email), role, payload.get("user_id")
     )
     return {"token": token, "expires_in": ttl_seconds}
 
@@ -349,8 +346,8 @@ def require_api_key(f):
         api_key_header = request.headers.get("X-API-Key") or request.headers.get("X-Admin-Key") or ""
         logger.debug(
             "Admin auth attempt ip=%s endpoint=%s auth_present=%s key_present=%s",
-            log_metadata(client_ip),
-            log_metadata(request.endpoint),
+            client_ip,
+            request.endpoint,
             bool(auth_header),
             bool(api_key_header),
         )
@@ -358,7 +355,7 @@ def require_api_key(f):
         # Check IP whitelist if configured
         allowed_ips = _get_allowed_admin_ips()
         if allowed_ips and client_ip not in allowed_ips:
-            logger.warning("Admin access denied for IP %s (not in whitelist)", log_metadata(client_ip))
+            logger.warning(f"Admin access denied for IP {client_ip} (not in whitelist)")
             return jsonify(
                 {
                     "error": "Access denied from this IP address",
@@ -385,13 +382,13 @@ def require_api_key(f):
                     token_data = data
                     g.user_email = (data or {}).get("email")
             except Exception as _e:
-                logger.warning("Bearer admin token failed for %s: %s", log_metadata(client_ip), log_metadata(_e))
+                logger.warning(f"Bearer admin token failed for {client_ip}: {_e}")
 
         if not token_data:
             logger.warning(
                 "Admin token missing or invalid ip=%s endpoint=%s auth_present=%s",
-                log_metadata(client_ip),
-                log_metadata(request.endpoint),
+                client_ip,
+                request.endpoint,
                 bool(auth_header),
             )
             return jsonify({"error": "Admin login required", "message": "Provide a valid admin Bearer token"}), 401
@@ -413,10 +410,10 @@ def require_api_key(f):
         if not provided_key:
             logger.warning(
                 "Admin API key missing ip=%s user=%s user_id=%s endpoint=%s auth_present=%s",
-                log_metadata(client_ip),
+                client_ip,
                 mask_email(getattr(g, "user_email", None)),
-                log_metadata(token_data.get("user_id")),
-                log_metadata(request.endpoint),
+                token_data.get("user_id"),
+                request.endpoint,
                 bool(auth_header),
             )
             return jsonify({"error": "Admin API key required", "message": "Send X-API-Key in the request headers"}), 401
@@ -424,22 +421,22 @@ def require_api_key(f):
         if provided_key != required_api_key:
             logger.warning(
                 "Invalid admin credential ip=%s user=%s user_id=%s endpoint=%s key=%s",
-                log_metadata(client_ip),
+                client_ip,
                 mask_email(getattr(g, "user_email", None)),
-                log_metadata(token_data.get("user_id")),
-                log_metadata(request.endpoint),
-                log_metadata(masked_key),
+                token_data.get("user_id"),
+                request.endpoint,
+                masked_key,
             )
             return jsonify({"error": "Invalid admin credential", "message": "Access denied"}), 403
 
         g.log_actor_id = token_data.get("user_id")
         logger.info(
             "Admin dual auth granted ip=%s user=%s user_id=%s endpoint=%s key=%s",
-            log_metadata(client_ip),
+            client_ip,
             mask_email(getattr(g, "user_email", None)),
-            log_metadata(token_data.get("user_id")),
-            log_metadata(request.endpoint),
-            log_metadata(masked_key),
+            token_data.get("user_id"),
+            request.endpoint,
+            masked_key,
         )
         return f(*args, **kwargs)
 
@@ -489,9 +486,7 @@ def require_curator_auth(f):
         # Step 2: Check curator role
         if not getattr(g.user, "is_curator", False):
             logger.warning(
-                "Curator access denied for user %s (not a curator) user_id=%s",
-                mask_email(g.user_email),
-                log_metadata(g.user_id),
+                "Curator access denied for user %s (not a curator) user_id=%s", mask_email(g.user_email), g.user_id
             )
             return jsonify({"error": "Curator access required"}), 403
 
@@ -506,12 +501,10 @@ def require_curator_auth(f):
             return jsonify({"error": "X-Curator-Key header required"}), 401
 
         if provided_key != required_key:
-            logger.warning(
-                "Invalid curator key from user %s user_id=%s", mask_email(g.user_email), log_metadata(g.user_id)
-            )
+            logger.warning("Invalid curator key from user %s user_id=%s", mask_email(g.user_email), g.user_id)
             return jsonify({"error": "Invalid curator credential"}), 403
 
-        logger.info("Curator auth granted for user %s user_id=%s", mask_email(g.user_email), log_metadata(g.user_id))
+        logger.info("Curator auth granted for user %s user_id=%s", mask_email(g.user_email), g.user_id)
         return f(*args, **kwargs)
 
     return decorated
@@ -637,7 +630,7 @@ def _get_authorized_email() -> str | None:
             except (SignatureExpired, BadSignature):
                 return None
             except Exception:
-                logger.exception("Failed to decode auth token while resolving email", exc_info=safe_exc_info())
+                logger.exception("Failed to decode auth token while resolving email")
                 return None
     return None
 
@@ -722,7 +715,7 @@ def _ensure_user_account(email: str) -> UserAccount:
     )
     db.session.add(user)
     db.session.flush()
-    logger.info("Created user account email=%s user_id=%s", mask_email(email), log_metadata(user.id))
+    logger.info("Created user account email=%s user_id=%s", mask_email(email), user.id)
     return user
 
 
@@ -745,7 +738,7 @@ def _safe_error_payload(exc: Exception, fallback_message: str, include_detail: b
     else:
         reference = uuid4().hex[:8]
         payload["reference"] = reference
-        logger.error("Error reference=%s: %s", log_metadata(reference), log_metadata(exc), exc_info=safe_exc_info())
+        logger.error("Error reference=%s: %s", reference, exc, exc_info=True)
     return payload
 
 

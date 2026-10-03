@@ -16,7 +16,6 @@ from src.models.follow import Follow, PlayerShadow
 from src.models.tracked_player import TrackedPlayer
 from src.services.player_suppression import without_active_suppression
 from src.services.public_adult import cached_public_adult_ids, filter_public_adult_query
-from src.utils.log_privacy import log_metadata, safe_exc_info
 
 logger = logging.getLogger(__name__)
 
@@ -348,12 +347,7 @@ def resolve_list(follow_list, limit: int | None = None, *, eligibility_cache: di
             else:
                 pairs = []
         except Exception:
-            logger.exception(
-                "Follow resolution failed for follow %s (kind=%s)",
-                log_metadata(follow.id),
-                log_metadata(follow.kind),
-                exc_info=safe_exc_info(),
-            )
+            logger.exception("Follow resolution failed for follow %s (kind=%s)", follow.id, follow.kind)
             pairs = []
         for pid, source in pairs:
             if pid in seen:

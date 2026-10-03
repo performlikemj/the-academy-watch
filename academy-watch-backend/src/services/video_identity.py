@@ -28,7 +28,6 @@ from datetime import UTC, datetime
 from sqlalchemy import update
 from src.models.league import db
 from src.models.video import VideoMatch, VideoRosterEntry, VideoTracklet
-from src.utils.log_privacy import log_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -506,10 +505,10 @@ def persist_artifacts(match: VideoMatch, artifacts: dict) -> dict:
     bound = auto_bind(match) if match.our_team_cluster is not None else 0
     logger.info(
         "video match %s: persisted %d tracklet rows (%d chains), auto-bound %d",
-        log_metadata(match.id),
-        log_metadata(created),
+        match.id,
+        created,
         len(chains),
-        log_metadata(bound),
+        bound,
     )
     return {"tracklets": created, "chains": len(chains), "auto_bound": bound}
 

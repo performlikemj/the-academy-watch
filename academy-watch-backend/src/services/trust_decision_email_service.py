@@ -1,13 +1,13 @@
 """Best-effort applicant emails for Trust Desk decisions."""
 
+import logging
 import os
 from html import escape
 
 from src.models.showcase import ClubOfficialClaim, PlayerProfileClaim
 from src.models.trust import ScoutVerification
-from src.utils.log_privacy import get_logger, log_metadata, safe_exc_info
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 def _send_decision_email(*, recipient: str | None, subject: str, text: str, html: str, tag: str) -> bool:
@@ -26,10 +26,10 @@ def _send_decision_email(*, recipient: str | None, subject: str, text: str, html
             use_fallback=False,
         )
     except Exception:
-        logger.exception("Trust decision email dispatch failed: %s", log_metadata(subject), exc_info=safe_exc_info())
+        logger.exception("Trust decision email dispatch failed: %s", subject)
         return False
     if not getattr(result, "success", False):
-        logger.warning("Trust decision email was not delivered: %s", log_metadata(subject))
+        logger.warning("Trust decision email was not delivered: %s", subject)
         return False
     return True
 

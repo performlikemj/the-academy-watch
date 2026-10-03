@@ -10,7 +10,6 @@ from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 from src.models.league import BackgroundJob, db
-from src.utils.log_privacy import log_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +33,7 @@ def create_background_job(job_type: str) -> str:
         db.session.add(job)
         db.session.commit()
     except Exception as e:
-        logger.error("Failed to create background job: %s", log_metadata(e))
+        logger.error(f"Failed to create background job: {e}")
         db.session.rollback()
     return job_id
 
@@ -78,7 +77,7 @@ def update_job(job_id: str, **kwargs) -> None:
             job.updated_at = datetime.now(UTC)
             db.session.commit()
     except Exception as e:
-        logger.error("Failed to update background job %s: %s", log_metadata(job_id), log_metadata(e))
+        logger.error(f"Failed to update background job {job_id}: {e}")
         db.session.rollback()
 
 
@@ -101,12 +100,8 @@ def get_job(job_id: str) -> dict | None:
                 elapsed = datetime.now(UTC) - last_active.replace(tzinfo=UTC)
                 if elapsed > STALE_JOB_TIMEOUT:
                     logger.warning(
-                        "Job %s stale (%s), auto-marking failed. Last progress: %s/%s on %s",
-                        log_metadata(job_id),
-                        log_metadata(elapsed),
-                        log_metadata(job.progress),
-                        log_metadata(job.total),
-                        log_metadata(job.current_player),
+                        f"Job {job_id} stale ({elapsed}), auto-marking failed. "
+                        f"Last progress: {job.progress}/{job.total} on {job.current_player}"
                     )
                     job.status = "failed"
                     job.error = (
@@ -118,7 +113,7 @@ def get_job(job_id: str) -> dict | None:
                     db.session.commit()
             return job.to_dict()
     except Exception as e:
-        logger.error("Failed to get background job %s: %s", log_metadata(job_id), log_metadata(e))
+        logger.error(f"Failed to get background job {job_id}: {e}")
         db.session.rollback()
     return None
 
@@ -138,11 +133,11 @@ def cancel_job(job_id: str) -> bool:
             job.error = "Cancelled by admin"
             job.completed_at = datetime.now(UTC)
             db.session.commit()
-            logger.info("Job %s cancelled", log_metadata(job_id))
+            logger.info("Job %s cancelled", job_id)
             return True
         return False
     except Exception as e:
-        logger.error("Failed to cancel job %s: %s", log_metadata(job_id), log_metadata(e))
+        logger.error("Failed to cancel job %s: %s", job_id, e)
         db.session.rollback()
         return False
 
@@ -182,7 +177,9 @@ def has_running_job(job_type: str) -> bool:
         elapsed = datetime.now(UTC) - last_active.replace(tzinfo=UTC)
         if elapsed > STALE_JOB_TIMEOUT:
             logger.warning(
-                "Job type %s stale (%s), auto-marking failed.", log_metadata(job_type), log_metadata(elapsed)
+                "Job type %s stale (%s), auto-marking failed.",
+                job_type,
+                elapsed,
             )
             job.status = "failed"
             job.error = f"Stale job auto-failed after {elapsed}"
@@ -191,7 +188,7 @@ def has_running_job(job_type: str) -> bool:
             return False
         return True
     except Exception as e:
-        logger.error("Failed to check running job for type %s: %s", log_metadata(job_type), log_metadata(e))
+        logger.error("Failed to check running job for type %s: %s", job_type, e)
         return False
 
 

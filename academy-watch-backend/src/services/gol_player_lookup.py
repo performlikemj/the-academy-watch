@@ -30,7 +30,6 @@ from src.utils.academy_classifier import (
     latest_parent_permanent_departure,
     resolved_transfer_evidence_is_authoritative,
 )
-from src.utils.log_privacy import log_metadata, safe_exc_info
 from src.utils.player_names import resolve_player_name
 
 logger = logging.getLogger(__name__)
@@ -109,7 +108,7 @@ class GolPlayerLookup:
                         "message": f"Lookup failed for {player_name}: API quota reached. Try again later.",
                         "rate_limited": True,
                     }
-                logger.exception("Player search failed for %s", log_metadata(player_name), exc_info=safe_exc_info())
+                logger.exception("Player search failed for %s", player_name)
                 return {
                     "found": False,
                     "player_name": player_name,
@@ -153,7 +152,7 @@ class GolPlayerLookup:
             try:
                 journey = self._sync_journey(player_id)
             except Exception as exc:
-                logger.exception("Journey sync failed for player %s", log_metadata(player_id), exc_info=safe_exc_info())
+                logger.exception("Journey sync failed for player %s", player_id)
                 return {
                     "found": False,
                     "player_name": player_name,
@@ -208,9 +207,7 @@ class GolPlayerLookup:
                     }
             except Exception as exc:
                 db.session.rollback()
-                logger.exception(
-                    "Failed to persist tracked player for %s", log_metadata(player_id), exc_info=safe_exc_info()
-                )
+                logger.exception("Failed to persist tracked player for %s", player_id)
                 return {
                     "found": False,
                     "player_name": player.get("name") or player_name,
@@ -453,8 +450,8 @@ class GolPlayerLookup:
         except Exception as exc:
             logger.warning(
                 "GOL transfer fetch failed for player %s; preserving existing transfer state: %s",
-                log_metadata(player_id),
-                log_metadata(exc),
+                player_id,
+                exc,
             )
 
         status, current_club_api_id, current_club_name = classify_tracked_player(

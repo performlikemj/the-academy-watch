@@ -7,7 +7,6 @@ from sqlalchemy.orm import Session
 from src.models.league import db
 from src.models.showcase import PlayerClubAffiliation, PlayerShowcaseMedia
 from src.services import showcase_media_storage as storage
-from src.utils.log_privacy import log_metadata
 
 logger = logging.getLogger(__name__)
 _CLEANUP = "showcase_erasure_cleanup"
@@ -40,7 +39,7 @@ def _clean_committed_media(session):
         except Exception:
             # A committed account erasure cannot be rolled back by storage.
             # Paths/URLs and storage exceptions can contain credentials.
-            logger.warning("Showcase account-erasure storage cleanup failed (%s)", log_metadata(kind))
+            logger.warning("Showcase account-erasure storage cleanup failed (%s)", kind)
 
 
 @event.listens_for(Session, "after_rollback")

@@ -13,7 +13,6 @@ from urllib.parse import unquote, urlparse
 from pydantic import BaseModel, Field
 from pydantic.config import ConfigDict
 from src.mcp.brave import BraveApiError, brave_search
-from src.utils.log_privacy import log_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -118,11 +117,11 @@ def collect_players_from_brave(
 
     logger.info(
         "[brave-loans] query='%s' since=%s until=%s limit=%s strict=%s",
-        log_metadata(effective_query),
-        log_metadata(since),
-        log_metadata(until),
-        log_metadata(result_limit),
-        log_metadata(strict_range),
+        effective_query,
+        since,
+        until,
+        result_limit,
+        strict_range,
     )
     try:
         search_results = brave_search(
@@ -294,7 +293,7 @@ def collect_players_from_brave(
                     reason = (parsed.reason or "").strip()
                     return rel, (conf if rel else 0.0), reason
             except Exception as exc:
-                logger.debug("[brave-loans] title score via Responses failed: %s", log_metadata(exc))
+                logger.debug("[brave-loans] title score via Responses failed: %s", exc)
 
         # Groq-style chat client
         if hasattr(client, "chat"):
@@ -314,7 +313,7 @@ def collect_players_from_brave(
                 content = resp.choices[0].message.content
                 logger.debug(
                     "[brave-loans] Responses(title-score) raw output=%s",
-                    log_metadata(content[:400] + "…" if len(content) > 400 else content),
+                    (content[:400] + "…") if len(content) > 400 else content,
                 )
                 if content.strip():
                     video_data = json.loads(content)
@@ -324,16 +323,13 @@ def collect_players_from_brave(
                     reason = (parsed.reason or "").strip()
                     logger.info(
                         "[brave-loans] title score parsed rel=%s conf=%.2f reason=%s",
-                        log_metadata(rel),
-                        log_metadata(conf),
-                        log_metadata(reason[:160] + "…" if len(reason) > 160 else reason),
+                        rel,
+                        conf,
+                        (reason[:160] + "…") if len(reason) > 160 else reason,
                     )
                     return rel, (conf if rel else 0.0), reason
             except TypeError as exc:
-                logger.info(
-                    "[brave-loans] Responses schema unsupported; falling back to plain JSON parse: %s",
-                    log_metadata(exc),
-                )
+                logger.info("[brave-loans] Responses schema unsupported; falling back to plain JSON parse: %s", exc)
                 try:
                     resp = client.chat.completions.create(
                         model="openai/gpt-oss-120b",
@@ -350,7 +346,7 @@ def collect_players_from_brave(
                     content = resp.choices[0].message.content
                     logger.debug(
                         "[brave-loans] Responses(title-score:fallback) raw output=%s",
-                        log_metadata(content[:400] + "…" if len(content) > 400 else content),
+                        (content[:400] + "…") if len(content) > 400 else content,
                     )
                     if content.strip():
                         m = re.search(r"\{[\s\S]*\}", content)
@@ -362,15 +358,15 @@ def collect_players_from_brave(
                         reason = (parsed.reason or "").strip()
                         logger.info(
                             "[brave-loans] title score fallback parsed rel=%s conf=%.2f reason=%s",
-                            log_metadata(rel),
-                            log_metadata(conf),
-                            log_metadata(reason[:160] + "…" if len(reason) > 160 else reason),
+                            rel,
+                            conf,
+                            (reason[:160] + "…") if len(reason) > 160 else reason,
                         )
                         return rel, (conf if rel else 0.0), reason
                 except Exception as inner:
-                    logger.debug("[brave-loans] title score fallback failed: %s", log_metadata(inner))
+                    logger.debug("[brave-loans] title score fallback failed: %s", inner)
             except Exception as exc:
-                logger.debug("[brave-loans] title score failed via Groq: %s", log_metadata(exc))
+                logger.debug("[brave-loans] title score failed via Groq: %s", exc)
 
         if client is None:
             return False, 0.0, "openai client unavailable"
@@ -393,7 +389,7 @@ def collect_players_from_brave(
                 content = resp.choices[0].message.content or ""
                 logger.debug(
                     "[brave-loans] OpenAI(title-score) raw output=%s",
-                    log_metadata(content[:400] + "…" if len(content) > 400 else content),
+                    (content[:400] + "…") if len(content) > 400 else content,
                 )
                 if not content.strip():
                     return False, 0.0, "empty response from model"
@@ -404,13 +400,13 @@ def collect_players_from_brave(
                 reason = (parsed.reason or "").strip()
                 logger.info(
                     "[brave-loans] title score parsed (OpenAI) rel=%s conf=%.2f reason=%s",
-                    log_metadata(rel),
-                    log_metadata(conf),
-                    log_metadata(reason[:160] + "…" if len(reason) > 160 else reason),
+                    rel,
+                    conf,
+                    (reason[:160] + "…") if len(reason) > 160 else reason,
                 )
                 return rel, (conf if rel else 0.0), reason
         except Exception as exc:
-            logger.debug("[brave-loans] title score OpenAI fallback failed: %s", log_metadata(exc))
+            logger.debug("[brave-loans] title score OpenAI fallback failed: %s", exc)
             return False, 0.0, f"error: {exc}"
 
     def _extract_from_text_with_llm(client, text: str, team: str, season: int) -> list[dict[str, str]]:
@@ -473,7 +469,7 @@ def collect_players_from_brave(
                     )
                     return out
             except Exception as exc:
-                logger.debug("[brave-loans] page extract via Responses failed: %s", log_metadata(exc))
+                logger.debug("[brave-loans] page extract via Responses failed: %s", exc)
 
         if hasattr(client, "chat"):
             try:
@@ -492,7 +488,7 @@ def collect_players_from_brave(
                 content = resp.choices[0].message.content or ""
                 logger.debug(
                     "[brave-loans] page extract raw output=%s",
-                    log_metadata(content[:600] + "…" if len(content) > 600 else content),
+                    (content[:600] + "…") if len(content) > 600 else content,
                 )
                 if content.strip():
                     data = json.loads(content)
@@ -518,7 +514,7 @@ def collect_players_from_brave(
                     )
                     return out
             except Exception as exc:
-                logger.debug("[brave-loans] page extract via Chat failed: %s", log_metadata(exc))
+                logger.debug("[brave-loans] page extract via Chat failed: %s", exc)
 
         return []
 
@@ -551,12 +547,12 @@ def collect_players_from_brave(
             is_allowed = True
             logger.info(
                 "[brave-loans] LLM score title=%s host=%s rel=%s score=%.2f allowed=%s reason=%s",
-                log_metadata(title[:80] + "…" if len(title) > 80 else title),
-                log_metadata(host),
-                log_metadata(rel),
-                log_metadata(score),
-                log_metadata(is_allowed),
-                log_metadata(reason[:120] + "…" if len(reason) > 120 else reason),
+                (title[:80] + "…") if len(title) > 80 else title,
+                host,
+                rel,
+                score,
+                is_allowed,
+                (reason[:120] + "…") if len(reason) > 120 else reason,
             )
             if (not rel) or score < 0.40:
                 logger.info("[brave-loans] skip: low score or not relevant")
@@ -568,7 +564,7 @@ def collect_players_from_brave(
                 session = requests.Session()
                 ua = os.getenv("BRAVE_CRAWL_USER_AGENT") or "AcademyWatchBot/1.0 (+https://theacademywatch.com)"
                 session.headers.update({"User-Agent": ua, "Accept": "text/html,application/xhtml+xml"})
-                logger.info("[brave-loans] fetching article url=%s", log_metadata(url))
+                logger.info("[brave-loans] fetching article url=%s", url)
                 resp = session.get(url, timeout=10)
                 if resp.status_code in (429, 403):
                     time.sleep(0.25)
@@ -583,10 +579,10 @@ def collect_players_from_brave(
                 text = text.strip()[:12000]
                 logger.info("[brave-loans] fetched bytes=%s trimmed_len=%s", len(html or ""), len(text))
             except Exception as exc:
-                logger.debug("[brave-loans] fetch error for %s: %s", log_metadata(url), log_metadata(exc))
+                logger.debug("[brave-loans] fetch error for %s: %s", url, exc)
                 continue
             llm_rows = _extract_from_text_with_llm(llm_client, text, team_name, season_year)
-            logger.info("[brave-loans] LLM extracted rows=%s from url=%s", len(llm_rows), log_metadata(url))
+            logger.info("[brave-loans] LLM extracted rows=%s from url=%s", len(llm_rows), url)
             for r in llm_rows:
                 key = (r["player_name"].lower(), r["loan_team"].lower())
                 if key in seen:
@@ -630,9 +626,9 @@ def collect_players_from_brave(
     logger.info(
         "[brave-loans] extracted_rows=%s (regex=%s, llm=%s) for query='%s'",
         len(rows),
-        log_metadata(regex_rows),
-        log_metadata(llm_rows_total),
-        log_metadata(effective_query),
+        regex_rows,
+        llm_rows_total,
+        effective_query,
     )
     return BravePlayerCollection(rows=rows, results=normalized_results, query=effective_query)
 

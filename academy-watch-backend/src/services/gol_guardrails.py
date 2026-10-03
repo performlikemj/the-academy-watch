@@ -14,8 +14,6 @@ Install validators:
 import logging
 import os
 
-from src.utils.log_privacy import log_metadata
-
 logger = logging.getLogger(__name__)
 
 _ENABLED = None
@@ -127,10 +125,10 @@ def validate_input(message: str) -> tuple[bool, str | None]:
         result = guard.parse(message)
         if result.validation_passed:
             return True, None
-        logger.info("Input guard rejected message: %s", log_metadata(message[:80]))
+        logger.info(f"Input guard rejected message: {message[:80]}")
         return False, REJECTION_MESSAGE
     except Exception as e:
-        logger.warning("Input guard triggered: %s", log_metadata(e))
+        logger.warning(f"Input guard triggered: {e}")
         return False, REJECTION_MESSAGE
 
 
@@ -154,5 +152,5 @@ def validate_output(text: str) -> str:
             logger.info("Output guard modified LLM response")
         return cleaned or text
     except Exception as e:
-        logger.warning("Output guard error (fail-open): %s", log_metadata(e))
+        logger.warning(f"Output guard error (fail-open): {e}")
         return text

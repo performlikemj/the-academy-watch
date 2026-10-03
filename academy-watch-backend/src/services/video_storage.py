@@ -18,8 +18,6 @@ import os
 from datetime import UTC, datetime, timedelta
 from urllib.parse import quote
 
-from src.utils.log_privacy import log_metadata
-
 logger = logging.getLogger(__name__)
 
 try:
@@ -137,7 +135,7 @@ def create_verified_snapshot(blob_path: str, expected_etag: str | None) -> str |
         result = blob.create_snapshot(etag=expected_etag, match_condition=MatchConditions.IfNotModified)
         return (result or {}).get("snapshot") or None
     except Exception as e:  # changed since verification, auth, network — all mean "no immutable generation"
-        logger.warning("video blob snapshot failed for %s: %s", log_metadata(blob_path), log_metadata(e))
+        logger.warning("video blob snapshot failed for %s: %s", blob_path, e)
         return None
 
 
@@ -148,7 +146,7 @@ def verify_uploaded_blob(blob_path: str) -> dict:
         blob = _service_client().get_blob_client(_container(), blob_path)
         props = blob.get_blob_properties()
     except Exception as e:  # missing blob, auth, network — all mean "not verified"
-        logger.warning("video blob verify failed for %s: %s", log_metadata(blob_path), log_metadata(e))
+        logger.warning("video blob verify failed for %s: %s", blob_path, e)
         return {"ok": False, "error": "blob not found or unreadable"}
     if props.size > _max_upload_bytes():
         return {
@@ -203,5 +201,5 @@ def delete_blob(blob_path: str) -> bool:
     except Exception as e:  # auth, network — all mean "not gone"; a 404 means it was already gone
         if getattr(e, "status_code", None) == 404:
             return True
-        logger.warning("video blob delete failed for %s: %s", log_metadata(blob_path), log_metadata(e))
+        logger.warning("video blob delete failed for %s: %s", blob_path, e)
         return False

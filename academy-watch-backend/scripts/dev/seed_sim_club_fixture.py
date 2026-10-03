@@ -12,7 +12,6 @@ from pathlib import Path
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
-from src.utils.log_privacy import log_metadata, mask_email
 
 os.environ.setdefault("SKIP_API_HANDSHAKE", "1")
 
@@ -416,11 +415,12 @@ def main(argv=None) -> int:
             manager_email=args.manager_email,
             allow_db_name=args.allow_db_name,
         )
-    except SimFixtureRefused:
-        print(f"ERROR: fixture operation refused manager={mask_email(args.manager_email)}", file=sys.stderr)
+    except SimFixtureRefused as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
         return 2
     print(
-        f"Synthetic sim fixture seeded: {log_metadata(summary['program_name'])} (program={log_metadata(summary['program_id'])}, match={log_metadata(summary['match_id'])})"
+        "Synthetic sim fixture seeded: "
+        f"{summary['program_name']} (program={summary['program_id']}, match={summary['match_id']})"
     )
     return 0
 

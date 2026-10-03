@@ -13,7 +13,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.agents.weekly_newsletter_agent import generate_team_weekly_newsletter
 from src.models.league import Team
-from src.utils.log_privacy import get_logger, log_metadata, safe_exc_info
 
 
 def test_stats_update():
@@ -26,12 +25,12 @@ def test_stats_update():
         print("❌ Test team not found in database")
         return False
 
-    print(f"✅ Testing with team: {log_metadata(team.name)} (DB ID: {log_metadata(team.id)})")
+    print(f"✅ Testing with team: {team.name} (DB ID: {team.id})")
 
     # Target a recent week
     target_date = date(2024, 11, 18)  # Adjust to a week with match data
 
-    print(f"🔄 Generating newsletter for week of {log_metadata(target_date)}...")
+    print(f"🔄 Generating newsletter for week of {target_date}...")
     print("📊 This will fetch fresh API stats and update the database")
     print("⏳ Check logs for 'Updating fixture stats' messages...\n")
 
@@ -40,8 +39,8 @@ def test_stats_update():
         result = generate_team_weekly_newsletter(team.id, target_date)
 
         print("\n✅ Newsletter generated successfully")
-        print(f"   Issue date: {log_metadata(result.get('issue_date'))}")
-        print(f"   Week range: {log_metadata(result.get('week_start'))} to {log_metadata(result.get('week_end'))}")
+        print(f"   Issue date: {result.get('issue_date')}")
+        print(f"   Week range: {result.get('week_start')} to {result.get('week_end')}")
 
         # Check if content has player data
         content = result.get("content_json_parsed")
@@ -55,11 +54,11 @@ def test_stats_update():
                     # Show first player's stats as example
                     if items:
                         first_player = items[0]
-                        print(f"\n   Example player: {log_metadata(first_player.get('player_name'))}")
+                        print(f"\n   Example player: {first_player.get('player_name')}")
                         stats = first_player.get("stats", {})
-                        print(f"   - Minutes: {log_metadata(stats.get('minutes', 0))}")
-                        print(f"   - Goals: {log_metadata(stats.get('goals', 0))}")
-                        print(f"   - Assists: {log_metadata(stats.get('assists', 0))}")
+                        print(f"   - Minutes: {stats.get('minutes', 0)}")
+                        print(f"   - Goals: {stats.get('goals', 0)}")
+                        print(f"   - Assists: {stats.get('assists', 0)}")
 
         print("\n✅ Test completed successfully")
         print("📝 Review the logs above for 'Updating fixture stats' messages")
@@ -67,9 +66,10 @@ def test_stats_update():
         return True
 
     except Exception as e:
-        print(f"\n❌ Test failed: {log_metadata(e)}")
+        print(f"\n❌ Test failed: {e}")
+        import traceback
 
-        get_logger(__name__).error("Operation failed", exc_info=safe_exc_info())
+        traceback.print_exc()
         return False
 
 

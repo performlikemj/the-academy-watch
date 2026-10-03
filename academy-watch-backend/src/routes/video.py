@@ -46,7 +46,6 @@ from src.services.video_feedback import build_feedback_labels
 from src.services.video_identity import NUMBER_AGREEMENT_MIN, split_chain
 from src.services.video_learning import match_accuracy, recalibration_signals, training_manifest
 from src.services.video_report import build_player_report, tracklet_to_bound
-from src.utils.log_privacy import log_metadata
 
 video_bp = Blueprint("video", __name__)
 logger = logging.getLogger(__name__)
@@ -374,9 +373,7 @@ def process_match(match_id: int):
     match.status = "queued"
     db.session.commit()  # debit + job + status are atomic; signal comes after
     mode = video_queue.enqueue(job.id)
-    logger.info(
-        "video match %s queued as job %s via %s", log_metadata(match.id), log_metadata(job.id), log_metadata(mode)
-    )
+    logger.info("video match %s queued as job %s via %s", match.id, job.id, mode)
     return jsonify({"job": job.to_dict(), "dispatch": mode}), 202
 
 
@@ -445,12 +442,7 @@ def analyze_match(match_id: int):
     db.session.add(job)
     db.session.commit()
     mode = video_queue.enqueue(job.id)
-    logger.info(
-        "video match %s queued for qwen analysis as job %s via %s",
-        log_metadata(match.id),
-        log_metadata(job.id),
-        log_metadata(mode),
-    )
+    logger.info("video match %s queued for qwen analysis as job %s via %s", match.id, job.id, mode)
     return jsonify({"job": job.to_dict(), "dispatch": mode}), 202
 
 
@@ -511,15 +503,13 @@ def _reel_payload(match: VideoMatch, roster_entries=None) -> dict:
             # keyed directly into the dev artifact's fragment span map.
             spans = video_dev_artifacts.fragment_spans(art)
         except (KeyError, OSError, TypeError, ValueError):
-            logger.warning(
-                "video match %s reel could not read fragment spans; using stored chain spans", log_metadata(match.id)
-            )
+            logger.warning("video match %s reel could not read fragment spans; using stored chain spans", match.id)
         try:
             crop_entity_ids = video_dev_artifacts.crop_entity_ids(art)
         except (KeyError, OSError, TypeError, ValueError):
             logger.warning(
                 "video match %s reel could not read crop entities; using the first bound tracklet thumbnail",
-                log_metadata(match.id),
+                match.id,
             )
     return video_reels.build_reel_payload(
         match,

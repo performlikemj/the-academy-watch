@@ -26,7 +26,6 @@ from sqlalchemy import func
 from src.models.league import db
 from src.models.pulse import PlayerCardCache, PlayerPulse
 from src.services.player_suppression import public_player_visible_filter, without_active_suppression
-from src.utils.log_privacy import log_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -210,9 +209,7 @@ def generate_cards(window_end, threshold=None, limit=None, *, dry_run: bool = Fa
             try:
                 raw = _generate_card_text(payload, model)
             except Exception as exc:
-                logger.warning(
-                    "Card generation failed for player %s: %s", log_metadata(row.player_api_id), log_metadata(exc)
-                )
+                logger.warning("Card generation failed for player %s: %s", row.player_api_id, exc)
                 failed += 1
                 continue
             text = _clean_card_text(raw)
