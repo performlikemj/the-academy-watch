@@ -805,7 +805,7 @@ def scale_desk(desk):
     return desk
 
 
-@pytest.mark.parametrize("endpoint,budget", [("players", 12), ("leaderboards", 25)])
+@pytest.mark.parametrize("endpoint,budget", [("players", 17), ("leaderboards", 25)])
 def test_scout_scale_query_budget_and_request_freshness(client, scale_desk, endpoint, budget):
     statements = []
 

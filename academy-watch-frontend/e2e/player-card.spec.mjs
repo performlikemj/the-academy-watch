@@ -271,13 +271,10 @@ const players = {
   },
 }
 
-// What /scout/players returns today. For club- or player-entered seasons the
-// rollup counts the club's rows only, so these figures can differ from the
-// player's page (Reuben: 15 club rows here, 22 matches on his page) — which is
-// why the card must not print them. Provider-sourced rows keep their counters.
+// Corrected /scout/players totals use the same merged lines as the player page.
 const scoutRows = [
-  { id: 1, player_id: -12, player_name: 'Kofi Asante-Reid', position: 'Right-back', primary_team_name: 'Quillmere Athletic', appearances: 1, minutes_played: 90, provenance: { source: 'club' }, player_photo: null },
-  { id: 2, player_id: -15, player_name: 'Reuben Castellane', position: 'Midfielder', primary_team_name: 'Quillmere Athletic', appearances: 15, minutes_played: 1238, provenance: { source: 'club' }, player_photo: '/fixture-photos/portrait.svg' },
+  { id: 1, player_id: -12, player_name: 'Kofi Asante-Reid', position: 'Right-back', primary_team_name: 'Quillmere Athletic', appearances: 1, minutes_played: 90, provenance: { source: 'club' }, player_photo: null, approved_photo_url: '/fixture-photos/portrait.svg', bio_line: 'Right-back at Quillmere Athletic.', club_confirmed: true },
+  { id: 2, player_id: -15, player_name: 'Reuben Castellane', position: 'Midfielder', primary_team_name: 'Quillmere Athletic', appearances: totalsOf(players['-15'].lines).appearances, minutes_played: totalsOf(players['-15'].lines).minutes, provenance: { primary_source: 'matches' }, player_photo: '/fixture-photos/portrait.svg' },
   { id: 3, player_id: -14, player_name: 'Olu Adeyemi-Clarke', position: 'Winger', primary_team_name: null, appearances: 0, minutes_played: 0, provenance: { source: 'self' }, player_photo: null, contactable: false },
   { id: 4, player_id: -17, player_name: 'Maximilian-Alexander Oluwaseun Featherstonehaugh-Abernathy', position: 'Attacking midfielder', primary_team_name: 'Quillmere Athletic & Wendleshire Community Sports Association', appearances: 2, minutes_played: 180, provenance: { source: 'self' }, player_photo: null },
   { id: 5, player_id: -19, player_name: 'Tamsin Holloway', position: 'Goalkeeper', primary_team_name: 'Quillmere Athletic', appearances: 3, minutes_played: 270, provenance: { source: 'club' }, player_photo: null },
@@ -588,14 +585,17 @@ for (const viewport of VIEWPORTS) {
       const kofi = cards.filter({ hasText: 'Kofi Asante-Reid' })
       await expect(kofi.getByRole('link', { name: 'Kofi Asante-Reid' })).toHaveAttribute('href', '/players/-12')
       await expect(kofi).toContainText('Right-back at Quillmere Athletic.')
-      // Club- and player-entered seasons: no apps/minutes on the card (the desk's
-      // figures and the player's page are counted differently until they share one source).
-      for (const name of ['Kofi Asante-Reid', 'Reuben Castellane', 'Tamsin Holloway', 'Olu Adeyemi-Clarke']) {
+      for (const name of ['Kofi Asante-Reid', 'Reuben Castellane', 'Tamsin Holloway']) {
         const card = cards.filter({ hasText: name })
-        await expect(card).not.toContainText(/\bapps?\b/)
-        await expect(card).not.toContainText(/\bmin\b/)
-        await expect(card.getByRole('img', { name: 'Club-confirmed' })).toHaveCount(0)
+        const row = scoutRows.find((p) => p.player_name === name)
+        await expect(card).toContainText(`${row.appearances} ${row.appearances === 1 ? 'app' : 'apps'}`)
+        await expect(card).toContainText(`${row.minutes_played.toLocaleString('en-GB')} min`)
       }
+      await expect(kofi).toHaveAttribute('data-photo', 'yes')
+      await expect(kofi.getByRole('img', { name: 'Club-confirmed' })).toHaveCount(1)
+      const empty = cards.filter({ hasText: 'Olu Adeyemi-Clarke' })
+      await expect(empty).not.toContainText(/\bapps?\b/)
+      await expect(empty).not.toContainText(/\bmin\b/)
       // Provider-sourced figures are the same totals the player's page shows.
       const provider = cards.filter({ hasText: 'Test Prospect' })
       await expect(provider).toContainText('30 apps')

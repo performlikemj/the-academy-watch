@@ -20,7 +20,7 @@ import { useContactRail } from '@/hooks/useContactRail.js'
 import { useGuarded, useViewerKey, useViewerLifetime, useViewerState } from '@/hooks/useViewerState'
 import { ScoutSurface, ScoutHeader, deskPillClass } from '@/components/scout/ScoutDesk'
 import { PlayerCard } from '@/components/player-card/PlayerCard'
-import { cardLine, isProviderSourced, viewerKey } from '@/lib/player-card'
+import { cardLine, viewerKey } from '@/lib/player-card'
 import { cn } from '@/lib/utils'
 import { saveBlobAs } from '@/lib/download'
 import { isStaleViewerError } from '@/lib/viewer-lifetime'
@@ -1071,22 +1071,19 @@ function ScoutDeskBody() {
                   const watched = !!watchedIds?.has(player.player_id)
                   const clubName = player.loan_team_name || player.primary_team_name || null
                   const selected = compareIds.includes(String(player.player_id))
-                  // The desk's figures come from the season rollup, which counts club- and
-                  // player-entered matches differently from the player's page (one line per
-                  // match). Until both read the same merged lines, a card prints counters
-                  // only when they are the provider's — the same totals the page shows.
-                  const providerFigures = isProviderSourced(player.provenance)
                   return (
                     <li key={player.id}>
                       <PlayerCard
                         to={withSeasonParam(`/players/${player.player_id}`, seasonOverride)}
                         name={player.player_name}
+                        photoUrl={player.approved_photo_url || null}
                         faceUrl={player.player_photo || null}
+                        confirmed={player.club_confirmed === true}
                         clubName={clubName}
                         role={player.position ? positionAbbreviation(player.position) : null}
-                        line={cardLine({ position: player.position, clubName })}
-                        appearances={providerFigures ? player.appearances : null}
-                        minutes={providerFigures ? player.minutes_played : null}
+                        line={player.bio_line || cardLine({ position: player.position, clubName })}
+                        appearances={player.appearances}
+                        minutes={player.minutes_played}
                         action={{
                           label: watched ? 'Watching' : 'Watch',
                           pressed: watched,

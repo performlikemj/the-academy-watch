@@ -32,9 +32,10 @@ Sources (feeders)
 
 Totals resolution (the double-count guard — proposal §2, non-negotiable)
 -----------------------------------------------------------------------
-Per ``(player, season, level_group)`` totals NEVER sum across sources. Each
-source's own total is computed independently. Any API-derived source outranks
-club-confirmed data, which outranks self-reported data. Within the API tier the
+Provider sources remain whole per ``(player, season, level_group)`` and always
+outrank reports. Reported headlines use ``merge_match_lines`` + ``season_totals``
+from the player page: each line counts once, paired club figures win, unique
+self lines remain. Raw club/user cells retain their independent evidence. Within the API tier the
 HEADLINE remains the larger-minutes source taken WHOLE (``journey`` wins ties /
 ``>=`` — the cup-inclusive convention). ``fixtures_minutes`` and
 ``journey_minutes`` are always both stored; ``reconcile_flag`` follows the
@@ -296,6 +297,10 @@ def _finish_cell(
 # ---------------------------------------------------------------------------
 # Feeders — each returns a list of cell payload dicts for the player[, season]
 # ---------------------------------------------------------------------------
+def _player_scope(column, player_api_id):
+    return column.in_(player_api_id) if isinstance(player_api_id, (set, list, tuple)) else column == player_api_id
+
+
 def _fixture_cells(player_api_id: int, season: int | None, session, now: datetime) -> list[dict]:
     """Aggregate FixturePlayerStats (joined to fixtures) per (season, team, tier).
 
@@ -306,7 +311,7 @@ def _fixture_cells(player_api_id: int, season: int | None, session, now: datetim
     q = (
         session.query(FixturePlayerStats, Fixture.season, Fixture.competition_name)
         .join(Fixture, FixturePlayerStats.fixture_id == Fixture.id)
-        .filter(FixturePlayerStats.player_api_id == player_api_id)
+        .filter(_player_scope(FixturePlayerStats.player_api_id, player_api_id))
     )
     if season is not None:
         q = q.filter(Fixture.season == season)
@@ -314,7 +319,7 @@ def _fixture_cells(player_api_id: int, season: int | None, session, now: datetim
     groups: dict[tuple, dict] = {}
     for fps, fx_season, comp_name in q.all():
         level_group, tier = _fixture_level_and_tier(comp_name)
-        key = (fx_season, fps.team_api_id, tier)
+        key = (fps.player_api_id, fx_season, fps.team_api_id, tier)
         agg = groups.get(key)
         if agg is None:
             agg = _blank_agg()
@@ -354,10 +359,10 @@ def _fixture_cells(player_api_id: int, season: int | None, session, now: datetim
         )
 
     cells = []
-    for (fx_season, team_api_id, tier), agg in groups.items():
+    for (subject_id, fx_season, team_api_id, tier), agg in groups.items():
         cell = _finish_cell(
             agg,
-            player_api_id=player_api_id,
+            player_api_id=subject_id,
             season=fx_season,
             source=SOURCE_FIXTURES,
             club_api_id=team_api_id or 0,
@@ -401,18 +406,18 @@ def _journey_cells(player_api_id: int, season: int | None, session, now: datetim
     is the same journey join D1's ``_season_provenance`` uses.
     """
     q = (
-        session.query(PlayerJourneyEntry)
+        session.query(PlayerJourneyEntry, PlayerJourney.player_api_id)
         .join(PlayerJourney, PlayerJourneyEntry.journey_id == PlayerJourney.id)
-        .filter(PlayerJourney.player_api_id == player_api_id)
+        .filter(_player_scope(PlayerJourney.player_api_id, player_api_id))
     )
     if season is not None:
         q = q.filter(PlayerJourneyEntry.season == season)
 
     groups: dict[tuple, dict] = {}
     names: dict[tuple, str | None] = {}
-    for e in q.all():
+    for e, subject_id in q.all():
         level_group, tier = _journey_level_and_tier(e)
-        key = (e.season, e.club_api_id, tier)
+        key = (subject_id, e.season, e.club_api_id, tier)
         agg = groups.get(key)
         if agg is None:
             agg = _blank_agg()
@@ -455,10 +460,10 @@ def _journey_cells(player_api_id: int, season: int | None, session, now: datetim
 
     cells = []
     for key, agg in groups.items():
-        fx_season, club_api_id, tier = key
+        subject_id, fx_season, club_api_id, tier = key
         cell = _finish_cell(
             agg,
-            player_api_id=player_api_id,
+            player_api_id=subject_id,
             season=fx_season,
             source=SOURCE_JOURNEY,
             club_api_id=club_api_id or 0,
@@ -474,14 +479,16 @@ def _journey_cells(player_api_id: int, season: int | None, session, now: datetim
 
 def _apss_cells(player_api_id: int, season: int | None, session, now: datetime) -> list[dict]:
     """Aggregate AcademyPlayerSeasonStats per (season, team) → level_group youth."""
-    q = session.query(AcademyPlayerSeasonStats).filter(AcademyPlayerSeasonStats.player_api_id == player_api_id)
+    q = session.query(AcademyPlayerSeasonStats).filter(
+        _player_scope(AcademyPlayerSeasonStats.player_api_id, player_api_id)
+    )
     if season is not None:
         q = q.filter(AcademyPlayerSeasonStats.season == season)
 
     groups: dict[tuple, dict] = {}
     names: dict[tuple, str | None] = {}
     for r in q.all():
-        key = (r.season, r.team_api_id or 0)
+        key = (r.player_api_id, r.season, r.team_api_id or 0)
         agg = groups.get(key)
         if agg is None:
             agg = _blank_agg()
@@ -517,10 +524,10 @@ def _apss_cells(player_api_id: int, season: int | None, session, now: datetime) 
 
     cells = []
     for key, agg in groups.items():
-        fx_season, team_api_id = key
+        subject_id, fx_season, team_api_id = key
         cell = _finish_cell(
             agg,
-            player_api_id=player_api_id,
+            player_api_id=subject_id,
             season=fx_season,
             source=SOURCE_APSS,
             club_api_id=team_api_id,
@@ -539,14 +546,14 @@ def _shadow_cells(player_api_id: int, season: int | None, session, now: datetime
 
     Shadow rows carry no competition metadata, so the tier is documented as the
     plain ``league`` default (proposal §2 honest-fallback rule)."""
-    q = session.query(PlayerShadowStats).filter(PlayerShadowStats.player_api_id == player_api_id)
+    q = session.query(PlayerShadowStats).filter(_player_scope(PlayerShadowStats.player_api_id, player_api_id))
     if season is not None:
         q = q.filter(PlayerShadowStats.season == season)
 
     groups: dict[tuple, dict] = {}
     names: dict[tuple, str | None] = {}
     for r in q.all():
-        key = (r.season, r.team_api_id or 0)
+        key = (r.player_api_id, r.season, r.team_api_id or 0)
         agg = groups.get(key)
         if agg is None:
             agg = _blank_agg()
@@ -559,10 +566,10 @@ def _shadow_cells(player_api_id: int, season: int | None, session, now: datetime
 
     cells = []
     for key, agg in groups.items():
-        fx_season, team_api_id = key
+        subject_id, fx_season, team_api_id = key
         cell = _finish_cell(
             agg,
-            player_api_id=player_api_id,
+            player_api_id=subject_id,
             season=fx_season,
             source=SOURCE_SHADOW,
             club_api_id=team_api_id,
@@ -785,6 +792,22 @@ def _club_cells(player_api_id: int, season: int | None, session, now: datetime) 
 _FEEDERS = (_fixture_cells, _journey_cells, _apss_cells, _shadow_cells, _club_cells, _user_cells)
 
 
+def provider_totals_batch(player_ids, season, *, session=None):
+    """Read missing provider headlines in four batch queries, using the writers.
+
+    Only positive reported identities lacking a provider rollup need this
+    compatibility path. It never fetches provider data or writes a rollup.
+    """
+    session = session or db.session
+    now = datetime.now(UTC)
+    grouped = {}
+    for feeder in _FEEDERS[:4]:
+        for cell in feeder(set(player_ids), season, session, now):
+            if cell["level_group"] == LEVEL_SENIOR:
+                grouped.setdefault(cell["player_api_id"], []).append(cell)
+    return {player_id: _resolve_totals(cells, now)[0] for player_id, cells in grouped.items()}
+
+
 # ---------------------------------------------------------------------------
 # Totals resolution — never-cross-source-sum (proposal §2)
 # ---------------------------------------------------------------------------
@@ -807,7 +830,7 @@ def _reconcile_flag(fixtures_minutes: int, journey_minutes: int) -> str | None:
     return None
 
 
-def _resolve_totals(cells: list[dict], now: datetime) -> list[dict]:
+def _resolve_totals(cells: list[dict], now: datetime, reported=None) -> list[dict]:
     """Build one totals payload per (season, level_group) from the cells."""
     # group cells by (season, level_group) then by source
     grouped: dict[tuple, dict[str, list[dict]]] = {}
@@ -860,6 +883,18 @@ def _resolve_totals(cells: list[dict], now: datetime) -> list[dict]:
                 "computed_at": now,
             }
         )
+    if reported:
+        from src.services.reported_match_totals import PROVIDER_SOURCES
+
+        by_scope = {(t["season"], t["level_group"]): t for t in totals}
+        for (_player_id, season), merged in reported.items():
+            old = by_scope.get((season, LEVEL_SENIOR))
+            if old is None or old["primary_source"] not in PROVIDER_SOURCES:
+                merged = {**merged, "computed_at": now}
+                if old:
+                    merged["source_breakdown"] = {**old["source_breakdown"], **merged["source_breakdown"]}
+                by_scope[(season, LEVEL_SENIOR)] = merged
+        totals = list(by_scope.values())
     return totals
 
 
@@ -927,6 +962,21 @@ def refresh_player_scopes(scopes, session=None):
     return [{"player_api_id": player_id, "season": season} for player_id, season in scopes]
 
 
+def build_player_rollup(player_api_id, season=None, *, session=None, now=None):
+    """Read-only prospective cells/totals, shared by writes and cold dry-run."""
+    from src.services.reported_match_totals import reported_totals
+
+    session = session or db.session
+    now = now or datetime.now(UTC)
+    cells = [cell for feeder in _FEEDERS for cell in feeder(player_api_id, season, session, now)]
+    reported = reported_totals(session=session, player_ids=[player_api_id], season=season)
+    if reported:
+        subject = resolve_reported_subject(player_api_id, session)
+        if subject is None or subject["is_minor"]:
+            reported = {}
+    return cells, _resolve_totals(cells, now, reported)
+
+
 def refresh_player(player_api_id: int, season: int | None = None, session=None) -> dict:
     """Rebuild a player's rollup cells + totals from the sources, in ONE transaction.
 
@@ -947,10 +997,8 @@ def refresh_player(player_api_id: int, season: int | None = None, session=None) 
     _delete_scope(session, PlayerSeasonTotal, player_api_id, season)
     session.flush()
 
-    # 2) Rebuild cells from every source.
-    cells: list[dict] = []
-    for feeder in _FEEDERS:
-        cells.extend(feeder(player_api_id, season, session, now))
+    # 2) Rebuild from the shared read-only calculation.
+    cells, totals = build_player_rollup(player_api_id, season, session=session, now=now)
 
     for c in cells:
         session.add(
@@ -976,8 +1024,7 @@ def refresh_player(player_api_id: int, season: int | None = None, session=None) 
             )
         )
 
-    # 3) Re-resolve totals (never cross-source sum).
-    totals = _resolve_totals(cells, now)
+    # 3) Persist the already resolved, source-labelled totals.
     for t in totals:
         session.add(
             PlayerSeasonTotal(

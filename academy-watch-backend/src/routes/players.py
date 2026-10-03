@@ -32,6 +32,7 @@ from src.services.player_subject import resolve_player_subject
 from src.services.player_suppression import hide_suppressed_player, neutral_player_not_found
 from src.services.public_player_subject import resolve_public_adult_subject
 from src.services.reach_metrics import fan_counts, is_fan
+from src.services.reported_match_totals import effective_total
 from src.utils.data_mode import api_football_frozen
 from src.utils.feature_flags import rollup_reads_enabled
 from src.utils.sanitize import display_plain_text
@@ -418,7 +419,7 @@ def get_public_player_stats(player_id: int):
                 db.session,
                 requested=requested_season,
                 surface="discovery",
-                allow_history=rollup_enabled,
+                allow_history=rollup_enabled or not external_player,
             )
         except ValueError as ve:
             return jsonify({"error": str(ve)}), 400
@@ -612,6 +613,7 @@ def get_public_player_stats(player_id: int):
             season=season,
             level_group="senior",
         ).one_or_none()
+        total = effective_total(player_id, season, total)
         if total is None:
             summary = _live_match_summary(result, season)
             provenance = {"source": "live-fallback"}
@@ -899,7 +901,7 @@ def get_public_player_season_stats(player_id: int):
                 db.session,
                 requested=requested_season,
                 surface="discovery",
-                allow_history=rollup_enabled,
+                allow_history=rollup_enabled or not external_player,
             )
         except ValueError as ve:
             return jsonify({"error": str(ve)}), 400
@@ -931,6 +933,16 @@ def get_public_player_season_stats(player_id: int):
                 level_group="senior",
             ).one_or_none()
 
+        total = effective_total(player_id, season_start_year, total)
+        if (
+            external_player
+            and not rollup_enabled
+            and total is not None
+            and total.primary_source in {"fixtures", "journey", "apss", "shadow", "cache"}
+        ):
+            # Retain the established provider adapter (including rich keeper
+            # fields) while its cutover flag is OFF. Reports cannot replace it.
+            total = None
         if total is not None:
             summary = _rollup_summary(total, season_start_year)
             clubs = _rollup_clubs(total)
@@ -1252,8 +1264,10 @@ def get_public_player_season_stats(player_id: int):
                 result["yellows"] = int(stats_query.total_yellows or 0)
                 result["reds"] = int(stats_query.total_reds or 0)
                 result["avg_rating"] = round(float(stats_query.avg_rating or 0), 2) if stats_query.avg_rating else None
-                result["saves"] = int(stats_query.total_saves or 0)
-                result["goals_conceded"] = int(stats_query.total_goals_conceded or 0)
+                result["saves"] = int(stats_query.total_saves) if stats_query.total_saves is not None else None
+                result["goals_conceded"] = (
+                    int(stats_query.total_goals_conceded) if stats_query.total_goals_conceded is not None else None
+                )
                 result["local_appearances"] = local_appearances
 
                 if local_appearances > result.get("appearances", 0) or result["source"] == "none":

@@ -5141,7 +5141,7 @@ def _rekey_rollup_rows(old_player_api_id: int, player_api_id: int) -> dict:
     # API fixture/journey/APSS rows should never exist for a synthetic local id;
     # fail closed if malformed historical data says otherwise instead of
     # refreshing those totals into zeros.
-    rebuildable_sources = {"club", "shadow", "user"}
+    rebuildable_sources = {"club", "shadow", "user", "matches"}
     observed_sources = {row.source for row in source_cells} | {row.primary_source for row in source_totals}
     unsupported_sources = sorted(source for source in observed_sources if source not in rebuildable_sources)
     if unsupported_sources:

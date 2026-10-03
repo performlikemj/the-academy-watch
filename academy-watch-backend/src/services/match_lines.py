@@ -71,6 +71,9 @@ def _reports_agree(club: Mapping, own: Mapping) -> bool:
 
 def _line(key: str, match_date: str, shown: Mapping, *, confirmed: bool, own: Mapping | None, shared: bool) -> dict:
     return {
+        # Optional private rollup attribution follows the exact winning row.
+        # Public route inputs omit it; no identity or author data is added.
+        **({"_scope": shown["_scope"]} if "_scope" in shown else {}),
         "key": key,
         "season": shown.get("season"),
         "match_date": match_date,

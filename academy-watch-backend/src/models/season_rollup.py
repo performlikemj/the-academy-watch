@@ -9,9 +9,9 @@ hot stats surface "one indexed row" instead of a live cross-source aggregation o
                               Feeders DELETE+INSERT their own source's cells; the
                               source is IN the unique key so feeders never collide.
 - ``player_season_totals``  — COARSE grain: the single hot-read row per
-                              ``(player, season, level_group)``. Totals NEVER sum
-                              across sources — the larger-minutes source wins the
-                              headline whole (the double-count guard); both raw
+                              ``(player, season, level_group)``. Provider sources win
+                              whole; reported headlines merge match lines once
+                              using the player-page functions; both raw
                               ``fixtures_minutes`` / ``journey_minutes`` and a
                               ``reconcile_flag`` are always carried for provenance.
 - ``league_season_config``  — "what season is NOW" per league (calendar-year vs

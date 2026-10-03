@@ -1103,12 +1103,12 @@ def test_user_feeder_canonicalizes_youth_competition_before_classification(app):
         minutes=30,
     )
 
-    assert svc.refresh_player(player, season=2025, session=db.session) == {"cells": 1, "totals": 1}
+    assert svc.refresh_player(player, season=2025, session=db.session) == {"cells": 1, "totals": 2}
     cell = PlayerSeasonCell.query.filter_by(player_api_id=player, source="user").one()
     assert (cell.level_group, cell.detail["competition"], cell.minutes) == ("youth", "Youth League", 90)
 
 
-def test_club_source_beats_larger_user_source_without_cross_source_sum(app):
+def test_reported_total_includes_unique_self_lines_and_keeps_raw_source_cells(app):
     player = 8010
     _shadow_subject(player, age=20)
     _reported_entry(
@@ -1164,7 +1164,16 @@ def test_club_source_beats_larger_user_source_without_cross_source_sum(app):
             "goals": 1,
             "assists": 0,
             "competition_tiers": ["Community League"],
-        }
+        },
+        {
+            "id": 0,
+            "name": None,
+            "minutes": 120,
+            "appearances": 1,
+            "goals": 5,
+            "assists": 0,
+            "competition_tiers": ["Community League"],
+        },
     ]
     from src.routes.players import _rollup_clubs
 
@@ -1180,7 +1189,7 @@ def test_club_source_beats_larger_user_source_without_cross_source_sum(app):
         "assists": 0,
         "competition_tiers": ["Community League"],
     }
-    assert (total.primary_source, total.minutes, total.goals, total.appearances) == ("club", 30, 1, 1)
+    assert (total.primary_source, total.minutes, total.goals, total.appearances) == ("matches", 150, 6, 2)
     assert total.source_breakdown["user"]["minutes"] == 120
     assert total.source_breakdown["club"]["minutes"] == 30
 
