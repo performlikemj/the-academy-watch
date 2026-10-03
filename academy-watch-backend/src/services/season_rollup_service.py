@@ -733,9 +733,13 @@ def _reported_match_cells(
         club_program_id = entry.club_program_id or 0
         competition_key = _reported_competition_key(entry.competition)
         key = (entry.player_api_id, entry.season, club_program_id, competition_key)
-        stamp = entry.updated_at or entry.created_at
-        if stamp is not None:
-            evidence_clocks[key] = max(evidence_clocks.get(key, stamp), stamp)
+        if current_evidence:
+            stamp = entry.updated_at or entry.created_at
+            if stamp is not None:
+                # SQLite reloads timezone columns as naive UTC; an unexpired
+                # edited row may still carry its aware ORM assignment.
+                stamp = stamp.replace(tzinfo=UTC) if stamp.tzinfo is None else stamp.astimezone(UTC)
+                evidence_clocks[key] = max(evidence_clocks.get(key, stamp), stamp)
         agg = groups.get(key)
         if agg is None:
             agg = _blank_agg()

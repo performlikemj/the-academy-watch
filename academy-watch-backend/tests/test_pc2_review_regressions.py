@@ -518,6 +518,24 @@ def test_current_report_evidence_has_stable_backing_row_clock(app):
     assert changed == _rollup_source_breakdown(pid, SEASON)
 
 
+def test_report_evidence_normalizes_mixed_orm_clocks_without_changing_writer_clock(app):
+    ids, user, list_id = seed_personas()
+    pid = ids["Kofi Asante-Reid"]
+    rows = PlayerMatchEntry.query.filter_by(player_api_id=pid, source="club").order_by(PlayerMatchEntry.id).all()
+    assert len(rows) == 2
+    rows[0].updated_at = datetime(2026, 10, 4, 12, 0, tzinfo=UTC)
+    rows[1].updated_at = datetime(2026, 10, 4, 11, 0)
+    writer_clock = datetime(2026, 10, 4, 13, 0, tzinfo=UTC)
+    with db.session.no_autoflush:
+        evidence = numbers.effective_source_cells(pid, SEASON)
+        club = [c for c in evidence if c["source"] == "club"]
+        assert len(club) == 1
+        assert club[0]["synced_at"] == rows[0].updated_at
+        cells, totals = rollup.build_player_rollup(pid, SEASON, now=writer_clock)
+        assert all(c["synced_at"] == writer_clock for c in cells)
+        assert totals
+
+
 def test_committed_provider_survives_failed_dirty_queue_drain(app, monkeypatch):
     from src.models.weekly import Fixture, FixturePlayerStats
 
