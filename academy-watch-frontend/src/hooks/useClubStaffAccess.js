@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
-import { APIService } from '@/lib/api'
+import { APIService, abandonMyClubFeatureRead } from '@/lib/api'
+import { readWithDeadline } from '@/pages/club-console/entry-read'
 import { loadStaffAccessFlag, peekStaffAccessFlag } from '@/lib/staff-access'
 import { peekFeatures } from '@/lib/features'
 
@@ -25,15 +26,16 @@ export function useClubStaffAccessState() {
   })
   const [attempt, setAttempt] = useState(0)
   const retry = useCallback(() => {
+    if (state.error === 'TimeoutError') abandonMyClubFeatureRead()
     setState({ enabled: null, pending: true, error: false })
     setAttempt(current => current + 1)
-  }, [])
+  }, [state.error])
   useEffect(() => {
     let live = true
-    APIService.getFeatures().then(features => {
+    readWithDeadline(() => APIService.getFeatures()).then(features => {
       if (live) setState({ enabled: features?.club_staff_access === true, pending: false, error: false })
-    }).catch(() => {
-      if (live) setState({ enabled: null, pending: false, error: true })
+    }).catch(error => {
+      if (live) setState({ enabled: null, pending: false, error: error.name || true })
     })
     return () => { live = false }
   }, [attempt])

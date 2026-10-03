@@ -191,14 +191,10 @@ for (const [width, height, size] of [[1440, 900, 'desktop'], [390, 844, 'mobile'
       await expect(page.getByRole('heading', { name: 'Straight from the club, soon.' })).toHaveCount(0)
     })
     test('failed bootstrap never advertises recruiting as coming soon', async ({ page }) => {
-      const evidence = await fixture(page, { role: 'club-owner', featuresStatus: 429 })
+      await fixture(page, { role: 'club-owner', featuresStatus: 429 })
       await page.goto('/my-club?view=recruiting')
-      // Club entry checks this shared bootstrap before opening any console page.
-      await expect(page.getByRole('alert')).toContainText("We couldn't load your club. Try again.")
-      await expect(page.getByRole('button', { name: 'Retry', exact: true })).toBeVisible()
-      await expect(page.getByRole('heading', { name: 'Represent a club?' })).toHaveCount(0)
+      await expect(page.getByRole('alert')).toContainText('Could not load opportunities')
       await expect(page.getByRole('heading', { name: 'The next player. The right place.' })).toHaveCount(0)
-      expect(businessCalls(evidence.calls)).toHaveLength(0)
     })
     test('expired retained duplicate hides form without expired details', async ({ page }) => {
       await fixture(page, { claims: [{ ...claim, application_unavailable: true }] })

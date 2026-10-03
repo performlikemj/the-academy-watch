@@ -2561,6 +2561,7 @@ export function MyClubConsole({
   programOptions,
   moderationContent,
   moderationCount = 0,
+  entryStatus = null,
   erroredProgramCount = 0,
   checkingPrograms = false,
   onProgramChange,
@@ -2654,7 +2655,7 @@ export function MyClubConsole({
     matches={matches} matchesLoading={matchesLoading} matchesError={matchesError} rosterLoading={rosterLoading} rosterError={rosterError}
     programOptions={programOptions} onProgramChange={onProgramChange}
     access={access} staffAccessEnabled={staffFlag === true}
-    statusContent={erroredProgramCount > 0 ? <Alert><AlertDescription>{erroredProgramCount} clubs could not be checked. <Button onClick={onRetryPrograms} disabled={checkingPrograms}>Retry</Button></AlertDescription></Alert> : null}
+    statusContent={<>{entryStatus}{erroredProgramCount > 0 ? <Alert><AlertDescription>{erroredProgramCount} {erroredProgramCount === 1 ? 'club' : 'clubs'} could not be checked. <Button onClick={onRetryPrograms} disabled={checkingPrograms}>Retry</Button></AlertDescription></Alert> : null}</>}
     panels={{
       roster: allow('players.manage') && <RosterPanel programId={programId} members={members} systemBrief={systemBrief} loading={rosterLoading} error={rosterError} onMembersChange={setMembers} onSystemBriefChange={setSystemBrief} onReload={loadRoster} onAccessDenied={onAccessDenied} />,
       matches: <MatchesPanel key={programId} programId={programId} rosterMembers={members} matches={matches} loading={matchesLoading} error={matchesError} loadFailureCount={matchesLoadFailureCount} uploadGrants={uploadGrants} onMatchesChange={setMatches} onUploadGrantChange={setGrant} onReload={loadMatches} onAccessDenied={onAccessDenied} canHighlights={access ? access.verified === true : true} canUpload={allow('matches.upload')} canResults={allow('results')} chooseSquad={staffFlag === true} squadRequired={Boolean(access && access.whole_club === false)} />,

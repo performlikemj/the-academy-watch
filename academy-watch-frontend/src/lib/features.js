@@ -7,11 +7,15 @@ export function peekFeatures() { return cached }
 export function loadFeatures(fetchFeatures) {
   if (cached !== null) return Promise.resolve(cached)
   if (!inflight) {
-    inflight = Promise.resolve().then(fetchFeatures).then(data => {
-      cached = data
+    const request = Promise.resolve().then(fetchFeatures).then(data => {
+      if (inflight === request) cached = data
       return data
-    }).finally(() => { inflight = null })
+    }).finally(() => { if (inflight === request) inflight = null })
+    inflight = request
   }
   return inflight
 }
 export function resetFeatures() { cached = null; inflight = null }
+
+// MyClub Retry releases only the pending bootstrap, retaining successful cache.
+export function releaseFeatureBootstrap() { inflight = null }

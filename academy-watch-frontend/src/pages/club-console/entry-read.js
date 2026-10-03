@@ -1,6 +1,6 @@
-// Bound the complete read, including body consumption. The race also protects
+// MyClub only: bound the complete read, including body consumption. The race also protects
 // callers when a transport ignores AbortSignal: late answers never escape it.
-export const CLUB_ENTRY_DEADLINE_MS = 15000
+export const CLUB_ENTRY_DEADLINE_MS = 60000
 
 export function readWithDeadline(read, timeoutMs = CLUB_ENTRY_DEADLINE_MS) {
   const controller = new AbortController()

@@ -25,7 +25,7 @@
 
 ## MYC1F1 review union
 
-- Status: in-progress; X1 and O1–O6 accepted from independent findings/probes; cross files absent per lead.
+- Status: complete; X1 and O1–O6 accepted from independent findings/probes; cross files absent per lead.
 - Main8696a4de merged as d3b130fe; only master ledger conflict, both histories retained.
 - Constraints: bounded15s reads including bodies, no timeout-to-OFF, old completions ignored, unchanged successful bootstrap/request counts. Silent refresh failure preserves workspace; working clubs remain available during failed-club retry.
 - Now: implementation + reversed regression probes; targeted checks only.
@@ -35,3 +35,18 @@
 - Targeted follow-up: failed-club URL7/9 + preserved unrelated draft4 PASS; existing desktop/mobile bootstrap2 PASS; changed-file ESLint PASS; diff check clean. Current origin/main8696a4de is included.
 - Review disposition: X1/O3 deadline FIXED; O1 silent refresh FIXED; O2 per-club availability FIXED; O4 neutral single alert/44px Retry FIXED; O5 discovery/eligibility retry dedup FIXED; O6 gaps FIXED (including live403 revocation). No dismissed findings.
 - State: implementation and targeted validation complete. Final-head governed gates, full lane browser/screenshots, push, boundedCI and cleanup are recorded in external MYC1F1.final.md after completion; do not alter tested head for delivery receipts.
+
+## MYC1F2 review union
+
+- Status: in-progress; X1–X3/O1–O5 accepted; cross files absent per dispatch.
+- Main8696a4de already included; no stacked parents.
+- Principle: checked program or established legacy workspace opens despite additive failure/slowness; only no-grant entry gates. Global features retain main slow-success/request sharing behavior.
+- Now: local-only deadline and additive availability simplification; restore untouched main tests; reverse all probes.
+- Next: targeted checks, final commit/four cached gates/one lane browser, shots, push/boundedCI/cleanup.
+- Final delivery ledger: ~/codex-runs/aw-redesign/logs/MYC1F2.final.md.
+
+- Implementation milestone: checked clubs publish immediately during additive discovery and parallel roster checks/retries; established legacy workspace also survives additive errors. In-workspace errors use ordinary Retry, no empty flash. Unchanged reads are shared across candidate snapshots.
+- Global feature deadline removed; only MyClub entry/body reads are bounded60s. Silent mutation refresh uses main's unbounded read timing and preserves successful confirmation/drafts on failure. Explicit local timeout Retry releases shared inflight promises with stale-write guards; other consumers still await valid late responses.
+- Targeted validation: Node6 PASS (new4 + untouched mainfeatures2); reversed browser32 controls initial28PASS/4 asynchronous count assertions corrected; repeated recovery7 initial5PASS/2 initial-bootstrap-count assumptions corrected; compatibility13PASS (seven additive cases, mutation2, per-club2, mainUXBF1 bootstrap2). Changed-file lint corrected one accidental test reference; production lint has existing warnings only.
+- Review disposition: X1/O1 availability FIXED; X2/O2 global deadline and cold starts FIXED; X3 mainUXBF1 spec restored byte-for-byte; O3 singular club banner FIXED; O4 saved-but-refresh-failed feedback FIXED; O5 regression gaps FIXED. No dismissed findings.
+- Main advanced to e510612a (C4 dark); merge before final validation, retaining main's viewer boundaries.
