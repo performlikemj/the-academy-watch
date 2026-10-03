@@ -1,13 +1,14 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Loader2, Inbox, Send } from 'lucide-react'
-import { APIService } from '@/lib/api'
 import { useAuth, useAuthUI } from '@/context/AuthContext'
 import { useContactRail } from '@/hooks/useContactRail.js'
+import { useGuarded, useViewerKey, useViewerLifetime, useViewerState } from '@/hooks/useViewerState'
+import { isStaleViewerError } from '@/lib/viewer-lifetime'
 import { ContactThread } from '@/components/contact/ContactThread'
 import { ScoutSurface, ScoutHeader } from '@/components/scout/ScoutDesk'
 import { statusLabel, counterpartName, canWithdraw, canRespond, previewText, upsertRequest, fetchAllRequests, defaultIntroductionBox } from '@/lib/introductions'
@@ -66,12 +67,30 @@ function RequestList({ box, requests, loading, error, selectedId, onSelect, onAc
   )
 }
 
+// Stable identity: useViewerState's setter is keyed on its initial value.
+const NO_REQUESTS = Object.freeze({ sent: [], inbox: [] })
+
+// Viewer change = fresh screen. Introductions are private to the account that
+// sent or received them. The page is keyed on the viewer, so on logout, login or
+// an account switch React remounts it: the previous account's requests (both
+// boxes), the selected thread and any pending load are discarded, and a
+// requested id (?request=…) is only ever looked up in what THIS viewer loaded.
+// Keep viewer-bound state inside IntroductionsBody — never in this wrapper.
 export function IntroductionsPage() {
+  const viewer = useViewerKey()
+  return <IntroductionsBody key={viewer} />
+}
+
+function IntroductionsBody() {
+  // Requests and side effects go through this viewer's lifetime (see lib/viewer-lifetime.js).
+  const life = useViewerLifetime()
+  const api = life.api
   const auth = useAuth()
+  const viewer = useViewerKey()
   const contactRail = useContactRail()
-  const { openLoginModal } = useAuthUI()
+  const openLoginModal = useGuarded(life, useAuthUI().openLoginModal)
   const [box, setBox] = useState(null)
-  const [requests, setRequests] = useState({ sent: [], inbox: [] })
+  const [requests, setRequests] = useViewerState(viewer, NO_REQUESTS)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [selectedId, setSelectedId] = useState(null)
@@ -80,6 +99,10 @@ export function IntroductionsPage() {
   // Sent and Inbox share loading/error state; a late result from the other box must not overwrite this one.
   const loadSeq = useRef(0)
   const initialBox = useRef(null)
+  // /introductions?request=<id> (e.g. "Open thread" on the watchlist) opens that thread once loaded.
+  const [searchParams] = useSearchParams()
+  const requestedId = searchParams.get('request')
+  const pendingSelection = useRef(null)
   const loadedSelection = useRef(null)
   // Same for actions: a Sent accept/decline/withdraw that finishes after switching to Inbox must not write its
   // error or clear the busy flag there (its data update still lands in the right box via the closure).
@@ -94,19 +117,23 @@ export function IntroductionsPage() {
     try {
       if (which == null) {
         const [sent, inbox] = await Promise.all(['sent', 'inbox'].map((nextBox) =>
-          fetchAllRequests((limit, offset) => APIService.listContactRequests({ box: nextBox, limit, offset }))))
+          fetchAllRequests((limit, offset) => api.listContactRequests({ box: nextBox, limit, offset }))))
         if (seq !== loadSeq.current) return
         setRequests({ sent, inbox })
-        const chosen = defaultIntroductionBox({ sent, inbox })
+        const requestedBox = requestedId
+          ? (sent.some((r) => r.id === requestedId) ? 'sent' : inbox.some((r) => r.id === requestedId) ? 'inbox' : null)
+          : null
+        pendingSelection.current = requestedBox ? requestedId : null
+        const chosen = requestedBox || defaultIntroductionBox({ sent, inbox })
         initialBox.current = chosen
         setBox(chosen)
         return
       }
-      const rows = await fetchAllRequests((limit, offset) => APIService.listContactRequests({ box: which, limit, offset }))
+      const rows = await fetchAllRequests((limit, offset) => api.listContactRequests({ box: which, limit, offset }))
       if (seq !== loadSeq.current) return
       setRequests((current) => ({ ...current, [which]: rows }))
     } catch (err) {
-      if (seq !== loadSeq.current) return
+      if (seq !== loadSeq.current || isStaleViewerError(err)) return
       if (which == null) {
         initialBox.current = 'inbox'
         setBox('inbox')
@@ -115,14 +142,15 @@ export function IntroductionsPage() {
     } finally {
       if (seq === loadSeq.current) setLoading(false)
     }
-  }, [auth?.token])
+  }, [api, auth?.token, requestedId, setRequests])
 
   useEffect(() => {
     // Strict Mode replays mount effects; share the pending load for this selection.
     if (loadedSelection.current?.box === box && loadedSelection.current?.token === auth?.token) return
     loadedSelection.current = { box, token: auth?.token }
     actionSeq.current += 1
-    setSelectedId(null)
+    setSelectedId(box != null ? pendingSelection.current : null)
+    if (box != null) pendingSelection.current = null
     setActionError(null)
     setBusyId(null)
     if (box != null && initialBox.current === box) {
@@ -132,9 +160,27 @@ export function IntroductionsPage() {
     load(box)
   }, [box, load, auth?.token])
 
+  // The requested thread changed while the page stayed open (a link, Back / Forward):
+  // select it if it is one of the caller's own loaded requests — never an id outside them.
+  // Runs on a change of the requested id only; the first arrival is handled by the initial load.
+  useEffect(() => {
+    if (!requestedId || box == null) return
+    const target = requests.sent.some((r) => r.id === requestedId)
+      ? 'sent'
+      : requests.inbox.some((r) => r.id === requestedId) ? 'inbox' : null
+    if (!target) return
+    if (target === box) {
+      setSelectedId(requestedId)
+    } else {
+      pendingSelection.current = requestedId
+      setBox(target)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requestedId])
+
   const applyUpdate = useCallback((updated) => {
     setRequests((current) => ({ ...current, [box]: upsertRequest(current[box], updated) }))
-  }, [box])
+  }, [box, setRequests])
 
   const act = async (action, request) => {
     const seq = actionSeq.current + 1
@@ -143,14 +189,14 @@ export function IntroductionsPage() {
     setActionError(null)
     try {
       const call = action === 'accept'
-        ? APIService.acceptContactRequest(request.id)
+        ? api.acceptContactRequest(request.id)
         : action === 'decline'
-          ? APIService.declineContactRequest(request.id)
-          : APIService.withdrawContactRequest(request.id)
+          ? api.declineContactRequest(request.id)
+          : api.withdrawContactRequest(request.id)
       const res = await call
       if (res?.contact_request) applyUpdate(res.contact_request)
     } catch (err) {
-      if (seq !== actionSeq.current) return
+      if (seq !== actionSeq.current || isStaleViewerError(err)) return
       setActionError(err?.body?.error || err?.message || 'That action did not go through.')
     } finally {
       if (seq === actionSeq.current) setBusyId(null)

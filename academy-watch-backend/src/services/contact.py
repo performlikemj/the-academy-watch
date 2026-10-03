@@ -514,6 +514,80 @@ def expire_if_due(contact_request: ContactRequest, *, now: datetime | None = Non
     return True
 
 
+def send_blocked_request_ids(viewer_user_id, contact_requests, *, related=None) -> set[str]:
+    """Requests on which a message from this viewer would be refused because of a block.
+
+    The batched form of the counterpart rule in ``create_contact_message``: the
+    scout, the request's claimant and — on a club-included request whose
+    program is operational — its active managers. A block in either direction
+    between the viewer and any of them makes the thread read-only (history
+    stays readable). Constant number of queries whatever the number of requests.
+    """
+    import sqlalchemy as sa
+    from src.models.showcase import PlayerProfileClaim
+    from src.services.club_registry import MANAGERS_TABLE, PROGRAMS_TABLE, _table_columns, registry_available
+    from src.services.user_blocks import block_related_user_ids
+
+    contact_requests = list(contact_requests)
+    if viewer_user_id is None or not contact_requests:
+        return set()
+    if related is None:
+        related = block_related_user_ids(user_id=viewer_user_id)
+    related = set(related) - {viewer_user_id}
+    if not related:
+        return set()
+
+    claim_ids = {row.claim_id for row in contact_requests if row.claim_id is not None}
+    owners = (
+        dict(
+            db.session.query(PlayerProfileClaim.id, PlayerProfileClaim.user_account_id).filter(
+                PlayerProfileClaim.id.in_(claim_ids)
+            )
+        )
+        if claim_ids
+        else {}
+    )
+    program_ids = {
+        row.club_program_id
+        for row in contact_requests
+        if row.routing_mode == ROUTING_CLUB_INCLUDED and row.club_program_id is not None
+    }
+    blocked_programs: set[int] = set()
+    if (
+        program_ids
+        and registry_available()
+        and {"id", "platform_status", "emergency_hidden"}.issubset(_table_columns(PROGRAMS_TABLE))
+    ):
+        programs = sa.table(
+            PROGRAMS_TABLE, sa.column("id"), sa.column("platform_status"), sa.column("emergency_hidden")
+        )
+        managers = sa.table(MANAGERS_TABLE, sa.column("program_id"), sa.column("user_account_id"), sa.column("status"))
+        statement = (
+            sa.select(managers.c.program_id)
+            .distinct()
+            .select_from(managers.join(programs, programs.c.id == managers.c.program_id))
+            .where(
+                managers.c.program_id.in_(program_ids),
+                managers.c.status == "active",
+                managers.c.user_account_id.in_(related),
+                programs.c.platform_status == "approved",
+                programs.c.emergency_hidden.is_(False),
+            )
+        )
+        blocked_programs = set(db.session.execute(statement).scalars())
+
+    blocked = set()
+    for row in contact_requests:
+        if (
+            row.scout_user_id in related
+            or owners.get(row.claim_id) in related
+            or row.routing_mode == ROUTING_CLUB_INCLUDED
+            and row.club_program_id in blocked_programs
+        ):
+            blocked.add(row.id)
+    return blocked
+
+
 __all__ = [
     "APPROACH_RULES_WARNING",
     "CONTRACT_STATUSES",
@@ -544,4 +618,5 @@ __all__ = [
     "send_club_courtesy_notice",
     "send_club_consent_notice",
     "utcnow",
+    "send_blocked_request_ids",
 ]

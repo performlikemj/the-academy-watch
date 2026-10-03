@@ -1144,6 +1144,8 @@ CONTINUITY.md
 
 ## Active Ledgers
 
+- `ledgers/CONTINUITY_scout-desk-makeover.md` — scout desk (Discover) + watchlist makeover (lane SD, 2026-10-03): PR open, awaiting review; no migration, no flag.
+
 - UXM2F1 fixes complete on draft PR #1123 (F1–F7; pytest4096/Node225/browser140; cleaned; independent review next): `ledgers/CONTINUITY_uxm2.md` (P-13 club/P-17–22/P-25; branch `fix/staging-ux-club-misc`).
 
 | Ledger | Status | Owner | Blockers |

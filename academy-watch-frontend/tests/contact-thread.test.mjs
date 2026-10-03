@@ -8,7 +8,7 @@ const componentFile = new URL('../src/components/contact/ContactThread.jsx', imp
 
 test('describeThreadState explains every closed state and opens only when the API says so', () => {
   assert.equal(describeThreadState(null).open, false)
-  assert.deepEqual(describeThreadState({ messaging_open: true, status: 'accepted' }), { open: true, note: null })
+  assert.deepEqual(describeThreadState({ messaging_open: true, status: 'accepted' }), { open: true, writable: true, note: null })
   assert.match(describeThreadState({ messaging_open: false, status: 'pending', routing_mode: 'direct' }).note, /Waiting for the player to accept/)
   assert.match(describeThreadState({ messaging_open: false, status: 'pending', routing_mode: 'club_included', club_consent_status: 'pending' }).note, /club to allow/)
   assert.match(describeThreadState({ messaging_open: false, status: 'accepted', routing_mode: 'club_included', club_consent_status: 'pending' }).note, /Messaging opens once the club allows/)
@@ -32,16 +32,16 @@ test('participantName, canSendMessage and outcome labels', () => {
 
 test('the component talks to the three thread endpoints through APIService', async () => {
   const src = await fs.readFile(componentFile, 'utf8')
-  assert.ok(src.includes('APIService.getContactMessages(requestId, { limit: PAGE, offset })'))
-  assert.ok(src.includes('APIService.sendContactMessage(sentFor, draft.trim())'))
-  assert.ok(src.includes('APIService.reportContactOutcome(reportedFor, { stage, notes: notes.trim() || null })'))
+  assert.ok(src.includes('api.getContactMessages(requestId, { limit: PAGE, offset })'))
+  assert.ok(src.includes('api.sendContactMessage(sentFor, draft.trim())'))
+  assert.ok(src.includes('api.reportContactOutcome(reportedFor, { stage, notes: notes.trim() || null })'))
   assert.ok(src.includes('data-testid="contact-thread"'))
 })
 
 test('the thread pages through every message and hides the outcome form when the viewer cannot report', async () => {
   const src = await fs.readFile(componentFile, 'utf8')
-  assert.ok(src.includes("export function ContactThread({ request, onRequestChange, canReportOutcome = false, viewerRole = 'scout' })"), 'outcome form defaults off until a permitted viewer opts in')
-  assert.ok(src.includes('APIService.getContactMessages(requestId, { limit: PAGE, offset })'), 'messages are fetched page by page')
+  assert.ok(src.includes("function ContactThreadBody({ request, onRequestChange, canReportOutcome = false, viewerRole = 'scout' })"), 'outcome form defaults off until a permitted viewer opts in')
+  assert.ok(src.includes('api.getContactMessages(requestId, { limit: PAGE, offset })'), 'messages are fetched page by page')
   assert.ok(src.includes('if (more.length < PAGE) break'), 'fetching stops at the first short page')
   const guard = src.indexOf('{canReportOutcome ? (')
   const form = src.indexOf('Record the outcome')
@@ -79,4 +79,15 @@ test('thread public title never changes the private participant or unavailable f
   assert.equal(participantName(request, 'player'), 'Public profile')
   assert.equal(request.participants.player.display_name, 'Unavailable')
   assert.equal(participantName({ ...request, public_profile: undefined }, 'player'), 'Unavailable')
+})
+
+test('the composer follows the server\'s can_send: history can be readable while the thread is not writable', async () => {
+  const { describeThreadState } = await import('../src/lib/contact-thread.js')
+  assert.deepEqual(describeThreadState({ messaging_open: true, can_send: true }), { open: true, writable: true, note: null })
+  assert.deepEqual(describeThreadState({ messaging_open: true, can_send: false }), { open: true, writable: false, note: 'New messages cannot be sent in this thread.' })
+  // A payload from before the field existed behaves as it always did.
+  assert.deepEqual(describeThreadState({ messaging_open: true }), { open: true, writable: true, note: null })
+  assert.equal(describeThreadState({ messaging_open: false, status: 'pending' }).open, false)
+  const src = await fs.readFile(componentFile, 'utf8')
+  assert.ok(src.includes('{readOnly || !state.writable ? ('), 'the composer is initialised from the thread state')
 })

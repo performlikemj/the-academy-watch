@@ -46,8 +46,31 @@ export function NoPhoto({ name, clubName, role, faceUrl }) {
 }
 
 /**
+ * The card's tile at row size (a watchlist row): the approved photo, the
+ * provider's small headshot, or initials in the club's colours. With no `name`
+ * (a player who is no longer tracked) it is an empty, quiet tile.
+ */
+export function PlayerTile({ name, photoUrl, faceUrl, clubColors }) {
+  if (!name) return <div className="pc pc-mini pc-mini--empty" aria-hidden="true" />
+  return (
+    <div className="pc pc-mini" style={clubColorStyle(clubColors)} data-photo={photoUrl ? 'yes' : 'no'}>
+      {photoUrl
+        ? <img className="pc-mini-photo" src={photoUrl} alt={name} loading="lazy" width={96} height={120} />
+        : faceUrl
+          ? <img className="pc-mini-face" src={faceUrl} alt={name} loading="lazy" width={64} height={64} />
+          : <span className="pc-mini-initials" role="img" aria-label={`${name} — no photo yet`}>{initialsOf(name)}</span>}
+    </div>
+  )
+}
+
+/**
  * The standard player card (A · portrait, or D when there is no photo).
  * The whole card opens the player; the action button stays its own target.
+ *
+ * `variant="desk"` is the same card at list density (the scout desk): a short
+ * tile with the position `chip`, `meta` (club · age) under the name, the season
+ * figures with the word that says where they come from (`source`) — or
+ * `emptyNote` when nothing is recorded — and a `status` line beside the action.
  */
 export function PlayerCard({
   to,
@@ -64,31 +87,45 @@ export function PlayerCard({
   action,
   // Small icon controls for the surface the card sits on (e.g. compare, introduce).
   extras = null,
+  variant = 'standard',
+  chip = null,
+  meta = null,
+  source = null,
+  emptyNote = null,
+  status = null,
 }) {
+  const desk = variant === 'desk'
   const counters = cardCounters({ appearances, minutes })
+  const counts = counters.length ? (
+    <div className="pc-card-counts">
+      {counters.map((counter) => (
+        <span key={counter.unit}><b>{counter.value}</b> {counter.unit}</span>
+      ))}
+      {desk && source ? <span className="pc-card-source">{source}</span> : null}
+    </div>
+  ) : null
+  const controls = extras ? <div className="pc-card-extras">{extras}</div> : null
   return (
-    <article className="pc pc-card" style={clubColorStyle(clubColors)} data-testid="player-card" data-photo={photoUrl ? 'yes' : 'no'}>
+    <article className={`pc pc-card${desk ? ' pc-card--desk' : ''}`} style={clubColorStyle(clubColors)} data-testid="player-card" data-photo={photoUrl ? 'yes' : 'no'}>
       <div className="pc-card-media">
         {photoUrl
           ? <img src={photoUrl} alt={name} loading="lazy" width={256} height={300} />
-          : <NoPhoto name={name} clubName={clubName} role={role} faceUrl={faceUrl} />}
+          : <NoPhoto name={name} clubName={desk ? null : clubName} role={desk ? null : role} faceUrl={faceUrl} />}
+        {desk && chip ? <span className="pc-card-chip">{chip}</span> : null}
+        {desk ? controls : null}
       </div>
       <div className="pc-card-body">
         <div className="pc-card-name">
           <Link to={to}>{name}</Link>
-          {confirmed ? <ConfirmedTick label="Club-confirmed" /> : null}
+          {confirmed ? <ConfirmedTick size={desk ? 16 : 18} label="Club-confirmed" /> : null}
         </div>
+        {desk && meta ? <p className="pc-card-meta">{meta}</p> : null}
         {line ? <p className="pc-card-line">{line}</p> : null}
+        {desk ? counts || (emptyNote ? <p className="pc-card-empty">{emptyNote}</p> : null) : null}
         <div className="pc-card-foot">
           <div className="pc-card-foot-start">
-            {counters.length ? (
-              <div className="pc-card-counts">
-                {counters.map((counter) => (
-                  <span key={counter.unit}><b>{counter.value}</b> {counter.unit}</span>
-                ))}
-              </div>
-            ) : null}
-            {extras ? <div className="pc-card-extras">{extras}</div> : null}
+            {desk ? (status ? <span className="pc-card-status">{status}</span> : null) : counts}
+            {desk ? null : controls}
           </div>
           {action ? (
             <button

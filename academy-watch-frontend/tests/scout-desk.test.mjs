@@ -1,0 +1,336 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import {
+  DESK_CHIPS, NO_MATCHES, boardsWithRows, compareFiguresWithheld, deskFigures, deskFilterParams, deskIntroduction, deskMeta, deskPhotos, deskStatus,
+  figuresSource, hiddenFilterActive, initialResultView, introductionThreadPath, introductionView, leaderEntries,
+  serverMergesLines, storedResultView, viewOwnerTag, watchClub, watchRole, withResultView,
+} from '../src/lib/scout-desk.js'
+
+const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
+
+test('cards on phones whatever was stored; the last choice on wider screens; cards when there is none', () => {
+  assert.equal(initialResultView({ phone: true, stored: 'table' }), 'cards')
+  assert.equal(initialResultView({ phone: false, stored: 'table' }), 'table')
+  assert.equal(initialResultView({ phone: false, stored: 'cards' }), 'cards')
+  assert.equal(initialResultView({ phone: false, stored: null }), 'cards')
+  assert.equal(initialResultView({ phone: false, stored: 'grid' }), 'cards')
+})
+
+test('every chip is a parameter the server filters on', () => {
+  assert.deepEqual(DESK_CHIPS.map((chip) => chip.label), ['Open to an introduction', 'Club-confirmed numbers', 'Under 21', 'Under 23'])
+  assert.deepEqual(deskFilterParams({}), {})
+  assert.deepEqual(deskFilterParams({ contactable: true }), { contactable: 1 })
+  assert.deepEqual(deskFilterParams({ source: 'club' }), { source: 'club' })
+  assert.deepEqual(deskFilterParams({ age: 'u21' }), { max_age: 20 })
+  assert.deepEqual(deskFilterParams({ age: 'u23' }), { max_age: 22 })
+  assert.deepEqual(
+    deskFilterParams({ search: 'kofi', position: 'Defender', status: 'on_loan', source: 'self', age: 'u23', contactable: true, season: 2025 }),
+    { search: 'kofi', position: 'Defender', status: 'on_loan', source: 'self', max_age: 22, contactable: 1, season: 2025 },
+  )
+})
+
+test('the desk never filters a page of results in the browser', () => {
+  const desk = read('../src/pages/ScoutPage.jsx')
+  assert.ok(!/players\.filter\(/.test(desk), 'results are filtered client-side')
+  assert.match(desk, /const filterParams = useMemo\(\(\) => deskFilterParams\(/)
+})
+
+test('where the figures come from', () => {
+  assert.equal(figuresSource({ source_category: 'club', primary_source: 'club' }), 'club')
+  assert.equal(figuresSource({ source_category: 'self', primary_source: 'user' }), 'self')
+  assert.equal(figuresSource({ source_category: 'api', primary_source: 'journey' }), 'provider')
+  assert.equal(figuresSource({ primary_source: 'fixtures' }), 'provider')
+  // Merged club + self-only totals (the merged-lines rollup).
+  assert.equal(figuresSource({ source_category: 'club', primary_source: 'matches' }), 'mixed')
+  assert.equal(figuresSource(null), null)
+})
+
+test('figures print with their source word once the row carries the merged-lines contract', () => {
+  const club = { club_confirmed: true, appearances: 1, minutes_played: 90, goals: 0, assists: 0, provenance: { source_category: 'club', primary_source: 'club' } }
+  assert.deepEqual(
+    (({ kind, appearances, minutes, contributions, sourceWord }) => ({ kind, appearances, minutes, contributions, sourceWord }))(deskFigures(club)),
+    { kind: 'figures', appearances: 1, minutes: 90, contributions: 0, sourceWord: 'club-confirmed' },
+  )
+  const self = { club_confirmed: false, appearances: 1, minutes_played: 72, goals: 1, assists: 0, provenance: { source_category: 'self', primary_source: 'user' } }
+  assert.equal(deskFigures(self).sourceWord, 'self-reported')
+  assert.equal(deskFigures(self).sourceSentence, 'Self-reported, not yet confirmed by the club')
+  assert.equal(deskFigures(self).contributions, 1)
+  const mixed = { club_confirmed: true, appearances: 3, minutes_played: 254, provenance: { source_category: 'club', primary_source: 'matches' } }
+  assert.equal(deskFigures(mixed).sourceWord, 'club + self-reported')
+  const provider = { appearances: 30, minutes_played: 2412, avg_rating: 7.1, provenance: { source_category: 'api', primary_source: 'journey' } }
+  assert.equal(deskFigures(provider).sourceWord, 'public match data')
+  assert.equal(deskFigures(provider).rating, 7.1)
+})
+
+test('club- or player-entered figures are withheld on a payload that predates the contract', () => {
+  // No `club_confirmed` key: these totals could differ from the player's page.
+  assert.deepEqual(deskFigures({ appearances: 2, minutes_played: 164, provenance: { source_category: 'club', primary_source: 'club' } }), { kind: 'withheld' })
+  assert.deepEqual(deskFigures({ appearances: 0, minutes_played: 0, provenance: { source_category: 'self' } }), { kind: 'withheld' })
+  // Provider figures are the same totals the player's page shows, before and after.
+  assert.equal(deskFigures({ appearances: 30, minutes_played: 2412, provenance: { source_category: 'api' } }).kind, 'figures')
+})
+
+test('"No matches recorded yet" only when the season is known to be empty', () => {
+  assert.equal(NO_MATCHES, 'No matches recorded yet')
+  assert.deepEqual(deskFigures({ club_confirmed: false, appearances: 0, minutes_played: 0, provenance: { source_category: 'self' } }), { kind: 'none' })
+  assert.deepEqual(deskFigures({ club_confirmed: false, appearances: null, minutes_played: null, provenance: { source_category: 'self' } }), { kind: 'none' })
+  assert.deepEqual(deskFigures({ appearances: 0, minutes_played: 0, provenance: { source_category: 'api' } }), { kind: 'none' })
+})
+
+test('the status line comes only from real data: own introduction, then availability, then pathway', () => {
+  assert.equal(deskStatus({}), '')
+  assert.equal(deskStatus({ availability: 'open_to_moves' }), 'Open to moves')
+  assert.equal(deskStatus({ availability: 'not_looking' }), 'Not looking')
+  assert.equal(deskStatus({ availability: 'trial_available' }), 'Available for trials')
+  assert.equal(deskStatus({ availability: 'somewhere' }), '')
+  assert.equal(deskStatus({ status: 'on_loan' }), 'On loan')
+  assert.equal(deskStatus({ availability: 'open_to_moves', introduction: { state: 'pending' } }), 'Introduction pending')
+  assert.equal(deskStatus({ introduction: { state: 'accepted', conversation_open: true } }), 'In conversation')
+  assert.equal(deskStatus({ introduction: { state: 'accepted', conversation_open: false } }), 'Introduction accepted')
+  // A finished request says nothing on the card; what the player published still shows.
+  assert.equal(deskStatus({ availability: 'not_looking', introduction: { state: 'declined' } }), 'Not looking')
+  assert.equal(deskStatus({ introduction: { state: 'none', can_ask: true } }), '')
+})
+
+test('club · age, and which image the tile gets', () => {
+  assert.equal(deskMeta({ primary_team_name: 'Quillmere Athletic', age: 23 }), 'Quillmere Athletic · 23')
+  assert.equal(deskMeta({ loan_team_name: 'Loan FC', primary_team_name: 'Parent FC', age: 19 }), 'Loan FC · 19')
+  assert.equal(deskMeta({ age: 24 }), '24')
+  assert.equal(deskMeta({}), '')
+  assert.deepEqual(deskPhotos({ approved_photo_url: '/a.jpg', player_photo: '/p.png' }), { photoUrl: '/a.jpg', faceUrl: null })
+  assert.deepEqual(deskPhotos({ player_photo: '/p.png' }), { photoUrl: null, faceUrl: '/p.png' })
+  assert.deepEqual(deskPhotos({}), { photoUrl: null, faceUrl: null })
+})
+
+test('only boards that have rows are shown', () => {
+  const phase = [{ key: 'top_scorers' }, { key: 'top_assists' }, { key: 'most_minutes' }]
+  const provider = { player_id: 1, provenance: { source_category: 'api' } }
+  assert.deepEqual(boardsWithRows({ top_scorers: [provider], top_assists: [], most_minutes: null }, phase), [{ key: 'top_scorers' }])
+  assert.deepEqual(boardsWithRows({}, phase), [])
+  assert.deepEqual(boardsWithRows(null, phase), [])
+})
+
+test('a leader whose figure could differ from the player page is not printed (review O5)', () => {
+  const provider = { player_id: 1, goals: 6, provenance: { source_category: 'api' } }
+  const legacyClub = { player_id: -2, goals: 1, provenance: { source_category: 'club', primary_source: 'club' } }
+  const mergedClub = { ...legacyClub, player_id: -3, club_confirmed: true }
+  assert.deepEqual(leaderEntries([provider, legacyClub, mergedClub]), [provider, mergedClub])
+  assert.deepEqual(boardsWithRows({ top_scorers: [legacyClub] }, [{ key: 'top_scorers' }]), [])
+  assert.deepEqual(leaderEntries(null), [])
+})
+
+test('the view choice belongs to the viewer: another account\'s choice is never used (review X4)', async () => {
+  const a = await viewOwnerTag('token-of-a')
+  const b = await viewOwnerTag('token-of-b')
+  assert.match(a, /^u[0-9a-f]{8}$/)
+  assert.notEqual(a, b)
+  assert.equal(await viewOwnerTag(null), 'public')
+  assert.ok(!a.includes('token-of-a'), 'the credential is stored')
+  let raw = withResultView(null, a, 'table')
+  assert.equal(storedResultView(raw, a), 'table')
+  assert.equal(storedResultView(raw, b), null)
+  assert.equal(storedResultView(raw, 'public'), null)
+  raw = withResultView(raw, b, 'cards')
+  assert.equal(storedResultView(raw, a), 'table')
+  assert.equal(storedResultView(raw, b), 'cards')
+  // Garbage, the old device-wide value and unknown views are ignored; the list of owners stays short.
+  for (const bad of ['table', '[]', '{"x":1', null, undefined, JSON.stringify({ [a]: 'grid' })]) assert.equal(storedResultView(bad, a), null)
+  for (let index = 0; index < 20; index += 1) raw = withResultView(raw, `u${index}`, 'table')
+  assert.equal(Object.keys(JSON.parse(raw)).length, 8)
+  assert.equal(storedResultView(raw, 'u19'), 'table')
+  const desk = read('../src/pages/ScoutPage.jsx')
+  assert.ok(!/localStorage\.setItem\(RESULT_VIEW_KEY, next\)/.test(desk), 'the choice is stored for the device')
+})
+
+test('a filter set with the table tools is never applied out of sight (review O1)', () => {
+  assert.equal(hiddenFilterActive({}), false)
+  assert.equal(hiddenFilterActive({ status: 'all', source: 'club' }), false) // the chip shows it
+  assert.equal(hiddenFilterActive({ status: 'on_loan' }), true)
+  assert.equal(hiddenFilterActive({ source: 'self' }), true)
+  assert.equal(hiddenFilterActive({ source: 'api' }), true)
+  const desk = read('../src/pages/ScoutPage.jsx')
+  assert.match(desk, /const toolsShown = resultView === 'table' \|\| moreFilters \|\| filterHidden/)
+})
+
+test('the desk offers exactly what the contact rules would accept (reviews X2 / O2)', () => {
+  const signedIn = { signedIn: true }
+  const thread = (id) => ({ kind: 'thread', to: `/introductions?request=${id}` })
+  // A reachable pending / accepted request: its thread, never a second request.
+  assert.deepEqual(deskIntroduction({ contactable: true, introduction: { state: 'pending', request_id: 'r-1', can_ask: false } }, signedIn), thread('r-1'))
+  assert.deepEqual(deskIntroduction({ contactable: true, introduction: { state: 'accepted', request_id: 'r-2', can_ask: false } }, signedIn), thread('r-2'))
+  assert.equal(deskIntroduction({ contactable: true, introduction: { state: 'pending', request_id: 'r-3', closed: true, can_ask: false } }, signedIn), null)
+  // Ask only when the server says a new request would be accepted.
+  assert.deepEqual(deskIntroduction({ contactable: true, introduction: { state: 'none', can_ask: true } }, signedIn), { kind: 'ask' })
+  assert.deepEqual(deskIntroduction({ contactable: true, introduction: { state: 'withdrawn', can_ask: true } }, signedIn), { kind: 'ask' })
+  // Cooling off, blocked (neutral state) or not claimable: nothing — even though the row is "contactable".
+  assert.equal(deskIntroduction({ contactable: true, introduction: { state: 'declined', can_ask: false } }, signedIn), null)
+  assert.equal(deskIntroduction({ contactable: true, introduction: { state: 'none', can_ask: false } }, signedIn), null)
+  // Signed out (or no projected state): the row's flag decides, as before; the form asks for sign-in.
+  assert.deepEqual(deskIntroduction({ contactable: true, introduction: { state: 'pending' } }, { signedIn: false }), { kind: 'ask' })
+  assert.deepEqual(deskIntroduction({ contactable: true }, signedIn), { kind: 'ask' })
+  assert.equal(deskIntroduction({ contactable: false }, signedIn), null)
+  // Signed in: Ask needs a scout KNOWN to be verified; unverified is sent to verification; unknown gets nothing.
+  const askable = { contactable: true, introduction: { state: 'none', can_ask: true } }
+  assert.deepEqual(deskIntroduction(askable, { signedIn: true, verification: 'approved' }), { kind: 'ask' })
+  assert.deepEqual(deskIntroduction(askable, { signedIn: true, verification: 'unverified' }), { kind: 'verify' })
+  assert.equal(deskIntroduction(askable, { signedIn: true, verification: 'loading' }), null)
+  assert.equal(deskIntroduction(askable, { signedIn: true, verification: 'unavailable' }), null)
+  // An existing thread stays reachable whatever the status.
+  assert.deepEqual(deskIntroduction({ contactable: true, introduction: { state: 'pending', request_id: 'r-1' } }, { signedIn: true, verification: 'unavailable' }), thread('r-1'))
+})
+
+const YEAR = new Date().getFullYear()
+
+test('introduction: not asked — Ask only when the rules allow it', () => {
+  assert.deepEqual(introductionView({ state: 'none', can_ask: true }), {
+    label: 'Not asked', tone: 'quiet', detail: 'You have not asked for an introduction.', action: { kind: 'ask', label: 'Ask' },
+  })
+  assert.deepEqual(introductionView({ state: 'none', can_ask: false }), {
+    label: 'Not asked', tone: 'quiet', detail: 'This player is not taking introductions here.', action: null,
+  })
+  // An unverified scout is sent to verification instead of the form.
+  assert.deepEqual(introductionView({ state: 'none', can_ask: true }, { verification: 'unverified' }).action, {
+    kind: 'verify', label: 'Get verified to ask', to: '/scout/verification',
+  })
+  assert.equal(introductionView(null), null)
+  assert.equal(introductionView({ state: 'mystery' }), null)
+})
+
+test('introduction: pending and accepted open the thread and say who is awaited', () => {
+  const pending = introductionView({ state: 'pending', request_id: 'r-1', created_at: `${YEAR}-09-30T10:00:00`, via_club: 'Quillmere Athletic', waiting_on: 'club' })
+  assert.deepEqual(pending, {
+    label: 'Pending', tone: 'wait', detail: 'Sent 30 Sep, through Quillmere Athletic. Waiting on the club.', action: { kind: 'thread', label: 'Open thread', to: '/introductions?request=r-1' },
+  })
+  assert.equal(introductionView({ state: 'pending', created_at: `${YEAR}-09-30T10:00:00`, waiting_on: 'player' }).detail, 'Sent 30 Sep. Waiting on the player.')
+  assert.equal(introductionView({ state: 'pending', created_at: `${YEAR}-09-30T10:00:00`, via_club: 'Q', waiting_on: 'club_and_player' }).detail, 'Sent 30 Sep, through Q. Waiting on the club and the player.')
+
+  const open = introductionView({ state: 'accepted', request_id: 'r-2', responded_at: `${YEAR}-09-28T10:00:00`, conversation_open: true })
+  assert.deepEqual([open.label, open.tone, open.detail, open.action.label], ['Accepted', 'good', 'Accepted 28 Sep. Conversation open.', 'Open thread'])
+  const awaitingClub = introductionView({ state: 'accepted', responded_at: `${YEAR}-09-28T10:00:00`, conversation_open: false, waiting_on: 'club' })
+  assert.deepEqual([awaitingClub.tone, awaitingClub.detail], ['wait', 'Accepted 28 Sep. Waiting on the club.'])
+  assert.equal(introductionThreadPath({}), '/introductions')
+})
+
+test('introduction: declined, expired and withdrawn offer "Ask again" only where the rules allow it', () => {
+  const cooling = introductionView({ state: 'declined', responded_at: `${YEAR}-09-10T10:00:00`, declined_by: 'player', can_ask: false, ask_again_from: `${YEAR}-10-10T10:00:00` })
+  assert.deepEqual(cooling, { label: 'Declined', tone: 'quiet', detail: 'Declined on 10 Sep. You can ask again from 10 Oct.', action: null })
+  const later = introductionView({ state: 'declined', responded_at: `${YEAR}-06-10T10:00:00`, declined_by: 'club', can_ask: true, ask_again_from: null })
+  assert.deepEqual([later.detail, later.action], ['Declined by the club on 10 Jun.', { kind: 'ask', label: 'Ask again' }])
+
+  const expired = introductionView({ state: 'expired', expires_at: `${YEAR}-09-14T10:00:00`, can_ask: true })
+  assert.deepEqual([expired.label, expired.detail, expired.action.label], ['Expired', 'No answer by 14 Sep, so the request lapsed.', 'Ask again'])
+  assert.equal(introductionView({ state: 'expired', can_ask: false }).action, null)
+
+  const withdrawn = introductionView({ state: 'withdrawn', can_ask: true })
+  assert.deepEqual([withdrawn.label, withdrawn.detail, withdrawn.action.label], ['Withdrawn', 'You withdrew this request.', 'Ask again'])
+  assert.equal(introductionView({ state: 'withdrawn', can_ask: true }, { verification: 'unverified' }).action.kind, 'verify')
+})
+
+test('introduction: a thread that is no longer reachable offers nothing', () => {
+  assert.deepEqual(introductionView({ state: 'pending', closed: true, request_id: 'r-9' }), {
+    label: 'Pending', tone: 'quiet', detail: 'This introduction is closed.', action: null,
+  })
+})
+
+test('a date in another year keeps its year', () => {
+  assert.equal(introductionView({ state: 'pending', created_at: '2024-09-30T10:00:00', waiting_on: 'player' }).detail, 'Sent 30 Sep 2024. Waiting on the player.')
+})
+
+test('watchlist identity lines use only what exists', () => {
+  assert.equal(watchRole({ position: 'Left-back', age: 24 }), 'Left-back · 24')
+  assert.equal(watchRole({ position: 'Left-back' }), 'Left-back')
+  assert.equal(watchRole({}), '')
+  assert.equal(watchClub({ primary_team_name: 'Quillmere Athletic' }), 'Quillmere Athletic')
+  assert.equal(watchClub({ loan_team_name: 'Loan FC', primary_team_name: 'Parent FC' }), 'Loan FC · from Parent FC')
+  assert.equal(watchClub({ loan_team_name: 'Loan FC', primary_team_name: 'Parent FC', owner_team_name: 'Owner FC' }), 'Loan FC · from Owner FC')
+  assert.equal(watchClub({ loan_team_name: 'Town FC' }), 'Town FC')
+  assert.equal(watchClub({}), '')
+})
+
+test('the watchlist prints the note in full, and never beside a control that cuts it', () => {
+  const page = read('../src/pages/WatchlistPage.jsx')
+  const note = page.slice(page.indexOf('function NoteBlock'), page.indexOf('function IntroductionBlock'))
+  assert.match(note, /whitespace-pre-wrap[^"]*\[overflow-wrap:anywhere\]/)
+  assert.ok(!/truncate|line-clamp/.test(note), 'the note is cut')
+  assert.ok(!/<table/.test(page), 'the watchlist is a table again')
+})
+
+test('leaders are drawn only with rows, below the results', () => {
+  const desk = read('../src/pages/ScoutPage.jsx')
+  assert.match(desk, /\{leaderBoards\.length \? \(/)
+  assert.ok(desk.indexOf('aria-label="Results"') < desk.indexOf('aria-label="Leaders"'), 'leaders come before the results')
+  assert.ok(!/No data yet/.test(desk), 'an empty board is drawn')
+  assert.ok(!/Every tracked academy and loan player/.test(desk), 'the frozen product line is back')
+  assert.match(desk, /Adult players who chose to be seen, with numbers their clubs stand behind\./)
+})
+
+// ---- Second review round ---------------------------------------------------
+
+const signInToken = (payload) => `${Buffer.from(JSON.stringify(payload)).toString('base64url')}.timestamp.signature`
+
+test('the view choice follows the ACCOUNT across sign-ins — with tokens the backend really issues (compressed)', async () => {
+  // tests/fixtures/sign-in-tokens.json is written by the backend's own issue_user_token
+  // (academy-watch-backend/tests/test_scout_desk_card.py), two sign-ins of one account and one of another.
+  const issued = JSON.parse(read('./fixtures/sign-in-tokens.json'))
+  const [first, again] = issued.same_account
+  assert.notEqual(first, again)
+  assert.ok(first.startsWith('.') && again.startsWith('.') && issued.other_account.startsWith('.'), 'fixture tokens are not the compressed kind')
+  const tag = await viewOwnerTag(first)
+  assert.equal(tag, await viewOwnerTag(again))
+  assert.notEqual(tag, await viewOwnerTag(issued.other_account))
+  // The reviewer's probe: Table chosen under the first sign-in is still there under the next one.
+  assert.equal(storedResultView(withResultView(null, tag, 'table'), await viewOwnerTag(again)), 'table')
+  assert.equal(storedResultView(withResultView(null, tag, 'table'), await viewOwnerTag(issued.other_account)), null)
+
+  // Uncompressed payloads (short ones) read the same way; an older token without a user id falls back to the email.
+  const first2 = signInToken({ email: 'corinne@example.com', user_id: 42, role: 'user', iat: 1790000000 })
+  const again2 = signInToken({ email: 'corinne@example.com', user_id: 42, role: 'user', iat: 1790099999 })
+  assert.equal(await viewOwnerTag(first2), await viewOwnerTag(again2))
+  const byEmail = signInToken({ email: 'Corinne@Example.com ', role: 'user', iat: 1 })
+  assert.equal(await viewOwnerTag(byEmail), await viewOwnerTag(signInToken({ email: 'corinne@example.com', role: 'user', iat: 2 })))
+  // Nothing readable is stored; an unreadable payload is a per-sign-in tag, never an error.
+  for (const value of [tag, await viewOwnerTag(byEmail)]) {
+    assert.match(value, /^u[0-9a-f]{8}$/)
+    assert.ok(!/corinne|42/.test(value))
+  }
+  assert.match(await viewOwnerTag('.not-a-compressed-payload.x.y'), /^u[0-9a-f]{8}$/)
+  assert.notEqual(await viewOwnerTag('opaque-a'), await viewOwnerTag('opaque-b'))
+})
+
+test('compare withholds club- or player-entered season figures until the server merges match lines (review X2)', () => {
+  const club = { provenance: { source_category: 'club', primary_source: 'club' }, totals: { appearances: 1, minutes_played: 90 } }
+  const self = { provenance: { source_category: 'self', primary_source: 'user' } }
+  const provider = { provenance: { source_category: 'api', primary_source: 'journey' } }
+  assert.equal(compareFiguresWithheld(club), true)
+  assert.equal(compareFiguresWithheld(self), true)
+  assert.equal(compareFiguresWithheld({}), true)
+  assert.equal(compareFiguresWithheld(provider), false)
+  assert.equal(compareFiguresWithheld(club, { serverMergesLines: true }), false)
+  // The signal is read off the desk's own rows: only rows that carry the contract's field count.
+  assert.equal(serverMergesLines([{ player_id: 1 }, { player_id: 2, club_confirmed: false }]), true)
+  assert.equal(serverMergesLines([{ player_id: 1 }]), false)
+  assert.equal(serverMergesLines(null), false)
+  const desk = read('../src/pages/ScoutPage.jsx')
+  assert.match(desk, /if \(withheld\[i\] && SEASON_SOURCES\.includes\(row\.source\)\) return null/)
+  assert.match(desk, /mergedLines=\{serverMergesLines\(players\)\}/)
+})
+
+test('an accepted thread whose messages would be refused is not called a conversation (review X3)', () => {
+  const view = introductionView({ state: 'accepted', request_id: 'r-5', responded_at: `${YEAR}-09-28T10:00:00`, conversation_open: false, read_only: true })
+  assert.deepEqual(view, {
+    label: 'Accepted', tone: 'quiet', detail: 'Accepted 28 Sep. New messages cannot be sent in this thread.', action: { kind: 'thread', label: 'Open thread', to: '/introductions?request=r-5' },
+  })
+  assert.equal(deskStatus({ introduction: { state: 'accepted', conversation_open: false, read_only: true } }), 'Introduction accepted')
+})
+
+test('nothing is offered while it is unknown whether the scout may ask (review O-Small-2)', () => {
+  assert.equal(introductionView({ state: 'none', can_ask: true }, { verification: 'loading' }).action, null)
+  assert.equal(introductionView({ state: 'withdrawn', can_ask: true }, { verification: 'loading' }).action, null)
+  assert.deepEqual(introductionView({ state: 'none', can_ask: true }, { verification: 'approved' }).action, { kind: 'ask', label: 'Ask' })
+  // A status read that failed is unknown too — unknown is not verified (third review round).
+  assert.equal(introductionView({ state: 'none', can_ask: true }, { verification: 'unavailable' }).action, null)
+  assert.equal(introductionView({ state: 'expired', can_ask: true }, { verification: 'unavailable' }).action, null)
+  // An existing thread stays reachable whatever the status.
+  assert.equal(introductionView({ state: 'pending', request_id: 'r-1', waiting_on: 'player' }, { verification: 'loading' }).action.kind, 'thread')
+})

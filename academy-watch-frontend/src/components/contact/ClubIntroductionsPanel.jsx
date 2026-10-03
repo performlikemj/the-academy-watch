@@ -3,7 +3,8 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { Loader2 } from 'lucide-react'
-import { APIService } from '@/lib/api'
+import { useViewerKey, useViewerLifetime } from '@/hooks/useViewerState'
+import { isStaleViewerError } from '@/lib/viewer-lifetime'
 import { ContactThread } from '@/components/contact/ContactThread'
 import { participantName } from '@/lib/contact-thread'
 import { fetchAllRequests, canDecideConsent } from '@/lib/introductions'
@@ -21,7 +22,18 @@ export function upsertById(list, updated) {
   return list.some((r) => r.id === updated.id) ? list.map((r) => (r.id === updated.id ? updated : r)) : [updated, ...list]
 }
 
-export function ClubIntroductionsPanel({ programId, onAccessDenied }) {
+// The club's introductions belong to the manager who is signed in. The console
+// itself does not remount on an account switch, so the panel keys itself on the
+// viewer: requests loaded for one account are never shown to the next.
+export function ClubIntroductionsPanel(props) {
+  const viewer = useViewerKey()
+  return <ClubIntroductionsPanelBody key={viewer} {...props} />
+}
+
+function ClubIntroductionsPanelBody({ programId, onAccessDenied }) {
+  // Requests and side effects go through this viewer's lifetime (see lib/viewer-lifetime.js).
+  const life = useViewerLifetime()
+  const api = life.api
   const [requests, setRequests] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -33,9 +45,10 @@ export function ClubIntroductionsPanel({ programId, onAccessDenied }) {
     setLoading(true)
     setError(null)
     try {
-      const rows = await fetchAllRequests((limit, offset) => APIService.listContactRequests({ box: 'club', limit, offset }))
+      const rows = await fetchAllRequests((limit, offset) => api.listContactRequests({ box: 'club', limit, offset }))
       setRequests(programId ? rows.filter((r) => r.club_program_id === programId) : rows)
     } catch (err) {
+      if (isStaleViewerError(err)) return
       if (err?.status === 403 && onAccessDenied) {
         onAccessDenied()
         return
@@ -44,7 +57,7 @@ export function ClubIntroductionsPanel({ programId, onAccessDenied }) {
     } finally {
       setLoading(false)
     }
-  }, [programId, onAccessDenied])
+  }, [api, programId, onAccessDenied])
 
   useEffect(() => { load() }, [load])
 
@@ -54,9 +67,10 @@ export function ClubIntroductionsPanel({ programId, onAccessDenied }) {
     setBusyId(request.id)
     setActionError(null)
     try {
-      const res = await APIService.setClubConsent(request.id, { action })
+      const res = await api.setClubConsent(request.id, { action })
       if (res?.contact_request) applyUpdate(res.contact_request)
     } catch (err) {
+      if (isStaleViewerError(err)) return
       setActionError(err?.body?.error || err?.message || 'That decision did not go through.')
     } finally {
       setBusyId(null)

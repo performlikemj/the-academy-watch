@@ -32,7 +32,13 @@ from flask import Blueprint, Response, g, jsonify, request
 from sqlalchemy import Integer, String, and_, case, cast, exists, func, literal, or_, tuple_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import aliased
-from src.auth import _ensure_user_account, _safe_error_payload, require_api_key, require_user_auth
+from src.auth import (
+    _ensure_user_account,
+    _safe_error_payload,
+    require_api_key,
+    require_user_auth,
+    resolve_bearer_user,
+)
 from src.extensions import limiter
 from src.models.follow import Follow, FollowList, FollowPlayerSnapshot, PlayerShadow
 from src.models.journey import PlayerJourney
@@ -65,6 +71,7 @@ from src.services.player_suppression import (
     without_active_suppression,
 )
 from src.services.public_adult import filter_public_adult_query, is_public_adult, public_adult_ids
+from src.services.scout_desk_card import attach_desk_card_fields, contactable_filter, introductions_for
 from src.services.scout_entitlements import decoded_bearer_role, scout_entitlements
 from src.services.stripe_billing import require_billing_rail
 from src.utils.data_mode import api_enabled_route, api_football_frozen, newsletters_enabled_route
@@ -775,6 +782,14 @@ def _apply_filters(query, columns, *, exclude_self_by_default=False):
     if min_minutes:
         query = query.filter(columns["minutes_played"] >= min_minutes)
 
+    # "Open to an introduction": the same set the per-row ``contactable`` flag
+    # marks, applied here so counts and pages are of the filtered set.
+    contactable = request.args.get("contactable", "").strip().lower()
+    if contactable not in ("", "0", "false", "1", "true"):
+        return query, (jsonify({"error": "Invalid contactable. One of: ['0', '1']"}), 400)
+    if contactable in ("1", "true"):
+        query = query.filter(contactable_filter(columns["player_api_id"]))
+
     return query, None
 
 
@@ -920,6 +935,14 @@ def _sort_expression(sort, columns):
     return sort_map.get(sort)
 
 
+def _optional_viewer():
+    """The signed-in caller of a public read, or None; a bad token is an anonymous read."""
+    try:
+        return resolve_bearer_user()
+    except Exception:
+        return None
+
+
 def _attach_contactable(players: list[dict]) -> None:
     """Mark rows whose player has an approved self-claim — the contact rail's target set (one query)."""
     ids = {p["player_id"] for p in players if p.get("player_id")}
@@ -1004,6 +1027,7 @@ def scout_players():
 
         players = [_row_to_dict(row) for row in rows]
         _attach_contactable(players)
+        attach_desk_card_fields(players, viewer=_optional_viewer())
         _attach_recent_form(players)
 
         return jsonify(
@@ -1645,7 +1669,7 @@ def _active_suppressed_subject_ids(player_api_ids):
     return suppressed
 
 
-def _entry_payload(entry, player=None, *, unavailable=False):
+def _entry_payload(entry, player=None, *, unavailable=False, introduction=None):
     payload = {
         "player_api_id": entry.player_api_id,
         "note": entry.note,
@@ -1654,6 +1678,9 @@ def _entry_payload(entry, player=None, *, unavailable=False):
     }
     if unavailable:
         payload["unavailable"] = True
+    elif introduction is not None and player is not None:
+        # Where this scout's own introduction to the player stands.
+        payload["introduction"] = introduction
     return payload
 
 
@@ -1676,6 +1703,7 @@ def scout_watchlist():
         entries = [entry for entry in entries if entry.player_api_id in adult_ids]
         suppressed_ids = _active_suppressed_subject_ids(entry.player_api_id for entry in entries)
         players = _watched_player_dicts([entry.player_api_id for entry in entries])
+        introductions = introductions_for(user, list(players))
         return jsonify(
             {
                 "entries": [
@@ -1683,6 +1711,7 @@ def scout_watchlist():
                         entry,
                         players.get(entry.player_api_id),
                         unavailable=entry.player_api_id in suppressed_ids,
+                        introduction=introductions.get(entry.player_api_id),
                     )
                     for entry in entries
                 ],

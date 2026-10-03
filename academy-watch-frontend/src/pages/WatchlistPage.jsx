@@ -1,136 +1,236 @@
-import { positionAbbreviation } from '@/lib/positions'
 import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
-import { APIService } from '@/lib/api'
 import { useAuth, useAuthUI } from '@/context/AuthContext'
 import { Button } from '@/components/ui/button'
-import { Switch } from '@/components/ui/switch'
-import { Skeleton } from '@/components/ui/skeleton'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Textarea } from '@/components/ui/textarea'
-import { Star, Download, StickyNote, X, Loader2, Search, ListChecks } from 'lucide-react'
-import { FormIndicator, StatusBadge, PlayerCell } from './ScoutPage'
+import { Star, X, Loader2 } from 'lucide-react'
+import { IntroduceDialog } from '@/components/contact/IntroduceDialog'
+import { PlayerTile } from '@/components/player-card/PlayerCard'
 import { ScoutSurface, ScoutHeader, deskPillClass } from '@/components/scout/ScoutDesk'
+import { useContactRail } from '@/hooks/useContactRail.js'
+import { useGuarded, useViewerKey, useViewerLifetime, useViewerState } from '@/hooks/useViewerState'
+import { saveBlobAs } from '@/lib/download'
+import { NO_MATCHES, deskFigures, deskPhotos, introductionView, watchClub, watchRole } from '@/lib/scout-desk'
+import { cn } from '@/lib/utils'
+import { isStaleViewerError } from '@/lib/viewer-lifetime'
 
 const NOTE_MAX = 2000
+// Stable identity: useViewerState's setter is keyed on its initial value.
+const NO_ENTRIES = Object.freeze([])
+const TONE_DOT = { good: 'bg-[#6FBF95]', wait: 'bg-gold', quiet: 'bg-[#7B8580]' }
+const labelClass = 'font-mono text-[11px] uppercase tracking-[0.16em]'
+const quietLinkClass = 'inline-flex h-11 items-center border-0 bg-transparent px-0.5 text-sm text-[#C9C5BA] underline underline-offset-4 hover:text-chalk focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+const rowPillClass = 'inline-flex h-11 items-center rounded-full border border-chalk/25 bg-transparent px-4 text-sm text-chalk no-underline transition-colors hover:border-chalk/60 hover:bg-chalk/[0.04] hover:text-chalk hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
 
-function NoteEditor({ entry, onSaved }) {
-  const [open, setOpen] = useState(false)
-  const [draft, setDraft] = useState(entry.note || '')
+// Stable identity, so the guarded saver is made once per lifetime.
+const saveWatchlistCsv = (blob) => saveBlobAs(blob, 'academy-watch-scout-export.csv')
+
+/** The scout's own note, in full. It is private: only this scout ever receives it. */
+function NoteBlock({ entry, playerName, api, onSaved }) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
 
-  useEffect(() => {
-    if (open) {
-      setDraft(entry.note || '')
-      setError(null)
-    }
-  }, [open, entry.note])
+  const startEditing = () => {
+    setDraft(entry.note || '')
+    setError(null)
+    setEditing(true)
+  }
 
   const save = async (value) => {
     setSaving(true)
     setError(null)
     try {
-      const res = await APIService.updateScoutWatchlistNote(entry.player_api_id, value)
+      const res = await api.updateScoutWatchlistNote(entry.player_api_id, value)
       onSaved(res?.entry || { ...entry, note: value.trim() || null })
-      setOpen(false)
+      setEditing(false)
     } catch (err) {
-      setError(err.message || 'Failed to save note')
+      if (!isStaleViewerError(err)) setError(err.message || 'The note could not be saved.')
     } finally {
       setSaving(false)
     }
   }
 
-  const playerName = entry.player?.player_name || `Player ${entry.player_api_id}`
-
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          className={`inline-flex h-7 w-7 items-center justify-center rounded-full transition-colors hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${entry.note ? 'text-gold' : 'text-muted-foreground/60 hover:text-muted-foreground'}`}
-          aria-label={`Edit note for ${playerName}`}
-          title={entry.note ? 'Edit note' : 'Add note'}
-        >
-          <StickyNote className="h-4 w-4" />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent align="end" className="w-80 border-hairline-dark bg-ink">
-        <div className="space-y-3">
-          <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-muted-foreground">My private note</p>
+    <div className="flex min-w-0 flex-col gap-2.5" data-testid="watchlist-note">
+      <p className={cn(labelClass, 'text-gold')}>Your private note</p>
+      {editing ? (
+        <>
           <Textarea
             value={draft}
             onChange={(e) => setDraft(e.target.value.slice(0, NOTE_MAX))}
             placeholder="What stands out about this player…"
-            rows={5}
+            rows={6}
             maxLength={NOTE_MAX}
             aria-label={`Note for ${playerName}`}
+            className="border-chalk/25 bg-transparent text-[15px] leading-relaxed text-chalk placeholder:text-[#8C9791]"
           />
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] text-muted-foreground tabular-nums">{draft.length}/{NOTE_MAX}</span>
-            <div className="flex items-center gap-2">
-              <Button variant="ghost" size="sm" disabled={saving || !entry.note} onClick={() => save('')}>
-                Clear
-              </Button>
-              <Button size="sm" disabled={saving} onClick={() => save(draft)}>
-                {saving ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="text-xs tabular-nums text-muted-dark">{draft.length}/{NOTE_MAX}</span>
+            <div className="flex flex-wrap items-center gap-2">
+              <button type="button" className={quietLinkClass} disabled={saving} onClick={() => setEditing(false)}>Cancel</button>
+              {entry.note ? (
+                <button type="button" className={quietLinkClass} disabled={saving} onClick={() => save('')}>Clear</button>
+              ) : null}
+              <Button variant="on-dark" className="h-11 rounded-full px-5" disabled={saving} onClick={() => save(draft)}>
+                {saving ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : null}
                 Save
               </Button>
             </div>
           </div>
-          {error && <p className="text-xs text-destructive">{error}</p>}
-        </div>
-      </PopoverContent>
-    </Popover>
+          {error ? <p className="text-sm text-[#E9967A]" role="alert">{error}</p> : null}
+        </>
+      ) : (
+        <>
+          {entry.note ? (
+            <p className="whitespace-pre-wrap font-serif text-[21px] leading-[1.3] text-chalk [overflow-wrap:anywhere]">{entry.note}</p>
+          ) : (
+            <p className="text-sm text-muted-dark">No note yet.</p>
+          )}
+          <div>
+            <button type="button" className={quietLinkClass} onClick={startEditing} aria-label={`${entry.note ? 'Edit' : 'Add a'} note for ${playerName}`}>
+              {entry.note ? 'Edit note' : 'Add a note'}
+            </button>
+          </div>
+        </>
+      )}
+    </div>
   )
 }
 
-export function WatchlistPage() {
-  const auth = useAuth()
-  const { openLoginModal } = useAuthUI()
+/** Where this scout's introduction to this player stands, with the one next step. */
+function IntroductionBlock({ view, playerName, onAsk, children }) {
+  return (
+    <div className="flex min-w-0 flex-col gap-2.5" data-testid="watchlist-introduction">
+      {view ? (
+        <>
+          <p className={cn(labelClass, 'text-muted-dark')}>Introduction</p>
+          <p className="flex items-center gap-2 text-base font-medium text-chalk">
+            <span className={cn('h-2.5 w-2.5 shrink-0 rounded-full', TONE_DOT[view.tone])} aria-hidden="true" />
+            {view.label}
+          </p>
+          <p className="text-[13px] leading-[1.4] text-muted-dark">{view.detail}</p>
+        </>
+      ) : null}
+      <div className={cn('flex flex-wrap gap-2', view ? 'mt-1' : 'lg:justify-end')}>
+        {view?.action?.kind === 'ask' ? (
+          <button type="button" className={rowPillClass} onClick={onAsk} aria-label={`${view.action.label}: introduction to ${playerName}`}>
+            {view.action.label}
+          </button>
+        ) : view?.action ? (
+          <Link to={view.action.to} className={rowPillClass} aria-label={`${view.action.label}: ${playerName}`}>{view.action.label}</Link>
+        ) : null}
+        {children}
+      </div>
+    </div>
+  )
+}
 
-  const [entries, setEntries] = useState([])
-  const [loading, setLoading] = useState(true)
+function SeasonFigures({ player }) {
+  const figures = deskFigures(player)
+  if (figures.kind === 'withheld') return null
+  if (figures.kind === 'none') return <p className="mt-1.5 text-[13px] text-muted-dark">{NO_MATCHES}</p>
+  const items = [
+    [figures.appearances.toLocaleString('en-GB'), figures.appearances === 1 ? 'app' : 'apps'],
+    [figures.minutes.toLocaleString('en-GB'), 'min'],
+    [String(figures.contributions), 'G+A'],
+  ]
+  if (figures.source === 'provider' && figures.rating != null) items.push([String(figures.rating), 'rating'])
+  return (
+    <>
+      <p className="mt-1.5 flex flex-wrap gap-x-3.5 gap-y-1 text-sm text-chalk">
+        {items.map(([value, unit]) => (
+          <span key={unit}><span className="font-semibold tabular-nums">{value}</span> <span className="text-muted-dark">{unit}</span></span>
+        ))}
+      </p>
+      {figures.sourceSentence ? <p className="text-[13px] text-muted-dark">{figures.sourceSentence}</p> : null}
+    </>
+  )
+}
+
+// Viewer change = fresh screen. The watchlist is the scout's own: who they
+// watch, their private notes, where their introductions stand. It is keyed on
+// the viewer, so on logout, login or an account switch React remounts it and
+// none of that survives. Keep viewer-bound state inside WatchlistBody — never
+// in this wrapper.
+export function WatchlistPage() {
+  const viewer = useViewerKey()
+  return <WatchlistBody key={viewer} />
+}
+
+function WatchlistBody() {
+  // Requests and side effects go through this viewer's lifetime (see lib/viewer-lifetime.js).
+  const life = useViewerLifetime()
+  const api = life.api
+  const auth = useAuth()
+  const viewer = useViewerKey()
+  const contactRail = useContactRail()
+  const openLoginModal = useGuarded(life, useAuthUI().openLoginModal)
+  const saveCsv = useGuarded(life, saveWatchlistCsv)
+
+  const [entries, setEntries] = useViewerState(viewer, NO_ENTRIES)
+  const [introducePlayer, setIntroducePlayer] = useViewerState(viewer, null)
+  const [loading, setLoading] = useState(Boolean(auth?.token))
   const [digestOptIn, setDigestOptIn] = useState(true)
   const [savingDigest, setSavingDigest] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [error, setError] = useState(null)
+  const [verification, setVerification] = useState('loading')
+
+  // `quiet` re-reads the list without the loading state (after an introduction is sent).
+  const load = useCallback(async ({ quiet = false } = {}) => {
+    if (!quiet) {
+      setLoading(true)
+      setError(null)
+    }
+    try {
+      const data = await api.getScoutWatchlist()
+      setEntries(data?.entries || [])
+      setDigestOptIn(data?.digest_opt_in !== false)
+    } catch (err) {
+      if (isStaleViewerError(err)) return
+      console.error('Failed to load watchlist', err)
+      if (!quiet) setError(err.message || 'The watchlist could not be loaded.')
+    } finally {
+      if (!quiet) setLoading(false)
+    }
+  }, [api, setEntries])
 
   useEffect(() => {
-    if (!auth?.token) {
-      setEntries([])
-      setLoading(false)
-      return
-    }
-    let cancelled = false
-    setLoading(true)
-    setError(null)
-    APIService.getScoutWatchlist()
-      .then((data) => {
-        if (cancelled) return
-        setEntries(data?.entries || [])
-        setDigestOptIn(data?.digest_opt_in !== false)
-      })
+    if (auth?.token) load()
+  }, [auth?.token, load])
+
+  // Asking for an introduction is for scouts KNOWN to be verified (the server checks again).
+  // A failed status read is retried; until it succeeds nothing new is offered.
+  const [verificationAttempt, setVerificationAttempt] = useState(0)
+  useEffect(() => {
+    if (!auth?.token || contactRail !== true) return undefined
+    let live = true
+    let retry = null
+    api.getScoutVerification()
+      .then((data) => { if (live) setVerification(data?.verification?.status === 'approved' ? 'approved' : 'unverified') })
       .catch((err) => {
-        console.error('Failed to load watchlist', err)
-        if (!cancelled) setError(err.message || 'Failed to load watchlist')
+        if (!live || isStaleViewerError(err)) return
+        setVerification('unavailable')
+        if (verificationAttempt < 2) retry = setTimeout(() => setVerificationAttempt((n) => n + 1), 3000)
       })
-      .finally(() => { if (!cancelled) setLoading(false) })
-    return () => { cancelled = true }
-  }, [auth?.token])
+    return () => { live = false; clearTimeout(retry) }
+  }, [api, auth?.token, contactRail, verificationAttempt])
 
   const handleDigestToggle = useCallback(async (checked) => {
     setDigestOptIn(checked)
     setSavingDigest(true)
     try {
-      await APIService.updateScoutWatchlistSettings({ digest_opt_in: checked })
+      await api.updateScoutWatchlistSettings({ digest_opt_in: checked })
     } catch (err) {
+      if (isStaleViewerError(err)) return
       console.error('Failed to update digest setting', err)
       setDigestOptIn(!checked)
     } finally {
       setSavingDigest(false)
     }
-  }, [])
+  }, [api])
 
   const handleRemove = useCallback((playerApiId) => {
     let removed = null
@@ -140,7 +240,8 @@ export function WatchlistPage() {
       removed = removedIndex >= 0 ? current[removedIndex] : null
       return current.filter((e) => e.player_api_id !== playerApiId)
     })
-    APIService.removeFromScoutWatchlist(playerApiId).catch((err) => {
+    api.removeFromScoutWatchlist(playerApiId).catch((err) => {
+      if (isStaleViewerError(err)) return
       console.error('Failed to remove from watchlist', err)
       // Revert optimistic removal
       setEntries((current) => {
@@ -150,28 +251,27 @@ export function WatchlistPage() {
         return next
       })
     })
-  }, [])
+  }, [api, setEntries])
 
   const handleNoteSaved = useCallback((updatedEntry) => {
     setEntries((current) => current.map((e) => (
       e.player_api_id === updatedEntry.player_api_id ? { ...e, ...updatedEntry, player: e.player } : e
     )))
-  }, [])
+  }, [setEntries])
 
   const handleExportCsv = useCallback(async () => {
     if (!entries.length) return
     setExporting(true)
     try {
-      await APIService.downloadScoutCsv({ ids: entries.map((e) => e.player_api_id).join(',') })
+      // The whole body is read and the viewer re-checked (life.api) before the guarded save.
+      const blob = await api.fetchScoutCsv({ ids: entries.map((e) => e.player_api_id).join(',') })
+      saveCsv(blob)
     } catch (err) {
-      console.error('CSV export failed', err)
+      if (!isStaleViewerError(err)) console.error('CSV export failed', err)
     } finally {
       setExporting(false)
     }
-  }, [entries])
-
-  const thClass = 'px-3 py-3 font-mono text-[10.5px] font-medium uppercase tracking-[0.14em] text-[#8C9791]'
-  const tdNum = 'px-3 py-3.5 text-right font-mono text-[13px] tabular-nums text-chalk/85'
+  }, [api, entries, saveCsv])
 
   // Signed out
   if (!auth?.token) {
@@ -184,7 +284,7 @@ export function WatchlistPage() {
             </span>
             <h1 className="display text-4xl text-chalk sm:text-5xl">Sign in to build your watchlist</h1>
             <p className="text-[15px] leading-relaxed text-muted-dark">
-              Star players across the Scout Desk and keep their form, stats and availability one click away.
+              Watch players from the scout desk and keep your own notes on each of them in one place.
             </p>
             <Button variant="on-dark" onClick={openLoginModal}>Sign in</Button>
           </div>
@@ -193,162 +293,130 @@ export function WatchlistPage() {
     )
   }
 
+  const count = entries.length
   return (
     <ScoutSurface>
       <div className="floodlight-container pb-24">
         <ScoutHeader
-          eyebrow={<span className="inline-flex items-center gap-2"><Star className="h-3.5 w-3.5" aria-hidden="true" />Watchlist{!loading ? ` · ${entries.length} player${entries.length === 1 ? '' : 's'}` : ''} · Scout Pro — free during beta</span>}
+          eyebrow={`Watchlist${!loading && !error ? ` · ${count} player${count === 1 ? '' : 's'}` : ''}`}
           title="Players you’re"
           accent="watching"
-          lede="Every player you are tracking, with live form, season output and your own scouting notes."
+          lede={contactRail === true
+            ? 'Your notes first. Numbers when there are numbers. Where each introduction stands.'
+            : 'Your notes first. Numbers when there are numbers.'}
           actions={(
             <>
-              <label className="mr-2 flex items-center gap-3 text-sm text-[#C9CFCB]">
-                Weekly digest
-                <Switch
+              <label className="mr-1 flex h-11 items-center gap-2.5 text-sm text-chalk">
+                <input
+                  type="checkbox"
+                  className="h-5 w-5 accent-gold"
                   checked={digestOptIn}
-                  onCheckedChange={handleDigestToggle}
+                  onChange={(e) => handleDigestToggle(e.target.checked)}
                   disabled={savingDigest}
                   aria-label="Weekly digest email"
                 />
+                Weekly digest
               </label>
-              <Button variant="outline" size="sm" className={deskPillClass} onClick={handleExportCsv} disabled={exporting || !entries.length}>
-                {exporting ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Download className="mr-1.5 h-4 w-4" />}
+              <Button variant="outline" size="sm" className={cn(deskPillClass, 'h-[46px] px-[18px] text-sm')} onClick={handleExportCsv} disabled={exporting || !count}>
+                {exporting ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : null}
                 Export CSV
               </Button>
-              <Button size="sm" variant="on-dark" asChild>
-                <Link to="/scout" className="no-underline hover:no-underline">
-                  <Search className="mr-1.5 h-4 w-4" />
-                  Find players
-                </Link>
+              <Button variant="on-dark" asChild className="h-[46px] rounded-full px-5 text-sm">
+                <Link to="/scout" className="no-underline hover:no-underline">Find players</Link>
               </Button>
             </>
           )}
         />
 
-        {/* Lists cross-link */}
-        <div className="mb-8 flex flex-wrap items-center justify-between gap-3 rounded-[10px] border border-hairline-dark px-5 py-4">
-          <span className="flex items-start gap-3 text-[14px] leading-relaxed text-[#C9CFCB]">
-            <ListChecks className="mt-0.5 h-4 w-4 shrink-0 text-gold" aria-hidden="true" />
-            <span>Your watchlist is now also a <span className="text-chalk">List</span> — manage richer follows (clubs, countries, saved filters) in Lists.</span>
-          </span>
-          <Link to="/scout/lists" className="shrink-0 border-b border-chalk/40 pb-px text-sm text-chalk no-underline hover:border-gold hover:no-underline">Open Lists</Link>
-        </div>
-
-        {error && (
-          <p className="mb-4 text-sm text-destructive">{error}</p>
-        )}
-
-        {/* Empty state */}
-        {!loading && !entries.length ? (
+        {error ? (
+          <div className="flex flex-col items-start gap-3 border-t border-hairline-dark py-10" role="alert">
+            <p className="text-[15px] text-[#E9967A]">{error}</p>
+            <Button variant="outline" size="sm" className={cn(deskPillClass, 'h-11')} onClick={() => load()}>Try again</Button>
+          </div>
+        ) : loading ? (
+          <ul className="flex flex-col gap-4" aria-busy="true" aria-label="Loading your watchlist" data-testid="watchlist-skeletons">
+            {[0, 1, 2].map((i) => <li key={i} className="h-[162px] rounded-[22px] border border-hairline-dark bg-[#111514]" />)}
+          </ul>
+        ) : !count ? (
           <div className="flex flex-col items-center gap-5 border-t border-hairline-dark px-6 py-20 text-center">
             <span className="inline-flex h-14 w-14 items-center justify-center rounded-full border border-gold/60">
               <Star className="h-6 w-6 text-gold" />
             </span>
             <h2 className="display text-4xl text-chalk">Nothing watched yet</h2>
             <p className="max-w-md text-[15px] leading-relaxed text-muted-dark">
-              Star players on the Scout Desk and they&apos;ll show up here with live form, stats and availability.
+              Press Watch on a player and they appear here with your notes{contactRail === true ? ', their numbers and where your introduction stands' : ' and their numbers'}.
             </p>
-            <Button variant="on-dark" asChild>
-              <Link to="/scout" className="no-underline hover:no-underline">Open the Scout Desk</Link>
+            <Button variant="on-dark" asChild className="h-11 rounded-full px-5">
+              <Link to="/scout" className="no-underline hover:no-underline">Find players</Link>
             </Button>
           </div>
         ) : (
-          <section aria-label="Watched players" className="border-t border-hairline-dark">
-            <div className="relative overflow-x-auto">
-              <table className="w-full min-w-[760px] border-collapse">
-                <thead>
-                  <tr className="border-b border-hairline-dark">
-                    <th className={`text-left ${thClass}`}>Player</th>
-                    <th className={`text-left ${thClass}`}>Pos</th>
-                    <th className={`text-left ${thClass}`}>Status</th>
-                    <th className={`text-left ${thClass}`}>Club</th>
-                    <th className={`text-left ${thClass}`}>Form</th>
-                    <th className={`text-right ${thClass}`}>Apps</th>
-                    <th className={`text-right ${thClass}`}>G</th>
-                    <th className={`text-right ${thClass}`}>A</th>
-                    <th className={`text-right ${thClass}`}>Mins</th>
-                    <th className={`text-right ${thClass}`}>Rating</th>
-                    <th className={`text-right ${thClass}`}>G+A/90</th>
-                    <th className={`w-20 text-right ${thClass}`}>
-                      <span className="sr-only">Actions</span>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-hairline-dark">
-                  {loading ? (
-                    Array.from({ length: 5 }).map((_, i) => (
-                      <tr key={i}>
-                        <td colSpan={12} className="px-3 py-3"><Skeleton className="h-10 w-full" /></td>
-                      </tr>
-                    ))
-                  ) : (
-                    entries.map((entry) => {
-                      const player = entry.player
-                      const playerName = player?.player_name || `Player ${entry.player_api_id}`
-                      return (
-                        <tr key={entry.player_api_id} className="transition-colors duration-150 hover:bg-chalk/[0.035]">
-                          {player ? (
-                            <>
-                              <td className="px-3 py-3.5"><PlayerCell player={player} /></td>
-                              <td className="px-3 py-3.5 font-mono text-[12px] text-muted-dark whitespace-nowrap">{positionAbbreviation(player.position)}</td>
-                              <td className="px-3 py-3.5"><StatusBadge status={player.status} /></td>
-                              <td className="px-3 py-3.5 max-w-44">
-                                <span className="block truncate text-sm text-chalk/90">{player.loan_team_name || player.primary_team_name || '—'}</span>
-                                {player.loan_team_name && (player.owner_team_name || player.primary_team_name) && (
-                                  <span className="block truncate text-xs text-muted-dark">from {player.owner_team_name || player.primary_team_name}</span>
-                                )}
-                                {entry.note && (
-                                  <span className="block max-w-44 truncate font-serif text-[15px] italic text-gold/90" title={entry.note}>
-                                    “{entry.note}”
-                                  </span>
-                                )}
-                              </td>
-                              <td className="px-3 py-3.5"><FormIndicator form={player.recent_form} /></td>
-                              <td className={tdNum}>{player.appearances}</td>
-                              <td className={tdNum}>{player.goals}</td>
-                              <td className={tdNum}>{player.assists}</td>
-                              <td className={tdNum}>{player.minutes_played?.toLocaleString()}</td>
-                              <td className={tdNum}>{player.avg_rating ?? '—'}</td>
-                              <td className={`${tdNum} text-gold`}>{player.contributions_per90 ?? '—'}</td>
-                            </>
-                          ) : (
-                            <>
-                              <td className="px-3 py-3.5">
-                                <span className="block text-[14.5px] font-medium text-chalk">{playerName}</span>
-                                <span className="block text-xs text-muted-dark">No longer tracked</span>
-                                {entry.note && (
-                                  <span className="block max-w-44 truncate font-serif text-[15px] italic text-gold/90" title={entry.note}>
-                                    “{entry.note}”
-                                  </span>
-                                )}
-                              </td>
-                              <td colSpan={10} className="px-3 py-3.5 text-sm text-muted-dark">—</td>
-                            </>
-                          )}
-                          <td className="px-3 py-3.5">
-                            <div className="flex items-center justify-end gap-1">
-                              <NoteEditor entry={entry} onSaved={handleNoteSaved} />
-                              <button
-                                type="button"
-                                onClick={() => handleRemove(entry.player_api_id)}
-                                className="inline-flex h-8 w-8 items-center justify-center rounded-full text-muted-dark/70 transition-colors hover:bg-chalk/[0.06] hover:text-[#E9967A] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                aria-label={`Remove ${playerName} from watchlist`}
-                                title="Remove from watchlist"
-                              >
-                                <X className="h-4 w-4" />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      )
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </section>
+          <ul className="flex flex-col gap-4" aria-label="Watched players" data-testid="watchlist-rows">
+            {entries.map((entry) => {
+              const player = entry.player
+              const playerName = player?.player_name || `Player ${entry.player_api_id}`
+              const view = player && contactRail === true ? introductionView(entry.introduction, { verification }) : null
+              const role = player ? watchRole(player) : ''
+              const club = player ? watchClub(player) : ''
+              return (
+                <li
+                  key={entry.player_api_id}
+                  data-testid="watchlist-row"
+                  className="grid grid-cols-[96px_minmax(0,1fr)] items-start gap-x-5 gap-y-6 rounded-[22px] border border-hairline-dark bg-[#111514] p-5 lg:grid-cols-[96px_minmax(0,1.25fr)_minmax(0,2.2fr)_minmax(0,1.1fr)] lg:gap-6"
+                >
+                  <PlayerTile name={player ? playerName : null} {...(player ? deskPhotos(player) : {})} />
+
+                  <div className="flex min-w-0 flex-col gap-2">
+                    {player ? (
+                      <>
+                        <Link to={`/players/${entry.player_api_id}`} className="font-serif text-[30px] leading-[1.02] text-chalk no-underline [overflow-wrap:anywhere] hover:text-gold hover:no-underline">
+                          {playerName}
+                        </Link>
+                        {role ? <p className="text-sm text-[#C9C5BA]">{role}</p> : null}
+                        {club ? <p className="text-sm text-[#C9C5BA] [overflow-wrap:anywhere]">{club}</p> : null}
+                        <SeasonFigures player={player} />
+                      </>
+                    ) : (
+                      <>
+                        <p className="font-serif text-[30px] leading-[1.02] text-chalk [overflow-wrap:anywhere]">{playerName}</p>
+                        <p className="text-sm text-muted-dark">No longer tracked</p>
+                      </>
+                    )}
+                  </div>
+
+                  <div className="col-span-2 min-w-0 lg:col-span-1">
+                    <NoteBlock entry={entry} playerName={playerName} api={api} onSaved={handleNoteSaved} />
+                  </div>
+
+                  <div className="col-span-2 min-w-0 lg:col-span-1">
+                    <IntroductionBlock
+                      view={view}
+                      playerName={playerName}
+                      onAsk={() => setIntroducePlayer({ player_id: entry.player_api_id, player_name: playerName })}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => handleRemove(entry.player_api_id)}
+                        className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-chalk/25 text-chalk transition-colors hover:border-chalk/60 hover:bg-chalk/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        aria-label={`Stop watching ${playerName}`}
+                        title="Stop watching"
+                      >
+                        <X className="h-3.5 w-3.5" aria-hidden="true" />
+                      </button>
+                    </IntroductionBlock>
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
         )}
+
+        <IntroduceDialog
+          open={verification === 'approved' && !!introducePlayer}
+          onOpenChange={(next) => { if (!next) setIntroducePlayer(null) }}
+          player={introducePlayer}
+          onSent={() => load({ quiet: true })}
+        />
       </div>
     </ScoutSurface>
   )

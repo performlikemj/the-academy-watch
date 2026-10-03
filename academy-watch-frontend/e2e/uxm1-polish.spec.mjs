@@ -9,6 +9,16 @@ async function mocks(page, { verified = false, signedIn = true, incoming = true,
   const seen = []
   await page.addInitScript((signedIn) => {
     localStorage.setItem('academyWatch.playerOnboardingPromptDismissed.v1', 'true')
+    // These checks read the desk's table; the desk starts on cards, so store "table" as this
+    // viewer's choice (keyed by lib/scout-desk.js::viewOwnerTag — FNV-1a of the credential).
+    const tag = (token) => {
+      if (!token) return 'public'
+      let hash = 0x811c9dc5
+      const subject = `token:${token}` // the mock token has no readable payload: a per-sign-in tag
+      for (let index = 0; index < subject.length; index += 1) hash = Math.imul(hash ^ subject.charCodeAt(index), 0x01000193) >>> 0
+      return `u${hash.toString(16).padStart(8, '0')}`
+    }
+    localStorage.setItem('aw.scout.view.v2', JSON.stringify({ [tag(signedIn ? 'test-token' : null)]: 'table' }))
     if (signedIn) localStorage.setItem('academy_watch_user_token', 'test-token')
   }, signedIn)
   await page.route('**/api/**', async (route) => {
@@ -57,7 +67,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       const seen = await mocks(page)
       await page.goto('/scout')
       await expect(page.getByRole('cell', { name: 'RW', exact: true })).toBeVisible()
-      await expect(page.getByText(/viewing 2026\/27/)).toBeVisible()
+      await expect(page.getByRole('combobox', { name: 'Select season' })).toContainText('2026/27')
       await expect(page.getByRole('combobox', { name: 'Select season' })).toContainText('2026/27')
       for (const path of ['/api/scout/players', '/api/scout/leaderboards']) {
         await expect.poll(() => seen.filter(r => r.path === path).length).toBeGreaterThan(0)
@@ -65,7 +75,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       }
       await page.getByRole('combobox', { name: 'Select season' }).click()
       await page.getByRole('option', { name: '2025/26' }).click()
-      await expect(page.getByText(/viewing 2025\/26/)).toBeVisible()
+      await expect(page.getByRole('combobox', { name: 'Select season' })).toContainText('2025/26')
       expect(await page.locator('body').evaluate(el => el.scrollWidth <= window.innerWidth)).toBe(true)
     })
     test('explicit current season follows a player link despite stored history', async ({ page }) => {
@@ -110,10 +120,10 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       await expect(page).toHaveURL(/\/players\/-71$/)
       await expect(page.getByRole('heading', { name: 'Test Community Adult', exact: true })).toBeVisible()
     })
-    test('watchlist uses the same position code', async ({ page }) => {
+    test('watchlist states the position and age in words', async ({ page }) => {
       await mocks(page)
       await page.goto('/scout/watchlist')
-      await expect(page.getByRole('cell', { name: 'RW', exact: true })).toBeVisible()
+      await expect(page.getByTestId('watchlist-row')).toContainText('Right winger · 23')
     })
     test('signed-out scout sees Get verified and can open sign-in from a row', async ({ page }) => {
       const seen = await mocks(page, { signedIn: false })
@@ -185,7 +195,9 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
 }
 
 for (const verificationMode of ['slow', 'failed']) {
-  test(`verification ${verificationMode} keeps neutral copy and allows composer`, async ({ page }) => {
+  // Since the scout-desk makeover's third review round: an unknown status is not a verified one, so the
+  // composer is NOT offered while the status is slow or failed (the neutral header copy is unchanged).
+  test(`verification ${verificationMode} keeps neutral copy and offers no composer until it is known`, async ({ page }) => {
     await mocks(page, { verified: true, verificationMode })
     let finishVerification
     if (verificationMode === 'slow') {
@@ -199,8 +211,7 @@ for (const verificationMode of ['slow', 'failed']) {
     await expect(page.getByRole('cell', { name: 'RW', exact: true })).toBeVisible()
     await expect(page.getByRole('link', { name: 'Get verified to introduce yourself', exact: true })).toHaveCount(0)
     await expect(page.getByRole('link', { name: verificationMode === 'slow' ? 'Checking verification…' : 'Scout verification', exact: true })).toBeVisible()
-    await page.getByRole('button', { name: 'Introduce yourself to Test Community Adult' }).click()
-    await expect(page.getByRole('textbox', { name: 'Message to Test Community Adult' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Introduce yourself to Test Community Adult' })).toHaveCount(0)
     finishVerification?.()
     if (verificationMode === 'slow') {
       await page.keyboard.press('Escape')

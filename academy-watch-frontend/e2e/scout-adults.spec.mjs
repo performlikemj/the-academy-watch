@@ -24,7 +24,7 @@ for (const width of [1440, 390]) {
     })
     await page.goto('/scout')
     await expect(page.getByRole('button', { name: 'U18', exact: true })).toHaveCount(0)
-    for (const [chip, maximum] of [['U21', '20'], ['U23', '22']]) {
+    for (const [chip, maximum] of [['Under 21', '20'], ['Under 23', '22']]) {
       await page.getByRole('button', { name: chip, exact: true }).click()
       await expect.poll(() => playerQueries.at(-1)?.get('max_age')).toBe(maximum)
       await expect.poll(() => leaderboardQueries.at(-1)?.get('max_age')).toBe(maximum)

@@ -18,7 +18,12 @@ export function outcomeLabel(stage) {
 export function describeThreadState(request, viewerRole = 'scout') {
   const player = viewerRole === 'player'
   if (!request) return { open: false, note: 'No request selected.' }
-  if (request.messaging_open) return { open: true, note: null }
+  // `open`: the thread exists and its history can be read. `writable`: a message from this viewer
+  // would be accepted (the server's own answer, `can_send`; older payloads only carry messaging_open).
+  if (request.messaging_open) {
+    const writable = request.can_send !== false
+    return { open: true, writable, note: writable ? null : 'New messages cannot be sent in this thread.' }
+  }
   if (request.status === 'pending' && request.routing_mode === 'club_included' && request.club_consent_status === 'pending') {
     return { open: false, note: player ? 'Waiting for you to accept and the club to allow the introduction.' : 'Waiting for the player to accept and the club to allow the introduction.' }
   }
