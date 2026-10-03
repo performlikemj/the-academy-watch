@@ -203,7 +203,7 @@ test('first load reads each granting source once and honors a non-first URL prog
 })
 
 
-test('known owner also waits for slow staff discovery without duplicate eligibility reads', async ({ page }) => {
+test('known owner opens during slow staff discovery without duplicate eligibility reads', async ({ page }) => {
   const state = await mock(page)
   const hold = barrier()
   state.hold = { endpoint: endpoints.staff, ...hold }
@@ -538,7 +538,9 @@ test('sequential cold-start entry reads each get their own local deadline', asyn
     holds[i].release()
   }
   await expectConsole(page)
-  for (const hold of holds) expect(state.calls.filter(p => p === hold.endpoint)).toHaveLength(1)
+  // Main's live feature reader revalidates once its existing 15s cache expires.
+  expect(state.calls.filter(p => p === endpoints.features)).toHaveLength(2)
+  for (const source of ['staff', 'eligibility']) expect(state.calls.filter(p => p === endpoints[source])).toHaveLength(1)
 })
 
 for (const width of [390, 1440]) test(`granted console with additive error evidence${width}px`, async ({ page }) => {
