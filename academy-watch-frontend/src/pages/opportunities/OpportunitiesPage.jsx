@@ -1,3 +1,8 @@
+// --- p2-c4 begin ---
+import { useScoutAttend } from '@/components/attendance/useScoutAttend'
+import { LocationControl } from '@/components/attendance/LocationControl'
+import '@/components/attendance/attendance.css'
+// --- p2-c4 end ---
 import { OpportunityBoundary } from '@/pages/opportunities/OpportunityBoundary'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useParams } from 'react-router-dom'
@@ -11,6 +16,9 @@ import { errorMessage, useOpportunities, when, write } from './useOpportunities'
 import './opportunities.css'
 
 function OpportunitiesPageContent() {
+  const scoutAttendEnabled = useScoutAttend()
+  const [location, setLocation] = useState(null)
+  const [radius, setRadius] = useState(50)
   const flags = useOpportunities()
   const [items, setItems] = useState([])
   const [kind, setKind] = useState('')
@@ -23,11 +31,12 @@ function OpportunitiesPageContent() {
     let active = true
     setLoading(true)
     setError('')
-    APIService.request(`/opportunities?page=${page}${kind ? `&type=${kind}` : ''}`).then(data => {
+    const result = scoutAttendEnabled && location ? APIService.request('/opportunities/search', { method: 'POST', body: JSON.stringify({ ...location, radius_km: radius, page, ...(kind ? { type: kind } : {}) }) }) : APIService.request(`/opportunities?page=${page}${kind ? `&type=${kind}` : ''}`)
+    result.then(data => {
       if (active) { setItems(data.opportunities); setMore(data.has_more) }
     }).catch(err => { if (active) setError(errorMessage(err)) }).finally(() => { if (active) setLoading(false) })
     return () => { active = false }
-  }, [flags.opportunities, kind, page])
+  }, [flags.opportunities, kind, page, scoutAttendEnabled, location, radius])
   if (flags.error) return <p role="alert" className="floodlight-container py-12">{flags.error}</p>
   if (!flags.loaded) return <p role="status" className="floodlight-container py-12">Loading opportunities…</p>
   if (!flags.opportunities) return <OpportunitiesTeaser />
@@ -42,9 +51,10 @@ function OpportunitiesPageContent() {
         <h2 className="opp-section">Open opportunities</h2>
         <label className="opp-field">Type<select aria-label="Type" value={kind} onChange={event => { setKind(event.target.value); setPage(1) }}><option value="">All opportunities</option><option value="trial">Trials</option><option value="open_session">Open sessions</option><option value="position">Positions</option></select></label>
       </div>
+      {scoutAttendEnabled && <LocationControl location={location} setLocation={value => { setLocation(value); setPage(1) }} radius={radius} setRadius={value => { setRadius(value); setPage(1) }} />}
       {error && <p role="alert" className="opp-error">{error}</p>}
-      <div aria-live="polite" aria-busy={loading}>{loading ? <p className="py-12 text-muted">Loading opportunities…</p> : !items.length ? <p className="py-12 text-muted">No open opportunities at the moment. Check back for your next step.</p> : items.map(item => <Link key={item.id} to={`/opportunities/${item.id}`} className="opp-row flex flex-wrap items-center justify-between gap-5 no-underline">
-        <div className="min-w-0"><p className="opp-label">{item.club_name} · {item.type.replaceAll('_', ' ')}</p><h3 className="opp-section mt-3">{item.title}</h3><p className="mt-3 text-sm text-muted">{whenRange(item.starts_at, item.ends_at, item.timezone)} · {item.venue}</p></div><span className="opp-label">View opportunity →</span>
+      <div aria-live="polite" aria-busy={loading}>{loading ? <p className="py-12 text-muted">Loading opportunities…</p> : !items.length ? <div className="py-12 text-muted">{scoutAttendEnabled && location ? <><p>No open opportunities with a published location within {radius} km.</p><button className="opp-button mt-4" onClick={() => { setLocation(null); setPage(1) }}>Browse without location</button></> : <p>No open opportunities at the moment. Check back for your next step.</p>}</div> : items.map(item => <Link key={item.id} to={`/opportunities/${item.id}`} className="opp-row flex flex-wrap items-center justify-between gap-5 no-underline">
+        <div className="min-w-0"><p className="opp-label">{item.club_name} · {item.type.replaceAll('_', ' ')}</p><h3 className="opp-section mt-3">{item.title}</h3><p className="mt-3 text-sm text-muted">{whenRange(item.starts_at, item.ends_at, item.timezone)} · {item.venue}</p>{scoutAttendEnabled && location && <p className="mt-2 text-sm text-muted">{item.distance_km == null ? 'Distance unavailable' : `${item.distance_km} km from you`}</p>}</div><span className="opp-label">View opportunity →</span>
       </Link>)}</div>
       <div className="mt-8 flex gap-3">{page > 1 && <button className="opp-button" onClick={() => setPage(page - 1)}>Previous</button>}{more && <button className="opp-button" onClick={() => setPage(page + 1)}>Next</button>}</div>
     </main>

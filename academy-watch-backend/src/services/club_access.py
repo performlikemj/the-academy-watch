@@ -33,6 +33,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from functools import wraps
 
+import sqlalchemy as sa
 from flask import g, jsonify, request
 from sqlalchemy.exc import IntegrityError
 from src.auth import require_user_auth
@@ -298,7 +299,7 @@ def member_in_scope(member) -> bool:
     return access is None or access.squad_visible(member.squad_id)
 
 
-def match_visible_to(access, match, *, require_bytes=False) -> bool:
+def match_visible_to(access, match, *, require_bytes=False, scope_evidence=None) -> bool:
     """May this caller see this club match? (No-op for whole-club roles and while the flag is off.)
 
     Squad-scoped staff need ALL of:
@@ -324,21 +325,95 @@ def match_visible_to(access, match, *, require_bytes=False) -> bool:
     from src.models.funding import ClubRosterMember
     from src.models.video import VideoRosterEntry
 
-    coverage = VideoMatchCoverage.query.filter_by(video_match_id=match.id).all()
+    coverage = (
+        scope_evidence["coverage"].get(match.id, [])
+        if scope_evidence is not None
+        else VideoMatchCoverage.query.filter_by(video_match_id=match.id).all()
+    )
     kinds = {row.kind for row in coverage}
     if "origin" not in kinds or "uncertain" in kinds:
         return False
-    member_ids = [
-        row[0] for row in db.session.query(VideoRosterEntry.club_roster_member_id).filter_by(video_match_id=match.id)
-    ] + [row.club_roster_member_id for row in coverage if row.kind == "member"]
+    member_ids = (
+        scope_evidence["roster"].get(match.id, [])
+        if scope_evidence is not None
+        else [
+            row[0]
+            for row in db.session.query(VideoRosterEntry.club_roster_member_id).filter_by(video_match_id=match.id)
+        ]
+    ) + [row.club_roster_member_id for row in coverage if row.kind == "member"]
     if any(member_id is None for member_id in member_ids):
         return False
     if not member_ids:
         return True
-    rows = ClubRosterMember.query.filter(
-        ClubRosterMember.id.in_(sorted(set(member_ids))), ClubRosterMember.program_id == match.club_program_id
-    ).all()
+    rows = (
+        [scope_evidence["members"][mid] for mid in set(member_ids) if mid in scope_evidence["members"]]
+        if scope_evidence is not None
+        else ClubRosterMember.query.filter(
+            ClubRosterMember.id.in_(sorted(set(member_ids))), ClubRosterMember.program_id == match.club_program_id
+        ).all()
+    )
     return len(rows) == len(set(member_ids)) and all(row.squad_id in access.squad_ids for row in rows)
+
+
+def filter_match_bytes_query(query, access):
+    """SQL form of match_visible_to(require_bytes=True), before LIMIT/counts.
+
+    Use correlated EXISTS for durable coverage and every current member. Missing
+    and foreign-club members fail closed, just as the single-match predicate does.
+    """
+    if access is None or access.whole_club:
+        return query
+    from src.models.club_access import VideoMatchCoverage
+    from src.models.funding import ClubRosterMember
+    from src.models.video import VideoMatch, VideoRosterEntry
+
+    covered = sa.exists(
+        sa.select(VideoMatchCoverage.id).where(
+            VideoMatchCoverage.video_match_id == VideoMatch.id, VideoMatchCoverage.kind == "origin"
+        )
+    )
+    uncertain = sa.exists(
+        sa.select(VideoMatchCoverage.id).where(
+            VideoMatchCoverage.video_match_id == VideoMatch.id, VideoMatchCoverage.kind == "uncertain"
+        )
+    )
+
+    def scoped_member(column):
+        return sa.exists(
+            sa.select(ClubRosterMember.id)
+            .where(
+                ClubRosterMember.id == column,
+                ClubRosterMember.program_id == VideoMatch.club_program_id,
+                ClubRosterMember.squad_id.in_(access.squad_ids),
+            )
+            .correlate(VideoMatch, column.table)
+        )
+
+    bad_roster = sa.exists(
+        sa.select(VideoRosterEntry.id).where(
+            VideoRosterEntry.video_match_id == VideoMatch.id, ~scoped_member(VideoRosterEntry.club_roster_member_id)
+        )
+    )
+    bad_coverage = sa.exists(
+        sa.select(VideoMatchCoverage.id).where(
+            VideoMatchCoverage.video_match_id == VideoMatch.id,
+            VideoMatchCoverage.kind == "member",
+            ~scoped_member(VideoMatchCoverage.club_roster_member_id),
+        )
+    )
+    return query.filter(
+        VideoMatch.squad_id.in_(access.squad_ids),
+        VideoMatch.uploaded_at.is_not(None),
+        VideoMatch.blob_etag.is_not(None),
+        VideoMatch.blob_etag != "",
+        VideoMatch.scoped_ready_etag == VideoMatch.blob_etag,
+        VideoMatch.scoped_snapshot.is_not(None),
+        VideoMatch.scoped_snapshot != "",
+        covered,
+        ~uncertain,
+        ~bad_roster,
+        ~bad_coverage,
+    )
 
 
 def upload_completed(match) -> bool:
@@ -466,9 +541,9 @@ def match_in_scope(match, *, require_bytes=False) -> bool:
     return match_visible_to(current_access(), match, require_bytes=require_bytes)
 
 
-def match_bytes_in_scope(match) -> bool:
+def match_bytes_in_scope(match, *, scope_evidence=None) -> bool:
     """Gate for footage and anything derived from it (see ``match_visible_to``)."""
-    return match_in_scope(match, require_bytes=True)
+    return match_visible_to(current_access(), match, require_bytes=True, scope_evidence=scope_evidence)
 
 
 def roster_fits_squad(match_squad_id, members) -> bool:

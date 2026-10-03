@@ -65,3 +65,9 @@
 
 - fb29559e behavioral full5509 PASS/1757 SKIP0FAIL653s; PG38 PASS99s/browser81 PASS2optionalSKIP; frontend403/lint-build PASS. Backend lint caught only extra indentation in test dictionary; formatted and whole Ruff check/format661 PASS. No product/spec change in final formatting successor.
 - State: implementation and review-union regression proof complete. Final exact-head cache/PG/browser receipts, pushed SHA, bounded CI and owned-resource cleanup live in external ~/codex-runs/aw-redesign/logs/PC2F1.final.md. No further tracked edits after final candidate verification; no merge/deploy/schema change.
+
+## PC2F2 — review round at 8e4567ef
+- Now: merge C4 main e510612a; retain viewer-boundary wiring. No PC2 schema changes.
+- Fix union: Compare stale reported fallback; mixed badge/filter; shared request eligibility; query-host validation; partial rollback diagnostics/continuation; disclose conservative DOB policy.
+- Acceptance: one effective projection including absence, structural reader guard, all-endpoint orphan/disputed old/canonical ON/OFF frozen matrix; preserve privacy regressions.
+- Next: targeted regressions, final-head cached gates + PostgreSQL + one lane browser run, push, bounded CI, PC2F2 hand-back, cleanup.

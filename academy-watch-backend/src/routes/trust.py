@@ -327,6 +327,9 @@ def _review_scout_verification(verification_id: int, action: str):
         elif action == "revoke":
             if verification.status != "approved":
                 return jsonify({"error": f"cannot revoke a {verification.status} verification"}), 409
+            from src.services.scout_attendance import revoke_user
+
+            revoke_user(verification.user_account_id)
             verification.status = "revoked"
             verification.revocation_reason = _clean_body(
                 payload.get("revocation_reason", payload.get("reason")),
