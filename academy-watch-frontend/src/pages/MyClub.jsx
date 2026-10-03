@@ -16,7 +16,7 @@ import {
   X,
 } from 'lucide-react'
 import { APIService } from '@/lib/api'
-import { readWithDeadline } from '@/pages/club-console/entry-read'
+import { watchEntryRead } from '@/pages/club-console/entry-read'
 import { useAuth, useAuthUI } from '@/context/AuthContext'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -35,7 +35,7 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { VerificationCode, VerificationInstructions } from '@/components/showcase/VerificationCode'
 import { MyClubConsole } from '@/pages/MyClubConsole'
-import { useClubStaffAccessState } from '@/hooks/useClubStaffAccess'
+import { useClubEntryFeatures } from '@/pages/club-console/useClubEntryFeatures'
 
 const EMPTY_CLUB_RESULTS = { api_teams: [], local_clubs: [] }
 
@@ -347,13 +347,13 @@ function AuthenticatedMyClub() {
       setDataError(false)
     }
     try {
-      const read = path => showLoading
-        ? readWithDeadline(signal => APIService.request(path, { signal }))
-        : APIService.request(path)
-      const results = await Promise.allSettled([
-        read('/me/club-claims'),
-        read('/me/club'),
-      ])
+      const read = () => Promise.allSettled([APIService.getMyClubClaims(), APIService.getMyClub()])
+      const results = await (showLoading ? watchEntryRead(read, () => {
+        if (dataRequestRef.current !== requestId || activeTokenRef.current !== expectedToken) return
+        setDataError(true)
+        setLoadedToken(expectedToken)
+        setLoading(false)
+      }) : read())
       if (dataRequestRef.current !== requestId || activeTokenRef.current !== expectedToken) return false
       const failure = results.find(result => result.status === 'rejected')
       if (failure) throw failure.reason
@@ -361,6 +361,7 @@ function AuthenticatedMyClub() {
       setClaims(Array.isArray(claimsResponse?.claims) ? claimsResponse.claims : [])
       setClubs(Array.isArray(clubsResponse?.clubs) ? clubsResponse.clubs : [])
       setHasLoadedData(true)
+      setDataError(false)
       return true
     } catch (error) {
       if (dataRequestRef.current === requestId && activeTokenRef.current === expectedToken) {
@@ -397,10 +398,16 @@ function AuthenticatedMyClub() {
     let cancelled = false
     const timer = setTimeout(async () => {
       try {
-        const response = await readWithDeadline(signal => APIService.request('/funding/claims/me', { signal }))
+        const response = await watchEntryRead(() => APIService.getMyProgramClaims(), () => {
+          if (!cancelled && activeTokenRef.current === auth.token) {
+            setProgramClaimsError(true)
+            setProgramClaimsLoaded(true)
+          }
+        })
         if (!cancelled && activeTokenRef.current === auth.token) {
           setProgramClaims(Array.isArray(response?.claims) ? response.claims : [])
           setProgramClaimsLoaded(true)
+          setProgramClaimsError(false)
         }
       } catch {
         if (!cancelled && activeTokenRef.current === auth.token) {
@@ -423,7 +430,7 @@ function AuthenticatedMyClub() {
   )), [programClaims])
 
   // Club staff access (dark): invited staff have no club claim, so their clubs come from their access grants.
-  const staffFlagState = useClubStaffAccessState()
+  const staffFlagState = useClubEntryFeatures()
   const staffFlag = staffFlagState.enabled
   const [staffPrograms, setStaffPrograms] = useState([])
   const [staffProgramsLoaded, setStaffProgramsLoaded] = useState(false)
@@ -433,17 +440,19 @@ function AuthenticatedMyClub() {
     if (!auth?.token || staffFlag !== true) return undefined
     let cancelled = false
     const expectedToken = auth.token
-    readWithDeadline(signal => APIService.request('/me/club-access', { signal })).then((data) => {
+    const unavailable = () => {
+      if (cancelled || activeTokenRef.current !== expectedToken) return
+      setStaffProgramsError(true)
+      setStaffProgramsLoaded(true)
+    }
+    watchEntryRead(() => APIService.request('/me/club-access'), unavailable).then((data) => {
       if (cancelled || activeTokenRef.current !== expectedToken) return
       setStaffPrograms((Array.isArray(data?.programs) ? data.programs : [])
         .filter((row) => Number.isInteger(Number(row?.program?.id)))
         .map((row) => ({ status: 'approved', program: row.program, staff_access: row.access })))
       setStaffProgramsLoaded(true)
-    }).catch(() => {
-      if (cancelled || activeTokenRef.current !== expectedToken) return
-      setStaffProgramsError(true)
-      setStaffProgramsLoaded(true)
-    })
+      setStaffProgramsError(false)
+    }).catch(unavailable)
     return () => { cancelled = true }
   }, [auth?.token, staffFlag, staffProgramsAttempt])
   const consoleCandidates = useMemo(() => {
@@ -461,7 +470,7 @@ function AuthenticatedMyClub() {
   const checkProgram = useCallback((programId, retry = false) => {
     if (retry) rosterReadsRef.current.delete(programId)
     if (!rosterReadsRef.current.has(programId)) {
-      rosterReadsRef.current.set(programId, readWithDeadline(signal => APIService.request(`/club/${programId}/roster`, { signal })))
+      rosterReadsRef.current.set(programId, APIService.getClubRoster(programId))
     }
     return rosterReadsRef.current.get(programId)
   }, [])
@@ -478,16 +487,24 @@ function AuthenticatedMyClub() {
       setConsoleEligibility({ candidates: consoleCandidates, pending: remaining > 0, allowed: retained, deniedProgramIds, erroredProgramIds: [] })
       for (const programClaim of unchecked) {
         const programId = Number(programClaim.program.id)
-        checkProgram(programId).then(roster => ({ programClaim, roster }), error => error).then(result => {
+        let waiting = true
+        const finishWaiting = () => { if (waiting) { waiting = false; remaining-- } }
+        const current = () => !cancelled && activeTokenRef.current === expectedToken && eligibilityRequestRef.current === requestId
+        watchEntryRead(() => checkProgram(programId), () => {
+          if (!current()) return
+          finishWaiting()
+          setConsoleEligibility(state => ({ ...state, pending: remaining > 0, erroredProgramIds: [...new Set([...state.erroredProgramIds, programId])] }))
+        }).then(roster => ({ programClaim, roster }), error => error).then(result => {
           if (cancelled || activeTokenRef.current !== expectedToken || eligibilityRequestRef.current !== requestId) return
-          remaining--
+          finishWaiting()
           setConsoleEligibility(current => ({
             ...current,
             pending: remaining > 0,
-            allowed: result.programClaim ? [...current.allowed, result] : current.allowed,
+            allowed: result.programClaim ? [...current.allowed, result].sort((a, b) => consoleCandidates.findIndex(row => Number(row.program.id) === Number(a.programClaim.program.id)) - consoleCandidates.findIndex(row => Number(row.program.id) === Number(b.programClaim.program.id))) : current.allowed,
             deniedProgramIds: result.status === 403 ? [...current.deniedProgramIds, programId] : current.deniedProgramIds,
-            erroredProgramIds: !result.programClaim && result.status !== 403 ? [...current.erroredProgramIds, programId] : current.erroredProgramIds,
+            erroredProgramIds: !result.programClaim && result.status !== 403 ? [...new Set([...current.erroredProgramIds, programId])] : current.erroredProgramIds.filter(id => id !== programId),
           }))
+          if (result.programClaim) setSelectedProgramId(current => current ?? programId)
         })
       }
     }, 0)
@@ -781,13 +798,21 @@ function AuthenticatedMyClub() {
       const programId = Number(programClaim.program.id)
       let roster
       let error
-      try { roster = await checkProgram(programId, true) } catch (failure) { error = failure }
+      let waiting = true
+      const finishWaiting = () => { if (waiting) { waiting = false; remaining-- } }
+      try {
+        roster = await watchEntryRead(() => checkProgram(programId, true), () => {
+          if (activeTokenRef.current !== expectedToken || eligibilityRequestRef.current !== requestId) return
+          finishWaiting()
+          setConsoleEligibility(current => ({ ...current, pending: remaining > 0 }))
+        })
+      } catch (failure) { error = failure }
       if (activeTokenRef.current !== expectedToken || eligibilityRequestRef.current !== requestId) return
-      remaining--
+      finishWaiting()
       setConsoleEligibility(current => ({
         ...current,
         pending: remaining > 0,
-        allowed: error ? current.allowed : [...current.allowed, { programClaim, roster }],
+        allowed: error ? current.allowed : [...current.allowed, { programClaim, roster }].sort((a, b) => consoleCandidates.findIndex(row => Number(row.program.id) === Number(a.programClaim.program.id)) - consoleCandidates.findIndex(row => Number(row.program.id) === Number(b.programClaim.program.id))),
         deniedProgramIds: error?.status === 403 ? [...new Set([...current.deniedProgramIds, programId])] : current.deniedProgramIds,
         erroredProgramIds: !error || error.status === 403 ? current.erroredProgramIds.filter(id => id !== programId) : current.erroredProgramIds,
       }))
@@ -795,11 +820,8 @@ function AuthenticatedMyClub() {
     }))
   }, [consoleCandidates, auth?.token, consoleEligibility.erroredProgramIds, consoleEligibility.pending, checkProgram])
 
-  const accessRetryRef = useRef(false)
   const retryClubAccess = () => {
-    if (accessRetryRef.current) return
-    accessRetryRef.current = true
-    if (dataError || !hasLoadedData) {
+    if (!loading && (dataError || !hasLoadedData)) {
       setMessage(null)
       refreshData({ showLoading: true })
     }
@@ -853,20 +875,21 @@ function AuthenticatedMyClub() {
   const readsPending = loading || loadedToken !== auth.token || !discoverySettled
     || consoleEligibility.candidates !== consoleCandidates || consoleEligibility.pending
   const discoveryError = dataError || programClaimsError || staffFlagState.error || staffProgramsError
+    || (!activeConsoleProgram && consoleEligibility.erroredProgramIds.length > 0)
   const hasLegacyWorkspace = hasLoadedData && (claims.length > 0 || clubs.length > 0)
   const hasWorkspace = Boolean(activeConsoleProgram) || hasLegacyWorkspace
   const accessPending = !hasWorkspace && readsPending
   const accessError = !hasWorkspace && (discoveryError || !hasLoadedData || consoleEligibility.erroredProgramIds.length > 0)
-  useEffect(() => {
-    if (!readsPending) accessRetryRef.current = false
-  }, [readsPending])
   const showConsole = Boolean(activeConsoleProgram)
   const activeProgramId = showConsole ? Number(activeConsoleProgram.programClaim.program.id) : null
+  const openingProgram = showConsole && consoleEligibility.pending && consoleCandidates.find(row => (
+    Number(row.program.id) === Number(clubParams.get('program')) && Number(row.program.id) !== activeProgramId
+  ))
   const discoveryStatus = discoveryError ? (
     <Alert role="status"><AlertDescription>
       Some of your clubs couldn&apos;t be checked. <Button onClick={retryClubAccess}>Retry</Button>
     </AlertDescription></Alert>
-  ) : readsPending ? <p role="status">Checking your other clubs…</p> : null
+  ) : readsPending && !openingProgram ? <p role="status">Checking your other clubs…</p> : null
 
   return (
     <div className={showConsole ? undefined : 'fl-club-entry min-h-screen bg-chalk'}>
@@ -878,7 +901,7 @@ function AuthenticatedMyClub() {
           programOptions={consoleEligibility.allowed.map(({ programClaim }) => programClaim)}
           moderationContent={clubs.length > 0 ? <div className="space-y-4">{statusAlert}{moderationWorkspace}</div> : null}
           moderationCount={moderationCount}
-          entryStatus={discoveryStatus}
+          entryStatus={discoveryStatus || openingProgram ? <>{discoveryStatus}{openingProgram && <p role="status">Opening {openingProgram.program.name} when it&apos;s ready…</p>}</> : null}
           erroredProgramCount={consoleEligibility.erroredProgramIds.length}
           checkingPrograms={consoleEligibility.pending}
           onProgramChange={id => { setSelectedProgramId(id); setClubParams({ program: String(id) }) }}

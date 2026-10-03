@@ -27,7 +27,7 @@ function barrier() {
   const promise = new Promise(resolve => { release = resolve })
   return { promise, release }
 }
-async function mock(page, { role = 'owner', flag = true, legacy = false, programs = [program] } = {}) {
+async function mock(page, { role = 'owner', flag = true, legacy = false, dual = false, programs = [program] } = {}) {
   const state = { calls: [], hold: null, failure: null, failures: new Set(), denied: null, affiliations: [] }
   const access = { program_id: 7, role: role === 'staff-only' ? 'viewer' : role, verified: role === 'owner', whole_club: ['owner', 'manager'].includes(role), squad_ids: [12], capabilities: capabilities[role] || [] }
   await page.addInitScript(() => {
@@ -56,7 +56,7 @@ async function mock(page, { role = 'owner', flag = true, legacy = false, program
     }
     if (p === '/api/auth/me') return reply({ email: 'ruth@example.test', display_name: 'Ruth Calloway', display_name_confirmed: true, role: 'user', scout_pro: { enabled: false } })
     if (p === endpoints.features) return reply({ club_staff_access: flag, contact_rail: false })
-    if (p === endpoints.claims) return reply({ claims: ['owner', 'manager'].includes(role) && !legacy ? programs.map(p => ({ id: p.id, status: 'approved', relationship_type: 'club_official', program: p })) : [] })
+    if (p === endpoints.claims) return reply({ claims: ['owner', 'manager'].includes(role) && (!legacy || dual) ? programs.map(p => ({ id: p.id, status: 'approved', relationship_type: 'club_official', program: p })) : [] })
     if (p === endpoints.staff) return reply({ programs: !['owner', 'manager', 'none'].includes(role) ? programs.map(p => ({ program: p, access })) : [] })
     if (p === endpoints.legacy) return reply({ claims: legacy ? [{ id: 31, status: 'approved', club_name: program.name, role_title: 'Owner' }] : [] })
     if (p === endpoints.clubs) return reply({ clubs: legacy ? [{ claim: { id: 31 }, club_name: program.name, pending_affiliations: state.affiliations, vouchable_player_claims: [] }] : [] })
@@ -283,20 +283,6 @@ for (const consoleOwner of [false, true]) test(`silent refresh failure preserves
 
 for (const source of Object.keys(endpoints)) test(`deadline ${source}: unanswered source offers Retry; late response cannot undo recovery`, async ({ page }) => {
   const state = await mock(page, { role: ['staff', 'features'].includes(source) ? 'staff-only' : ['legacy', 'clubs'].includes(source) ? 'none' : 'owner' })
-  // Simulate a transport that ignores abort, so the generation protection must
-  // also work when the expired promise eventually resolves after a fresh read.
-  await page.addInitScript(endpoint => {
-    const fetch = window.fetch
-    let first = true
-    window.fetch = (input, options) => {
-      if (first && String(input).endsWith(endpoint)) {
-        first = false
-        const { signal: _signal, ...rest } = options || {}
-        return fetch(input, rest)
-      }
-      return fetch(input, options)
-    }
-  }, endpoints[source])
   const hold = barrier()
   state.hold = { endpoint: endpoints[source], ...hold, json: source === 'features' ? { club_staff_access: false } : { claims: [], clubs: [], programs: [], members: [], program: { ...program, name: 'Expired stale club' } } }
   await page.clock.install()
@@ -329,7 +315,7 @@ for (const source of ['claims', 'features']) test(`deadline ${source} body: head
       const response = await fetch(input, options)
       if (first && String(input).endsWith(endpoint)) {
         first = false
-        // Do not attach the stream to the request's abort signal.
+        window.clubBodyStarted = true
         return new Response(new ReadableStream({ start() {} }), { headers: { 'Content-Type': 'application/json' } })
       }
       return response
@@ -338,7 +324,7 @@ for (const source of ['claims', 'features']) test(`deadline ${source} body: head
   await page.clock.install()
   await page.goto('/my-club?program=7&view=matches')
   await expect(page.getByRole('status', { name: 'Loading', exact: true })).toBeVisible()
-  await page.waitForTimeout(150)
+  await expect.poll(() => page.evaluate(() => window.clubBodyStarted === true)).toBe(true)
   await page.clock.fastForward(60001)
   await expect(page.getByText("We couldn't load your club. Try again.")).toBeVisible()
   await page.getByRole('button', { name: 'Retry', exact: true }).click()
@@ -543,7 +529,7 @@ test('sequential cold-start entry reads each get their own local deadline', asyn
   for (const source of ['staff', 'eligibility']) expect(state.calls.filter(p => p === endpoints[source])).toHaveLength(1)
 })
 
-test('expired features answering before Retry cannot cache an empty-club answer', async ({ page }) => {
+test('superseded negative features cannot replace a newer local grant', async ({ page }) => {
   const state = await mock(page, { role: 'staff-only' })
   const hold = barrier()
   state.hold = { endpoint: endpoints.features, ...hold, json: { club_staff_access: false } }
@@ -553,10 +539,10 @@ test('expired features answering before Retry cannot cache an empty-club answer'
   await page.clock.fastForward(60001)
   await expect(page.getByText("We couldn't load your club. Try again.")).toBeVisible()
   state.hold = null
+  await page.getByRole('button', { name: 'Retry', exact: true }).click()
+  await expectConsole(page)
   hold.release()
   await page.waitForTimeout(250)
-  await expect(page.getByText("We couldn't load your club. Try again.")).toBeVisible()
-  await page.getByRole('button', { name: 'Retry', exact: true }).click()
   await expectConsole(page)
   expect(state.calls.filter(p => p === endpoints.features)).toHaveLength(2)
 })
@@ -570,4 +556,139 @@ for (const width of [390, 1440]) test(`granted console with additive error evide
   await expect(page.getByText("Some of your clubs couldn't be checked.")).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width)
   if (process.env.MYC1_SHOTS_DIR) await page.screenshot({ path: path.join(process.env.MYC1_SHOTS_DIR, `additive-error-${width}.png`), fullPage: true })
+})
+
+const lateGrantCells = [
+  { role: 'owner', source: 'claims' }, { role: 'owner', source: 'eligibility' },
+  { role: 'staff-only', source: 'eligibility' }, { role: 'staff-only', source: 'staff' }, { role: 'staff-only', source: 'features' },
+  { role: 'owner', legacy: true, source: 'legacy' }, { role: 'owner', legacy: true, source: 'clubs' },
+]
+for (const cell of lateGrantCells) test(`70-second sole grant ${cell.legacy ? 'legacy' : cell.role} ${cell.source} opens without Retry`, async ({ page }) => {
+  const width = cell.role === 'owner' && cell.source === 'claims' ? 390 : 1440
+  await page.setViewportSize({ width, height: 900 })
+  const state = await mock(page, cell)
+  const hold = barrier()
+  state.hold = { endpoint: endpoints[cell.source], ...hold }
+  await page.clock.install()
+  await page.goto('/my-club?program=7&view=matches')
+  await expect.poll(() => state.calls.includes(endpoints[cell.source])).toBe(true)
+  await page.clock.fastForward(61000)
+  await expect(page.getByText("We couldn't load your club. Try again.")).toBeVisible()
+  if (process.env.MYC1_SHOTS_DIR && cell.role === 'owner' && !cell.legacy) await page.screenshot({ path: path.join(process.env.MYC1_SHOTS_DIR, `late-grant-retry-${width}.png`), fullPage: true })
+  await page.clock.fastForward(9000)
+  hold.release()
+  if (cell.legacy) await expect(page.getByText('Your club claims')).toBeVisible()
+  else await expectConsole(page)
+  await expect(page.getByText("We couldn't load your club. Try again.")).toHaveCount(0)
+  if (process.env.MYC1_SHOTS_DIR && cell.role === 'owner' && !cell.legacy) await page.screenshot({ path: path.join(process.env.MYC1_SHOTS_DIR, `late-grant-open-${width}.png`), fullPage: true })
+  expect(state.calls.filter(p => p === endpoints[cell.source])).toHaveLength(1)
+  expect(new URL(page.url()).search).toBe('?program=7&view=matches')
+  expect(await page.evaluate(() => window.clubEmptyFlashed)).toBe(false)
+})
+
+for (const role of ['owner', 'staff-only']) for (const mode of ['error', 'late']) test(`legacy plus ${role} console ${mode}: check failure offers Retry and late success opens`, async ({ page }) => {
+  const state = await mock(page, { role, legacy: true, dual: true })
+  const hold = barrier()
+  if (mode === 'error') state.failure = endpoints.eligibility
+  else state.hold = { endpoint: endpoints.eligibility, ...hold }
+  await page.clock.install()
+  await page.goto('/my-club?program=7&view=matches')
+  await expect(page.getByText('Your club claims')).toBeVisible()
+  await expect.poll(() => state.calls.includes(endpoints.eligibility)).toBe(true)
+  if (mode === 'late') await page.clock.fastForward(61000)
+  await expect(page.getByText("Some of your clubs couldn't be checked.")).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Retry', exact: true })).toBeEnabled()
+  if (process.env.MYC1_SHOTS_DIR && role === 'owner' && mode === 'error') await page.screenshot({ path: path.join(process.env.MYC1_SHOTS_DIR, 'legacy-console-error-1440.png'), fullPage: true })
+  if (mode === 'error') {
+    state.failure = null
+    await page.getByRole('button', { name: 'Retry', exact: true }).click()
+  } else {
+    await page.clock.fastForward(9000)
+    hold.release()
+  }
+  await expectConsole(page)
+  await expect(page.getByText("Some of your clubs couldn't be checked.")).toHaveCount(0)
+  expect(state.calls.filter(p => p === endpoints.eligibility)).toHaveLength(mode === 'error' ? 2 : 1)
+})
+
+test('repeated feature Retry works while another club read remains pending', async ({ page }) => {
+  const state = await mock(page, { programs: [program, { ...program, id: 9, name: 'Other Test Club' }] })
+  state.failure = endpoints.features
+  const hold = barrier()
+  state.hold = { endpoint: '/api/club/9/roster', ...hold }
+  await page.goto('/my-club?program=7&view=matches')
+  await expectConsole(page)
+  await expect(page.getByText("Some of your clubs couldn't be checked.")).toBeVisible()
+  for (let i = 0; i < 3; i++) {
+    const count = state.calls.filter(p => p === endpoints.features).length
+    if (i === 2) state.failure = null
+    await page.getByRole('button', { name: 'Retry', exact: true }).click()
+    await expect.poll(() => state.calls.filter(p => p === endpoints.features).length).toBe(count + 1)
+    if (i < 2) await expect(page.getByText("Some of your clubs couldn't be checked.")).toBeVisible()
+  }
+  await expect(page.getByText("Some of your clubs couldn't be checked.")).toHaveCount(0)
+  await expectConsole(page)
+  expect(state.calls.filter(p => p === '/api/club/7/roster')).toHaveLength(1)
+  hold.release()
+})
+
+test('bare route pins the first opened workspace and orders the switcher by candidates', async ({ page }) => {
+  const other = { ...program, id: 9, name: 'Other Test Club' }
+  const state = await mock(page, { programs: [program, other] })
+  const hold = barrier()
+  state.hold = { endpoint: endpoints.eligibility, ...hold }
+  await page.goto('/my-club?view=matches')
+  await expectConsole(page)
+  await expect(page.getByRole('heading', { name: other.name, exact: true })).toBeVisible()
+  await page.evaluate(() => { window.pinnedClub = document.querySelector('.club-home') })
+  await page.getByRole('textbox', { name: 'Search squads and players' }).fill('Keep this club draft')
+  hold.release()
+  await expect(page.getByLabel('Switch club program').locator('option')).toHaveText([program.name, other.name])
+  await expect(page.getByRole('heading', { name: other.name, exact: true })).toBeVisible()
+  await expect(page.getByRole('textbox', { name: 'Search squads and players' })).toHaveValue('Keep this club draft')
+  expect(await page.evaluate(() => window.pinnedClub === document.querySelector('.club-home'))).toBe(true)
+})
+
+for (const width of [390, 1440]) test(`named pending club explains the upcoming change at${width}px`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 900 })
+  const other = { ...program, id: 9, name: 'Other Test Club' }
+  const state = await mock(page, { programs: [program, other] })
+  const hold = barrier()
+  state.hold = { endpoint: '/api/club/9/roster', ...hold }
+  await page.goto('/my-club?program=9&view=matches')
+  await expectConsole(page)
+  await expect(page.getByText("Opening Other Test Club when it's ready…")).toBeVisible()
+  if (process.env.MYC1_SHOTS_DIR) await page.screenshot({ path: path.join(process.env.MYC1_SHOTS_DIR, `opening-named-club-${width}.png`), fullPage: true })
+  hold.release()
+  await expect(page.getByRole('heading', { name: other.name, exact: true })).toBeVisible()
+  expect(new URL(page.url()).search).toBe('?program=9&view=matches')
+})
+
+
+test('late grant from the previous viewer cannot open their club for the next viewer', async ({ page }) => {
+  const state = await mock(page)
+  const hold = barrier()
+  state.hold = { endpoint: endpoints.claims, ...hold }
+  await page.clock.install()
+  await page.goto('/my-club?program=7&view=matches')
+  await expect.poll(() => state.calls.includes(endpoints.claims)).toBe(true)
+  await page.clock.fastForward(61000)
+  await expect(page.getByText("We couldn't load your club. Try again.")).toBeVisible()
+  await page.route('**/api/**', route => {
+    const p = new URL(route.request().url()).pathname
+    if (p === endpoints.claims || p === endpoints.legacy) return route.fulfill({ json: { claims: [] } })
+    if (p === endpoints.staff || p === endpoints.clubs) return route.fulfill({ json: { programs: [], clubs: [] } })
+    return route.fallback()
+  })
+  await page.evaluate(async () => {
+    const { APIService } = await import('/src/lib/api.js')
+    APIService.setUserToken('synthetic-no-club-viewer')
+  })
+  await expect(page.getByRole('heading', { name: 'Represent a club?' })).toBeVisible()
+  hold.release()
+  await page.waitForTimeout(250)
+  await expect(page.getByRole('heading', { name: 'Represent a club?' })).toBeVisible()
+  await expect(page.locator('.club-home')).toHaveCount(0)
+  expect(state.calls.filter(p => p === endpoints.eligibility)).toHaveLength(0)
+  expect(await page.evaluate(() => localStorage.getItem('academy_watch_user_token'))).toBe('synthetic-no-club-viewer')
 })

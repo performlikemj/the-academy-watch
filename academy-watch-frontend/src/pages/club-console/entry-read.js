@@ -1,18 +1,9 @@
-// MyClub only: bound the complete read, including body consumption. The race also protects
-// callers when a transport ignores AbortSignal: late answers never escape it.
+// MyClub only: show Retry after a slow complete read, including its body.
+// Keep the current attempt alive; callers ignore only superseded/viewer answers.
 export const CLUB_ENTRY_DEADLINE_MS = 60000
 
-export function readWithDeadline(read, timeoutMs = CLUB_ENTRY_DEADLINE_MS) {
-  const controller = new AbortController()
-  let timer
-  const expiry = new Promise((_, reject) => {
-    timer = setTimeout(() => {
-      const error = new Error('The request timed out. Please try again.')
-      error.name = 'TimeoutError'
-      reject(error)
-      controller.abort()
-    }, timeoutMs)
-  })
-  return Promise.race([Promise.resolve().then(() => read(controller.signal)), expiry])
+export function watchEntryRead(read, onSlow, timeoutMs = CLUB_ENTRY_DEADLINE_MS) {
+  const timer = setTimeout(onSlow, timeoutMs)
+  return Promise.resolve().then(read)
     .finally(() => clearTimeout(timer))
 }

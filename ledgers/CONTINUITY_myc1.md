@@ -38,7 +38,7 @@
 
 ## MYC1F2 review union
 
-- Status: in-progress; X1–X3/O1–O5 accepted; cross files absent per dispatch.
+- Status: complete (delivery MYC1F2.final.md); X1–X3/O1–O5 accepted; cross files absent per dispatch.
 - Main8696a4de already included; no stacked parents.
 - Principle: checked program or established legacy workspace opens despite additive failure/slowness; only no-grant entry gates. Global features retain main slow-success/request sharing behavior.
 - Now: local-only deadline and additive availability simplification; restore untouched main tests; reverse all probes.
@@ -60,3 +60,19 @@
 
 - Additional late-answer boundary: b2df5e4b clean gates/browser passed, but an added real-component control proved a timed-out feature answer arriving BEFORE Retry could still cache OFF and yield empty. Baseline1FAIL (product finding); moved existing abandon call from Retry to local expiry (no new mechanism). Other consumers keep the original promise; stale cache writes now blocked immediately. Reversed control plus deadline/body/working-console controls4PASS; updated Node6PASS covers late body before Retry and fetch after Retry.
 - Final new head needs four cached gates + one combined236 browser run (MYC1 79/staff9/mainUXBF1 148). Main tests and production/C4 boundaries otherwise unchanged. Exact final delivery remains external.
+
+## MYC1F3 review union
+
+- Status: implementation complete; X1/X2 + O1–O4 FIXED; cross files absent per dispatch. Final validation/delivery receipts follow externally.
+- Now: replace cancellation/rejection deadline with Retry notification; late current-attempt answers used, superseded/viewer answers ignored. Main-exact API/features/bootstrap hook; direct MyClub feature Retry.
+- Other items: legacy+console eligibility errors get Retry; remove global retry guard; candidate-order switcher, pin bare-route first grant, explain named pending club. Body test clock must await body start.
+- Next: targeted reversed probes, merge current main, final commit/four cached gates/one lane browser, affected shots, push/boundedCI/cleanup.
+- Final delivery: ~/codex-runs/aw-redesign/logs/MYC1F3.final.md.
+
+- X1 Medium FIXED: 60s complete-read threshold only notifies; current attempt remains alive. Seven 70s sole grants open automatically; never-answer/body reads show Retry; newer retry/viewer discards old answers. Added explicit viewer-switch regression and body-start barrier.
+- O1 Medium FIXED: legacy+console owner/staff eligibility failures show ordinary Retry; 503 retry and 70s success recover the same console URL (four reversed controls).
+- O2 Small FIXED: global Retry lock removed; each failed source retries independently while unrelated roster remains pending; three feature retries verified.
+- O3 Small FIXED: candidate-order switcher; first-granted bare-route workspace pinned with draft/DOM retained; explicit pending URL names the upcoming club at390/1440.
+- X2/O4 Small FIXED: API/features and normal staff hook restored byte-identical to main; MyClub first load shares bootstrap, Retry requests directly/local. Main feature/UXBF1 tests untouched. Real API directory20s/70s controls accept shared late success.
+- Validation: targeted Node6 PASS; targeted browser25 + viewer/changed-mobile controls3 PASS; changed-file ESLint PASS; diff check clean. Main e510612a already merged, re-fetch/merge up to date. No migration/backend/dependency changes; no preapply CONTRACT applicable.
+- State: final implementation complete. Four cached gates and one combined252-test browser run (MYC1 95/staff9/mainUXBF1 148), refreshed screenshots, push, bounded25-minuteCI, cleanup and exact delivery SHA recorded externally in MYC1F3.final.md after validation; preserve tested head.

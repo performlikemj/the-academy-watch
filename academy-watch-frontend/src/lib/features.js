@@ -7,15 +7,11 @@ export function peekFeatures() { return cached }
 export function loadFeatures(fetchFeatures) {
   if (cached !== null) return Promise.resolve(cached)
   if (!inflight) {
-    const request = Promise.resolve().then(fetchFeatures).then(data => {
-      if (inflight === request) cached = data
+    inflight = Promise.resolve().then(fetchFeatures).then(data => {
+      cached = data
       return data
-    }).finally(() => { if (inflight === request) inflight = null })
-    inflight = request
+    }).finally(() => { inflight = null })
   }
   return inflight
 }
 export function resetFeatures() { cached = null; inflight = null }
-
-// MyClub expiry releases only the pending bootstrap, retaining successful cache.
-export function releaseFeatureBootstrap() { inflight = null }

@@ -1,4 +1,4 @@
-import { loadFeatures, peekFeatures, releaseFeatureBootstrap } from './features.js'
+import { loadFeatures, peekFeatures } from './features.js'
 import { saveBlobAs } from './download.js'
 import {
     normalizeNewsletterIds,
@@ -3490,21 +3490,13 @@ export class APIService {
 let lastFeatures = null
 let pendingFeatures = null
 
-// Only MyClub's local expiry abandons a stuck shared read. Other consumers
-// keep awaiting its original promise, including a valid slow response.
-export function abandonMyClubFeatureRead() {
-    pendingFeatures = null
-    releaseFeatureBootstrap()
-}
-
 function fetchFeatures() {
     if (pendingFeatures) return pendingFeatures
-    const request = APIService.request('/features').then(value => {
-        if (pendingFeatures === request) lastFeatures = { value, fetchedAt: Date.now() }
+    pendingFeatures = APIService.request('/features').then(value => {
+        lastFeatures = { value, fetchedAt: Date.now() }
         return value
-    }).finally(() => { if (pendingFeatures === request) pendingFeatures = null })
-    pendingFeatures = request
-    return request
+    }).finally(() => { pendingFeatures = null })
+    return pendingFeatures
 }
 
 function sharedFeatures() {
