@@ -596,6 +596,16 @@ class EmailService:
             except Exception:
                 db.session.rollback()
 
+    @staticmethod
+    def _mask_email(email: str) -> str:
+        """Legacy mask for dry-run preview payloads; logging uses utils.log_privacy."""
+        if "@" not in email:
+            return "***"
+        local, domain = email.split("@", 1)
+        if len(local) <= 1:
+            return f"*@{domain}"
+        return f"{local[0]}***@{domain}"
+
     def send_claim_invitation(
         self,
         to_email: str,

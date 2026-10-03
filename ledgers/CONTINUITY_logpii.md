@@ -7,3 +7,6 @@
 - Next: focused capture/guard tests; final commit; four cached gates; push; ready PR; bounded 25-minute CI.
 - Constraints: governed foreground commands; no merge/production actions; BUS DONE only after push with SHA.
 - Acceptance: helper safe on malformed/non-string inputs and short locals; no full addresses in captured logs; IDs retained where available; exhaustive changed/unchanged inventory in external LOGPII.final.md.
+
+- Final-gate correction: d99c4949 full backend5174 PASS/1716 SKIP/3 FAIL exposed legacy `_mask_email` dry-run consumers; restored original preview behavior, shared logging mask retained. Affected profile controls and corrected final-head gates follow; exact delivery state external.
+- Corrected focused156 PASS (all53 new logging controls +103 existing auth/result/profile-notification checks); legacy dry-run outputs retained. Corrected final-head four cached gates running once.
