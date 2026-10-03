@@ -28,6 +28,7 @@ struct SeasonProvenance: Codable, Equatable, Sendable {
     let journeyMinutes: Int?
     let deltaPct: Double?
     let computedAt: String?
+    var sourceCategory: String? = nil
 
     var resolvedSource: String? {
         primarySource ?? source

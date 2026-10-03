@@ -33,6 +33,25 @@ enum AcademyColors {
     })
     static let separator = hairline
 
+    // Player card. The web's card-only shades (`player-card.css`), once.
+    /// Card surface, one step lighter than chalk. The standard card keeps it on night too.
+    static let paper = Color(hex: 0xFBFAF6)
+    static let cardSurface = adaptive(light: 0xFBFAF6, dark: 0x0E1311)
+    /// Behind a photo while it loads.
+    static let photoPlaceholder = Color(hex: 0xC8C2B3)
+    static let heroPhotoPlaceholder = Color(hex: 0x8D877A)
+    /// The one-liner on a (always light) card.
+    static let cardBody = Color(hex: 0x4A544F)
+    static let strongSecondary = adaptive(light: 0x3D4642, dark: 0xD6D2C7)
+    /// Muted zero / en dash.
+    static let quiet = adaptive(light: 0x8A8478, dark: 0x8A8F8B)
+    static let quietRule = adaptive(light: 0xB9B2A2, dark: 0x5A6560)
+    /// Secondary text on the club colour and over the hero scrim.
+    static let onClub = Color(hex: 0xD9CFB4)
+    static let onNight = Color(hex: 0xD6D2C7)
+    /// The club-confirmed green on a light card, whatever the appearance.
+    static let goodOnPaper = Color(hex: 0x1D5A40)
+
     // Compatibility for existing fixture/test clients. Production views use Floodlight names.
     static let claretForeground = accent
     static let claret = accent

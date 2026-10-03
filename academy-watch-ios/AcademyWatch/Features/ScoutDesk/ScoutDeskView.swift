@@ -12,6 +12,8 @@ struct ScoutDeskView: View {
     @State private var isWorldwideAddPresented = false
     @State private var isLocalAddPresented = false
     @State private var revealsTabBarDuringInitialLoad = false
+    /// Cards (the standard player card) or Table (the stat rows), as on the web.
+    @AppStorage(ScoutResultView.storageKey) private var resultViewRaw = ScoutResultView.cards.rawValue
     private let onSignInRequested: () -> Void
     private let onVerificationRequested: () -> Void
     private let onGolRequested: () -> Void
@@ -102,7 +104,9 @@ struct ScoutDeskView: View {
                 .accessibilityHidden(isShowingInitialLoadingCard)
                 #if DEBUG && targetEnvironment(simulator)
                 .task(id: viewModel.isLoadingInitial) {
-                    if !viewModel.isLoadingInitial, ["scout-empty", "scout-error"].contains(FloodlightPreview.screen ?? "") {
+                    if !viewModel.isLoadingInitial,
+                       ["scout-empty", "scout-error"].contains(FloodlightPreview.screen ?? "")
+                        || PlayerCardReviewFixtures.anchor == "results" {
                         try? await Task.sleep(for: .milliseconds(800))
                         proxy.scrollTo("review-results", anchor: .top)
                     }
@@ -528,26 +532,60 @@ struct ScoutDeskView: View {
                 .padding(.horizontal, 16)
             }
 
-            ForEach(viewModel.players, id: \.playerId) { player in
-                ZStack(alignment: .topTrailing) {
-                    NavigationLink(value: player.playerId) {
-                        ScoutPlayerRow(player: player, phase: viewModel.selectedPhase)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityHint("Opens player detail")
-                    .accessibilityIdentifier("scout-player-\(player.playerId)")
+            resultViewSwitch
+                .padding(.horizontal, 16)
 
-                    VStack(spacing: 4) {
-                        WatchlistStarButton(
-                            playerID: player.playerId,
-                            playerName: player.playerName,
-                            onSignInRequested: onSignInRequested
-                        )
-                        compareSelectionButton(for: player)
+            ForEach(viewModel.players, id: \.playerId) { player in
+                Group {
+                    if resultView == .cards {
+                        ZStack(alignment: .bottomTrailing) {
+                            NavigationLink(value: player.playerId) {
+                                ScoutPlayerCard(player: player, trailingReserve: 96)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityHint("Opens player detail")
+                            .accessibilityIdentifier("scout-player-\(player.playerId)")
+
+                            // The card keeps its paper surface on night, so
+                            // its controls keep the light palette too.
+                            HStack(spacing: 4) {
+                                compareSelectionButton(for: player)
+                                WatchlistStarButton(
+                                    playerID: player.playerId,
+                                    playerName: player.playerName,
+                                    onSignInRequested: onSignInRequested
+                                )
+                            }
+                            .environment(\.colorScheme, .light)
+                            .padding(.trailing, 20)
+                            .padding(.bottom, 20)
+                            .zIndex(1)
+                        }
+                        .frame(maxWidth: 360)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                    } else {
+                        ZStack(alignment: .topTrailing) {
+                            NavigationLink(value: player.playerId) {
+                                ScoutPlayerRow(player: player, phase: viewModel.selectedPhase)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityHint("Opens player detail")
+                            .accessibilityIdentifier("scout-player-\(player.playerId)")
+
+                            VStack(spacing: 4) {
+                                WatchlistStarButton(
+                                    playerID: player.playerId,
+                                    playerName: player.playerName,
+                                    onSignInRequested: onSignInRequested
+                                )
+                                compareSelectionButton(for: player)
+                            }
+                            .padding(.top, 9)
+                            .padding(.trailing, 9)
+                            .zIndex(1)
+                        }
                     }
-                    .padding(.top, 9)
-                    .padding(.trailing, 9)
-                    .zIndex(1)
                 }
                 .padding(.horizontal, 16)
                 .onAppear {
@@ -582,6 +620,21 @@ struct ScoutDeskView: View {
                 .padding(.vertical, 12)
             }
         }
+    }
+
+    private var resultView: ScoutResultView {
+        ScoutResultView(rawValue: resultViewRaw) ?? .cards
+    }
+
+    private var resultViewSwitch: some View {
+        Picker("Show players as", selection: $resultViewRaw) {
+            ForEach(ScoutResultView.allCases) { view in
+                Text(view.label).tag(view.rawValue)
+            }
+        }
+        .pickerStyle(.segmented)
+        .frame(minHeight: 44)
+        .accessibilityIdentifier("scout-result-view")
     }
 
     private func presentAuthenticatedAdd(_ action: () -> Void) {
@@ -832,6 +885,108 @@ private struct RankChip: View {
         default: AcademyColors.elevatedSurface
         }
     }
+}
+
+enum ScoutResultView: String, CaseIterable, Identifiable {
+    case cards
+    case table
+
+    static let storageKey = "scoutDeskResultView"
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .cards: "Cards"
+        case .table: "Table"
+        }
+    }
+}
+
+/// The standard player card on the scout desk, from the row the desk already
+/// receives. Counters follow the web: apps and minutes are printed only when
+/// the row's figures are the provider's, or the server's own merged match
+/// lines — the same numbers the player's page shows. Club- or player-entered
+/// figures that are neither stay off the card.
+struct ScoutPlayerCard: View {
+    let player: ScoutPlayerSummary
+    var trailingReserve: CGFloat = 0
+
+    var body: some View {
+        PlayerStandardCard(
+            name: player.playerName,
+            photoURL: player.approvedPhotoURL,
+            faceURL: player.photoURL,
+            line: Self.line(for: player),
+            clubName: Self.clubName(for: player),
+            role: Self.role(for: player.position),
+            confirmed: player.clubConfirmed == true,
+            counters: Self.counters(for: player),
+            trailingReserve: trailingReserve
+        )
+    }
+
+    static func clubName(for player: ScoutPlayerSummary) -> String? {
+        player.loanTeamName ?? player.primaryTeamName
+    }
+
+    static func line(for player: ScoutPlayerSummary) -> String {
+        PlayerCardText.cardLine(position: player.position, clubName: clubName(for: player), bio: player.bioLine)
+    }
+
+    static func counters(for player: ScoutPlayerSummary) -> [CardCounter] {
+        guard PlayerCardText.isProviderSourced(player.provenance)
+            || PlayerCardText.isMatchLinesSourced(player.provenance)
+        else { return [] }
+        return PlayerCardText.cardCounters(appearances: player.appearances, minutes: player.minutesPlayed)
+    }
+
+    /// The web's short position chip (`lib/positions.js`).
+    static func role(for position: String?) -> String? {
+        let value = (position ?? "").lowercased()
+            .replacingOccurrences(of: "-", with: " ")
+            .replacingOccurrences(of: "_", with: " ")
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
+        guard !value.isEmpty else { return nil }
+        if let code = positionCodes[value] { return code }
+        // A stated list keeps its first position, rather than inventing a new code.
+        let first = value
+            .replacingOccurrences(of: " & ", with: ",")
+            .split(whereSeparator: { ",/;".contains($0) })
+            .first
+            .map { $0.trimmingCharacters(in: .whitespaces) } ?? value
+        return positionCodes[first] ?? String(first.uppercased().prefix(3))
+    }
+
+    private static let positionCodes: [String: String] = [
+        "g": "GK", "gk": "GK", "goalkeeper": "GK", "goal keeper": "GK", "keeper": "GK", "goalie": "GK",
+        "d": "DEF", "defender": "DEF", "defence": "DEF", "defense": "DEF",
+        "rb": "RB", "right back": "RB", "right full back": "RB",
+        "cb": "CB", "centre back": "CB", "center back": "CB", "central defender": "CB",
+        "left centre back": "CB", "right centre back": "CB", "left center back": "CB",
+        "right center back": "CB", "centre half": "CB", "center half": "CB", "sweeper": "SW",
+        "lb": "LB", "left back": "LB", "left full back": "LB",
+        "full back": "FB", "fullback": "FB", "wing back": "WB", "wingback": "WB",
+        "rwb": "RWB", "right wing back": "RWB", "right wingback": "RWB",
+        "lwb": "LWB", "left wing back": "LWB", "left wingback": "LWB",
+        "defensive mid": "DM", "holding mid": "DM", "central mid": "CM", "centre mid": "CM",
+        "center mid": "CM", "attacking mid": "AM", "right mid": "RM", "left mid": "LM",
+        "m": "MID", "midfielder": "MID", "midfield": "MID",
+        "dm": "DM", "cdm": "DM", "defensive midfielder": "DM", "defensive midfield": "DM",
+        "holding midfielder": "DM", "holding midfield": "DM",
+        "cm": "CM", "central midfielder": "CM", "central midfield": "CM", "centre midfielder": "CM",
+        "centre midfield": "CM", "center midfielder": "CM", "center midfield": "CM",
+        "am": "AM", "cam": "AM", "attacking midfielder": "AM", "attacking midfield": "AM",
+        "number 10": "AM", "no 10": "AM",
+        "rm": "RM", "right midfielder": "RM", "right midfield": "RM",
+        "lm": "LM", "left midfielder": "LM", "left midfield": "LM",
+        "rw": "RW", "right winger": "RW", "right wing": "RW",
+        "lw": "LW", "left winger": "LW", "left wing": "LW", "winger": "W",
+        "f": "FW", "fw": "FW", "forward": "FW", "attacker": "FW",
+        "st": "ST", "striker": "ST", "cf": "CF", "centre forward": "CF", "center forward": "CF",
+        "ss": "SS", "second striker": "SS",
+    ]
 }
 
 struct ScoutPlayerRow: View {

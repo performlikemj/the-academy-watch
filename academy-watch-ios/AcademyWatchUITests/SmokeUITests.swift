@@ -59,7 +59,7 @@ final class SmokeUITests: XCTestCase {
         require(app.navigationBars["W. Lankshear"], "W. Lankshear player detail should open")
         saveScreenshot("03-lankshear-detail.png")
 
-        let seasonSection = app.staticTexts["SEASON STATS"]
+        let seasonSection = element(identifier: "player-season-title")
         require(seasonSection, "Player detail should contain SEASON STATS")
         let seasonClubRow = require(element(identifier: "season-club-row"), "SEASON STATS should show a club row")
         let playerDetailScroll = require(

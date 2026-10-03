@@ -7,11 +7,13 @@ struct PlayerDetailView: View {
     @StateObject private var claimViewModel: PlayerClaimViewModel
     @StateObject private var interestSignalsViewModel: PlayerInterestSignalsViewModel
     @StateObject private var fanViewModel: PlayerFanViewModel
+    @StateObject private var linesViewModel: PlayerMatchLinesViewModel
     @ObservedObject private var contactAvailability: ContactFeatureAvailability
     @EnvironmentObject private var authManager: AuthManager
     @State private var isTakedownRequestPresented = false
     @State private var isAddGamePresented = false
     @State private var reportSubject: ContentReportSubject?
+    @State private var pickedPhotoID: Int?
     private let onSignInRequested: () -> Void
     private let onVerificationRequested: () -> Void
     private let contactAPIClient: any ContactAPIClientProtocol
@@ -50,6 +52,9 @@ struct PlayerDetailView: View {
         _fanViewModel = StateObject(
             wrappedValue: PlayerFanViewModel(playerID: playerID, apiClient: apiClient)
         )
+        _linesViewModel = StateObject(
+            wrappedValue: PlayerMatchLinesViewModel(playerID: playerID, apiClient: apiClient)
+        )
         _contactAvailability = ObservedObject(wrappedValue: contactAvailability)
         self.onSignInRequested = onSignInRequested
         self.onVerificationRequested = onVerificationRequested
@@ -69,6 +74,7 @@ struct PlayerDetailView: View {
         interestSignalsAPIClient: any InterestSignalsAPIClientProtocol = APIClient(),
         fanAPIClient: any PlayerFanAPIClientProtocol = APIClient(),
         matchAPIClient: any PlayerMatchAPIClientProtocol = APIClient(),
+        matchLinesAPIClient: any PlayerMatchLinesAPIClientProtocol = APIClient(),
         contactAvailability: ContactFeatureAvailability? = nil,
         onSignInRequested: @escaping () -> Void = {},
         onVerificationRequested: @escaping () -> Void = {}
@@ -96,6 +102,9 @@ struct PlayerDetailView: View {
         )
         _fanViewModel = StateObject(
             wrappedValue: PlayerFanViewModel(playerID: viewModel.playerID, apiClient: fanAPIClient)
+        )
+        _linesViewModel = StateObject(
+            wrappedValue: PlayerMatchLinesViewModel(playerID: viewModel.playerID, apiClient: matchLinesAPIClient)
         )
         _contactAvailability = ObservedObject(wrappedValue: resolvedContactAvailability)
         self.onSignInRequested = onSignInRequested
@@ -174,13 +183,25 @@ struct PlayerDetailView: View {
                 isGoalkeeper: viewModel.profile?.isGoalkeeper ?? false,
                 apiClient: matchAPIClient
             ) { response in
-                Task { await viewModel.refreshAfterMatchAdd(response) }
+                Task {
+                    async let totals: Void = viewModel.refreshAfterMatchAdd(response)
+                    async let lines: Void = linesViewModel.load()
+                    _ = await (totals, lines)
+                }
             }
         }
         .task {
-            async let detailLoad: Void = viewModel.loadIfNeeded()
+            await viewModel.loadIfNeeded()
+        }
+        .task(id: authManager.accountIdentity) {
+            // The showcase and the match lines differ by reader: nothing read
+            // for one account is kept for the next.
+            showcaseViewModel.resetAccount()
+            linesViewModel.resetAccount()
+            pickedPhotoID = nil
             async let showcaseLoad: Void = showcaseViewModel.loadIfNeeded()
-            _ = await (detailLoad, showcaseLoad)
+            async let linesLoad: Void = linesViewModel.load()
+            _ = await (showcaseLoad, linesLoad)
         }
         .task(id: authManager.accountIdentity) {
             claimViewModel.resetAccount()
@@ -208,10 +229,7 @@ struct PlayerDetailView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 22) {
-                    PlayerProfileHeader(
-                        profile: profile,
-                        birthDate: viewModel.journey?.birthDate
-                    )
+                    heroSection(profile: profile)
                     PlayerFanSectionView(
                         viewModel: fanViewModel,
                         isAuthenticated: authManager.isAuthenticated,
@@ -247,7 +265,7 @@ struct PlayerDetailView: View {
                         .tint(AcademyColors.accent)
                         .accessibilityIdentifier("add-game-open")
                     }
-                    ShowcaseSectionView(viewModel: showcaseViewModel)
+                    ShowcaseSectionView(viewModel: showcaseViewModel, showsProfile: false)
                     if !prioritizesIntroductionFixture {
                         introductionSection(profile: profile)
                     }
@@ -265,7 +283,8 @@ struct PlayerDetailView: View {
                 async let claimReload: Void = claimViewModel.load(
                     isAuthenticated: authManager.isAuthenticated
                 )
-                _ = await (detailReload, showcaseReload, claimReload)
+                async let linesReload: Void = linesViewModel.load()
+                _ = await (detailReload, showcaseReload, claimReload, linesReload)
                 if ownsCurrentPlayerProfile {
                     await interestSignalsViewModel.refresh()
                 }
@@ -276,6 +295,14 @@ struct PlayerDetailView: View {
                 if FloodlightPreview.screen == "season" {
                     try? await Task.sleep(for: .milliseconds(800))
                     proxy.scrollTo("review-season", anchor: .top)
+                }
+                if let anchor = PlayerCardReviewFixtures.anchor {
+                    try? await Task.sleep(for: .milliseconds(1500))
+                    proxy.scrollTo(anchor == "facts" ? "review-facts" : "review-season", anchor: .top)
+                    if anchor == "matches" || anchor == "end" {
+                        try? await Task.sleep(for: .milliseconds(400))
+                        proxy.scrollTo("review-matches", anchor: anchor == "end" ? .bottom : .top)
+                    }
                 }
             }
             #endif
@@ -331,38 +358,172 @@ struct PlayerDetailView: View {
         }
     }
 
+    /// Card C: the approved photo (or the initials tile) with the name over a
+    /// night scrim, the player's own words, then the facts strip.
     @ViewBuilder
-    private func seasonSection(profile: PlayerProfile) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            DetailSectionHeader(
-                title: "SEASON STATS",
-                iconName: "chart.xyaxis.line",
-                detail: viewModel.seasonStats?.season,
-                badge: viewModel.seasonStats?.provenance?.badgeText
+    private func heroSection(profile: PlayerProfile) -> some View {
+        let showcase = showcaseViewModel.showcase
+        let photos = showcase?.publicPhotos ?? []
+        let photo = photos.first { $0.id == pickedPhotoID } ?? photos.first
+        let confirmedBy = showcase?.confirmedClubName
+        let clubName = confirmedBy ?? profile.currentClubName
+        let age = PlayerAgeCalculator.age(from: viewModel.journey?.birthDate) ?? profile.age
+        let line = [
+            profile.position.map(expandedPosition),
+            clubName,
+            age.map { "\($0) yrs" },
+            profile.nationality,
+        ]
+        .compactMap { $0 }
+        .filter { !$0.isEmpty }
+        .joined(separator: " · ")
+
+        VStack(alignment: .leading, spacing: 20) {
+            PlayerHeroCard(
+                name: profile.name,
+                photoURL: photo?.url,
+                faceURL: profile.photoURL,
+                clubName: clubName,
+                role: PlayerCardText.roleLabel(
+                    positions: showcase?.profile?.positions,
+                    fallback: profile.position.map(expandedPosition)
+                ),
+                confirmedBy: confirmedBy,
+                eyebrow: heroEyebrow(profile: profile),
+                line: line.isEmpty ? nil : line
             )
 
-            SeasonPicker(
-                seasons: viewModel.seasons,
-                selectedSeason: viewModel.selectedSeason
-            ) { season in
-                Task { await viewModel.selectSeason(season) }
+            if photos.count > 1 {
+                photoThumbnails(photos, selected: photo, name: profile.name)
             }
 
-            if viewModel.isLoading(.seasonStats) {
-                PlayerDetailLoadingCard(label: "Loading season totals…")
-            } else if let message = viewModel.errorMessage(for: .seasonStats) {
-                PlayerDetailInlineError(message: message) {
-                    Task { await viewModel.reload() }
-                }
-            } else if let stats = viewModel.seasonStats, stats.hasAnyData {
-                SeasonOverviewCard(stats: stats, isGoalkeeper: profile.isGoalkeeper)
+            if let bio = showcase?.profile?.bio?.trimmingCharacters(in: .whitespacesAndNewlines), !bio.isEmpty {
+                PlayerQuote(text: bio)
+            }
 
-                if stats.clubs.isEmpty {
-                    Text("Club-level totals are not available for this season.")
-                        .font(AcademyType.footnote)
+            if let clubName = profile.currentClubName {
+                PlayerClubRow(profile: profile, clubName: clubName)
+            }
+
+            PlayerFactsStrip(facts: PlayerCardText.profileFacts(showcase?.profile))
+                .id("review-facts")
+        }
+    }
+
+    private func heroEyebrow(profile: PlayerProfile) -> String? {
+        guard let status = profile.status, !status.isEmpty else { return nil }
+        var parts = [status.replacingOccurrences(of: "_", with: " ")]
+        if status == "on_loan", let owner = profile.ownerTeamName, !owner.isEmpty {
+            parts.append("from \(owner)")
+        }
+        if let fee = profile.saleFee, !fee.isEmpty { parts.append(fee) }
+        return parts.joined(separator: " · ")
+    }
+
+    private func photoThumbnails(_ photos: [ShowcasePhoto], selected: ShowcasePhoto?, name: String) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(Array(photos.enumerated()), id: \.element.id) { index, photo in
+                    Button {
+                        pickedPhotoID = photo.id
+                    } label: {
+                        AsyncImage(url: photo.url) { image in
+                            image.resizable().scaledToFill()
+                        } placeholder: {
+                            AcademyColors.photoPlaceholder
+                        }
+                        .frame(width: 56, height: 56)
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .stroke(photo.id == selected?.id ? AcademyColors.text : .clear, lineWidth: 2)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Show photo \(index + 1) of \(photos.count)")
+                    .accessibilityAddTraits(photo.id == selected?.id ? .isSelected : [])
+                }
+            }
+            .padding(2)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Photos of \(name)")
+        .accessibilityIdentifier("player-photo-thumbnails")
+    }
+
+    /// Totals are the provider's when it really has them, otherwise exactly
+    /// the server's merged match lines for the season shown. The two are never
+    /// added together, and nothing is merged or totalled here.
+    @ViewBuilder
+    private func seasonSection(profile: PlayerProfile) -> some View {
+        let goalkeeper = profile.isGoalkeeper || PlayerCardText.isGoalkeeper(position: profile.position)
+        let totalsLoading = viewModel.isLoading(.seasonStats)
+        let totalsError = viewModel.errorMessage(for: .seasonStats) != nil
+        // The provider's per-match rows count only once they have settled for
+        // the season asked for.
+        let rowsSettled = !viewModel.isLoading(.recentForm) && viewModel.errorMessage(for: .recentForm) == nil
+        let choice = PlayerCardText.seasonView(
+            picked: viewModel.hasExplicitSeason ? viewModel.selectedSeason : nil,
+            stats: viewModel.seasonStats,
+            seasons: linesViewModel.seasons,
+            fallbackSeason: viewModel.selectedSeason,
+            matchRows: rowsSettled ? viewModel.recentFixtures : [],
+            matchRowsSeason: rowsSettled ? viewModel.selectedSeason : nil
+        )
+        let stats = choice.statsMatchSeason ? viewModel.seasonStats : nil
+        let summary = PlayerCardText.summarizeSeason(
+            lines: choice.lines,
+            totals: choice.totals,
+            provider: choice.provider,
+            goalkeeper: goalkeeper,
+            frozen: stats?.publicMatchData != nil,
+            minutesKnown: stats?.statsCoverage != "limited"
+        )
+        let problem = PlayerCardText.readProblem(
+            linesError: linesViewModel.failed,
+            linesStale: linesViewModel.hasLines,
+            totalsError: totalsError,
+            totalsStale: stats != nil,
+            showing: choice.provider != nil || !choice.lines.isEmpty
+        )
+        let currentSeason = viewModel.seasons.first(where: \.isCurrent)?.season ?? PlayerCardText.calendarSeason()
+
+        VStack(alignment: .leading, spacing: 28) {
+            PlayerSeasonBlock(
+                seasonLabel: seasonLabel(choice.season),
+                kicker: PlayerCardText.seasonKicker(season: choice.season, currentSeason: currentSeason),
+                summary: summary,
+                playerName: profile.name,
+                loading: linesViewModel.isAwaitingFirstAnswer || totalsLoading,
+                problem: problem,
+                onRetry: {
+                    Task {
+                        if linesViewModel.failed { await linesViewModel.retry() }
+                        if totalsError { await viewModel.reload() }
+                    }
+                },
+                truncated: linesViewModel.truncated
+            ) {
+                SeasonPicker(
+                    seasons: pickerSeasons,
+                    selectedSeason: choice.season
+                ) { season in
+                    Task { await viewModel.selectSeason(season) }
+                }
+            }
+
+            PlayerMatchLinesSection(lines: choice.lines, goalkeeper: goalkeeper)
+                .id(choice.season)
+                .id("review-matches")
+
+            if summary.source == .provider, let stats, !stats.clubs.isEmpty {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("BY CLUB")
+                        .font(AcademyType.mono(11, relativeTo: .caption))
+                        .tracking(1.9)
                         .foregroundStyle(AcademyColors.secondaryText)
-                        .padding(.horizontal, 2)
-                } else {
+                        .accessibilityLabel("By club")
+                        .accessibilityAddTraits(.isHeader)
                     ForEach(Array(stats.clubs.enumerated()), id: \.offset) { _, club in
                         SeasonClubCard(
                             club: club,
@@ -378,14 +539,27 @@ struct PlayerDetailView: View {
                         )
                     }
                 }
-            } else {
-                PlayerDetailEmptyCard(
-                    iconName: "chart.bar",
-                    title: "No season data",
-                    message: "Season totals have not been recorded for this player yet."
-                )
             }
         }
+    }
+
+    private func seasonLabel(_ season: Int?) -> String {
+        guard let season else { return "Season" }
+        return viewModel.seasons.first { $0.season == season }?.label ?? SeasonLabelFormatter.label(for: season)
+    }
+
+    /// The directory's seasons plus any season the match lines cover.
+    private var pickerSeasons: [Season] {
+        var seasons = viewModel.seasons
+        for entry in linesViewModel.seasons where !seasons.contains(where: { $0.season == entry.season }) {
+            seasons.append(Season(
+                season: entry.season,
+                label: SeasonLabelFormatter.label(for: entry.season),
+                hasRollup: true,
+                isCurrent: false
+            ))
+        }
+        return seasons.sorted { $0.season > $1.season }
     }
 
     private var recentFormSection: some View {
@@ -484,101 +658,26 @@ struct PlayerDetailView: View {
     }
 }
 
-private struct PlayerProfileHeader: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
+private struct PlayerClubRow: View {
     let profile: PlayerProfile
-    let birthDate: String?
+    let clubName: String
 
     var body: some View {
-        VStack(spacing: 15) {
-            profilePhoto
+        HStack(spacing: 11) {
+            clubLogo
 
-            VStack(spacing: 7) {
-                Text(profile.name)
-                    .font(AcademyType.largeTitle)
-                    .multilineTextAlignment(.center)
-                    .minimumScaleFactor(0.75)
-
-                HStack(spacing: 6) {
-                    if let position = profile.position, !position.isEmpty {
-                        BadgeView(text: expandedPosition(position))
-                    }
-                    if let status = profile.status, !status.isEmpty {
-                        BadgeView(
-                            text: displayStatus(status),
-                            foregroundColor: statusColor(status),
-                            backgroundColor: statusColor(status).opacity(0.12)
-                        )
-                    }
-                }
-
-                if !metadataLine.isEmpty {
-                    Text(metadataLine)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(clubName)
+                    .font(AcademyType.headline)
+                if let clubOriginLine = profile.clubOriginLine {
+                    Text(clubOriginLine)
                         .font(AcademyType.subheadline)
                         .foregroundStyle(AcademyColors.secondaryText)
                 }
             }
-
-            if let clubName = profile.currentClubName {
-                Divider()
-
-                HStack(spacing: 11) {
-                    clubLogo
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(clubName)
-                            .font(AcademyType.headline)
-                        if let clubOriginLine = profile.clubOriginLine {
-                            Text(clubOriginLine)
-                                .font(AcademyType.subheadline)
-                                .foregroundStyle(AcademyColors.secondaryText)
-                        }
-                    }
-                    Spacer()
-                }
-            }
+            Spacer(minLength: 0)
         }
-        .padding(18)
-        .frame(maxWidth: .infinity)
-        .overlay(alignment: .bottom) { Rectangle().fill(AcademyColors.hairline).frame(height: 1) }
-    }
-
-    @ViewBuilder
-    private var profilePhoto: some View {
-        Group {
-            if let photoURL = profile.photoURL {
-                AsyncImage(url: photoURL, transaction: Transaction(animation: reduceMotion ? nil : .easeInOut(duration: 0.2))) { phase in
-                    switch phase {
-                    case let .success(image):
-                        image.resizable().scaledToFill()
-                    case .empty:
-                        WingLiftLoadingView()
-                    case .failure:
-                        photoPlaceholder
-                    @unknown default:
-                        photoPlaceholder
-                    }
-                }
-            } else {
-                photoPlaceholder
-            }
-        }
-        .frame(width: 132, height: 132)
-        .background(AcademyColors.elevatedSurface)
-        .clipShape(Circle())
-        .overlay {
-            Circle().stroke(AcademyColors.chalk.opacity(0.9), lineWidth: 4)
-            Circle().stroke(AcademyColors.accent.opacity(0.28), lineWidth: 1)
-        }
-        .accessibilityLabel("Photo of \(profile.name)")
-    }
-
-    private var photoPlaceholder: some View {
-        Image(systemName: "person.crop.circle.fill")
-            .resizable()
-            .scaledToFit()
-            .foregroundStyle(AcademyColors.secondaryText)
+        .accessibilityElement(children: .combine)
     }
 
     private var clubLogo: some View {
@@ -600,100 +699,6 @@ private struct PlayerProfileHeader: View {
         .frame(width: 42, height: 42)
         .background(AcademyColors.elevatedSurface, in: RoundedRectangle(cornerRadius: 10))
         .accessibilityHidden(true)
-    }
-
-    private var metadataLine: String {
-        var parts: [String] = []
-        if let age = PlayerAgeCalculator.age(from: birthDate) ?? profile.age {
-            parts.append(age.formatted())
-        }
-        if let nationality = profile.nationality, !nationality.isEmpty { parts.append(nationality) }
-        return parts.joined(separator: " · ")
-    }
-}
-
-private struct SeasonOverviewCard: View {
-    let stats: PlayerSeasonStats
-    let isGoalkeeper: Bool
-
-    private var countingMetrics: [DetailMetric] {
-        if isGoalkeeper {
-            return [
-                DetailMetric(label: "Apps", value: stats.appearances.formatted()),
-                DetailMetric(label: "Goals", value: stats.goals.formatted()),
-                DetailMetric(label: "Assists", value: stats.assists.formatted()),
-                DetailMetric(label: "Minutes", value: stats.minutes.formatted()),
-            ]
-        }
-        return [
-            DetailMetric(label: "Apps", value: stats.appearances.formatted()),
-            DetailMetric(label: "Goals", value: stats.goals.formatted()),
-            DetailMetric(label: "Assists", value: stats.assists.formatted()),
-            DetailMetric(label: "Minutes", value: stats.minutes.formatted()),
-        ]
-    }
-
-    private var matchMetrics: [DetailMetric] {
-        guard isGoalkeeper else {
-            return [DetailMetric(label: "Rating", value: formatRating(stats.avgRating))]
-        }
-
-        let hasDetail = stats.hasDetailedGoalkeeperCoverage
-        return [
-            DetailMetric(label: "Saves", value: hasDetail ? stats.saves.formatted() : "—"),
-            DetailMetric(label: "GA", value: hasDetail ? stats.goalsConceded.formatted() : "—"),
-            DetailMetric(label: "Clean sheets", value: hasDetail ? stats.cleanSheets.formatted() : "—"),
-            DetailMetric(label: "Rating", value: hasDetail ? formatRating(stats.avgRating) : "—"),
-        ]
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Overall")
-                .font(AcademyType.headline)
-
-            if stats.hasHeadlineData {
-                SeasonMetricGroup(
-                    title: "Counting stats",
-                    sourceLabel: stats.countingSourceLabel,
-                    metrics: countingMetrics
-                )
-
-                SeasonMetricGroup(
-                    title: isGoalkeeper ? "Goalkeeper events" : "Match detail",
-                    sourceLabel: stats.matchDetailSourceLabel,
-                    metrics: matchMetrics
-                )
-            } else {
-                Label("Counting totals unavailable for this coverage snapshot.", systemImage: "info.circle")
-                    .font(AcademyType.footnote)
-                    .foregroundStyle(AcademyColors.secondaryText)
-            }
-
-            if let comparisonSource = stats.provenance?.sourceLabel {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text("Minutes coverage comparison")
-                        .font(AcademyType.caption)
-                        .foregroundStyle(AcademyColors.secondaryText)
-                    Spacer(minLength: 4)
-                    SourceBadge(text: comparisonSource)
-                }
-            }
-
-            if let detailText = stats.provenance?.detailText {
-                Text(detailText)
-                    .font(AcademyType.caption)
-                    .foregroundStyle(AcademyColors.secondaryText)
-            }
-
-            if !stats.hasDetailedGoalkeeperCoverage, isGoalkeeper {
-                Text("Goalkeeper event detail is unavailable at this coverage level.")
-                    .font(AcademyType.caption2)
-                    .foregroundStyle(AcademyColors.secondaryText)
-            }
-        }
-        .detailCardStyle()
-        .accessibilityIdentifier("season-overview-row")
     }
 }
 

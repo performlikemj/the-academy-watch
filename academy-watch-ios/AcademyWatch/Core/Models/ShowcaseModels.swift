@@ -6,6 +6,10 @@ struct PlayerShowcaseResponse: Decodable, Equatable, Sendable {
     let reel: [ShowcaseReelItem]
     let verifiedFootage: [ShowcaseVerifiedFootage]
     let claimStatus: String?
+    let photos: [ShowcasePhoto]
+    let affiliations: [ShowcaseAffiliation]
+    /// The player has claimed the profile personally (the scout desk's rule).
+    let contactable: Bool
 
     private enum CodingKeys: String, CodingKey {
         case playerApiId
@@ -13,6 +17,9 @@ struct PlayerShowcaseResponse: Decodable, Equatable, Sendable {
         case reel
         case verifiedFootage
         case claimStatus
+        case photos
+        case affiliations
+        case contactable
     }
 
     init(from decoder: Decoder) throws {
@@ -25,6 +32,34 @@ struct PlayerShowcaseResponse: Decodable, Equatable, Sendable {
             forKey: .verifiedFootage
         ) ?? []
         claimStatus = try container.decodeIfPresent(String.self, forKey: .claimStatus)
+        // Additive read-view fields: a malformed row never breaks the showcase.
+        photos = (try? container.decodeIfPresent([ShowcasePhoto].self, forKey: .photos)) ?? []
+        affiliations = (try? container.decodeIfPresent([ShowcaseAffiliation].self, forKey: .affiliations)) ?? []
+        contactable = (try? container.decodeIfPresent(Bool.self, forKey: .contactable)) ?? false
+    }
+
+    /// Same public rule as the web read view: approved photos that carry a
+    /// public URL, primary first, then the owner's order.
+    var publicPhotos: [ShowcasePhoto] {
+        photos
+            .filter { $0.status == "approved" && $0.url != nil }
+            .sorted { first, second in
+                let firstPrimary = first.isPrimary == true
+                let secondPrimary = second.isPrimary == true
+                if firstPrimary != secondPrimary { return firstPrimary }
+                let firstOrder = first.sortOrder ?? Int.max
+                let secondOrder = second.sortOrder ?? Int.max
+                if firstOrder != secondOrder { return firstOrder < secondOrder }
+                return first.id < second.id
+            }
+    }
+
+    /// The club that confirmed this player — only a club-confirmed affiliation counts.
+    var confirmedClubName: String? {
+        affiliations.last { affiliation in
+            affiliation.status == "club_confirmed"
+                && affiliation.clubName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        }?.clubName
     }
 
     var approvedReel: [ShowcaseReelItem] {
@@ -82,6 +117,14 @@ struct ShowcaseProfile: Decodable, Equatable, Sendable {
     let clubProgramId: Int?
     let statusContradiction: Bool?
     let contractAttestationReviewStatus: PlayerContractAttestationReviewStatus?
+    // Read-view facts. The server withholds the agent's email from signed-out readers.
+    let rawContractStatus: String?
+    let contractUntil: String?
+    let availability: String?
+    let agentName: String?
+    let agentContactEmail: String?
+    let nationalitySecondary: String?
+    let languages: String?
 
     private enum CodingKeys: String, CodingKey {
         case id
@@ -98,6 +141,13 @@ struct ShowcaseProfile: Decodable, Equatable, Sendable {
         case clubProgramId
         case statusContradiction
         case contractAttestationReviewStatus
+        case profileContractStatus
+        case contractUntil
+        case availability
+        case agentName
+        case agentContactEmail
+        case nationalitySecondary
+        case languages
     }
 
     init(from decoder: Decoder) throws {
@@ -111,7 +161,11 @@ struct ShowcaseProfile: Decodable, Equatable, Sendable {
         selfReported = try container.decodeIfPresent(Bool.self, forKey: .selfReported) ?? false
         status = try container.decodeIfPresent(ShowcaseProfileModerationStatus.self, forKey: .status)
         updatedAt = try container.decodeIfPresent(String.self, forKey: .updatedAt)
-        contractStatus = try container.decodeIfPresent(PlayerContractStatus.self, forKey: .contractStatus)
+        // A public profile states its own contract status (under_contract /
+        // expiring / free_agent); only an owner's response carries the claim
+        // attestation values this enum knows. An unknown value is not an
+        // attestation — it must not fail the whole showcase.
+        contractStatus = try? container.decodeIfPresent(PlayerContractStatus.self, forKey: .contractStatus)
         currentClubName = try container.decodeIfPresent(String.self, forKey: .currentClubName)
         clubProgramId = try container.decodeIfPresent(Int.self, forKey: .clubProgramId)
         statusContradiction = try container.decodeIfPresent(Bool.self, forKey: .statusContradiction)
@@ -119,6 +173,14 @@ struct ShowcaseProfile: Decodable, Equatable, Sendable {
             PlayerContractAttestationReviewStatus.self,
             forKey: .contractAttestationReviewStatus
         )
+        rawContractStatus = (try? container.decodeIfPresent(String.self, forKey: .profileContractStatus))
+            ?? (try? container.decodeIfPresent(String.self, forKey: .contractStatus))
+        contractUntil = try? container.decodeIfPresent(String.self, forKey: .contractUntil)
+        availability = try? container.decodeIfPresent(String.self, forKey: .availability)
+        agentName = try? container.decodeIfPresent(String.self, forKey: .agentName)
+        agentContactEmail = try? container.decodeIfPresent(String.self, forKey: .agentContactEmail)
+        nationalitySecondary = try? container.decodeIfPresent(String.self, forKey: .nationalitySecondary)
+        languages = try? container.decodeIfPresent(String.self, forKey: .languages)
     }
 
     var hasVisibleContent: Bool {

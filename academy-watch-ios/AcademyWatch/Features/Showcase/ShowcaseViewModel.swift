@@ -42,6 +42,17 @@ final class ShowcaseViewModel: ObservableObject {
         return showcase
     }
 
+    /// The showcase differs by reader (the server adds the agent's email only
+    /// for signed-in readers; owners get more), so nothing loaded for one
+    /// account is kept for the next, and a late answer for it is discarded.
+    func resetAccount() {
+        guard !isFixturePreview else { return }
+        loadRevision += 1
+        showcase = nil
+        hasAttemptedLoad = false
+        isLoading = false
+    }
+
     func loadIfNeeded() async {
         guard !hasAttemptedLoad, !isLoading else { return }
         await load()

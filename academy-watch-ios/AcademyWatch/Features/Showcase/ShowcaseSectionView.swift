@@ -3,10 +3,14 @@ import SwiftUI
 
 struct ShowcaseSectionView: View {
     @ObservedObject var viewModel: ShowcaseViewModel
+    /// The player page shows the self-reported profile in its hero and facts
+    /// strip, so this section leaves it out there.
+    var showsProfile = true
     @State private var selectedVideo: ShowcaseVideoDestination?
 
     var body: some View {
-        if let showcase = viewModel.visibleShowcase {
+        if let showcase = viewModel.visibleShowcase,
+           showsProfile || !showcase.approvedReel.isEmpty || !showcase.clubVerifiedFootage.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
                 sectionHeader
 
@@ -14,7 +18,7 @@ struct ShowcaseSectionView: View {
                     highlightReel(showcase.approvedReel)
                 }
 
-                if let profile = showcase.selfReportedProfile {
+                if showsProfile, let profile = showcase.selfReportedProfile {
                     selfReportedProfile(profile)
                 }
 

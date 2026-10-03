@@ -23,3 +23,18 @@ their existing Safari handoff; `legal` reviews their native links.
 Review images: `~/codex-runs/aw-redesign/shots/ios/INDEX.md`. Baselines use the
 same harness over the pinned origin/main iOS sources, without Floodlight assets,
 fonts or view restyles. See `sim/capture-floodlight.py` to reproduce the capture.
+
+## Player card review states
+
+`-floodlightPreview pc-<state>` opens the redesigned player page (or, for
+`pc-desk` / `pc-desk-next`, the scout desk) on a fictional fixture:
+photo, no-photo, no-matches, full-season, mismatch, long-names, several-photos,
+keeper, white-photo, read-failed, provider, totals-failed, desk, desk-next.
+`-pcAnchor facts|season|matches|end|results` scrolls to a section and
+`-pcFailOnce` lets a failing read recover on "Try again".
+
+The match lines in `ReviewFixtures/player_card_states.json` are not written by
+hand: `sim/build-player-card-fixtures.py` runs raw club and self-reported
+entries through the server's own `services/match_lines.py`. Photos are bundled
+generated silhouettes (file URLs). `sim/capture-player-card.py` takes the
+pictures; they are in `~/codex-runs/aw-redesign/shots/IPC/INDEX.md`.

@@ -82,6 +82,15 @@ struct ScoutPlayerSummary: Codable, Equatable, Sendable {
     let recentForm: [ScoutRecentForm]?
     var provenance: SeasonProvenance? = nil
     var rollupMissing: Bool? = nil
+    // Card fields. Absent until the server sends them; never guessed.
+    var approvedPhotoUrl: String? = nil
+    var bioLine: String? = nil
+    var clubConfirmed: Bool? = nil
+    var contactable: Bool? = nil
+
+    var approvedPhotoURL: URL? {
+        approvedPhotoUrl.flatMap(URL.init(string:))
+    }
 
     var photoURL: URL? {
         playerPhoto.flatMap(URL.init(string:))
