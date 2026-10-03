@@ -258,25 +258,39 @@ def scout_totals_projection(
     if evidence_player is not None:
         from src.services.season_rollup_service import _FEEDERS
 
-        # Do not even load report evidence until conservative public policy
-        # authorizes it. Private callers still use the writers' subject guard.
+        # Trusted rows are internal evidence. Authorize any report projection
+        # before returning it; empty provider-only scopes need no report policy
+        # work and retain identical work across private club bridge states.
         ids = {evidence_player} if isinstance(evidence_player, int) else set(evidence_player)
-        permitted = not public or bool(public_report_ids(ids, eligibility_cache))
-        feeders = _FEEDERS if permitted else _FEEDERS[:4]
+        feeders = _FEEDERS
         if evidence_sources is not None:
             feeders = [
                 f
                 for source, f in zip(("fixtures", "journey", "apss", "shadow", "club", "user"), _FEEDERS)
-                if source in evidence_sources and (permitted or source not in {"club", "user"})
+                if source in evidence_sources
             ]
         now = datetime.now(UTC)
         if private_eligible_ids is not None:
             assert not public and evidence_sources == {"club"}
             from src.services.season_rollup_service import _club_cells
 
-            cells = _club_cells(ids, season, session, now, eligible_ids=private_eligible_ids)
+            cells = _club_cells(ids, season, session, now, eligible_ids=private_eligible_ids, current_evidence=True)
         else:
-            cells = [cell for feeder in feeders for cell in feeder(evidence_player, season, session, now)]
+            cells = [
+                cell
+                for feeder in feeders
+                for cell in feeder(
+                    evidence_player,
+                    season,
+                    session,
+                    now,
+                    **({"current_evidence": True} if feeder in _FEEDERS[4:] else {}),
+                )
+            ]
+        report_ids = {c["player_api_id"] for c in cells if c["source"] in {"club", "user"}}
+        if public and report_ids:
+            eligible = public_report_ids(report_ids, eligibility_cache)
+            cells = [c for c in cells if c["source"] not in {"club", "user"} or c["player_api_id"] in eligible]
         if not current_only and evidence_sources is None:
             stored = (
                 session.query(PlayerSeasonCell)

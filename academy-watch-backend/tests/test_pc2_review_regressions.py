@@ -497,6 +497,27 @@ def test_backed_canonical_snapshot_revalidates_current_inputs(app, monkeypatch, 
     assert evidence == rebuilt_evidence
 
 
+def test_current_report_evidence_has_stable_backing_row_clock(app):
+    ids, user, list_id = seed_personas()
+    pid = ids["Kofi Asante-Reid"]
+    from src.routes.players import _rollup_source_breakdown
+
+    first = _rollup_source_breakdown(pid, SEASON)
+    assert first == _rollup_source_breakdown(pid, SEASON)
+    row = PlayerMatchEntry.query.filter_by(player_api_id=pid, source="club").order_by(PlayerMatchEntry.id).first()
+    row.updated_at = datetime(2026, 10, 4, 12, 0)
+    row.goals += 1
+    db.session.commit()
+    changed = _rollup_source_breakdown(pid, SEASON)
+    assert changed != first
+    club = changed["club"]
+    assert any(cell["synced_at"].startswith("2026-10-04T12:00:00") for cell in club)
+    assert changed == _rollup_source_breakdown(pid, SEASON)
+    rollup.refresh_player(pid, SEASON)
+    db.session.commit()
+    assert changed == _rollup_source_breakdown(pid, SEASON)
+
+
 def test_committed_provider_survives_failed_dirty_queue_drain(app, monkeypatch):
     from src.models.weekly import Fixture, FixturePlayerStats
 

@@ -698,6 +698,7 @@ def _reported_match_cells(
     entry_status: str,
     cell_source: str,
     eligible_ids=None,
+    current_evidence=False,
 ) -> list[dict]:
     """Aggregate one trusted PlayerMatchEntry source at competition grain."""
     q = (
@@ -727,10 +728,14 @@ def _reported_match_cells(
     groups: dict[tuple, dict] = {}
     club_names: dict[tuple, str | None] = {}
     competition_names: dict[tuple, str | None] = {}
+    evidence_clocks: dict[tuple, datetime] = {}
     for entry, club_name in rows:
         club_program_id = entry.club_program_id or 0
         competition_key = _reported_competition_key(entry.competition)
         key = (entry.player_api_id, entry.season, club_program_id, competition_key)
+        stamp = entry.updated_at or entry.created_at
+        if stamp is not None:
+            evidence_clocks[key] = max(evidence_clocks.get(key, stamp), stamp)
         agg = groups.get(key)
         if agg is None:
             agg = _blank_agg()
@@ -765,7 +770,7 @@ def _reported_match_cells(
             club_name=club_names.get(key),
             competition_tier=_reported_competition_tier(level_group, competition_key),
             level_group=level_group,
-            now=now,
+            now=evidence_clocks.get(key) if current_evidence else now,
         )
         if cell:
             cell["detail"] = {"competition": competition}
@@ -773,7 +778,9 @@ def _reported_match_cells(
     return cells
 
 
-def _user_cells(player_api_id: int, season: int | None, session, now: datetime) -> list[dict]:
+def _user_cells(
+    player_api_id: int, season: int | None, session, now: datetime, *, current_evidence=False
+) -> list[dict]:
     return _reported_match_cells(
         player_api_id,
         season,
@@ -782,10 +789,13 @@ def _user_cells(player_api_id: int, season: int | None, session, now: datetime) 
         entry_source="self",
         entry_status="self_reported",
         cell_source=SOURCE_USER,
+        current_evidence=current_evidence,
     )
 
 
-def _club_cells(player_api_id: int, season: int | None, session, now: datetime, *, eligible_ids=None) -> list[dict]:
+def _club_cells(
+    player_api_id: int, season: int | None, session, now: datetime, *, eligible_ids=None, current_evidence=False
+) -> list[dict]:
     return _reported_match_cells(
         player_api_id,
         season,
@@ -795,6 +805,7 @@ def _club_cells(player_api_id: int, season: int | None, session, now: datetime, 
         entry_status="club_confirmed",
         cell_source=SOURCE_CLUB,
         eligible_ids=eligible_ids,
+        current_evidence=current_evidence,
     )
 
 
