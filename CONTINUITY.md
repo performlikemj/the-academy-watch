@@ -31,7 +31,7 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
   an unconditional development step.
 
 ## State
-- Now: PC2F2 review fixes at 8e4567ef; merging C4 main e510612a. See ledgers/CONTINUITY_pc2.md. No schema change or production/staging rebuild.
+- Now: PC2F2 fixes implemented; C4 main e510612a merged with viewer wiring retained. Final-head gates/PG/browser, push and bounded CI pending; receipts go to external PC2F2.final.md. See ledgers/CONTINUITY_pc2.md. No schema change or production/staging rebuild.
 - **Now (PC2F1):** PR1138 review union/reverse-probe work complete from670b194b; main8696a4de included. Public report guard/every-reader parity and literal-entity storage/display fixed; full5509 PASS/1757 SKIP, PG38/browser81+2optional PASS. Final format-only successor whole Ruff661 PASS; exact-head cache/PG/browser/push/CI/cleanup receipts authoritative in external logs/PC2F1.final.md; ledger ledgers/CONTINUITY_pc2.md. No schema or production/staging rebuild/merge.
 - **Now (2026-10-03 PC2):** Canonical reported rollup/scout equality implemented on feat/pc2-one-set-of-numbers (base PR1131 3d4cf2b1); PG23 + targeted224 + scout fixture102 PASS, browser81 PASS/2 optional SKIP; rebuild resume/undo proven on aw_pc2 (dropped); final fixture-only head gates pending; final gates/delivery authoritative in external logs/PC2.final.md; no schema or production operations. See ledgers/CONTINUITY_pc2.md.
 

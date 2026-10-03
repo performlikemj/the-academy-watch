@@ -90,6 +90,7 @@ def restore(session, path):
     for line in path.read_text().splitlines():
         record = json.loads(line)
         originals.setdefault(record["player_id"], record)
+    result = {"players_restored": 0, "players_skipped": []}
     for player_id, record in originals.items():
         _lock_player_refresh(session, player_id)
         before = record["before"]
@@ -100,14 +101,16 @@ def restore(session, path):
             for model in MODELS
         ):
             session.rollback()
-            raise RuntimeError("derived data changed after rebuild; reconstruct from current source facts instead")
+            result["players_skipped"].append(player_id)
+            continue
         for model in MODELS:
             session.query(model).filter_by(player_api_id=player_id).delete(synchronize_session=False)
             for values in before[model.__tablename__]:
                 values = {k: datetime.fromisoformat(v) if k in CLOCKS and v else v for k, v in values.items()}
                 session.add(model(**values))
         session.commit()
-    return len(originals)
+        result["players_restored"] += 1
+    return result
 
 
 def run(session, *, dry_run, limit, after, delay, checkpoint=None, undo=None):
@@ -232,7 +235,15 @@ def main(argv=None):
     url = make_url(uri) if uri else None
     if url is None or url.drivername != "postgresql+psycopg":
         parser.error("set PC2_DATABASE_URL explicitly with postgresql+psycopg://")
-    if url.host and url.host not in ("localhost", "127.0.0.1", "::1") and not url.host.endswith(".pooler.supabase.com"):
+    # libpq query hosts override the authority, including socket-style URLs.
+    hosts = [url.host] if url.host else []
+    for value in url.normalized_query.get("host", ()):
+        hosts.extend(value.split(","))
+    if url.query.get("hostaddr"):
+        parser.error("hostaddr overrides are not allowed; use the IPv4 pooler hostname")
+    if any(
+        host not in ("localhost", "127.0.0.1", "::1") and not host.endswith(".pooler.supabase.com") for host in hosts
+    ):
         parser.error("hosted databases must use the IPv4 pooler")
     if not args.dry_run and not args.rollback and (args.checkpoint is None or args.undo is None):
         parser.error("writes require --checkpoint and --undo paths")
@@ -245,7 +256,7 @@ def main(argv=None):
     db.init_app(application)
     with application.app_context():
         if args.rollback:
-            result = {"players_restored": restore(db.session, args.rollback)}
+            result = restore(db.session, args.rollback)
         else:
             if args.checkpoint and args.checkpoint.exists() and not args.dry_run:
                 args.after = max(args.after, json.loads(args.checkpoint.read_text())["after"])
@@ -259,7 +270,7 @@ def main(argv=None):
                 undo=args.undo,
             )
         print(json.dumps(result, indent=2))
-    return 0
+    return 2 if result.get("players_skipped") else 0
 
 
 if __name__ == "__main__":

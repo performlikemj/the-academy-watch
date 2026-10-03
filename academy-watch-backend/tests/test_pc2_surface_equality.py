@@ -359,6 +359,52 @@ def test_one_mixed_fixture_equal_on_every_surface_before_and_after_rebuild(
         ]
     )
     ids["Tracked Kofi"] = mirror
+    absent_ids = set()
+    for index, (canonical, disputed) in enumerate(((False, False), (False, True), (True, False), (True, True))):
+        pid = 94000 + index
+        name = f"Absent {'canonical' if canonical else 'old'} {'disputed' if disputed else 'orphan'}"
+        ids[name] = pid
+        absent_ids.add(pid)
+        db.session.add(
+            TrackedPlayer(player_api_id=pid, team_id=team.id, player_name=name, birth_date="2000-01-01", is_active=True)
+        )
+        db.session.add_all(
+            [
+                ScoutWatchlistEntry(user_account_id=_user_id, player_api_id=pid),
+                Follow(list_id=list_id, kind="player", selector={"player_api_id": pid}),
+                PlayerSeasonTotal(
+                    player_api_id=pid,
+                    season=SEASON,
+                    level_group="senior",
+                    computed_at=now,
+                    primary_source="matches" if canonical else "club",
+                    appearances=2,
+                    minutes=163,
+                    goals=8,
+                    assists=2,
+                    source_breakdown={"matches": {"revision": 2, "club_confirmed": 1, "self_reported_only": 1}}
+                    if canonical
+                    else {},
+                ),
+            ]
+        )
+        if disputed:
+            for source in ("club", "self"):
+                db.session.add(
+                    PlayerMatchEntry(
+                        player_api_id=pid,
+                        season=SEASON,
+                        match_date=date(2025, 9, 1),
+                        source=source,
+                        status="disputed",
+                        reported_by_user_id=_user_id,
+                        opponent="Disputed private fact",
+                        home_away="home",
+                        minutes=90,
+                        goals=8,
+                        assists=2,
+                    )
+                )
     db.session.commit()
     monkeypatch.setattr("src.utils.academy_classifier.is_academy_product", lambda *a, **k: True)
     if provider_kind == "cache":
@@ -412,9 +458,9 @@ def test_one_mixed_fixture_equal_on_every_surface_before_and_after_rebuild(
         got, rows = surfaces(client, headers, list_id)
         for surface, numbers in got.items():
             for player_id in ids.values():
-                if surface.startswith("leaderboards") and player_id == ids["Tobi Olawale"]:
+                if surface.startswith("leaderboards") and player_id in absent_ids | {ids["Tobi Olawale"]}:
                     continue  # no-stat rows are not ranking candidates
-                if player_id == ids["Tobi Olawale"]:
+                if player_id in absent_ids | {ids["Tobi Olawale"]}:
                     assert all(value in {None, 0} for value in numbers[player_id])
                     continue
                 assert numbers.get(player_id) == expected[player_id], (
@@ -438,6 +484,8 @@ def test_one_mixed_fixture_equal_on_every_surface_before_and_after_rebuild(
             numbers = {p["player_id"]: _numbers(p) for p in roster}
             assert numbers[mirror] == expected[mirror], (stage, path, numbers)
             assert numbers[ids["Provider"]] == expected[ids["Provider"]], (stage, path, numbers)
+            for pid in absent_ids:
+                assert all(value in {None, 0} for value in numbers[pid]), (stage, path, pid, numbers[pid])
             got[path] = numbers
         from src.services import scout_digest_service as digest
 
@@ -453,7 +501,7 @@ def test_one_mixed_fixture_equal_on_every_surface_before_and_after_rebuild(
         ):
             for update in updates:
                 pid = update["entry"].player_api_id
-                if pid == ids["Tobi Olawale"]:
+                if pid in absent_ids | {ids["Tobi Olawale"]}:
                     continue
                 snap = update["snapshot"]
                 assert (snap["appearances"], snap["minutes_played"], snap["goals"], snap["assists"]) == expected[pid][
@@ -481,12 +529,24 @@ def test_one_mixed_fixture_equal_on_every_surface_before_and_after_rebuild(
             compare_rows.extend(response.json["players"])
         for player in compare_rows:
             player_id = player["profile"]["player_id"]
-            if player_id == ids["Tobi Olawale"]:
+            if player_id in absent_ids | {ids["Tobi Olawale"]}:
                 assert all(value in {None, 0} for value in _numbers(player["totals"]))
+                assert all(value is None for value in player["per90"].values()), player
+                assert player["provenance"]["primary_source"] is None
+                assert player["provenance"]["source_category"] is None
+                assert player["provenance"]["source_label"] == "No recorded totals"
             else:
                 assert _numbers(player["totals"]) == expected[player_id]
         for name, player_id in ids.items():
-            if name == "Tobi Olawale":
+            if player_id in absent_ids | {ids["Tobi Olawale"]}:
+                season = client.get(f"/api/players/{player_id}/season-stats?season={SEASON}").get_json()
+                assert all(season[k] in {None, 0} for k in ("appearances", "minutes", "goals", "assists")), season
+                stats = client.get(f"/api/players/{player_id}/stats?season={SEASON}").get_json()
+                if isinstance(stats, dict):
+                    assert all(value in {None, 0} for value in _numbers(stats["summary"]))
+                    assert not stats["source_breakdown"]
+                else:
+                    assert stats == []  # flag-OFF legacy fixture-only adapter, no reported headline
                 continue
             season = client.get(f"/api/players/{player_id}/season-stats?season={SEASON}").get_json()
             assert (
@@ -524,7 +584,7 @@ def test_one_mixed_fixture_equal_on_every_surface_before_and_after_rebuild(
                         "goals_conceded",
                     )
                 )
-                if name != "Tobi Olawale":
+                if pid not in absent_ids | {ids["Tobi Olawale"]}:
                     assert summaries[pid] == expected[pid], (stage, name, "player-stats", response.json)
             got["player-stats/iOS summary"] = summaries
         kofi = next(p for p in rows if p["player_id"] == ids["Kofi Asante-Reid"])
@@ -538,6 +598,9 @@ def test_one_mixed_fixture_equal_on_every_surface_before_and_after_rebuild(
         proof[stage] = {
             surface: {name: list(numbers.get(player_id, ())) for name, player_id in ids.items()}
             for surface, numbers in got.items()
+        }
+        proof[stage]["compare provenance and per90"] = {
+            p["profile"]["player_name"]: {"provenance": p["provenance"], "per90": p["per90"]} for p in compare_rows
         }
         proof[stage]["compare/iOS compare"] = {
             p["profile"]["player_name"]: list(_numbers(p["totals"])) for p in compare_rows
@@ -645,7 +708,7 @@ def test_rebuild_dry_run_resume_idempotence_and_rollback(app, tmp_path):
     assert remaining["players_scanned"] == 4
     repeated = rebuild.run(db.session, dry_run=True, limit=100, after=-(2**31), delay=0)
     assert repeated["players_changed"] == 0
-    assert rebuild.restore(db.session, undo) == 5
+    assert rebuild.restore(db.session, undo) == {"players_restored": 5, "players_skipped": []}
     for player_id in ids.values():
         after = rebuild.snapshot(db.session, player_id)
         for table in before[player_id]:

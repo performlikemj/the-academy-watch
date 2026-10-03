@@ -14,6 +14,12 @@ const SOURCE_DETAILS = {
     variant: 'outline',
     className: 'border-emerald-200 bg-emerald-50 text-emerald-800',
   },
+  mixed: {
+    label: 'Club + self-reported',
+    title: 'Season includes club-confirmed and self-reported match entries.',
+    variant: 'outline',
+    className: 'border-amber-200 bg-amber-50 text-amber-900',
+  },
   self: {
     label: 'Self-reported',
     title: 'Stats entered by the player or their approved profile owner.',
@@ -29,6 +35,7 @@ const SOURCE_ALIASES = {
   apss: 'api',
   shadow: 'api',
   club_confirmed: 'club',
+  matches: 'mixed',
   user: 'self',
   self_reported: 'self',
 }
@@ -47,13 +54,16 @@ export function ProvenanceChip({ provenance, className }) {
   const source = provenanceSource(provenance)
   if (!source) return null
   const details = SOURCE_DETAILS[source]
+  const title = source === 'mixed' && Number.isInteger(provenance.club_confirmed) && Number.isInteger(provenance.self_reported_only)
+    ? `${provenance.club_confirmed} club-confirmed matches; ${provenance.self_reported_only} self-reported only.`
+    : details.title
 
   return (
     <Badge
       variant={details.variant}
       className={cn('cursor-help whitespace-nowrap', details.className, className)}
-      title={details.title}
-      aria-label={`${details.label}. ${details.title}`}
+      title={title}
+      aria-label={`${details.label}. ${title}`}
       data-provenance-source={source}
     >
       {details.label}

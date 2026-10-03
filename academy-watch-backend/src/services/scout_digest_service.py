@@ -198,10 +198,10 @@ def _prime_number_totals(player_ids, cache):
 
         live = live_stats_by_player(tracked_rows, season)
         memo.update((pid, {**live[pid], "season": season} if pid in live else None) for pid in tracked)
-        memo.update(saved_shadow_totals(eligible - tracked))
+        memo.update(saved_shadow_totals(eligible - tracked, eligibility_cache=cache))
         memo.update((pid, None) for pid in pending - eligible)
         return
-    totals = effective_totals(tracked, season)
+    totals = effective_totals(tracked, season, eligibility_cache=cache)
     providers = provider_totals_batch(tracked - set(totals), season) if tracked - set(totals) else {}
     for pid in tracked:
         total = totals.get(pid)
@@ -219,7 +219,7 @@ def _prime_number_totals(player_ids, cache):
             "season": season,
             "provenance": {"primary_source": total.primary_source if total else row.get("primary_source")},
         }
-    memo.update(saved_shadow_totals(eligible - tracked))
+    memo.update(saved_shadow_totals(eligible - tracked, eligibility_cache=cache))
     memo.update((pid, None) for pid in pending - eligible)
 
 

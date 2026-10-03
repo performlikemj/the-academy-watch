@@ -71,3 +71,8 @@
 - Fix union: Compare stale reported fallback; mixed badge/filter; shared request eligibility; query-host validation; partial rollback diagnostics/continuation; disclose conservative DOB policy.
 - Acceptance: one effective projection including absence, structural reader guard, all-endpoint orphan/disputed old/canonical ON/OFF frozen matrix; preserve privacy regressions.
 - Next: targeted regressions, final-head cached gates + PostgreSQL + one lane browser run, push, bounded CI, PC2F2 hand-back, cleanup.
+
+- Done: C4 main e510612a merged (31e59467), viewer wiring unchanged; six review items implemented. Shared constrained projection (including absent), raw-reader guard, expanded mixed/orphan/disputed matrix, mixed UI, shared desk/run policy memo, URL overrides rejected, partial undo reports/continues.
+- Validation: first targeted26 passed; broader146 passed/1 fixture failure (unused pytest fixture import removed by Ruff; explicit fixture restored). CLI owned aw_pc2 rehearsal8/7 structural/6 figures/2 losses; resume/idempotence/undo7 twice, partialundo6/skipped-2 exit2 twice. Final-head proofs pending.
+- Policy: exact DOB/publication required; age snapshots alone never authorize reports. No PC2 schema change.
+- Next: final commit, four cached gates and lane PG/browser once; refresh screenshots, push, ready PR and bounded25m CI, hand-back/cleanup.

@@ -9,7 +9,6 @@ import json
 from collections import defaultdict
 from datetime import UTC, datetime
 
-from flask import has_request_context, request
 from sqlalchemy import and_, cast, column, exists, func, literal, or_, select, type_coerce, union_all
 from sqlalchemy.dialects.postgresql import JSONB
 from src.models.funding import ClubProgram
@@ -45,11 +44,11 @@ ENTRY_KEYS = (
 )
 
 
-def public_report_ids(ids):
+def public_report_ids(ids, eligibility_cache=None):
     """Fresh conservative public policy; memoisation belongs to this request only."""
-    from src.services.public_adult import cached_public_adult_ids
+    from src.services.public_adult import cached_public_adult_ids, request_public_adult_cache
 
-    cache = request.environ.setdefault("pc2_public_adults", {}) if has_request_context() else {}
+    cache = eligibility_cache if eligibility_cache is not None else request_public_adult_cache()
     return cached_public_adult_ids(ids, cache)
 
 
@@ -145,14 +144,12 @@ def reported_totals(
     return result
 
 
-def effective_total(player_id, season, stored=None, *, session=None):
+def effective_total(player_id, season, *, session=None):
     """Public batch projection shared by scalar routes; no unguarded report reads."""
-    if stored is not None and stored.primary_source in PROVIDER_SOURCES:
-        return stored
     return effective_totals([player_id], season, session=session).get(player_id)
 
 
-def effective_totals(player_ids, season, *, session=None):
+def effective_totals(player_ids, season, *, session=None, eligibility_cache=None):
     session = session or db.session
     ids = set(player_ids)
     if not ids:
@@ -163,7 +160,7 @@ def effective_totals(player_ids, season, *, session=None):
         .union(select(PlayerMatchEntry.player_api_id).where(PlayerMatchEntry.player_api_id.in_(ids)))
         .subquery("pc2_batch_identity")
     )
-    projected = scout_totals_projection(identity, season, session=session)
+    projected = scout_totals_projection(identity, season, session=session, eligibility_cache=eligibility_cache)
     rows = session.execute(
         select(projected).where(
             projected.c.player_api_id.in_(ids), projected.c.season == season, projected.c.level_group == "senior"
@@ -190,7 +187,7 @@ def _json_relation(rows, names, table, session):
     ).subquery("pc2_corrected")
 
 
-def scout_totals_projection(identity, season, *, session=None):
+def scout_totals_projection(identity, season, *, session=None, eligibility_cache=None):
     """Correct only legacy/missing report totals; canonical cells stay SQL-owned.
 
     Public eligibility covers both stored and newly projected reports. Provider
@@ -220,7 +217,7 @@ def scout_totals_projection(identity, season, *, session=None):
         ).scalars()
     )
     report_ids = candidates | {r.player_api_id for r in stored if r.primary_source in report_sources}
-    eligible = public_report_ids(report_ids)
+    eligible = public_report_ids(report_ids, eligibility_cache)
     stale_ids = (candidates & eligible) - providers - canonical
     totals = (
         reported_totals(session=session, player_ids=stale_ids, season=season, eligible_ids=eligible)
@@ -235,9 +232,13 @@ def scout_totals_projection(identity, season, *, session=None):
             totals[(pid, season)] = provider
     names = list(table.c.keys())
     keep_report = and_(table.c.player_api_id.in_(eligible & canonical & candidates), scope)
-    existing = select(
-        *table.c, and_(table.c.player_api_id.in_(positive | (eligible & canonical)), scope).label("pc2_override")
-    ).where(or_(~scope, table.c.primary_source.not_in(report_sources), keep_report))
+    existing = (
+        select(
+            *table.c, and_(table.c.player_api_id.in_(positive | (eligible & canonical)), scope).label("pc2_override")
+        )
+        .join(identity, identity.c.player_api_id == table.c.player_api_id)
+        .where(scope, or_(table.c.primary_source.not_in(report_sources), keep_report))
+    )
     if not totals:
         return existing.subquery("pc2_effective_totals")
     rows = [{k: -i if k == "id" else t.get(k) for k in names} for i, t in enumerate(totals.values(), 1)]
@@ -247,7 +248,7 @@ def scout_totals_projection(identity, season, *, session=None):
     )
 
 
-def saved_shadow_totals(player_ids, requested_season=None):
+def saved_shadow_totals(player_ids, requested_season=None, *, eligibility_cache=None):
     """Batched list-only stats for eligible worldwide shadows outside the desk.
 
     These identities retain the existing saved-list universe; this never adds
@@ -270,32 +271,25 @@ def saved_shadow_totals(player_ids, requested_season=None):
         shadow_query = shadow_query.filter(PlayerShadowStats.season == season)
     else:
         season = None
-    stored = {(row.player_api_id, row.season): row for row in stored_query.all()}
+    stored_seasons = {s for (s,) in stored_query.with_entities(PlayerSeasonTotal.season).distinct()}
+    entry_seasons = {
+        s
+        for (s,) in db.session.query(PlayerMatchEntry.season)
+        .filter(PlayerMatchEntry.player_api_id.in_(ids), trusted_entries())
+        .distinct()
+        if season is None or s == season
+    }
+    stored = {
+        (pid, s): total
+        for s in stored_seasons | entry_seasons
+        for pid, total in effective_totals(ids, s, eligibility_cache=eligibility_cache).items()
+    }
     grouped = defaultdict(list)
     for row in shadow_query.all():
         grouped[(row.player_api_id, row.season)].append(row)
-    eligible = public_report_ids(ids)
-    backed = set(
-        db.session.execute(
-            select(PlayerMatchEntry.player_api_id, PlayerMatchEntry.season)
-            .where(PlayerMatchEntry.player_api_id.in_(ids), trusted_entries())
-            .distinct()
-        ).all()
-    )
-    reported = reported_totals(player_ids=ids, season=season, eligible_ids=eligible, skip_stored=True)
     result = {}
-    valid_stored = {
-        scope
-        for scope, row in stored.items()
-        if row.primary_source in PROVIDER_SOURCES
-        or (
-            scope in backed
-            and scope[0] in eligible
-            and ((row.source_breakdown or {}).get("matches") or {}).get("revision") == 2
-        )
-    }
     for player_id in ids:
-        seasons = {s for pid, s in valid_stored | set(grouped) | set(reported) if pid == player_id}
+        seasons = {s for pid, s in set(stored) | set(grouped) if pid == player_id}
         target = season if season is not None else max(seasons, default=None)
         scope = (player_id, target)
         total = stored.get(scope)
@@ -310,17 +304,7 @@ def saved_shadow_totals(player_ids, requested_season=None):
                     else None
                     for k in STAT_KEYS
                 }
-            elif (
-                source in {"club", "user", "matches"}
-                and player_id in eligible
-                and scope in backed
-                and ((total.source_breakdown or {}).get("matches") or {}).get("revision") == 2
-            ):
-                pass  # canonical stored report figures; eligibility is fresh
-            elif scope in reported:
-                source = reported[scope]["primary_source"]
-                figures = {k: reported[scope][k] for k in STAT_KEYS}
-            else:
+            elif total is None:
                 source, figures = None, None
         result[player_id] = {
             **({k if k != "minutes" else "minutes_played": v for k, v in figures.items()} if figures else {}),
@@ -331,7 +315,7 @@ def saved_shadow_totals(player_ids, requested_season=None):
                     for k, v in (
                         ((total.source_breakdown or {}).get("matches") or {})
                         if total and source == total.primary_source
-                        else (reported.get(scope, {}).get("source_breakdown") or {}).get("matches", {})
+                        else {}
                     ).items()
                     if k in {"club_confirmed", "self_reported_only"}
                 },

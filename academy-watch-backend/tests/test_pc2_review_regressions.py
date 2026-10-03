@@ -92,6 +92,7 @@ def test_private_reports_never_project_on_any_public_reader(app, monkeypatch, fl
         92006: "held",
         92007: "unpublished",
         92008: "conflicting DOB",
+        92009: "owning-club-only",
     }
     for pid, kind in blocked.items():
         if kind not in {"unresolvable", "shadow minor"}:
@@ -100,6 +101,7 @@ def test_private_reports_never_project_on_any_public_reader(app, monkeypatch, fl
                     player_api_id=pid,
                     team_id=team.id,
                     player_name=kind,
+                    data_source="owning-club" if kind == "owning-club-only" else "manual",
                     is_active=True,
                     birth_date="2012-01-01" if kind == "minor" else None if kind == "unknown" else "2000-01-01",
                     age=30 if kind == "unknown" else None,

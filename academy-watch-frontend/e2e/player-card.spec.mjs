@@ -1846,3 +1846,30 @@ test.describe('replay of a captured staging player', () => {
     })
   }
 })
+
+for (const viewport of VIEWPORTS) {
+  test(`${viewport.name}px: mixed totals keep their label and the desk can select them`, async ({ page }) => {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height })
+    await signIn(page)
+    const calls = await installApiMocks(page)
+    const reuben = scoutRows.find((p) => p.player_name === 'Reuben Castellane')
+    await page.route('**/api/scout/compare**', (route) => route.fulfill({ json: {
+      season: 2026, players: [{ profile: reuben, totals: { appearances: reuben.appearances, minutes_played: reuben.minutes_played, goals: 2, assists: 5 }, per90: {}, provenance: reuben.provenance }],
+    } }))
+    await page.goto('/scout?source=mixed&compare=-15')
+    const dialog = page.getByRole('dialog')
+    const mixed = dialog.locator('[data-provenance-source="mixed"]')
+    await expect(mixed).toHaveText('Club + self-reported')
+    await expect(mixed).toHaveAttribute('title', `${reuben.provenance.club_confirmed} club-confirmed matches; ${reuben.provenance.self_reported_only} self-reported only.`)
+    await shot(page, `12-mixed-compare-${viewport.name}`)
+    await page.keyboard.press('Escape')
+    const filter = page.getByRole('button', { name: 'Club + self-reported', exact: true })
+    await expect(filter).toHaveAttribute('aria-pressed', 'true')
+    expect(calls.some((call) => call.startsWith('GET /api/scout/players?') && new URL(call.slice(4), 'http://fixture.test').searchParams.get('source') === 'mixed')).toBe(true)
+    await page.getByRole('group', { name: 'Show players as' }).getByRole('button', { name: 'Table' }).click()
+    const row = page.getByRole('row').filter({ hasText: 'Reuben Castellane' })
+    await expect(row.locator('[data-provenance-source="mixed"]')).toHaveText('Club + self-reported')
+    await shot(page, `13-mixed-desk-${viewport.name}`)
+    await expectNoSidewaysScroll(page)
+  })
+}

@@ -617,12 +617,7 @@ def get_public_player_stats(player_id: int):
         if not rollup_enabled:
             return jsonify(result)
 
-        total = PlayerSeasonTotal.query.filter_by(
-            player_api_id=player_id,
-            season=season,
-            level_group="senior",
-        ).one_or_none()
-        total = effective_total(player_id, season, total)
+        total = effective_total(player_id, season)
         if total is None:
             summary = _live_match_summary(result, season)
             provenance = {"source": "live-fallback"}
@@ -934,15 +929,7 @@ def get_public_player_season_stats(player_id: int):
             "clubs": [],
         }
 
-        total = None
-        if rollup_enabled:
-            total = PlayerSeasonTotal.query.filter_by(
-                player_api_id=player_id,
-                season=season_start_year,
-                level_group="senior",
-            ).one_or_none()
-
-        total = effective_total(player_id, season_start_year, total)
+        total = effective_total(player_id, season_start_year)
         if (
             external_player
             and not rollup_enabled

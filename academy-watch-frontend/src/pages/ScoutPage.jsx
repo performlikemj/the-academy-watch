@@ -49,6 +49,7 @@ const SOURCE_FILTERS = [
   { value: 'api', label: 'API' },
   { value: 'club', label: 'Club-confirmed' },
   { value: 'self', label: 'Self-reported' },
+  { value: 'mixed', label: 'Club + self-reported' },
 ]
 const SOURCE_VALUES = new Set(SOURCE_FILTERS.slice(1).map(({ value }) => value))
 

@@ -38,7 +38,6 @@ from src.models.follow import Follow, FollowList, FollowPlayerSnapshot, PlayerSh
 from src.models.journey import PlayerJourney
 from src.models.league import PlayerStatsCache, Team, UserAccount, db
 from src.models.scout_watchlist import ScoutWatchlistEntry
-from src.models.season_rollup import PlayerSeasonTotal
 from src.models.showcase import (
     LocalPlayer,
     PlayerProfileClaim,
@@ -64,7 +63,12 @@ from src.services.player_suppression import (
     public_player_visible_filter,
     without_active_suppression,
 )
-from src.services.public_adult import filter_public_adult_query, is_public_adult, public_adult_ids
+from src.services.public_adult import (
+    filter_public_adult_query,
+    is_public_adult,
+    public_adult_ids,
+    request_public_adult_cache,
+)
 from src.services.reported_match_totals import saved_shadow_totals, scout_totals_projection
 from src.services.scout_card import attach_card_fields
 from src.services.scout_entitlements import decoded_bearer_role, scout_entitlements
@@ -875,6 +879,10 @@ def _row_to_dict(row):
             if k in ((row.pc2_source_breakdown or {}).get("matches") or {})
         },
     }
+    if row.provenance_primary_source is None and not any(
+        payload.get(k) for k in ("appearances", "minutes_played", "goals", "assists")
+    ):
+        payload["provenance"].update(source_category=None, source_label="No recorded totals")
     if is_rollup_row and not row.rollup_missing:
         payload["provenance"].update(
             {
@@ -1149,7 +1157,7 @@ def scout_leaderboards():
         # Immutable base queries and one caller-owned eligibility snapshot serve
         # every board, including the mixed rollup/fixture phases.
         base_queries = {}
-        eligibility_cache = {}
+        eligibility_cache = request_public_adult_cache()
 
         def board(sort_key, extra_min_minutes=0, board_order="desc"):
             board_uses_rollup = use_rollup and sort_key in ROLLUP_LEADERBOARD_SORT_KEYS
@@ -1251,74 +1259,6 @@ def _compare_fixture_totals(player_id: int, season: int):
     )
 
 
-def _compare_rollup_totals(total: PlayerSeasonTotal | None) -> tuple[dict, dict | None]:
-    """Project one source-selected rollup row into the compare contract.
-
-    Fixture-primary rows are enriched separately from the matching fixture
-    aggregate; every other source leaves rich fixture-only fields unknown.
-    """
-    rich_fields = {
-        key: None
-        for key in (
-            "shots_total",
-            "shots_on",
-            "passes_total",
-            "key_passes",
-            "dribbles_attempts",
-            "dribbles_success",
-            "tackles",
-            "interceptions",
-            "duels_total",
-            "duels_won",
-            "fouls_drawn",
-            "penalty_saved",
-            "clean_sheets",
-        )
-    }
-    if total is None:
-        return (
-            {
-                "appearances": None,
-                "goals": None,
-                "assists": None,
-                "minutes_played": None,
-                "avg_rating": None,
-                "yellows": None,
-                "reds": None,
-                "saves": None,
-                "goals_conceded": None,
-                "stats_coverage": "season-rollup",
-                "rollup_missing": True,
-                **rich_fields,
-            },
-            None,
-        )
-    provenance = {
-        "primary_source": total.primary_source,
-        "reconcile_flag": total.reconcile_flag,
-        "fixtures_minutes": total.fixtures_minutes,
-        "journey_minutes": total.journey_minutes,
-        "computed_at": total.computed_at.isoformat() if total.computed_at else None,
-    }
-    return (
-        {
-            "appearances": total.appearances,
-            "goals": total.goals,
-            "assists": total.assists,
-            "minutes_played": total.minutes,
-            "avg_rating": float(total.avg_rating) if total.avg_rating is not None else None,
-            "yellows": total.yellows,
-            "reds": total.reds,
-            "saves": total.saves,
-            "goals_conceded": total.goals_conceded,
-            "stats_coverage": "season-rollup",
-            "rollup_missing": False,
-            **rich_fields,
-        },
-        provenance,
-    )
-
-
 def _compare_candidate_totals(candidate):
     """Project a normalized Scout row without crossing its chosen source."""
 
@@ -1407,18 +1347,6 @@ def scout_compare():
         # An explicit season scopes both the projection and the legacy adapter;
         # the resolved value is echoed for the caller's label.
         stats_season = resolved_season
-        rollup_totals = (
-            {
-                total.player_api_id: total
-                for total in PlayerSeasonTotal.query.filter(
-                    PlayerSeasonTotal.player_api_id.in_(player_ids),
-                    PlayerSeasonTotal.season == resolved_season,
-                    PlayerSeasonTotal.level_group == "senior",
-                ).all()
-            }
-            if use_rollup
-            else {}
-        )
 
         candidate_query, candidate_columns = _base_scout_query(
             requested_season, adult_filter=False, player_ids=player_ids
@@ -1502,11 +1430,11 @@ def scout_compare():
                 totals = _compare_candidate_totals(candidate)
                 row = None
             elif use_rollup:
-                total = rollup_totals.get(player_id)
-                totals, _legacy_provenance = _compare_rollup_totals(total)
+                # Absence is authoritative too: never reopen a stored report.
+                totals = _compare_candidate_totals(candidate)
                 row = (
                     _compare_fixture_totals(player_id, resolved_season)
-                    if total is not None and total.primary_source == "fixtures"
+                    if candidate["provenance"]["primary_source"] == "fixtures"
                     else None
                 )
             else:
