@@ -232,13 +232,9 @@ def scout_totals_projection(identity, season, *, session=None, eligibility_cache
             totals[(pid, season)] = provider
     names = list(table.c.keys())
     keep_report = and_(table.c.player_api_id.in_(eligible & canonical & candidates), scope)
-    existing = (
-        select(
-            *table.c, and_(table.c.player_api_id.in_(positive | (eligible & canonical)), scope).label("pc2_override")
-        )
-        .join(identity, identity.c.player_api_id == table.c.player_api_id)
-        .where(scope, or_(table.c.primary_source.not_in(report_sources), keep_report))
-    )
+    existing = select(
+        *table.c, and_(table.c.player_api_id.in_(positive | (eligible & canonical)), scope).label("pc2_override")
+    ).where(scope, or_(table.c.primary_source.not_in(report_sources), keep_report))
     if not totals:
         return existing.subquery("pc2_effective_totals")
     rows = [{k: -i if k == "id" else t.get(k) for k in names} for i, t in enumerate(totals.values(), 1)]

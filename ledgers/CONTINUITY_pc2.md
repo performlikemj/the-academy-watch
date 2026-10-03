@@ -76,3 +76,9 @@
 - Validation: first targeted26 passed; broader146 passed/1 fixture failure (unused pytest fixture import removed by Ruff; explicit fixture restored). CLI owned aw_pc2 rehearsal8/7 structural/6 figures/2 losses; resume/idempotence/undo7 twice, partialundo6/skipped-2 exit2 twice. Final-head proofs pending.
 - Policy: exact DOB/publication required; age snapshots alone never authorize reports. No PC2 schema change.
 - Next: final commit, four cached gates and lane PG/browser once; refresh screenshots, push, ready PR and bounded25m CI, hand-back/cleanup.
+
+- Candidate13fb16f5 results: PG46PASS; Ruff675PASS, Node403PASS, buildPASS; backend5623PASS/1770SKIP/2FAIL (old empty-season provenance assertions); browser81PASS/2SKIP/2newFAIL (test harness assumptions). Let all foreground jobs finish.
+- Corrections: empty seasons assertNo recorded totals/sourceNone; mixed browser uses2-IDdeep link and the existing select; remove duplicate identityjoin after canonicalboard25s regression; dry-run/rollback exclusive. Revalidate narrowly before final-head gates.
+
+- Corrected targeted checks:12PASS (URL/partialundo/dryrollback/reader/cache/missing-source assertions/PG4000); browser2newcasesPASS at1440/390. Corrected scale legacydesk1.940s/boards3.440s, rebuiltprojection.217s/desk.467s/boards.548s, max12109binds, zero rebuilt merges. SourcecategoryNone is intentional when there is no total; existing assertions updated.
+- Final verification receipts and completion state will be external PC2F2.final.md so exact-head gates stay valid. No dependency restore/lockfile or native build; no migration change relative to C4 main.

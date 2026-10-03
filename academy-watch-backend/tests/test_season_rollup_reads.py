@@ -989,8 +989,8 @@ def test_scout_missing_total_returns_null_without_live_fallback(client, monkeypa
     assert row["player_id"] == PLAYER
     assert row["rollup_missing"] is True
     assert row["provenance"] == {
-        "source_category": "api",
-        "source_label": "API-reported",
+        "source_category": None,
+        "source_label": "No recorded totals",
         "primary_source": None,
     }
     for key in (

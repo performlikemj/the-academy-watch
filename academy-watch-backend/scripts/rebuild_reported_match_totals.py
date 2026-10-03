@@ -219,13 +219,14 @@ def run(session, *, dry_run, limit, after, delay, checkpoint=None, undo=None):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--dry-run", action="store_true")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--dry-run", action="store_true")
     parser.add_argument("--limit", type=int, default=100)
     parser.add_argument("--after", type=int, default=-(2**31))
     parser.add_argument("--delay", type=float, default=0.25)
     parser.add_argument("--checkpoint", type=Path)
     parser.add_argument("--undo", type=Path)
-    parser.add_argument("--rollback", type=Path)
+    mode.add_argument("--rollback", type=Path)
     args = parser.parse_args(argv)
     if any(os.getenv(k) for k in ("CONTAINER_APP_NAME", "CONTAINER_APP_REPLICA_NAME", "CONTAINER_APP_REVISION")):
         parser.error("run from an off-container checkout")

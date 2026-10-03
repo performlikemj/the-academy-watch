@@ -144,3 +144,12 @@ def test_undo_continues_after_changed_player_and_reports_idempotent_partial_resu
     # All unaffected records restored even after the skipped player's position.
     kofi = PlayerSeasonTotal.query.filter_by(player_api_id=ids["Kofi Asante-Reid"]).one()
     assert kofi.minutes == 164
+
+
+def test_dry_run_cannot_be_combined_with_mutating_rollback(monkeypatch):
+    from scripts import rebuild_reported_match_totals as rebuild
+
+    monkeypatch.setenv("PC2_DATABASE_URL", "postgresql+psycopg:///aw_pc2")
+    with pytest.raises(SystemExit) as exc:
+        rebuild.main(["--dry-run", "--rollback", "unused.jsonl"])
+    assert exc.value.code == 2

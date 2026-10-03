@@ -247,8 +247,8 @@ def test_local_scout_browse_uses_synthetic_id_and_self_provenance(client, local_
     rows = response.get_json()["players"]
     local_row = next(row for row in rows if row["player_id"] == local_subjects["adult"])
     assert local_row["provenance"] == {
-        "source_category": "self",
-        "source_label": "Self-reported",
+        "source_category": None,
+        "source_label": "No recorded totals",
         "primary_source": None,
     }
     assert all(row["player_id"] != local_subjects["minor"] for row in rows)
