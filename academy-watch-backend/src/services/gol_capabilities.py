@@ -26,6 +26,8 @@ from src.services.gol_plain_shapes import (
     INDEX_SHAPES,
     TIMEZONE_NAMES,
     VALUE_SHAPES,
+    canonical_frequency,
+    canonical_timestamp,
     dtype_shape,
     timezone_shape,
 )
@@ -508,12 +510,16 @@ def plain_value(value, depth=0, budget=None, cap_strings=False):
         if kind in (pd.Timestamp, datetime) and value.tzinfo is not None:
             if timezone_shape(value.tzinfo) is None:
                 raise AnalysisRefused(ERROR)
+        if kind is pd.Timestamp and not canonical_timestamp(value):
+            raise AnalysisRefused(ERROR)
         return value.isoformat()
     if kind is pd.Interval:
         plain_value(value.left, depth + 1, budget, cap_strings)
         plain_value(value.right, depth + 1, budget, cap_strings)
         return str(value)
     if kind is pd.Period:
+        if not canonical_frequency(value.freq):
+            raise AnalysisRefused(ERROR)
         return str(value)
     if kind in (pd.Timedelta, timedelta):
         return str(value)
@@ -561,11 +567,7 @@ def validate_values(values):
     if type(values) in (pd.DatetimeIndex, pd.TimedeltaIndex) and values.freq is not None:
         # Only canonical frequency text is carried by the plain-data boundary.
         # Custom calendars must be refused equally by both execution paths.
-        try:
-            canonical = pd.tseries.frequencies.to_offset(values.freqstr) == values.freq
-        except (ValueError, TypeError):
-            canonical = False
-        if not canonical:
+        if not canonical_frequency(values.freq):
             raise AnalysisRefused(ERROR)
     if isinstance(values, pd.MultiIndex):
         for level in values.levels:

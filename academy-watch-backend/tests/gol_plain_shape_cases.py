@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
-from src.services.gol_plain_shapes import NULLABLE_NAMES, NUMERIC_NAMES, SHAPES, TEMPORAL_NAMES
+from src.services.gol_plain_shapes import INTERVAL_NAMES, NULLABLE_NAMES, NUMERIC_NAMES, SHAPES, TEMPORAL_NAMES
 
 
 def _objects(values):
@@ -36,6 +36,16 @@ def generated_cases():
         "value:dict": [{"x": [None, np.nan, pd.NaT, pd.NA], 2: (3, 4)}],
     }
     recipes = {key: [_objects(values)] for key, values in examples.items()}
+    temporal_edges = [
+        datetime(1, 1, 1, tzinfo=timezone(timedelta(hours=9), "Fixture East")),
+        datetime(9999, 12, 31, 23, 59, 59, tzinfo=timezone(timedelta(hours=-9), "Fixture West")),
+        datetime(2026, 3, 29, 1, 30, tzinfo=ZoneInfo("Europe/London")),
+        datetime(2026, 10, 25, 1, 30, tzinfo=ZoneInfo("Europe/London"), fold=1),
+    ]
+    recipes["value:datetime"].extend(_objects([value]) for value in temporal_edges)
+    recipes["value:timestamp"].extend(
+        _objects([pd.Timestamp(value)]) for value in (temporal_edges[0], temporal_edges[1], temporal_edges[3])
+    )
     for name in NUMERIC_NAMES:
         dtype = np.dtype(name)
         if dtype.type is not np.longdouble or dtype.type is np.float64:
@@ -50,6 +60,31 @@ def generated_cases():
         recipes[f"dtype:{name}"] = [
             pd.DataFrame({"x": pd.Series([True, None] if name == "boolean" else [1, None], dtype=name)})
         ]
+    for name in INTERVAL_NAMES:
+        recipes[f"interval_subtype:{name}"] = [
+            pd.DataFrame(
+                {
+                    "x": pd.arrays.IntervalArray.from_arrays(
+                        np.array([1, 2], dtype=np.dtype(name).newbyteorder(order)),
+                        np.array([2, 3], dtype=np.dtype(name).newbyteorder(order)),
+                        dtype=pd.IntervalDtype(np.dtype(name).newbyteorder(order), closed),
+                        closed=closed,
+                    )
+                }
+            )
+            for order in ("<", ">")
+            for closed in ("left", "right", "both", "neither")
+        ]
+        if name.startswith("float"):
+            recipes[f"interval_subtype:{name}"].append(
+                pd.DataFrame(
+                    {
+                        "x": pd.arrays.IntervalArray.from_arrays(
+                            np.array([1, np.nan], dtype=name), np.array([2, np.nan], dtype=name)
+                        )
+                    }
+                )
+            )
     recipes.update(
         {
             "dtype:object": [_objects([None, np.nan, pd.NaT, pd.NA, "Fixture"])],
@@ -68,7 +103,10 @@ def generated_cases():
                 pd.DataFrame({"x": pd.date_range("2026-03-28", periods=2, tz="Europe/London").as_unit(unit)})
                 for unit in ("s", "ms", "us", "ns")
             ],
-            "dtype:period": [pd.DataFrame({"x": pd.period_range("2026-01", periods=2, freq="M")})],
+            "dtype:period": [
+                pd.DataFrame({"x": pd.period_range("2026-01-01", periods=2, freq=frequency)})
+                for frequency in ("M", "2B", "W-MON", "2Q-JAN", "2Y-JAN", "D", "2h", "2min", "2s", "2ms", "2us", "2ns")
+            ],
             "dtype:interval": [
                 pd.DataFrame({"x": pd.arrays.IntervalArray.from_tuples([(0, 1), (1, 2)], closed=closed)})
                 for closed in ("left", "right", "both", "neither")

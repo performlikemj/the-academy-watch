@@ -25,6 +25,7 @@ from src.services import gol_isolation as isolation
 from src.services import gol_sandbox as sandbox
 from src.services.gol_capabilities import ERROR, SIZE_ERROR, AnalysisRefused, validate_frame
 from src.services.gol_dataframes import DataFrameCache
+from src.services.gol_plain_shapes import INTERVAL_NAMES, NUMERIC_NAMES, dtype_shape
 from src.services.gol_scope import HELPER_FRAMES, analysis_frame_names
 from src.services.gol_wire import decode_request, encode_request, read_request, stream_request
 from test_gol_isolation import _probe_worker, linux_policy
@@ -788,6 +789,49 @@ def test_noncanonical_zoneinfo_rules_refuse_identically(source, kind):
     else:
         index = pd.date_range(value, periods=2, freq="D")
         frame = pd.DataFrame({"x": index}) if kind == "column" else pd.DataFrame({"x": [1, 2]}, index=index)
+    assert sandbox._execute_analysis("result=len(df)", {"df": frame})["error"] == ERROR
+    with pytest.raises(AnalysisRefused):
+        b"".join(stream_request("result=len(df)", {"df": frame}))
+
+
+@pytest.mark.parametrize("name", sorted(set(NUMERIC_NAMES) - set(INTERVAL_NAMES)))
+def test_interval_subtypes_without_scalar_wire_refuse(name):
+    assert dtype_shape(pd.IntervalDtype(name)) is None
+    try:
+        values = pd.arrays.IntervalArray.from_arrays(
+            np.array([1, 2], dtype=name), np.array([2, 3], dtype=name), dtype=pd.IntervalDtype(name)
+        )
+    except (TypeError, ValueError, NotImplementedError):
+        return  # The shared dtype rule also refuses unconstructible subtypes.
+    frame = pd.DataFrame({"x": values})
+    assert sandbox._execute_analysis("result=len(df)", {"df": frame})["error"] == ERROR
+    with pytest.raises(AnalysisRefused):
+        b"".join(stream_request("result=len(df)", {"df": frame}))
+
+
+@pytest.mark.parametrize(
+    "offset", [pd.offsets.BusinessDay, pd.offsets.MonthEnd, pd.offsets.QuarterEnd, pd.offsets.YearEnd]
+)
+@pytest.mark.parametrize("kind", ["object", "column", "index"])
+def test_period_calendar_metadata_without_wire_refuses(offset, kind):
+    frequency = offset(2, normalize=True)
+    values = pd.period_range("2026-01-01", periods=2, freq=frequency)
+    if kind == "object":
+        frame = pd.DataFrame({"x": pd.Series(values.tolist(), dtype=object)})
+    elif kind == "column":
+        frame = pd.DataFrame({"x": values})
+    else:
+        frame = pd.DataFrame({"x": [1, 2]}, index=values)
+    assert sandbox._execute_analysis("result=len(df)", {"df": frame})["error"] == ERROR
+    with pytest.raises(AnalysisRefused):
+        b"".join(stream_request("result=len(df)", {"df": frame}))
+
+
+def test_noncanonical_timestamp_wall_metadata_refuses():
+    from zoneinfo import ZoneInfo
+
+    value = pd.Timestamp(datetime(2026, 3, 29, 1, 30, tzinfo=ZoneInfo("Europe/London")))
+    frame = pd.DataFrame({"x": pd.Series([value], dtype=object)})
     assert sandbox._execute_analysis("result=len(df)", {"df": frame})["error"] == ERROR
     with pytest.raises(AnalysisRefused):
         b"".join(stream_request("result=len(df)", {"df": frame}))

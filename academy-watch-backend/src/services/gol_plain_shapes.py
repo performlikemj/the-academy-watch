@@ -35,6 +35,9 @@ NULLABLE_NAMES = (
     "Float64",
     "boolean",
 )
+INTERVAL_NAMES = tuple(
+    name for name in NUMERIC_NAMES if name.startswith(("int", "uint")) or name in {"float32", "float64"}
+)
 
 
 @dataclass(frozen=True)
@@ -87,6 +90,7 @@ SHAPES = (
     Shape("dtype", "datetime_tz", "datetime_tz", pd.DatetimeTZDtype),
     Shape("dtype", "period", "values", pd.PeriodDtype),
     Shape("dtype", "interval", "values", pd.IntervalDtype),
+    *(Shape("interval_subtype", name, "values") for name in INTERVAL_NAMES),
     *(
         Shape("index", name, wire, kind)
         for name, kind, wire in (
@@ -110,6 +114,24 @@ INDEX_SHAPES = {row.kind: row for row in SHAPES if row.domain == "index"}
 DTYPE_SHAPES = {row.name: row for row in SHAPES if row.domain == "dtype"}
 ZONE_SHAPES = {row.name: row for row in SHAPES if row.domain == "timezone"}
 FRAME_SHAPES = {row.kind: row for row in SHAPES if row.domain == "frame"}
+
+
+def canonical_frequency(frequency):
+    try:
+        return pd.tseries.frequencies.to_offset(frequency.freqstr) == frequency
+    except (ValueError, TypeError, OverflowError):
+        return False
+
+
+def canonical_timestamp(value):
+    if value.tzinfo is None:
+        return True
+    try:
+        restored = pd.Timestamp(int(value.asm8.view("i8")), unit=value.unit, tz="UTC")
+        restored = restored.tz_convert(value.tzinfo).replace(fold=value.fold)
+        return restored.isoformat() == value.isoformat() and restored.asm8 == value.asm8
+    except (ValueError, TypeError, OverflowError):
+        return False
 
 
 def timezone_shape(zone):
@@ -138,8 +160,10 @@ def dtype_shape(dtype):
                 dtype.unit not in {"s", "ms", "us", "ns"} or timezone_shape(dtype.tz) is None
             ):
                 return None
+            if row.name == "period" and not canonical_frequency(dtype.freq):
+                return None
             if row.name == "interval" and (
-                not isinstance(dtype.subtype, np.dtype) or dtype.subtype.name not in NUMERIC_NAMES
+                not isinstance(dtype.subtype, np.dtype) or dtype.subtype.name not in INTERVAL_NAMES
             ):
                 return None
             return row

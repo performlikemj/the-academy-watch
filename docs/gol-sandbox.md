@@ -316,7 +316,14 @@ mixed null kinds. All existing ordinary analyses remain in the process corpus.
 Both paths validate frames and plain results. Native timedelta identity,
 datetime/timedelta units, timezone, category, index frequency and multi-level
 metadata are preserved. Custom index frequencies that cannot be represented by
-the canonical frequency string are refused by both paths. Supported timezones
+the canonical frequency string are refused by both paths. Period scalars and
+dtypes likewise require canonical frequency metadata; normalization/calendar
+parameters that cannot be reconstructed by frequency text refuse in both paths.
+Native datetime wall fields are reconstructed directly, including year boundaries
+and daylight-saving gaps. Timestamp object cells must have canonical instant/wall
+metadata; inconsistent states created from a gap's native datetime refuse in both
+paths instead of being normalized only by transport.
+Supported timezones
 are exact cached standard `ZoneInfo` directory entries and `datetime.timezone` offsets
 in whole minutes, with arbitrary plain names preserved. Other timezone
 implementations, uncached/file-loaded zone objects and sub-minute offsets are
@@ -324,7 +331,11 @@ refused by shared validation. A file-loaded zone's key need not identify its
 rules; only canonical cached entries can be reconstructed by key. Pandas
 cannot consistently reconstruct their Timestamp/typed-column semantics. String
 extension storage must be Python, with either NA or NaN missing semantics; other
-storage and extension dtypes refuse in both paths. Integer values are limited
+storage and extension dtypes refuse in both paths. Interval dtypes use only
+reviewed subtypes: integer widths
+and float32/float64 have generated endian/closure/null coverage. Boolean,
+float16 and extended-float interval dtypes refuse in both paths. Ordinary numeric
+columns retain their own buffer rules, including extended floats. Integers are limited
 to 14,000 bits so both result JSON parsers can carry them within their native
 decimal-digit bound. Nonfinite dictionary keys are refused because NaN key
 identity cannot be preserved by plain data; missing/nonfinite values in cells

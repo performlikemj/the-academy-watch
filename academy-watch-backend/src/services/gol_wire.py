@@ -107,7 +107,7 @@ def _decode_value(value):
     if tag == "datetime":
         timestamp = datetime.fromisoformat(value[1])
         zone = _decode_zone(value[2])
-        return (timestamp.astimezone(zone) if zone is not None else timestamp).replace(fold=value[3])
+        return timestamp.replace(tzinfo=zone, fold=value[3])
     if tag == "date":
         return date.fromisoformat(value[1])
     if tag == "decimal":
