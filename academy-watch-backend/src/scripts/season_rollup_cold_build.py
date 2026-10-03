@@ -55,6 +55,8 @@ _CONTAINER_APP_ENV_KEYS = (
     "CONTAINER_APP_REPLICA_NAME",
     "CONTAINER_APP_REVISION",
 )
+from src.services.reported_match_totals import rollup_storage_table_names
+
 _REQUIRED_TABLES = {
     "academy_player_season_stats",
     "fixture_player_stats",
@@ -62,8 +64,7 @@ _REQUIRED_TABLES = {
     "player_journey_entries",
     "player_journeys",
     "player_match_entries",
-    "player_season_cells",
-    "player_season_totals",
+    *rollup_storage_table_names(),
     "player_shadow_stats",
 }
 

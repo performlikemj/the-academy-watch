@@ -70,7 +70,6 @@ from src.models.player_match_entry import PlayerMatchEntry
 from src.models.player_suppression import PlayerSuppression
 from src.models.pulse import PlayerCardCache, PlayerPulse
 from src.models.scout_watchlist import ScoutWatchlistEntry
-from src.models.season_rollup import PlayerSeasonCell, PlayerSeasonTotal
 from src.models.showcase import (
     ClubOfficialClaim,
     LocalClub,
@@ -116,6 +115,7 @@ from src.services.player_suppression import (
 )
 from src.services.public_player_subject import owned_public_adult_subjects
 from src.services.reach_metrics import fan_counts, profile_view_counts
+from src.services.reported_match_totals import rekey_rollup_rows, stored_report_sources
 from src.services.user_blocks import blocked_user_ids
 from src.utils.academy_window import age_from_birth_date
 from src.utils.feature_flags import showcase_trust_min_account_age_days
@@ -5130,54 +5130,8 @@ def _rekey_extra_tables(old_player_api_id: int, player_api_id: int, session) -> 
     return {"player_match_entries": len(source_rows)} if source_rows else {}
 
 
-def _rekey_rollup_rows(old_player_api_id: int, player_api_id: int) -> dict:
-    """Re-key derived rows collision-safely before rebuilding them from source.
-
-    Shadow plus user/club match-entry sources are re-keyed before refresh. Fail
-    closed if API-derived rows somehow exist for a synthetic local identity.
-    """
-    source_cells = PlayerSeasonCell.query.filter_by(player_api_id=old_player_api_id).with_for_update().all()
-    source_totals = PlayerSeasonTotal.query.filter_by(player_api_id=old_player_api_id).with_for_update().all()
-    # API fixture/journey/APSS rows should never exist for a synthetic local id;
-    # fail closed if malformed historical data says otherwise instead of
-    # refreshing those totals into zeros.
-    rebuildable_sources = {"club", "shadow", "user", "matches"}
-    observed_sources = {row.source for row in source_cells} | {row.primary_source for row in source_totals}
-    unsupported_sources = sorted(source for source in observed_sources if source not in rebuildable_sources)
-    if unsupported_sources:
-        raise _GraduationConflict(f"rollup sources require graduation integration: {', '.join(unsupported_sources)}")
-
-    target_cells = PlayerSeasonCell.query.filter_by(player_api_id=player_api_id).with_for_update().all()
-    target_cells_by_key = {(row.season, row.source, row.club_api_id, row.competition_tier): row for row in target_cells}
-    cells_to_move = []
-    for source in source_cells:
-        key = (source.season, source.source, source.club_api_id, source.competition_tier)
-        if key in target_cells_by_key:
-            db.session.delete(source)
-        else:
-            target_cells_by_key[key] = source
-            cells_to_move.append(source)
-
-    target_totals_by_key = {
-        (row.season, row.level_group): row
-        for row in PlayerSeasonTotal.query.filter_by(player_api_id=player_api_id).with_for_update().all()
-    }
-    totals_to_move = []
-    for source in source_totals:
-        key = (source.season, source.level_group)
-        if key in target_totals_by_key:
-            db.session.delete(source)
-        else:
-            target_totals_by_key[key] = source
-            totals_to_move.append(source)
-
-    db.session.flush()
-    for source in cells_to_move:
-        source.player_api_id = player_api_id
-    for source in totals_to_move:
-        source.player_api_id = player_api_id
-    db.session.flush()
-    return {"season_cells": len(source_cells), "season_totals": len(source_totals)}
+def _rekey_rollup_rows(old_player_api_id, player_api_id):
+    return rekey_rollup_rows(old_player_api_id, player_api_id, _GraduationConflict)
 
 
 def _refresh_graduated_rollup(old_player_api_id: int, player_api_id: int) -> tuple[dict, dict]:
@@ -5185,25 +5139,10 @@ def _refresh_graduated_rollup(old_player_api_id: int, player_api_id: int) -> tup
     for locked_player_api_id in sorted((old_player_api_id, player_api_id)):
         season_rollup_service._lock_player_refresh(db.session, locked_player_api_id)
 
-    visible_reported_sources = {
-        row.source
-        for row in PlayerSeasonCell.query.filter_by(player_api_id=old_player_api_id).with_for_update().all()
-        if row.source in {"club", "user"}
-    }
-    visible_reported_sources.update(
-        row.primary_source
-        for row in PlayerSeasonTotal.query.filter_by(player_api_id=old_player_api_id).with_for_update().all()
-        if row.primary_source in {"club", "user"}
-    )
+    visible_reported_sources = stored_report_sources(old_player_api_id, lock=True)
     rollup_counts = _rekey_rollup_rows(old_player_api_id, player_api_id)
     rollup = season_rollup_service.refresh_player(player_api_id, session=db.session)
-    rebuilt_sources = {
-        row.source
-        for row in PlayerSeasonCell.query.filter(
-            PlayerSeasonCell.player_api_id == player_api_id,
-            PlayerSeasonCell.source.in_(visible_reported_sources),
-        ).all()
-    }
+    rebuilt_sources = stored_report_sources(player_api_id) & visible_reported_sources
     missing_sources = sorted(visible_reported_sources - rebuilt_sources)
     if missing_sources:
         raise _GraduationConflict("graduated rollup withheld previously visible sources: " + ", ".join(missing_sources))

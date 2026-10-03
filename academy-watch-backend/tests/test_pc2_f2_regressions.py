@@ -17,94 +17,32 @@ def app(monkeypatch):
     yield from pc2_app.__wrapped__(monkeypatch)
 
 
-# Import access is intentionally narrow: additions require review of the actual
-# use, even if an ORM alias or a new job hides how the model is queried.
-ROLLUP_MODEL_FILES = {
-    "models/season_rollup.py",  # definitions
-    "main.py",
-    "scripts/season_rollup_cold_build.py",  # schema registration only
-    "services/reported_match_totals.py",  # sole effective public projection
-    "services/season_rollup_service.py",  # writer
-    "routes/club.py",  # authenticated own-club evidence
-    "routes/showcase.py",  # merge writes
-    "routes/players.py",  # projected DTO types + guarded source evidence
-    "routes/season_rollup.py",
-    "routes/seasons.py",
-    "utils/academy_window.py",  # metadata
-    "utils/team_season_stats.py",  # projected DTO type only
-}
-RAW_READ_FUNCTIONS = {
-    "routes/club.py": {"_stable_result_payloads"},
-    "routes/showcase.py": {"_rekey_rollup_rows", "_refresh_graduated_rollup"},
-    "routes/season_rollup.py": {"_had_source_cell"},  # metadata-only source membership
-    "routes/players.py": {"_rollup_source_breakdown"},  # eligibility guarded private source evidence
-    "services/season_rollup_service.py": {"refresh_player"},
-}
+# Definitions are not readers. All storage access lives in the single projection
+# module, including narrow metadata and writer/merge I/O. No caller exemptions.
+PROJECTION_MODULE = "services/reported_match_totals.py"
 MODEL_NAMES = {"PlayerSeasonTotal", "PlayerSeasonCell"}
 TABLE_NAMES = {"player_season_totals", "player_season_cells"}
-
-
-def raw_total_reads(source):
-    tree = ast.parse(source)
-    aliases = set(MODEL_NAMES)
-    for n in ast.walk(tree):
-        if isinstance(n, ast.ImportFrom):
-            aliases.update(a.asname or a.name for a in n.names if a.name in MODEL_NAMES)
-
-    # Follow local and ORM aliases, including qualified module access.
-    def model(node):
-        return (
-            (isinstance(node, ast.Name) and node.id in aliases)
-            or (isinstance(node, ast.Attribute) and node.attr in MODEL_NAMES)
-            or (isinstance(node, ast.Call) and any(model(a) for a in node.args))
-        )
-
-    for _ in range(3):
-        for n in ast.walk(tree):
-            if isinstance(n, ast.Assign) and model(n.value):
-                aliases.update(t.id for t in n.targets if isinstance(t, ast.Name))
-    violations = []
-    metadata = {"player_api_id", "season", "level_group", "computed_at", "synced_at", "source", "id"}
-
-    def walk(node, owner=None):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            owner = node.name
-        if isinstance(node, ast.Attribute) and model(node.value) and node.attr not in metadata:
-            violations.append((owner, node.lineno))
-        if isinstance(node, ast.Call) and isinstance(node.func, (ast.Attribute, ast.Name)):
-            name = node.func.attr if isinstance(node.func, ast.Attribute) else node.func.id
-            if name in {"get", "query", "select", "aliased", "outerjoin", "join", "add_entity", "select_from"}:
-                if any(model(a) for a in node.args):
-                    violations.append((owner, node.lineno))
-        for child in ast.iter_child_nodes(node):
-            walk(child, owner)
-
-    walk(tree)
-    return violations
 
 
 def rollup_boundary_violations(root):
     violations = []
     for path in root.rglob("*.py"):
         relative = path.relative_to(root).as_posix()
-        source = path.read_text()
-        tree = ast.parse(source)
-        # Catch direct/qualified imports, model references and literal SQL,
-        # across every src directory (including jobs, agents and workers).
+        if relative in {"models/season_rollup.py", PROJECTION_MODULE}:
+            continue
+        tree = ast.parse(path.read_text())
+        # Catch imported model names regardless of absolute/relative/re-export
+        # module spelling. Qualified access and table literals are also banned.
         model_access = any(
             (isinstance(n, ast.Name) and n.id in MODEL_NAMES)
+            or (isinstance(n, ast.Constant) and isinstance(n.value, str) and n.value in MODEL_NAMES)
             or (isinstance(n, ast.Attribute) and n.attr in MODEL_NAMES)
             or (
                 isinstance(n, ast.ImportFrom)
-                and (
-                    (
-                        n.module == "src.models.season_rollup"
-                        and any(a.name in MODEL_NAMES or a.name == "*" for a in n.names)
-                    )
-                    or (n.module == "src.models" and any(a.name == "season_rollup" for a in n.names))
+                and any(
+                    a.name in MODEL_NAMES or (a.name == "*" and "season_rollup" in (n.module or "")) for a in n.names
                 )
             )
-            or (isinstance(n, ast.Import) and any("models.season_rollup" in a.name for a in n.names))
             for n in ast.walk(tree)
         )
         documentation = {
@@ -119,21 +57,10 @@ def rollup_boundary_violations(root):
             and any(t in n.value for t in TABLE_NAMES)
             for n in ast.walk(tree)
         )
-        if model_access and relative not in ROLLUP_MODEL_FILES:
-            violations.append((relative, "model access outside reviewed files"))
-        # The cold-build maintenance script explicitly addresses these tables.
-        if raw_sql and relative not in {
-            "models/season_rollup.py",
-            "services/season_rollup_service.py",
-            "scripts/season_rollup_cold_build.py",
-        }:
-            violations.append((relative, "raw stored table access"))
-        if relative in ROLLUP_MODEL_FILES - {"models/season_rollup.py", "services/reported_match_totals.py"}:
-            violations.extend(
-                (relative, line)
-                for owner, line in raw_total_reads(source)
-                if owner not in RAW_READ_FUNCTIONS.get(relative, set())
-            )
+        if model_access:
+            violations.append((relative, "stored model access outside projection"))
+        if raw_sql:
+            violations.append((relative, "stored table access outside projection"))
     return violations
 
 
@@ -148,6 +75,10 @@ def test_public_readers_cannot_query_raw_stored_report_figures():
 @pytest.mark.parametrize(
     "source",
     [
+        "from src.services.reported_match_totals import PlayerSeasonTotal as T\ndef read():\n return T.query.first().minutes",
+        "from .season_rollup import PlayerSeasonCell as T\ndef read():\n return T.query.first().detail",
+        "def read():\n return getattr(module, 'PlayerSeasonCell').query.first().detail",
+        "def read():\n return db.Model.registry._class_registry['PlayerSeasonTotal'].query.first().minutes",
         "from src.models.season_rollup import PlayerSeasonTotal as PST\ndef read():\n return db.session.get(PST, 123).minutes",
         "from src.models import season_rollup\ndef read():\n return season_rollup.PlayerSeasonTotal.query.first().source_breakdown",
         "import src.models.season_rollup as sr\ndef read():\n M = sr.PlayerSeasonTotal\n return M.query.all()",

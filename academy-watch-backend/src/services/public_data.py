@@ -43,7 +43,7 @@ _UNREAD_TOTAL = object()
 
 def separated_season_stats(player_id, season, legacy, *, merged_total=_UNREAD_TOTAL):
     """Use existing DB feeders/deduplication; never add public and club totals."""
-    from src.services.reported_match_totals import effective_total, public_report_ids
+    from src.services.reported_match_totals import effective_source_cells, effective_total
 
     unread = merged_total is _UNREAD_TOTAL
     if unread:
@@ -76,17 +76,12 @@ def separated_season_stats(player_id, season, legacy, *, merged_total=_UNREAD_TO
             legacy["provenance"] = {**merged_provenance, "primary_source": merged_total.primary_source}
         return legacy
 
-    from src.services.season_rollup_service import _FEEDERS, _resolve_totals
+    from src.services.season_rollup_service import _resolve_totals
 
     now = datetime.now(UTC)
     cells = [
-        cell
-        for feeder in _FEEDERS
-        for cell in feeder(player_id, season, db.session, now)
-        if cell["level_group"] == "senior"
+        cell for cell in effective_source_cells(player_id, season, current_only=True) if cell["level_group"] == "senior"
     ]
-    if any(c["source"] in {"club", "user"} for c in cells) and player_id not in public_report_ids([player_id]):
-        cells = [c for c in cells if c["source"] not in {"club", "user"}]
     stat_keys = (
         "appearances",
         "minutes",

@@ -1124,6 +1124,35 @@ def test_source_breakdown_labels_reported_competitions_and_local_programs(app):
             ),
         ]
     )
+    # Report evidence now requires live trusted rows, not an orphan stored cell.
+    from datetime import date
+
+    from src.models.league import UserAccount
+    from src.models.player_match_entry import PlayerMatchEntry
+
+    user = UserAccount(email="rollup-evidence@example.test", display_name="Evidence", display_name_lower="evidence")
+    db.session.add(user)
+    db.session.flush()
+    for index, source in enumerate(("club", "club", "self")):
+        db.session.add(
+            PlayerMatchEntry(
+                player_api_id=PLAYER,
+                season=2025,
+                match_date=date(2025, 9, index + 1),
+                source=source,
+                status="club_confirmed" if source == "club" else "self_reported",
+                reported_by_user_id=user.id,
+                club_program_id=program.id if source == "club" else None,
+                minutes=90,
+                goals=0,
+                assists=0,
+                yellows=0,
+                reds=0,
+                home_away="home",
+                opponent=f"Evidence {index}",
+                competition="Community Cup" if source == "club" else "Independent League",
+            )
+        )
     db.session.commit()
 
     from src.routes.players import _rollup_source_breakdown

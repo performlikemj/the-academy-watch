@@ -8,6 +8,7 @@ This blueprint handles:
 """
 
 import logging
+from types import SimpleNamespace
 
 from flask import Blueprint, current_app, g, jsonify, request
 from src.auth import _safe_error_payload, require_user_auth, resolve_bearer_user
@@ -18,7 +19,6 @@ from src.models.league import (
     Team,
     db,
 )
-from src.models.season_rollup import PlayerSeasonCell, PlayerSeasonTotal
 from src.models.tracked_player import TrackedPlayer
 from src.services.fan_follow_service import (
     CannotFollowOwnProfile,
@@ -32,7 +32,7 @@ from src.services.player_subject import resolve_player_subject
 from src.services.player_suppression import hide_suppressed_player, neutral_player_not_found
 from src.services.public_player_subject import resolve_public_adult_subject
 from src.services.reach_metrics import fan_counts, is_fan
-from src.services.reported_match_totals import effective_total
+from src.services.reported_match_totals import effective_source_cells, effective_total
 from src.utils.data_mode import api_football_frozen
 from src.utils.feature_flags import rollup_reads_enabled
 from src.utils.sanitize import display_plain_text
@@ -213,7 +213,7 @@ def _season_provenance(player_id: int, season: int) -> dict:
     }
 
 
-def _rollup_provenance(total: PlayerSeasonTotal) -> dict:
+def _rollup_provenance(total: SimpleNamespace) -> dict:
     """Stable public provenance shape for a precomputed totals row."""
     return {
         **{
@@ -229,7 +229,7 @@ def _rollup_provenance(total: PlayerSeasonTotal) -> dict:
     }
 
 
-def _rollup_summary(total: PlayerSeasonTotal, season: int) -> dict:
+def _rollup_summary(total: SimpleNamespace, season: int) -> dict:
     """Headline fields copied verbatim from one totals row (never re-summed)."""
     return {
         "season": season,
@@ -288,20 +288,8 @@ def _local_program_names(club_api_ids) -> dict[int, str]:
 
 def _rollup_source_breakdown(player_id: int, season: int) -> dict[str, list[dict]]:
     """Fine-grained cells grouped by source without cross-source arithmetic."""
-    cells = (
-        PlayerSeasonCell.query.filter_by(player_api_id=player_id, season=season, level_group="senior")
-        .order_by(
-            PlayerSeasonCell.source,
-            PlayerSeasonCell.club_api_id,
-            PlayerSeasonCell.competition_tier,
-            PlayerSeasonCell.id,
-        )
-        .all()
-    )
-    from src.services.reported_match_totals import public_report_ids
-
-    if any(cell.source in {"club", "user"} for cell in cells) and player_id not in public_report_ids([player_id]):
-        cells = [cell for cell in cells if cell.source not in {"club", "user"}]
+    cells = [SimpleNamespace(**c) for c in effective_source_cells(player_id, season) if c["level_group"] == "senior"]
+    cells.sort(key=lambda c: (c.source, c.club_api_id, c.competition_tier))
     local_program_names = _local_program_names(cell.club_api_id for cell in cells)
 
     breakdown: dict[str, list[dict]] = {}
@@ -336,7 +324,7 @@ def _rollup_source_breakdown(player_id: int, season: int) -> dict[str, list[dict
     return breakdown
 
 
-def _rollup_clubs(total: PlayerSeasonTotal) -> list[dict]:
+def _rollup_clubs(total: SimpleNamespace) -> list[dict]:
     """Adapt the compact totals-row club array to the existing endpoint keys."""
     clubs = total.clubs or []
     club_api_ids = {club.get("id") for club in clubs if isinstance(club.get("id"), int)}
@@ -1530,7 +1518,7 @@ def public_data_labels(response):
             # The route already source-selected and authorized this summary.
             # Retain it when adding frozen evidence panels, without another read.
             primary_source = provenance.get("primary_source")
-            selected = PlayerSeasonTotal(**summary, primary_source=primary_source) if primary_source else None
+            selected = SimpleNamespace(**summary, primary_source=primary_source) if primary_source else None
             separated = separated_season_stats(
                 player_id,
                 summary["season"],

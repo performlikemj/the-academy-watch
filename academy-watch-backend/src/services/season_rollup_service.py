@@ -68,10 +68,10 @@ from src.models.funding import ClubProgram
 from src.models.journey import PlayerJourney, PlayerJourneyEntry
 from src.models.league import AcademyPlayerSeasonStats, PlayerStatsCache, db
 from src.models.player_match_entry import PlayerMatchEntry
-from src.models.season_rollup import PlayerSeasonCell, PlayerSeasonTotal
 from src.models.showcase import LocalPlayer, local_player_is_minor
 from src.models.tracked_player import TrackedPlayer
 from src.models.weekly import Fixture, FixturePlayerStats
+from src.services.reported_match_totals import clear_rollup_scope, insert_rollup_rows
 from src.utils.academy_window import age_from_birth_date
 
 logger = logging.getLogger(__name__)
@@ -697,13 +697,14 @@ def _reported_match_cells(
     entry_source: str,
     entry_status: str,
     cell_source: str,
+    eligible_ids=None,
 ) -> list[dict]:
     """Aggregate one trusted PlayerMatchEntry source at competition grain."""
     q = (
         session.query(PlayerMatchEntry, ClubProgram.name)
         .outerjoin(ClubProgram, PlayerMatchEntry.club_program_id == ClubProgram.id)
         .filter(
-            PlayerMatchEntry.player_api_id == player_api_id,
+            _player_scope(PlayerMatchEntry.player_api_id, player_api_id),
             PlayerMatchEntry.source == entry_source,
             PlayerMatchEntry.status == entry_status,
         )
@@ -713,9 +714,15 @@ def _reported_match_cells(
     rows = q.all()
     if not rows:
         return []
-    subject = resolve_reported_subject(player_api_id, session)
-    if subject is None or subject["is_minor"]:
-        return []
+    if isinstance(player_api_id, (set, list, tuple)):
+        from src.services.reported_match_totals import public_report_ids
+
+        eligible = public_report_ids(player_api_id) if eligible_ids is None else set(eligible_ids)
+        rows = [(entry, name) for entry, name in rows if entry.player_api_id in eligible]
+    else:
+        subject = resolve_reported_subject(player_api_id, session)
+        if subject is None or subject["is_minor"]:
+            return []
 
     groups: dict[tuple, dict] = {}
     club_names: dict[tuple, str | None] = {}
@@ -723,7 +730,7 @@ def _reported_match_cells(
     for entry, club_name in rows:
         club_program_id = entry.club_program_id or 0
         competition_key = _reported_competition_key(entry.competition)
-        key = (entry.season, club_program_id, competition_key)
+        key = (entry.player_api_id, entry.season, club_program_id, competition_key)
         agg = groups.get(key)
         if agg is None:
             agg = _blank_agg()
@@ -742,7 +749,7 @@ def _reported_match_cells(
 
     cells = []
     for key, agg in groups.items():
-        entry_season, club_program_id, competition_key = key
+        subject_id, entry_season, club_program_id, competition_key = key
         competition = competition_names[key]
         level_group = LEVEL_YOUTH if _is_youth_competition(competition_key) else LEVEL_SENIOR
         # ``club_api_id`` is a shared namespace: positive values are provider
@@ -751,7 +758,7 @@ def _reported_match_cells(
         cell_club_id = -club_program_id if club_program_id else 0
         cell = _finish_cell(
             agg,
-            player_api_id=player_api_id,
+            player_api_id=subject_id,
             season=entry_season,
             source=cell_source,
             club_api_id=cell_club_id,
@@ -778,7 +785,7 @@ def _user_cells(player_api_id: int, season: int | None, session, now: datetime) 
     )
 
 
-def _club_cells(player_api_id: int, season: int | None, session, now: datetime) -> list[dict]:
+def _club_cells(player_api_id: int, season: int | None, session, now: datetime, *, eligible_ids=None) -> list[dict]:
     return _reported_match_cells(
         player_api_id,
         season,
@@ -787,6 +794,7 @@ def _club_cells(player_api_id: int, season: int | None, session, now: datetime) 
         entry_source="club",
         entry_status="club_confirmed",
         cell_source=SOURCE_CLUB,
+        eligible_ids=eligible_ids,
     )
 
 
@@ -980,11 +988,6 @@ def _clubs_array(headline_cells: list[dict]) -> list[dict]:
 # ---------------------------------------------------------------------------
 # Public write API
 # ---------------------------------------------------------------------------
-def _delete_scope(session, model, player_api_id: int, season: int | None):
-    q = session.query(model).filter(model.player_api_id == player_api_id)
-    if season is not None:
-        q = q.filter(model.season == season)
-    q.delete(synchronize_session=False)
 
 
 def _lock_player_refresh(session, player_api_id: int) -> None:
@@ -1056,62 +1059,13 @@ def refresh_player(player_api_id: int, season: int | None = None, session=None) 
 
     # 1) Clear the slate (scoped). Bulk DELETE executes immediately, so the
     #    subsequent INSERTs cannot collide with stale rows on the unique keys.
-    _delete_scope(session, PlayerSeasonCell, player_api_id, season)
-    _delete_scope(session, PlayerSeasonTotal, player_api_id, season)
+    clear_rollup_scope(session, player_api_id, season)
     session.flush()
 
     # 2) Rebuild from the shared read-only calculation.
     cells, totals = build_player_rollup(player_api_id, season, session=session, now=now)
 
-    for c in cells:
-        session.add(
-            PlayerSeasonCell(
-                player_api_id=c["player_api_id"],
-                season=c["season"],
-                source=c["source"],
-                club_api_id=c["club_api_id"],
-                club_name=c["club_name"],
-                competition_tier=c["competition_tier"],
-                level_group=c["level_group"],
-                appearances=c["appearances"],
-                goals=c["goals"],
-                assists=c["assists"],
-                minutes=c["minutes"],
-                yellows=c["yellows"],
-                reds=c["reds"],
-                saves=c["saves"],
-                goals_conceded=c["goals_conceded"],
-                avg_rating=c["avg_rating"],
-                detail=c["detail"],
-                synced_at=c["synced_at"],
-            )
-        )
-
-    # 3) Persist the already resolved, source-labelled totals.
-    for t in totals:
-        session.add(
-            PlayerSeasonTotal(
-                player_api_id=t["player_api_id"],
-                season=t["season"],
-                level_group=t["level_group"],
-                appearances=t["appearances"],
-                goals=t["goals"],
-                assists=t["assists"],
-                minutes=t["minutes"],
-                yellows=t["yellows"],
-                reds=t["reds"],
-                saves=t["saves"],
-                goals_conceded=t["goals_conceded"],
-                avg_rating=t["avg_rating"],
-                primary_source=t["primary_source"],
-                fixtures_minutes=t["fixtures_minutes"],
-                journey_minutes=t["journey_minutes"],
-                reconcile_flag=t["reconcile_flag"],
-                source_breakdown=t["source_breakdown"],
-                clubs=t["clubs"],
-                computed_at=t["computed_at"],
-            )
-        )
+    insert_rollup_rows(session, cells, totals)
 
     session.flush()
     return {"cells": len(cells), "totals": len(totals)}

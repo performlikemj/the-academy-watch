@@ -480,7 +480,9 @@ def test_player_refresh_advisory_lock_is_postgres_only_and_player_wide():
 
 def test_refresh_player_acquires_lock_before_deleting_rollups(app, monkeypatch):
     calls = []
-    original_delete_scope = svc._delete_scope
+    from src.services import reported_match_totals as projection
+
+    original_delete_scope = projection._delete_scope
 
     monkeypatch.setattr(
         svc,
@@ -492,7 +494,7 @@ def test_refresh_player_acquires_lock_before_deleting_rollups(app, monkeypatch):
         calls.append(("delete", model, player_api_id, season))
         return original_delete_scope(session, model, player_api_id, season)
 
-    monkeypatch.setattr(svc, "_delete_scope", tracking_delete_scope)
+    monkeypatch.setattr(projection, "_delete_scope", tracking_delete_scope)
 
     assert svc.refresh_player(8801, season=2025, session=db.session) == {"cells": 0, "totals": 0}
     assert calls[0] == ("lock", 8801)

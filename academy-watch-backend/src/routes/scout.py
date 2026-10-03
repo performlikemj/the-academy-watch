@@ -1428,7 +1428,11 @@ def scout_compare():
                 or candidate["provenance"]["primary_source"] == "cache"
             ):
                 totals = _compare_candidate_totals(candidate)
-                row = None
+                row = (
+                    _compare_fixture_totals(player_id, resolved_season)
+                    if candidate["provenance"]["primary_source"] == "fixtures"
+                    else None
+                )
             elif use_rollup:
                 # Absence is authoritative too: never reopen a stored report.
                 totals = _compare_candidate_totals(candidate)

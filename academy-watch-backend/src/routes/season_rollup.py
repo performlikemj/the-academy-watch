@@ -8,7 +8,7 @@ Both endpoints are pure database operations. Rebuilds are keyset-paged by
 one index-served ``MAX`` per timed clock: ``PlayerJourneyEntry.stats_synced_at``
 (ix_pje_stats_synced_at), ``AcademyPlayerSeasonStats.updated_at``
 (ix_apss_updated_at), ``PlayerShadowStats.updated_at`` (ix_pss_updated_at) and
-``PlayerSeasonCell.synced_at`` (ix_psc_synced_at) — sea02/sea03 give every one of
+``_cell_meta.c.synced_at`` (ix_psc_synced_at) — sea02/sea03 give every one of
 those columns a b-tree so each ``MAX`` is an ORDER BY … LIMIT 1 lookup, not a seq
 scan. Those four are compared against the totals' newest ``computed_at``, which
 rides along the single ``count(id), max(computed_at)`` pass over
@@ -40,9 +40,11 @@ from src.models.follow import PlayerShadowStats
 from src.models.journey import PlayerJourney, PlayerJourneyEntry
 from src.models.league import AcademyPlayerSeasonStats, db
 from src.models.player_match_entry import PlayerMatchEntry
-from src.models.season_rollup import PlayerSeasonCell, PlayerSeasonTotal
 from src.models.weekly import Fixture, FixturePlayerStats
 from src.services import season_rollup_service
+from src.services.reported_match_totals import rollup_metadata_relations
+
+_total_meta, _cell_meta = rollup_metadata_relations()
 
 season_rollup_bp = Blueprint("season_rollup", __name__)
 logger = logging.getLogger(__name__)
@@ -72,13 +74,13 @@ def _has_fixture_stats():
 def _had_source_cell(player_column, season_column, source: str, level_group=None):
     """Include a zeroed source only while its old cell still needs deletion."""
     conditions = (
-        PlayerSeasonCell.player_api_id == player_column,
-        PlayerSeasonCell.season == season_column,
-        PlayerSeasonCell.source == source,
+        _cell_meta.c.player_api_id == player_column,
+        _cell_meta.c.season == season_column,
+        _cell_meta.c.source == source,
     )
     if level_group is not None:
-        conditions += (PlayerSeasonCell.level_group == level_group,)
-    return select(literal(1)).select_from(PlayerSeasonCell).where(*conditions).exists()
+        conditions += (_cell_meta.c.level_group == level_group,)
+    return select(literal(1)).select_from(_cell_meta).where(*conditions).exists()
 
 
 def _utc_source_clock(column):
@@ -139,8 +141,8 @@ def _candidate_player_ids(
         )
     )
     match_entry_rows = select(PlayerMatchEntry.player_api_id.label("player_api_id"))
-    cell_rows = select(PlayerSeasonCell.player_api_id.label("player_api_id"))
-    total_rows = select(PlayerSeasonTotal.player_api_id.label("player_api_id"))
+    cell_rows = select(_cell_meta.c.player_api_id.label("player_api_id"))
+    total_rows = select(_total_meta.c.player_api_id.label("player_api_id"))
 
     if season is not None:
         fixture_rows = fixture_rows.where(Fixture.season == season)
@@ -148,8 +150,8 @@ def _candidate_player_ids(
         apss_rows = apss_rows.where(AcademyPlayerSeasonStats.season == season)
         shadow_rows = shadow_rows.where(PlayerShadowStats.season == season)
         match_entry_rows = match_entry_rows.where(PlayerMatchEntry.season == season)
-        cell_rows = cell_rows.where(PlayerSeasonCell.season == season)
-        total_rows = total_rows.where(PlayerSeasonTotal.season == season)
+        cell_rows = cell_rows.where(_cell_meta.c.season == season)
+        total_rows = total_rows.where(_total_meta.c.season == season)
 
     source_queries = (
         (fixture_rows, FixturePlayerStats.player_api_id),
@@ -157,8 +159,8 @@ def _candidate_player_ids(
         (apss_rows, AcademyPlayerSeasonStats.player_api_id),
         (shadow_rows, PlayerShadowStats.player_api_id),
         (match_entry_rows, PlayerMatchEntry.player_api_id),
-        (cell_rows, PlayerSeasonCell.player_api_id),
-        (total_rows, PlayerSeasonTotal.player_api_id),
+        (cell_rows, _cell_meta.c.player_api_id),
+        (total_rows, _total_meta.c.player_api_id),
     )
     bounded_queries = []
     for query, player_column in source_queries:
@@ -247,17 +249,17 @@ def _stale_player_ids(player_ids: tuple[int, ...] | None = None):
         )
     )
     cell_rows = select(
-        PlayerSeasonCell.player_api_id.label("player_api_id"),
-        PlayerSeasonCell.season.label("season"),
-        PlayerSeasonCell.level_group.label("level_group"),
-        PlayerSeasonCell.synced_at.label("source_updated_at"),
+        _cell_meta.c.player_api_id.label("player_api_id"),
+        _cell_meta.c.season.label("season"),
+        _cell_meta.c.level_group.label("level_group"),
+        _cell_meta.c.synced_at.label("source_updated_at"),
     )
 
     if player_ids is not None:
         journey_rows = journey_rows.where(PlayerJourney.player_api_id.in_(player_ids))
         apss_rows = apss_rows.where(AcademyPlayerSeasonStats.player_api_id.in_(player_ids))
         shadow_rows = shadow_rows.where(PlayerShadowStats.player_api_id.in_(player_ids))
-        cell_rows = cell_rows.where(PlayerSeasonCell.player_api_id.in_(player_ids))
+        cell_rows = cell_rows.where(_cell_meta.c.player_api_id.in_(player_ids))
 
     timed_rows = union_all(journey_rows, apss_rows, shadow_rows, cell_rows).subquery()
     source_freshness = (
@@ -271,17 +273,17 @@ def _stale_player_ids(player_ids: tuple[int, ...] | None = None):
         .subquery()
     )
     total_freshness_query = select(
-        PlayerSeasonTotal.player_api_id,
-        PlayerSeasonTotal.season,
-        PlayerSeasonTotal.level_group,
-        func.max(PlayerSeasonTotal.computed_at).label("computed_at"),
+        _total_meta.c.player_api_id,
+        _total_meta.c.season,
+        _total_meta.c.level_group,
+        func.max(_total_meta.c.computed_at).label("computed_at"),
     )
     if player_ids is not None:
-        total_freshness_query = total_freshness_query.where(PlayerSeasonTotal.player_api_id.in_(player_ids))
+        total_freshness_query = total_freshness_query.where(_total_meta.c.player_api_id.in_(player_ids))
     total_freshness = total_freshness_query.group_by(
-        PlayerSeasonTotal.player_api_id,
-        PlayerSeasonTotal.season,
-        PlayerSeasonTotal.level_group,
+        _total_meta.c.player_api_id,
+        _total_meta.c.season,
+        _total_meta.c.level_group,
     ).subquery()
     timed_stale = (
         select(source_freshness.c.player_api_id)
@@ -331,13 +333,13 @@ def _stale_player_ids(player_ids: tuple[int, ...] | None = None):
         )
     )
     fixture_cell_keys_query = select(
-        PlayerSeasonCell.player_api_id,
-        PlayerSeasonCell.season,
-        PlayerSeasonCell.level_group,
-    ).where(PlayerSeasonCell.source == "fixtures")
+        _cell_meta.c.player_api_id,
+        _cell_meta.c.season,
+        _cell_meta.c.level_group,
+    ).where(_cell_meta.c.source == "fixtures")
     if player_ids is not None:
         fixture_rows_query = fixture_rows_query.where(FixturePlayerStats.player_api_id.in_(player_ids))
-        fixture_cell_keys_query = fixture_cell_keys_query.where(PlayerSeasonCell.player_api_id.in_(player_ids))
+        fixture_cell_keys_query = fixture_cell_keys_query.where(_cell_meta.c.player_api_id.in_(player_ids))
     fixture_rows = fixture_rows_query.subquery()
     fixture_keys = (
         select(fixture_rows.c.player_api_id, fixture_rows.c.season, fixture_rows.c.level_group)
@@ -345,9 +347,9 @@ def _stale_player_ids(player_ids: tuple[int, ...] | None = None):
         .subquery()
     )
     fixture_cell_keys = fixture_cell_keys_query.group_by(
-        PlayerSeasonCell.player_api_id,
-        PlayerSeasonCell.season,
-        PlayerSeasonCell.level_group,
+        _cell_meta.c.player_api_id,
+        _cell_meta.c.season,
+        _cell_meta.c.level_group,
     ).subquery()
     fixture_missing_cell = (
         select(fixture_keys.c.player_api_id)
@@ -404,7 +406,7 @@ def _max_source_change():
         db.session.query(func.max(PlayerJourneyEntry.stats_synced_at)).scalar(),
         db.session.query(func.max(AcademyPlayerSeasonStats.updated_at)).scalar(),
         db.session.query(func.max(PlayerShadowStats.updated_at)).scalar(),
-        db.session.query(func.max(PlayerSeasonCell.synced_at)).scalar(),
+        db.session.query(func.max(_cell_meta.c.synced_at)).scalar(),
     ]
     present = [clock for clock in clocks if clock is not None]
     return max(present, key=_as_utc) if present else None
@@ -569,8 +571,8 @@ def admin_season_rollup_status():
     exact = (request.args.get("exact") or "").strip().lower() in {"1", "true", "yes", "on"}
     try:
         total_totals_rows, last_computed_at = db.session.query(
-            func.count(PlayerSeasonTotal.id),
-            func.max(PlayerSeasonTotal.computed_at),
+            func.count(_total_meta.c.id),
+            func.max(_total_meta.c.computed_at),
         ).one()
         last_source_change_at = _max_source_change()
         behind = last_source_change_at is not None and (
@@ -587,9 +589,7 @@ def admin_season_rollup_status():
             # default path: the per-source cell breakdown (full group-by) and the
             # exact per-player stale count (full multi-table aggregation).
             source_counts = (
-                db.session.query(PlayerSeasonCell.source, func.count(PlayerSeasonCell.id))
-                .group_by(PlayerSeasonCell.source)
-                .all()
+                db.session.query(_cell_meta.c.source, func.count(_cell_meta.c.id)).group_by(_cell_meta.c.source).all()
             )
             body["by_source_cells"] = {source: int(count) for source, count in source_counts}
             body["stale_players"] = _count_ids(_stale_player_ids())

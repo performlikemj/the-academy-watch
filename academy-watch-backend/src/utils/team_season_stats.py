@@ -2,11 +2,10 @@
 
 from sqlalchemy import func
 from src.models.league import PlayerStatsCache, db
-from src.models.season_rollup import PlayerSeasonTotal
 from src.models.weekly import Fixture, FixturePlayerStats
 
 
-def rollup_provenance(total: PlayerSeasonTotal) -> dict:
+def rollup_provenance(total) -> dict:
     """The stable five-key public provenance contract."""
     return {
         **{

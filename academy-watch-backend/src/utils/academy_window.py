@@ -104,8 +104,8 @@ def season_bounds(
     from src.models.follow import PlayerShadowStats
     from src.models.league import PlayerStatsCache
     from src.models.player_match_entry import PlayerMatchEntry
-    from src.models.season_rollup import PlayerSeasonTotal
     from src.models.weekly import Fixture
+    from src.services.reported_match_totals import rollup_metadata_relations
 
     high = current_stats_season(today) + 1
     fixture_min = db_session.query(func.min(Fixture.season)).scalar()
@@ -113,11 +113,13 @@ def season_bounds(
     if include_rollup_history:
         # PC2 compatibility also reaches stored report/shadow/cache history
         # before its rollup exists. One narrow metadata query, as before.
+        total_meta, _ = rollup_metadata_relations()
         history = union_all(
+            select(func.min(total_meta.c.season).label("season")),
             *(
                 select(func.min(model.season).label("season"))
-                for model in (PlayerSeasonTotal, PlayerMatchEntry, PlayerShadowStats, PlayerStatsCache)
-            )
+                for model in (PlayerMatchEntry, PlayerShadowStats, PlayerStatsCache)
+            ),
         ).subquery()
         rollup_min = db_session.query(func.min(history.c.season)).scalar()
         if rollup_min is not None:

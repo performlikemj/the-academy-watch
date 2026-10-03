@@ -453,3 +453,125 @@ def test_postgres_four_thousand_reports_no_bind_cliff_and_rebuilt_skips_history(
     finally:
         event.remove(db.engine, "before_cursor_execute", record)
         event.remove(db.engine, "after_cursor_execute", completed)
+
+
+@pytest.mark.parametrize(
+    "field,value", [("status", "disputed"), ("minutes", 41), ("opponent", "Different pairing"), ("goals", 5)]
+)
+def test_backed_canonical_snapshot_revalidates_current_inputs(app, monkeypatch, field, value):
+    ids, user, list_id = seed_personas()
+    pid = ids["Kofi Asante-Reid"]
+    rollup.refresh_player(pid, SEASON)
+    db.session.commit()
+    original = numbers.effective_total(pid, SEASON)
+    # Some trusted rows still exist: existence alone must never authorize the
+    # old canonical headline or evidence. Do not drain/rebuild after the edit.
+    row = PlayerMatchEntry.query.filter_by(player_api_id=pid, source="club").order_by(PlayerMatchEntry.id).first()
+    setattr(row, field, value)
+    db.session.commit()
+    current = numbers.effective_total(pid, SEASON)
+    assert (
+        current.source_breakdown["matches"]["evidence_digest"]
+        != original.source_breakdown["matches"]["evidence_digest"]
+    )
+    client = app.test_client()
+    before = client.get(f"/api/players/{pid}/season-stats?season={SEASON}").json
+    before.pop("provenance")  # Computation clock is operational, not a figure.
+    before.pop("source_breakdown")  # separately compares every source below
+    from src.routes.players import _rollup_source_breakdown
+
+    evidence = _rollup_source_breakdown(pid, SEASON)
+    for rows in evidence.values():
+        for cell in rows:
+            cell.pop("synced_at")
+    rollup.refresh_player(pid, SEASON)
+    db.session.commit()
+    after = client.get(f"/api/players/{pid}/season-stats?season={SEASON}").json
+    after.pop("provenance")
+    after.pop("source_breakdown")
+    assert before == after
+    rebuilt_evidence = _rollup_source_breakdown(pid, SEASON)
+    for rows in rebuilt_evidence.values():
+        for cell in rows:
+            cell.pop("synced_at")
+    assert evidence == rebuilt_evidence
+
+
+def test_committed_provider_survives_failed_dirty_queue_drain(app, monkeypatch):
+    from src.models.weekly import Fixture, FixturePlayerStats
+
+    ids, user, list_id = seed_personas()
+    pid = 99117
+    db.session.add(
+        TrackedPlayer(
+            player_api_id=pid,
+            team_id=Team.query.first().id,
+            player_name="Queue-lag provider",
+            birth_date="2000-01-01",
+            is_active=True,
+        )
+    )
+    add_reports(pid, user, ClubProgram.query.first().id)
+    db.session.flush()
+    rollup.refresh_player(pid, SEASON)
+    db.session.commit()
+    assert numbers.effective_total(pid, SEASON).primary_source == "matches"
+    db.session.add(
+        FixturePlayerStats(
+            fixture_id=Fixture.query.first().id,
+            player_api_id=pid,
+            team_api_id=9001,
+            minutes=87,
+            goals=2,
+            assists=1,
+            position="M",
+        )
+    )
+    rollup.queue_player_refresh(pid, SEASON)
+    db.session.commit()
+    refresh = rollup.refresh_player
+    monkeypatch.setattr(rollup, "refresh_player", lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("failed drain")))
+    assert rollup.flush_player_refresh_queue() == 0
+    total = numbers.effective_total(pid, SEASON)
+    assert (total.primary_source, total.appearances, total.minutes, total.goals, total.assists) == (
+        "fixtures",
+        1,
+        87,
+        2,
+        1,
+    )
+    assert (pid, SEASON) in db.session.info[rollup._DIRTY_KEY]
+    monkeypatch.setattr(rollup, "refresh_player", refresh)
+    assert rollup.flush_player_refresh_queue() == 1
+    total = numbers.effective_total(pid, SEASON)
+    assert (total.primary_source, total.appearances, total.minutes, total.goals, total.assists) == (
+        "fixtures",
+        1,
+        87,
+        2,
+        1,
+    )
+
+
+def test_provider_row_cannot_carry_unvalidated_report_evidence(app):
+    ids, user, list_id = seed_personas()
+    pid = ids["Provider"]
+    stored = PlayerSeasonTotal.query.filter_by(player_api_id=pid, season=SEASON).one()
+    stored.source_breakdown = {
+        **stored.source_breakdown,
+        "club": {"minutes": 987},
+        "user": {"goals": 19},
+        "matches": {"club_confirmed": 99, "self_reported_only": 88},
+    }
+    db.session.commit()
+    projected = numbers.effective_total(pid, SEASON)
+    assert not {"club", "user", "matches"} & projected.source_breakdown.keys()
+    assert projected.primary_source == "fixtures" and projected.minutes == 90
+    client = app.test_client()
+    for suffix in ("season-stats", "stats"):
+        response = client.get(f"/api/players/{pid}/{suffix}?season={SEASON}")
+        assert response.status_code == 200
+        assert "club_confirmed" not in response.json.get("provenance", {})
+    desk = client.get(f"/api/scout/players?season={SEASON}").json
+    provider = next(p for p in desk["players"] if p["player_id"] == pid)
+    assert "club_confirmed" not in provider["provenance"]
