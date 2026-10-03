@@ -7,6 +7,7 @@ same fictional dataset is used by the all-surface endpoint equality test.
 import json
 import os
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
 from flask import Flask
@@ -32,4 +33,22 @@ for bp in (player_matches_bp, players_bp, scout_bp):
 with app.app_context():
     db.create_all()
     ids, _user, _list = seed_personas()
+    if os.environ.get("PC2_REVIEW_LOSS_FIXTURE") == "1":
+        from src.models.season_rollup import PlayerSeasonTotal
+
+        for pid in (92000, 92001):
+            db.session.add(
+                PlayerSeasonTotal(
+                    player_api_id=pid,
+                    season=2025,
+                    level_group="senior",
+                    primary_source="user",
+                    appearances=12,
+                    minutes=1080,
+                    goals=0,
+                    assists=0,
+                    computed_at=datetime.now(UTC),
+                )
+            )
+        db.session.commit()
     print(json.dumps({"fictional_personas": ids}, indent=2))

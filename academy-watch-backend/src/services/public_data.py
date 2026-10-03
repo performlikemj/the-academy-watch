@@ -38,17 +38,26 @@ def public_match_metadata(player_id, season=None):
     return {"source": "public_match_data", "as_of": max(known).isoformat() if known else None}
 
 
-def separated_season_stats(player_id, season, legacy):
-    """Use existing DB feeders/deduplication; never add public and club totals."""
-    from src.services.reported_match_totals import effective_total
+_UNREAD_TOTAL = object()
 
-    merged_total = None
-    if legacy.get("source") in {"none", "season-rollup", "club_verified", "self_reported"} and (
-        legacy.get("provenance") or {}
-    ).get("primary_source") not in {"fixtures", "journey", "apss", "shadow", "cache"}:
+
+def separated_season_stats(player_id, season, legacy, *, merged_total=_UNREAD_TOTAL):
+    """Use existing DB feeders/deduplication; never add public and club totals."""
+    from src.services.reported_match_totals import effective_total, public_report_ids
+
+    unread = merged_total is _UNREAD_TOTAL
+    if unread:
+        merged_total = None
+    if (
+        unread
+        and legacy.get("source") in {"none", "season-rollup", "club_verified", "self_reported"}
+        and (legacy.get("provenance") or {}).get("primary_source")
+        not in {"fixtures", "journey", "apss", "shadow", "cache"}
+    ):
         merged_total = effective_total(player_id, season)
+    merged_provenance = legacy.get("provenance") or {}
     if not api_football_frozen():
-        if merged_total:
+        if merged_total and legacy.get("source") != "season-rollup":
             legacy.update(
                 {
                     key: getattr(merged_total, key)
@@ -64,7 +73,7 @@ def separated_season_stats(player_id, season, legacy):
                     )
                 }
             )
-            legacy["provenance"] = {"primary_source": merged_total.primary_source}
+            legacy["provenance"] = {**merged_provenance, "primary_source": merged_total.primary_source}
         return legacy
 
     from src.services.season_rollup_service import _FEEDERS, _resolve_totals
@@ -76,6 +85,8 @@ def separated_season_stats(player_id, season, legacy):
         for cell in feeder(player_id, season, db.session, now)
         if cell["level_group"] == "senior"
     ]
+    if any(c["source"] in {"club", "user"} for c in cells) and player_id not in public_report_ids([player_id]):
+        cells = [c for c in cells if c["source"] not in {"club", "user"}]
     stat_keys = (
         "appearances",
         "minutes",
@@ -156,5 +167,5 @@ def separated_season_stats(player_id, season, legacy):
     if merged_total and not public["available"]:
         legacy.update({key: getattr(merged_total, key) for key in stat_keys})
         legacy["source"] = "season-rollup"
-        legacy["provenance"] = {"primary_source": merged_total.primary_source}
+        legacy["provenance"] = {**merged_provenance, "primary_source": merged_total.primary_source}
     return legacy

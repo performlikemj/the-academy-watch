@@ -513,6 +513,11 @@ def get_team_loans(team_identifier):
         elif requested_season is not None:
             season_stats_by_player = live_stats_by_player(tracked, resolved_season)
 
+        if not use_rollup and requested_season is None:
+            from src.utils.academy_window import stats_season_with_data
+
+            season_stats_by_player = live_stats_by_player(tracked, stats_season_with_data(db.session))
+
         result = []
         for tp in tracked:
             tp_dict = tp.to_public_dict()
@@ -521,7 +526,7 @@ def get_team_loans(team_identifier):
                     tp_dict.update(season_stats_by_player[tp.player_api_id])
                 elif use_rollup:
                     tp_dict.update(missing_rollup_stats())
-            # No-param + flag-off is the byte-compatible legacy path: route
+            # With no compatible total, retain the legacy provider path: route
             # limited rows from latest cache and full rows from fixtures.
             elif tp.data_depth in ("events_only", "profile_only"):
                 if tp.player_api_id in cache_by_player:

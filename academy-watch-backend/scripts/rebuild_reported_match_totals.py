@@ -112,7 +112,16 @@ def restore(session, path):
 
 def run(session, *, dry_run, limit, after, delay, checkpoint=None, undo=None):
     started = perf_counter()
-    result = {"players_scanned": 0, "players_changed": 0, "seasons_changed": 0, "samples": []}
+    result = {
+        "players_scanned": 0,
+        "players_changed": 0,
+        "seasons_changed": 0,
+        "samples": [],
+        "players_figures_changed": 0,
+        "seasons_figures_changed": 0,
+        "seasons_losing_totals": 0,
+        "losses": [],
+    }
     for player_id in candidate_ids(session, after, limit):
         if not dry_run:
             _lock_player_refresh(session, player_id)
@@ -139,6 +148,30 @@ def run(session, *, dry_run, limit, after, delay, checkpoint=None, undo=None):
                 row["season"]: row for row in before[PlayerSeasonTotal.__tablename__] if row["level_group"] == "senior"
             }
             new = {row["season"]: row for row in totals if row["level_group"] == "senior"}
+            stat_keys = ("appearances", "minutes", "goals", "assists", "yellows", "reds", "saves", "goals_conceded")
+            figure_changes = 0
+            for season in sorted(set(old) | set(new)):
+                before_total, after_total = old.get(season), new.get(season)
+                before_figures = {k: before_total.get(k) for k in stat_keys} if before_total else None
+                after_figures = {k: after_total.get(k) for k in stat_keys} if after_total else None
+                if before_figures != after_figures:
+                    figure_changes += 1
+                if before_total and (
+                    not after_total
+                    or (any(before_total.get(k) for k in stat_keys) and not any(after_total.get(k) for k in stat_keys))
+                ):
+                    result["seasons_losing_totals"] += 1
+                    result["losses"].append(
+                        {
+                            "player_id": player_id,
+                            "season": season,
+                            "before": before_figures,
+                            "after": after_figures,
+                            "before_source": before_total["primary_source"],
+                        }
+                    )
+            result["seasons_figures_changed"] += figure_changes
+            result["players_figures_changed"] += int(figure_changes > 0)
             for season in changed_seasons:
                 if len(result["samples"]) >= 5:
                     break

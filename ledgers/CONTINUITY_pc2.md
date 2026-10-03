@@ -41,3 +41,14 @@
 - Now: focused scout fixture validation, final fixture-only commit/push; four cached gates once at successor head; bounded CI and exact receipts in external hand-back.
 - Focused fixture verification: scout blueprint/watchlist102 PASS; ruff format/check PASS. No browser/product changes since81-PASS run.
 - Runbook audit: corrected stale missing-provider query bound4->5 (four existing feeders plus cache fallback); matches implementation and external hand-back. Documentation-only successor; current90df2ed0 full run finishes normally before successor gates. Browser/product/test blobs unchanged.
+
+## PC2F1 review union
+- State: in-progress; read both independent findings; cross files absent per user clarification.
+- Fix list: X1/O1 public report eligibility; X2/O2 rosters; X3/O5 loss accounting; X4 entity inputs; X5 digest; O3 scale/bind limit; O4 mixed source category; O6 bio escapes; O7 photo fallback; O8 duplicate reads; O9 flags-off disclosure.
+- Constraints: no schema change or staging/production rebuild; main refresh before final gates; governed foreground checks; final hand-back PC2F1.final.md.
+- Now: public reported policy audit / probe regressions.
+- Next: readers/rebuild/card/source fixes, targeted validation, main refresh, final gates/PG/browser/screenshots/push.
+
+- PC2F1 implemented: fresh public-adult report policy, stored/raw/frozen guards, match-lines public guard with private owner/manager exception; revision2 boundary adapter; stale-only history merge + one-bind JSON relation; constrained saved/watch/compare/ID exports; mixed category excludes default boards/club filter; batch rosters/digests; uncapped loss IDs/figure counters; bio/photo/single scalar read fixes. New reverse-probe regression file and expanded equality matrix include rosters/rendered digests. Targeted validation governed queue position1; fixture setup errors corrected. Main8696a4de fetched; integration after focused proof.
+
+- Targeted reverse probes/equality: privacy8 combinations + pairing/source/card/loss/scalar controls PASS; expanded16-combination equality (real team routes and rendered watch/list digests) PASS. Broader reader pass177/6FAIL: fixed no-param roster fallback / honest season scoping, preserved provider flag-OFF adapter, restored separator provenance, seeded public adult in isolated evidence-label test. Retest governed queue; no duplicate runs. Checkpoint commit then main integration before final validation.

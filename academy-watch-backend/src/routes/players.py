@@ -216,6 +216,11 @@ def _season_provenance(player_id: int, season: int) -> dict:
 def _rollup_provenance(total: PlayerSeasonTotal) -> dict:
     """Stable public provenance shape for a precomputed totals row."""
     return {
+        **{
+            k: v
+            for k, v in ((total.source_breakdown or {}).get("matches") or {}).items()
+            if k in {"club_confirmed", "self_reported_only"}
+        },
         "primary_source": total.primary_source,
         "reconcile_flag": total.reconcile_flag,
         "fixtures_minutes": total.fixtures_minutes,
@@ -293,6 +298,10 @@ def _rollup_source_breakdown(player_id: int, season: int) -> dict[str, list[dict
         )
         .all()
     )
+    from src.services.reported_match_totals import public_report_ids
+
+    if any(cell.source in {"club", "user"} for cell in cells) and player_id not in public_report_ids([player_id]):
+        cells = [cell for cell in cells if cell.source not in {"club", "user"}]
     local_program_names = _local_program_names(cell.club_api_id for cell in cells)
 
     breakdown: dict[str, list[dict]] = {}
@@ -961,7 +970,7 @@ def get_public_player_season_stats(player_id: int):
                     "source_breakdown": _rollup_source_breakdown(player_id, season_start_year),
                 }
             )
-            return jsonify(separated_season_stats(player_id, season_start_year, result))
+            return jsonify(separated_season_stats(player_id, season_start_year, result, merged_total=total))
 
         # On-read provenance for the resolved season — computed once here so every
         # return path below (limited-coverage, shadow, main) carries it. Additive:
@@ -1056,7 +1065,7 @@ def get_public_player_season_stats(player_id: int):
                     }
                 ]
 
-            return jsonify(separated_season_stats(player_id, season_start_year, result))
+            return jsonify(separated_season_stats(player_id, season_start_year, result, merged_total=total))
 
         if not all_tracked:
             # Shadow player fallback — no tracked rows, but a worldwide-followed
@@ -1116,7 +1125,7 @@ def get_public_player_season_stats(player_id: int):
                             "is_current": True,
                         }
                     ]
-            return jsonify(separated_season_stats(player_id, season_start_year, result))
+            return jsonify(separated_season_stats(player_id, season_start_year, result, merged_total=total))
 
         # Build list of clubs from FixturePlayerStats (source of truth for which
         # clubs the player actually played for this season) rather than deriving
@@ -1294,7 +1303,7 @@ def get_public_player_season_stats(player_id: int):
 
             result["clean_sheets"] = clean_sheets_query.clean_sheets if clean_sheets_query else 0
 
-        return jsonify(separated_season_stats(player_id, season_start_year, result))
+        return jsonify(separated_season_stats(player_id, season_start_year, result, merged_total=total))
 
     except Exception as e:
         logger.error(f"Error fetching season stats for player_id={player_id}: {e}")

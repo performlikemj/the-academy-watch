@@ -240,10 +240,12 @@ def seed_personas():
 def app(monkeypatch):
     monkeypatch.setenv("SCOUT_INCLUDE_LOCAL_PLAYERS", "1")
     monkeypatch.setenv("API_FOOTBALL_FROZEN", "1")
-    monkeypatch.setenv("SEASON_ROLLUP_READS", "scout,season_stats,player_stats")
+    monkeypatch.setenv("SEASON_ROLLUP_READS", "scout,season_stats,player_stats,teams")
+    from src.routes.api import api_bp
     from src.routes.player_matches import player_matches_bp
     from src.routes.players import players_bp
     from src.routes.scout import scout_bp
+    from src.routes.teams import teams_bp
 
     uri = os.environ.get("PC2_TEST_DATABASE_URL", "sqlite:///:memory:")
     if uri != "sqlite:///:memory:":
@@ -251,7 +253,7 @@ def app(monkeypatch):
 
         url = make_url(uri)
         assert url.database == "aw_pc2" and url.host in {None, "localhost", "127.0.0.1"}
-    application = Flask(__name__)
+    application = Flask(__name__, template_folder=str(Path(__file__).resolve().parent.parent / "src/templates"))
     application.config.update(
         TESTING=True,
         SECRET_KEY="pc2-test",
@@ -260,13 +262,18 @@ def app(monkeypatch):
         RATELIMIT_ENABLED=False,
     )
     db.init_app(application)
-    for bp in (player_matches_bp, players_bp, scout_bp):
+    from src.extensions import limiter
+
+    limiter.init_app(application)
+    limiter.reset()
+    for bp in (player_matches_bp, players_bp, scout_bp, api_bp, teams_bp):
         application.register_blueprint(bp, url_prefix="/api")
     with application.app_context():
         if uri != "sqlite:///:memory:":
             db.drop_all()  # exclusively owned aw_pc2; remove standalone proof seed
         db.create_all()
         yield application
+        limiter.reset()
         db.session.remove()
         db.drop_all()
 
@@ -289,6 +296,8 @@ def surfaces(client, headers, list_id):
     saved = get(f"/api/scout/lists/{list_id}/resolve?season={SEASON}&limit=50")
     boards = get(f"/api/scout/leaderboards?season={SEASON}&limit=50")
     self_boards = get(f"/api/scout/leaderboards?season={SEASON}&source=self&limit=25")
+    mixed_boards = get(f"/api/scout/leaderboards?season={SEASON}&source=mixed&limit=25")
+    boards["leaderboards"].update({"mixed_" + k: v for k, v in mixed_boards["leaderboards"].items()})
     boards["leaderboards"].update({"self_" + k: v for k, v in self_boards["leaderboards"].items()})
     export = client.get(f"/api/scout/export.csv?season={SEASON}", headers=headers)
     assert export.status_code == 200
@@ -311,12 +320,45 @@ def surfaces(client, headers, list_id):
 
 @pytest.mark.parametrize("provider_kind", ["fixtures", "cache"])
 @pytest.mark.parametrize("provider_rollup", [True, False])
-@pytest.mark.parametrize("flags", ["", "scout,season_stats,player_stats"])
+@pytest.mark.parametrize("flags", ["", "scout,season_stats,player_stats,teams"])
 @pytest.mark.parametrize("frozen", ["0", "1"])
 def test_one_mixed_fixture_equal_on_every_surface_before_and_after_rebuild(
     app, monkeypatch, flags, frozen, provider_rollup, provider_kind
 ):
     ids, _user_id, list_id = seed_personas()
+    # Positive-ID roster member with the same mixed shape as the community Kofi.
+    mirror = 93001
+    team = Team.query.filter_by(team_id=9001).one()
+    db.session.add(
+        TrackedPlayer(
+            player_api_id=mirror,
+            team_id=team.id,
+            player_name="Tracked Kofi",
+            birth_date="2000-01-01",
+            is_active=True,
+            data_source="manual",
+        )
+    )
+    for row in PlayerMatchEntry.query.filter_by(player_api_id=ids["Kofi Asante-Reid"]).all():
+        values = {
+            c.name: getattr(row, c.name)
+            for c in PlayerMatchEntry.__table__.columns
+            if c.name not in {"id", "player_api_id"}
+        }
+        db.session.add(PlayerMatchEntry(**values, player_api_id=mirror))
+    db.session.flush()
+    now = datetime.now(UTC)
+    cells = [c for feeder in rollup._FEEDERS for c in feeder(mirror, SEASON, db.session, now)]
+    db.session.add_all([PlayerSeasonTotal(**t) for t in rollup._resolve_totals(cells, now)])
+    db.session.add_all(
+        [
+            ScoutWatchlistEntry(user_account_id=_user_id, player_api_id=mirror),
+            Follow(list_id=list_id, kind="player", selector={"player_api_id": mirror}),
+        ]
+    )
+    ids["Tracked Kofi"] = mirror
+    db.session.commit()
+    monkeypatch.setattr("src.utils.academy_classifier.is_academy_product", lambda *a, **k: True)
     if provider_kind == "cache":
         provider = ids["Provider"]
         FixturePlayerStats.query.filter_by(player_api_id=provider).delete()
@@ -380,6 +422,52 @@ def test_one_mixed_fixture_equal_on_every_surface_before_and_after_rebuild(
                     numbers.get(player_id),
                     expected[player_id],
                 )
+        for path in (
+            f"/api/teams/{team.id}/loans?season={SEASON}",
+            f"/api/teams/{team.id}/loans/season/{SEASON}",
+            f"/api/teams/{team.id}/players?season={SEASON}",
+        ):
+            response = client.get(path)
+            assert response.status_code == 200, (path, response.json)
+            payload = response.json
+            roster = payload if isinstance(payload, list) else payload.get("loans", payload.get("players", []))
+            numbers = {p["player_id"]: _numbers(p) for p in roster}
+            assert numbers[mirror] == expected[mirror], (stage, path, numbers)
+            assert numbers[ids["Provider"]] == expected[ids["Provider"]], (stage, path, numbers)
+            got[path] = numbers
+        from src.services import scout_digest_service as digest
+
+        user = db.session.get(UserAccount, _user_id)
+        entries = ScoutWatchlistEntry.query.filter_by(user_account_id=_user_id).all()
+        cache = {}
+        digest._prime_number_totals(list(ids.values()), cache)
+        watch_updates = [digest._entry_update(e, cache) for e in entries]
+        groups, list_updates = digest._build_list_updates(user, [db.session.get(FollowList, list_id)], {})
+        for label, updates, rendered in (
+            ("watchlist digest", watch_updates, digest._render_digest(user, watch_updates)),
+            ("saved-list digest", list_updates, digest._render_digest(user, [], groups, list_updates)),
+        ):
+            for update in updates:
+                pid = update["entry"].player_api_id
+                if pid == ids["Tobi Olawale"]:
+                    continue
+                snap = update["snapshot"]
+                assert (snap["appearances"], snap["minutes_played"], snap["goals"], snap["assists"]) == expected[pid][
+                    :4
+                ]
+                assert snap["season"] == SEASON
+                assert snap["provenance"]["primary_source"]
+                assert update["card"]["season_line"] in rendered["html"]
+                assert update["card"]["season_line"] in rendered["text"]
+            got[label] = {
+                u["entry"].player_api_id: (
+                    u["snapshot"]["appearances"],
+                    u["snapshot"]["minutes_played"],
+                    u["snapshot"]["goals"],
+                    u["snapshot"]["assists"],
+                )
+                for u in updates
+            }
         compare_rows = []
         player_ids = list(ids.values())
         for offset in range(0, len(player_ids), 4):
@@ -483,7 +571,7 @@ def test_50_row_query_budget_is_constant(app, monkeypatch):
             assert len(response.get_json()["players"]) == size
             counts[f"after{size}"] = len(statements)
         assert counts["after50"] == counts["after1"]
-        assert counts["after50"] <= counts["before50"] + 6
+        assert counts["after50"] <= counts["before50"] + 11
         print("PC2 query counts", counts)
     finally:
         event.remove(db.engine, "before_cursor_execute", record)

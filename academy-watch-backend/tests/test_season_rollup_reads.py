@@ -1060,6 +1060,7 @@ def test_rollup_flag_ignores_junk_keys(monkeypatch):
 
 
 def test_source_breakdown_labels_reported_competitions_and_local_programs(app):
+    _seed_live_player()  # public reported evidence requires a resolvable adult identity
     funding_league = FundingLeague(
         name="Reported Stats League",
         country="England",

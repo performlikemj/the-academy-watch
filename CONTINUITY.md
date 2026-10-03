@@ -31,6 +31,7 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
   an unconditional development step.
 
 ## State
+- **Now (PC2F1):** PR1138 review union in progress from670b194b; conservative public report eligibility first, then roster/digest/entity/scale/source/loss/card/query fixes. See ledgers/CONTINUITY_pc2.md; final delivery authoritative in external logs/PC2F1.final.md. No schema or production/staging rebuild.
 - **Now (2026-10-03 PC2):** Canonical reported rollup/scout equality implemented on feat/pc2-one-set-of-numbers (base PR1131 3d4cf2b1); PG23 + targeted224 + scout fixture102 PASS, browser81 PASS/2 optional SKIP; rebuild resume/undo proven on aw_pc2 (dropped); final fixture-only head gates pending; final gates/delivery authoritative in external logs/PC2.final.md; no schema or production operations. See ledgers/CONTINUITY_pc2.md.
 - **Now (GOLMF3):** PR1135 maintenance recovery race fixed with recover-only validation under the account lock before writes/charging; targeted backend100/real concurrent PostgreSQL2 PASS, scratch DB dropped. Final-head cached validation, pushed SHA and boundedCI receipts in external logs/GOLMF3.final.md. See ledgers/CONTINUITY_golm.md.
 - **Now (GOLMF2):** PR1135 review union implemented: active stream shutdown/refund, write-free refunded/failed retries, paused web recovery and ledger correction; targeted backend96/hook57 PASS, main58ccb8c6 included. Final gated delivery receipts in external logs/GOLMF2.final.md. See ledgers/CONTINUITY_golm.md.

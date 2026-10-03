@@ -29,7 +29,7 @@ from datetime import date
 
 import bleach
 from flask import Blueprint, Response, g, jsonify, request
-from sqlalchemy import Integer, String, and_, case, cast, exists, func, literal, or_, tuple_
+from sqlalchemy import Integer, String, and_, case, cast, exists, func, literal, or_, select, tuple_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import aliased
 from src.auth import _ensure_user_account, _safe_error_payload, require_api_key, require_user_auth
@@ -168,7 +168,7 @@ CSV_HEADER = [
     "primary_source",
 ]
 
-VALID_SOURCES = frozenset({"api", "club", "self"})
+VALID_SOURCES = frozenset({"api", "club", "self", "mixed"})
 API_ROLLUP_SOURCES = ("fixtures", "journey", "apss", "shadow")
 SOURCE_LABELS = {
     "api": "API-reported",
@@ -547,12 +547,20 @@ def _scout_identity_subquery(*, include_local=None):
 
 
 def _base_scout_query(
-    requested_season=None, *, allow_rollup=True, legacy_season=None, include_local=None, adult_filter=True
+    requested_season=None,
+    *,
+    allow_rollup=True,
+    legacy_season=None,
+    include_local=None,
+    adult_filter=True,
+    player_ids=None,
 ):
     """Normalized player-universe rows joined to one season's stats."""
     from src.utils.academy_window import resolve_stats_season, stats_season_with_data
 
     identity = _scout_identity_subquery(include_local=include_local)
+    if player_ids is not None:
+        identity = select(identity).where(identity.c.player_api_id.in_(player_ids)).subquery()
     rollup_enabled = allow_rollup and rollup_reads_enabled("scout")
     if rollup_enabled:
         # Keep the same fixtures-keyed discovery resolver used everywhere else;
@@ -668,7 +676,8 @@ def _base_scout_query(
 
     primary_source = totals.primary_source.label("provenance_primary_source")
     source_category = case(
-        (totals.primary_source.in_(("club", "matches")), literal("club")),
+        (totals.primary_source == "club", literal("club")),
+        (totals.primary_source == "matches", literal("mixed")),
         (totals.primary_source == "user", literal("self")),
         (totals.primary_source.in_(API_ROLLUP_SOURCES), literal("api")),
         (identity.c.player_api_id < 0, literal("self")),
@@ -695,6 +704,7 @@ def _base_scout_query(
             *phase_stats,
             *rollup_fields,
             primary_source,
+            totals.source_breakdown.label("pc2_source_breakdown"),
             source_category,
             totals.pc2_override.label("pc2_override"),
         )
@@ -750,7 +760,7 @@ def _apply_source_filter(query, columns, *, exclude_self_by_default=False):
     if raw_source:
         query = query.filter(columns["source_category"] == raw_source)
     elif exclude_self_by_default:
-        query = query.filter(columns["source_category"] != "self")
+        query = query.filter(columns["source_category"].not_in(("self", "mixed")))
     return query, None
 
 
@@ -859,6 +869,11 @@ def _row_to_dict(row):
         if row.provenance_primary_source == "matches"
         else SOURCE_LABELS[source_category],
         "primary_source": row.provenance_primary_source,
+        **{
+            k: ((row.pc2_source_breakdown or {}).get("matches") or {}).get(k)
+            for k in ("club_confirmed", "self_reported_only")
+            if k in ((row.pc2_source_breakdown or {}).get("matches") or {})
+        },
     }
     if is_rollup_row and not row.rollup_missing:
         payload["provenance"].update(
@@ -1405,7 +1420,9 @@ def scout_compare():
             else {}
         )
 
-        candidate_query, candidate_columns = _base_scout_query(requested_season, adult_filter=False)
+        candidate_query, candidate_columns = _base_scout_query(
+            requested_season, adult_filter=False, player_ids=player_ids
+        )
         candidate_query = candidate_query.filter(candidate_columns["player_api_id"].in_(player_ids))
         candidate_query, source_error = _apply_source_filter(candidate_query, candidate_columns)
         if source_error:
@@ -1655,7 +1672,7 @@ def _watched_player_dicts(player_api_ids, season=None):
     ids = [pid for pid in set(player_api_ids) if pid]
     if not ids:
         return {}
-    query, columns = _base_scout_query(season, include_local=True, adult_filter=False)
+    query, columns = _base_scout_query(season, include_local=True, adult_filter=False, player_ids=ids)
     query = query.filter(columns["player_api_id"].in_(ids))
     rows = filter_public_adult_query(query, columns["player_api_id"]).all()
     players = [_row_to_dict(row) for row in rows]
@@ -1945,9 +1962,8 @@ def scout_export_csv():
     other filters except sort/order. Capped at 1000 rows.
     """
     try:
-        query, columns = _base_scout_query(request.args.get("season") or None, adult_filter=False)
-
         raw_ids = [p.strip() for p in request.args.get("ids", "").split(",") if p.strip()]
+        player_ids = None
         if raw_ids:
             if len(raw_ids) > WATCHLIST_LIMIT:
                 return jsonify({"error": f"At most {WATCHLIST_LIMIT} ids can be exported"}), 400
@@ -1955,6 +1971,10 @@ def scout_export_csv():
                 player_ids = [int(p) for p in raw_ids]
             except ValueError:
                 return jsonify({"error": "ids must be integers"}), 400
+        query, columns = _base_scout_query(
+            request.args.get("season") or None, adult_filter=False, player_ids=player_ids
+        )
+        if raw_ids:
             query = query.filter(columns["player_api_id"].in_(player_ids))
             query, error = _apply_source_filter(query, columns)
             if error:

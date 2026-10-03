@@ -33,6 +33,17 @@ _KEEPER_FIELDS = ("saves", "goals_conceded")
 FULL_MATCH_MINUTES = 90
 
 
+def match_line_input(entry: Mapping) -> dict:
+    """Decode stored display labels once; never alter stored match/grouping keys."""
+    from src.utils.sanitize import display_plain_text
+
+    return {
+        **entry,
+        "opponent": display_plain_text(entry.get("opponent")),
+        "competition": display_plain_text(entry.get("competition")),
+    }
+
+
 def opponent_key(opponent) -> str:
     """Match identity for an opponent label: trim, collapse spaces, lower-case."""
     return " ".join(str(opponent or "").split()).lower()

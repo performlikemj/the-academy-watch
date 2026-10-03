@@ -1017,7 +1017,7 @@ def build_player_rollup(player_api_id, season=None, *, session=None, now=None):
     session = session or db.session
     now = now or datetime.now(UTC)
     cells = [cell for feeder in _FEEDERS for cell in feeder(player_api_id, season, session, now)]
-    reported = reported_totals(session=session, player_ids=[player_api_id], season=season)
+    reported = reported_totals(session=session, player_ids=[player_api_id], season=season, public=False)
     if reported:
         subject = resolve_reported_subject(player_api_id, session)
         if subject is None or subject["is_minor"]:

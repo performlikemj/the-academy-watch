@@ -5,15 +5,18 @@ merged lines as the player page. Raw club/user cells remain evidence, not an
 additive headline. The read projection also covers cells written before PC2.
 """
 
+import json
 from collections import defaultdict
 from datetime import UTC, datetime
 
-from sqlalchemy import and_, cast, column, exists, literal, or_, select, union_all, values
+from flask import has_request_context, request
+from sqlalchemy import and_, cast, column, exists, func, literal, or_, select, type_coerce, union_all
+from sqlalchemy.dialects.postgresql import JSONB
 from src.models.funding import ClubProgram
 from src.models.league import db
 from src.models.player_match_entry import PlayerMatchEntry
 from src.models.season_rollup import PlayerSeasonTotal
-from src.services.match_lines import merge_match_lines, season_totals
+from src.services.match_lines import match_line_input, merge_match_lines, season_totals
 
 SOURCE_MATCHES = "matches"
 PROVIDER_SOURCES = ("fixtures", "journey", "apss", "shadow", "cache")
@@ -42,7 +45,24 @@ ENTRY_KEYS = (
 )
 
 
-def reported_totals(*, session=None, player_ids=None, season=None, identity=None):
+def public_report_ids(ids):
+    """Fresh conservative public policy; memoisation belongs to this request only."""
+    from src.services.public_adult import cached_public_adult_ids
+
+    cache = request.environ.setdefault("pc2_public_adults", {}) if has_request_context() else {}
+    return cached_public_adult_ids(ids, cache)
+
+
+def trusted_entries():
+    return or_(
+        and_(PlayerMatchEntry.source == "club", PlayerMatchEntry.status == "club_confirmed"),
+        and_(PlayerMatchEntry.source == "self", PlayerMatchEntry.status == "self_reported"),
+    )
+
+
+def reported_totals(
+    *, session=None, player_ids=None, season=None, identity=None, public=True, eligible_ids=None, skip_stored=False
+):
     """One narrow source query for the whole batch; no reporter/profile data."""
     session = session or db.session
     query = session.query(*(getattr(PlayerMatchEntry, k) for k in ENTRY_KEYS), ClubProgram.name.label("club_name"))
@@ -58,9 +78,28 @@ def reported_totals(*, session=None, player_ids=None, season=None, identity=None
         query = query.filter(PlayerMatchEntry.season == season)
     if identity is not None:
         query = query.join(identity, identity.c.player_api_id == PlayerMatchEntry.player_api_id)
+    if skip_stored:
+        table = PlayerSeasonTotal.__table__
+        query = query.filter(
+            ~exists(
+                select(1).where(
+                    table.c.player_api_id == PlayerMatchEntry.player_api_id,
+                    table.c.season == PlayerMatchEntry.season,
+                    table.c.level_group == "senior",
+                    or_(
+                        table.c.primary_source.in_(PROVIDER_SOURCES),
+                        table.c.source_breakdown["matches"]["revision"].as_integer() == 2,
+                    ),
+                )
+            )
+        )
+    rows = query.all()
+    if public:
+        eligible_ids = public_report_ids({row.player_api_id for row in rows}) if eligible_ids is None else eligible_ids
+        rows = [row for row in rows if row.player_api_id in eligible_ids]
     grouped = defaultdict(list)
-    for row in query.all():
-        entry = dict(row._mapping)
+    for row in rows:
+        entry = match_line_input(dict(row._mapping))
         entry["_scope"] = (entry["club_program_id"] or 0, entry["club_name"])
         grouped[(entry["player_api_id"], entry["season"])].append(entry)
     result = {}
@@ -86,7 +125,7 @@ def reported_totals(*, session=None, player_ids=None, season=None, identity=None
             "fixtures_minutes": 0,
             "journey_minutes": 0,
             "reconcile_flag": None,
-            "source_breakdown": {SOURCE_MATCHES: total},
+            "source_breakdown": {SOURCE_MATCHES: {**total, "revision": 2}},
             "clubs": [
                 {
                     "id": -club_id,
@@ -104,143 +143,105 @@ def reported_totals(*, session=None, player_ids=None, season=None, identity=None
 
 
 def effective_total(player_id, season, stored=None, *, session=None):
-    """Correct an old reported row without writes; preserve provider headlines."""
+    """Public batch projection shared by scalar routes; no unguarded report reads."""
     if stored is not None and stored.primary_source in PROVIDER_SOURCES:
         return stored
+    return effective_totals([player_id], season, session=session).get(player_id)
+
+
+def effective_totals(player_ids, season, *, session=None):
     session = session or db.session
-    total = reported_totals(session=session, player_ids=[player_id], season=season).get((player_id, season))
-    if total and player_id > 0:
-        stored_provider = (
-            session.query(PlayerSeasonTotal)
-            .filter(
-                PlayerSeasonTotal.player_api_id == player_id,
-                PlayerSeasonTotal.season == season,
-                PlayerSeasonTotal.level_group == "senior",
-                PlayerSeasonTotal.primary_source.in_(PROVIDER_SOURCES),
-            )
-            .one_or_none()
+    ids = set(player_ids)
+    if not ids:
+        return {}
+    identity = (
+        select(PlayerSeasonTotal.player_api_id)
+        .where(PlayerSeasonTotal.player_api_id.in_(ids))
+        .union(select(PlayerMatchEntry.player_api_id).where(PlayerMatchEntry.player_api_id.in_(ids)))
+        .subquery("pc2_batch_identity")
+    )
+    projected = scout_totals_projection(identity, season, session=session)
+    rows = session.execute(
+        select(projected).where(
+            projected.c.player_api_id.in_(ids), projected.c.season == season, projected.c.level_group == "senior"
         )
-        if stored_provider:
-            return stored_provider
+    ).mappings()
+    return {
+        row["player_api_id"]: PlayerSeasonTotal(**{k: v for k, v in row.items() if k != "pc2_override"}) for row in rows
+    }
+
+
+def _json_relation(rows, names, table, session):
+    """One JSON bind, rather than one bind per field/player (Postgres limit65535)."""
+    payload = json.dumps(rows, default=lambda v: v.isoformat() if hasattr(v, "isoformat") else float(v))
+    if session.get_bind().dialect.name == "postgresql":
+        return (
+            func.jsonb_to_recordset(cast(literal(payload), JSONB))
+            .table_valued(*(column(k, table.c[k].type) for k in names))
+            .render_derived(with_types=True)
+            .alias("pc2_corrected")
+        )
+    items = func.json_each(literal(payload)).table_valued("value").alias("pc2_json")
+    return select(
+        *(type_coerce(func.json_extract(items.c.value, "$." + k), table.c[k].type).label(k) for k in names)
+    ).subquery("pc2_corrected")
+
+
+def scout_totals_projection(identity, season, *, session=None):
+    """Correct only legacy/missing report totals; canonical cells stay SQL-owned.
+
+    Public eligibility covers both stored and newly projected reports. Provider
+    figures retain legacy age rules. No raw history is loaded for rebuilt cells.
+    """
+    session = session or db.session
+    table = PlayerSeasonTotal.__table__
+    scope = and_(table.c.season == season, table.c.level_group == "senior")
+    report_sources = ("club", "user", "matches")
+    stored = session.execute(
+        select(table.c.player_api_id, table.c.primary_source, table.c.source_breakdown)
+        .join(identity, identity.c.player_api_id == table.c.player_api_id)
+        .where(scope)
+    ).all()
+    providers = {r.player_api_id for r in stored if r.primary_source in PROVIDER_SOURCES}
+    canonical = {
+        r.player_api_id
+        for r in stored
+        if r.primary_source in report_sources and ((r.source_breakdown or {}).get("matches") or {}).get("revision") == 2
+    }
+    candidates = set(
+        session.execute(
+            select(PlayerMatchEntry.player_api_id)
+            .join(identity, identity.c.player_api_id == PlayerMatchEntry.player_api_id)
+            .where(PlayerMatchEntry.season == season, trusted_entries())
+            .distinct()
+        ).scalars()
+    )
+    report_ids = candidates | {r.player_api_id for r in stored if r.primary_source in report_sources}
+    eligible = public_report_ids(report_ids)
+    stale_ids = (candidates & eligible) - providers - canonical
+    totals = (
+        reported_totals(session=session, player_ids=stale_ids, season=season, eligible_ids=eligible)
+        if stale_ids
+        else {}
+    )
+    positive = {pid for pid, _ in totals if pid > 0}
+    if positive:
         from src.services.season_rollup_service import provider_totals_batch
 
-        provider = provider_totals_batch([player_id], season, session=session).get(player_id)
-        if provider:
-            return PlayerSeasonTotal(**provider)
-    if not total and player_id > 0 and stored is None:
-        # A last report can be removed while the real cache figures remain.
-        # Read a cache headline written by the same canonical refresh path.
-        stored = (
-            session.query(PlayerSeasonTotal)
-            .filter_by(
-                player_api_id=player_id,
-                season=season,
-                level_group="senior",
-                primary_source="cache",
-            )
-            .one_or_none()
-        )
-    return (
-        PlayerSeasonTotal(**total)
-        if total
-        else stored
-        if stored and stored.primary_source in PROVIDER_SOURCES
-        else None
-    )
-
-
-def scout_totals_projection(identity, season):
-    """Expose corrected reported figures to SQL BEFORE filtering/ranking/LIMIT.
-
-    This temporary VALUES relation is request-owned, restricted to discovery's
-    existing identity universe. Provider rows retain their stored total. There
-    is one source read regardless of page size, never a per-row refresh/write.
-    """
-    table = PlayerSeasonTotal.__table__
-    names = [
-        "id",
-        "player_api_id",
-        "season",
-        "level_group",
-        *STAT_KEYS,
-        "avg_rating",
-        "primary_source",
-        "fixtures_minutes",
-        "journey_minutes",
-        "reconcile_flag",
-        "computed_at",
-    ]
-    totals = reported_totals(identity=identity, season=season)
-    if not totals:
-        return (
-            select(*table.c, literal(False).label("pc2_override"))
-            .where(
-                or_(
-                    table.c.season != season,
-                    table.c.level_group != "senior",
-                    table.c.primary_source.not_in(("club", "user", "matches")),
-                )
-            )
-            .subquery("pc2_stored_totals")
-        )
-    positive_ids = {pid for pid, _season in totals if pid > 0}
-    if positive_ids:
-        stored_providers = set(
-            db.session.execute(
-                select(table.c.player_api_id).where(
-                    table.c.player_api_id.in_(positive_ids),
-                    table.c.season == season,
-                    table.c.level_group == "senior",
-                    table.c.primary_source.in_(PROVIDER_SOURCES),
-                )
-            ).scalars()
-        )
-        if missing := positive_ids - stored_providers:
-            from src.services.season_rollup_service import provider_totals_batch
-
-            for pid, provider in provider_totals_batch(missing, season).items():
-                totals[(pid, season)] = provider
-    # Keep the provider protection in SQL, including for identities whose
-    # current report rows were loaded above. Neither total is ever added.
-    projected = (
-        values(*(column(k, table.c[k].type) for k in names))
-        .data(
-            [
-                tuple(
-                    -index if k == "id" else cast(literal(None), table.c[k].type) if t[k] is None else t[k]
-                    for k in names
-                )
-                for index, t in enumerate(totals.values(), start=1)
-            ]
-        )
-        .cte("pc2_reported_totals")
-    )
-    has_provider = exists(
-        select(1).where(
-            table.c.player_api_id == projected.c.player_api_id,
-            table.c.season == projected.c.season,
-            table.c.level_group == "senior",
-            table.c.primary_source.in_(PROVIDER_SOURCES),
-        )
-    )
+        for pid, provider in provider_totals_batch(positive, season, session=session).items():
+            totals[(pid, season)] = provider
+    names = list(table.c.keys())
+    keep_report = and_(table.c.player_api_id.in_(eligible & canonical & candidates), scope)
     existing = select(
-        *(table.c[k] for k in names),
-        and_(
-            table.c.player_api_id.in_([key[0] for key in totals]),
-            table.c.season == season,
-            table.c.level_group == "senior",
-        ).label("pc2_override"),
-    ).where(
-        or_(
-            table.c.primary_source.not_in(("club", "user", "matches")),
-            table.c.season != season,
-            table.c.level_group != "senior",
-            table.c.primary_source.in_(PROVIDER_SOURCES),
-        )
+        *table.c, and_(table.c.player_api_id.in_(positive | (eligible & canonical)), scope).label("pc2_override")
+    ).where(or_(~scope, table.c.primary_source.not_in(report_sources), keep_report))
+    if not totals:
+        return existing.subquery("pc2_effective_totals")
+    rows = [{k: -i if k == "id" else t.get(k) for k in names} for i, t in enumerate(totals.values(), 1)]
+    projected = _json_relation(rows, names, table, session)
+    return union_all(existing, select(*projected.c, literal(True).label("pc2_override"))).subquery(
+        "pc2_effective_totals"
     )
-    return union_all(
-        existing, select(*(projected.c[k] for k in names), literal(True).label("pc2_override")).where(~has_provider)
-    ).subquery("pc2_effective_totals")
 
 
 def saved_shadow_totals(player_ids, requested_season=None):
@@ -270,7 +271,15 @@ def saved_shadow_totals(player_ids, requested_season=None):
     grouped = defaultdict(list)
     for row in shadow_query.all():
         grouped[(row.player_api_id, row.season)].append(row)
-    reported = reported_totals(player_ids=ids, season=season)
+    eligible = public_report_ids(ids)
+    backed = set(
+        db.session.execute(
+            select(PlayerMatchEntry.player_api_id, PlayerMatchEntry.season)
+            .where(PlayerMatchEntry.player_api_id.in_(ids), trusted_entries())
+            .distinct()
+        ).all()
+    )
+    reported = reported_totals(player_ids=ids, season=season, eligible_ids=eligible, skip_stored=True)
     result = {}
     for player_id in ids:
         seasons = {s for pid, s in set(stored) | set(grouped) | set(reported) if pid == player_id}
@@ -288,6 +297,13 @@ def saved_shadow_totals(player_ids, requested_season=None):
                     else None
                     for k in STAT_KEYS
                 }
+            elif (
+                source in {"club", "user", "matches"}
+                and player_id in eligible
+                and scope in backed
+                and ((total.source_breakdown or {}).get("matches") or {}).get("revision") == 2
+            ):
+                pass  # canonical stored report figures; eligibility is fresh
             elif scope in reported:
                 source = reported[scope]["primary_source"]
                 figures = {k: reported[scope][k] for k in STAT_KEYS}
@@ -295,12 +311,24 @@ def saved_shadow_totals(player_ids, requested_season=None):
                 source, figures = None, None
         result[player_id] = {
             **({k if k != "minutes" else "minutes_played": v for k, v in figures.items()} if figures else {}),
+            "season": target,
             "provenance": {
+                **{
+                    k: v
+                    for k, v in (
+                        ((total.source_breakdown or {}).get("matches") or {})
+                        if total and source == total.primary_source
+                        else (reported.get(scope, {}).get("source_breakdown") or {}).get("matches", {})
+                    ).items()
+                    if k in {"club_confirmed", "self_reported_only"}
+                },
                 "primary_source": source,
                 "source_category": "api"
                 if source in PROVIDER_SOURCES
                 else "self"
                 if source == "user"
+                else "mixed"
+                if source == "matches"
                 else "club"
                 if source
                 else "api",

@@ -273,8 +273,8 @@ const players = {
 
 // Corrected /scout/players totals use the same merged lines as the player page.
 const scoutRows = [
-  { id: 1, player_id: -12, player_name: 'Kofi Asante-Reid', position: 'Right-back', primary_team_name: 'Quillmere Athletic', appearances: 1, minutes_played: 90, provenance: { source: 'club' }, player_photo: null, approved_photo_url: '/fixture-photos/portrait.svg', bio_line: 'Right-back at Quillmere Athletic.', club_confirmed: true },
-  { id: 2, player_id: -15, player_name: 'Reuben Castellane', position: 'Midfielder', primary_team_name: 'Quillmere Athletic', appearances: totalsOf(players['-15'].lines).appearances, minutes_played: totalsOf(players['-15'].lines).minutes, provenance: { primary_source: 'matches' }, player_photo: '/fixture-photos/portrait.svg' },
+  { id: 1, player_id: -12, player_name: 'Kofi Asante-Reid', position: 'Right-back', primary_team_name: 'Quillmere Athletic', appearances: 1, minutes_played: 90, provenance: { source: 'club' }, player_photo: null, approved_photo_url: '/fixture-photos/portrait.svg', bio_line: 'Right-back at Quillmere Athletic. Tom & Jerry FC captain; fast > strong.', club_confirmed: true },
+  { id: 2, player_id: -15, player_name: 'Reuben Castellane', position: 'Midfielder', primary_team_name: 'Quillmere Athletic', appearances: totalsOf(players['-15'].lines).appearances, minutes_played: totalsOf(players['-15'].lines).minutes, provenance: { primary_source: 'matches', source_category: 'mixed', source_label: 'Merged match entries', club_confirmed: totalsOf(players['-15'].lines).club_confirmed, self_reported_only: totalsOf(players['-15'].lines).self_reported_only }, player_photo: '/fixture-photos/portrait.svg' },
   { id: 3, player_id: -14, player_name: 'Olu Adeyemi-Clarke', position: 'Winger', primary_team_name: null, appearances: 0, minutes_played: 0, provenance: { source: 'self' }, player_photo: null, contactable: false },
   { id: 4, player_id: -17, player_name: 'Maximilian-Alexander Oluwaseun Featherstonehaugh-Abernathy', position: 'Attacking midfielder', primary_team_name: 'Quillmere Athletic & Wendleshire Community Sports Association', appearances: 2, minutes_played: 180, provenance: { source: 'self' }, player_photo: null },
   { id: 5, player_id: -19, player_name: 'Tamsin Holloway', position: 'Goalkeeper', primary_team_name: 'Quillmere Athletic', appearances: 3, minutes_played: 270, provenance: { source: 'club' }, player_photo: null },
@@ -584,7 +584,8 @@ for (const viewport of VIEWPORTS) {
       await expect(cards).toHaveCount(scoutRows.length)
       const kofi = cards.filter({ hasText: 'Kofi Asante-Reid' })
       await expect(kofi.getByRole('link', { name: 'Kofi Asante-Reid' })).toHaveAttribute('href', '/players/-12')
-      await expect(kofi).toContainText('Right-back at Quillmere Athletic.')
+      await expect(kofi).toContainText('Right-back at Quillmere Athletic. Tom & Jerry FC captain; fast > strong.')
+      await expect(kofi).not.toContainText('&amp;')
       for (const name of ['Kofi Asante-Reid', 'Reuben Castellane', 'Tamsin Holloway']) {
         const card = cards.filter({ hasText: name })
         const row = scoutRows.find((p) => p.player_name === name)
