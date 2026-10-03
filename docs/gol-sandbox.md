@@ -446,8 +446,10 @@ serialization 177/221 ms, and end-to-end 718/1000 ms for 100k/200k rows. Child p
 RSS is approximately 108/133 MiB for that workload. The full-app measurement
 `python scripts/benchmark_gol_application.py --rows 200000` preloads Flask and
 runs two workers with two concurrent requests each under the same container
-limits; it asserts no OOM and bounded total memory, allowing busy/resource
-refusals. It uses synthetic eligibility/frames and no database/provider calls. Add
+limits; both workers first verify the rows/columns of an ordinary stored-table
+read, then it asserts no OOM, no worker loss and bounded total memory. Every
+pressure response must be a success or a fixed deadline/busy/size refusal; a
+slower host can reach the hard deadline on every large row-wise call. It uses synthetic eligibility/frames and no database/provider calls. Add
 `--warm-caches` to populate all ten frame caches in both workers first. That
 pressure case peaked near 795 MiB locally: one analysis completed, two reached
 the reduced RSS budget and one received busy, with no container OOM or worker

@@ -1228,3 +1228,5 @@ cd academy-watch-frontend && pnpm test:e2e
 - **2026-10-01 P2 C2:** in progress on p2/c2-highlights; two-key standalone highlights, default OFF; see `ledgers/CONTINUITY_p2-c2.md`.
 
 - SBX2F2 active: PR1139 review union; shared admission/wire shape registry + generated parity, readiness transient handling, output exception boundary, cached health and operational notes. No frontend/migration/production change; assistant remains under maintenance. Receipts external logs/SBX2F2.final.md and SBX2F2.report.md.
+
+- SBX2F2 CI follow-up:13ba3f40 memory pressure had only documented busy/deadline refusals, no OOM/worker loss. Separate exact ordinary-table success controls from bounded pressure-response checks; retain all Linux policy controls/runtime limits. Final-head gates/CI receipts supersede initial13ba receipts externally.
