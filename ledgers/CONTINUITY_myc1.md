@@ -22,3 +22,16 @@
 - Validation: revised 429 bootstrap contract targeted desktop/mobile 2 PASS; ESLint PASS. CI now runs MYC1+staff specs after the existing opportunity regressions. Final delivery remains authoritative externally.
 - Candidate0bd7763a: browser49 PASS; four cached gates PASS (5028 backend / 1714 skipped; Node319; Ruff631; lint0 errors). CI did not enqueue because main advanced to53127a54 and PR became CONFLICTING (GitHub suppresses pull_request workflows with merge conflicts).
 - Refresh: merge main53127a54; only AGENTS.md/CONTINUITY.md conflict, preserve both histories/patterns. MYC1 production sources unchanged; new main includes GOL maintenance. Final merge head needs four gates/browser/push and CI bounded25 minutes.
+
+## MYC1F1 review union
+
+- Status: in-progress; X1 and O1–O6 accepted from independent findings/probes; cross files absent per lead.
+- Main8696a4de merged as d3b130fe; only master ledger conflict, both histories retained.
+- Constraints: bounded15s reads including bodies, no timeout-to-OFF, old completions ignored, unchanged successful bootstrap/request counts. Silent refresh failure preserves workspace; working clubs remain available during failed-club retry.
+- Now: implementation + reversed regression probes; targeted checks only.
+- Next: final main check, commit, four cached gates + one lane browser run, screenshots, push/CI/cleanup.
+- Final delivery ledger: ~/codex-runs/aw-redesign/logs/MYC1F1.final.md.
+- Validation milestone: deadline/bootstrap Node6 PASS; reversed browser probes16 PASS (all six unanswered sources, bodies, late answers, mutation/refresh failures, per-club retry, combined retry, accessible presentation and live revocation). Targeted ESLint identified only redundant browser global declarations; removed.
+- Targeted follow-up: failed-club URL7/9 + preserved unrelated draft4 PASS; existing desktop/mobile bootstrap2 PASS; changed-file ESLint PASS; diff check clean. Current origin/main8696a4de is included.
+- Review disposition: X1/O3 deadline FIXED; O1 silent refresh FIXED; O2 per-club availability FIXED; O4 neutral single alert/44px Retry FIXED; O5 discovery/eligibility retry dedup FIXED; O6 gaps FIXED (including live403 revocation). No dismissed findings.
+- State: implementation and targeted validation complete. Final-head governed gates, full lane browser/screenshots, push, boundedCI and cleanup are recorded in external MYC1F1.final.md after completion; do not alter tested head for delivery receipts.

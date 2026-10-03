@@ -31,6 +31,7 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
   an unconditional development step.
 
 ## State
+- **Now (2026-10-03 MYC1F1):** review union implemented on PR1137; main8696a4de merged. Targeted deadline/bootstrap6, browser16 + strengthened preservation4 and existing bootstrap2 PASS. Silent-refresh workspace, per-club recovery, bounded entry/body reads/bootstrap, accessible Retry and deduplicated retries covered; see ledgers/CONTINUITY_myc1.md. Final receipts authoritative in ~/codex-runs/aw-redesign/logs/MYC1F1.final.md.
 - **Now (2026-10-03 MYC1):** club reload readiness/error gating implemented on fix/my-club-load-race; targeted role/slow/failure/selective-retry controls pass. Final-head validation/push/ready PR/CI and cleanup authoritative in ~/codex-runs/aw-redesign/logs/MYC1.final.md; see ledgers/CONTINUITY_myc1.md.
 - **Now (2026-10-03 C2R3):** reviewed eed4b1c0 refreshed with origin/main3949cbac (contains PCf18abf6b and loader3949cbac). Sole CONTINUITY conflict keeps both histories; viewer-boundary10PASS, C2 line/blob identity unchanged. Final four cached gates/C2+UXBF1+PC browser/PG deletes-nothing/push/CI authoritative in external logs/C2R3.final.md; proof appended C2R.identity.md.
 - **Now (2026-10-03 C2F9):** suppress unknown/initial failed flag panels in all four embedded highlights consumers; dedicated approvals retains error/Retry. Restore main UXBF1 spec; exact final gates/browser/push/CI receipts external logs/C2F9.final.md.

@@ -1,4 +1,5 @@
 import { loadFeatures, peekFeatures } from './features.js'
+import { readWithDeadline } from './read-deadline.js'
 import { saveBlobAs } from './download.js'
 import {
     normalizeNewsletterIds,
@@ -1453,8 +1454,8 @@ export class APIService {
         })
     }
 
-    static async getMyClubClaims() {
-        return this.request('/me/club-claims')
+    static async getMyClubClaims(options = {}) {
+        return this.request('/me/club-claims', options)
     }
 
     static async verifyClubClaimProof(claimId, { proof_url }) {
@@ -1464,13 +1465,13 @@ export class APIService {
         })
     }
 
-    static async getMyClub() {
-        return this.request('/me/club')
+    static async getMyClub(options = {}) {
+        return this.request('/me/club', options)
     }
 
     // ── Verified club console ───────────────────────────────────────
-    static async getClubRoster(programId, squadId) {
-        return this.request(`/club/${encodeURIComponent(programId)}/roster${squadId === undefined ? '' : `?squad_id=${encodeURIComponent(squadId)}`}`)
+    static async getClubRoster(programId, squadId, options = {}) {
+        return this.request(`/club/${encodeURIComponent(programId)}/roster${squadId === undefined ? '' : `?squad_id=${encodeURIComponent(squadId)}`}`, options)
     }
 
     static async getClubProfile(programId) {
@@ -2029,8 +2030,8 @@ export class APIService {
         })
     }
 
-    static async getMyProgramClaims() {
-        return this.request('/funding/claims/me')
+    static async getMyProgramClaims(options = {}) {
+        return this.request('/funding/claims/me', options)
     }
 
     static async getProgram(slug) {
@@ -3492,7 +3493,7 @@ let pendingFeatures = null
 
 function fetchFeatures() {
     if (pendingFeatures) return pendingFeatures
-    pendingFeatures = APIService.request('/features').then(value => {
+    pendingFeatures = readWithDeadline(signal => APIService.request('/features', { signal })).then(value => {
         lastFeatures = { value, fetchedAt: Date.now() }
         return value
     }).finally(() => { pendingFeatures = null })

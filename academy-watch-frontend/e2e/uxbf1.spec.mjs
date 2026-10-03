@@ -194,7 +194,7 @@ for (const [width, height, size] of [[1440, 900, 'desktop'], [390, 844, 'mobile'
       const evidence = await fixture(page, { role: 'club-owner', featuresStatus: 429 })
       await page.goto('/my-club?view=recruiting')
       // Club entry checks this shared bootstrap before opening any console page.
-      await expect(page.getByRole('alert')).toContainText("We couldn't check your club console access.")
+      await expect(page.getByRole('alert')).toContainText("We couldn't load your club. Try again.")
       await expect(page.getByRole('button', { name: 'Retry', exact: true })).toBeVisible()
       await expect(page.getByRole('heading', { name: 'Represent a club?' })).toHaveCount(0)
       await expect(page.getByRole('heading', { name: 'The next player. The right place.' })).toHaveCount(0)

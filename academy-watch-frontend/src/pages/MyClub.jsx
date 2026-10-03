@@ -16,6 +16,7 @@ import {
   X,
 } from 'lucide-react'
 import { APIService } from '@/lib/api'
+import { readWithDeadline } from '@/lib/read-deadline'
 import { useAuth, useAuthUI } from '@/context/AuthContext'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -313,6 +314,7 @@ function AuthenticatedMyClub() {
   const activeTokenRef = useRef(auth?.token)
   const dataRequestRef = useRef(0)
   const eligibilityRequestRef = useRef(0)
+  const eligibilityStateRef = useRef(consoleEligibility)
   const clubSearchRequestRef = useRef(0)
   const verifyRequestRef = useRef(0)
   const verifyCloseTimerRef = useRef(null)
@@ -323,6 +325,8 @@ function AuthenticatedMyClub() {
       activeTokenRef.current = null
     }
   }, [auth?.token])
+
+  useLayoutEffect(() => { eligibilityStateRef.current = consoleEligibility }, [consoleEligibility])
 
   const clearVerifyCloseTimer = useCallback(() => {
     if (verifyCloseTimerRef.current) {
@@ -338,12 +342,14 @@ function AuthenticatedMyClub() {
     if (!expectedToken) return false
     const requestId = dataRequestRef.current + 1
     dataRequestRef.current = requestId
-    if (showLoading) setLoading(true)
-    setDataError(false)
+    if (showLoading) {
+      setLoading(true)
+      setDataError(false)
+    }
     try {
       const results = await Promise.allSettled([
-        APIService.getMyClubClaims(),
-        APIService.getMyClub(),
+        readWithDeadline(signal => APIService.getMyClubClaims({ signal })),
+        readWithDeadline(signal => APIService.getMyClub({ signal })),
       ])
       if (dataRequestRef.current !== requestId || activeTokenRef.current !== expectedToken) return false
       const failure = results.find(result => result.status === 'rejected')
@@ -355,7 +361,7 @@ function AuthenticatedMyClub() {
       return true
     } catch (error) {
       if (dataRequestRef.current === requestId && activeTokenRef.current === expectedToken) {
-        setDataError(true)
+        if (showLoading) setDataError(true)
         setMessage({ type: 'error', text: error.body?.error || error.message || 'Failed to load club data' })
       }
       return false
@@ -386,7 +392,7 @@ function AuthenticatedMyClub() {
     let cancelled = false
     const timer = setTimeout(async () => {
       try {
-        const response = await APIService.getMyProgramClaims()
+        const response = await readWithDeadline(signal => APIService.getMyProgramClaims({ signal }))
         if (!cancelled && activeTokenRef.current === auth.token) {
           setProgramClaims(Array.isArray(response?.claims) ? response.claims : [])
           setProgramClaimsLoaded(true)
@@ -422,7 +428,7 @@ function AuthenticatedMyClub() {
     if (!auth?.token || staffFlag !== true) return undefined
     let cancelled = false
     const expectedToken = auth.token
-    APIService.request('/me/club-access').then((data) => {
+    readWithDeadline(signal => APIService.request('/me/club-access', { signal })).then((data) => {
       if (cancelled || activeTokenRef.current !== expectedToken) return
       setStaffPrograms((Array.isArray(data?.programs) ? data.programs : [])
         .filter((row) => Number.isInteger(Number(row?.program?.id)))
@@ -449,14 +455,18 @@ function AuthenticatedMyClub() {
     const requestId = ++eligibilityRequestRef.current
     const expectedToken = auth?.token
     const timer = setTimeout(async () => {
-      setConsoleEligibility({ candidates: consoleCandidates, pending: consoleCandidates.length > 0, allowed: [], deniedProgramIds: [], erroredProgramIds: [] })
-      const allowed = []
+      // A retried discovery read can retain grants for unchanged claim objects.
+      // Revoked grants have already been removed by handleConsoleAccessDenied.
+      const retained = eligibilityStateRef.current.allowed.filter(({ programClaim }) => consoleCandidates.includes(programClaim))
+      setConsoleEligibility({ candidates: consoleCandidates, pending: consoleCandidates.length > 0, allowed: retained, deniedProgramIds: [], erroredProgramIds: [] })
+      const allowed = [...retained]
       const deniedProgramIds = []
       const erroredProgramIds = []
       for (const programClaim of consoleCandidates) {
+        if (retained.some(row => row.programClaim === programClaim)) continue
         const programId = Number(programClaim.program.id)
         try {
-          const roster = await APIService.getClubRoster(programId)
+          const roster = await readWithDeadline(signal => APIService.getClubRoster(programId, undefined, { signal }))
           if (cancelled || activeTokenRef.current !== expectedToken) return
           allowed.push({ programClaim, roster })
         } catch (error) {
@@ -764,7 +774,7 @@ function AuthenticatedMyClub() {
     for (const programClaim of retryClaims) {
       const programId = Number(programClaim.program.id)
       try {
-        const roster = await APIService.getClubRoster(programId)
+        const roster = await readWithDeadline(signal => APIService.getClubRoster(programId, undefined, { signal }))
         if (activeTokenRef.current !== expectedToken || eligibilityRequestRef.current !== requestId) return
         allowed.push({ programClaim, roster })
       } catch (error) {
@@ -784,7 +794,10 @@ function AuthenticatedMyClub() {
     setSelectedProgramId((current) => current ?? allowed[0]?.programClaim?.program?.id ?? null)
   }, [consoleCandidates, auth?.token, consoleEligibility.erroredProgramIds, consoleEligibility.pending])
 
+  const accessRetryRef = useRef(false)
   const retryClubAccess = () => {
+    if (accessRetryRef.current) return
+    accessRetryRef.current = true
     if (dataError || !hasLoadedData) {
       setMessage(null)
       refreshData({ showLoading: true })
@@ -800,7 +813,9 @@ function AuthenticatedMyClub() {
       setStaffProgramsError(false)
       setStaffProgramsAttempt(current => current + 1)
     }
-    retryConsoleEligibility()
+    // Discovery changes the candidate snapshot and triggers its eligibility pass.
+    // Do not start a competing roster retry against the old snapshot.
+    if (!programClaimsError && !staffFlagState.error && !staffProgramsError) retryConsoleEligibility()
   }
 
   const pendingAffiliationIds = new Set()
@@ -839,9 +854,12 @@ function AuthenticatedMyClub() {
   // Tie eligibility to the exact candidate snapshot: a newly discovered program
   // must not render an empty state in the paint before its effect starts checking.
   const accessPending = loading || loadedToken !== auth.token || !discoverySettled
-    || consoleEligibility.candidates !== consoleCandidates || consoleEligibility.pending
+    || consoleEligibility.candidates !== consoleCandidates || (consoleEligibility.pending && !activeConsoleProgram)
   const accessError = dataError || !hasLoadedData || programClaimsError || staffFlagState.error
-    || staffProgramsError || consoleEligibility.erroredProgramIds.length > 0
+    || staffProgramsError || (!activeConsoleProgram && consoleEligibility.erroredProgramIds.length > 0)
+  useEffect(() => {
+    if (!accessPending) accessRetryRef.current = false
+  }, [accessPending])
   const showConsole = !accessPending && !accessError && Boolean(activeConsoleProgram)
   const activeProgramId = showConsole ? Number(activeConsoleProgram.programClaim.program.id) : null
 
@@ -884,16 +902,16 @@ function AuthenticatedMyClub() {
           </Button>
         </header>
 
-        {statusAlert}
+        {!accessError && statusAlert}
 
         {!accessPending && accessError ? (
           <Alert className="border-warn/30 bg-warn/5">
             <AlertCircle className="h-4 w-4 text-gold-text" />
-            <AlertDescription className="flex flex-wrap items-center gap-1 text-gold-text">
-              We couldn&apos;t check your club console access.
+            <AlertDescription className="flex flex-wrap items-center gap-3 text-gold-text">
+              We couldn&apos;t load your club. Try again.
               <Button
-                variant="link"
-                className="h-auto p-0 text-gold-text underline"
+                variant="outline"
+                className="min-h-11 min-w-20 text-gold-text"
                 onClick={retryClubAccess}
               >
                 Retry
