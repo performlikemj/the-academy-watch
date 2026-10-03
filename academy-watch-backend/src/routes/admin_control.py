@@ -110,10 +110,8 @@ def hide_dark_control_routes():
                 ):
                     continue
                 copied = candidate.empty()
-                # --- p2-c1 begin --- preserve the inherited dark OPTIONS contract
-                if candidate.methods is not None:
-                    copied.methods = candidate.methods.copy()
-                # --- p2-c1 end ---
+                # Preserve exact Allow ordering when rematching a dark route.
+                copied.methods = candidate.methods
                 # Flask adds this attribute after Werkzeug constructs the rule.
                 copied.provide_automatic_options = getattr(candidate, "provide_automatic_options", False)
                 visible_rules.append(copied)

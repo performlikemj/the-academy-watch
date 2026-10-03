@@ -18,6 +18,19 @@ export function nextWindowIndex(currentTime, windows, currentIdx) {
 }
 
 export class APIService {
+    // --- p2-c2 begin ---
+    static highlightClipUrl(path) {
+        if (!/^\/api\/highlights\/[a-f0-9-]{36}\/clip$/.test(path || '')) throw new Error('Invalid highlight URL')
+        return `${API_BASE_URL}${path.slice(4)}`
+    }
+    static async highlightPreviewUrl(path) {
+        if (!/^\/api\/(?:me\/highlight-requests\/[a-f0-9-]{36}|club\/\d+\/matches\/\d+\/highlights\/[a-f0-9-]{36})\/preview$/.test(path || '')) throw new Error('Invalid highlight preview')
+        const result = await this.request(`${path.slice(4)}?transport=url`)
+        const url = new URL(result.url)
+        if (!['https:', 'http:'].includes(url.protocol)) throw new Error('Highlight unavailable')
+        return url.href
+    }
+    // --- p2-c2 end ---
     // --- p2-b3 begin ---
     static adminControlRead(path) { return this.request(path, {}, { admin: true }) }
     static adminControlAction(path, payload) { return this.request(path, { method: 'POST', body: JSON.stringify(payload) }, { admin: true }) }

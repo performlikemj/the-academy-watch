@@ -1,4 +1,7 @@
 import { CleatLoader } from '@/components/CleatLoader'
+// --- p2-c2 begin ---
+import { HighlightApprovals } from '@/components/highlights/HighlightApprovals'
+// --- p2-c2 end ---
 import { useState, useEffect, useMemo, useCallback, useRef, Fragment, lazy, Suspense } from 'react'
 import { BrowserRouter as Router, Routes, Route, Link, Navigate, useLocation, useParams, useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button.jsx'
@@ -4158,6 +4161,9 @@ function AppRoutes() {
         <Route key={path} path={LEGACY_PUBLIC_PAGES ? path.replace(':id', path.startsWith('/academy/') ? ':cohortId' : path.startsWith('/newsletters/') ? ':newsletterId' : ':id') : path} element={LEGACY_PUBLIC_PAGES ? <Suspense fallback={<CleatLoader className="min-h-[65vh]" />}>{legacyPublicElements[index]}</Suspense> : <LegacyPublicRedirect />} />
       ))}
       <Route path="/" element={<HomePage />} />
+      {/* --- p2-c2 begin --- */}
+      <Route path="/highlight-approvals" element={<HighlightApprovals />} />
+      {/* --- p2-c2 end --- */}
       <Route path="/clubs" element={<ClubsPage />} />
       {/* --- p2-b2 begin --- */}
       <Route path="/opportunities" element={<OpportunitiesPage />} />
