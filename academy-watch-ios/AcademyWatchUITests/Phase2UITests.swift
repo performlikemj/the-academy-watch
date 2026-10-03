@@ -536,6 +536,15 @@ final class Phase2UITests: XCTestCase {
             app.terminate()
         }
     }
+    func testVisualOnlyPreviewCannotMaskProductionOverride() {
+        app.launchArguments = ["-logoFixtureSeconds", "12", "-logoFixtureReduceMotion"]
+        app.launchEnvironment["ACADEMY_LOCAL_API_URL"] = "https://api.theacademywatch.com/api"
+        app.launch()
+        XCTAssertTrue(app.staticTexts["developer-api-error"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.otherElements["logo-loader"].exists)
+        capture("I1F10-visual-preview-production-override-refused")
+    }
+
     func testLoadingFeedbackExposesFirstVisitTitleDetailAndWaitTime() {
         app.launchArguments = ["-logoFixtureSeconds", "12", "-logoFixtureReduceMotion"]
         app.launch()

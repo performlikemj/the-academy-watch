@@ -222,7 +222,7 @@ struct WingLiftLoadingView: View {
     }
 
     #if DEBUG
-    static func fixtureElapsedSeconds(from arguments: [String]) -> Int? {
+    nonisolated static func fixtureElapsedSeconds(from arguments: [String]) -> Int? {
         guard let i = arguments.firstIndex(of: "-logoFixtureSeconds"),
               arguments.indices.contains(i + 1), let seconds = Int(arguments[i + 1])
         else { return nil }

@@ -189,6 +189,18 @@ struct APIClient: GolAPIClientProtocol, PlayerClubAPIClientProtocol, ScoutAPICli
     static var offlineFixtureActive: Bool {
         #if DEBUG && targetEnvironment(simulator)
         return Phase2Fixtures.active || FloodlightPreview.isActive || PlayerClubExperienceFixtures.mode != nil
+            || visualFixtureActive()
+        #else
+        return false
+        #endif
+    }
+
+    /// Standalone evidence roots are visual-only; their clients never reach URLSession.
+    static func visualFixtureActive(arguments: [String] = ProcessInfo.processInfo.arguments) -> Bool {
+        #if DEBUG && targetEnvironment(simulator)
+        return WingLiftLoadingView.fixtureElapsedSeconds(from: arguments) != nil
+            || OnboardingFixtureDestination.fromLaunchArguments(arguments) != nil
+            || FullCircleFixtureDestination.fromLaunchArguments(arguments) != nil
         #else
         return false
         #endif
@@ -247,6 +259,7 @@ struct APIClient: GolAPIClientProtocol, PlayerClubAPIClientProtocol, ScoutAPICli
         self.phase2Session = URLSession(configuration: privateConfiguration, delegate: APIOriginRedirectGuard(), delegateQueue: nil)
         #if DEBUG && targetEnvironment(simulator)
         self.fixtureMode = fixtureMode ?? PlayerClubExperienceFixtures.mode
+            ?? (Self.visualFixtureActive() ? "visual" : nil)
         #else
         self.fixtureMode = nil
         #endif
@@ -290,6 +303,9 @@ struct APIClient: GolAPIClientProtocol, PlayerClubAPIClientProtocol, ScoutAPICli
         if FloodlightPreview.isActive {
             try await PreviewGolClient().streamGol(question, onEvent: onEvent)
             return
+        }
+        if fixtureMode == "visual" {
+            throw ExperienceFixtureError.unmatchedRequest(method: "POST", path: "/api/gol/chat")
         }
         if fixtureMode != nil {
             try await PlayerClubExperienceFixtures.streamGol(question, onEvent: onEvent)
@@ -336,6 +352,7 @@ struct APIClient: GolAPIClientProtocol, PlayerClubAPIClientProtocol, ScoutAPICli
 
             #if DEBUG && targetEnvironment(simulator)
             if FloodlightPreview.isActive || Phase2Fixtures.active { return }
+            if fixtureMode == "visual" { return }
             if let fixtureMode {
                 _ = try PlayerClubExperienceFixtures.data(for: request, mode: fixtureMode)
                 return
@@ -1164,6 +1181,9 @@ struct APIClient: GolAPIClientProtocol, PlayerClubAPIClientProtocol, ScoutAPICli
             return (data, ProcessInfo.processInfo.systemUptime)
         }
         if let fixtureMode {
+            guard fixtureMode != "visual" else {
+                throw ExperienceFixtureError.unmatchedRequest(method: method, path: request.url!.path)
+            }
             let data = try PlayerClubExperienceFixtures.data(for: request, mode: fixtureMode)
             try await checkResponseCredential(token)
             return (data, ProcessInfo.processInfo.systemUptime)

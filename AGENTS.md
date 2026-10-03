@@ -208,3 +208,5 @@ Before marking work complete:
 - GOL loader compatibility checks use the real psycopg/PostgreSQL path with all selected frames; Numeric columns explicitly retain pandas float coercion, while exact finite Decimal values are accepted at the plain-data boundary. Keep builtin names in the reviewed classification inventory.
 
 - iOS developer transports use `APIEndpointPolicy` before startup, reads and GOL streaming. Debug, simulator and XCTest hosts refuse production; only Release device builds can default to it. Test hosts are inert; Smoke requires explicit staging. Each identity-keyed task owns its model reset + load; never reset the same model from a competing onChange. GOL invalidates synchronously via accountIdentity and suggestions use a separate account epoch.
+
+- iOS standalone logo/onboarding/FullCircle previews use an inert visual fixture transport; retain it on credential-bound clients. Fixture arguments never mask an explicit invalid API override.

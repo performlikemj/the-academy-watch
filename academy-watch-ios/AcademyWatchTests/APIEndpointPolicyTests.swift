@@ -55,6 +55,39 @@ final class APIEndpointPolicyTests: XCTestCase {
         print("I1F10 production guard: Debug/test host inert; rejected read, warm-up and stream requests=0")
     }
 
+    #if DEBUG && targetEnvironment(simulator)
+    func testVisualFixturesAreInertAndNeverMaskProductionOverrides() async throws {
+        let context = APIEndpointPolicy.Context(debug: true, simulator: true, testHost: true)
+        for args in [["-logoFixtureSeconds", "12"], ["-onboardingFixture", "create-profile"], ["-fullCircleFixture", "inbox"]] {
+            XCTAssertTrue(APIClient.visualFixtureActive(arguments: args))
+            XCTAssertEqual(try APIEndpointPolicy.resolve(override: nil, context: context, offlineFixture: true), APIEndpointPolicy.offline)
+            XCTAssertThrowsError(try APIEndpointPolicy.resolve(override: APIEndpointPolicy.production.absoluteString, context: context, offlineFixture: true))
+        }
+        XCTAssertFalse(APIClient.visualFixtureActive(arguments: ["-logoFixtureSeconds", "invalid"]))
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [EndpointRequestSpy.self]
+        let session = URLSession(configuration: config)
+        defer { session.invalidateAndCancel() }
+        EndpointRequestSpy.count = 0
+        for base in [APIEndpointPolicy.offline, APIEndpointPolicy.staging] {
+            let client = APIClient(baseURL: base, session: session, authSession: VisualFixtureAuth(), fixtureMode: "visual")
+            let bound = try await client.boundToCurrentAccount()
+            for api in [client, bound] {
+                do { _ = try await api.golSuggestions(); XCTFail("Visual read must refuse") }
+                catch { XCTAssertTrue(error is ExperienceFixtureError) }
+                await api.warmUp()
+                do {
+                    try await api.streamGol(.init(message: "Hello", messages: [], sessionID: "visual")) { _ in XCTFail() }
+                    XCTFail("Visual stream must refuse")
+                } catch { XCTAssertTrue(error is ExperienceFixtureError) }
+            }
+        }
+        XCTAssertEqual(EndpointRequestSpy.count, 0)
+        print("I1F10 standalone visual fixtures: read/warm-up/stream/bound-client transport requests=0")
+    }
+
+    #endif
+
     func testStubAndOfflineExceptionsCannotAllowProduction() throws {
         let context = APIEndpointPolicy.Context(debug: true, simulator: true, testHost: true)
         XCTAssertThrowsError(try APIEndpointPolicy.validate(APIEndpointPolicy.production, context: context, stubTransport: true, offlineFixture: true))
@@ -72,7 +105,7 @@ final class APIEndpointPolicyTests: XCTestCase {
     }
 }
 
-private final class EndpointRequestSpy: URLProtocol {
+private final class EndpointRequestSpy: URLProtocol, @unchecked Sendable {
     static var count = 0
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -81,4 +114,9 @@ private final class EndpointRequestSpy: URLProtocol {
         client?.urlProtocol(self, didFailWithError: URLError(.cannotConnectToHost))
     }
     override func stopLoading() {}
+}
+
+private actor VisualFixtureAuth: AuthSessionProtocol {
+    func accessToken() async -> String? { "visual-fixture-token" }
+    func invalidate() async {}
 }
