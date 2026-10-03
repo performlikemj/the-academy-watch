@@ -14,3 +14,5 @@
 - LOGPIIF1 in progress: reviewed both independent findings (cross files absent by lead direction); union covers scanner/handlers/CLI/admin correlation/performance/fail-closed/guard/structured types/token snippets. Explicit masks remain; final merge-main, targeted regressions, four cached gates and push pending.
 
 - LOGPIIF1 targeted204 PASS + actual startup/force-basicConfig PASS; real auth/Mailgun/SMTP variants, emitted Gunicorn/SQLAlchemy/private/late output, CLI stderr, admin colliding masks, curator string team ID, bounded scan and failure controls. Current main fetched8696a4de; merging before final gates.
+
+- Main8696a4de integrated; sole continuity conflict retains both histories. Final-head lane tests/four governed cached gates, pushed SHA and CI are recorded in external LOGPIIF1.final.md; no migration/frontend/screenshot work in this logging fix round.

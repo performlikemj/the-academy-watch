@@ -1,6 +1,9 @@
 import { sortClubMatches } from '@/lib/club-matches'
 import { formatDisplayDate } from '@/lib/display-date'
 import { CleatLoader } from '@/components/CleatLoader'
+// --- p2-c2 begin ---
+import { ClubHighlightPicker } from '@/components/highlights/ClubHighlightPicker'
+// --- p2-c2 end ---
 import { Link } from 'react-router-dom'
 import { ClubHome } from './club-console/ClubHome'
 import { DevelopmentActionFields, DevelopmentActionSummary, DevelopmentProgress, FeedbackEvidencePicker } from '@/components/showcase/DevelopmentAction'
@@ -1764,7 +1767,7 @@ export function ClubPlayerReels({ programId, match, rosterMembers, onAccessDenie
   )
 }
 
-function MatchDetail({ programId, match, uploadGrant, rosterMembers, onMatchChange, onUploadGrantChange, onAccessDenied, onRefresh, onRecordResult, canUpload = true, canResults = true }) {
+function MatchDetail({ programId, match, uploadGrant, rosterMembers, onMatchChange, onUploadGrantChange, onAccessDenied, onRefresh, onRecordResult, canUpload = true, canResults = true, canHighlights = true }) {
   const editable = canUpload && EDITABLE_MATCH_STATUSES.has(match.status)
   const [form, setForm] = useState(() => matchFormValues(match))
   const dirtyFieldsRef = useRef(new Set())
@@ -2074,6 +2077,9 @@ function MatchDetail({ programId, match, uploadGrant, rosterMembers, onMatchChan
         </section>
 
         <ClubPlayerReels programId={programId} match={match} rosterMembers={rosterMembers} onAccessDenied={onAccessDenied} />
+        {/* --- p2-c2 begin --- */}
+        {canUpload && canHighlights && ['finalized', 'expired'].includes(match.status) && <ClubHighlightPicker programId={programId} matchId={match.id} />}
+        {/* --- p2-c2 end --- */}
       </CardContent>
     </Card>
   )
@@ -2120,7 +2126,7 @@ export function ResultHistory({ programId, refreshToken, onEdit, onAccessDenied,
   )
 }
 
-export function MatchesPanel({ programId, rosterMembers, matches, loading, error, loadFailureCount, uploadGrants, onMatchesChange, onUploadGrantChange, onReload, onAccessDenied, canUpload = true, canResults = true, chooseSquad = false, squadRequired = false }) {
+export function MatchesPanel({ programId, rosterMembers, matches, loading, error, loadFailureCount, uploadGrants, onMatchesChange, onUploadGrantChange, onReload, onAccessDenied, canUpload = true, canResults = true, canHighlights = true, chooseSquad = false, squadRequired = false }) {
   const [createOpen, setCreateOpen] = useState(false)
   const [resultTarget, setResultTarget] = useState(null)
   const [resultRefresh, setResultRefresh] = useState(0)
@@ -2299,6 +2305,7 @@ export function MatchesPanel({ programId, rosterMembers, matches, loading, error
               onAccessDenied={onAccessDenied}
               onRefresh={refreshSelected}
               onRecordResult={openVideoResult}
+              canHighlights={canHighlights}
               canUpload={canUpload}
               canResults={canResults}
             />
@@ -2650,7 +2657,7 @@ export function MyClubConsole({
     statusContent={erroredProgramCount > 0 ? <Alert><AlertDescription>{erroredProgramCount} clubs could not be checked. <Button onClick={onRetryPrograms} disabled={checkingPrograms}>Retry</Button></AlertDescription></Alert> : null}
     panels={{
       roster: allow('players.manage') && <RosterPanel programId={programId} members={members} systemBrief={systemBrief} loading={rosterLoading} error={rosterError} onMembersChange={setMembers} onSystemBriefChange={setSystemBrief} onReload={loadRoster} onAccessDenied={onAccessDenied} />,
-      matches: <MatchesPanel key={programId} programId={programId} rosterMembers={members} matches={matches} loading={matchesLoading} error={matchesError} loadFailureCount={matchesLoadFailureCount} uploadGrants={uploadGrants} onMatchesChange={setMatches} onUploadGrantChange={setGrant} onReload={loadMatches} onAccessDenied={onAccessDenied} canUpload={allow('matches.upload')} canResults={allow('results')} chooseSquad={staffFlag === true} squadRequired={Boolean(access && access.whole_club === false)} />,
+      matches: <MatchesPanel key={programId} programId={programId} rosterMembers={members} matches={matches} loading={matchesLoading} error={matchesError} loadFailureCount={matchesLoadFailureCount} uploadGrants={uploadGrants} onMatchesChange={setMatches} onUploadGrantChange={setGrant} onReload={loadMatches} onAccessDenied={onAccessDenied} canHighlights={access ? access.verified === true : true} canUpload={allow('matches.upload')} canResults={allow('results')} chooseSquad={staffFlag === true} squadRequired={Boolean(access && access.whole_club === false)} />,
       profile: allow('branding') && <ClubProfile program={program} claim={programClaim} onAccessDenied={onAccessDenied} />,
       introductions: {
         panel: <ClubIntroductionsPanel programId={programId} onAccessDenied={onAccessDenied} />,
