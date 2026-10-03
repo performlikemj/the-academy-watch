@@ -11,6 +11,7 @@ import '@/pages/opportunities/opportunities.css'
 const STAGES = [['new', 'New'], ['shortlisted', 'Shortlisted'], ['invited', 'Invited'], ['attended', 'Attended'], ['offer', 'Offer']]
 const TITLE = { shortlisted: 'Shortlist', invited: 'Invite to trial', attended: 'Record attendance', offer: 'Make offer', rejected: 'Not selected', signed: 'Record signed' }
 const LOCKED = new Set(['title', 'description', 'instructions', 'capacity', 'type', 'squad_id', 'birth_year_min', 'birth_year_max', 'gender_program', 'position_requirements', 'starts_at', 'ends_at', 'timezone', 'venue', 'address', 'closes_at'])
+const ATTENDANCE_TERMS = new Set(['type', 'starts_at', 'ends_at', 'timezone', 'venue', 'address'])
 const FIELDS = [['title', 'Title', 'text', true], ['description', 'About this opportunity', 'textarea', true], ['instructions', 'What to bring', 'textarea'], ['position_requirements', 'Positions / eligibility', 'text'], ['venue', 'Venue', 'text', true], ['address', 'Address', 'text'], ['timezone', 'Time zone', 'timezone', true], ['birth_year_min', 'Earliest birth year', 'number'], ['birth_year_max', 'Latest birth year', 'number'], ['capacity', 'Trial capacity (optional)', 'number'], ['starts_at', 'Starts (your local time)', 'datetime-local'], ['ends_at', 'Ends (your local time)', 'datetime-local'], ['closes_at', 'Applications close (your local time)', 'datetime-local', true]]
 
 function OpportunityEditor({ programId, programTimezone, squads, item, onClose, onSaved }) {
@@ -19,16 +20,20 @@ function OpportunityEditor({ programId, programTimezone, squads, item, onClose, 
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const locked = Boolean(item?.application_count)
+  const attendanceLocked = Boolean(item?.live_attendance)
+  const fieldLocked = key => (locked && LOCKED.has(key)) || (attendanceLocked && ATTENDANCE_TERMS.has(key))
   useEffect(() => { ref.current.showModal() }, [])
   async function save(event) {
     event.preventDefault(); setBusy(true); setError('')
     try {
     const data = { status: values.status, type: values.type, gender_program: values.gender_program, squad_id: values.squad_id ? Number(values.squad_id) : null }
     for (const [key, , type] of FIELDS) {
-      if (locked && LOCKED.has(key)) continue
+      if ((locked && LOCKED.has(key)) || (attendanceLocked && ATTENDANCE_TERMS.has(key))) continue
       const value = values[key] || ''
       data[key] = type === 'number' ? value ? Number(value) : null : type === 'datetime-local' ? value ? fromLocalInput(value, values.timezone) : null : value
     }
+    // Keep exact stored instants for disabled fields; local controls have minute precision.
+    if (attendanceLocked) for (const key of ATTENDANCE_TERMS) data[key] = item[key]
     if (item) data.expected_version = item.version
     if (locked) for (const key of LOCKED) delete data[key]
     await write(`/club/${programId}/opportunities${item ? `/${item.id}` : ''}`, data, item ? 'PATCH' : 'POST'); onSaved(); onClose() }
@@ -37,10 +42,11 @@ function OpportunityEditor({ programId, programTimezone, squads, item, onClose, 
   }
   return <dialog ref={ref} onCancel={onClose} aria-labelledby="opportunity-editor-title"><div className="flex items-start justify-between gap-5"><h2 id="opportunity-editor-title" className="opp-section">{item ? 'Edit opportunity' : 'New opportunity'}</h2><button type="button" className="opp-button" onClick={onClose} aria-label="Close editor">Close</button></div>
     <form onSubmit={save} className="mt-6 grid gap-5">
-      <label className="opp-field">Opportunity type<select aria-label="Opportunity type" disabled={locked} value={values.type} onChange={e => setValues({ ...values, type: e.target.value })}><option value="trial">Trial</option><option value="open_session">Open session</option><option value="position">Position</option></select></label>
+      <label className="opp-field">Opportunity type<select aria-label="Opportunity type" disabled={fieldLocked('type')} value={values.type} onChange={e => setValues({ ...values, type: e.target.value })}><option value="trial">Trial</option><option value="open_session">Open session</option><option value="position">Position</option></select></label>
       <label className="opp-field">Squad<select aria-label="Squad" disabled={locked} value={values.squad_id || ''} onChange={e => setValues({ ...values, squad_id: e.target.value })}><option value="">Whole club</option>{squads.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></label>
       <label className="opp-field">Programme<select aria-label="Programme" disabled={locked} value={values.gender_program} onChange={e => setValues({ ...values, gender_program: e.target.value })}>{['all', 'boys', 'girls', 'men', 'women', 'mixed'].map(v => <option key={v} value={v}>{v}</option>)}</select></label>
-      {FIELDS.map(([key, label, type, required]) => type === 'timezone' ? <OpportunityTimezonePicker key={key} value={values.timezone} disabled={locked} onChange={timezone => setValues({ ...values, timezone })} /> : <label key={key} className="opp-field">{type === 'datetime-local' ? `${label.replace(' (your local time)', '')} (${values.timezone})` : label}{type === 'textarea' ? <textarea disabled={locked && LOCKED.has(key)} maxLength={key === 'description' ? 6000 : 3000} required={required} value={values[key] || ''} onChange={e => setValues({ ...values, [key]: e.target.value })} /> : <input disabled={locked && LOCKED.has(key)} type={type} required={required || (key === 'starts_at' && values.type !== 'position')} min={type === 'number' ? key === 'capacity' ? 1 : 1900 : undefined} maxLength={key === 'title' ? 180 : 300} value={values[key] ?? ''} onChange={e => setValues({ ...values, [key]: e.target.value })} />}</label>)}
+      {FIELDS.map(([key, label, type, required]) => type === 'timezone' ? <OpportunityTimezonePicker key={key} value={values.timezone} disabled={fieldLocked(key)} onChange={timezone => setValues({ ...values, timezone })} /> : <label key={key} className="opp-field">{type === 'datetime-local' ? `${label.replace(' (your local time)', '')} (${values.timezone})` : label}{type === 'textarea' ? <textarea disabled={fieldLocked(key)} maxLength={key === 'description' ? 6000 : 3000} required={required} value={values[key] || ''} onChange={e => setValues({ ...values, [key]: e.target.value })} /> : <input disabled={fieldLocked(key)} type={type} required={required || (key === 'starts_at' && values.type !== 'position')} min={type === 'number' ? key === 'capacity' ? 1 : 1900 : undefined} maxLength={key === 'title' ? 180 : 300} value={values[key] ?? ''} onChange={e => setValues({ ...values, [key]: e.target.value })} />}</label>)}
+      {attendanceLocked && <p className="text-sm text-muted">Scout attendance is pending or accepted. Session type, dates, time zone, venue and address are fixed while those requests remain live. You can still update other details.</p>}
       {locked && <p className="text-sm text-muted">Advertised details and capacity are fixed once applications arrive. Trial changes use the applicant invitation.</p>}
       <label className="opp-field">Publication<select aria-label="Publication" value={values.status} onChange={e => setValues({ ...values, status: e.target.value })}>{item?.status !== 'published' && <option value="draft">Draft</option>}<option value="published">Published</option></select></label>
       {error && <p role="alert" className="opp-error">{error}</p>}<button disabled={busy} className="opp-button primary">{busy ? 'Saving…' : 'Save opportunity'}</button>

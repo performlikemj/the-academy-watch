@@ -3,6 +3,11 @@ import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { PlayerPage } from './PlayerPage';
 import { Network, Users, Film, Send, Settings, ShieldCheck, Plus, LockKeyhole, Search, CalendarDays, ArrowRight } from 'lucide-react';
+// --- p2-c4 begin ---
+import { ClubToday } from '@/components/attendance/ClubToday';
+import { useViewerLifetime } from '@/hooks/useViewerState';
+import { useScoutAttend } from '@/components/attendance/useScoutAttend';
+// --- p2-c4 end ---
 // --- p2-b2 begin ---
 import { Recruiting } from '@/pages/club-recruiting/Recruiting';
 // --- p2-b2 end ---
@@ -33,6 +38,9 @@ export function ClubHome({
   access = null,
   staffAccessEnabled = false
 }) {
+  const life = useViewerLifetime(); // p2-c4
+  const api = life.api; // p2-c4
+  const scoutAttendEnabled = useScoutAttend(api); // p2-c4
   const [map, setMap] = useState(null);
   const [navigationOpen, setNavigationOpen] = useState(false);
   const [params, setParams] = useSearchParams();
@@ -211,10 +219,11 @@ export function ClubHome({
         {error && <p className="ch-error" role="alert">{error}</p>}
         {view === 'today' && <>
           <div className="ch-heading"><div><p className="eyebrow">Your private workspace</p><h2>The club, today.</h2><p>A little attention. A stronger pathway.</p></div></div>
+          {scoutAttendEnabled && <ClubToday key={programId} programId={programId} navigate={navigate} />}
           <div className="ch-today-grid">
-            <section aria-labelledby="ch-today-tasks"><div className="ch-section-heading"><h2 id="ch-today-tasks">Needs you today</h2><small>{tasks.length} {tasks.length === 1 ? 'thing' : 'things'}</small></div>
+            <section aria-labelledby="ch-today-tasks"><div className="ch-section-heading"><h2 id="ch-today-tasks">{scoutAttendEnabled ? 'Other club tasks' : 'Needs you today'}</h2><small>{tasks.length} {tasks.length === 1 ? 'thing' : 'things'}</small></div>
               {tasks.map(task => <button key={task.target} className="ch-task rule-row" onClick={() => { if (task.unassigned) setFocus('none'); navigate(task.target); }}><span className="ch-task-number">{task.count}</span><span><strong>{task.title}</strong><small>{task.detail}</small></span><ArrowRight size={19} /></button>)}
-              {tasks.length === 0 && <p className="ch-player-empty">{matchesError || rosterError || error ? 'Some club information could not be checked. Open the relevant section to retry.' : matchesLoading || rosterLoading || !map ? 'Checking your club workspace…' : 'Nothing in the loaded club information needs your attention. Your squads and Film Room are ready when you are.'}</p>}
+              {tasks.length === 0 && <p className="ch-player-empty">{matchesError || rosterError || error ? 'Some club information could not be checked. Open the relevant section to retry.' : matchesLoading || rosterLoading || !map ? 'Checking your club workspace…' : scoutAttendEnabled ? 'No additional roster, upload or affiliation tasks.' : 'Nothing in the loaded club information needs your attention. Your squads and Film Room are ready when you are.'}</p>}
             </section>
             <aside><p className="eyebrow">Your club</p><div className="ch-today-stats"><span>{members.length}<small>{members.length === 1 ? 'Player' : 'Players'}</small></span><span>{squads.length}<small>{squads.length === 1 ? 'Squad' : 'Squads'}</small></span></div><p className="ch-privacy"><LockKeyhole size={17} />Player identities and footage stay within their existing privacy rules.</p><button className="ch-btn dark" onClick={() => navigate('map')}>Open club map <ArrowRight size={16} /></button></aside>
           </div>
