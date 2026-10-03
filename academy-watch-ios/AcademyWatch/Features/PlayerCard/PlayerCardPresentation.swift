@@ -410,6 +410,13 @@ enum PlayerCardText {
 
     // MARK: Failed reads
 
+    /// Whether the totals behind the season block are in doubt. The provider's
+    /// match log is the second witness of play: when there are no provider
+    /// totals and that read failed, the season is not known to be empty.
+    static func totalsReadFailed(statsFailed: Bool, matchLogFailed: Bool, hasProviderTotals: Bool) -> Bool {
+        statsFailed || (matchLogFailed && !hasProviderTotals)
+    }
+
     /// The one sentence shown when a read behind the season block failed, or
     /// nil. `showing` = something is on screen for the season (tiles or lines).
     static func readProblem(

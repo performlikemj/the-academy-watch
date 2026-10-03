@@ -1,7 +1,10 @@
 import Foundation
 
 struct PlayerShowcaseResponse: Decodable, Equatable, Sendable {
+    /// The signed identity: a provider id, or a community player's negative id.
     let playerApiId: Int
+    /// Set on a community (local) player's showcase, which carries no provider id.
+    let localPlayerId: Int?
     let profile: ShowcaseProfile?
     let reel: [ShowcaseReelItem]
     let verifiedFootage: [ShowcaseVerifiedFootage]
@@ -13,6 +16,7 @@ struct PlayerShowcaseResponse: Decodable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case playerApiId
+        case localPlayerId
         case profile
         case reel
         case verifiedFootage
@@ -24,7 +28,19 @@ struct PlayerShowcaseResponse: Decodable, Equatable, Sendable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        playerApiId = try container.decode(Int.self, forKey: .playerApiId)
+        // A community player's showcase is keyed by `local_player_id` and has
+        // no provider id; its signed identity is the negative local id.
+        localPlayerId = try container.decodeIfPresent(Int.self, forKey: .localPlayerId)
+        if let providerID = try container.decodeIfPresent(Int.self, forKey: .playerApiId) {
+            playerApiId = providerID
+        } else if let localPlayerId {
+            playerApiId = -localPlayerId
+        } else {
+            throw DecodingError.keyNotFound(
+                CodingKeys.playerApiId,
+                .init(codingPath: container.codingPath, debugDescription: "No player_api_id or local_player_id")
+            )
+        }
         profile = try container.decodeIfPresent(ShowcaseProfile.self, forKey: .profile)
         reel = try container.decodeIfPresent([ShowcaseReelItem].self, forKey: .reel) ?? []
         verifiedFootage = try container.decodeIfPresent(
@@ -141,6 +157,7 @@ struct ShowcaseProfile: Decodable, Equatable, Sendable {
         case clubProgramId
         case statusContradiction
         case contractAttestationReviewStatus
+        case localPlayerId
         case profileContractStatus
         case contractUntil
         case availability
@@ -153,7 +170,11 @@ struct ShowcaseProfile: Decodable, Equatable, Sendable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decodeIfPresent(Int.self, forKey: .id)
-        playerApiId = try container.decode(Int.self, forKey: .playerApiId)
+        // A community player's profile sends `player_api_id: null` with a
+        // `local_player_id`; a linked one sends both.
+        let localID = try? container.decodeIfPresent(Int.self, forKey: .localPlayerId)
+        playerApiId = (try? container.decodeIfPresent(Int.self, forKey: .playerApiId))
+            ?? localID.map { -$0 } ?? 0
         bio = try container.decodeIfPresent(String.self, forKey: .bio)
         positions = try container.decodeIfPresent(String.self, forKey: .positions)
         preferredFoot = try container.decodeIfPresent(String.self, forKey: .preferredFoot)
@@ -293,7 +314,8 @@ struct ShowcaseReelItem: Decodable, Equatable, Identifiable, Sendable {
         } else {
             id = String(try container.decode(Int.self, forKey: .id))
         }
-        playerId = try container.decode(Int.self, forKey: .playerId)
+        // A community player's reel rows carry no provider id.
+        playerId = (try? container.decodeIfPresent(Int.self, forKey: .playerId)) ?? 0
         url = try container.decode(String.self, forKey: .url)
         title = try container.decodeIfPresent(String.self, forKey: .title)
         linkType = try container.decodeIfPresent(String.self, forKey: .linkType) ?? "highlight"

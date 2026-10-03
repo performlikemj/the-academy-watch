@@ -21,6 +21,7 @@ final class PlayerMatchLinesViewModel: ObservableObject {
 
     private let apiClient: any PlayerMatchLinesAPIClientProtocol
     private var revision = 0
+    private var boundIdentity: String?
 
     init(playerID: Int, apiClient: any PlayerMatchLinesAPIClientProtocol = APIClient()) {
         self.playerID = playerID
@@ -29,6 +30,24 @@ final class PlayerMatchLinesViewModel: ObservableObject {
 
     /// Nothing to show yet and no answer yet.
     var isAwaitingFirstAnswer: Bool { !hasLines && !failed }
+
+    /// Binds what is held to the account on screen. Only a real change of
+    /// account drops it; the page coming back on screen for the same account
+    /// keeps everything. Returns whether the account changed.
+    @discardableResult
+    func bind(to identity: String) -> Bool {
+        guard boundIdentity != identity else { return false }
+        let changed = boundIdentity != nil
+        boundIdentity = identity
+        if changed { resetAccount() }
+        return changed
+    }
+
+    /// Reads once per account; a failed or interrupted read is tried again.
+    func loadIfNeeded() async {
+        guard !hasLines, !isLoading else { return }
+        await load()
+    }
 
     func resetAccount() {
         revision += 1

@@ -195,12 +195,16 @@ struct PlayerDetailView: View {
         }
         .task(id: authManager.accountIdentity) {
             // The showcase and the match lines differ by reader: nothing read
-            // for one account is kept for the next.
-            showcaseViewModel.resetAccount()
-            linesViewModel.resetAccount()
-            pickedPhotoID = nil
+            // for one account is kept for the next. This task also runs each
+            // time the page comes back on screen; for the same account that
+            // keeps what is loaded (photo, picked photo, lines) and reads
+            // only what is still missing.
+            let identity = authManager.accountIdentity
+            let showcaseChanged = showcaseViewModel.bind(to: identity)
+            let linesChanged = linesViewModel.bind(to: identity)
+            if showcaseChanged || linesChanged { pickedPhotoID = nil }
             async let showcaseLoad: Void = showcaseViewModel.loadIfNeeded()
-            async let linesLoad: Void = linesViewModel.load()
+            async let linesLoad: Void = linesViewModel.loadIfNeeded()
             _ = await (showcaseLoad, linesLoad)
         }
         .task(id: authManager.accountIdentity) {
@@ -427,7 +431,7 @@ struct PlayerDetailView: View {
                     Button {
                         pickedPhotoID = photo.id
                     } label: {
-                        AsyncImage(url: photo.url) { image in
+                        AsyncImage(url: APIEndpointPolicy.reviewSafeImageURL(photo.url)) { image in
                             image.resizable().scaledToFill()
                         } placeholder: {
                             AcademyColors.photoPlaceholder
@@ -458,7 +462,8 @@ struct PlayerDetailView: View {
     private func seasonSection(profile: PlayerProfile) -> some View {
         let goalkeeper = profile.isGoalkeeper || PlayerCardText.isGoalkeeper(position: profile.position)
         let totalsLoading = viewModel.isLoading(.seasonStats)
-        let totalsError = viewModel.errorMessage(for: .seasonStats) != nil
+        let statsError = viewModel.errorMessage(for: .seasonStats) != nil
+        let rowsFailed = viewModel.errorMessage(for: .recentForm) != nil
         // The provider's per-match rows count only once they have settled for
         // the season asked for.
         let rowsSettled = !viewModel.isLoading(.recentForm) && viewModel.errorMessage(for: .recentForm) == nil
@@ -471,6 +476,12 @@ struct PlayerDetailView: View {
             matchRowsSeason: rowsSettled ? viewModel.selectedSeason : nil
         )
         let stats = choice.statsMatchSeason ? viewModel.seasonStats : nil
+        // The provider's match log is the second witness of play: when there
+        // are no provider totals and that read failed, the season is not known
+        // to be empty.
+        let totalsError = PlayerCardText.totalsReadFailed(
+            statsFailed: statsError, matchLogFailed: rowsFailed, hasProviderTotals: choice.provider != nil
+        )
         let summary = PlayerCardText.summarizeSeason(
             lines: choice.lines,
             totals: choice.totals,
@@ -483,7 +494,8 @@ struct PlayerDetailView: View {
             linesError: linesViewModel.failed,
             linesStale: linesViewModel.hasLines,
             totalsError: totalsError,
-            totalsStale: stats != nil,
+            // Only the totals read's own failure can leave older totals on screen.
+            totalsStale: statsError && stats != nil,
             showing: choice.provider != nil || !choice.lines.isEmpty
         )
         let currentSeason = viewModel.seasons.first(where: \.isCurrent)?.season ?? PlayerCardText.calendarSeason()

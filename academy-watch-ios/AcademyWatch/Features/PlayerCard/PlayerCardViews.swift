@@ -129,7 +129,7 @@ struct PlayerNoPhotoTile: View {
 
     @ViewBuilder
     private var centre: some View {
-        if let faceURL {
+        if let faceURL = APIEndpointPolicy.reviewSafeImageURL(faceURL) {
             AsyncImage(url: faceURL, transaction: Transaction(animation: reduceMotion ? nil : .easeInOut(duration: 0.2))) { phase in
                 if case let .success(image) = phase {
                     image.resizable().scaledToFill()
@@ -162,8 +162,10 @@ struct PlayerNoPhotoTile: View {
             .font(AcademyType.mono(10, relativeTo: .caption2))
             .tracking(1.6)
             .foregroundStyle(AcademyColors.onClub)
-            .lineLimit(1)
-            .truncationMode(.tail)
+            .multilineTextAlignment(.leading)
+            .lineLimit(3)
+            .fixedSize(horizontal: false, vertical: true)
+            .dynamicTypeSize(...DynamicTypeSize.accessibility1)
     }
 }
 
@@ -179,7 +181,7 @@ struct PlayerPortraitMedia: View {
     var style: PlayerNoPhotoTile.Style = .card
 
     var body: some View {
-        if let photoURL {
+        if let photoURL = APIEndpointPolicy.reviewSafeImageURL(photoURL) {
             AsyncImage(url: photoURL, transaction: Transaction(animation: reduceMotion ? nil : .easeInOut(duration: 0.2))) { phase in
                 switch phase {
                 case let .success(image):
@@ -201,16 +203,21 @@ struct PlayerPortraitMedia: View {
             .clipped()
             .overlay(alignment: style == .hero ? .topLeading : .topTrailing) {
                 if let role, !role.isEmpty {
+                    // A long role wraps onto more lines rather than being cut off.
                     Text(role.uppercased())
                         .font(AcademyType.mono(style == .hero ? 11 : 10, relativeTo: .caption2))
                         .tracking(1.4)
                         .foregroundStyle(AcademyColors.chalk)
-                        .lineLimit(1)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
                         .padding(.horizontal, style == .hero ? 12 : 10)
+                        .padding(.vertical, 5)
                         .frame(minHeight: style == .hero ? 28 : 26)
-                        .background(colors.primary, in: Capsule())
+                        .background(colors.primary, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                         .padding(style == .hero ? 16 : 12)
+                        .dynamicTypeSize(...DynamicTypeSize.accessibility1)
                         .accessibilityHidden(true)
+                        .accessibilityIdentifier("player-role-chip")
                 }
             }
             .accessibilityElement(children: .ignore)
@@ -272,17 +279,21 @@ struct PlayerStandardCard: View {
                         .lineLimit(dynamicTypeSize.isAccessibilitySize ? 6 : 3)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                HStack(alignment: .center, spacing: 16) {
-                    ForEach(counters) { counter in
-                        (Text(counter.value).fontWeight(.semibold).foregroundColor(AcademyColors.ink)
-                            + Text(" \(counter.unit)").foregroundColor(AcademyColors.muted))
-                            .font(AcademyType.ui(13, relativeTo: .footnote))
-                            .monospacedDigit()
+                if dynamicTypeSize.isAccessibilitySize {
+                    // Largest text: one counter per line, the host's controls on their own row.
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(counters) { counterText($0) }
                     }
-                    Spacer(minLength: trailingReserve)
+                    .padding(.top, 6)
+                    Color.clear.frame(height: trailingReserve > 0 ? 44 : 0)
+                } else {
+                    HStack(alignment: .center, spacing: 16) {
+                        ForEach(counters) { counterText($0) }
+                        Spacer(minLength: trailingReserve)
+                    }
+                    .frame(minHeight: 44)
+                    .padding(.top, 6)
                 }
-                .frame(minHeight: 44)
-                .padding(.top, 6)
             }
             .padding(.top, 18)
             .padding(.horizontal, 14)
@@ -295,6 +306,16 @@ struct PlayerStandardCard: View {
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(spokenLabel)
+    }
+
+    /// A counter is one unbreakable unit: "2,412 min" never splits inside the number.
+    private func counterText(_ counter: CardCounter) -> some View {
+        (Text(counter.value).fontWeight(.semibold).foregroundColor(AcademyColors.ink)
+            + Text("\u{00A0}\(counter.unit)").foregroundColor(AcademyColors.muted))
+            .font(AcademyType.ui(13, relativeTo: .footnote))
+            .monospacedDigit()
+            .lineLimit(1)
+            .fixedSize()
     }
 
     private var spokenLabel: String {
@@ -327,11 +348,20 @@ struct PlayerHeroCard: View {
     /// and the text starts below `ninety`.
     enum Scrim {
         static let textInset: CGFloat = 150
+        /// At accessibility text sizes the copy is much taller than the card's
+        /// base height; a deeper inset keeps the photo or initials in view.
+        static let accessibilityTextInset: CGFloat = 320
         static let ninety: CGFloat = 140
         static let solid: CGFloat = 230
+
+        /// Where the scrim reaches 90% for a given text inset: always just
+        /// above the first line of text, so the photo above it stays visible.
+        static func ninety(forInset inset: CGFloat) -> CGFloat { inset - (textInset - ninety) }
+        static func solid(forInset inset: CGFloat) -> CGFloat { inset + (solid - textInset) }
         static let ninetyOpacity = 0.9
     }
 
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     let name: String
     var photoURL: URL?
     var faceURL: URL?
@@ -360,6 +390,10 @@ struct PlayerHeroCard: View {
         .accessibilityIdentifier("player-hero")
     }
 
+    private var textInset: CGFloat {
+        dynamicTypeSize.isAccessibilitySize ? Scrim.accessibilityTextInset : Scrim.textInset
+    }
+
     private var copy: some View {
         VStack(alignment: .leading, spacing: 10) {
             if let confirmedBy, !confirmedBy.isEmpty {
@@ -384,16 +418,16 @@ struct PlayerHeroCard: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityLabel(eyebrow)
             }
-            Text(name)
-                .font(AcademyType.serif(50, relativeTo: .largeTitle))
-                .foregroundStyle(AcademyColors.chalk)
-                .lineSpacing(-4)
-                .fixedSize(horizontal: false, vertical: true)
-                // A 50-point display name is already large; past this size it
-                // would push the photo out of its own card.
-                .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
-                .accessibilityAddTraits(.isHeader)
-                .accessibilityIdentifier("player-hero-name")
+            // The largest size at which the longest word of the name still
+            // fits the line, so a long name wraps between words, not inside one.
+            ViewThatFits(in: .horizontal) {
+                ForEach(Self.nameSizes, id: \.self) { size in
+                    nameText(size: size)
+                }
+            }
+            // A 50-point display name is already large; past this size it
+            // would push the photo out of its own card.
+            .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
             if let line, !line.isEmpty {
                 Text(line)
                     .font(AcademyType.ui(15, relativeTo: .subheadline))
@@ -402,17 +436,18 @@ struct PlayerHeroCard: View {
                     .accessibilityIdentifier("player-hero-line")
             }
         }
-        .padding(.top, Scrim.textInset)
+        .padding(.top, textInset)
         .padding([.horizontal, .bottom], 20)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background {
             GeometryReader { proxy in
-                let height = max(proxy.size.height, Scrim.solid)
+                let solid = Scrim.solid(forInset: textInset)
+                let height = max(proxy.size.height, solid)
                 LinearGradient(
                     stops: [
                         .init(color: AcademyColors.night.opacity(0), location: 0),
-                        .init(color: AcademyColors.night.opacity(Scrim.ninetyOpacity), location: Scrim.ninety / height),
-                        .init(color: AcademyColors.night, location: Scrim.solid / height),
+                        .init(color: AcademyColors.night.opacity(Scrim.ninetyOpacity), location: Scrim.ninety(forInset: textInset) / height),
+                        .init(color: AcademyColors.night, location: solid / height),
                         .init(color: AcademyColors.night, location: 1),
                     ],
                     startPoint: .top, endPoint: .bottom
@@ -423,20 +458,84 @@ struct PlayerHeroCard: View {
     }
 }
 
+extension PlayerHeroCard {
+    static let nameSizes: [CGFloat] = [50, 44, 38, 32, 26]
+
+    /// The longest piece of the name that cannot wrap: words split at spaces
+    /// and after hyphens.
+    static func longestUnbreakablePart(of name: String) -> String {
+        var parts: [String] = []
+        var current = ""
+        for character in name {
+            if character.isWhitespace {
+                parts.append(current)
+                current = ""
+            } else {
+                current.append(character)
+                if character == "-" {
+                    parts.append(current)
+                    current = ""
+                }
+            }
+        }
+        parts.append(current)
+        return parts.max { $0.count < $1.count } ?? name
+    }
+
+    /// The name at one size. An invisible one-line ruler gives the row the
+    /// width of the longest word; the visible name wraps freely beneath it.
+    fileprivate func nameText(size: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(Self.longestUnbreakablePart(of: name))
+                .font(AcademyType.serif(size, relativeTo: .largeTitle))
+                .lineLimit(1)
+                .fixedSize()
+                .frame(height: 0)
+                .hidden()
+                .accessibilityHidden(true)
+            Text(name)
+                .font(AcademyType.serif(size, relativeTo: .largeTitle))
+                .foregroundStyle(AcademyColors.chalk)
+                .lineSpacing(-4)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(minWidth: 0, idealWidth: 0, maxWidth: .infinity, alignment: .leading)
+                .accessibilityAddTraits(.isHeader)
+                .accessibilityIdentifier("player-hero-name")
+        }
+    }
+}
+
 /// The player's own words under the hero: four lines, then "Read more".
+/// Whether the button is offered is decided from the layout — the height of
+/// the whole text against the four-line height at the current width and text
+/// size — never from a character count.
 struct PlayerQuote: View {
+    static let collapsedLines = 4
+
     let text: String
     @State private var isOpen = false
+    @State private var fullHeight: CGFloat = 0
+    @State private var collapsedHeight: CGFloat = 0
+
+    /// The collapsed text hides something only when the whole text is taller.
+    static func isTruncated(fullHeight: CGFloat, collapsedHeight: CGFloat) -> Bool {
+        collapsedHeight > 0 && fullHeight > collapsedHeight + 1
+    }
+
+    private var quoted: Text {
+        Text("“\(text)”").font(AcademyType.serif(22, italic: true, relativeTo: .title3))
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("“\(text)”")
-                .font(AcademyType.serif(22, italic: true, relativeTo: .title3))
+            quoted
                 .foregroundStyle(AcademyColors.text)
-                .lineLimit(isOpen ? nil : 4)
+                .lineLimit(isOpen ? nil : Self.collapsedLines)
                 .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(alignment: .topLeading) { measures }
                 .accessibilityIdentifier("player-quote")
-            if text.count > 170 {
+            if isOpen || Self.isTruncated(fullHeight: fullHeight, collapsedHeight: collapsedHeight) {
                 Button(isOpen ? "Show less" : "Read more") { isOpen.toggle() }
                     .font(AcademyType.subheadline.weight(.medium))
                     .underline()
@@ -444,14 +543,46 @@ struct PlayerQuote: View {
                     .frame(minHeight: 44, alignment: .leading)
                     .contentShape(Rectangle())
                     .buttonStyle(.plain)
+                    .accessibilityIdentifier("player-quote-more")
             }
         }
     }
+
+    /// Two invisible copies at the visible text's width: the whole text and
+    /// the four-line version. Their heights say whether anything is cut off.
+    private var measures: some View {
+        ZStack(alignment: .topLeading) {
+            quoted.lineLimit(nil).fixedSize(horizontal: false, vertical: true)
+                .background(GeometryReader { proxy in
+                    Color.clear.preference(key: QuoteFullHeightKey.self, value: proxy.size.height)
+                })
+            quoted.lineLimit(Self.collapsedLines).fixedSize(horizontal: false, vertical: true)
+                .background(GeometryReader { proxy in
+                    Color.clear.preference(key: QuoteCollapsedHeightKey.self, value: proxy.size.height)
+                })
+        }
+        .hidden()
+        .accessibilityHidden(true)
+        .allowsHitTesting(false)
+        .onPreferenceChange(QuoteFullHeightKey.self) { fullHeight = $0 }
+        .onPreferenceChange(QuoteCollapsedHeightKey.self) { collapsedHeight = $0 }
+    }
+}
+
+private struct QuoteFullHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
+}
+
+private struct QuoteCollapsedHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }
 
 /// Facts strip: only fields with a value; two columns, one at the largest text sizes.
 struct PlayerFactsStrip: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.openURL) private var openURL
     let facts: [PlayerFact]
 
     var body: some View {
@@ -518,6 +649,10 @@ struct PlayerFactsStrip: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(fact.label): \(fact.value)")
         .accessibilityAddTraits(fact.isEmail ? .isLink : [])
+        .accessibilityAction {
+            // The cell is one element, so activating it opens the mail link itself.
+            if fact.isEmail, let url = URL(string: "mailto:\(fact.value)") { openURL(url) }
+        }
     }
 }
 

@@ -110,6 +110,11 @@ struct ScoutDeskView: View {
                         try? await Task.sleep(for: .milliseconds(800))
                         proxy.scrollTo("review-results", anchor: .top)
                     }
+                    if !viewModel.isLoadingInitial, PlayerCardReviewFixtures.anchor == "last-card",
+                       let last = viewModel.players.last?.playerId {
+                        try? await Task.sleep(for: .milliseconds(1200))
+                        proxy.scrollTo(last, anchor: .bottom)
+                    }
                 }
                 #endif
                 }
@@ -930,12 +935,22 @@ struct ScoutPlayerCard: View {
         player.loanTeamName ?? player.primaryTeamName
     }
 
+    /// The server's one plain bio line when it sends one (as the web card
+    /// does), otherwise "position at club." from the row.
     static func line(for player: ScoutPlayerSummary) -> String {
-        PlayerCardText.cardLine(position: player.position, clubName: clubName(for: player), bio: player.bioLine)
+        if let bio = player.bioLine?.trimmingCharacters(in: .whitespacesAndNewlines), !bio.isEmpty {
+            return bio
+        }
+        return PlayerCardText.cardLine(position: player.position, clubName: clubName(for: player))
     }
 
+    /// A row that carries the card fields comes from a server whose list
+    /// totals are the player page's own numbers for every source, so its
+    /// counters are printed (as the web then does). Without them, only
+    /// provider-sourced figures are.
     static func counters(for player: ScoutPlayerSummary) -> [CardCounter] {
-        guard PlayerCardText.isProviderSourced(player.provenance)
+        guard player.clubConfirmed != nil
+            || PlayerCardText.isProviderSourced(player.provenance)
             || PlayerCardText.isMatchLinesSourced(player.provenance)
         else { return [] }
         return PlayerCardText.cardCounters(appearances: player.appearances, minutes: player.minutesPlayed)

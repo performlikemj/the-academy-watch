@@ -69,7 +69,7 @@ final class PlayerMatchLinesTests: XCTestCase {
         XCTAssertEqual(
             Set(states.keys),
             ["photo", "no-photo", "no-matches", "full-season", "mismatch", "long-names", "several-photos",
-             "keeper", "white-photo", "read-failed", "provider", "totals-failed"]
+             "keeper", "white-photo", "read-failed", "provider", "totals-failed", "log-failed"]
         )
         for (name, value) in states {
             let entry = try XCTUnwrap(value as? [String: Any])
@@ -158,6 +158,174 @@ final class PlayerMatchLinesTests: XCTestCase {
         XCTAssertTrue(loaded.isAwaitingFirstAnswer)
     }
 
+    /// Review finding (O2): the page coming back on screen for the SAME
+    /// account must keep what is loaded and ask the server nothing.
+    @MainActor
+    func testComingBackOnScreenForTheSameAccountKeepsEverythingAndAsksNothing() async throws {
+        let calls = CallCounter()
+        let answer = try Self.response()
+        let lines = PlayerMatchLinesViewModel(playerID: 7, apiClient: StubLinesClient {
+            await calls.increment()
+            return answer
+        })
+        XCTAssertFalse(lines.bind(to: "account-a"), "the first binding has nothing to drop")
+        await lines.loadIfNeeded()
+        XCTAssertEqual(lines.seasons.first?.lines.count, 2)
+
+        XCTAssertFalse(lines.bind(to: "account-a"))
+        await lines.loadIfNeeded()
+        XCTAssertFalse(lines.bind(to: "account-a"))
+        await lines.loadIfNeeded()
+        let sameAccountCalls = await calls.value
+        XCTAssertEqual(sameAccountCalls, 1, "one request for one account, however often the page reappears")
+        XCTAssertTrue(lines.hasLines)
+        XCTAssertEqual(lines.seasons.first?.lines.count, 2)
+
+        XCTAssertTrue(lines.bind(to: "account-b"), "a real account change drops the lines")
+        XCTAssertFalse(lines.hasLines)
+        XCTAssertTrue(lines.seasons.isEmpty)
+        await lines.loadIfNeeded()
+        let afterSwitch = await calls.value
+        XCTAssertEqual(afterSwitch, 2)
+
+        let showcaseCalls = CallCounter()
+        let payload = try PlayerCardPresentationTests.decode(PlayerShowcaseResponse.self, [
+            "player_api_id": 7, "photos": [["id": 1, "status": "approved", "public_url": "https://cdn.example.invalid/1.jpg"]],
+        ] as [String: Any])
+        let showcase = ShowcaseViewModel(playerID: 7, apiClient: StubShowcaseClient {
+            await showcaseCalls.increment()
+            return payload
+        })
+        showcase.bind(to: "account-a")
+        await showcase.loadIfNeeded()
+        XCTAssertFalse(showcase.bind(to: "account-a"))
+        await showcase.loadIfNeeded()
+        let showcaseSame = await showcaseCalls.value
+        XCTAssertEqual(showcaseSame, 1)
+        XCTAssertEqual(showcase.showcase?.publicPhotos.count, 1, "the hero photo stays while the page is off screen")
+        XCTAssertTrue(showcase.bind(to: "signed-out"))
+        XCTAssertNil(showcase.showcase)
+    }
+
+    /// A failed first read is tried again when the page comes back.
+    @MainActor
+    func testAFailedReadIsTriedAgainWhenThePageComesBack() async throws {
+        let answers = AnswerQueue([.failure(URLError(.timedOut)), .success(try Self.response())])
+        let lines = PlayerMatchLinesViewModel(playerID: 7, apiClient: StubLinesClient { try await answers.next() })
+        lines.bind(to: "account-a")
+        await lines.loadIfNeeded()
+        XCTAssertTrue(lines.failed)
+        lines.bind(to: "account-a")
+        await lines.loadIfNeeded()
+        XCTAssertFalse(lines.failed)
+        XCTAssertTrue(lines.hasLines)
+    }
+
+    /// Review finding (X2): the server's real answer for a community player —
+    /// `local_player_id` at the root and no provider id; `player_api_id: null`
+    /// on the profile (`RIPCV-X.server-contract.log`).
+    func testTheRealCommunityPlayerShowcaseDecodesWithPhotoFactsReelAndClaim() throws {
+        let showcase = try PlayerCardPresentationTests.decode(PlayerShowcaseResponse.self, [
+            "local_player_id": 41,
+            "profile": [
+                "player_api_id": NSNull(), "bio": "An approved bio", "positions": "RB",
+                "preferred_foot": NSNull(), "height_cm": NSNull(), "contract_until": NSNull(),
+                "availability": NSNull(), "agent_name": NSNull(), "nationality_secondary": NSNull(),
+                "languages": NSNull(), "self_reported": true, "contract_status": "under_contract",
+                "local_player_id": 41,
+            ],
+            "reel": [[
+                "id": 9, "player_id": NSNull(), "local_player_id": 41,
+                "url": "https://www.youtube.com/watch?v=Ryt6tidyYaI", "title": "Highlights",
+                "link_type": "highlight", "status": "approved",
+            ]],
+            "photos": [["id": 1, "status": "approved", "public_url": "https://media.test/photo", "local_player_id": 41]],
+            "affiliations": [["id": 3, "player_api_id": NSNull(), "local_player_id": 41, "club_name": "Quillmere Athletic", "status": "club_confirmed", "season": "2026/27"]],
+            "verified_footage": [],
+            "claim_status": "claimed",
+            "contactable": true,
+        ] as [String: Any])
+
+        XCTAssertEqual(showcase.localPlayerId, 41)
+        XCTAssertEqual(showcase.playerApiId, -41, "the signed identity the app requests the page with")
+        XCTAssertEqual(showcase.profile?.playerApiId, -41)
+        XCTAssertEqual(showcase.publicPhotos.map(\.id), [1], "the approved photo reaches the hero")
+        XCTAssertEqual(showcase.profile?.bio, "An approved bio")
+        XCTAssertEqual(PlayerCardText.profileFacts(showcase.profile).map(\.value), ["RB", "Under contract"])
+        XCTAssertEqual(showcase.approvedReel.count, 1)
+        XCTAssertEqual(showcase.confirmedClubName, "Quillmere Athletic")
+        XCTAssertTrue(showcase.isClaimedProfile, "the introduction signal survives")
+        XCTAssertTrue(showcase.contactable)
+
+        // A community player linked to a provider identity sends both ids.
+        let linked = try PlayerCardPresentationTests.decode(PlayerShowcaseResponse.self, [
+            "player_api_id": 4242, "local_player_id": 41,
+            "profile": ["player_api_id": 4242, "local_player_id": 41, "positions": "CM"],
+        ] as [String: Any])
+        XCTAssertEqual(linked.playerApiId, 4242)
+        XCTAssertEqual(linked.localPlayerId, 41)
+        XCTAssertEqual(linked.profile?.playerApiId, 4242)
+
+        // The provider shape is unchanged, and an envelope with no identity at all is still refused.
+        XCTAssertEqual(try PlayerCardPresentationTests.decode(PlayerShowcaseResponse.self, ["player_api_id": 7]).playerApiId, 7)
+        XCTAssertNil(try PlayerCardPresentationTests.decode(PlayerShowcaseResponse.self, ["player_api_id": 7]).localPlayerId)
+        XCTAssertThrowsError(try PlayerCardPresentationTests.decode(PlayerShowcaseResponse.self, ["claim_status": "claimed"]))
+    }
+
+    /// Review findings (X1 / O1): "Read more" is decided from the measured
+    /// layout, never from a character count.
+    func testReadMoreIsDecidedFromTheMeasuredLayout() {
+        XCTAssertTrue(PlayerQuote.isTruncated(fullHeight: 204, collapsedHeight: 146.5), "the reviewer's six-line 67-character bio")
+        XCTAssertFalse(PlayerQuote.isTruncated(fullHeight: 110, collapsedHeight: 110), "three lines that fit")
+        XCTAssertFalse(PlayerQuote.isTruncated(fullHeight: 110.5, collapsedHeight: 110), "rounding is not truncation")
+        XCTAssertFalse(PlayerQuote.isTruncated(fullHeight: 0, collapsedHeight: 0), "nothing measured yet")
+        XCTAssertEqual(PlayerQuote.collapsedLines, 4)
+    }
+
+    /// Review finding (O3): a failed match-log read is never an empty season.
+    func testAFailedMatchLogReadPutsTheSeasonInDoubtUnlessProviderTotalsAreShown() {
+        XCTAssertTrue(PlayerCardText.totalsReadFailed(statsFailed: false, matchLogFailed: true, hasProviderTotals: false))
+        XCTAssertFalse(PlayerCardText.totalsReadFailed(statsFailed: false, matchLogFailed: true, hasProviderTotals: true))
+        XCTAssertTrue(PlayerCardText.totalsReadFailed(statsFailed: true, matchLogFailed: false, hasProviderTotals: false))
+        XCTAssertFalse(PlayerCardText.totalsReadFailed(statsFailed: false, matchLogFailed: false, hasProviderTotals: false))
+        XCTAssertEqual(
+            PlayerCardText.readProblem(linesError: false, linesStale: true, totalsError: true, totalsStale: false, showing: false),
+            "The season could not be loaded. This is a loading problem — it does not mean nothing has been recorded."
+        )
+    }
+
+    /// Review finding (O4): a long name wraps between words — the hero sizes
+    /// the name by its longest unbreakable part.
+    func testTheHeroNameIsSizedByItsLongestUnbreakablePart() {
+        XCTAssertEqual(
+            PlayerHeroCard.longestUnbreakablePart(of: "Maximilian-Alexander Oluwaseun Featherstonehaugh-Abernathy"),
+            "Featherstonehaugh-"
+        )
+        XCTAssertEqual(PlayerHeroCard.longestUnbreakablePart(of: "Kofi Asante-Reid"), "Asante-")
+        XCTAssertEqual(PlayerHeroCard.longestUnbreakablePart(of: "Pelé"), "Pelé")
+        XCTAssertEqual(PlayerHeroCard.nameSizes.first, 50)
+        XCTAssertEqual(PlayerHeroCard.nameSizes, PlayerHeroCard.nameSizes.sorted(by: >))
+    }
+
+    /// Review finding (O8): card images obey the production rule too.
+    func testCardImagesFromTheProductionHostAreRefusedWhereProductionIsRefused() throws {
+        let production = try XCTUnwrap(URL(string: "https://api.theacademywatch.com/api/showcase/media/5/public"))
+        let elsewhere = try XCTUnwrap(URL(string: "https://media.example.test/photo.jpg"))
+        let release = APIEndpointPolicy.Context(debug: false, simulator: false, testHost: false)
+        for context in [
+            APIEndpointPolicy.Context(debug: true, simulator: true, testHost: false),
+            APIEndpointPolicy.Context(debug: true, simulator: false, testHost: false),
+            APIEndpointPolicy.Context(debug: false, simulator: true, testHost: false),
+            APIEndpointPolicy.Context(debug: false, simulator: false, testHost: true),
+        ] {
+            XCTAssertNil(APIEndpointPolicy.reviewSafeImageURL(production, context: context))
+            XCTAssertEqual(APIEndpointPolicy.reviewSafeImageURL(elsewhere, context: context), elsewhere)
+        }
+        XCTAssertEqual(APIEndpointPolicy.reviewSafeImageURL(production, context: release), production)
+        XCTAssertNil(APIEndpointPolicy.reviewSafeImageURL(nil, context: release))
+        XCTAssertNil(APIEndpointPolicy.reviewSafeImageURL(production), "this test host cannot fetch a production image")
+    }
+
     @MainActor
     func testTheShowcaseOfThePreviousAccountIsDroppedOnASwitch() async throws {
         let signedIn = try PlayerCardPresentationTests.decode(PlayerShowcaseResponse.self, [
@@ -234,12 +402,19 @@ final class PlayerMatchLinesTests: XCTestCase {
         let kofi = rows[0]
         XCTAssertNotNil(kofi.approvedPhotoURL)
         XCTAssertEqual(kofi.clubConfirmed, true)
-        XCTAssertEqual(ScoutPlayerCard.line(for: kofi), "Right-back at Quillmere Athletic. Five seasons in the first team.")
+        XCTAssertEqual(ScoutPlayerCard.line(for: kofi), "Five seasons in the first team.", "the server's bio line stands in place of the position line, as on the web card")
         XCTAssertEqual(ScoutPlayerCard.counters(for: kofi).map { "\($0.value) \($0.unit)" }, ["1 app", "90 min"])
         // The same numbers the player's page shows for the same season.
         let page = try PlayerCardPresentationTests.serverSeason("full-season").totals
         XCTAssertEqual(rows[1].appearances, page.appearances)
         XCTAssertEqual(rows[1].minutesPlayed, page.minutes)
+        // With the card fields every source prints its counters (as the web then does),
+        // including a club-only season and a row the club has not confirmed.
+        XCTAssertEqual(rows[2].provenance?.source, "club")
+        XCTAssertEqual(ScoutPlayerCard.counters(for: rows[2]).map { "\($0.value) \($0.unit)" }, ["4 apps", "360 min"])
+        XCTAssertEqual(rows[3].clubConfirmed, false)
+        XCTAssertEqual(ScoutPlayerCard.line(for: rows[3]), "Midfielder at Test Academy.")
+        XCTAssertEqual(ScoutPlayerCard.counters(for: rows[3]).count, 2)
     }
 
     func testPositionChipUsesTheWebCodes() {
@@ -282,6 +457,13 @@ final class PlayerMatchLinesTests: XCTestCase {
     /// so even over a pure white photo every line clears 4.5:1.
     func testHeroTextOverAWhitePhotoMeetsContrast() {
         XCTAssertGreaterThanOrEqual(PlayerHeroCard.Scrim.textInset, PlayerHeroCard.Scrim.ninety)
+        // The same holds at accessibility text sizes, where the text starts lower to keep the photo in view.
+        for inset in [PlayerHeroCard.Scrim.textInset, PlayerHeroCard.Scrim.accessibilityTextInset] {
+            XCTAssertGreaterThanOrEqual(inset, PlayerHeroCard.Scrim.ninety(forInset: inset))
+            XCTAssertGreaterThan(PlayerHeroCard.Scrim.solid(forInset: inset), PlayerHeroCard.Scrim.ninety(forInset: inset))
+        }
+        XCTAssertEqual(PlayerHeroCard.Scrim.ninety(forInset: PlayerHeroCard.Scrim.textInset), PlayerHeroCard.Scrim.ninety)
+        XCTAssertEqual(PlayerHeroCard.Scrim.solid(forInset: PlayerHeroCard.Scrim.textInset), PlayerHeroCard.Scrim.solid)
         let night = UIColor(AcademyColors.night)
         let opacity = PlayerHeroCard.Scrim.ninetyOpacity
         var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
@@ -396,6 +578,11 @@ private struct StubDetailClient: PlayerDetailAPIClientProtocol {
     func fetchPlayerAvailability(playerID _: Int, season _: Int?) async throws -> PlayerAvailability {
         throw APIClientError.httpStatus(404)
     }
+}
+
+private actor CallCounter {
+    private(set) var value = 0
+    func increment() { value += 1 }
 }
 
 private actor AnswerQueue<Value: Sendable> {

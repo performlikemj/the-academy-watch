@@ -29,8 +29,9 @@ fonts or view restyles. See `sim/capture-floodlight.py` to reproduce the capture
 `-floodlightPreview pc-<state>` opens the redesigned player page (or, for
 `pc-desk` / `pc-desk-next`, the scout desk) on a fictional fixture:
 photo, no-photo, no-matches, full-season, mismatch, long-names, several-photos,
-keeper, white-photo, read-failed, provider, totals-failed, desk, desk-next.
-`-pcAnchor facts|season|matches|end|results` scrolls to a section and
+keeper, white-photo, read-failed, provider, totals-failed, log-failed, desk,
+desk-next.
+`-pcAnchor facts|season|matches|end|results|last-card` scrolls to a section and
 `-pcFailOnce` lets a failing read recover on "Try again".
 
 The match lines in `ReviewFixtures/player_card_states.json` are not written by

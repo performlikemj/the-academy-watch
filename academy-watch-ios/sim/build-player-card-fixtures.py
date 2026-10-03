@@ -149,6 +149,12 @@ STATES = {
     # The match-lines read fails: an error with "Try again", never "no matches".
     "read-failed": dict(**KOFI, profile=KOFI_PROFILE, photos=[], affiliations=[QUILLMERE], rows=ONE_MATCH,
                         fail=["matches"]),
+    # The provider match-log read fails and nothing else is recorded: still an
+    # error with "Try again", never "No matches recorded yet".
+    "log-failed": dict(
+        name="Olu Adeyemi-Clarke", position="Winger", age=22, claimed=False,
+        profile={"player_api_id": PLAYER_ID, "self_reported": True, "positions": "LW, RW", "preferred_foot": "left"},
+        photos=[], affiliations=[], rows=[], fail=["stats"]),
     # Provider-tracked player: provider totals stay whole, the club's line is listed, never added.
     "provider": dict(
         name="Test Prospect", position="Midfielder", age=19, claimed=False, club="Test Academy",
@@ -212,8 +218,11 @@ DESK_NEXT = [
               bio_line="Five seasons in the first team."),
     scout_row(2, "Reuben Castellane", "Midfielder", "Quillmere Athletic", 21, 1762, {"primary_source": "matches"},
               club_confirmed=True, bio_line="Central midfielder. Signed from the summer open trial."),
+    # A club-only season: with the card fields the list totals are the page's own, so they print.
+    scout_row(5, "Tamsin Holloway", "Goalkeeper", "Quillmere Athletic", 4, 360, {"source": "club"},
+              club_confirmed=True),
     scout_row(6, "Test Prospect", "Midfielder", "Test Academy", 30, 2412, {"primary_source": "journey"},
-              contactable=False),
+              contactable=False, club_confirmed=False),
 ]
 
 

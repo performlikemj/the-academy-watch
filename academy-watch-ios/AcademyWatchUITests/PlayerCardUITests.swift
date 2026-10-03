@@ -151,6 +151,42 @@ final class PlayerCardUITests: XCTestCase {
         XCTAssertTrue(card.label.contains("Greaveholme-under-Lyne Wanderers Reserves & Development"))
     }
 
+    /// Review findings (X1 / O1): short prose that no longer fits four lines at
+    /// an accessibility text size must offer "Read more"; text that fits must not.
+    func testABioCutOffAtLargeTextOffersReadMoreAndOneThatFitsDoesNot() {
+        launch("no-photo")
+        require("player-quote")
+        XCTAssertFalse(element("player-quote-more").exists, "three lines fit: no button")
+
+        app.terminate()
+        launch("no-photo", extra: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
+        let more = reveal("player-quote-more")
+        XCTAssertEqual(more.label, "Read more")
+        let collapsed = require("player-quote").frame.height
+        more.tap()
+        XCTAssertEqual(reveal("player-quote-more").label, "Show less")
+        XCTAssertGreaterThan(element("player-quote").frame.height, collapsed, "the rest of the bio is now readable")
+    }
+
+    /// Review finding (O3): the provider match-log read failed and nothing else is recorded.
+    func testAFailedMatchLogReadIsNeverAnEmptySeason() {
+        launch("log-failed", extra: ["-pcAnchor", "season"])
+        XCTAssertTrue(require("season-error-text").label.hasPrefix("The season could not be loaded."))
+        XCTAssertTrue(element("season-retry").exists)
+        XCTAssertFalse(element("season-empty").exists)
+        XCTAssertFalse(app.staticTexts["No matches recorded yet"].exists)
+    }
+
+    /// Review finding (O4): at the largest text size the long name stays
+    /// inside the hero and the role chip is not cut off.
+    func testTheLargestTextSizeKeepsTheLongNameAndRoleInsideTheHero() {
+        launch("long-names", extra: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
+        let hero = require("player-hero")
+        let name = require("player-hero-name")
+        XCTAssertGreaterThanOrEqual(name.frame.minX, hero.frame.minX)
+        XCTAssertLessThanOrEqual(name.frame.maxX, hero.frame.maxX)
+    }
+
     func testDeskCardsFollowTheWebCountersAndTheTableIsStillThere() {
         launch("desk", extra: ["-pcAnchor", "results"])
         let kofi = app.buttons["scout-player-900001"]

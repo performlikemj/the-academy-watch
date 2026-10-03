@@ -27,10 +27,12 @@ STATES = {
     "read-failed": ["season"],
     "provider": ["season", "matches"],
     "totals-failed": ["season"],
-    "desk": ["results"],
-    "desk-next": ["results"],
+    "log-failed": ["season"],
+    "desk": ["results", "last-card"],
+    "desk-next": ["results", "last-card"],
 }
-LARGE = "UICTContentSizeCategoryAccessibilityL"
+SIZES = {"large": "UICTContentSizeCategoryAccessibilityL",
+         "largest": "UICTContentSizeCategoryAccessibilityXXXL"}
 
 
 def simctl(*args, check=True):
@@ -43,7 +45,8 @@ def main():
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--states", nargs="+", choices=sorted(STATES))
     parser.add_argument("--appearance", nargs="+", default=["light", "dark"], choices=["light", "dark"])
-    parser.add_argument("--text", nargs="+", default=["standard", "large"], choices=["standard", "large"])
+    parser.add_argument("--text", nargs="+", default=["standard", "large"],
+                        choices=["standard", "large", "largest"])
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
     for state, anchors in STATES.items():
@@ -56,8 +59,8 @@ def main():
                     launch = ["-floodlightPreview", f"pc-{state}", "-reviewAppearance", appearance]
                     if anchor != "top":
                         launch += ["-pcAnchor", anchor]
-                    if text == "large":
-                        launch += ["-UIPreferredContentSizeCategoryName", LARGE]
+                    if text in SIZES:
+                        launch += ["-UIPreferredContentSizeCategoryName", SIZES[text]]
                     simctl("terminate", args.simulator, BUNDLE, check=False)
                     simctl("launch", args.simulator, BUNDLE, *launch)
                     time.sleep(6 if state.startswith("desk") else 4.5)
