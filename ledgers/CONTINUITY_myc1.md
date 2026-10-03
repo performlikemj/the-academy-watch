@@ -15,3 +15,8 @@
 - Candidate validation 99ddbce8: browser 48 PASS / 1 test-selector FAIL (legacy club title appears in both claim h3 and moderation h2); corrected to assert moderation h2. Production sources unchanged. Three cached gates PASS; let running backend gate finish.
 - Next: corrected final-head browser run and four cached gates; ready PR/CI bounded 25 min; external delivery receipt.
 - Delivery receipt: ~/codex-runs/aw-redesign/logs/MYC1.final.md.
+
+- Final candidate dddfec7a: four cached gates PASS (5028 backend / 1714 skipped; 319 Node; Ruff631; lint/build); MYC1+staff browser49 PASS. Ready PR1137 to main, pushed.
+- CI 37088351280: frontend146 PASS / 2 old-message assertions FAIL; new club-entry bootstrap error intentionally replaces recruiting-local error. Updated both (single parametrized test), preserving no-coming-soon and adding Retry/no-empty/no-business-request controls. Added MYC1 browser spec to CI.
+- Now: targeted two CI regressions, final commit/gates/browser/push/CI. Production code unchanged since 99ddbce8.
+- Validation: revised 429 bootstrap contract targeted desktop/mobile 2 PASS; ESLint PASS. CI now runs MYC1+staff specs after the existing opportunity regressions. Final delivery remains authoritative externally.
