@@ -19,10 +19,10 @@ async function noPageNoise(page) {
     // Calm rules 1 and 7: one sans title, no serif display headline, no mono ALL-CAPS labels.
     const main = page.locator('main').last()
     await expect(main.locator('h1')).toHaveCount(1)
-    expect(await main.locator('h1').evaluate(node => getComputedStyle(node).fontFamily)).toMatch(/Geist/)
+    expect(await main.locator('h1').evaluate(node => globalThis.getComputedStyle(node).fontFamily)).toMatch(/Geist/)
     expect(await main.locator('.display, .eyebrow').count()).toBe(0)
     const shouting = await main.evaluate(node => [...node.querySelectorAll('*')].filter(el => el.children.length === 0 && el.textContent.trim()
-        && getComputedStyle(el).textTransform === 'uppercase' && /Mono/.test(getComputedStyle(el).fontFamily)).length)
+        && globalThis.getComputedStyle(el).textTransform === 'uppercase' && /Mono/.test(globalThis.getComputedStyle(el).fontFamily)).length)
     expect(shouting).toBe(0)
 }
 
@@ -214,7 +214,7 @@ for (const [width, height] of sizes) {
             const panel = page.getByRole('complementary', { name: 'Account details' })
             const name = panel.getByRole('heading', { name: 'Pete Dunmore' })
             await expect(name).toBeVisible()
-            expect(await name.evaluate(node => getComputedStyle(node).fontSize)).toBe('20px')
+            expect(await name.evaluate(node => globalThis.getComputedStyle(node).fontSize)).toBe('20px')
             await expect(panel.getByText('Suspension reason')).toBeVisible()
             await expect(panel).toContainText('Repeated abusive messages')
             await expect(panel).toContainText(/\d{1,2} \w{3} \d{4}, \d{2}:\d{2}/)
