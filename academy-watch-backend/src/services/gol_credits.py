@@ -12,6 +12,7 @@ from src.config.stripe_config import billing_enabled
 from src.models.gol_credits import GolChatExecution, GolCreditLedger
 from src.models.league import UserAccount, db
 from src.models.product_event import ProductEvent
+from src.services.gol_availability import GolMaintenance
 
 
 class CreditsExhausted(Exception):
@@ -71,7 +72,10 @@ def _latest_debit(user_id: int, client_msg_id: str) -> GolCreditLedger | None:
 
 def has_recoverable_question_debit(user, client_msg_id: str) -> bool:
     """Read-only hint; reservation still owns validation, locking and recovery."""
-    latest = _latest_debit(user.id, client_msg_id)
+    return _recoverable_debit(_latest_debit(user.id, client_msg_id))
+
+
+def _recoverable_debit(latest: GolCreditLedger | None) -> bool:
     if latest is None or _has_reversal(latest.id):
         return False
     return db.session.query(
@@ -204,7 +208,7 @@ def _execution_reservation(debit, question_hash, *, debited):
     return payload
 
 
-def reserve_question(user, client_msg_id, *, question_hash, role="user") -> dict:
+def reserve_question(user, client_msg_id, *, question_hash, role="user", recover_only=False) -> dict:
     """Commit the debit and its execution lease together under the user lock."""
     if not billing_enabled():
         return _reservation_payload(
@@ -217,6 +221,10 @@ def reserve_question(user, client_msg_id, *, question_hash, role="user") -> dict
     try:
         _lock_user(user.id)
         latest = _latest_debit(user.id, client_msg_id)
+        # The unlocked maintenance hint may be stale after a concurrent finish.
+        # Refuse before compensation, balance checks or creating another attempt.
+        if recover_only and not _recoverable_debit(latest):
+            raise GolMaintenance
         if latest is not None:
             if (latest.note or "").partition(";")[0] != question_hash:
                 raise ClientMsgIdReused

@@ -20,7 +20,7 @@ from src.services.gol_availability import (
     maintenance_enabled,
     maintenance_payload,
 )
-from src.services.gol_credits import balances
+from src.services.gol_credits import balances, finish_execution, free_allowance
 
 _REAL_GOL_SERVICE = gol_service.GolService
 
@@ -364,7 +364,7 @@ def _metered_question(app, monkeypatch):
     response = app.test_client().post("/api/gol/chat", json=body, headers=headers)
     assert response.status_code == 200
     assert "event: done" in response.text
-    assert balances(user)["free_questions_remaining"] == 2
+    assert balances(user)["free_questions_remaining"] == free_allowance() - 1
     return user, headers, body
 
 
@@ -373,6 +373,70 @@ def _pause(monkeypatch, state):
         monkeypatch.setenv("GOL_MAINTENANCE", "true")
     else:
         monkeypatch.delenv("OPENAI_API_KEY")
+
+
+@pytest.mark.parametrize("state", ["switch", "missing"])
+@pytest.mark.parametrize("disposition", ["refunded", "withheld_exhausted"])
+def test_paused_recovery_revalidates_after_original_finishes(app, monkeypatch, state, disposition):
+    if disposition == "withheld_exhausted":
+        monkeypatch.setenv("GOL_FREE_ALLOWANCE", "1")
+    user, headers, body = _metered_question(app, monkeypatch)
+    execution = GolChatExecution.query.one()
+    execution.status = "running"
+    reservation = {
+        "execution_id": execution.id,
+        "debit_id": execution.debit_id,
+        "lease_generation": execution.lease_generation,
+    }
+    db.session.commit()
+    _pause(monkeypatch, state)
+    original_hint = gol.has_recoverable_question_debit
+    after_finish = {}
+    writes = []
+
+    def hint_then_finish(account, question_id):
+        admitted = original_hint(account, question_id)
+        assert admitted is True
+        finish_execution(
+            account,
+            reservation,
+            failed=True,
+            refund=disposition == "refunded",
+            disconnect_delivered_chars=200 if disposition == "withheld_exhausted" else None,
+        )
+        after_finish["counts"] = (
+            GolCreditLedger.query.count(),
+            GolChatExecution.query.count(),
+            ProductEvent.query.count(),
+        )
+        after_finish["balance"] = balances(account)
+        return admitted
+
+    def capture(conn, cursor, statement, parameters, context, executemany):
+        if after_finish and statement.lstrip().split()[0].upper() in {"INSERT", "UPDATE", "DELETE", "REPLACE"}:
+            writes.append(statement)
+
+    monkeypatch.setattr(gol, "has_recoverable_question_debit", hint_then_finish)
+    provider = Mock(side_effect=AssertionError("provider construction"))
+    monkeypatch.setattr(gol_service, "OpenAI", provider)
+    event.listen(db.engine, "before_cursor_execute", capture)
+    try:
+        response = app.test_client().post("/api/gol/chat", json=body, headers=headers)
+        assert response.status_code == 503
+        assert response.json == maintenance_payload()
+        assert response.headers["Retry-After"] == "60"
+        assert response.headers["Cache-Control"] == "no-store"
+        assert writes == []
+    finally:
+        event.remove(db.engine, "before_cursor_execute", capture)
+    assert (GolCreditLedger.query.count(), GolChatExecution.query.count(), ProductEvent.query.count()) == after_finish[
+        "counts"
+    ]
+    assert balances(user) == after_finish["balance"]
+    assert GolChatExecution.query.one().status == "failed"
+    assert GolCreditLedger.query.filter_by(kind="debit").count() == 1
+    assert GolCreditLedger.query.filter_by(kind="reversal").count() == (disposition == "refunded")
+    provider.assert_not_called()
 
 
 @pytest.mark.parametrize("state", ["switch", "missing"])

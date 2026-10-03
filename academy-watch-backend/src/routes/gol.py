@@ -72,7 +72,8 @@ def gol_chat():
     Returns: text/event-stream with events: usage, token, data_card, tool_call, done, error
     """
     data = request.get_json(silent=True)
-    if assistant_under_maintenance():
+    recover_only = assistant_under_maintenance()
+    if recover_only:
         # Existing charged questions retain main's replay/lease/refund path.
         # Fresh requests (including malformed bodies) must write nothing.
         existing_id = data.get("client_msg_id") if isinstance(data, dict) else None
@@ -151,7 +152,11 @@ def gol_chat():
             allow_nan=False,
         )
         question_hash = hashlib.sha256(canonical.encode()).hexdigest()
-        reservation = reserve_question(g.user, client_msg_id, question_hash=question_hash, role=role)
+        reservation = reserve_question(
+            g.user, client_msg_id, question_hash=question_hash, role=role, recover_only=recover_only
+        )
+    except GolMaintenance:
+        return _maintenance_response()
     except (TypeError, ValueError):
         return jsonify({"error": "invalid_history_or_session"}), 400
     except QuestionInFlight:
