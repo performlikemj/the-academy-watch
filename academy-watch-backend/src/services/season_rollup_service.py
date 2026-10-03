@@ -66,7 +66,7 @@ from sqlalchemy import text
 from src.models.follow import PlayerShadow, PlayerShadowStats
 from src.models.funding import ClubProgram
 from src.models.journey import PlayerJourney, PlayerJourneyEntry
-from src.models.league import AcademyPlayerSeasonStats, db
+from src.models.league import AcademyPlayerSeasonStats, PlayerStatsCache, db
 from src.models.player_match_entry import PlayerMatchEntry
 from src.models.season_rollup import PlayerSeasonCell, PlayerSeasonTotal
 from src.models.showcase import LocalPlayer, local_player_is_minor
@@ -104,6 +104,7 @@ _SOURCE_PRIORITY = {
     SOURCE_FIXTURES: (3, 3),
     SOURCE_APSS: (3, 2),
     SOURCE_SHADOW: (3, 1),
+    "cache": (3, 0),
     SOURCE_CLUB: (2, 1),
     SOURCE_USER: (1, 1),
 }
@@ -792,6 +793,51 @@ def _club_cells(player_api_id: int, season: int | None, session, now: datetime) 
 _FEEDERS = (_fixture_cells, _journey_cells, _apss_cells, _shadow_cells, _club_cells, _user_cells)
 
 
+def _cache_fallback_cells(scopes, session, now, *, player_id=None, season=None, exclude_scopes=()):
+    """Cached provider figures only for reported scopes with no detailed provider.
+
+    Never add them beside fixtures/journey/shadow: the caller supplies only
+    missing scopes. This keeps limited-coverage providers ahead of reports.
+    """
+    scopes = {(pid, season) for pid, season in scopes if pid > 0}
+    if player_id is None:
+        if not scopes:
+            return []
+        query = session.query(PlayerStatsCache).filter(
+            PlayerStatsCache.player_api_id.in_({pid for pid, _season in scopes}),
+            PlayerStatsCache.season.in_({year for _pid, year in scopes}),
+        )
+    else:
+        if player_id <= 0 or (season is not None and (player_id, season) in exclude_scopes):
+            return []
+        query = session.query(PlayerStatsCache).filter_by(player_api_id=player_id)
+        if season is not None:
+            query = query.filter_by(season=season)
+    cells = []
+    for row in query:
+        scope = (row.player_api_id, row.season)
+        if scope in exclude_scopes or (player_id is None and scope not in scopes):
+            continue
+        agg = _blank_agg()
+        for key in _STAT_KEYS:
+            value = row.minutes_played if key == "minutes" else getattr(row, key, None)
+            _add(agg, key, value)
+        cell = _finish_cell(
+            agg,
+            player_api_id=row.player_api_id,
+            season=row.season,
+            source="cache",
+            club_api_id=row.team_api_id,
+            club_name=None,
+            competition_tier=TIER_LEAGUE,
+            level_group=LEVEL_SENIOR,
+            now=now,
+        )
+        if cell:
+            cells.append(cell)
+    return cells
+
+
 def provider_totals_batch(player_ids, season, *, session=None):
     """Read missing provider headlines in four batch queries, using the writers.
 
@@ -805,6 +851,8 @@ def provider_totals_batch(player_ids, season, *, session=None):
         for cell in feeder(set(player_ids), season, session, now):
             if cell["level_group"] == LEVEL_SENIOR:
                 grouped.setdefault(cell["player_api_id"], []).append(cell)
+    for cell in _cache_fallback_cells({(pid, season) for pid in set(player_ids) - set(grouped)}, session, now):
+        grouped.setdefault(cell["player_api_id"], []).append(cell)
     return {player_id: _resolve_totals(cells, now)[0] for player_id, cells in grouped.items()}
 
 
@@ -974,6 +1022,21 @@ def build_player_rollup(player_api_id, season=None, *, session=None, now=None):
         subject = resolve_reported_subject(player_api_id, session)
         if subject is None or subject["is_minor"]:
             reported = {}
+    provider_scopes = {
+        (cell["player_api_id"], cell["season"])
+        for cell in cells
+        if cell["level_group"] == LEVEL_SENIOR and cell["source"] not in {"club", "user"}
+    }
+    cells.extend(
+        _cache_fallback_cells(
+            set(reported) - provider_scopes,
+            session,
+            now,
+            player_id=player_api_id,
+            season=season,
+            exclude_scopes=provider_scopes,
+        )
+    )
     return cells, _resolve_totals(cells, now, reported)
 
 

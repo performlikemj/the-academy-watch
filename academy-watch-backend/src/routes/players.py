@@ -938,7 +938,7 @@ def get_public_player_season_stats(player_id: int):
             external_player
             and not rollup_enabled
             and total is not None
-            and total.primary_source in {"fixtures", "journey", "apss", "shadow", "cache"}
+            and total.primary_source in {"fixtures", "journey", "apss", "shadow"}
         ):
             # Retain the established provider adapter (including rich keeper
             # fields) while its cutover flag is OFF. Reports cannot replace it.
@@ -1078,7 +1078,7 @@ def get_public_player_season_stats(player_id: int):
                         .filter(PlayerShadowStats.player_api_id == player_id)
                         .scalar()
                     )
-                if target_season is not None and requested_season is None and api_football_frozen():
+                if target_season is not None and requested_season is None:
                     season_start_year = target_season
                     result["season"] = f"{target_season}/{target_season + 1}"
                 totals = (
@@ -1101,6 +1101,7 @@ def get_public_player_season_stats(player_id: int):
                 result["goals"] = goals
                 result["assists"] = assists
                 result["minutes"] = minutes
+                result.update(yellows=None, reds=None, saves=None, goals_conceded=None)
                 result["source"] = "shadow"
                 result["stats_coverage"] = "limited"
                 if shadow.current_club_name:

@@ -127,7 +127,26 @@ def effective_total(player_id, season, stored=None, *, session=None):
         provider = provider_totals_batch([player_id], season, session=session).get(player_id)
         if provider:
             return PlayerSeasonTotal(**provider)
-    return PlayerSeasonTotal(**total) if total else stored
+    if not total and player_id > 0 and stored is None:
+        # A last report can be removed while the real cache figures remain.
+        # Read a cache headline written by the same canonical refresh path.
+        stored = (
+            session.query(PlayerSeasonTotal)
+            .filter_by(
+                player_api_id=player_id,
+                season=season,
+                level_group="senior",
+                primary_source="cache",
+            )
+            .one_or_none()
+        )
+    return (
+        PlayerSeasonTotal(**total)
+        if total
+        else stored
+        if stored and stored.primary_source in PROVIDER_SOURCES
+        else None
+    )
 
 
 def scout_totals_projection(identity, season):
@@ -153,7 +172,17 @@ def scout_totals_projection(identity, season):
     ]
     totals = reported_totals(identity=identity, season=season)
     if not totals:
-        return select(*table.c, literal(False).label("pc2_override")).subquery("pc2_stored_totals")
+        return (
+            select(*table.c, literal(False).label("pc2_override"))
+            .where(
+                or_(
+                    table.c.season != season,
+                    table.c.level_group != "senior",
+                    table.c.primary_source.not_in(("club", "user", "matches")),
+                )
+            )
+            .subquery("pc2_stored_totals")
+        )
     positive_ids = {pid for pid, _season in totals if pid > 0}
     if positive_ids:
         stored_providers = set(
@@ -203,7 +232,7 @@ def scout_totals_projection(identity, season):
         ).label("pc2_override"),
     ).where(
         or_(
-            table.c.player_api_id.not_in([key[0] for key in totals]),
+            table.c.primary_source.not_in(("club", "user", "matches")),
             table.c.season != season,
             table.c.level_group != "senior",
             table.c.primary_source.in_(PROVIDER_SOURCES),
@@ -262,6 +291,8 @@ def saved_shadow_totals(player_ids, requested_season=None):
             elif scope in reported:
                 source = reported[scope]["primary_source"]
                 figures = {k: reported[scope][k] for k in STAT_KEYS}
+            else:
+                source, figures = None, None
         result[player_id] = {
             **({k if k != "minutes" else "minutes_played": v for k, v in figures.items()} if figures else {}),
             "provenance": {

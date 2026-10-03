@@ -11,9 +11,9 @@ import pytest
 from flask import Flask
 from sqlalchemy import event, literal, select
 from src.auth import issue_user_token
-from src.models.follow import Follow, FollowList, PlayerShadow
+from src.models.follow import Follow, FollowList, PlayerShadow, PlayerShadowStats
 from src.models.funding import ClubProgram, FundingLeague
-from src.models.league import Team, UserAccount, db
+from src.models.league import PlayerStatsCache, Team, UserAccount, db
 from src.models.player_match_entry import PlayerMatchEntry
 from src.models.scout_watchlist import ScoutWatchlistEntry
 from src.models.season_rollup import PlayerSeasonCell, PlayerSeasonTotal
@@ -309,13 +309,35 @@ def surfaces(client, headers, list_id):
     }, desk["players"]
 
 
+@pytest.mark.parametrize("provider_kind", ["fixtures", "cache"])
 @pytest.mark.parametrize("provider_rollup", [True, False])
 @pytest.mark.parametrize("flags", ["", "scout,season_stats,player_stats"])
 @pytest.mark.parametrize("frozen", ["0", "1"])
 def test_one_mixed_fixture_equal_on_every_surface_before_and_after_rebuild(
-    app, monkeypatch, flags, frozen, provider_rollup
+    app, monkeypatch, flags, frozen, provider_rollup, provider_kind
 ):
     ids, _user_id, list_id = seed_personas()
+    if provider_kind == "cache":
+        provider = ids["Provider"]
+        FixturePlayerStats.query.filter_by(player_api_id=provider).delete()
+        PlayerSeasonTotal.query.filter_by(player_api_id=provider).delete()
+        PlayerSeasonCell.query.filter_by(player_api_id=provider).delete()
+        TrackedPlayer.query.filter_by(player_api_id=provider).one().data_depth = "events_only"
+        db.session.add(
+            PlayerStatsCache(
+                player_api_id=provider,
+                team_api_id=9001,
+                season=SEASON,
+                appearances=4,
+                minutes_played=360,
+                goals=3,
+                assists=2,
+                yellows=1,
+            )
+        )
+        db.session.flush()
+        rollup.refresh_player(provider, SEASON)
+        db.session.commit()
     if not provider_rollup:
         PlayerSeasonTotal.query.filter_by(player_api_id=ids["Provider"]).delete()
         db.session.commit()
@@ -326,7 +348,9 @@ def test_one_mixed_fixture_equal_on_every_surface_before_and_after_rebuild(
     expected = {}
     for name, player_id in ids.items():
         if name == "Provider":
-            expected[player_id] = (1, 90, 2, 1, 0, 0, None, None)
+            expected[player_id] = (
+                (1, 90, 2, 1, 0, 0, None, None) if provider_kind == "fixtures" else (4, 360, 3, 2, 1, 0, 0, None)
+            )
         else:
             result = client.get(f"/api/players/{player_id}/matches?view=lines&season={SEASON}")
             assert result.status_code == 200
@@ -392,7 +416,7 @@ def test_one_mixed_fixture_equal_on_every_surface_before_and_after_rebuild(
         kofi = next(p for p in rows if p["player_id"] == ids["Kofi Asante-Reid"])
         assert kofi["provenance"]["primary_source"] == "matches"
         provider = next(p for p in rows if p["player_id"] == ids["Provider"])
-        assert provider["provenance"]["primary_source"] == "fixtures"
+        assert provider["provenance"]["primary_source"] == provider_kind
         assert kofi["club_confirmed"] is True
         assert kofi["approved_photo_url"].endswith("/pc2/approved.jpg")
         assert len(kofi["bio_line"]) <= 160 and "<" not in kofi["bio_line"] and "\n" not in kofi["bio_line"]
@@ -510,3 +534,86 @@ def test_rebuild_dry_run_resume_idempotence_and_rollback(app, tmp_path):
         after = rebuild.snapshot(db.session, player_id)
         for table in before[player_id]:
             assert rebuild.comparable(after[table]) == rebuild.comparable(before[player_id][table])
+
+
+@pytest.mark.parametrize("flags", ["", "scout,season_stats"])
+def test_old_reported_cells_without_source_lines_do_not_reappear(app, monkeypatch, flags):
+    ids, _user, list_id = seed_personas()
+    player_id = ids["Kofi Asante-Reid"]
+    PlayerMatchEntry.query.filter_by(player_api_id=player_id).delete()
+    db.session.commit()  # deliberately retain old cells, as a pre-rebuild orphan
+    monkeypatch.setenv("SEASON_ROLLUP_READS", flags)
+    headers = {"Authorization": "Bearer " + issue_user_token("pc2-scout@example.test")["token"]}
+    got, _rows = surfaces(app.test_client(), headers, list_id)
+    for surface, values in got.items():
+        if surface.startswith("leaderboards"):
+            assert player_id not in values
+        else:
+            assert all(value in {None, 0} for value in values[player_id]), (surface, values[player_id])
+    season = app.test_client().get(f"/api/players/{player_id}/season-stats?season={SEASON}").get_json()
+    assert (season["appearances"], season["minutes"], season["goals"]) == (0, 0, 0)
+    assert PlayerSeasonTotal.query.filter_by(player_api_id=player_id).one().minutes == 164  # reads do not write
+
+
+@pytest.mark.parametrize("frozen", ["0", "1"])
+def test_saved_worldwide_shadow_uses_own_latest_season_without_joining_desk(app, monkeypatch, frozen):
+    monkeypatch.setenv("API_FOOTBALL_FROZEN", frozen)
+    _ids, user_id, list_id = seed_personas()
+    player_id = 91002
+    db.session.add(
+        PlayerShadow(
+            player_api_id=player_id, player_name="Worldwide adult", birth_date=date(2000, 1, 1), is_active=True
+        )
+    )
+    db.session.add_all(
+        [
+            PlayerShadowStats(
+                player_api_id=player_id, team_api_id=9002, season=2024, appearances=2, minutes=180, goals=1, assists=0
+            ),
+            PlayerShadowStats(
+                player_api_id=player_id, team_api_id=9002, season=2025, appearances=9, minutes=900, goals=3, assists=1
+            ),
+            Follow(list_id=list_id, kind="player", selector={"player_api_id": player_id}),
+        ]
+    )
+    db.session.commit()
+    headers = {"Authorization": "Bearer " + issue_user_token("pc2-scout@example.test")["token"]}
+    client = app.test_client()
+    for pick, expected in (("", (9, 900, 3, 1)), ("&season=2024", (2, 180, 1, 0))):
+        response = client.get(f"/api/scout/lists/{list_id}/resolve?limit=50{pick}", headers=headers)
+        assert response.status_code == 200, response.json
+        player = next(p for p in response.json["players"] if p["player_api_id"] == player_id)
+        assert _numbers(player)[:4] == expected
+        assert player["provenance"]["primary_source"] == "shadow"
+        stats = client.get(f"/api/players/{player_id}/season-stats?season={2024 if pick else 2025}")
+        assert stats.status_code == 200, stats.json
+        assert tuple(
+            stats.json[k]
+            for k in ("appearances", "minutes", "goals", "assists", "yellows", "reds", "saves", "goals_conceded")
+        ) == _numbers(player)
+    desk = client.get(f"/api/scout/players?season={SEASON}&per_page=50")
+    assert player_id not in {row["player_id"] for row in desk.json["players"]}
+
+
+def test_removing_last_report_preserves_provider_cache(app):
+    ids, _user, _list = seed_personas()
+    player_id = ids["Provider"]
+    FixturePlayerStats.query.filter_by(player_api_id=player_id).delete()
+    db.session.add(
+        PlayerStatsCache(
+            player_api_id=player_id,
+            team_api_id=9001,
+            season=SEASON,
+            appearances=4,
+            minutes_played=360,
+            goals=3,
+            assists=2,
+        )
+    )
+    rollup.refresh_player(player_id, SEASON)
+    db.session.commit()
+    PlayerMatchEntry.query.filter_by(player_api_id=player_id).delete()
+    rollup.refresh_player(player_id, SEASON)
+    db.session.commit()
+    total = PlayerSeasonTotal.query.filter_by(player_api_id=player_id).one()
+    assert (total.primary_source, total.appearances, total.minutes, total.goals) == ("cache", 4, 360, 3)

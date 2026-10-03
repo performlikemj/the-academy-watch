@@ -92,15 +92,18 @@ def season_bounds(
 
     - ``low`` = ``MIN(fixtures.season)`` by default, preserving the valid range
       for fixture-backed reads. With ``include_rollup_history=True``, the
-      minimum also considers ``player_season_totals.season`` so rollup-backed
-      reads can reach historical seasons. Falls back to
+      minimum also considers stored rollup/report/shadow/cache history so these
+      reads can reach historical seasons before a rollup rebuild. Falls back to
       ``current_stats_season`` when neither source has rows.
     - ``high`` = ``current_stats_season() + 1`` — a caller may look one season
       ahead (request the upcoming season before its fixtures land).
 
     Season values are API-Football season-start years (2025 == 2025-26).
     """
-    from sqlalchemy import func
+    from sqlalchemy import func, select, union_all
+    from src.models.follow import PlayerShadowStats
+    from src.models.league import PlayerStatsCache
+    from src.models.player_match_entry import PlayerMatchEntry
     from src.models.season_rollup import PlayerSeasonTotal
     from src.models.weekly import Fixture
 
@@ -108,7 +111,15 @@ def season_bounds(
     fixture_min = db_session.query(func.min(Fixture.season)).scalar()
     candidates = [fixture_min] if fixture_min is not None else []
     if include_rollup_history:
-        rollup_min = db_session.query(func.min(PlayerSeasonTotal.season)).scalar()
+        # PC2 compatibility also reaches stored report/shadow/cache history
+        # before its rollup exists. One narrow metadata query, as before.
+        history = union_all(
+            *(
+                select(func.min(model.season).label("season"))
+                for model in (PlayerSeasonTotal, PlayerMatchEntry, PlayerShadowStats, PlayerStatsCache)
+            )
+        ).subquery()
+        rollup_min = db_session.query(func.min(history.c.season)).scalar()
         if rollup_min is not None:
             candidates.append(rollup_min)
     min_season = min(candidates) if candidates else None

@@ -609,7 +609,7 @@ def _base_scout_query(
         uses_reported_total = or_(
             identity.c.is_local,
             totals.pc2_override,
-            totals.primary_source.in_(("club", "user", "matches")),
+            totals.primary_source.in_(("club", "user", "matches", "cache")),
         )
 
         goals = case(
@@ -877,7 +877,9 @@ def _row_to_dict(row):
     has_detailed = not is_rollup_row and row.tackles is not None
     payload["has_detailed_stats"] = has_detailed
     for key in PHASE_STAT_KEYS:
-        reported_field = (row.provenance_primary_source in {"club", "user", "matches"} or row.pc2_override) and key in {
+        reported_field = (
+            row.provenance_primary_source in {"club", "user", "matches", "cache"} or row.pc2_override
+        ) and key in {
             "yellows",
             "reds",
             "saves",
@@ -1126,7 +1128,7 @@ def scout_leaderboards():
             db.session,
             requested=requested_season,
             surface="discovery",
-            allow_history=True,
+            allow_history=use_rollup or _local_players_enabled(),
         )
 
         # Immutable base queries and one caller-owned eligibility snapshot serve
@@ -1385,7 +1387,7 @@ def scout_compare():
             db.session,
             requested=requested_season,
             surface="discovery",
-            allow_history=True,
+            allow_history=use_rollup or _local_players_enabled(),
         )
         # An explicit season scopes both the projection and the legacy adapter;
         # the resolved value is echoed for the caller's label.
@@ -1475,7 +1477,11 @@ def scout_compare():
                 continue
 
             uses_reported_candidate = candidate["provenance"]["source_category"] in {"club", "self"}
-            if uses_reported_candidate or player_id in projected_provider_ids:
+            if (
+                uses_reported_candidate
+                or player_id in projected_provider_ids
+                or candidate["provenance"]["primary_source"] == "cache"
+            ):
                 totals = _compare_candidate_totals(candidate)
                 row = None
             elif use_rollup:

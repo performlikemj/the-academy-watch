@@ -5,7 +5,7 @@
 // player's own entries with the club's (GET /players/:id/matches?view=lines) and
 // totals exactly those lines. This module only decides what to say about them.
 
-const GRAIN_SOURCES = new Set(['club', 'club_confirmed', 'club_verified', 'user', 'self', 'self_reported'])
+const GRAIN_SOURCES = new Set(['club', 'club_confirmed', 'club_verified', 'user', 'self', 'self_reported', 'matches'])
 const FULL_MATCH_MINUTES = 90
 export const MATCH_LINES_PREVIEW = 10
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -277,8 +277,8 @@ export function seasonKicker(season, currentSeason) {
 const PROVIDER_SOURCES = new Set(['api', 'api_football', 'fixtures', 'journey', 'apss', 'shadow'])
 
 // True only when a list row's figures are known to come from the provider.
-// Club- or player-entered figures are counted differently on the player's page
-// (one line per match), so a list must not print them as counters.
+// Scout counters now receive the canonical reported totals too. This helper
+// classifies provenance for other consumers that distinguish provider figures.
 export function isProviderSourced(provenance) {
   const raw = typeof provenance === 'string'
     ? provenance

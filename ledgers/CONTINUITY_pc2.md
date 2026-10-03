@@ -27,3 +27,12 @@
 - Delivery: PC1131 released on mainf18abf6b; refresh onto that main before final-head gates.
 
 - Main refresh: merged origin/mainf18abf6b; conflicting PC files are byte-identical to base3d4cf2b1 on main, kept tested PC2 versions; both ledger histories/GOL pattern retained. Browser product/spec blobs unchanged from the single81-PASS run.
+
+- Final-gate audit on013fc52a: frontend390/lint-build + backend-lint641 PASS; backend5132 PASS/1716 SKIP/3 FAIL (two stale C1 SQL counts and provider-only historical guard).
+- Fixes: C1 alias before/after policy parity preserved with updated bounded PC2 query baseline25; restored provider-only historical validation.
+- Additional audit: reproduced cache4/360 being replaced by own1/120/20 goals; fixed batched provider-cache fallback/write retention, also after removing last report. Orphan reported cells no longer headline; worldwide saved shadow seasons/unknown metrics align. matches classified as reported by player UI, browser mocks updated to current contract.
+- Verification current fixes: targeted224 PASS + node player-card33 PASS; PG23/latest CLI/browser/four new-head cached gates next.
+
+- Verification final code: targeted224 PASS; real PostgreSQL23 PASS (16 equality combinations + budget/rebuild/orphan/shadow/cache-retention controls).
+- Final CLI rehearsal:6/5/5 dry0.499s; first2/2/2 0.285s; resume4/3/3 0.415s; repeat6/0/0 0.497s; undo5; restored6/5/5 0.487s. Scratch dropped again.
+- State: implementation/targeted proof complete; commit final fixes, then four cached gates and the touched browser spec once on this final head (fixture now models matches source). Push/ready PR/CI/duel delivery recorded externally.

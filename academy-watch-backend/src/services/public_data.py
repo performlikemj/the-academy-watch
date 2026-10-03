@@ -114,9 +114,14 @@ def separated_season_stats(player_id, season, legacy):
     public.update(public_match_metadata(player_id, season))
     # Limited-coverage cache totals have no rollup feeder; retain the endpoint's
     # season-scoped stored result when there are no detailed public sources.
-    if not public["available"] and legacy.get("source") in {"limited-coverage", "shadow", "local-db", "api-football"}:
+    if not public["available"] and (
+        legacy.get("source") in {"limited-coverage", "shadow", "local-db", "api-football"}
+        or (legacy.get("provenance") or {}).get("primary_source") == "cache"
+    ):
         public.update(
-            available=True, totals={key: legacy.get(key) for key in stat_keys}, primary_source=legacy["source"]
+            available=True,
+            totals={key: legacy.get(key) for key in stat_keys},
+            primary_source=(legacy.get("provenance") or {}).get("primary_source") or legacy["source"],
         )
     club = block("club_verified", "Club-verified", [c for c in cells if c["source"] == "club"])
     reported = block("self_reported", "Self-reported", [c for c in cells if c["source"] == "user"])

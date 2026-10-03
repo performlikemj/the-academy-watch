@@ -333,7 +333,7 @@ async function installApiMocks(page, { frozen = false, contactRail = true, watch
       }
       if (resource === 'season-stats') {
         const provider = { appearances: 30, minutes: 2412, goals: 6, assists: 4, yellows: 3, reds: 0, avg_rating: 7.12 }
-        const grain = totalsOf(player.lines.filter((entry) => entry.confirmation === 'club_confirmed'))
+        const grain = totalsOf(player.lines)
         const asked = Number(url.searchParams.get('season') || 2026)
         if (gate) await gate(asked)
         const seasonStatus = seasonStatsStatus()
@@ -341,8 +341,8 @@ async function installApiMocks(page, { frozen = false, contactRail = true, watch
         const providerHasSeason = player.provider && (!player.providerSeasons || player.providerSeasons.includes(asked))
         const base = providerHasSeason
           ? { ...provider, source: 'season-rollup', provenance: { primary_source: 'journey', reconcile_flag: null } }
-          // What the rollup says today for a community player: the club's rows only.
-          : { appearances: grain.appearances, minutes: grain.minutes, goals: grain.goals, assists: grain.assists, source: 'season-rollup', provenance: { primary_source: 'club' } }
+          // PC2 reports use the same canonical merged lines as the read view.
+          : { appearances: grain.appearances, minutes: grain.minutes, goals: grain.goals, assists: grain.assists, source: 'season-rollup', provenance: { primary_source: 'matches' } }
         const separated = frozen ? {
           public_match_data: providerHasSeason
             ? { available: true, as_of: '2026-09-28T09:00:00+00:00', totals: provider }
