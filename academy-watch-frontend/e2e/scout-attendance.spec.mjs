@@ -412,4 +412,37 @@ test('attendance started by A and answered after switching to B leaves B untouch
   await expect(page.getByRole('dialog')).toBeVisible()
   await expect(page.getByRole('alert')).toHaveCount(0)
   expect(await page.evaluate(() => localStorage.getItem('academy_watch_user_token'))).toBe('c4-account-b')
+
+  // The club workspace is also keyed by viewer. A delayed decision must not
+  // refresh private queues using B's credential or disturb B's new draft.
+  await fixture(page, { attendance: request })
+  let releaseDecision
+  const heldDecision = new Promise(resolve => { releaseDecision = resolve })
+  let deciding = false
+  await page.route(`**/api/club/7/attendance/${rid}/decision`, async route => {
+    deciding = true
+    await heldDecision
+    await route.fulfill({ json: { attendance: { ...request, status: 'accepted', version: 2 } } })
+  })
+  await page.goto('/my-club?program=7&view=today')
+  const instructions = page.getByRole('textbox', { name: 'Where to stand and who to report to' })
+  await instructions.fill('A club-only arrival instructions')
+  await page.getByRole('button', { name: 'Accept attendance' }).click()
+  await expect.poll(() => deciding).toBe(true)
+  await page.evaluate(async () => {
+    const { APIService } = await import('/src/lib/api.js')
+    APIService.setUserToken('c4-club-account-b')
+  })
+  await expect(instructions).toHaveValue('')
+  await instructions.fill('B club draft remains')
+  const reads = () => sent.filter(req => req.path === '/api/club/7/today').length
+  const before = reads()
+  const decisionAnswer = page.waitForResponse(response => response.url().endsWith(`/club/7/attendance/${rid}/decision`))
+  releaseDecision()
+  await decisionAnswer
+  await page.waitForTimeout(300)
+  expect(reads()).toBe(before)
+  await expect(instructions).toHaveValue('B club draft remains')
+  await expect(page.getByRole('alert')).toHaveCount(0)
+  expect(await page.evaluate(() => localStorage.getItem('academy_watch_user_token'))).toBe('c4-club-account-b')
 })

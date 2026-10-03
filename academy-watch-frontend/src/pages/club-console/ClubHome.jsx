@@ -5,6 +5,7 @@ import { PlayerPage } from './PlayerPage';
 import { Network, Users, Film, Send, Settings, ShieldCheck, Plus, LockKeyhole, Search, CalendarDays, ArrowRight } from 'lucide-react';
 // --- p2-c4 begin ---
 import { ClubToday } from '@/components/attendance/ClubToday';
+import { useViewerLifetime } from '@/hooks/useViewerState';
 import { useScoutAttend } from '@/components/attendance/useScoutAttend';
 // --- p2-c4 end ---
 // --- p2-b2 begin ---
@@ -37,7 +38,9 @@ export function ClubHome({
   access = null,
   staffAccessEnabled = false
 }) {
-  const scoutAttendEnabled = useScoutAttend(); // p2-c4
+  const life = useViewerLifetime(); // p2-c4
+  const api = life.api; // p2-c4
+  const scoutAttendEnabled = useScoutAttend(api); // p2-c4
   const [map, setMap] = useState(null);
   const [navigationOpen, setNavigationOpen] = useState(false);
   const [params, setParams] = useSearchParams();
