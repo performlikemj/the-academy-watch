@@ -120,12 +120,12 @@ test('a leader whose figure could differ from the player page is not printed (re
   assert.deepEqual(leaderEntries(null), [])
 })
 
-test('the view choice belongs to the viewer: another account\'s choice is never used (review X4)', () => {
-  const a = viewOwnerTag('token-of-a')
-  const b = viewOwnerTag('token-of-b')
+test('the view choice belongs to the viewer: another account\'s choice is never used (review X4)', async () => {
+  const a = await viewOwnerTag('token-of-a')
+  const b = await viewOwnerTag('token-of-b')
   assert.match(a, /^u[0-9a-f]{8}$/)
   assert.notEqual(a, b)
-  assert.equal(viewOwnerTag(null), 'public')
+  assert.equal(await viewOwnerTag(null), 'public')
   assert.ok(!a.includes('token-of-a'), 'the credential is stored')
   let raw = withResultView(null, a, 'table')
   assert.equal(storedResultView(raw, a), 'table')
@@ -170,6 +170,14 @@ test('the desk offers exactly what the contact rules would accept (reviews X2 / 
   assert.deepEqual(deskIntroduction({ contactable: true, introduction: { state: 'pending' } }, { signedIn: false }), { kind: 'ask' })
   assert.deepEqual(deskIntroduction({ contactable: true }, signedIn), { kind: 'ask' })
   assert.equal(deskIntroduction({ contactable: false }, signedIn), null)
+  // Signed in: Ask needs a scout KNOWN to be verified; unverified is sent to verification; unknown gets nothing.
+  const askable = { contactable: true, introduction: { state: 'none', can_ask: true } }
+  assert.deepEqual(deskIntroduction(askable, { signedIn: true, verification: 'approved' }), { kind: 'ask' })
+  assert.deepEqual(deskIntroduction(askable, { signedIn: true, verification: 'unverified' }), { kind: 'verify' })
+  assert.equal(deskIntroduction(askable, { signedIn: true, verification: 'loading' }), null)
+  assert.equal(deskIntroduction(askable, { signedIn: true, verification: 'unavailable' }), null)
+  // An existing thread stays reachable whatever the status.
+  assert.deepEqual(deskIntroduction({ contactable: true, introduction: { state: 'pending', request_id: 'r-1' } }, { signedIn: true, verification: 'unavailable' }), thread('r-1'))
 })
 
 const YEAR = new Date().getFullYear()
@@ -261,23 +269,33 @@ test('leaders are drawn only with rows, below the results', () => {
 
 const signInToken = (payload) => `${Buffer.from(JSON.stringify(payload)).toString('base64url')}.timestamp.signature`
 
-test('the view choice follows the ACCOUNT across sign-ins, not the sign-in token (review O-Small-1)', () => {
-  const first = signInToken({ email: 'corinne@example.com', user_id: 42, role: 'user', iat: 1790000000 })
-  const again = signInToken({ email: 'corinne@example.com', user_id: 42, role: 'user', iat: 1790099999 })
-  const other = signInToken({ email: 'dev@example.com', user_id: 43, role: 'user', iat: 1790000000 })
+test('the view choice follows the ACCOUNT across sign-ins — with tokens the backend really issues (compressed)', async () => {
+  // tests/fixtures/sign-in-tokens.json is written by the backend's own issue_user_token
+  // (academy-watch-backend/tests/test_scout_desk_card.py), two sign-ins of one account and one of another.
+  const issued = JSON.parse(read('./fixtures/sign-in-tokens.json'))
+  const [first, again] = issued.same_account
   assert.notEqual(first, again)
-  assert.equal(viewOwnerTag(first), viewOwnerTag(again))
-  assert.notEqual(viewOwnerTag(first), viewOwnerTag(other))
-  // Older tokens without a user id fall back to the email; nothing readable is stored.
+  assert.ok(first.startsWith('.') && again.startsWith('.') && issued.other_account.startsWith('.'), 'fixture tokens are not the compressed kind')
+  const tag = await viewOwnerTag(first)
+  assert.equal(tag, await viewOwnerTag(again))
+  assert.notEqual(tag, await viewOwnerTag(issued.other_account))
+  // The reviewer's probe: Table chosen under the first sign-in is still there under the next one.
+  assert.equal(storedResultView(withResultView(null, tag, 'table'), await viewOwnerTag(again)), 'table')
+  assert.equal(storedResultView(withResultView(null, tag, 'table'), await viewOwnerTag(issued.other_account)), null)
+
+  // Uncompressed payloads (short ones) read the same way; an older token without a user id falls back to the email.
+  const first2 = signInToken({ email: 'corinne@example.com', user_id: 42, role: 'user', iat: 1790000000 })
+  const again2 = signInToken({ email: 'corinne@example.com', user_id: 42, role: 'user', iat: 1790099999 })
+  assert.equal(await viewOwnerTag(first2), await viewOwnerTag(again2))
   const byEmail = signInToken({ email: 'Corinne@Example.com ', role: 'user', iat: 1 })
-  assert.equal(viewOwnerTag(byEmail), viewOwnerTag(signInToken({ email: 'corinne@example.com', role: 'user', iat: 2 })))
-  for (const tag of [viewOwnerTag(first), viewOwnerTag(byEmail)]) {
-    assert.match(tag, /^u[0-9a-f]{8}$/)
-    assert.ok(!/corinne|42/.test(tag))
+  assert.equal(await viewOwnerTag(byEmail), await viewOwnerTag(signInToken({ email: 'corinne@example.com', role: 'user', iat: 2 })))
+  // Nothing readable is stored; an unreadable payload is a per-sign-in tag, never an error.
+  for (const value of [tag, await viewOwnerTag(byEmail)]) {
+    assert.match(value, /^u[0-9a-f]{8}$/)
+    assert.ok(!/corinne|42/.test(value))
   }
-  // An unreadable payload is still a per-sign-in tag, never an error.
-  assert.match(viewOwnerTag('.compressed-payload.x.y'), /^u[0-9a-f]{8}$/)
-  assert.notEqual(viewOwnerTag('opaque-a'), viewOwnerTag('opaque-b'))
+  assert.match(await viewOwnerTag('.not-a-compressed-payload.x.y'), /^u[0-9a-f]{8}$/)
+  assert.notEqual(await viewOwnerTag('opaque-a'), await viewOwnerTag('opaque-b'))
 })
 
 test('compare withholds club- or player-entered season figures until the server merges match lines (review X2)', () => {
@@ -310,8 +328,9 @@ test('nothing is offered while it is unknown whether the scout may ask (review O
   assert.equal(introductionView({ state: 'none', can_ask: true }, { verification: 'loading' }).action, null)
   assert.equal(introductionView({ state: 'withdrawn', can_ask: true }, { verification: 'loading' }).action, null)
   assert.deepEqual(introductionView({ state: 'none', can_ask: true }, { verification: 'approved' }).action, { kind: 'ask', label: 'Ask' })
-  // A status check that failed does not lock a verified scout out; the server still decides.
-  assert.deepEqual(introductionView({ state: 'none', can_ask: true }, { verification: 'unavailable' }).action, { kind: 'ask', label: 'Ask' })
+  // A status read that failed is unknown too — unknown is not verified (third review round).
+  assert.equal(introductionView({ state: 'none', can_ask: true }, { verification: 'unavailable' }).action, null)
+  assert.equal(introductionView({ state: 'expired', can_ask: true }, { verification: 'unavailable' }).action, null)
   // An existing thread stays reachable whatever the status.
   assert.equal(introductionView({ state: 'pending', request_id: 'r-1', waiting_on: 'player' }, { verification: 'loading' }).action.kind, 'thread')
 })

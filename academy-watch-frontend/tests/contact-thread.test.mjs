@@ -8,7 +8,7 @@ const componentFile = new URL('../src/components/contact/ContactThread.jsx', imp
 
 test('describeThreadState explains every closed state and opens only when the API says so', () => {
   assert.equal(describeThreadState(null).open, false)
-  assert.deepEqual(describeThreadState({ messaging_open: true, status: 'accepted' }), { open: true, note: null })
+  assert.deepEqual(describeThreadState({ messaging_open: true, status: 'accepted' }), { open: true, writable: true, note: null })
   assert.match(describeThreadState({ messaging_open: false, status: 'pending', routing_mode: 'direct' }).note, /Waiting for the player to accept/)
   assert.match(describeThreadState({ messaging_open: false, status: 'pending', routing_mode: 'club_included', club_consent_status: 'pending' }).note, /club to allow/)
   assert.match(describeThreadState({ messaging_open: false, status: 'accepted', routing_mode: 'club_included', club_consent_status: 'pending' }).note, /Messaging opens once the club allows/)
@@ -79,4 +79,15 @@ test('thread public title never changes the private participant or unavailable f
   assert.equal(participantName(request, 'player'), 'Public profile')
   assert.equal(request.participants.player.display_name, 'Unavailable')
   assert.equal(participantName({ ...request, public_profile: undefined }, 'player'), 'Unavailable')
+})
+
+test('the composer follows the server\'s can_send: history can be readable while the thread is not writable', async () => {
+  const { describeThreadState } = await import('../src/lib/contact-thread.js')
+  assert.deepEqual(describeThreadState({ messaging_open: true, can_send: true }), { open: true, writable: true, note: null })
+  assert.deepEqual(describeThreadState({ messaging_open: true, can_send: false }), { open: true, writable: false, note: 'New messages cannot be sent in this thread.' })
+  // A payload from before the field existed behaves as it always did.
+  assert.deepEqual(describeThreadState({ messaging_open: true }), { open: true, writable: true, note: null })
+  assert.equal(describeThreadState({ messaging_open: false, status: 'pending' }).open, false)
+  const src = await fs.readFile(componentFile, 'utf8')
+  assert.ok(src.includes('{readOnly || !state.writable ? ('), 'the composer is initialised from the thread state')
 })

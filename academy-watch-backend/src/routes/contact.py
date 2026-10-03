@@ -43,6 +43,7 @@ from src.services.contact import (
     require_contact_rail,
     resolve_club_courtesy_target,
     routing_mode_for_claim,
+    send_blocked_request_ids,
     send_club_consent_notice,
     send_club_courtesy_notice,
     utcnow,
@@ -129,8 +130,25 @@ def _player_not_claimable():
 
 
 def _contact_request_payload(contact_request: ContactRequest, *, viewer_user_id, context=None) -> dict:
-    """Serialize blockable participants only for authenticated contact APIs."""
-    return contact_request.to_dict(include_user_ids=True, context=context, viewer_user_id=viewer_user_id)
+    """Serialize blockable participants only for authenticated contact APIs.
+
+    ``messaging_open`` says the thread exists and its history can be read;
+    ``can_send`` says a message from THIS viewer would be accepted — the same
+    block rule ``create_contact_message`` enforces. Lists pass the batched
+    answer in ``context["send_blocked"]``; a single payload looks it up only
+    when the thread is open.
+    """
+    payload = contact_request.to_dict(include_user_ids=True, context=context, viewer_user_id=viewer_user_id)
+    can_send = bool(payload.get("messaging_open")) and viewer_user_id is not None
+    if can_send:
+        blocked = (
+            context["send_blocked"]
+            if context is not None and "send_blocked" in context
+            else send_blocked_request_ids(viewer_user_id, [contact_request])
+        )
+        can_send = contact_request.id not in blocked
+    payload["can_send"] = can_send
+    return payload
 
 
 def _contact_message_payload(message: ContactMessage) -> dict:
@@ -981,6 +999,7 @@ def list_contact_requests():
             "created": created,
             "programs": programs,
             "available": available_club_requests(rows),
+            "send_blocked": send_blocked_request_ids(user.id, rows, related=related_user_ids),
         }
         context["public_profiles"] = public_request_profiles(rows, context["available"])
         return jsonify(

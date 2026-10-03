@@ -201,15 +201,22 @@ function WatchlistBody() {
     if (auth?.token) load()
   }, [auth?.token, load])
 
-  // Asking for an introduction is for verified scouts (the server checks again).
+  // Asking for an introduction is for scouts KNOWN to be verified (the server checks again).
+  // A failed status read is retried; until it succeeds nothing new is offered.
+  const [verificationAttempt, setVerificationAttempt] = useState(0)
   useEffect(() => {
     if (!auth?.token || contactRail !== true) return undefined
     let live = true
+    let retry = null
     api.getScoutVerification()
       .then((data) => { if (live) setVerification(data?.verification?.status === 'approved' ? 'approved' : 'unverified') })
-      .catch(() => { if (live) setVerification('unavailable') })
-    return () => { live = false }
-  }, [api, auth?.token, contactRail])
+      .catch((err) => {
+        if (!live || isStaleViewerError(err)) return
+        setVerification('unavailable')
+        if (verificationAttempt < 2) retry = setTimeout(() => setVerificationAttempt((n) => n + 1), 3000)
+      })
+    return () => { live = false; clearTimeout(retry) }
+  }, [api, auth?.token, contactRail, verificationAttempt])
 
   const handleDigestToggle = useCallback(async (checked) => {
     setDigestOptIn(checked)
@@ -405,7 +412,7 @@ function WatchlistBody() {
         )}
 
         <IntroduceDialog
-          open={!!introducePlayer}
+          open={verification === 'approved' && !!introducePlayer}
           onOpenChange={(next) => { if (!next) setIntroducePlayer(null) }}
           player={introducePlayer}
           onSent={() => load({ quiet: true })}

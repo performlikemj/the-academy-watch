@@ -14,7 +14,8 @@ async function mocks(page, { verified = false, signedIn = true, incoming = true,
     const tag = (token) => {
       if (!token) return 'public'
       let hash = 0x811c9dc5
-      for (let index = 0; index < token.length; index += 1) hash = Math.imul(hash ^ token.charCodeAt(index), 0x01000193) >>> 0
+      const subject = `token:${token}` // the mock token has no readable payload: a per-sign-in tag
+      for (let index = 0; index < subject.length; index += 1) hash = Math.imul(hash ^ subject.charCodeAt(index), 0x01000193) >>> 0
       return `u${hash.toString(16).padStart(8, '0')}`
     }
     localStorage.setItem('aw.scout.view.v2', JSON.stringify({ [tag(signedIn ? 'test-token' : null)]: 'table' }))
@@ -194,7 +195,9 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
 }
 
 for (const verificationMode of ['slow', 'failed']) {
-  test(`verification ${verificationMode} keeps neutral copy and allows composer`, async ({ page }) => {
+  // Since the scout-desk makeover's third review round: an unknown status is not a verified one, so the
+  // composer is NOT offered while the status is slow or failed (the neutral header copy is unchanged).
+  test(`verification ${verificationMode} keeps neutral copy and offers no composer until it is known`, async ({ page }) => {
     await mocks(page, { verified: true, verificationMode })
     let finishVerification
     if (verificationMode === 'slow') {
@@ -208,8 +211,7 @@ for (const verificationMode of ['slow', 'failed']) {
     await expect(page.getByRole('cell', { name: 'RW', exact: true })).toBeVisible()
     await expect(page.getByRole('link', { name: 'Get verified to introduce yourself', exact: true })).toHaveCount(0)
     await expect(page.getByRole('link', { name: verificationMode === 'slow' ? 'Checking verification…' : 'Scout verification', exact: true })).toBeVisible()
-    await page.getByRole('button', { name: 'Introduce yourself to Test Community Adult' }).click()
-    await expect(page.getByRole('textbox', { name: 'Message to Test Community Adult' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Introduce yourself to Test Community Adult' })).toHaveCount(0)
     finishVerification?.()
     if (verificationMode === 'slow') {
       await page.keyboard.press('Escape')

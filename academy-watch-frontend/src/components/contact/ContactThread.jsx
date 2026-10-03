@@ -196,7 +196,7 @@ function ContactThreadBody({ request, onRequestChange, canReportOutcome = false,
           {loading ? (
             <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading messages…</p>
           ) : messages.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No messages yet — say hello.</p>
+            <p className="text-sm text-muted-foreground">{state.writable ? 'No messages yet — say hello.' : 'No messages yet.'}</p>
           ) : (
             <ul className="space-y-2">
               {messages.map((m) => (
@@ -207,8 +207,8 @@ function ContactThreadBody({ request, onRequestChange, canReportOutcome = false,
               ))}
             </ul>
           )}
-          {readOnly ? (
-            <p className="text-sm text-muted-foreground" data-testid="thread-read-only">New messages cannot be sent in this thread.</p>
+          {readOnly || !state.writable ? (
+            state.writable ? <p className="text-sm text-muted-foreground" data-testid="thread-read-only">New messages cannot be sent in this thread.</p> : <span data-testid="thread-read-only" />
           ) : (
           <div className="space-y-2">
             <Textarea value={draft} onChange={(e) => setDraft(e.target.value.slice(0, MESSAGE_MAX))} rows={3} maxLength={MESSAGE_MAX} placeholder="Write a message…" aria-label="Message" />

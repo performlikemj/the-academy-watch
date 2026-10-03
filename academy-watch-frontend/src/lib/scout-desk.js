@@ -12,35 +12,47 @@ export const RESULT_VIEWS = [
 export const RESULT_VIEW_KEY = 'aw.scout.view.v2'
 const VIEW_OWNERS_KEPT = 8
 
-// The account a sign-in token belongs to: its user id (or email) as carried in
-// the token's readable payload — a stable, non-secret identifier, the same after
-// signing out and in again. Null when the payload cannot be read.
-function accountOf(token) {
+// The readable payload of a sign-in token. The server's serializer emits
+// base64url(JSON) and, when that is shorter, '.' + base64url(zlib(JSON)) — real
+// tokens are the compressed kind. Null when it cannot be read.
+async function tokenPayload(token) {
   try {
-    const segment = String(token).split('.')[0]
+    const text = String(token)
+    const compressed = text.startsWith('.')
+    const segment = (compressed ? text.slice(1) : text).split('.')[0]
     if (!segment) return null
     const base64 = segment.replaceAll('-', '+').replaceAll('_', '/')
-    const payload = JSON.parse(atob(base64 + '='.repeat((4 - (base64.length % 4)) % 4)))
-    if (payload?.user_id != null) return `id:${payload.user_id}`
-    return typeof payload?.email === 'string' && payload.email.trim() ? `email:${payload.email.trim().toLowerCase()}` : null
+    const binary = atob(base64 + '='.repeat((4 - (base64.length % 4)) % 4))
+    if (!compressed) return JSON.parse(binary)
+    if (typeof DecompressionStream === 'undefined') return null
+    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0))
+    const inflated = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate'))
+    return JSON.parse(await new Response(inflated).text())
   } catch {
     return null
   }
 }
 
-// Who a stored view choice belongs to: a short one-way tag (FNV-1a, 32 bit) of
-// the ACCOUNT, so the choice survives a new sign-in; 'public' when signed out.
-// Neither the credential nor the email is stored. A token whose payload cannot
-// be read falls back to a tag of that sign-in.
-export function viewOwnerTag(token) {
-  if (!token) return 'public'
-  const subject = accountOf(token) || `token:${token}`
+function tagOf(subject) {
   let hash = 0x811c9dc5
   for (let index = 0; index < subject.length; index += 1) {
     hash ^= subject.charCodeAt(index)
     hash = Math.imul(hash, 0x01000193) >>> 0
   }
   return `u${hash.toString(16).padStart(8, '0')}`
+}
+
+// Who a stored view choice belongs to: a short one-way tag (FNV-1a, 32 bit) of
+// the ACCOUNT's id as carried in the sign-in token, so the choice survives a
+// new sign-in; 'public' when signed out. Neither the credential nor the email
+// is stored. Only when the payload cannot be read does it fall back to a tag
+// of that sign-in. Async because real tokens have to be inflated.
+export async function viewOwnerTag(token) {
+  if (!token) return 'public'
+  const payload = await tokenPayload(token)
+  const email = typeof payload?.email === 'string' ? payload.email.trim().toLowerCase() : ''
+  const account = payload?.user_id != null ? `id:${payload.user_id}` : email ? `email:${email}` : null
+  return tagOf(account || `token:${token}`)
 }
 
 function readViewChoices(raw) {
@@ -211,18 +223,22 @@ export function hiddenFilterActive({ status = 'all', source = 'all' } = {}) {
 /**
  * The introduction control on a desk row — what the contact rules would accept:
  *   { kind: 'thread', to }  the caller already has a reachable pending / accepted request,
- *   { kind: 'ask' }         a new request would be accepted (`can_ask`),
- *   null                    nothing to offer (blocked, cooling off, closed, not claimable).
+ *   { kind: 'ask' }         a new request would be accepted (`can_ask`) and the scout is verified,
+ *   { kind: 'verify' }      …but the scout is not verified: send them to verification,
+ *   null                    nothing to offer (blocked, cooling off, closed, not claimable, or the
+ *                           verification status is still loading / could not be read).
  * Without the caller's projected state (signed out, or a server that does not
  * send it) the row's `contactable` flag decides, as before.
  */
-export function deskIntroduction(player, { signedIn = false } = {}) {
+export function deskIntroduction(player, { signedIn = false, verification = 'approved' } = {}) {
   const introduction = signedIn ? player?.introduction : null
-  if (!introduction) return player?.contactable ? { kind: 'ask' } : null
-  if (introduction.state === 'pending' || introduction.state === 'accepted') {
+  if (introduction && (introduction.state === 'pending' || introduction.state === 'accepted')) {
     return introduction.closed ? null : { kind: 'thread', to: introductionThreadPath(introduction) }
   }
-  return introduction.can_ask ? { kind: 'ask' } : null
+  if (introduction ? !introduction.can_ask : !player?.contactable) return null
+  // A signed-out visitor is asked to sign in by the form; a signed-in one must be KNOWN to be verified.
+  if (!signedIn || verification === 'approved') return { kind: 'ask' }
+  return verification === 'unverified' ? { kind: 'verify' } : null
 }
 
 // ---- Watchlist: where this scout's introduction to a player stands ----------
@@ -262,16 +278,18 @@ export function introductionThreadPath(introduction) {
  *   { kind: 'verify', label }   the scout must be verified first,
  *   { kind: 'thread', label, to } open the existing thread.
  * Whether asking is allowed comes from the server (`can_ask`); this only words it.
- * `verification` is 'approved' | 'unverified' | 'loading' | 'unavailable'.
+ * `verification` is 'approved' | 'unverified' | 'loading' | 'unavailable'; Ask needs 'approved'.
  */
 export function introductionView(introduction, { verification = 'approved' } = {}) {
   if (!introduction || !INTRODUCTION_LABELS[introduction.state]) return null
   const { state } = introduction
   const label = INTRODUCTION_LABELS[state]
   const ask = (text) => {
-    // Nothing is offered until it is known whether this scout may ask.
-    if (!introduction.can_ask || verification === 'loading') return null
-    return verification === 'unverified' ? { kind: 'verify', label: 'Get verified to ask', to: '/scout/verification' } : { kind: 'ask', label: text }
+    if (!introduction.can_ask) return null
+    if (verification === 'approved') return { kind: 'ask', label: text }
+    if (verification === 'unverified') return { kind: 'verify', label: 'Get verified to ask', to: '/scout/verification' }
+    // Loading, or the status could not be read: unknown is not verified, so nothing is offered.
+    return null
   }
   const thread = { kind: 'thread', label: 'Open thread', to: introductionThreadPath(introduction) }
   const sent = shortDate(introduction.created_at)

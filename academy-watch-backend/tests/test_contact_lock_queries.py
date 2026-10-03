@@ -46,7 +46,9 @@ def test_counts(client):
 
     sa.event.listen(db.engine, "before_cursor_execute", before)
     out = []
-    expected_counts = [13, 13, 24, 16, 16, 20, 11, 20, 13]
+    # Messages GET: +3 since the thread DTO carries the viewer's ``can_send`` — one block lookup inside
+    # its savepoint (SAVEPOINT / SELECT / RELEASE). Lists reuse the block lookup they already made.
+    expected_counts = [13, 13, 24, 19, 19, 23, 14, 20, 13]
     for index, (name, method, url, headers, data) in enumerate(
         [
             ("list sent (scout)", "GET", "/api/contact/requests?box=sent", scout_headers, None),

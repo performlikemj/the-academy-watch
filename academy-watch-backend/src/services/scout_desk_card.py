@@ -110,33 +110,6 @@ def _operational_program_ids(program_ids) -> set[int]:
     return set(db.session.execute(statement).scalars())
 
 
-def _programs_whose_managers_are_blocked(program_ids, related: set[int]) -> set[int]:
-    """Operational programs with an active manager on the other side of a block with the caller.
-
-    The message route's counterpart set for a club-included thread is the
-    claimant plus the active managers of an operational program
-    (``routes.contact.create_contact_message``); a block with any of them makes
-    sending impossible while the thread stays readable.
-    """
-    import sqlalchemy as sa
-    from src.services.club_registry import MANAGERS_TABLE, registry_available
-
-    operational = _operational_program_ids(program_ids)
-    if not operational or not related or not registry_available():
-        return set()
-    managers = sa.table(MANAGERS_TABLE, sa.column("program_id"), sa.column("user_account_id"), sa.column("status"))
-    statement = (
-        sa.select(managers.c.program_id)
-        .distinct()
-        .where(
-            managers.c.program_id.in_(operational),
-            managers.c.status == "active",
-            managers.c.user_account_id.in_(related),
-        )
-    )
-    return set(db.session.execute(statement).scalars())
-
-
 def target_claims(player_ids) -> dict[int, tuple[int, int]]:
     """``{player_id: (claim_id, owner_user_id)}`` — the claim a NEW request would be sent to.
 
@@ -254,6 +227,7 @@ def introductions_for(user, player_ids) -> dict[int, dict]:
         contact_rail_enabled,
         decline_cooldown_days,
         request_can_expire,
+        send_blocked_request_ids,
         utcnow,
     )
     from src.services.user_blocks import block_related_user_ids
@@ -307,16 +281,10 @@ def introductions_for(user, player_ids) -> dict[int, dict]:
         {row.club_program_id for row in shown if row.routing_mode == ROUTING_CLUB_INCLUDED and row.club_program_id}
     )
     live_club_first = available_club_requests(shown)
-    # Sending is refused when the caller and an active manager of the thread's club have blocked one another.
-    send_blocked_programs = (
-        _programs_whose_managers_are_blocked(
-            {
-                row.club_program_id
-                for row in shown
-                if row.status == "accepted" and row.routing_mode == ROUTING_CLUB_INCLUDED
-            },
-            related,
-        )
+    # Sending is refused for a block between the caller and a counterpart of the thread — the
+    # message route's own rule (``send_blocked_request_ids``), batched once for the response.
+    send_blocked = (
+        send_blocked_request_ids(user.id, [row for row in shown if row.status == "accepted"], related=related)
         if related
         else set()
     )
@@ -346,7 +314,7 @@ def introductions_for(user, player_ids) -> dict[int, dict]:
         elif state == "accepted" and club_included and row.club_consent_status != "granted":
             waiting_on = "club"
         program = programs.get(row.club_program_id) if club_included else None
-        messaging_blocked = state == "accepted" and club_included and row.club_program_id in send_blocked_programs
+        messaging_blocked = state == "accepted" and row.id in send_blocked
         result[player_id] = {
             "state": state,
             "request_id": row.id,

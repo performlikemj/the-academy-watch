@@ -59,17 +59,21 @@ function normalizeSignedPlayerId(value) {
 // Stable identity, so the guarded saver is made once per lifetime.
 const saveScoutCsv = (blob) => saveBlobAs(blob, 'academy-watch-scout-export.csv')
 
-// Cards on phones; on wider screens this viewer's own last choice on this device.
-function startingResultView(token) {
+// Cards on phones; on wider screens the last choice this ACCOUNT made on this device.
+function storedViewFor(ownerTag) {
   if (typeof window === 'undefined') return 'cards'
   let stored = null
   try {
-    stored = storedResultView(window.localStorage.getItem(RESULT_VIEW_KEY), viewOwnerTag(token))
+    stored = storedResultView(window.localStorage.getItem(RESULT_VIEW_KEY), ownerTag)
   } catch {
     // Storage can be unavailable in privacy-restricted browser contexts.
   }
   return initialResultView({ phone: Boolean(window.matchMedia?.('(max-width: 767px)').matches), stored })
 }
+
+// A failed verification read is retried this many times, this far apart.
+const VERIFICATION_RETRIES = 2
+const VERIFICATION_RETRY_MS = 3000
 
 // Sorts that default ascending because lower is better (or alphabetical).
 const ASC_DEFAULT_SORTS = new Set(['name', 'age', 'goals_conceded', 'conceded_per90'])
@@ -577,15 +581,27 @@ function PlayerScoutPage({ clubsEnabled }) {
   const [order, setOrder] = useState('desc')
   const [page, setPage] = useState(1)
   const auth = useAuth()
-  // The view choice belongs to the viewer (the desk is keyed on the viewer, so this is read afresh per account).
-  const [resultView, setResultView] = useState(() => startingResultView(auth?.token))
+  // The view choice belongs to the account. Its owner tag is read from the sign-in token
+  // (async: real tokens are compressed); until it is known the results keep their placeholders,
+  // so the stored view is applied without a visible switch. A choice made here wins at once.
+  const [ownerTag, setOwnerTag] = useState(auth?.token ? null : 'public')
+  const [chosenView, setChosenView] = useState(null)
+  useEffect(() => {
+    let live = true
+    viewOwnerTag(auth?.token).then((tag) => { if (live) setOwnerTag(tag) })
+    return () => { live = false }
+  }, [auth?.token])
+  const viewReady = ownerTag !== null
+  const resultView = chosenView ?? (viewReady ? storedViewFor(ownerTag) : 'cards')
   const changeResultView = useCallback((next) => {
-    setResultView(next)
-    try {
-      window.localStorage.setItem(RESULT_VIEW_KEY, withResultView(window.localStorage.getItem(RESULT_VIEW_KEY), viewOwnerTag(auth?.token), next))
-    } catch {
-      // Storage can be unavailable in privacy-restricted browser contexts.
-    }
+    setChosenView(next)
+    viewOwnerTag(auth?.token).then((tag) => {
+      try {
+        window.localStorage.setItem(RESULT_VIEW_KEY, withResultView(window.localStorage.getItem(RESULT_VIEW_KEY), tag, next))
+      } catch {
+        // Storage can be unavailable in privacy-restricted browser contexts.
+      }
+    })
   }, [auth?.token])
   const [moreFilters, setMoreFilters] = useState(false)
 
@@ -600,7 +616,8 @@ function PlayerScoutPage({ clubsEnabled }) {
   const scoutVerification = !auth?.token ? 'signed-out'
     : verificationState?.token === auth.token ? verificationState.status : 'loading'
   const verifiedScout = scoutVerification === 'approved'
-  const canIntroduce = scoutVerification !== 'unverified'
+  // Asking needs a scout who is KNOWN to be verified: a status that is loading or could not be read is not that.
+  const canIntroduce = scoutVerification === 'approved'
   // Watchlist membership and an open introduction belong to the viewer who
   // loaded or opened them. useViewerState refuses writes made for another
   // viewer (a late answer to a request the previous viewer started).
@@ -691,16 +708,23 @@ function PlayerScoutPage({ clubsEnabled }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // A failed status read is retried (a known verified scout must not stay locked out by one bad answer).
+  const [verificationAttempt, setVerificationAttempt] = useState(0)
   useEffect(() => {
-    if (!auth?.token || contactRail !== true) return
+    if (!auth?.token || contactRail !== true) return undefined
     let live = true
+    let retry = null
     api.getScoutVerification()
       .then((data) => {
         if (live) setVerificationState({ token: auth.token, status: data?.verification?.status === 'approved' ? 'approved' : 'unverified' })
       })
-      .catch(() => { if (live) setVerificationState({ token: auth.token, status: 'unavailable' }) })
-    return () => { live = false }
-  }, [api, auth.token, contactRail])
+      .catch((err) => {
+        if (!live || isStaleViewerError(err)) return
+        setVerificationState({ token: auth.token, status: 'unavailable' })
+        if (verificationAttempt < VERIFICATION_RETRIES) retry = setTimeout(() => setVerificationAttempt((n) => n + 1), VERIFICATION_RETRY_MS)
+      })
+    return () => { live = false; clearTimeout(retry) }
+  }, [api, auth.token, contactRail, verificationAttempt])
 
   // Load watchlist ids once when signed in
   useEffect(() => {
@@ -908,7 +932,7 @@ function PlayerScoutPage({ clubsEnabled }) {
   // The introduction control offers what the contact rules would accept for this
   // viewer (deskIntroduction): the existing thread, a new request, or nothing.
   const introduceControl = (player, className, iconClass) => {
-    const offer = contactRail === true ? deskIntroduction(player, { signedIn: Boolean(auth?.token) }) : null
+    const offer = contactRail === true ? deskIntroduction(player, { signedIn: Boolean(auth?.token), verification: scoutVerification }) : null
     if (!offer) return null
     if (offer.kind === 'thread') {
       return (
@@ -917,7 +941,7 @@ function PlayerScoutPage({ clubsEnabled }) {
         </Link>
       )
     }
-    return auth?.token && !canIntroduce ? (
+    return offer.kind === 'verify' ? (
       <Link to="/scout/verification" className={className} aria-label="Get verified to introduce yourself" title="Get verified to introduce yourself">
         <Send className={iconClass} aria-hidden="true" />
       </Link>
@@ -1112,7 +1136,7 @@ function PlayerScoutPage({ clubsEnabled }) {
               </Button>
             </div>
           ) : resultView === 'cards' ? (
-            !loadedOnce ? (
+            !loadedOnce || !viewReady ? (
               <ul className="pc-desk-grid" aria-hidden="true" data-testid="scout-card-skeletons">
                 {Array.from({ length: 8 }).map((_, i) => <li key={i}><div className="pc-desk-skeleton w-full" /></li>)}
               </ul>

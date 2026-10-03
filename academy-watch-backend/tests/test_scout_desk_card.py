@@ -1,7 +1,11 @@
 """Scout desk card fields: the 'open to an introduction' filter, availability and introduction state."""
 
+import base64
+import json
 import os
+import zlib
 from datetime import date, timedelta
+from pathlib import Path
 
 import pytest
 import sqlalchemy as sa
@@ -597,6 +601,10 @@ def test_what_the_lists_offer_is_what_the_contact_route_does(client, monkeypatch
         row["player_id"]: row
         for row in client.get("/api/scout/players?sort=name&per_page=100", headers=headers).get_json()["players"]
     }[2001]["introduction"]
+    # The thread's composer: for every request the sent box lists, ``can_send`` is what POST …/messages does.
+    for listed in client.get("/api/contact/requests?box=sent", headers=headers).get_json()["requests"]:
+        posted = client.post(f"/api/contact/requests/{listed['id']}/messages", json={"body": "Hi"}, headers=headers)
+        assert (posted.status_code == 201) is listed["can_send"], (listed["status"], posted.get_json())
     created = client.post(
         "/api/contact/requests",
         json={"player_api_id": 2001, "message": "Hello", "permission_attestation": True},
@@ -643,6 +651,33 @@ def _club_thread(*, status, consent, club_first=False):
     return row, manager
 
 
+def test_the_other_participants_get_the_same_answer_for_their_own_composer(client):
+    # The claimant and the club manager read the same thread: each one's can_send follows THEIR blocks.
+    _verified()
+    row, manager = _club_thread(status="accepted", consent="granted")
+    request_id = row.id
+    owner = db.session.get(PlayerProfileClaim, row.claim_id).user
+    _block(manager.id, _user(SCOUT).id)
+
+    def composer(email, box):
+        headers = _headers(email)
+        listed = [
+            item
+            for item in client.get(f"/api/contact/requests?box={box}", headers=headers).get_json()["requests"]
+            if item["id"] == request_id
+        ][0]
+        posted = client.post(f"/api/contact/requests/{request_id}/messages", json={"body": "Hi"}, headers=headers)
+        assert (posted.status_code == 201) is listed["can_send"], (email, posted.get_json())
+        return listed["can_send"]
+
+    assert composer(SCOUT, "sent") is False
+    # The manager who blocked the scout no longer has the request in the club box at all (existing rule).
+    club_box = client.get("/api/contact/requests?box=club", headers=_headers("club-manager@example.com")).get_json()
+    assert [item["id"] for item in club_box["requests"]] == []
+    # The player has blocked nobody and nobody blocked them.
+    assert composer(owner.email, "inbox") is True
+
+
 MESSAGE_CASES = [
     # (request status, club consent, who blocks whom, messages may be sent)
     ("pending", "pending", None, False),
@@ -674,11 +709,65 @@ def test_conversation_open_is_what_the_message_route_accepts(client, status, con
         row["player_id"]: row
         for row in client.get("/api/scout/players?sort=name&per_page=100", headers=headers).get_json()["players"]
     }[2001]["introduction"]
+    listed = client.get("/api/contact/requests?box=sent", headers=headers).get_json()["requests"][0]
+    thread = client.get(f"/api/contact/requests/{request_id}/messages", headers=headers)
     sent = client.post(f"/api/contact/requests/{request_id}/messages", json={"body": "Hello"}, headers=headers)
 
+    # The thread DTO (list and thread read) tells the composer the same thing the send route does…
+    assert listed["can_send"] is sendable
+    if thread.status_code == 200:
+        assert thread.get_json()["contact_request"]["can_send"] is sendable
+    # …while the history of an accepted, club-allowed thread stays readable behind a manager block.
+    assert listed["messaging_open"] is (status == "accepted" and consent == "granted")
+    assert (thread.status_code == 200) is listed["messaging_open"]
     assert watchlist == desk
     assert watchlist["conversation_open"] is sendable
     assert (sent.status_code == 201) is sendable, sent.get_json()
     # A manager block makes the thread read-only — it never hides it and never re-opens asking.
     assert watchlist["read_only"] is (block in {"manager_blocks_scout", "scout_blocks_manager"})
     assert (watchlist["state"], watchlist["can_ask"], watchlist["request_id"]) == (status, False, request_id)
+
+
+# ---- Sign-in token format the desk's view preference relies on -------------
+# The frontend keys the Cards/Table choice on the ACCOUNT, read from the token's payload
+# (lib/scout-desk.js::viewOwnerTag). Real tokens are zlib-compressed by the serializer; the
+# frontend tests run against tokens issued HERE (tests/fixtures/sign-in-tokens.json), not hand-made ones.
+TOKEN_FIXTURE = (
+    Path(__file__).resolve().parents[2] / "academy-watch-frontend" / "tests" / "fixtures" / "sign-in-tokens.json"
+)
+
+
+def _token_payload(token):
+    """The documented reading: '.' + base64url(zlib(json)) when compressed, else base64url(json)."""
+    compressed = token.startswith(".")
+    segment = (token[1:] if compressed else token).split(".")[0]
+    raw = base64.urlsafe_b64decode(segment + "=" * (-len(segment) % 4))
+    return json.loads(zlib.decompress(raw) if compressed else raw)
+
+
+def test_issued_tokens_carry_the_account_id_in_the_shape_the_frontend_reads(desk_app, monkeypatch):
+    corinne = _user("corinne.scout@example.test")
+    dev = _user("dev.scout@example.test")
+    first = issue_user_token(corinne.email)["token"]
+    monkeypatch.setattr("src.auth.time.time", lambda: 1_900_000_000)
+    again = issue_user_token(corinne.email)["token"]
+    other = issue_user_token(dev.email)["token"]
+
+    assert first != again
+    assert first.startswith("."), (
+        "the serializer no longer compresses: update lib/scout-desk.js::accountOf and the fixture"
+    )
+    assert _token_payload(first)["user_id"] == _token_payload(again)["user_id"] == corinne.id
+    assert _token_payload(other)["user_id"] == dev.id
+
+    if os.getenv("SD_WRITE_TOKEN_FIXTURE"):
+        TOKEN_FIXTURE.parent.mkdir(parents=True, exist_ok=True)
+        TOKEN_FIXTURE.write_text(
+            json.dumps({"same_account": [first, again], "other_account": other}, indent=2) + "\n", encoding="utf-8"
+        )
+    # The committed fixture is made of tokens in exactly this shape.
+    fixture = json.loads(TOKEN_FIXTURE.read_text(encoding="utf-8"))
+    a, b = (_token_payload(token) for token in fixture["same_account"])
+    assert fixture["same_account"][0] != fixture["same_account"][1]
+    assert all(token.startswith(".") for token in [*fixture["same_account"], fixture["other_account"]])
+    assert a["user_id"] == b["user_id"] != _token_payload(fixture["other_account"])["user_id"]

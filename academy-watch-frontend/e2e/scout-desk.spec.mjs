@@ -6,6 +6,10 @@ import process from 'node:process'
 import { test, expect } from '@playwright/test'
 import { RESULT_VIEW_KEY, viewOwnerTag } from '../src/lib/scout-desk.js'
 
+// Sign-in tokens issued by the backend's own issue_user_token (see tests/test_scout_desk_card.py):
+// two sign-ins of one account, one of another — the compressed kind real users carry.
+const ISSUED = JSON.parse(fs.readFileSync(new URL('../tests/fixtures/sign-in-tokens.json', import.meta.url), 'utf8'))
+
 // Every person, club and league below is fictional (the staging story's world).
 // Screenshots are written only when SD_SHOTS_DIR is set.
 const SHOTS = process.env.SD_SHOTS_DIR || null
@@ -534,9 +538,9 @@ for (const viewport of VIEWPORTS) {
   })
 }
 
-const storeView = (page, token, view) => page.addInitScript(([key, owner, value]) => {
+const storeView = async (page, token, view) => page.addInitScript(([key, owner, value]) => {
   if (!localStorage.getItem(key)) localStorage.setItem(key, JSON.stringify({ [owner]: value }))
-}, [RESULT_VIEW_KEY, viewOwnerTag(token), view])
+}, [RESULT_VIEW_KEY, await viewOwnerTag(token), view])
 
 test('a phone starts on cards whatever this viewer stored', async ({ page }) => {
   await storeView(page, 'mock-user-token', 'table')
@@ -562,7 +566,7 @@ test('the view choice is the viewer’s own: the next account on the device does
   // Nothing of the credential is written to storage.
   const stored = await page.evaluate((key) => localStorage.getItem(key), RESULT_VIEW_KEY)
   expect(stored).not.toContain('token-a')
-  expect(JSON.parse(stored)).toEqual({ [viewOwnerTag('token-a')]: 'table' })
+  expect(JSON.parse(stored)).toEqual({ [await viewOwnerTag('token-a')]: 'table' })
 
   // A's own choice is still there when A comes back.
   await changeViewer(page, 'token-a')
@@ -793,27 +797,33 @@ test('"Open thread" lands on that thread in Introductions', async ({ page }) => 
 
 // ---- Second review round ---------------------------------------------------
 
-// A sign-in token as the server issues it: a readable payload, then timestamp and signature.
-const tokenFor = (userId, issuedAt) => `${Buffer.from(JSON.stringify({ email: `scout${userId}@example.test`, user_id: userId, role: 'user', iat: issuedAt })).toString('base64url')}.t${issuedAt}.signature`
-
-test('the view choice follows the account through a new sign-in, and no other account inherits it', async ({ page }) => {
-  // Reviewer's probe: pick Table, sign out, sign in again (a NEW token for the same account).
+test('the view choice follows the account through a new sign-in (real backend-issued tokens), and no other account inherits it', async ({ page }) => {
+  // Reviewer's probe: pick Table, sign out, sign in again — a NEW compressed token for the same account.
+  const [first, again] = ISSUED.same_account
   await page.clock.setFixedTime(TODAY)
   await page.setViewportSize(VIEWPORTS[0])
-  await signIn(page, tokenFor(42, 1790000000))
+  await signIn(page, first)
   await installApiMocks(page)
   await page.goto('/scout')
   const view = page.getByRole('group', { name: 'Show players as' })
+  await expect(cardsOf(page)).toHaveCount(deskRows.length)
   await view.getByRole('button', { name: 'Table' }).click()
   await expect(page.getByRole('table')).toBeVisible()
   await changeViewer(page, null)
-  await expect(view.getByRole('button', { name: 'Cards' })).toHaveAttribute('aria-pressed', 'true')
-  await changeViewer(page, tokenFor(42, 1790099999))
+  await expect(cardsOf(page)).toHaveCount(deskRows.length)
+  await changeViewer(page, again)
+  await expect(page.getByRole('table')).toBeVisible()
   await expect(view.getByRole('button', { name: 'Table' })).toHaveAttribute('aria-pressed', 'true')
-  await changeViewer(page, tokenFor(43, 1790099999))
+  // …and after a full reload under the new sign-in.
+  await page.evaluate((token) => localStorage.setItem('academy_watch_user_token', token), again)
+  await page.reload()
+  await expect(page.getByRole('table')).toBeVisible()
+  await changeViewer(page, ISSUED.other_account)
+  await expect(cardsOf(page)).toHaveCount(deskRows.length)
   await expect(view.getByRole('button', { name: 'Cards' })).toHaveAttribute('aria-pressed', 'true')
   const stored = await page.evaluate((key) => localStorage.getItem(key), RESULT_VIEW_KEY)
-  expect(stored).not.toMatch(/scout42|example\.test|signature/)
+  expect(stored).not.toMatch(/example\.test|eJ/)
+  expect(Object.keys(JSON.parse(stored))).toEqual([await viewOwnerTag(first)])
 })
 
 test('compare withholds club- or player-entered season figures the same way the cards do', async ({ page }) => {
@@ -847,6 +857,8 @@ test('compare withholds club- or player-entered season figures the same way the 
   await expect(row('Minutes').getByRole('cell').nth(2)).toHaveText('2,412')
   // Career volume is not a season rollup figure and stays.
   await expect(row('First-team apps').getByRole('cell').nth(1)).toHaveText('61')
+  // Let the dialog's open animation finish, so the page behind does not show through the proof shot.
+  await page.waitForTimeout(600)
   await shot(page, '15-compare-figures-withheld-1440')
 })
 
@@ -1007,4 +1019,76 @@ test('lists: the page is the scout’s own — another account never sees the pr
   await expect(page.getByText('B’s list').first()).toBeVisible()
   await expect(page.getByText('A-ONLY shortlist')).toHaveCount(0)
   expect(pageErrors).toEqual([])
+})
+
+
+// ---- Third review round -----------------------------------------------------
+
+for (const mode of ['loading', 'failed']) {
+  test(`unknown verification (${mode}) is not verified: no Ask on the desk or the watchlist until the status is known`, async ({ page }) => {
+    // Reviewer's probe: make GET /api/scout/verification fail (or hang) for a scout who is in fact not verified.
+    let release
+    const held = new Promise((resolve) => { release = resolve })
+    let healthy = false
+    await page.clock.install({ time: TODAY })
+    await page.setViewportSize(VIEWPORTS[0])
+    await signIn(page)
+    await installApiMocks(page, { entries: watchlistEntries(), verification: { status: 'approved' } })
+    await page.route('**/api/scout/verification', async (route) => {
+      if (healthy) return route.fallback()
+      if (mode === 'failed') return route.fulfill({ status: 503, json: { error: 'temporarily unavailable' } })
+      await held
+      return route.fallback()
+    })
+
+    await page.goto('/scout')
+    await expect(cardsOf(page)).toHaveCount(deskRows.length)
+    // Existing threads stay reachable; nothing new is offered — and no form can be opened.
+    await expect(page.getByRole('link', { name: 'Open your introduction to Tobi Olawale' })).toBeVisible()
+    await expect(page.getByRole('button', { name: /Introduce yourself/ })).toHaveCount(0)
+    await expect(page.getByRole('link', { name: 'Get verified to introduce yourself' })).toHaveCount(0)
+
+    await page.goto('/scout/watchlist')
+    await expect(page.getByTestId('watchlist-row')).toHaveCount(10)
+    await expect(page.getByRole('link', { name: 'Open thread: Tobi Olawale' })).toBeVisible()
+    await expect(page.getByRole('button', { name: /^Ask/ })).toHaveCount(0)
+
+    // Once the status is known (a retry after the failure, or the slow answer), a verified scout gets Ask.
+    healthy = true
+    release()
+    if (mode === 'failed') await page.clock.runFor(3500)
+    await expect(page.getByRole('button', { name: 'Ask: introduction to Kofi Asante-Reid' })).toBeVisible()
+  })
+}
+
+test('a thread the server will not accept messages on opens without a message box', async ({ page }) => {
+  // Reviewer's probe: accepted club-included thread, club consent granted, a block with an active manager:
+  // the DTO says the history is readable (messaging_open) but this viewer cannot send (can_send: false).
+  await page.clock.setFixedTime(TODAY)
+  await page.setViewportSize(VIEWPORTS[0])
+  await signIn(page)
+  const base = { status: 'accepted', routing_mode: 'club_included', club_consent_status: 'granted', messaging_open: true }
+  const { calls } = await installApiMocks(page, { sent: [
+    introRequest('r-blocked', 'Reuben Castellane', 'Could we talk?', { ...base, can_send: false }),
+    introRequest('r-open', 'Nabil Ferhane', 'Hello Nabil.', { ...base, can_send: true }),
+  ] })
+  await page.route('**/api/contact/requests/*/messages**', (route) => {
+    const id = new URL(route.request().url()).pathname.split('/').at(-2)
+    return route.fulfill({ json: { messages: [{ id: 1, body: 'An earlier message.', sender_role: 'player', created_at: '2026-09-29T09:00:00' }], contact_request: introRequest(id, id === 'r-blocked' ? 'Reuben Castellane' : 'Nabil Ferhane', 'x', { ...base, can_send: id !== 'r-blocked' }) } })
+  })
+
+  await page.goto('/introductions?request=r-blocked')
+  const thread = page.getByTestId('contact-thread')
+  // History is readable…
+  await expect(thread).toContainText('An earlier message.')
+  // …and there is no composer at any point, only the neutral line.
+  await expect(thread.getByRole('textbox', { name: 'Message' })).toHaveCount(0)
+  await expect(thread.getByRole('button', { name: 'Send' })).toHaveCount(0)
+  await expect(thread).toContainText('New messages cannot be sent in this thread.')
+  expect(calls.filter((call) => call.method === 'POST' && call.pathname.endsWith('/messages'))).toEqual([])
+  await shot(page, '16-thread-read-only-1440')
+
+  // A thread the viewer may write to still has it.
+  await page.evaluate(() => { window.history.pushState({}, '', '/introductions?request=r-open'); window.dispatchEvent(new PopStateEvent('popstate')) })
+  await expect(thread.getByRole('textbox', { name: 'Message' })).toBeVisible()
 })
