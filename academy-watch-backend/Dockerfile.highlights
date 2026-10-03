@@ -1,0 +1,10 @@
+# Build against the backend image digest containing the SAME reviewed C2 revision.
+# docker build -f Dockerfile.highlights --build-arg BACKEND_IMAGE=<backend-image@sha256:...> .
+ARG BACKEND_IMAGE
+FROM ${BACKEND_IMAGE}
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+USER app
+HEALTHCHECK NONE
+CMD ["python", "-m", "src.workers.highlight_worker", "--limit", "5"]

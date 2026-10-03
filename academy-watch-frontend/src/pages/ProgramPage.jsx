@@ -1,4 +1,7 @@
 import { CleatLoader } from '@/components/CleatLoader'
+// --- p2-c2 begin ---
+import { PublicHighlights } from '@/components/highlights/PublicHighlights'
+// --- p2-c2 end ---
 import { useEffect, useState } from 'react'
 import { ClubOpportunities } from '@/pages/opportunities/ClubOpportunities'
 import { Link, useParams } from 'react-router-dom'
@@ -207,6 +210,7 @@ function ProgramPageContent({ slug }) {
                     </section>
 
                     <ClubOpportunities programId={program.id} />
+                        <PublicHighlights slug={slug} />
 
                     {/* --- p2-b1 begin --- */}
                     {directory && (venue || programmes.length || directory.squad_count > 0) ? (

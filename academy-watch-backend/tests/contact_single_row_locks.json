@@ -29,5 +29,9 @@
   "services/opportunities.py:reconcile_applications:54b4fdeec669f019",
   "services/opportunities.py:reservation_snapshot:c604ce94902c9a5d",
   "services/opportunities_account.py:purge_retained:7e96a3b28aec3235",
-  "services/opportunities_account.py:purge_retained:c992ca82f1c57b2b"
+  "services/opportunities_account.py:purge_retained:c992ca82f1c57b2b",
+  "services/highlights_retention.py:sweep_highlights:5d040f92649ed622",
+  "services/highlights_retention.py:sweep_highlights:808ecb461b2e2352",
+  "services/highlights_retention.py:sweep_highlights:ad8fdb3bd009a724",
+  "services/highlights_retention.py:sweep_highlights:b3953ed8773cf8af"
 ]

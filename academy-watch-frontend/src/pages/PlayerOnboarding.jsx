@@ -1,3 +1,6 @@
+// --- p2-c2 begin ---
+import { HighlightInboxLink } from '@/components/highlights/HighlightApprovals'
+// --- p2-c2 end ---
 import { usePublicationFlag } from '@/hooks/usePublicationFlag'
 import '@/styles/floodlight-player.css'
 // --- p2-b2 begin ---
@@ -232,6 +235,7 @@ export function PlayerOnboarding() {
         <Button className="mt-4" disabled={flags.retrying || profilesLoading || profilesRefreshing} onClick={flags.error ? flags.retry : retryProfiles}>Retry applications</Button>
       </section> : !checkingProfiles && <PlayerApplications />}
       {!checkingProfiles && (applicationsError || profiles.length > 0) && <div className="floodlight-container pb-16">{discovery}</div>}
+      <div className="floodlight-container pb-12"><HighlightInboxLink /></div>
       {publicationEnabled && <Link className="block py-4 underline" to="/player-publications">Manage public profile consent</Link>}
       {/* --- p2-b2 end --- */}
     </div>
