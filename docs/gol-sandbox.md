@@ -382,7 +382,10 @@ RSS is approximately 108/129 MiB for that workload. The full-app measurement
 `python scripts/benchmark_gol_application.py --rows 200000` preloads Flask and
 runs two workers with two concurrent requests each under the same container
 limits; it asserts no OOM and bounded total memory, allowing busy/resource
-refusals. It uses synthetic eligibility/frames and no database/provider calls.
+refusals. It uses synthetic eligibility/frames and no database/provider calls. Add
+`--warm-caches` to populate all ten frame caches in both workers first. That
+pressure case peaked near 794 MiB locally: two analyses completed and two were
+killed at the reduced RSS budget, with no container OOM or worker loss.
 
 The mandatory Linux Backend Tests job exercises real policy failures, signalling,
 immutable deadlines, parent death, CPU/memory limits, parity and cleanup. Any skip

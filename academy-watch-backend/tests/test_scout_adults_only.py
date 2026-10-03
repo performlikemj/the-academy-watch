@@ -458,15 +458,18 @@ def test_gol_rechecks_cached_frames_and_all_player_relations(app, desk):
     }
     cache = DataFrameCache()
     cache._cache = frames
+    cache._complete_cache = True
     import time
 
     cache._loaded_at = time.time()
-    for frame in cache.get_frames(app).values():
-        assert set(frame["player_api_id"]) == desk.adults
+    for names in (None, {"tracked", "journeys"}):
+        for frame in cache.get_frames(app, names=names).values():
+            assert set(frame["player_api_id"]) == desk.adults
     TrackedPlayer.query.filter_by(player_api_id=1800).update({"birth_date": "2015-01-01"})
     db.session.commit()
-    for frame in cache.get_frames(app).values():
-        assert set(frame["player_api_id"]) == desk.adults - {1800}
+    for names in (None, {"tracked", "journeys"}):
+        for frame in cache.get_frames(app, names=names).values():
+            assert set(frame["player_api_id"]) == desk.adults - {1800}
     lookup = GolPlayerLookup(app)
     for pid in desk.excluded:
         assert lookup._find_existing(f"Desk player {pid}") is None

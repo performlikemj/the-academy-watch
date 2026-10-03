@@ -33,3 +33,7 @@
 - SBX2F1 source freeze follows main integration and final focused loader validation; final cached gates/push/CI are recorded externally rather than editing source after gates. No migration/frontend screenshot changes. Production kernel remains UNCONFIRMED; maintenance is unchanged.
 
 - Main e510612a merged (#1135 already included); only AGENTS/CONTINUITY append conflicts, both histories preserved. PostgreSQL expected head inherited verbatim as p2c3; incoming migration/front-end files are unmodified. Own PR diff remains process isolation only. Corrected local PostgreSQL loader2PASS; owned aw_sbxf2 dropped in finally.
+
+- Integrated full gate de06ae22 found1 stale private cache fixture (5854PASS/2064SKIP); fixture now marks its direct seed complete and checks both full/scoped DOB eligibility. Focused1PASS. Runtime eligibility remains unchanged.
+- Fully populated two-worker/all-ten-frame caches: baseline454279168bytes, peak832688128 (~794MiB), two row-wise tables/two reduced-RSS refusals, OOM/max counters0 and workers exit0. Added --warm-caches CI pressure case; final source freeze/gates follow this evidence.
+- Main-integrated real PostgreSQL loader2PASS; current dynamic migration-head assertion inherited unchanged, aw_sbxf2 removed. Preapply files unchanged from main, no new migration contract.

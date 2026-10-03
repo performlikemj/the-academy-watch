@@ -26,13 +26,16 @@ from src.services.gol_service import GolService
 logging.getLogger().setLevel(logging.WARNING)
 
 
-def run_worker(rows, event, queue):
+def run_worker(rows, event, queue, warm_caches):
     cache = DataFrameCache()
     cache._load_all = lambda app, names=None: production_schema_frames(rows, only=names)
     # Synthetic fixture IDs alone; no DB or provider operation is measured.
     cache._adult_frames = lambda app, frames: {name: frame.copy() for name, frame in frames.items()}
     service = GolService.__new__(GolService)
     service.df_cache = cache
+    if warm_caches:
+        with app.app_context():
+            cache.get_frames(app)
     # Complete the actual policy probe before measuring steady-state admission.
     assert gol_isolation.isolation_ready()
     queue.put({"pid": os.getpid(), "baseline_rss": _resident_bytes(os.getpid())})
@@ -82,11 +85,12 @@ def run_worker(rows, event, queue):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--rows", type=int, default=200000)
+    parser.add_argument("--warm-caches", action="store_true")
     args = parser.parse_args()
     ctx = mp.get_context("fork")
     queue = ctx.Queue()
     event = ctx.Event()
-    workers = [ctx.Process(target=run_worker, args=(args.rows, event, queue)) for _ in range(2)]
+    workers = [ctx.Process(target=run_worker, args=(args.rows, event, queue, args.warm_caches)) for _ in range(2)]
     for worker in workers:
         worker.start()
     try:
@@ -120,6 +124,7 @@ def measure(args, queue, event, workers):
         assert worker.exitcode == 0
     report = {
         "rows": args.rows,
+        "warm_caches": args.warm_caches,
         "workers": 2,
         "threads_per_worker": 2,
         "full_flask_master_rss": _resident_bytes(os.getpid()),
@@ -134,7 +139,17 @@ def measure(args, queue, event, workers):
     print(json.dumps(report, indent=2))
     assert "oom_kill 0" in report["memory_events_after"]
     assert "oom 0" in report["memory_events_after"]
-    assert any(item["result_type"] == "table" for result in results for item in result["results"])
+    if not args.warm_caches:
+        assert any(item["result_type"] == "table" for result in results for item in result["results"])
+    else:
+        from src.services.gol_capabilities import SIZE_ERROR
+        from src.services.gol_isolation import BUSY_ERROR, TIME_ERROR
+
+        assert all(
+            item["result_type"] == "table" or item["error"] in {SIZE_ERROR, BUSY_ERROR, TIME_ERROR}
+            for result in results
+            for item in result["results"]
+        )
     assert peak < 960 * 1024 * 1024
 
 

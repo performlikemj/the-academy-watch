@@ -8,7 +8,7 @@ import sys
 
 CPU_SECONDS = 10
 ADDRESS_SPACE_BYTES = 768 * 1024 * 1024
-# Measured native allocator overhead differs between the two supported systems.
+# Linux child RSS ceiling; admission can assign a lower cap from cgroup headroom.
 RSS_BYTES = 448 * 1024 * 1024
 
 
