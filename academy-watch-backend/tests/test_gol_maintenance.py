@@ -214,11 +214,15 @@ def test_maintenance_switch_values(monkeypatch, value):
 
 @pytest.mark.parametrize("billing", ["true", "false"])
 @pytest.mark.parametrize("role", ["user", "admin"])
-@pytest.mark.parametrize("state", ["switch", "openai", "openrouter", "blank"])
+@pytest.mark.parametrize("state", ["switch", "openai", "openrouter", "blank", "isolation"])
 def test_maintenance_preserves_account_and_skips_work(app, monkeypatch, billing, role, state):
     monkeypatch.setenv("BILLING_ENABLED", billing)
     if state == "switch":
         monkeypatch.setenv("GOL_MAINTENANCE", "true")
+    elif state == "isolation":
+        from src.services import gol_isolation
+
+        monkeypatch.setattr(gol_isolation, "isolation_ready", lambda: False)
     elif state == "blank":
         monkeypatch.setenv("OPENAI_API_KEY", "  ")
     elif state == "openrouter":

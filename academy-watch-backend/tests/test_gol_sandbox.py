@@ -433,6 +433,7 @@ def test_output_cap_and_unsafe_tail():
     assert refused["error"] == ERROR
 
 
+@pytest.mark.skipif(__import__("sys").platform != "linux", reason="Production analysis isolation requires Linux")
 def test_service_tool_and_completion_use_boundary(frames, monkeypatch):
     from types import SimpleNamespace as NS
 
@@ -450,7 +451,7 @@ def test_service_tool_and_completion_use_boundary(frames, monkeypatch):
         ("result={'x':sum}", False),
     ]:
         service = GolService.__new__(GolService)
-        service.df_cache = NS(get_frames=lambda app: frames)
+        service.df_cache = NS(get_frames=lambda app, names=None: frames)
         service.model = "local-test-model"
         arguments = json.dumps({"code": code, "display": "table"})
         tool = NS(index=0, id="local-tool", function=NS(name="run_analysis", arguments=arguments))

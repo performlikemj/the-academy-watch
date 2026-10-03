@@ -572,6 +572,15 @@ def _validate_dtype(dtype):
 
 def validate_values(values):
     """Typed arrays cannot hide Python objects; inspect only object/category data."""
+    if type(values) in (pd.DatetimeIndex, pd.TimedeltaIndex) and values.freq is not None:
+        # Only canonical frequency text is carried by the plain-data boundary.
+        # Custom calendars must be refused equally by both execution paths.
+        try:
+            canonical = pd.tseries.frequencies.to_offset(values.freqstr) == values.freq
+        except (ValueError, TypeError):
+            canonical = False
+        if not canonical:
+            raise AnalysisRefused(ERROR)
     if isinstance(values, pd.MultiIndex):
         for level in values.levels:
             validate_values(level)

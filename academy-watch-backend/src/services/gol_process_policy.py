@@ -1,7 +1,6 @@
 """Mandatory OS policy for the analysis worker, installed before input is read."""
 
 import ctypes
-import json
 import os
 import resource
 import signal
@@ -10,10 +9,12 @@ import sys
 CPU_SECONDS = 10
 ADDRESS_SPACE_BYTES = 768 * 1024 * 1024
 # Measured native allocator overhead differs between the two supported systems.
-RSS_BYTES = (448 if sys.platform == "linux" else 640) * 1024 * 1024
+RSS_BYTES = 448 * 1024 * 1024
 
 
 def set_limits(cpu_seconds=CPU_SECONDS, address_space_bytes=ADDRESS_SPACE_BYTES, expected_parent_pid=None):
+    if sys.platform != "linux":
+        raise RuntimeError("Analysis isolation unavailable")
     if sys.platform == "linux":
         parent_pid = os.getppid() if expected_parent_pid is None else expected_parent_pid
         libc = ctypes.CDLL(None, use_errno=True)
@@ -30,9 +31,10 @@ def set_limits(cpu_seconds=CPU_SECONDS, address_space_bytes=ADDRESS_SPACE_BYTES,
     if sys.platform == "linux":
         resource.setrlimit(resource.RLIMIT_AS, (address_space_bytes, address_space_bytes))
         resource.setrlimit(resource.RLIMIT_NPROC, (0, 0))
-    elif sys.platform != "darwin":
-        raise RuntimeError("Analysis isolation unavailable")
     os.nice(10)
+    # Prefer the disposable child if a container-wide OOM still occurs.
+    with open("/proc/self/oom_score_adj", "w") as score:
+        score.write("500")
 
 
 def _checked(value):
@@ -159,32 +161,6 @@ def _linux_syscalls():
         lib.seccomp_release(context)
 
 
-def _macos_policy():
-    lib = ctypes.CDLL("/usr/lib/libsandbox.dylib", use_errno=True)
-    lib.sandbox_init.argtypes = [ctypes.c_char_p, ctypes.c_uint64, ctypes.POINTER(ctypes.c_char_p)]
-    lib.sandbox_free_error.argtypes = [ctypes.c_char_p]
-    # Reads are permitted only in the disposable directory. Metadata has no
-    # content, but is denied outside that directory as well on this platform.
-    directory = json.dumps(os.path.realpath(os.getcwd()))
-    profile = f"""(version 1)
-        (allow default)
-        (deny file-read* (require-not (subpath {directory})))
-        (deny file-write*)
-        (deny network*)
-        (deny process-fork)
-        (deny process-exec)
-        (deny process-info*)
-        (deny mach*)
-        (deny ipc-posix*)
-        (deny ipc-sysv*)
-    """
-    error = ctypes.c_char_p()
-    if lib.sandbox_init(profile.encode(), 0, ctypes.byref(error)) != 0:
-        if error:
-            lib.sandbox_free_error(error)
-        raise RuntimeError("Analysis isolation unavailable")
-
-
 def install_policy():
     if sys.platform == "linux":
         # Landlock applies to the calling thread; no pre-existing worker may
@@ -195,7 +171,5 @@ def install_policy():
         ctypes.CDLL("libseccomp.so.2", use_errno=True)
         _linux_filesystem()
         _linux_syscalls()
-    elif sys.platform == "darwin":
-        _macos_policy()
     else:
         raise RuntimeError("Analysis isolation unavailable")

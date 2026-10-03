@@ -14,7 +14,7 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from src.services import gol_isolation as isolation
-from src.services.gol_wire import encode_request
+from src.services.gol_wire import encode_request, stream_request
 
 
 def _columns(sql):
@@ -29,7 +29,7 @@ def _columns(sql):
     return [field.split(" AS ")[-1].rsplit(".", 1)[-1].strip() for field in fields]
 
 
-def production_schema_frames(rows):
+def production_schema_frames(rows, only=None):
     """Read only repository SELECT schemas; generate data without any DB access."""
     source = Path(__file__).resolve().parents[1] / "src/services/gol_dataframes.py"
     tree = ast.parse(source.read_text())
@@ -80,6 +80,8 @@ def production_schema_frames(rows):
     }
     frames = {}
     for name, columns in names.items():
+        if only is not None and name not in only:
+            continue
         count = sizes[name]
         values = {}
         for column in columns:
@@ -122,7 +124,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--rows", type=int, nargs="+", default=[100_000, 200_000])
     parser.add_argument("--repeats", type=int, default=3)
+    parser.add_argument("--transport", choices=("stream", "legacy"), default="stream")
     args = parser.parse_args()
+    if sys.platform != "linux":
+        parser.error("The production analysis runtime requires Linux.")
     handler = _Measurements()
     isolation.logger.addHandler(handler)
     isolation.logger.setLevel(logging.INFO)
@@ -131,7 +136,14 @@ def main():
         frames = production_schema_frames(rows)
         for repeat in range(args.repeats):
             started = time.monotonic()
-            payload = encode_request("result=fixture_stats.groupby('position')['goals'].sum()", frames)
+            code = "result=fixture_stats.groupby('position')['goals'].sum()"
+            if args.transport == "legacy":
+                payload = encode_request(code, frames)
+            else:
+                # Measure encoding separately, releasing each dry-run column.
+                for chunk in stream_request(code, frames):
+                    del chunk
+                payload = stream_request(code, frames)
             serialized = time.monotonic()
             result = isolation._run_child(payload)
             finished = time.monotonic()
@@ -143,7 +155,8 @@ def main():
                 "frames": len(frames),
                 "repeat": repeat,
                 "serialization_ms": (serialized - started) * 1000,
-                "end_to_end_ms": (finished - started) * 1000,
+                "end_to_end_ms": (finished - (started if args.transport == "legacy" else serialized)) * 1000,
+                "transport": args.transport,
                 "parent_peak_rss_bytes": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
                 * (1024 if sys.platform == "linux" else 1),
                 **handler.latest,

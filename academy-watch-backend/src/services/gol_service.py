@@ -17,7 +17,6 @@ from src.models.tracked_player import TrackedPlayer
 from src.services.gol_availability import (
     GolMaintenance,
     assistant_under_maintenance,
-    maintenance_enabled,
     maintenance_payload,
     provider_config,
 )
@@ -463,7 +462,7 @@ class GolService:
 
     def __init__(self, session_id: str | None = None, model_override: str | None = None):
         provider, api_key = provider_config()
-        if maintenance_enabled() or not api_key:
+        if assistant_under_maintenance() or not api_key:
             raise GolMaintenance()
         if provider == "openrouter":
             self.client = OpenAI(
@@ -751,6 +750,8 @@ class GolService:
             hint = "The query took too long. Simplify the analysis or reduce the data scope."
         elif "exceeded its size limit" in raw.lower():
             hint = "The result is too large. Simplify the analysis or reduce the data scope."
+        elif "analysis is busy" in raw.lower():
+            hint = "Analysis is busy. Retry later without rewriting the query."
         else:
             hint = "The code could not be executed. Try a simpler approach."
         return {"result_type": "error", "error": hint}
@@ -789,8 +790,13 @@ class GolService:
                 code = args.get("code", "")
                 display = args.get("display", "table")
                 description = args.get("description", "")
-                frames = self.df_cache.get_frames(current_app._get_current_object())
-                return execute_analysis(code, frames, display, description=description)
+                from src.services.gol_scope import analysis_frame_names
+
+                app = current_app._get_current_object()
+                names = analysis_frame_names(code)
+                return execute_analysis(
+                    code, lambda: self.df_cache.get_frames(app, names=names), display, description=description
+                )
             elif name == "search_web":
                 return self._tool_search_web(args.get("query", ""))
             elif name == "lookup_player":

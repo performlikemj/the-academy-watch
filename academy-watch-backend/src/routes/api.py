@@ -548,11 +548,14 @@ def _send_waitlist_welcome_email(email: str, team_names: list[str]) -> dict:
 @api_bp.route("/health", methods=["GET"])
 def health_check():
     """Health check endpoint."""
+    from src.services.gol_availability import assistant_under_maintenance
+
     return jsonify(
         {
             "status": "healthy",
             "timestamp": datetime.now(UTC).isoformat(),
             "api_version": "1.3.0",
+            "analysis_isolation_available": not assistant_under_maintenance(),
             "features": {
                 "transfer_windows": True,
                 "window_key_support": True,

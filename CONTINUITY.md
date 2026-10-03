@@ -31,6 +31,7 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
   an unconditional development step.
 
 ## State
+- **Now (SBX2F1):** PR1139 review union in progress: Linux-only runtime, temporal/format parity, readiness, streamed scoped transport and resource admission. See ledgers/CONTINUITY_sbx2.md; final exact-head receipts external logs/SBX2F1.final.md. Maintenance stays ON.
 - **Now (2026-10-03 SBX2):** process isolation for the analysis tool implemented and verified locally on `feat/gol-analysis-isolation`; no migration/frontend change, release after #1135. Final-head gates/ready PR/CI receipts are external. Contract and work tracked in `ledgers/CONTINUITY_sbx2.md`; final delivery receipts in external `logs/SBX2.final.md`. Assistant stays under maintenance.
 - **Now (GOLMF3):** PR1135 maintenance recovery race fixed with recover-only validation under the account lock before writes/charging; targeted backend100/real concurrent PostgreSQL2 PASS, scratch DB dropped. Final-head cached validation, pushed SHA and boundedCI receipts in external logs/GOLMF3.final.md. See ledgers/CONTINUITY_golm.md.
 - **Now (GOLMF2):** PR1135 review union implemented: active stream shutdown/refund, write-free refunded/failed retries, paused web recovery and ledger correction; targeted backend96/hook57 PASS, main58ccb8c6 included. Final gated delivery receipts in external logs/GOLMF2.final.md. See ledgers/CONTINUITY_golm.md.

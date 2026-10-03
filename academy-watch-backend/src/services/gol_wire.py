@@ -14,6 +14,7 @@ from src.services.gol_capabilities import (
     SIZE_ERROR,
     TIMEZONE_NAMES,
     AnalysisRefused,
+    AnalysisSizeLimit,
     plain_value,
     validate_frame,
 )
@@ -24,7 +25,18 @@ _NUMERIC_DTYPES = frozenset(
     ["bool"]
     + [f"{kind}{bits}" for kind in ("int", "uint") for bits in (8, 16, 32, 64)]
     + ["float16", "float32", "float64"]
+    + [np.dtype(np.longdouble).name]
 )
+
+
+class InputSizeLimit(AnalysisSizeLimit):
+    """Measured fixed input limits for operator telemetry, without input values."""
+
+    def __init__(self, measured, limit, unit="bytes"):
+        super().__init__(SIZE_ERROR)
+        self.measured = measured
+        self.limit = limit
+        self.unit = unit
 
 
 def _encode_value(value):
@@ -64,8 +76,10 @@ def _encode_value(value):
         ]
     if kind is Decimal:
         return ["decimal", str(value)]
-    if kind in (pd.Timedelta, timedelta):
-        return ["timedelta", int(pd.Timedelta(value).value)]
+    if kind is timedelta:
+        return ["python_timedelta", value.days, value.seconds, value.microseconds]
+    if kind is pd.Timedelta:
+        return ["timedelta", int(value.asm8.view("i8")), value.unit]
     if kind is pd.Period:
         return ["period", str(value), value.freqstr]
     if kind is pd.Interval:
@@ -104,7 +118,9 @@ def _decode_value(value):
     if tag == "decimal":
         return Decimal(value[1])
     if tag == "timedelta":
-        return pd.Timedelta(value[1], unit="ns")
+        return pd.Timedelta(value[1], unit=value[2])
+    if tag == "python_timedelta":
+        return timedelta(days=value[1], seconds=value[2], microseconds=value[3])
     if tag == "period":
         return pd.Period(value[1], freq=value[2])
     if tag == "interval":
@@ -124,7 +140,12 @@ def _encode_column(column):
         }
     if isinstance(dtype, np.dtype) and dtype.name in _NUMERIC_DTYPES:
         array = np.asarray(column).astype(dtype.newbyteorder("<"), copy=False)
-        return {"kind": "numeric", "dtype": dtype.name, "data": base64.b64encode(array.tobytes()).decode("ascii")}
+        return {
+            "kind": "numeric",
+            "dtype": dtype.name,
+            "byteorder": dtype.byteorder,
+            "data": base64.b64encode(array.tobytes()).decode("ascii"),
+        }
     if isinstance(dtype, np.dtype) and dtype.kind in "Mm":
         return {
             "kind": "temporal",
@@ -157,7 +178,13 @@ def _decode_column(column):
         }:
             raise AnalysisRefused(ERROR)
         dtype = np.dtype(name).newbyteorder("<")
-        return np.frombuffer(base64.b64decode(column["data"], validate=True), dtype=dtype).copy()
+        values = np.frombuffer(base64.b64decode(column["data"], validate=True), dtype=dtype).copy()
+        if kind == "numeric":
+            order = column.get("byteorder", "=")
+            if order not in {"<", ">", "=", "|"}:
+                raise AnalysisRefused(ERROR)
+            values = values.astype(dtype.newbyteorder(order), copy=False)
+        return values
     if kind == "category":
         return pd.Categorical.from_codes(
             _decode_column(column["codes"]),
@@ -191,7 +218,12 @@ def _encode_index(index):
             "codes": [_encode_column(pd.Series(codes)) for codes in index.codes],
             "names": [_encode_value(v) for v in index.names],
         }
-    return {"kind": "index", "column": _encode_column(pd.Series(index)), "name": _encode_value(index.name)}
+    return {
+        "kind": "index",
+        "column": _encode_column(pd.Series(index)),
+        "name": _encode_value(index.name),
+        "frequency": index.freqstr if type(index) in (pd.DatetimeIndex, pd.TimedeltaIndex) else None,
+    }
 
 
 def _decode_index(index):
@@ -203,22 +235,22 @@ def _decode_index(index):
             codes=[_decode_column(codes) for codes in index["codes"]],
             names=[_decode_value(v) for v in index["names"]],
         )
-    return pd.Index(_decode_column(index["column"]), name=_decode_value(index["name"]))
+    result = pd.Index(_decode_column(index["column"]), name=_decode_value(index["name"]))
+    if type(result) in (pd.DatetimeIndex, pd.TimedeltaIndex):
+        result.freq = index["frequency"]
+    return result
 
 
 def encode_request(code, frames):
     encoded = {}
-    resident_bytes = 0
     cells = 0
     for name, frame in frames.items():
         if type(name) is not str or type(frame) is not pd.DataFrame:
             raise AnalysisRefused(ERROR)
         validate_frame(frame)
-        # Bound resident transport work before creating base64/JSON copies.
-        resident_bytes += int(frame.memory_usage(index=True, deep=True).sum())
         cells += frame.size
-        if resident_bytes > MAX_INPUT_BYTES or cells > 16_000_000:
-            raise AnalysisRefused(ERROR)
+        if cells > 16_000_000:
+            raise InputSizeLimit(cells, 16_000_000, "cells")
     for name, frame in frames.items():
         encoded[name] = {
             "index": _encode_index(frame.index),
@@ -227,12 +259,88 @@ def encode_request(code, frames):
         }
     data = json.dumps({"version": 1, "code": code, "frames": encoded}, allow_nan=False, separators=(",", ":")).encode()
     if len(data) > MAX_INPUT_BYTES:
-        raise AnalysisRefused(ERROR)
+        raise InputSizeLimit(len(data), MAX_INPUT_BYTES)
     return data
 
 
+def stream_request(code, frames):
+    """Version 2 sends a column at a time without retaining the whole payload."""
+    cells = 0
+    for name, frame in frames.items():
+        if type(name) is not str or type(frame) is not pd.DataFrame:
+            raise AnalysisRefused(ERROR)
+        validate_frame(frame)
+        cells += frame.size
+        if cells > 16_000_000:
+            raise InputSizeLimit(cells, 16_000_000, "cells")
+    incoming = 0
+    messages = [{"version": 2, "code": code}]
+
+    def frame_messages():
+        yield from messages
+        for name, frame in frames.items():
+            yield {"frame": name, "index": _encode_index(frame.index), "columns": _encode_index(frame.columns)}
+            for i in range(len(frame.columns)):
+                yield {"column": _encode_column(frame.iloc[:, i])}
+        yield {"done": True}
+
+    for message in frame_messages():
+        chunk = json.dumps(message, allow_nan=False, separators=(",", ":")).encode() + b"\n"
+        incoming += len(chunk)
+        if incoming > MAX_INPUT_BYTES:
+            raise InputSizeLimit(incoming, MAX_INPUT_BYTES)
+        yield chunk
+
+
+def read_request(stream):
+    """Decode a bounded column stream; version 1 remains a parity test input."""
+    incoming = 0
+
+    def next_message():
+        nonlocal incoming
+        data = stream.readline(MAX_INPUT_BYTES - incoming + 1)
+        incoming += len(data)
+        if not data or incoming > MAX_INPUT_BYTES:
+            raise AnalysisRefused(ERROR)
+        return json.loads(data)
+
+    header = next_message()
+    if header.get("version") == 1:
+        return _decode_document(header)
+    if header != {"version": 2, "code": header.get("code")} or type(header["code"]) is not str:
+        raise AnalysisRefused(ERROR)
+    frames = {}
+    while True:
+        message = next_message()
+        if message == {"done": True}:
+            if stream.read(1):
+                raise AnalysisRefused(ERROR)
+            return header["code"], frames
+        if set(message) != {"frame", "index", "columns"} or type(message["frame"]) is not str:
+            raise AnalysisRefused(ERROR)
+        index = _decode_index(message["index"])
+        labels = _decode_index(message["columns"])
+        columns = {}
+        for i in range(len(labels)):
+            column_message = next_message()
+            if set(column_message) != {"column"}:
+                raise AnalysisRefused(ERROR)
+            column = column_message["column"]
+            values = _decode_column(column)
+            columns[i] = pd.Series(values, dtype=object, copy=False) if column.get("dtype") == "object" else values
+            del column_message, column, values
+        result = pd.DataFrame(columns, index=pd.RangeIndex(len(index)), copy=False)
+        result.index = index
+        result.columns = labels
+        validate_frame(result)
+        frames[message["frame"]] = result
+
+
 def decode_request(data):
-    request = json.loads(data)
+    return _decode_document(json.loads(data))
+
+
+def _decode_document(request):
     if request["version"] != 1 or type(request["code"]) is not str:
         raise AnalysisRefused(ERROR)
     frames = {}

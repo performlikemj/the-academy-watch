@@ -6,6 +6,7 @@ import os
 import signal
 import socket
 import subprocess
+import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
@@ -17,9 +18,16 @@ import pytest
 from src.services import gol_isolation as isolation
 from src.services import gol_sandbox as sandbox
 from src.services.gol_capabilities import ERROR, AnalysisRefused
-from src.services.gol_wire import decode_request, decode_result, encode_request
+from src.services.gol_wire import decode_request, decode_result, encode_request, stream_request
 from test_gol_sandbox import LEGITIMATE, ORDINARY, WINDOW_CORPUS
 from test_gol_sandbox import frames as reference_frames
+
+linux_policy = pytest.mark.skipif(sys.platform != "linux", reason="Production analysis isolation requires Linux")
+
+
+@pytest.fixture(autouse=True)
+def cached_analysis_readiness_for_unit_test(monkeypatch):
+    monkeypatch.setattr(isolation, "_READINESS", (os.getpid(), time.monotonic() + 600, True))
 
 
 @pytest.fixture
@@ -27,8 +35,17 @@ def frames():
     return reference_frames.__wrapped__()
 
 
+REVIEW_CORPUS = [
+    ("timestamp_localize", "result=pd.Timestamp('2026-06-01 12:00').tz_localize('Europe/London').isoformat()"),
+    ("timestamp_dst", "result=pd.Timestamp('2026-03-29 00:30',tz='Europe/London') + pd.Timedelta(hours=1)"),
+    ("date_range_dst", "result=pd.date_range('2026-03-28',periods=3,tz='Europe/London').strftime('%z').tolist()"),
+    ("frame_to_text", "result=str(pd.DataFrame({'a':[1]}))"),
+]
+
+
 PROCESS_CORPUS = (
-    LEGITIMATE
+    REVIEW_CORPUS
+    + LEGITIMATE
     + ORDINARY
     + [
         (f"{window}_{name}", f"result=fixture_stats['goals'].{window}.{call}")
@@ -40,12 +57,15 @@ PROCESS_CORPUS = (
 
 @pytest.fixture
 def children(monkeypatch):
+    if sys.platform != "linux":
+        pytest.skip("Production analysis isolation requires Linux")
     records = []
     popen = subprocess.Popen
 
     def record(*args, **kwargs):
         child = popen(*args, **kwargs)
-        records.append((child, kwargs))
+        if kwargs.get("env") == {} and kwargs.get("start_new_session"):
+            records.append((child, kwargs))
         return child
 
     monkeypatch.setattr(isolation.subprocess, "Popen", record)
@@ -83,11 +103,12 @@ sys.stdin.buffer.read()
     monkeypatch.setattr(isolation, "_WORKER", worker)
 
 
+@linux_policy
 @pytest.mark.parametrize("name,code", PROCESS_CORPUS, ids=[name for name, _ in PROCESS_CORPUS])
 def test_process_ordinary_analysis_parity(name, code, frames):
     expected = sandbox._execute_analysis(code, frames)
     assert expected["result_type"] != "error", name
-    actual = isolation._run_child(encode_request(code, frames))
+    actual = isolation._run_child(stream_request(code, frames))
     assert actual == expected
 
 
@@ -106,9 +127,10 @@ def test_plain_frame_transport():
     code, decoded = decode_request(encode_request("result=df", {"df": frame}))
     assert code == "result=df"
     pd.testing.assert_frame_equal(decoded["df"], frame)
-    assert isolation._run_child(encode_request(code, decoded)) == sandbox._execute_analysis(code, decoded)
+    assert trusted_transport_analysis_for_test(code, decoded) == sandbox._execute_analysis(code, decoded)
 
 
+@linux_policy
 def test_environment_and_runtime_are_empty(tmp_path, monkeypatch, children):
     monkeypatch.setenv("AW_ANALYSIS_PLANTED", "fixture-value")
     # Copy the real bootstrap; only its final trusted test result is substituted.
@@ -132,6 +154,7 @@ def test_environment_and_runtime_are_empty(tmp_path, monkeypatch, children):
     assert children[0][1]["close_fds"] is True
 
 
+@linux_policy
 def test_filesystem_and_network_policy_independent_of_first_layer(tmp_path, monkeypatch, children):
     outside = tmp_path / "outside.txt"
     outside.write_text("fixture-value")
@@ -163,6 +186,7 @@ sys.stdout.write(json.dumps({{'result_type':'dict','data':results}}))
         assert isolation._run_child(b"")["data"] == {"outside": True, "write": True, "network": True, "process": True}
 
 
+@linux_policy
 def test_no_inherited_descriptor(tmp_path, monkeypatch, children):
     outside = tmp_path / "descriptor.txt"
     outside.write_text("fixture-value")
@@ -183,6 +207,7 @@ sys.stdout.write(json.dumps({{'result_type':'scalar','value':value}}))
         assert isolation._run_child(b"")["value"] is True
 
 
+@linux_policy
 @pytest.mark.parametrize("body", ["os._exit(7)", "sys.stdout.write('invalid')", "sys.stdout.write('x'*3000000)"])
 def test_crash_or_malformed_output_is_neutral(tmp_path, monkeypatch, children, body):
     _probe_worker(tmp_path, monkeypatch, body)
@@ -194,6 +219,7 @@ def test_crash_or_malformed_output_is_neutral(tmp_path, monkeypatch, children, b
     assert sandbox.execute_analysis("result=1", {})["error"] == ERROR
 
 
+@linux_policy
 def test_wall_limit_hard_kills_and_reaps(tmp_path, monkeypatch, children):
     _probe_worker(tmp_path, monkeypatch, "while True: time.sleep(1)")
     monkeypatch.setattr(isolation, "WALL_SECONDS", 0.15)
@@ -204,6 +230,7 @@ def test_wall_limit_hard_kills_and_reaps(tmp_path, monkeypatch, children):
     assert time.monotonic() - started < 5
 
 
+@linux_policy
 def test_cpu_limit_hard_kills_and_reaps(tmp_path, monkeypatch, children):
     _probe_worker(tmp_path, monkeypatch, "while True: pass", cpu=1)
     monkeypatch.setattr(isolation, "WALL_SECONDS", 8)
@@ -212,6 +239,7 @@ def test_cpu_limit_hard_kills_and_reaps(tmp_path, monkeypatch, children):
     assert children[0][0].returncode in {-signal.SIGKILL, -signal.SIGXCPU}
 
 
+@linux_policy
 def test_memory_limit_hard_kills_and_reaps(tmp_path, monkeypatch, children):
     _probe_worker(tmp_path, monkeypatch, "blocks=[]\nwhile True: blocks.append(bytearray(8*1024*1024))")
     monkeypatch.setattr(isolation, "RSS_BYTES", 64 * 1024 * 1024)
@@ -220,6 +248,7 @@ def test_memory_limit_hard_kills_and_reaps(tmp_path, monkeypatch, children):
     assert children[0][0].returncode == -signal.SIGKILL
 
 
+@linux_policy
 @pytest.mark.skipif(os.uname().sysname != "Linux", reason="Linux address-space policy")
 def test_linux_address_space_limit(tmp_path, monkeypatch, children):
     _probe_worker(
@@ -239,7 +268,11 @@ sys.stdout.write(json.dumps({'result_type':'scalar','value':value}))
 
 @pytest.mark.skipif(os.uname().sysname != "Linux", reason="Linux parent lifecycle policy")
 def test_linux_parent_exit_kills_and_reaps_worker(tmp_path, monkeypatch):
-    _probe_worker(tmp_path, monkeypatch, "time.sleep(3600)")
+    _probe_worker(
+        tmp_path,
+        monkeypatch,
+        "import signal\ntry: signal.alarm(0)\nexcept OSError: pass\nsys.stdout.write('ARMED\\n')\nsys.stdout.flush()\ntime.sleep(3600)",
+    )
     worker = isolation._WORKER
     # Adopt the temporary parent's child so this test can reap it itself.
     libc = ctypes.CDLL(None, use_errno=True)
@@ -254,8 +287,9 @@ def test_linux_parent_exit_kills_and_reaps_worker(tmp_path, monkeypatch):
             "-B",
             "-c",
             "import subprocess,sys,time; "
-            f"child=subprocess.Popen([sys.executable,'-I','-B',{str(worker)!r}],stdin=subprocess.PIPE,stdout=subprocess.PIPE); "
+            f"child=subprocess.Popen([sys.executable,'-I','-B',{str(worker)!r}],stdin=subprocess.DEVNULL,stdout=subprocess.PIPE); "
             "assert child.stdout.readline()==b'READY\\n'; "
+            "assert child.stdout.readline()==b'ARMED\\n'; "
             "print(child.pid,flush=True); time.sleep(3600)",
         ],
         stdout=subprocess.PIPE,
@@ -284,6 +318,7 @@ def test_linux_parent_exit_kills_and_reaps_worker(tmp_path, monkeypatch):
         assert libc.prctl(36, prior.value, 0, 0, 0) == 0
 
 
+@linux_policy
 def test_concurrent_requests_have_distinct_children_and_directories(frames, children):
     payload = encode_request("result=teams", frames)
     with ThreadPoolExecutor(max_workers=2) as executor:
@@ -304,6 +339,7 @@ def test_public_requests_share_memory_admission_only(frames, children, monkeypat
     assert len({child.pid for child, _ in children}) == 2
 
 
+@linux_policy
 def test_slot_timeout_never_starts_child(monkeypatch, tmp_path):
     monkeypatch.setenv("GOL_MAINTENANCE", "false")
     monkeypatch.setenv("OPENAI_API_KEY", "fixture-provider")
@@ -313,15 +349,17 @@ def test_slot_timeout_never_starts_child(monkeypatch, tmp_path):
     with isolation._analysis_slot():
         with ThreadPoolExecutor(max_workers=1) as executor:
             result = executor.submit(sandbox.execute_analysis, "result=1", {}).result()
-    assert result["error"] == ERROR
+    assert result["error"] == isolation.BUSY_ERROR
 
 
+@linux_policy
 @pytest.mark.parametrize("text", ["6.50", "6.123456", "NaN", "sNaN", "Infinity", "-Infinity", "1e9999"])
 def test_process_decimal_parity(text):
     frames = {"df": pd.DataFrame({"rating": pd.Series([Decimal(text), None], dtype=object)})}
     assert isolation._run_child(encode_request("result=df", frames)) == sandbox._execute_analysis("result=df", frames)
 
 
+@linux_policy
 @pytest.mark.parametrize(
     "value,code",
     [
@@ -336,6 +374,7 @@ def test_process_object_scalars_keep_analysis_semantics(value, code):
     assert isolation._run_child(encode_request(code, frames)) == sandbox._execute_analysis(code, frames)
 
 
+@linux_policy
 @pytest.mark.parametrize("rows", [100_000, 200_000])
 @pytest.mark.parametrize(
     "code",
@@ -370,6 +409,7 @@ def test_maintenance_never_starts_child(monkeypatch):
     assert GolService.__new__(GolService)._execute_tool("run_analysis", {"code": "result=1"})["error"] == "maintenance"
 
 
+@linux_policy
 def test_policy_setup_failure_never_executes_analysis(tmp_path, monkeypatch, children):
     monkeypatch.setenv("GOL_MAINTENANCE", "false")
     monkeypatch.setenv("OPENAI_API_KEY", "fixture-provider")
@@ -379,7 +419,7 @@ def test_policy_setup_failure_never_executes_analysis(tmp_path, monkeypatch, chi
     monkeypatch.setattr(isolation, "_WORKER", worker)
     with pytest.raises(AnalysisRefused):
         isolation._run_child(b"")
-    assert sandbox.execute_analysis("result=1", {})["error"] == ERROR
+    assert sandbox.execute_analysis("result=1", {})["error"] == "maintenance"
 
 
 @pytest.mark.parametrize(
@@ -402,3 +442,18 @@ def test_parent_revalidates_result_shape(result):
 
 def test_parent_normalizes_nonfinite_json_numbers():
     assert decode_result(b'{"result_type":"scalar","value":1e9999}')["value"] is None
+
+
+def trusted_transport_analysis_for_test(code, frames):
+    """Test-only reference for the codec; never used by application callers."""
+    from io import BytesIO
+
+    from src.services.gol_wire import read_request
+
+    _, decoded = read_request(BytesIO(b"".join(stream_request(code, frames))))
+    return sandbox._execute_analysis(code, decoded)
+
+
+@pytest.mark.parametrize("name,code", PROCESS_CORPUS, ids=[name for name, _ in PROCESS_CORPUS])
+def test_trusted_transport_analysis_for_test(name, code, frames):
+    assert trusted_transport_analysis_for_test(code, frames) == sandbox._execute_analysis(code, frames)

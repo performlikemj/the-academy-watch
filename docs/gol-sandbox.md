@@ -271,96 +271,127 @@ other matches were regex/SQL compilation and neural-network `.eval()` mode calls
 
 ## Process isolation for the analysis tool
 
-`execute_analysis` supervises a new Python interpreter for every call. The
-RestrictedPython capability guards remain the first layer inside that interpreter.
-The synchronous executor, frame checks and result formatter run only after the
-worker has installed its mandatory OS policy. There is no in-process fallback.
-The worker imports analysis modules and the standard library, without importing
-Flask, the application, models, provider clients or database services. Native BLAS
-threads are disabled during the trusted bootstrap. Named timezone data and the
-required lazy NumPy/pandas modules are loaded before filesystem restrictions.
+Production `execute_analysis` supervises a fresh Linux Python interpreter for each
+analysis. RestrictedPython capability guards remain the first layer inside that
+child. The synchronous executor, frame checks and formatter run only after the
+mandatory OS policy. There is no in-process fallback. The child imports analysis
+modules, without Flask, models, database services or provider clients. Bootstrap
+disables native BLAS threads and retains both C and pure-Python timezone caches
+and required lazy pandas/NumPy formatting modules before filesystem lockdown.
 
-The parent launches with `env={}`, isolated Python settings (`-I -B`), closed
-inherited descriptors and three pipes. Bootstrap uses fixed thread settings and
-clears its environment before accepting input. Each call has its own empty
-temporary working directory, removed after the child has been killed/reaped.
-No analysis input or output is written to a file. The transport is versioned JSON:
-fixed numeric dtypes use base64 little-endian buffers, strings use dictionary
-encoding, and object values use a fixed set of plain-data tags. It never uses
-pickle or imports types named by the payload. Numeric buffers cannot carry
-executable objects. Frame dtype/index/category checks run before encoding and
-after reconstruction. The input cap is 128 MiB and 16 million resident cells,
-with an additional 128 MiB deep frame-memory budget before serialization. The
-output cap is 2 MiB; the parent checks the DTO shape and reuses `plain_value`.
-The existing 100-row and result-value limits still apply.
+macOS and other platforms refuse analysis without starting a child. The local
+Seatbelt interface cannot supply all the Linux lifecycle guarantees, so it is
+not used. Clearly named trusted test helpers can exercise the first layer and
+transport on macOS; they are not a production execution path or policy test.
+Developers needing the analysis tool must use a supported Linux container.
 
-Linux requires Landlock ABI 3 or later and libseccomp. Landlock permits file and
-directory reads only below the disposable working directory; filesystem writes,
-execution, creation and truncation are denied. A default-deny seccomp filter
-allows the syscalls needed for resident analysis and pipes, while denying socket
-creation, network operations, process/thread creation, exec, other-process memory
-access, namespace changes and resource-limit changes. The bootstrap must have
-one thread before Landlock is installed; seccomp also requires thread
-synchronization. `no_new_privs` makes these restrictions irreversible. Linux
-filesystem metadata calls remain available; they do not grant file contents.
-The Docker image installs `libseccomp2` and runs as the existing non-root `app`
-user. Landlock and seccomp can be installed without additional capabilities when
-the host kernel/runtime supports them. See the [Linux Landlock documentation](https://www.kernel.org/doc/html/latest/userspace-api/landlock.html)
-and [seccomp API](https://man7.org/linux/man-pages/man2/seccomp.2.html).
+The parent starts with `env={}`, isolated Python settings (`-I -B`), closed
+inherited descriptors and three pipes. Bootstrap temporarily sets fixed thread
+settings, then clears its environment before input. Each call gets an empty
+private temporary working directory. No analysis data is written to files.
+Normal completion or failure kills/reaps the child and removes the directory;
+readiness probes clean only empty owned directories whose creating PID has gone.
+A parent crash may leave an empty directory until a later probe or container exit.
 
-macOS requires a Seatbelt policy: external file reads, all filesystem writes,
-network operations, process creation/exec, process information, Mach operations
-and named POSIX/System V IPC are denied. This uses the deprecated local
-`sandbox_init` interface; if a future macOS release cannot install it, analysis
-refuses. The Linux syscall allowlist and address-space limit are Linux-specific.
+Production transport is versioned column-by-column JSON over the pipe. Fixed
+numeric buffers use base64 and explicit dtype/byte order; strings use dictionary
+encoding and object values use fixed plain-data tags. It cannot import types or
+carry executable objects and never uses pickle. Each column is released before
+encoding the next, rather than retaining a whole JSON document and its copies.
+The earlier single-document codec remains covered by trusted transport tests.
+Only conservatively referenced frames and transitive helper dependencies are
+loaded and sent. Helpers obtain data from those frames, never the database.
 
-Every child has a 10-second hard CPU limit, zero file/core size and niceness +10.
-Linux also has a 768 MiB address-space limit and zero process allowance. The
-parent samples RSS and kills above 448 MiB on Linux or 640 MiB on macOS (which
-has higher measured native allocator overhead). It allows up to
-10 seconds for bootstrap, then 10 seconds for transfer, reconstruction, execution
-and formatting. Expiry, excessive RSS/output, crashes and invalid output produce
-the existing neutral refusal. The parent sends SIGKILL to its owned process
-group and waits; it never relies on thread cancellation. RSS sampling runs every
-25 ms and is a secondary guard; it can briefly overshoot between samples.
-Linux additionally binds the child to its creating parent with an unmaskable
-parent-death SIGKILL and rechecks the expected parent PID during setup. A
-secondary 20-second child alarm bounds interrupted supervision on both systems;
-Linux also blocks changing signal handlers/masks/timers after policy setup.
+Both paths validate frames and plain results. Native timedelta identity,
+datetime/timedelta units, timezone, category, index frequency and multi-level
+metadata are preserved. Custom index frequencies that cannot be represented by
+the canonical frequency string are refused by both paths. Input limits apply to
+actual encoded bytes (128 MiB) and cells (16 million), rather than deep object
+memory for unreferenced tables. The output cap is 2 MiB; the parent checks the
+DTO and existing `plain_value` validator. The existing 100-row/result-value limits
+still apply. Tests compare the full ordinary-analysis corpus and extended dtype,
+index and temporal shapes against the trusted in-process reference.
 
-One analysis/serialization at a time is admitted across Gunicorn workers in the
-container using an advisory file lock. Admission waits at most 30 seconds; a
-full queue refuses. The lock is owned by the application user, mode 0600, opened
-without following symlinks, and released by closing its descriptor. Its empty
-file stays in the container's temporary directory to preserve lock identity.
-Every admitted request gets a distinct single-use child. Maintenance is checked
-before admission, after admission and after serialization; the service also
-retains its early maintenance check. There is no worker pool or reuse between
-users. Logs include bootstrap/elapsed time, peak sampled child RSS and transport
-byte counts; they contain no code, frame values or child exception messages.
+Linux requires Landlock ABI 3 or later and libseccomp. Landlock grants reads only
+below the disposable working directory and denies filesystem writes, creation,
+execution and truncation. Default-deny seccomp admits resident computation and
+pipe syscalls, while denying sockets/network, process/thread creation, exec,
+other-process signalling and memory access, namespaces and resource-limit
+changes. The bootstrap must have one thread; seccomp uses thread synchronization.
+`no_new_privs` makes restrictions irreversible. Metadata calls remain available
+but do not permit file contents. The image installs `libseccomp2` and runs as the
+non-root `app` user; these policies need no additional container capabilities on
+a supporting host/runtime. See [Landlock](https://www.kernel.org/doc/html/latest/userspace-api/landlock.html)
+and [seccomp](https://man7.org/linux/man-pages/man2/seccomp.2.html).
 
-Azure Container Apps host kernel support has not been verified by local tests.
-Before release, the operator must confirm a normal stored analysis works on the
-actual non-root image with Landlock and seccomp installed. Unsupported kernels,
-outer runtime restrictions or missing libraries leave the analysis tool refusing;
-they never reduce its isolation. This implementation requests neither privileged
-containers nor network/mount namespaces. Container-wide memory includes the
-Flask workers, cached frames, pending request frames and serialization buffers;
-the per-child limits do not reserve memory for the rest of the application.
-Watch neutral refusal rates, bootstrap/time/RSS logs, admission wait, container
-RSS/OOM events and health-probe latency. Keep adequate measured headroom before
-resuming the assistant. A stronger infrastructure option is a separate
-credential-free analysis job/container with only supplied frames, a dedicated
-resource budget and independently enforced deny-all egress. This separates the
-application's filesystem and credentials; stronger kernel separation would
-require an infrastructure runtime that supplies it.
+Children have a 10-second hard CPU limit, zero file/core size, zero process
+allowance and niceness +10. The parent allows 10 seconds for bootstrap, followed
+by 10 seconds for transfer, reconstruction, execution and formatting. At wall,
+RSS or output limits it sends SIGKILL and waits. RSS is sampled every 25 ms and
+may briefly overshoot; Linux also enforces an address-space limit. Parent death
+causes an unmaskable SIGKILL, with an expected-parent recheck during setup. An
+independent 20-second backup alarm bounds interrupted supervision; policy denies
+changing handlers, masks and timers after installation. These controls are tested
+with first-layer guards deliberately bypassed inside test-owned workers only.
+
+One analysis/serialization at a time is admitted across container workers using
+an owned regular mode-0600 advisory-lock file opened without following symlinks.
+It waits at most 10 seconds. Admission precedes database frame loading and cache
+copies; the empty lock file stays in the temporary directory to preserve identity.
+Maintenance is rechecked at admission and input boundaries. Every child is
+single-use across all requests/users. Startup measurements do not justify a pool.
+
+Before loading frames and again before starting a child, the parent checks Linux
+MemAvailable and cgroup remaining memory. It reserves 128 MiB for the parent and
+other requests. The child address-space cap is at most 768 MiB and never exceeds
+remaining memory minus that reserve; below 384 MiB it refuses. Its RSS cap is at
+most 448 MiB and at least 128 MiB below the assigned address-space cap. Bootstrap
+raises the child's OOM score preference to 500. These checks bound admission;
+they do not reserve memory against unrelated allocations in other application
+threads. Larger real caches or concurrent non-analysis requests can still require
+more container memory. Use measured application headroom, not just child RSS.
+
+Availability uses a PID-scoped real-policy self-test with `result=1`, cached for
+10 minutes on success and retried after 60 seconds on failure. The maintenance
+switch or missing provider key short-circuits before any probe. Missing policy
+support produces a WARNING with fixed `bootstrap_failed` reason and pauses the
+assistant before a new debit. Health exposes only `analysis_isolation_available`;
+a paused assistant does not fail the backend liveness status. Cold readiness
+under admission pressure also fails closed for 60 seconds. Production tool calls
+return distinct deadline and busy messages with simplify/retry-later hints.
+Fixed logs distinguish `bootstrap_failed`, `deadline`, `memory`, `busy`,
+`input_size`, `bad_output`, `child_exit`, `input_validation` and `headroom`;
+bootstrap/headroom/input size failures are WARNINGs. Size logs include measured
+bytes/cells and limits. Success logs include timing, sampled RSS and wire sizes.
+No code, frame values or raw child diagnostics are logged.
+
+Azure Container Apps kernel support is UNCONFIRMED by local work. Before resuming
+the assistant, verify the real non-root revision passes readiness and an ordinary
+stored analysis. Unsupported host kernels or outer runtime restrictions pause
+analysis; there is no reduced policy. No privileged containers or network/mount
+namespaces are requested. The stronger infrastructure option is a separate
+credential-free job/container with supplied frames, a dedicated resource budget
+and independently enforced deny-all egress. The current implementation shares
+the application's host kernel and depends on its security and availability.
 
 Run `python scripts/benchmark_gol_isolation.py --rows 100000 200000 --repeats 3`
-for synthetic data with all ten real loader schemas, including the 29-column
-fixture table. It reads repository SQL schemas only and never connects to a DB.
-The hand-back records measurements on macOS and a non-root Linux container
-limited to 0.5 CPU / 1 GiB. Linux policy/resource tests run in the existing
-mandatory Backend Tests CI job; the same corpus also covers macOS locally.
+in Linux for real loader-schema synthetic frames, including the 29-column table,
+without database access. At 0.5 CPU / 1 GiB, current median bootstrap is 315/322 ms,
+serialization 126/267 ms, and end-to-end 780/1018 ms for 100k/200k rows. Child peak
+RSS is approximately 108/129 MiB for that workload. The full-app measurement
+`python scripts/benchmark_gol_application.py --rows 200000` preloads Flask and
+runs two workers with two concurrent requests each under the same container
+limits; it asserts no OOM and bounded total memory, allowing busy/resource
+refusals. It uses synthetic eligibility/frames and no database/provider calls.
+
+The mandatory Linux Backend Tests job exercises real policy failures, signalling,
+immutable deadlines, parent death, CPU/memory limits, parity and cleanup. Any skip
+in either isolation test module fails the Linux job. Analysis Container Memory
+builds the production image and exercises the full-application memory envelope on
+Linux x86_64. Local Linux measurements use aarch64. macOS runs the trusted corpus
+and tests explicit runtime refusal; its real-policy tests are intentionally Linux
+only. Watch fixed refusal reasons, readiness/health, queue waits, child/container
+RSS, OOM events and cache size before changing resource settings or dependencies.
 
 ## Maintenance switch for the assistant
 

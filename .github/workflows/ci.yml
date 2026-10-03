@@ -109,6 +109,24 @@ jobs:
           OPENAI_API_KEY: 'test-not-a-real-key'
         run: python -m pytest -q
 
+  analysis-memory:
+    name: Analysis Container Memory
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build non-root application image
+        run: docker build -t analysis-memory:ci academy-watch-backend
+      - name: Measure two workers and four concurrent analyses
+        run: >-
+          docker run --rm --network none --cpus 0.5 --memory 1g --pids-limit 64
+          --cap-drop ALL --security-opt no-new-privileges
+          -e SKIP_API_HANDSHAKE=1 -e API_USE_STUB_DATA=true
+          -e TEST_ONLY_MANU=false -e OPENAI_API_KEY=test-not-a-real-key
+          -v "$PWD/academy-watch-backend/scripts:/app/scripts:ro"
+          analysis-memory:ci python scripts/benchmark_gol_application.py --rows 200000
+
   frontend-tests:
     name: Frontend Tests
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
