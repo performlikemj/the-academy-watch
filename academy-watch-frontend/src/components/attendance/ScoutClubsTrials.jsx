@@ -46,6 +46,7 @@ export function ScoutClubsTrials() {
   const api = life.api
   const { token } = useAuth()
   const openLoginModal = useGuarded(life, useAuthUI().openLoginModal)
+  const runLocation = useGuarded(life, callback => callback())
   const [location, setLocation] = useState(null)
   const [radius, setRadius] = useState(50)
   const [query, setQuery] = useState('')
@@ -94,7 +95,7 @@ export function ScoutClubsTrials() {
   return <ScoutSurface><div className="floodlight-container c4-night pb-28">
     <ScoutHeader eyebrow="Scout Desk · Clubs & trials" title="Where the football" accent="is." lede="Find trials and sessions. Ask the club before attending."><ScoutTabs clubs />
       <form className="c4-search" onSubmit={e => { e.preventDefault(); setSearch(query.trim()); setPage(1) }}><label className="c4-field">Find a club<input placeholder="Club, town or postcode" value={query} onChange={e => setQuery(e.target.value)} minLength={2} maxLength={80} /></label><button className="c4-button">Search clubs</button></form>
-      <LocationControl dark location={location} setLocation={value => { setLocation(value); setPage(1) }} radius={radius} setRadius={value => { setRadius(value); setPage(1) }} />
+      <LocationControl dark run={runLocation} location={location} setLocation={value => { setLocation(value); setPage(1) }} radius={radius} setRadius={value => { setRadius(value); setPage(1) }} />
     </ScoutHeader>
     {error && <p role="alert" className="c4-error">{error} <button className="c4-button" onClick={() => { setPage(1); refreshRequests(); setReload(value => value + 1) }}>Refresh</button></p>}
     {!token ? <p className="c4-notice"><button className="c4-button" onClick={() => openLoginModal()}>Sign in</button> to ask to attend a session.</p> : !verified && <p className="c4-notice">Attendance requests are for verified scouts. <Link to="/scout/verification">Get verified →</Link></p>}
