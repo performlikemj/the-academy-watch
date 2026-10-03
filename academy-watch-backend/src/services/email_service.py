@@ -376,7 +376,7 @@ class EmailService:
 
         # Mask email in logs for privacy
         masked_recipients = [mask_email(r) for r in recipients]
-        logger.info("Sending email: to=%s", masked_recipients)
+        logger.info("Sending email: to=%s", log_metadata(masked_recipients))
 
         # Try primary provider (Mailgun)
         if self.mailgun.is_configured():
@@ -585,7 +585,7 @@ class EmailService:
                 "Background email job %s failed: %s to=%s",
                 log_metadata(job_id),
                 log_metadata(e),
-                [mask_email(r) for r in ([to] if isinstance(to, str) else to)],
+                log_metadata([mask_email(r) for r in ([to] if isinstance(to, str) else to)]),
                 exc_info=safe_exc_info(),
             )
             try:

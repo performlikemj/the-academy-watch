@@ -38,3 +38,19 @@ class PrivacyGunicornLogger(Logger):
         if kwargs.get("exc_info"):
             kwargs["exc_info"] = safe_exc_info()
         return super().error(msg, *args, **kwargs)
+
+    def warning(self, msg, *args, **kwargs):
+        return super().warning(msg, *(log_metadata(value) for value in args), **kwargs)
+
+    def critical(self, msg, *args, **kwargs):
+        return super().critical(msg, *(log_metadata(value) for value in args), **kwargs)
+
+    def exception(self, msg, *args, **kwargs):
+        kwargs["exc_info"] = safe_exc_info()
+        return super().error(msg, *(log_metadata(value) for value in args), **kwargs)
+
+    def debug(self, msg, *args, **kwargs):
+        return super().debug(msg, *(log_metadata(value) for value in args), **kwargs)
+
+    def info(self, msg, *args, **kwargs):
+        return super().info(msg, *(log_metadata(value) for value in args), **kwargs)

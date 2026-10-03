@@ -388,3 +388,31 @@ def test_partial_formatter_failure_keeps_safe_diagnostic_context():
     assert "E42" in item.getMessage()
     assert "john@[127.0.0.1]" not in repr(vars(item))
     assert item.name == "diagnostic.logger"
+
+
+@pytest.mark.parametrize("level", ["error", "warning", "critical", "exception", "debug", "info"])
+def test_deployed_error_logging_omits_raw_request_uri_and_header_errors(level):
+    cfg = Config()
+    cfg.set("errorlog", "-")
+    cfg.set("loglevel", "debug")
+    gunicorn = PrivacyGunicornLogger(cfg)
+    protect_log_handlers()
+    stream = io.StringIO()
+    handler = logging.StreamHandler(stream)
+    old = gunicorn.error_log.handlers[:]
+    try:
+        for h in old:
+            gunicorn.error_log.removeHandler(h)
+        gunicorn.error_log.addHandler(handler)
+        gunicorn.error("Error handling request %s", "/api/people/john%40example.com?q=john@example.com")
+        getattr(gunicorn, level)("Invalid request: %s", ValueError("header diagnostic E42 john.private @example.com"))
+        output = stream.getvalue()
+        assert "q=" not in output
+        assert "john" not in output
+        assert "header diagnostic E42" not in output
+        assert "path=/api/people/[masked]" in output
+        assert "ValueError" in output
+    finally:
+        gunicorn.error_log.removeHandler(handler)
+        for h in old:
+            gunicorn.error_log.addHandler(h)
