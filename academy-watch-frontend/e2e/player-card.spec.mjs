@@ -574,11 +574,8 @@ for (const viewport of VIEWPORTS) {
       await installApiMocks(page, { watched: [-15] })
       await page.goto('/scout')
       const view = page.getByRole('group', { name: 'Show players as' })
-      await expect(view.getByRole('button', { name: phone ? 'Cards' : 'Table' })).toHaveAttribute('aria-pressed', 'true')
-      if (!phone) {
-        await expect(page.getByRole('table')).toBeVisible()
-        await view.getByRole('button', { name: 'Cards' }).click()
-      }
+      // Cards are the starting view on phones and, with no stored choice, on desktop.
+      await expect(view.getByRole('button', { name: 'Cards' })).toHaveAttribute('aria-pressed', 'true')
 
       for (const name of ['Cards', 'Table']) {
         expect((await view.getByRole('button', { name }).boundingBox()).height).toBeGreaterThanOrEqual(44)
@@ -587,7 +584,8 @@ for (const viewport of VIEWPORTS) {
       await expect(cards).toHaveCount(scoutRows.length)
       const kofi = cards.filter({ hasText: 'Kofi Asante-Reid' })
       await expect(kofi.getByRole('link', { name: 'Kofi Asante-Reid' })).toHaveAttribute('href', '/players/-12')
-      await expect(kofi).toContainText('Right-back at Quillmere Athletic.')
+      await expect(kofi).toContainText('Right-back')
+      await expect(kofi).toContainText('Quillmere Athletic · 24')
       // Club- and player-entered seasons: no apps/minutes on the card (the desk's
       // figures and the player's page are counted differently until they share one source).
       for (const name of ['Kofi Asante-Reid', 'Reuben Castellane', 'Tamsin Holloway', 'Olu Adeyemi-Clarke']) {

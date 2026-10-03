@@ -45,7 +45,7 @@ Stripe.js, framer-motion, `d3-force-3d` for journey maps. Pages in `src/pages/` 
 Anything that belongs to the person looking — unsaved drafts, open dialogs, watchlist marks, claim/owner
 state, pending saves and their timers — must live **under a boundary keyed on player + viewer**, so React
 remounts it on logout, login or an account switch. The boundaries are the thin exported wrappers
-`PlayerPage` → `PlayerPageBody`, `ScoutPage` → `ScoutDeskBody`, `ShowcaseSection` → `ShowcaseSectionBody`
+`PlayerPage` → `PlayerPageBody`, `ScoutPage` → `ScoutDeskBody`, `WatchlistPage` → `WatchlistBody`, `ShowcaseSection` → `ShowcaseSectionBody`
 and `LocalPlayerPage` → `LocalPlayerProfile`; the key comes from `viewerKey(token)` /
 `showcaseScope()` in `src/lib/player-card.js`. Never add state to a wrapper, and never key viewer-bound
 state by player id alone: a signed-in view can carry fields the server withholds from the next viewer.

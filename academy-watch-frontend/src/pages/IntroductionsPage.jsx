@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -80,6 +80,10 @@ export function IntroductionsPage() {
   // Sent and Inbox share loading/error state; a late result from the other box must not overwrite this one.
   const loadSeq = useRef(0)
   const initialBox = useRef(null)
+  // /introductions?request=<id> (e.g. "Open thread" on the watchlist) opens that thread once loaded.
+  const [searchParams] = useSearchParams()
+  const requestedId = searchParams.get('request')
+  const pendingSelection = useRef(null)
   const loadedSelection = useRef(null)
   // Same for actions: a Sent accept/decline/withdraw that finishes after switching to Inbox must not write its
   // error or clear the busy flag there (its data update still lands in the right box via the closure).
@@ -97,7 +101,11 @@ export function IntroductionsPage() {
           fetchAllRequests((limit, offset) => APIService.listContactRequests({ box: nextBox, limit, offset }))))
         if (seq !== loadSeq.current) return
         setRequests({ sent, inbox })
-        const chosen = defaultIntroductionBox({ sent, inbox })
+        const requestedBox = requestedId
+          ? (sent.some((r) => r.id === requestedId) ? 'sent' : inbox.some((r) => r.id === requestedId) ? 'inbox' : null)
+          : null
+        pendingSelection.current = requestedBox ? requestedId : null
+        const chosen = requestedBox || defaultIntroductionBox({ sent, inbox })
         initialBox.current = chosen
         setBox(chosen)
         return
@@ -115,14 +123,15 @@ export function IntroductionsPage() {
     } finally {
       if (seq === loadSeq.current) setLoading(false)
     }
-  }, [auth?.token])
+  }, [auth?.token, requestedId])
 
   useEffect(() => {
     // Strict Mode replays mount effects; share the pending load for this selection.
     if (loadedSelection.current?.box === box && loadedSelection.current?.token === auth?.token) return
     loadedSelection.current = { box, token: auth?.token }
     actionSeq.current += 1
-    setSelectedId(null)
+    setSelectedId(box != null ? pendingSelection.current : null)
+    if (box != null) pendingSelection.current = null
     setActionError(null)
     setBusyId(null)
     if (box != null && initialBox.current === box) {

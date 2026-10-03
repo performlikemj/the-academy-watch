@@ -9,6 +9,8 @@ async function mocks(page, { verified = false, signedIn = true, incoming = true,
   const seen = []
   await page.addInitScript((signedIn) => {
     localStorage.setItem('academyWatch.playerOnboardingPromptDismissed.v1', 'true')
+    // These checks read the desk's table; the desk now starts on cards.
+    localStorage.setItem('aw.scout.view', 'table')
     if (signedIn) localStorage.setItem('academy_watch_user_token', 'test-token')
   }, signedIn)
   await page.route('**/api/**', async (route) => {
@@ -57,7 +59,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       const seen = await mocks(page)
       await page.goto('/scout')
       await expect(page.getByRole('cell', { name: 'RW', exact: true })).toBeVisible()
-      await expect(page.getByText(/viewing 2026\/27/)).toBeVisible()
+      await expect(page.getByRole('combobox', { name: 'Select season' })).toContainText('2026/27')
       await expect(page.getByRole('combobox', { name: 'Select season' })).toContainText('2026/27')
       for (const path of ['/api/scout/players', '/api/scout/leaderboards']) {
         await expect.poll(() => seen.filter(r => r.path === path).length).toBeGreaterThan(0)
@@ -65,7 +67,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       }
       await page.getByRole('combobox', { name: 'Select season' }).click()
       await page.getByRole('option', { name: '2025/26' }).click()
-      await expect(page.getByText(/viewing 2025\/26/)).toBeVisible()
+      await expect(page.getByRole('combobox', { name: 'Select season' })).toContainText('2025/26')
       expect(await page.locator('body').evaluate(el => el.scrollWidth <= window.innerWidth)).toBe(true)
     })
     test('explicit current season follows a player link despite stored history', async ({ page }) => {
@@ -110,10 +112,10 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       await expect(page).toHaveURL(/\/players\/-71$/)
       await expect(page.getByRole('heading', { name: 'Test Community Adult', exact: true })).toBeVisible()
     })
-    test('watchlist uses the same position code', async ({ page }) => {
+    test('watchlist states the position and age in words', async ({ page }) => {
       await mocks(page)
       await page.goto('/scout/watchlist')
-      await expect(page.getByRole('cell', { name: 'RW', exact: true })).toBeVisible()
+      await expect(page.getByTestId('watchlist-row')).toContainText('Right winger · 23')
     })
     test('signed-out scout sees Get verified and can open sign-in from a row', async ({ page }) => {
       const seen = await mocks(page, { signedIn: false })

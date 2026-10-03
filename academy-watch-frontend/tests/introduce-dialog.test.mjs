@@ -33,7 +33,7 @@ test('the dialog posts through APIService and the desk mounts it only for contac
   assert.ok(dialog.includes('permission_attestation: attestationRequired && attested'))
   const scout = await fs.readFile(scoutFile, 'utf8')
   assert.ok(scout.includes("import { IntroduceDialog } from '@/components/contact/IntroduceDialog'"))
-  assert.ok(scout.includes('{contactRail === true && player.contactable ? ('))
+  assert.ok(scout.includes('contactRail === true && player.contactable ? ('))
   assert.ok(scout.includes('<IntroduceDialog'))
   // The open dialog belongs to the viewer who opened it: viewer-bound state that
   // lives under the desk's keyed boundary and refuses writes from another viewer.

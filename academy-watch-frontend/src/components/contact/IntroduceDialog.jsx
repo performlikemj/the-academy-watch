@@ -8,7 +8,8 @@ import { Loader2, Send } from 'lucide-react'
 import { useViewerLifetime } from '@/hooks/useViewerState'
 import { MESSAGE_MAX, ATTESTATION_TEXT, describeIntroduceError, canSend } from '@/lib/introduce'
 
-export function IntroduceDialog({ open, onOpenChange, player }) {
+// `onSent` (optional) tells the surface that opened the form that the request now exists.
+export function IntroduceDialog({ open, onOpenChange, player, onSent }) {
   // Requests and side effects go through this viewer's lifetime (see lib/viewer-lifetime.js).
   const life = useViewerLifetime()
   const api = life.api
@@ -46,6 +47,7 @@ export function IntroduceDialog({ open, onOpenChange, player }) {
       })
       if (seq !== opSeq.current) return
       setFeedback({ kind: 'sent' })
+      onSent?.()
     } catch (err) {
       if (seq !== opSeq.current) return
       const described = describeIntroduceError(err)

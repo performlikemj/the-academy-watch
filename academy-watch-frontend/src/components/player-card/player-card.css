@@ -259,9 +259,50 @@
   .pc-foot-hint { display: block; }
 }
 
+/* ---- Desk variant: the same card at list density (ScoutDesk.dc.html) ---- */
+.pc-card--desk { max-width: none; min-height: 0; border-radius: 26px; box-shadow: none; }
+.pc-card--desk .pc-card-media { aspect-ratio: auto; height: 208px; border-radius: 20px; }
+.pc-card--desk .pc-card-body { gap: 8px; padding: 16px 12px 10px; }
+.pc-card--desk .pc-card-name a { font-size: 26px; line-height: 1.05; }
+.pc-card--desk .pc-card-name a::after { border-radius: 26px; }
+.pc-card--desk .pc-noimg-initials { font-size: 104px; }
+.pc-card--desk .pc-noimg-face { width: 120px; height: 120px; }
+.pc-card-chip { position: absolute; left: 12px; top: 12px; box-sizing: border-box; max-width: calc(100% - 24px); height: 26px; padding: 0 10px; border-radius: 13px; background: rgb(11 14 13 / .72); color: var(--color-chalk); font: 400 10px/26px var(--font-mono); letter-spacing: .14em; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
+.pc-card-chip:has(~ .pc-card-extras) { max-width: calc(100% - 128px); }
+.pc-card--desk .pc-card-extras { position: absolute; right: 8px; top: 3px; gap: 4px; }
+.pc-card--desk .pc-icon { position: relative; background: transparent; color: var(--color-chalk); }
+.pc-card--desk .pc-icon::before { content: ''; position: absolute; width: 32px; height: 32px; border-radius: 16px; background: rgb(11 14 13 / .72); }
+.pc-card--desk .pc-icon > svg { position: relative; }
+.pc-card--desk .pc-icon:hover::before { background: var(--color-night); }
+.pc-card--desk .pc-icon[aria-pressed='true'] { border-color: transparent; }
+.pc-card--desk .pc-icon[aria-pressed='true']::before { background: var(--color-chalk); }
+.pc-card--desk .pc-icon[aria-pressed='true'] { color: var(--color-ink); }
+.pc-card--desk .pc-icon:focus-visible { outline-color: var(--color-chalk); outline-offset: -6px; }
+.pc-card-meta { margin: 0; font-size: 14px; line-height: 1.35; color: var(--pc-body); overflow-wrap: anywhere; }
+.pc-card--desk .pc-card-counts { gap: 4px 14px; color: var(--color-muted); }
+.pc-card-source { color: var(--color-muted); }
+.pc-card-empty { margin: 0; font-size: 13px; line-height: 1.35; color: var(--color-muted); }
+.pc-card--desk .pc-card-foot { gap: 8px; padding-top: 10px; }
+.pc-card-status { font-size: 13px; line-height: 1.3; color: var(--pc-strong); overflow-wrap: anywhere; }
+.pc-card--desk .pc-pill { padding: 0 18px; }
+
 /* ---- Card grid on a list surface ---- */
 .pc-card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(272px, 1fr)); gap: 32px 24px; justify-items: center; margin: 0; padding: 0; list-style: none; }
 .pc-card-grid > li { display: flex; width: 100%; max-width: 320px; }
+
+/* ---- Row tile (Watchlist.dc.html): the card's tile at 96 x 120 ---- */
+.pc-mini { display: flex; flex: none; align-items: center; justify-content: center; width: 96px; height: 120px; border-radius: 16px; overflow: hidden; background: var(--pc-club); color: var(--pc-accent); }
+.pc-mini-photo { display: block; width: 100%; height: 100%; object-fit: cover; }
+.pc-mini-face { width: 64px; height: 64px; border-radius: 50%; object-fit: cover; border: 2px solid var(--pc-accent); background: var(--color-chalk); }
+.pc-mini-initials { font-family: var(--font-serif); font-size: 52px; line-height: 1; }
+.pc-mini--empty { background: transparent; border: 1px dashed rgb(243 240 232 / .28); }
+
+.pc-desk-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 24px; margin: 0; padding: 0; list-style: none; }
+.pc-desk-grid > li { display: flex; min-width: 0; }
+.pc-desk-skeleton { height: 392px; border-radius: 26px; background: rgb(243 240 232 / .07); }
+@media (max-width: 1199px) { .pc-desk-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 899px) { .pc-desk-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; } }
+@media (max-width: 599px) { .pc-desk-grid { grid-template-columns: minmax(0, 1fr); } }
 
 @media (prefers-reduced-motion: reduce) {
   .pc *, .pc { transition: none !important; }

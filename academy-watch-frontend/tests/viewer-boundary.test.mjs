@@ -32,6 +32,18 @@ test('ScoutPage: the exported wrapper holds no state and keys the desk on the vi
   assert.match(wrapper, /<ScoutDeskBody key=\{viewer\} \/>/)
 })
 
+test('WatchlistPage: the exported wrapper holds no state and keys the watchlist on the viewer', () => {
+  const source = read('../src/pages/WatchlistPage.jsx')
+  const wrapper = between(source, 'export function WatchlistPage() {', 'function WatchlistBody() {')
+  assert.deepEqual(wrapper.match(STATEFUL), null)
+  assert.match(wrapper, /const viewer = useViewerKey\(\)/)
+  assert.match(wrapper, /<WatchlistBody key=\{viewer\} \/>/)
+  // The scout's entries (with their private notes) and an open introduction form are viewer state.
+  assert.match(source, /const \[entries, setEntries\] = useViewerState\(viewer, NO_ENTRIES\)/)
+  assert.match(source, /const \[introducePlayer, setIntroducePlayer\] = useViewerState\(viewer, null\)/)
+  assert.match(source, /const saveCsv = useGuarded\(life, saveWatchlistCsv\)/)
+})
+
 test('ShowcaseSection: the exported wrapper holds no state and keys the manage section on player + viewer', () => {
   const source = read('../src/components/ShowcaseSection.jsx')
   const wrapper = between(source, 'export function ShowcaseSection(props) {', 'function ShowcaseSectionBody({')
@@ -91,6 +103,7 @@ const VIEWER_BOUND_FILES = [
   '../src/pages/PlayerPage.jsx',
   '../src/pages/LocalPlayerPage.jsx',
   '../src/pages/ScoutPage.jsx',
+  '../src/pages/WatchlistPage.jsx',
   '../src/components/ShowcaseSection.jsx',
   '../src/components/player-card/usePlayerReadView.js',
   '../src/components/PlayerReachControls.jsx',

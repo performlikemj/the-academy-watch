@@ -602,6 +602,8 @@ test('Scout source filter reaches browse, boards, signed compare, and CSV while 
   await page.goto('/scout')
   await expect.poll(() => playerUrls.length).toBeGreaterThan(0)
   expect(playerUrls[0].searchParams.has('source')).toBe(false)
+  // The source dropdown belongs to the table view.
+  await page.getByRole('group', { name: 'Show players as' }).getByRole('button', { name: 'Table' }).click()
   await page.getByRole('combobox', { name: 'Filter by stats source' }).click()
   await page.getByRole('option', { name: 'Club-confirmed' }).click()
 

@@ -81,7 +81,7 @@ test('an action that finishes after switching boxes never writes its error or cl
   assert.ok(page.includes('const actionSeq = useRef(0)'), 'actions are sequenced')
   assert.ok(page.includes('if (seq !== actionSeq.current) return'), 'a stale action error is discarded')
   assert.ok(page.includes('if (seq === actionSeq.current) setBusyId(null)'), 'a stale action does not clear the new box\'s busy flag')
-  assert.ok(page.includes('    actionSeq.current += 1\n    setSelectedId(null)\n    setActionError(null)\n    setBusyId(null)'), 'switching boxes resets action state')
+  assert.ok(page.includes('    actionSeq.current += 1\n    setSelectedId(box != null ? pendingSelection.current : null)\n    if (box != null) pendingSelection.current = null\n    setActionError(null)\n    setBusyId(null)'), 'switching boxes resets action state')
 })
 
  test('received introductions choose the receiving role by default', () => {

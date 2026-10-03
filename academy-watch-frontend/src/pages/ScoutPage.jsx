@@ -18,9 +18,13 @@ import { IntroduceDialog } from '@/components/contact/IntroduceDialog'
 import { ProvenanceChip } from '@/components/SelfReportedBadge'
 import { useContactRail } from '@/hooks/useContactRail.js'
 import { useGuarded, useViewerKey, useViewerLifetime, useViewerState } from '@/hooks/useViewerState'
-import { ScoutSurface, ScoutHeader, deskPillClass } from '@/components/scout/ScoutDesk'
+import { ScoutSurface, ScoutHeader, DeskSectionTitle, deskPillClass } from '@/components/scout/ScoutDesk'
 import { PlayerCard } from '@/components/player-card/PlayerCard'
-import { cardLine, isProviderSourced, viewerKey } from '@/lib/player-card'
+import { viewerKey } from '@/lib/player-card'
+import {
+  DESK_CHIPS, NO_MATCHES, RESULT_VIEWS, RESULT_VIEW_KEY, boardsWithRows, deskClubName, deskFigures,
+  deskFilterParams, deskMeta, deskPhotos, deskStatus, initialResultView,
+} from '@/lib/scout-desk'
 import { cn } from '@/lib/utils'
 import { saveBlobAs } from '@/lib/download'
 import { isStaleViewerError } from '@/lib/viewer-lifetime'
@@ -29,16 +33,10 @@ import { formatSeasonLabel, withSeasonParam } from '@/lib/seasons'
 import {
   Loader2, Search, ArrowUpDown, ArrowLeft, ArrowRight,
   Trophy, Zap, Clock, Gauge, X, GitCompareArrows, Globe,
-  Star, Download, Link2,
+  Star, Link2,
   Crosshair, Sparkles, Send, Swords, Shield, ShieldCheck, Hand, UserPlus,
 } from 'lucide-react'
 import { STATUS_BADGE_CLASSES } from '../lib/theme-constants'
-
-const AGE_PRESETS = [
-  { key: 'all', label: 'All ages', params: {} },
-  { key: 'u21', label: 'U21', params: { max_age: 20 } },
-  { key: 'u23', label: 'U23', params: { max_age: 22 } },
-]
 
 const SOURCE_FILTERS = [
   { value: 'all', label: 'All' },
@@ -53,29 +51,22 @@ function normalizeSignedPlayerId(value) {
   return /^-?[1-9]\d*$/.test(normalized) ? normalized : null
 }
 
-// Sorts that default ascending because lower is better (or alphabetical).
-const RESULT_VIEWS = [
-  { value: 'cards', label: 'Cards' },
-  { value: 'table', label: 'Table' },
-]
-const RESULT_VIEW_KEY = 'aw.scout.view'
-
 // Stable identity, so the guarded saver is made once per lifetime.
 const saveScoutCsv = (blob) => saveBlobAs(blob, 'academy-watch-scout-export.csv')
 
-// The stored choice wins; otherwise cards on phones (where the table scrolls
-// sideways) and the dense table on wider screens.
-function initialResultView() {
-  if (typeof window === 'undefined') return 'table'
+// Cards on phones; on wider screens the last choice made on this device.
+function startingResultView() {
+  if (typeof window === 'undefined') return 'cards'
+  let stored = null
   try {
-    const stored = window.localStorage.getItem(RESULT_VIEW_KEY)
-    if (RESULT_VIEWS.some((option) => option.value === stored)) return stored
+    stored = window.localStorage.getItem(RESULT_VIEW_KEY)
   } catch {
     // Storage can be unavailable in privacy-restricted browser contexts.
   }
-  return window.matchMedia?.('(max-width: 767px)').matches ? 'cards' : 'table'
+  return initialResultView({ phone: Boolean(window.matchMedia?.('(max-width: 767px)').matches), stored })
 }
 
+// Sorts that default ascending because lower is better (or alphabetical).
 const ASC_DEFAULT_SORTS = new Set(['name', 'age', 'goals_conceded', 'conceded_per90'])
 
 const fmtStat = (value) => (value === null || value === undefined ? '—' : value)
@@ -186,7 +177,7 @@ const PHASES = {
     ],
   },
   defense: {
-    label: 'Defense',
+    label: 'Defence',
     position: 'Defender',
     description: 'Showing defenders ranked on defensive output — tackles, duels, discipline.',
     defaultSort: 'tackles',
@@ -314,7 +305,8 @@ export function PlayerCell({ player, season }) {
   )
 }
 
-function LeaderboardCard({ board, entries, loading, season, seasonOverride }) {
+// A board is only rendered when it has rows — no empty or skeleton boards.
+function LeaderboardCard({ board, entries, season, seasonOverride }) {
   const Icon = board.icon
   return (
     <section className="flex min-w-0 flex-col" aria-label={board.title}>
@@ -323,37 +315,29 @@ function LeaderboardCard({ board, entries, loading, season, seasonOverride }) {
         <h3 className="font-mono text-[11px] font-medium uppercase tracking-[0.16em] text-chalk">{board.title}</h3>
         <span className="ml-auto font-mono text-[10.5px] tabular-nums text-[#8C9791]">{formatSeasonLabel(season)}</span>
       </div>
-      {loading ? (
-        <div className="space-y-3 py-4">
-          {[0, 1, 2].map((i) => <Skeleton key={i} className="h-9 w-full" />)}
-        </div>
-      ) : entries?.length ? (
-        <ol className="flex flex-col">
-          {entries.map((player, index) => (
-            <li key={player.player_id}>
-              <Link
-                to={withSeasonParam(`/players/${player.player_id}`, seasonOverride)}
-                className="grid grid-cols-[22px_minmax(0,1fr)_auto] items-center gap-3 border-b border-hairline-dark py-3 no-underline transition-colors duration-150 hover:bg-chalk/[0.035] hover:no-underline"
-              >
-                <span className={cn('font-mono text-[11px] tabular-nums', index === 0 ? 'text-gold' : 'text-[#8C9791]')}>
-                  {String(index + 1).padStart(2, '0')}
-                </span>
-                <span className="min-w-0">
-                  <span className="block truncate font-serif text-[1.3rem] leading-tight text-chalk">{player.player_name}</span>
-                  <span className="block truncate text-[12.5px] text-muted-dark">{player.loan_team_name || player.primary_team_name}</span>
-                  <ProvenanceChip provenance={player.provenance} className="mt-1.5" />
-                </span>
-                <span className="shrink-0 text-right">
-                  <span className="block font-serif text-[1.75rem] leading-none tabular-nums text-chalk">{board.metric(player) ?? '—'}</span>
-                  <span className="mt-1 block font-mono text-[10px] uppercase tracking-[0.12em] text-[#8C9791]">{board.suffix}</span>
-                </span>
-              </Link>
-            </li>
-          ))}
-        </ol>
-      ) : (
-        <p className="py-6 text-sm text-muted-dark">No data yet</p>
-      )}
+      <ol className="flex flex-col">
+        {entries.map((player, index) => (
+          <li key={player.player_id}>
+            <Link
+              to={withSeasonParam(`/players/${player.player_id}`, seasonOverride)}
+              className="grid grid-cols-[22px_minmax(0,1fr)_auto] items-center gap-3 border-b border-hairline-dark py-3 no-underline transition-colors duration-150 hover:bg-chalk/[0.035] hover:no-underline"
+            >
+              <span className={cn('font-mono text-[11px] tabular-nums', index === 0 ? 'text-gold' : 'text-[#8C9791]')}>
+                {String(index + 1).padStart(2, '0')}
+              </span>
+              <span className="min-w-0">
+                <span className="block truncate font-serif text-[1.3rem] leading-tight text-chalk">{player.player_name}</span>
+                <span className="block truncate text-[12.5px] text-muted-dark">{player.loan_team_name || player.primary_team_name}</span>
+                <ProvenanceChip provenance={player.provenance} className="mt-1.5" />
+              </span>
+              <span className="shrink-0 text-right">
+                <span className="block font-serif text-[1.75rem] leading-none tabular-nums text-chalk">{board.metric(player) ?? '—'}</span>
+                <span className="mt-1 block font-mono text-[10px] uppercase tracking-[0.12em] text-[#8C9791]">{board.suffix}</span>
+              </span>
+            </Link>
+          </li>
+        ))}
+      </ol>
     </section>
   )
 }
@@ -542,8 +526,12 @@ function ScoutDeskBody() {
   const [total, setTotal] = useState(0)
   const [totalPages, setTotalPages] = useState(0)
   const [loading, setLoading] = useState(true)
+  // Once a page of results has been shown it stays on screen (dimmed) while the
+  // next one loads, so a filter change never swaps the list for placeholders.
+  const [loadedOnce, setLoadedOnce] = useState(false)
+  const [loadError, setLoadError] = useState(false)
+  const [reloads, setReloads] = useState(0)
   const [boards, setBoards] = useState(null)
-  const [boardsLoading, setBoardsLoading] = useState(true)
   const [resolvedSeason, setResolvedSeason] = useState(null)
   const { currentSeason, displaySeason: defaultSeason } = useSeasonDirectory()
   const [storedSeason, setStoredSeason] = useState(() => seasonStore.get())
@@ -555,16 +543,16 @@ function ScoutDeskBody() {
     const requested = new URLSearchParams(window.location.search).get('phase')
     return PHASES[requested] ? requested : 'all'
   })
-  const [position, setPosition] = useState('all')
   const [status, setStatus] = useState('all')
-  const [agePreset, setAgePreset] = useState('all')
+  const [age, setAge] = useState('all')
+  const [openOnly, setOpenOnly] = useState(false)
   const [sort, setSort] = useState(() => {
     const requested = new URLSearchParams(window.location.search).get('phase')
     return (PHASES[requested] || PHASES.all).defaultSort
   })
   const [order, setOrder] = useState('desc')
   const [page, setPage] = useState(1)
-  const [resultView, setResultView] = useState(initialResultView)
+  const [resultView, setResultView] = useState(startingResultView)
   const changeResultView = useCallback((next) => {
     setResultView(next)
     try {
@@ -604,9 +592,10 @@ function ScoutDeskBody() {
   const seasonOverride = selectedSeason
 
   const phaseConfig = PHASES[phase]
-  // The phase IS a position filter when active; the standalone position
-  // Select only applies on the 'all' view (it's hidden otherwise).
-  const effectivePosition = phase === 'all' ? (position !== 'all' ? position : null) : phaseConfig.position
+  // The position group IS the position filter ('All' = no filter).
+  const effectivePosition = phaseConfig.position
+  // "Open to an introduction" exists only where introductions do.
+  const contactableOnly = openOnly && contactRail === true
 
   // Keep phase in sync with the URL after mount: same-route navigation (the
   // header's Scout link renders bare /scout without remounting) and browser
@@ -725,6 +714,16 @@ function ScoutDeskBody() {
     })
   }, [api, auth?.token, openLoginModal, setWatchedIds, watchedIds])
 
+  const filterParams = useMemo(() => deskFilterParams({
+    search: debouncedSearch,
+    position: effectivePosition,
+    status,
+    source,
+    age,
+    contactable: contactableOnly,
+    season: selectedSeason,
+  }), [debouncedSearch, effectivePosition, status, source, age, contactableOnly, selectedSeason])
+
   const handleExportCsv = useCallback(async () => {
     if (!auth?.token) {
       openLoginModal()
@@ -732,25 +731,17 @@ function ScoutDeskBody() {
     }
     setExporting(true)
     try {
-      const params = {}
-      if (debouncedSearch) params.search = debouncedSearch
-      if (effectivePosition) params.position = effectivePosition
-      if (status !== 'all') params.status = status
-      if (source !== 'all') params.source = source
-      const preset = AGE_PRESETS.find((p) => p.key === agePreset)
-      Object.assign(params, preset?.params || {})
-      if (selectedSeason != null) params.season = selectedSeason
       // The whole body is read and the viewer re-checked (life.api) before the
       // guarded save: nothing is downloaded after a viewer change or after
       // leaving the desk.
-      const blob = await api.fetchScoutCsv({ ...params, sort, order })
+      const blob = await api.fetchScoutCsv({ ...filterParams, sort, order })
       saveCsv(blob)
     } catch (err) {
       if (!isStaleViewerError(err)) console.error('CSV export failed', err)
     } finally {
       setExporting(false)
     }
-  }, [auth?.token, openLoginModal, debouncedSearch, effectivePosition, status, source, selectedSeason, api, saveCsv, sort, order, agePreset])
+  }, [auth?.token, openLoginModal, filterParams, api, saveCsv, sort, order])
 
   useEffect(() => {
     clearTimeout(searchTimer.current)
@@ -762,63 +753,58 @@ function ScoutDeskBody() {
     if (debouncedSearch) track('search_performed', { q_len: debouncedSearch.length, surface: 'scout' })
   }, [debouncedSearch])
 
-  const filterParams = useMemo(() => {
-    const params = {}
-    if (debouncedSearch) params.search = debouncedSearch
-    if (effectivePosition) params.position = effectivePosition
-    if (status !== 'all') params.status = status
-    if (source !== 'all') params.source = source
-    const preset = AGE_PRESETS.find((p) => p.key === agePreset)
-    Object.assign(params, preset?.params || {})
-    if (selectedSeason != null) params.season = selectedSeason
-    return params
-  }, [debouncedSearch, effectivePosition, status, source, agePreset, selectedSeason])
-
   // Reset to first page when filters change
   useEffect(() => { setPage(1) }, [filterParams, sort, order])
 
   useEffect(() => {
     let cancelled = false
     setLoading(true)
-    api.getScoutPlayers({ ...filterParams, sort, order, page, per_page: 25 })
+    api.getScoutPlayers({ ...filterParams, sort, order, page, per_page: 24 })
       .then((data) => {
         if (cancelled) return
         setPlayers(data?.players || [])
         setTotal(data?.total || 0)
         setTotalPages(data?.total_pages || 0)
+        setLoadError(false)
+        setLoadedOnce(true)
         if (data?.season != null) setResolvedSeason(data.season)
       })
       .catch((err) => {
+        if (cancelled || isStaleViewerError(err)) return
         console.error('Failed to load scout players', err)
-        if (!cancelled) { setPlayers([]); setTotal(0); setTotalPages(0) }
+        // A failed read is an error with Retry — never "no players match".
+        setLoadError(true)
       })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [filterParams, sort, order, page, api])
+  }, [filterParams, sort, order, page, api, reloads])
+
+  // Leaders follow the same filters (not the name search). They are secondary:
+  // nothing is drawn for them while they load, and a board with no rows is not drawn at all.
+  const boardParams = useMemo(() => deskFilterParams({
+    position: effectivePosition,
+    status,
+    source,
+    age,
+    contactable: contactableOnly,
+    season: selectedSeason,
+  }), [effectivePosition, status, source, age, contactableOnly, selectedSeason])
 
   useEffect(() => {
     let cancelled = false
-    setBoardsLoading(true)
-    const boardFilters = { limit: 5, phase }
-    if (selectedSeason != null) boardFilters.season = selectedSeason
-    const preset = AGE_PRESETS.find((p) => p.key === agePreset)
-    Object.assign(boardFilters, preset?.params || {})
-    if (effectivePosition) boardFilters.position = effectivePosition
-    if (status !== 'all') boardFilters.status = status
-    if (source !== 'all') boardFilters.source = source
-    api.getScoutLeaderboards(boardFilters)
+    api.getScoutLeaderboards({ ...boardParams, limit: 5, phase })
       .then((data) => {
         if (cancelled) return
         setBoards(data?.leaderboards || null)
         if (data?.season != null) setResolvedSeason(data.season)
       })
       .catch((err) => {
+        if (cancelled || isStaleViewerError(err)) return
         console.error('Failed to load leaderboards', err)
-        if (!cancelled) setBoards(null)
+        setBoards(null)
       })
-      .finally(() => { if (!cancelled) setBoardsLoading(false) })
     return () => { cancelled = true }
-  }, [phase, effectivePosition, status, source, agePreset, selectedSeason, api])
+  }, [phase, boardParams, api])
 
   const toggleCompare = useCallback((playerId) => {
     const normalizedPlayerId = normalizeSignedPlayerId(playerId)
@@ -857,18 +843,68 @@ function ScoutDeskBody() {
   const statColumns = phaseConfig.columns.map((key) => STAT_COLUMNS[key])
   const tableColumnCount = 8 + statColumns.length
   const displaySeason = selectedSeason ?? defaultSeason ?? resolvedSeason ?? currentSeason
+  const leaderBoards = boardsWithRows(boards, phaseConfig.boards)
+  const chips = DESK_CHIPS.filter((chip) => !chip.contactRailOnly || contactRail === true)
+  const chipPressed = { contactable: contactableOnly, club: source === 'club', u21: age === 'u21', u23: age === 'u23' }
+  const toggleChip = (key) => {
+    if (key === 'contactable') setOpenOnly((current) => !current)
+    else if (key === 'club') changeSource(source === 'club' ? 'all' : 'club')
+    else setAge((current) => (current === key ? 'all' : key))
+  }
+  const refreshing = loading && loadedOnce
+  const countLabel = loadedOnce ? `${total.toLocaleString()} ${total === 1 ? 'player' : 'players'}` : loadError ? '' : 'Loading…'
 
   const thClass = 'px-3 py-3 font-mono text-[10.5px] font-medium uppercase tracking-[0.14em] text-[#8C9791]'
   const selectTriggerClass = 'h-11 w-full rounded-full px-4 text-[13.5px]'
+
+  const emptyResults = (
+    <div className="px-3 py-16 text-center">
+      <p className="display text-3xl text-chalk">No players match these filters.</p>
+      <div className="mt-6 flex flex-wrap justify-center gap-2">
+        {!frozen && (
+          <Button variant="outline" size="sm" asChild className={deskPillClass}>
+            <Link to="/scout/lists">
+              <Globe className="mr-1.5 h-4 w-4" />
+              Search worldwide
+            </Link>
+          </Button>
+        )}
+        <Button variant="outline" size="sm" asChild className={deskPillClass}>
+          <Link to="/local-players/new">
+            <UserPlus className="mr-1.5 h-4 w-4" />
+            Add a local player
+          </Link>
+        </Button>
+      </div>
+    </div>
+  )
+
+  const introduceControl = (player, className, iconClass) => (
+    contactRail === true && player.contactable ? (auth?.token && !canIntroduce ? (
+      <Link to="/scout/verification" className={className} aria-label="Get verified to introduce yourself" title="Get verified to introduce yourself">
+        <Send className={iconClass} aria-hidden="true" />
+      </Link>
+    ) : (
+      <button
+        type="button"
+        className={className}
+        aria-label={`Introduce yourself to ${player.player_name}`}
+        title="Introduce yourself"
+        onClick={() => (auth?.token ? setIntroducePlayer(player) : openLoginModal())}
+      >
+        <Send className={iconClass} aria-hidden="true" />
+      </button>
+    )) : null
+  )
 
   return (
     <ScoutSurface>
       <div className="floodlight-container pb-28">
         <ScoutHeader
-          eyebrow={<span className="inline-flex items-center gap-2"><Globe className="h-3.5 w-3.5" aria-hidden="true" />Scout desk · Global talent discovery</span>}
+          eyebrow="Scout desk"
           title="Who are you"
           accent="looking for?"
-          lede={`Every tracked academy and loan player, ranked across clubs and leagues — viewing ${formatSeasonLabel(displaySeason)}.`}
+          lede="Adult players who chose to be seen, with numbers their clubs stand behind."
           actions={(
             <>
               <div className="flex items-center gap-2">
@@ -878,63 +914,44 @@ function ScoutDeskBody() {
                   onValueChange={changeSeason}
                 />
               </div>
-              <Button variant="outline" size="sm" asChild className={deskPillClass}>
-                <Link to="/scout/watchlist" className="no-underline hover:no-underline">
-                  <Star className="mr-1.5 h-4 w-4" />
-                  Watchlist
-                  {watchedIds && watchedIds.size > 0 && (
-                    <span className="ml-1.5 font-mono text-[11px] tabular-nums text-gold">
-                      {watchedIds.size}
-                    </span>
-                  )}
-                </Link>
-              </Button>
-              {contactRail === true ? (
-                <Button variant="outline" size="sm" asChild className={deskPillClass}>
-                  <Link to="/introductions" className="no-underline hover:no-underline">
-                    <Send className="mr-1.5 h-4 w-4" />
-                    Introductions
-                  </Link>
-                </Button>
-              ) : null}
-              <Button variant="outline" size="sm" asChild className={deskPillClass}>
+              <Button variant="outline" size="sm" asChild className={cn(deskPillClass, 'h-11')}>
                 <Link to="/scout/verification" className="no-underline hover:no-underline">
                   <ShieldCheck className="mr-1.5 h-4 w-4" />
                   {verifiedScout ? 'Verified scout' : scoutVerification === 'loading' && contactRail === true ? 'Checking verification…' : scoutVerification === 'unavailable' ? 'Scout verification' : scoutVerification === 'signed-out' ? 'Get verified' : contactRail === true ? 'Get verified to introduce yourself' : 'Get verified'}
                 </Link>
               </Button>
-              <Button variant="outline" size="sm" onClick={handleExportCsv} disabled={exporting} className={deskPillClass}>
-                {exporting ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Download className="mr-1.5 h-4 w-4" />}
+              <Button variant="outline" size="sm" onClick={handleExportCsv} disabled={exporting} className={cn(deskPillClass, 'h-11')}>
+                {exporting ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : null}
                 Export CSV
               </Button>
             </>
           )}
         >
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
             <label className="flex h-14 min-w-0 flex-1 items-center gap-3 rounded-full border border-chalk/25 px-5 transition-colors focus-within:border-gold">
               <Search className="h-[18px] w-[18px] shrink-0 text-muted-dark" aria-hidden="true" />
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search players by name…"
+                placeholder="Search players by name"
                 className="min-w-0 flex-1 border-0 bg-transparent text-base text-chalk outline-none placeholder:text-[#8C9791]"
                 aria-label="Search players"
               />
             </label>
-            {/* Phase-of-play view switcher */}
+            {/* Position group */}
             <section aria-label="Phase of play" className="min-w-0">
               <ToggleGroup
                 type="single"
                 value={phase}
                 onValueChange={changePhase}
-                className="w-full overflow-x-auto rounded-full border border-chalk/20 p-1 sm:w-fit"
+                className="w-full overflow-x-auto rounded-full border border-chalk/25 p-1 sm:w-fit"
               >
                 {PHASE_ORDER.map((key) => (
                   <ToggleGroupItem
                     key={key}
                     value={key}
                     aria-label={`${PHASES[key].label} view`}
-                    className="h-11 shrink-0 rounded-full px-4 text-[13.5px] font-normal text-[#C9CFCB] first:rounded-full last:rounded-full hover:bg-chalk/[0.05] hover:text-chalk data-[state=on]:bg-chalk data-[state=on]:text-night"
+                    className="h-[46px] shrink-0 rounded-full px-4 text-sm font-normal text-chalk first:rounded-full last:rounded-full hover:bg-chalk/[0.05] hover:text-chalk data-[state=on]:bg-chalk data-[state=on]:font-medium data-[state=on]:text-night"
                   >
                     {PHASES[key].label}
                   </ToggleGroupItem>
@@ -942,44 +959,37 @@ function ScoutDeskBody() {
               </ToggleGroup>
             </section>
           </div>
-          {phase !== 'all' ? (
-            <p className="text-[13px] text-muted-dark">
-              {phaseConfig.description} Dashes mean no per-match coverage for that player.
-            </p>
-          ) : null}
-        </ScoutHeader>
 
-        {/* Leaderboards */}
-        <section aria-label="Leaderboards" className="mb-12 grid grid-cols-1 gap-x-8 gap-y-10 sm:grid-cols-2 xl:grid-cols-4">
-          {phaseConfig.boards.map((board) => (
-            <LeaderboardCard
-              key={board.key}
-              board={board}
-              entries={boards?.[board.key]}
-              loading={boardsLoading}
-              season={selectedSeason ?? resolvedSeason}
-              seasonOverride={seasonOverride}
-            />
-          ))}
-        </section>
-
-        {/* Filters */}
-        <section aria-label="Filters" className="mb-4 flex flex-col gap-4">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-chalk pb-3">
-            <h2 className="display text-[1.875rem] leading-none sm:text-[2.125rem]">Players</h2>
-            <div className="flex flex-wrap items-center gap-4">
-              <span className="font-mono text-[11px] uppercase tracking-[0.16em] tabular-nums text-[#8C9791]">
-                {loading ? 'Loading…' : `${total.toLocaleString()} players`}
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div role="group" aria-label="Filters" className="flex flex-wrap gap-2.5">
+              {chips.map((chip) => (
+                <button
+                  key={chip.key}
+                  type="button"
+                  onClick={() => toggleChip(chip.key)}
+                  aria-pressed={chipPressed[chip.key]}
+                  className={cn(
+                    'h-11 rounded-full border px-4 text-sm text-chalk transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                    chipPressed[chip.key] ? 'border-gold bg-gold/[0.14]' : 'border-chalk/25 hover:border-chalk/50',
+                  )}
+                >
+                  {chip.label}
+                </button>
+              ))}
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="font-mono text-xs uppercase tracking-[0.16em] tabular-nums text-muted-dark" data-testid="scout-result-count" aria-live="polite">
+                {countLabel}
               </span>
-              <div role="group" aria-label="Show players as" className="flex rounded-full border border-chalk/20 p-1">
+              <div role="group" aria-label="Show players as" className="flex rounded-full border border-chalk/25 p-[3px]">
                 {RESULT_VIEWS.map((option) => (
                   <button
                     key={option.value}
                     type="button"
                     onClick={() => changeResultView(option.value)}
                     aria-pressed={resultView === option.value}
-                    className={`h-11 rounded-full px-4 text-[13px] transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-                      resultView === option.value ? 'bg-chalk text-night' : 'text-[#C9CFCB] hover:text-chalk'
+                    className={`h-11 rounded-full px-4 text-sm transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                      resultView === option.value ? 'bg-chalk font-medium text-night' : 'text-chalk hover:bg-chalk/[0.05]'
                     }`}
                   >
                     {option.label}
@@ -988,39 +998,11 @@ function ScoutDeskBody() {
               </div>
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="mr-1 font-mono text-[10.5px] uppercase tracking-[0.16em] text-[#8C9791]">Age</span>
-            {AGE_PRESETS.map((preset) => (
-              <button
-                key={preset.key}
-                type="button"
-                onClick={() => setAgePreset(preset.key)}
-                aria-pressed={agePreset === preset.key}
-                className={`h-9 rounded-full border px-3.5 text-[13px] transition-colors duration-150 ${
-                  agePreset === preset.key
-                    ? 'border-chalk bg-chalk text-night'
-                    : 'border-chalk/25 text-[#C9CFCB] hover:border-chalk/50 hover:text-chalk'
-                }`}
-              >
-                {preset.label}
-              </button>
-            ))}
-          </div>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:flex lg:flex-row">
-            {phase === 'all' && (
-              <Select value={position} onValueChange={setPosition}>
-                <SelectTrigger className={`${selectTriggerClass} lg:w-48`} aria-label="Filter by position">
-                  <SelectValue placeholder="Position" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All positions</SelectItem>
-                  <SelectItem value="Goalkeeper">Goalkeeper</SelectItem>
-                  <SelectItem value="Defender">Defender</SelectItem>
-                  <SelectItem value="Midfielder">Midfielder</SelectItem>
-                  <SelectItem value="Attacker">Attacker</SelectItem>
-                </SelectContent>
-              </Select>
-            )}
+        </ScoutHeader>
+
+        {/* The table's own tools: pathway status, source and sort, as before. */}
+        {resultView === 'table' ? (
+          <section aria-label="Table filters" className="mb-4 grid grid-cols-1 gap-2 sm:grid-cols-3 lg:flex lg:flex-row">
             <Select value={status} onValueChange={setStatus}>
               <SelectTrigger className={`${selectTriggerClass} lg:w-48`} aria-label="Filter by pathway status">
                 <SelectValue placeholder="Status" />
@@ -1055,38 +1037,55 @@ function ScoutDeskBody() {
                 ))}
               </SelectContent>
             </Select>
-          </div>
-        </section>
+            {phase !== 'all' ? (
+              <p className="text-[13px] text-muted-dark sm:col-span-3 lg:hidden">
+                {phaseConfig.description} Dashes mean no per-match coverage for that player.
+              </p>
+            ) : null}
+          </section>
+        ) : null}
 
         {/* Results: the standard player card, or the dense table */}
-        <section aria-label="Results" className="border-t border-hairline-dark">
-          {resultView === 'cards' ? (
-            loading ? (
-              <div className="grid grid-cols-1 gap-6 py-8 sm:grid-cols-2 lg:grid-cols-3" aria-busy="true">
-                {[0, 1, 2].map((i) => <Skeleton key={i} className="h-[500px] w-full rounded-[28px]" />)}
-              </div>
+        <section aria-label="Results" aria-busy={loading} className={cn('transition-opacity duration-150', refreshing && 'opacity-60')}>
+          {loadError && !loading ? (
+            <div className="px-3 py-16 text-center" role="alert">
+              <p className="display text-3xl text-chalk">Players could not be loaded.</p>
+              <p className="mt-3 text-[15px] text-muted-dark">This is a loading problem — it does not mean nobody matches.</p>
+              <Button variant="outline" size="sm" className={cn(deskPillClass, 'mt-6 h-11')} onClick={() => setReloads((n) => n + 1)}>
+                Try again
+              </Button>
+            </div>
+          ) : resultView === 'cards' ? (
+            !loadedOnce ? (
+              <ul className="pc-desk-grid" aria-hidden="true" data-testid="scout-card-skeletons">
+                {Array.from({ length: 8 }).map((_, i) => <li key={i}><div className="pc-desk-skeleton w-full" /></li>)}
+              </ul>
             ) : players.length ? (
-              <ul className="pc-card-grid py-8" data-testid="scout-player-cards">
+              <ul className="pc-desk-grid" data-testid="scout-player-cards">
                 {players.map((player) => {
                   const watched = !!watchedIds?.has(player.player_id)
-                  const clubName = player.loan_team_name || player.primary_team_name || null
                   const selected = compareIds.includes(String(player.player_id))
-                  // The desk's figures come from the season rollup, which counts club- and
-                  // player-entered matches differently from the player's page (one line per
-                  // match). Until both read the same merged lines, a card prints counters
-                  // only when they are the provider's — the same totals the page shows.
-                  const providerFigures = isProviderSourced(player.provenance)
+                  // The season's figures as the server totals them, with the word that
+                  // says where they come from. deskFigures() withholds club- or
+                  // player-entered figures on a payload that predates the merged-lines
+                  // rollup, where they could differ from the player's page.
+                  const figures = deskFigures(player)
                   return (
                     <li key={player.id}>
                       <PlayerCard
+                        variant="desk"
                         to={withSeasonParam(`/players/${player.player_id}`, seasonOverride)}
                         name={player.player_name}
-                        faceUrl={player.player_photo || null}
-                        clubName={clubName}
-                        role={player.position ? positionAbbreviation(player.position) : null}
-                        line={cardLine({ position: player.position, clubName })}
-                        appearances={providerFigures ? player.appearances : null}
-                        minutes={providerFigures ? player.minutes_played : null}
+                        {...deskPhotos(player)}
+                        clubName={deskClubName(player)}
+                        chip={player.position || null}
+                        meta={deskMeta(player)}
+                        confirmed={player.club_confirmed === true}
+                        appearances={figures.kind === 'figures' ? figures.appearances : null}
+                        minutes={figures.kind === 'figures' ? figures.minutes : null}
+                        source={figures.kind === 'figures' ? figures.sourceWord : null}
+                        emptyNote={figures.kind === 'none' ? NO_MATCHES : null}
+                        status={deskStatus(player)}
                         action={{
                           label: watched ? 'Watching' : 'Watch',
                           pressed: watched,
@@ -1106,21 +1105,7 @@ function ScoutDeskBody() {
                             >
                               <GitCompareArrows className="h-4 w-4" aria-hidden="true" />
                             </button>
-                            {contactRail === true && player.contactable ? (auth?.token && !canIntroduce ? (
-                              <Link to="/scout/verification" className="pc-icon" aria-label="Get verified to introduce yourself" title="Get verified to introduce yourself">
-                                <Send className="h-4 w-4" aria-hidden="true" />
-                              </Link>
-                            ) : (
-                              <button
-                                type="button"
-                                className="pc-icon"
-                                aria-label={`Introduce yourself to ${player.player_name}`}
-                                title="Introduce yourself"
-                                onClick={() => (auth?.token ? setIntroducePlayer(player) : openLoginModal())}
-                              >
-                                <Send className="h-4 w-4" aria-hidden="true" />
-                              </button>
-                            )) : null}
+                            {introduceControl(player, 'pc-icon', 'h-4 w-4')}
                           </>
                         )}
                       />
@@ -1128,11 +1113,9 @@ function ScoutDeskBody() {
                   )
                 })}
               </ul>
-            ) : (
-              <p className="display px-3 py-16 text-center text-3xl text-chalk">No players match these filters.</p>
-            )
+            ) : emptyResults
           ) : (
-          <div className="relative overflow-x-auto">
+          <div className="relative overflow-x-auto border-t border-hairline-dark">
             <table className={`w-full border-collapse ${statColumns.length > 6 ? 'min-w-[920px]' : 'min-w-[760px]'}`}>
               <thead>
                 <tr className="border-b border-hairline-dark">
@@ -1164,7 +1147,7 @@ function ScoutDeskBody() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-hairline-dark">
-                {loading ? (
+                {!loadedOnce ? (
                   Array.from({ length: 8 }).map((_, i) => (
                     <tr key={i}>
                       <td colSpan={tableColumnCount} className="px-3 py-3"><Skeleton className="h-10 w-full" /></td>
@@ -1186,19 +1169,7 @@ function ScoutDeskBody() {
                           >
                             <Star className={`h-4 w-4 transition-colors ${watched ? 'fill-gold text-gold' : 'text-muted-dark/60 hover:text-muted-dark'}`} />
                           </button>
-                          {contactRail === true && player.contactable ? (auth?.token && !canIntroduce ? (
-                            <Link to="/scout/verification" className="ml-0.5 inline-flex h-8 w-8 items-center justify-center rounded-full hover:bg-chalk/[0.06]" aria-label="Get verified to introduce yourself" title="Get verified to introduce yourself"><Send className="h-4 w-4 text-muted-dark/70" /></Link>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => (auth?.token ? setIntroducePlayer(player) : openLoginModal())}
-                              className="ml-0.5 inline-flex h-8 w-8 items-center justify-center rounded-full transition-colors hover:bg-chalk/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                              aria-label={`Introduce yourself to ${player.player_name}`}
-                              title="Introduce yourself"
-                            >
-                              <Send className="h-4 w-4 text-muted-dark/70 hover:text-gold" />
-                            </button>
-                          )) : null}
+                          {introduceControl(player, 'ml-0.5 inline-flex h-8 w-8 items-center justify-center rounded-full transition-colors hover:bg-chalk/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring', 'h-4 w-4 text-muted-dark/70 hover:text-gold')}
                         </td>
                         <td className="py-3">
                           <Checkbox
@@ -1243,23 +1214,7 @@ function ScoutDeskBody() {
                   })
                 ) : (
                   <tr>
-                    <td colSpan={tableColumnCount} className="px-3 py-16 text-center">
-                      <p className="display text-3xl text-chalk">No players match these filters.</p>
-                      <div className="mt-6 flex flex-wrap justify-center gap-2">
-                        {!frozen && (<Button variant="outline" size="sm" asChild className={deskPillClass}>
-                          <Link to="/scout/lists">
-                            <Globe className="mr-1.5 h-4 w-4" />
-                            Search worldwide
-                          </Link>
-                        </Button>)}
-                        <Button variant="outline" size="sm" asChild className={deskPillClass}>
-                          <Link to="/local-players/new">
-                            <UserPlus className="mr-1.5 h-4 w-4" />
-                            Add a local player
-                          </Link>
-                        </Button>
-                      </div>
-                    </td>
+                    <td colSpan={tableColumnCount}>{emptyResults}</td>
                   </tr>
                 )}
               </tbody>
@@ -1268,18 +1223,39 @@ function ScoutDeskBody() {
           )}
 
           {/* Pagination */}
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between border-t border-hairline-dark py-4">
-              <Button variant="outline" size="sm" className={deskPillClass} disabled={page <= 1 || loading} onClick={() => setPage((p) => p - 1)}>
+          {totalPages > 1 && !loadError && (
+            <div className="mt-8 flex items-center justify-between border-t border-hairline-dark py-4">
+              <Button variant="outline" size="sm" className={cn(deskPillClass, 'h-11')} disabled={page <= 1 || loading} onClick={() => setPage((p) => p - 1)}>
                 <ArrowLeft className="mr-1 h-4 w-4" /> Previous
               </Button>
               <span className="font-mono text-[11px] uppercase tracking-[0.14em] tabular-nums text-[#8C9791]">Page {page} of {totalPages}</span>
-              <Button variant="outline" size="sm" className={deskPillClass} disabled={page >= totalPages || loading} onClick={() => setPage((p) => p + 1)}>
+              <Button variant="outline" size="sm" className={cn(deskPillClass, 'h-11')} disabled={page >= totalPages || loading} onClick={() => setPage((p) => p + 1)}>
                 Next <ArrowRight className="ml-1 h-4 w-4" />
               </Button>
             </div>
           )}
         </section>
+
+        {/* Leaders: secondary, below the results, and only the boards that have rows. */}
+        {leaderBoards.length ? (
+          <section aria-label="Leaders" className="mt-20" data-testid="scout-leaders">
+            <DeskSectionTitle title="Leaders" count={formatSeasonLabel(selectedSeason ?? resolvedSeason ?? displaySeason)} />
+            {frozen ? (
+              <p className="mt-3 text-[13px] text-muted-dark">Public match data is not being updated. Figures marked API-reported are as last recorded.</p>
+            ) : null}
+            <div className="mt-8 grid grid-cols-1 gap-x-8 gap-y-10 sm:grid-cols-2 xl:grid-cols-4">
+              {leaderBoards.map((board) => (
+                <LeaderboardCard
+                  key={board.key}
+                  board={board}
+                  entries={boards[board.key]}
+                  season={selectedSeason ?? resolvedSeason}
+                  seasonOverride={seasonOverride}
+                />
+              ))}
+            </div>
+          </section>
+        ) : null}
 
         {/* Compare tray */}
         {compareIds.length > 0 && (
