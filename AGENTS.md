@@ -110,7 +110,7 @@ Log one-liner in CONTINUITY.md's "Trivial Log" section.
 
 ## Codebase Patterns
 
-- Web loader brand contours in `src/lib/academy-watch-logo.js` are generated from the unchanged iOS `LaunchBoot@3x.png` by `academy-watch-frontend/scripts/trace-loader-logo.py`; never redraw them. Wings stay still and #FFFFFF in every phase; only the boot cycles club colours. A thin ink contour keeps the white wing visible on light surfaces; dark surfaces have no wing contour. The browser proof input is checked by `scripts/verify-loader-logo.py`.
+- The web loader's logo is the real app-icon artwork, never a trace or redraw: `academy-watch-frontend/scripts/build-loader-logo.py` builds the WebP layers in `src/lib/academy-watch-logo.js` from the brand master `public/assets/loan_army_assets/favicon-512x512.png` (the source of iOS AppIcon-1024/LaunchBoot; no vector master exists). Only the boot is recoloured, along the icon's own shading (lace slots stay dark, highlights stay light); the wing keeps its original white pixels and never moves. Dark surfaces (night, `.dark`, or any dark painted ancestor, e.g. a navy club console) get a light rim. Judge changes side by side with AppIcon-1024, not by shape alone.
 
 - Web loader primitives live in `academy-watch-frontend/src/lib/cleat-loader.js`; after edits run `node academy-watch-frontend/scripts/sync-cleat-splash.mjs` to refresh the request-free inline boot snapshot. The Node parity test protects both copies.
 
