@@ -407,19 +407,19 @@ test('positive player stats 404 renders the neutral card without requesting game
   expect(matchRequests).toEqual([])
 })
 
-test('public games stay hidden while loading and can load the next page', async ({ page }) => {
-  const matchUrls = []
-  let releaseFirstPage
-  const firstPageGate = new Promise((resolve) => {
-    releaseFirstPage = resolve
+test('public match lines stay hidden while loading, then show the latest ten with Show all', async ({ page }) => {
+  const lineUrls = []
+  let releaseLines
+  const linesGate = new Promise((resolve) => {
+    releaseLines = resolve
   })
-  const firstPageMatches = Array.from({ length: 100 }, (_, index) => ({
-    id: index + 1,
-    player_api_id: 44,
+  // One line per match, as GET /players/:id/matches?view=lines returns them.
+  const lines = Array.from({ length: 101 }, (_, index) => ({
+    key: `line-${index + 1}`,
     season: 2026,
-    match_date: `2026-08-${String((index % 28) + 1).padStart(2, '0')}`,
+    match_date: index === 0 ? '2026-09-01' : `2026-08-${String((index % 28) + 1).padStart(2, '0')}`,
     competition: 'Public Academy League',
-    opponent: `Opponent ${index + 1}`,
+    opponent: index === 0 ? 'Final Opponent' : `Opponent ${index}`,
     home_away: 'home',
     result_for: 1,
     result_against: 0,
@@ -430,12 +430,13 @@ test('public games stay hidden while loading and can load the next page', async 
     reds: 0,
     saves: null,
     goals_conceded: null,
-    note: null,
-    source: 'club',
-    status: 'club_confirmed',
-    editable: false,
-    provenance: clubProvenance,
+    confirmation: 'club_confirmed',
+    self_report: null,
   }))
+  const totals = {
+    matches: 101, appearances: 101, full_matches: 0, minutes: 8080, goals: 0, assists: 0, yellows: 0, reds: 0,
+    cards_known: true, saves: null, goals_conceded: null, keeper_matches: 0, club_confirmed: 101, self_reported_only: 0, differing: 0,
+  }
 
   await page.route('**/api/**', async (route) => {
     const url = new URL(route.request().url())
@@ -460,49 +461,33 @@ test('public games stay hidden while loading and can load the next page', async 
       })
     }
     if (url.pathname === '/api/players/44/matches') {
-      matchUrls.push(url)
-      if (url.searchParams.get('page') === '2') {
-        return route.fulfill({
-          json: {
-            matches: [
-              firstPageMatches[0],
-              {
-                ...firstPageMatches[0],
-                id: 101,
-                match_date: '2026-09-01',
-                opponent: 'Final Opponent',
-              },
-            ],
-            total: 101,
-            page: 2,
-            per_page: 100,
-          },
-        })
+      if (url.searchParams.get('view') !== 'lines') {
+        return route.fulfill({ json: { matches: [], total: 0, page: 1, per_page: 100 } })
       }
-      await firstPageGate
-      return route.fulfill({ json: { matches: firstPageMatches, total: 101, page: 1, per_page: 100 } })
+      lineUrls.push(url)
+      await linesGate
+      return route.fulfill({ json: { view: 'lines', seasons: [{ season: 2026, lines, totals }], truncated: false } })
     }
     return route.fulfill({ json: {} })
   })
 
   await page.goto('/players/44')
   await expect(page.getByRole('heading', { name: 'Paged Player', exact: true })).toBeVisible()
-  await expect.poll(() => matchUrls.length).toBeGreaterThan(0)
+  await expect.poll(() => lineUrls.length).toBeGreaterThan(0)
   await expect(page.getByText('Public showcase loaded')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Match by match' })).toHaveCount(0)
   await expect(page.getByText('Games', { exact: true })).toHaveCount(0)
-  releaseFirstPage()
+  releaseLines()
 
-  await expect(page.getByRole('button', { name: 'Load more games' })).toBeVisible()
-  expect(matchUrls[0].searchParams.get('page')).toBe('1')
-  expect(matchUrls[0].searchParams.get('per_page')).toBe('100')
-  await page.getByRole('button', { name: 'Load more games' }).click()
-  await expect.poll(() => matchUrls.some((url) => (
-    url.searchParams.get('page') === '2' && url.searchParams.get('per_page') === '100'
-  ))).toBe(true)
-  await expect(page.getByText('vs Opponent 1', { exact: true })).toHaveCount(1)
-  await expect(page.getByText('vs Final Opponent')).toBeVisible()
-  await expect(page.getByText('vs Final Opponent')).toHaveCount(1)
+  const matchLines = page.getByTestId('match-line')
+  await expect(matchLines).toHaveCount(10)
+  await expect(page.getByTestId('season-tile-minutes')).toContainText('8,080')
+  await expect(page.getByTestId('season-source')).toContainText('Built from 101 matches. 101 confirmed by the club, 0 only reported by the player.')
+  await page.getByRole('button', { name: 'Show all 101 matches' }).click()
+  await expect(matchLines).toHaveCount(101)
+  await expect(matchLines.filter({ hasText: 'Final Opponent' })).toHaveCount(1)
   await expect(page.getByRole('button', { name: 'Load more games' })).toHaveCount(0)
+  expect(lineUrls).toHaveLength(1)
 })
 
 test('Scout source filter reaches browse, boards, signed compare, and CSV while rendering chips', async ({ page }) => {

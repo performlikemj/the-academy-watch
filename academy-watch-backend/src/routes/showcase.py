@@ -1784,13 +1784,16 @@ def _subject_showcase_payload(subject: ShowcaseSubject, *, auth_context=None) ->
     if profile is not None and owner_player_claim is not None:
         profile.update(_claim_contract_payload(owner_player_claim, profile_row))
 
-    claimed = (
-        PlayerProfileClaim.query.filter(
+    approved_relationships = {
+        row[0]
+        for row in db.session.query(PlayerProfileClaim.relationship_type)
+        .filter(
             *_subject_filters(PlayerProfileClaim, subject),
             PlayerProfileClaim.status == "approved",
-        ).first()
-        is not None
-    )
+        )
+        .all()
+    }
+    claimed = bool(approved_relationships)
     payload = {
         "profile": profile,
         "reel": _subject_highlight_reel(subject, include_pending=is_owner),
@@ -1798,6 +1801,10 @@ def _subject_showcase_payload(subject: ShowcaseSubject, *, auth_context=None) ->
         "affiliations": _subject_affiliations(subject, include_private=is_owner),
         "verified_footage": [] if subject.is_local else _verified_footage(subject.player_api_id),
         "claim_status": "claimed" if claimed else "unclaimed",
+        # Same target set as the scout desk's ``contactable``: the player has
+        # claimed the profile personally (a guardian's or agent's claim is not
+        # an invitation to contact). Who may actually send stays a contact rule.
+        "contactable": "player" in approved_relationships,
     }
     if subject.is_local:
         return {"local_player_id": subject.local_player_id, **payload}

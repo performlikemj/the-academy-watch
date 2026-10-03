@@ -19,3 +19,5 @@
 - Final focused lifecycle: macOS31PASS/2Linux-only skips; non-rootLinux0.5CPU/1GiB32PASS, including parent-exit death/reaping. Additional scalar transport checks preserve NumPy precision/type and named timezone semantics. All first-layer capabilities remain unchanged.
 - OSV passed before frozen frontend dependency restore; no lockfile/frontend source change.
 - Final verification/delivery is recorded externally in `~/codex-runs/aw-redesign/logs/SBX2.final.md`; avoid post-gate repository edits solely for receipts.
+
+- Current main3949cbac integrated; only documentation/ledger conflicts, resolved by preserving all incoming state plus this lane's additions. No own frontend or migration delta. Final implementation commit16f1b5c4; exact delivery-head gates/CI remain authoritative externally.

@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Eye, Heart, ListPlus, Mail } from 'lucide-react'
 import { Switch } from '@/components/ui/switch'
-import { APIService } from '@/lib/api'
-
+import { useViewerLifetime } from '@/hooks/useViewerState'
 function count(value) {
   const parsed = Number(value)
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0
@@ -23,6 +22,9 @@ function SignalMetric({ icon: Icon, label, accentClass, children }) {
 }
 
 export function WatchingMeCard({ signedId }) {
+  // Requests and side effects go through this viewer's lifetime (see lib/viewer-lifetime.js).
+  const life = useViewerLifetime()
+  const api = life.api
   const signedIdKey = signedId == null ? '' : String(signedId)
   const [signalState, setSignalState] = useState({ signedIdKey: '', value: null })
   const [emailOptIn, setEmailOptIn] = useState(false)
@@ -36,8 +38,8 @@ export function WatchingMeCard({ signedId }) {
     let cancelled = false
 
     Promise.all([
-      APIService.getMyInterestSignals(),
-      APIService.getEmailPreferences().catch(() => null),
+      api.getMyInterestSignals(),
+      api.getEmailPreferences().catch(() => null),
     ])
       .then(([signalsResponse, preferencesResponse]) => {
         if (cancelled) return
@@ -63,7 +65,7 @@ export function WatchingMeCard({ signedId }) {
       })
 
     return () => { cancelled = true }
-  }, [signedIdKey])
+  }, [api, signedIdKey])
 
   const updatePreference = async (checked) => {
     if (!preferenceReady || preferenceBusy) return
@@ -72,7 +74,7 @@ export function WatchingMeCard({ signedId }) {
     setPreferenceBusy(true)
     setPreferenceError(null)
     try {
-      const response = await APIService.updateEmailPreferences({
+      const response = await api.updateEmailPreferences({
         profile_activity_email_opt_in: checked,
       })
       setEmailOptIn(typeof response?.profile_activity_email_opt_in === 'boolean'

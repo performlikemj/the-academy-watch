@@ -4,7 +4,6 @@ import { positionAbbreviation } from '@/lib/positions'
 import { useDataMode } from '@/hooks/useDataMode'
 import { useState, useEffect, useMemo, useCallback, useRef, Fragment } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { APIService } from '@/lib/api'
 import { track } from '@/lib/track'
 import { useAuth, useAuthUI } from '@/context/AuthContext'
 import { Button } from '@/components/ui/button'
@@ -18,8 +17,13 @@ import { SeasonSelect } from '@/components/ui/SeasonSelect'
 import { IntroduceDialog } from '@/components/contact/IntroduceDialog'
 import { ProvenanceChip } from '@/components/SelfReportedBadge'
 import { useContactRail } from '@/hooks/useContactRail.js'
+import { useGuarded, useViewerKey, useViewerLifetime, useViewerState } from '@/hooks/useViewerState'
 import { ScoutSurface, ScoutHeader, deskPillClass } from '@/components/scout/ScoutDesk'
+import { PlayerCard } from '@/components/player-card/PlayerCard'
+import { cardLine, isProviderSourced, viewerKey } from '@/lib/player-card'
 import { cn } from '@/lib/utils'
+import { saveBlobAs } from '@/lib/download'
+import { isStaleViewerError } from '@/lib/viewer-lifetime'
 import { seasonStore } from '@/lib/seasonStore'
 import { formatSeasonLabel, withSeasonParam } from '@/lib/seasons'
 import {
@@ -50,6 +54,28 @@ function normalizeSignedPlayerId(value) {
 }
 
 // Sorts that default ascending because lower is better (or alphabetical).
+const RESULT_VIEWS = [
+  { value: 'cards', label: 'Cards' },
+  { value: 'table', label: 'Table' },
+]
+const RESULT_VIEW_KEY = 'aw.scout.view'
+
+// Stable identity, so the guarded saver is made once per lifetime.
+const saveScoutCsv = (blob) => saveBlobAs(blob, 'academy-watch-scout-export.csv')
+
+// The stored choice wins; otherwise cards on phones (where the table scrolls
+// sideways) and the dense table on wider screens.
+function initialResultView() {
+  if (typeof window === 'undefined') return 'table'
+  try {
+    const stored = window.localStorage.getItem(RESULT_VIEW_KEY)
+    if (RESULT_VIEWS.some((option) => option.value === stored)) return stored
+  } catch {
+    // Storage can be unavailable in privacy-restricted browser contexts.
+  }
+  return window.matchMedia?.('(max-width: 767px)').matches ? 'cards' : 'table'
+}
+
 const ASC_DEFAULT_SORTS = new Set(['name', 'age', 'goals_conceded', 'conceded_per90'])
 
 const fmtStat = (value) => (value === null || value === undefined ? '—' : value)
@@ -333,6 +359,9 @@ function LeaderboardCard({ board, entries, loading, season, seasonOverride }) {
 }
 
 function CompareDialog({ open, onOpenChange, playerIds, season, seasonOverride, source = 'all' }) {
+  // Requests and side effects go through this viewer's lifetime (see lib/viewer-lifetime.js).
+  const life = useViewerLifetime()
+  const api = life.api
   const [loading, setLoading] = useState(false)
   const [data, setData] = useState(null)
   const [error, setError] = useState(null)
@@ -344,7 +373,7 @@ function CompareDialog({ open, onOpenChange, playerIds, season, seasonOverride, 
     let cancelled = false
     setLoading(true)
     setError(null)
-    APIService.compareScoutPlayers(playerIds, {
+    api.compareScoutPlayers(playerIds, {
       includeAvailability: true,
       season,
       ...(source !== 'all' ? { source } : {}),
@@ -353,7 +382,7 @@ function CompareDialog({ open, onOpenChange, playerIds, season, seasonOverride, 
       .catch((err) => { if (!cancelled) setError(err.message || 'Comparison failed') })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [open, playerIds, season, source])
+  }, [api, open, playerIds, season, source])
 
   useEffect(() => () => clearTimeout(copyTimer.current), [])
 
@@ -493,7 +522,21 @@ function CompareDialog({ open, onOpenChange, playerIds, season, seasonOverride, 
   )
 }
 
+// Viewer change = fresh screen. The desk holds state that belongs to the person
+// looking (watchlist marks, the open introduction form and its draft, the
+// compare selection, the search text). It is keyed on the viewer, so on logout,
+// login or an account switch React remounts it and all of that is discarded;
+// late answers to the old instance land nowhere. Keep viewer-bound state inside
+// ScoutDeskBody — never in this wrapper.
 export function ScoutPage() {
+  const viewer = useViewerKey()
+  return <ScoutDeskBody key={viewer} />
+}
+
+function ScoutDeskBody() {
+  // Requests and side effects go through this viewer's lifetime (see lib/viewer-lifetime.js).
+  const life = useViewerLifetime()
+  const api = life.api
   const { api_football_frozen: frozen } = useDataMode()
   const [players, setPlayers] = useState([])
   const [total, setTotal] = useState(0)
@@ -521,6 +564,15 @@ export function ScoutPage() {
   })
   const [order, setOrder] = useState('desc')
   const [page, setPage] = useState(1)
+  const [resultView, setResultView] = useState(initialResultView)
+  const changeResultView = useCallback((next) => {
+    setResultView(next)
+    try {
+      window.localStorage.setItem(RESULT_VIEW_KEY, next)
+    } catch {
+      // Storage can be unavailable in privacy-restricted browser contexts.
+    }
+  }, [])
 
   const [compareIds, setCompareIds] = useState([])
   const [compareOpen, setCompareOpen] = useState(false)
@@ -528,14 +580,19 @@ export function ScoutPage() {
 
   const auth = useAuth()
   const contactRail = useContactRail()
-  const { openLoginModal } = useAuthUI()
+  const openLoginModal = useGuarded(life, useAuthUI().openLoginModal)
+  const saveCsv = useGuarded(life, saveScoutCsv)
   const [verificationState, setVerificationState] = useState(null)
   const scoutVerification = !auth?.token ? 'signed-out'
     : verificationState?.token === auth.token ? verificationState.status : 'loading'
   const verifiedScout = scoutVerification === 'approved'
   const canIntroduce = scoutVerification !== 'unverified'
-  const [introducePlayer, setIntroducePlayer] = useState(null)
-  const [watchedIds, setWatchedIds] = useState(null)
+  // Watchlist membership and an open introduction belong to the viewer who
+  // loaded or opened them. useViewerState refuses writes made for another
+  // viewer (a late answer to a request the previous viewer started).
+  const viewer = viewerKey(auth?.token)
+  const [watchedIds, setWatchedIds] = useViewerState(viewer, null)
+  const [introducePlayer, setIntroducePlayer] = useViewerState(viewer, null)
   const [exporting, setExporting] = useState(false)
   const [searchParams, setSearchParams] = useSearchParams()
   const requestedSource = searchParams.get('source')
@@ -610,9 +667,11 @@ export function ScoutPage() {
     const raw = searchParams.get('compare')
     if (!raw) return
     const ids = [...new Set(raw.split(',').map(normalizeSignedPlayerId).filter(Boolean))]
-    if (ids.length >= 2 && ids.length <= 4) {
+    if (ids.length >= 1 && ids.length <= 4) {
+      // One id (the Compare button on a player's page) only fills the tray;
+      // the comparison itself opens once there are two.
       setCompareIds(ids)
-      setCompareOpen(true)
+      if (ids.length >= 2) setCompareOpen(true)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -620,26 +679,23 @@ export function ScoutPage() {
   useEffect(() => {
     if (!auth?.token || contactRail !== true) return
     let live = true
-    APIService.getScoutVerification()
+    api.getScoutVerification()
       .then((data) => {
         if (live) setVerificationState({ token: auth.token, status: data?.verification?.status === 'approved' ? 'approved' : 'unverified' })
       })
       .catch(() => { if (live) setVerificationState({ token: auth.token, status: 'unavailable' }) })
     return () => { live = false }
-  }, [auth?.token, contactRail])
+  }, [api, auth.token, contactRail])
 
   // Load watchlist ids once when signed in
   useEffect(() => {
-    if (!auth?.token) {
-      setWatchedIds(null)
-      return
-    }
+    if (!auth?.token) return undefined
     let cancelled = false
-    APIService.getScoutWatchlistIds()
+    api.getScoutWatchlistIds()
       .then((data) => { if (!cancelled) setWatchedIds(new Set(data?.player_ids || [])) })
       .catch((err) => { console.error('Failed to load watchlist ids', err) })
     return () => { cancelled = true }
-  }, [auth?.token])
+  }, [api, auth?.token, setWatchedIds])
 
   const toggleWatch = useCallback((player) => {
     if (!auth?.token) {
@@ -655,8 +711,8 @@ export function ScoutPage() {
       return next
     })
     const action = wasWatched
-      ? APIService.removeFromScoutWatchlist(playerId)
-      : APIService.addToScoutWatchlist(playerId)
+      ? api.removeFromScoutWatchlist(playerId)
+      : api.addToScoutWatchlist(playerId)
     action.catch((err) => {
       console.error('Watchlist update failed', err)
       // Revert optimistic update
@@ -667,7 +723,7 @@ export function ScoutPage() {
         return next
       })
     })
-  }, [auth?.token, openLoginModal, watchedIds])
+  }, [api, auth?.token, openLoginModal, setWatchedIds, watchedIds])
 
   const handleExportCsv = useCallback(async () => {
     if (!auth?.token) {
@@ -684,13 +740,17 @@ export function ScoutPage() {
       const preset = AGE_PRESETS.find((p) => p.key === agePreset)
       Object.assign(params, preset?.params || {})
       if (selectedSeason != null) params.season = selectedSeason
-      await APIService.downloadScoutCsv({ ...params, sort, order })
+      // The whole body is read and the viewer re-checked (life.api) before the
+      // guarded save: nothing is downloaded after a viewer change or after
+      // leaving the desk.
+      const blob = await api.fetchScoutCsv({ ...params, sort, order })
+      saveCsv(blob)
     } catch (err) {
-      console.error('CSV export failed', err)
+      if (!isStaleViewerError(err)) console.error('CSV export failed', err)
     } finally {
       setExporting(false)
     }
-  }, [auth?.token, openLoginModal, debouncedSearch, effectivePosition, status, source, agePreset, sort, order, selectedSeason])
+  }, [auth?.token, openLoginModal, debouncedSearch, effectivePosition, status, source, selectedSeason, api, saveCsv, sort, order, agePreset])
 
   useEffect(() => {
     clearTimeout(searchTimer.current)
@@ -720,7 +780,7 @@ export function ScoutPage() {
   useEffect(() => {
     let cancelled = false
     setLoading(true)
-    APIService.getScoutPlayers({ ...filterParams, sort, order, page, per_page: 25 })
+    api.getScoutPlayers({ ...filterParams, sort, order, page, per_page: 25 })
       .then((data) => {
         if (cancelled) return
         setPlayers(data?.players || [])
@@ -734,7 +794,7 @@ export function ScoutPage() {
       })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [filterParams, sort, order, page])
+  }, [filterParams, sort, order, page, api])
 
   useEffect(() => {
     let cancelled = false
@@ -746,7 +806,7 @@ export function ScoutPage() {
     if (effectivePosition) boardFilters.position = effectivePosition
     if (status !== 'all') boardFilters.status = status
     if (source !== 'all') boardFilters.source = source
-    APIService.getScoutLeaderboards(boardFilters)
+    api.getScoutLeaderboards(boardFilters)
       .then((data) => {
         if (cancelled) return
         setBoards(data?.leaderboards || null)
@@ -758,7 +818,7 @@ export function ScoutPage() {
       })
       .finally(() => { if (!cancelled) setBoardsLoading(false) })
     return () => { cancelled = true }
-  }, [phase, effectivePosition, status, source, agePreset, selectedSeason])
+  }, [phase, effectivePosition, status, source, agePreset, selectedSeason, api])
 
   const toggleCompare = useCallback((playerId) => {
     const normalizedPlayerId = normalizeSignedPlayerId(playerId)
@@ -905,11 +965,28 @@ export function ScoutPage() {
 
         {/* Filters */}
         <section aria-label="Filters" className="mb-4 flex flex-col gap-4">
-          <div className="flex flex-wrap items-baseline justify-between gap-3 border-b border-chalk pb-3">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-chalk pb-3">
             <h2 className="display text-[1.875rem] leading-none sm:text-[2.125rem]">Players</h2>
-            <span className="font-mono text-[11px] uppercase tracking-[0.16em] tabular-nums text-[#8C9791]">
-              {loading ? 'Loading…' : `${total.toLocaleString()} players`}
-            </span>
+            <div className="flex flex-wrap items-center gap-4">
+              <span className="font-mono text-[11px] uppercase tracking-[0.16em] tabular-nums text-[#8C9791]">
+                {loading ? 'Loading…' : `${total.toLocaleString()} players`}
+              </span>
+              <div role="group" aria-label="Show players as" className="flex rounded-full border border-chalk/20 p-1">
+                {RESULT_VIEWS.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => changeResultView(option.value)}
+                    aria-pressed={resultView === option.value}
+                    className={`h-11 rounded-full px-4 text-[13px] transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                      resultView === option.value ? 'bg-chalk text-night' : 'text-[#C9CFCB] hover:text-chalk'
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <span className="mr-1 font-mono text-[10.5px] uppercase tracking-[0.16em] text-[#8C9791]">Age</span>
@@ -981,8 +1058,80 @@ export function ScoutPage() {
           </div>
         </section>
 
-        {/* Results table */}
+        {/* Results: the standard player card, or the dense table */}
         <section aria-label="Results" className="border-t border-hairline-dark">
+          {resultView === 'cards' ? (
+            loading ? (
+              <div className="grid grid-cols-1 gap-6 py-8 sm:grid-cols-2 lg:grid-cols-3" aria-busy="true">
+                {[0, 1, 2].map((i) => <Skeleton key={i} className="h-[500px] w-full rounded-[28px]" />)}
+              </div>
+            ) : players.length ? (
+              <ul className="pc-card-grid py-8" data-testid="scout-player-cards">
+                {players.map((player) => {
+                  const watched = !!watchedIds?.has(player.player_id)
+                  const clubName = player.loan_team_name || player.primary_team_name || null
+                  const selected = compareIds.includes(String(player.player_id))
+                  // The desk's figures come from the season rollup, which counts club- and
+                  // player-entered matches differently from the player's page (one line per
+                  // match). Until both read the same merged lines, a card prints counters
+                  // only when they are the provider's — the same totals the page shows.
+                  const providerFigures = isProviderSourced(player.provenance)
+                  return (
+                    <li key={player.id}>
+                      <PlayerCard
+                        to={withSeasonParam(`/players/${player.player_id}`, seasonOverride)}
+                        name={player.player_name}
+                        faceUrl={player.player_photo || null}
+                        clubName={clubName}
+                        role={player.position ? positionAbbreviation(player.position) : null}
+                        line={cardLine({ position: player.position, clubName })}
+                        appearances={providerFigures ? player.appearances : null}
+                        minutes={providerFigures ? player.minutes_played : null}
+                        action={{
+                          label: watched ? 'Watching' : 'Watch',
+                          pressed: watched,
+                          ariaLabel: watched ? `Unwatch ${player.player_name}` : `Watch ${player.player_name}`,
+                          onClick: () => toggleWatch(player),
+                        }}
+                        extras={(
+                          <>
+                            <button
+                              type="button"
+                              className="pc-icon"
+                              aria-pressed={selected}
+                              aria-label={`Compare ${player.player_name}`}
+                              title={selected ? 'Remove from comparison' : 'Add to comparison'}
+                              disabled={!selected && compareIds.length >= 4}
+                              onClick={() => toggleCompare(player.player_id)}
+                            >
+                              <GitCompareArrows className="h-4 w-4" aria-hidden="true" />
+                            </button>
+                            {contactRail === true && player.contactable ? (auth?.token && !canIntroduce ? (
+                              <Link to="/scout/verification" className="pc-icon" aria-label="Get verified to introduce yourself" title="Get verified to introduce yourself">
+                                <Send className="h-4 w-4" aria-hidden="true" />
+                              </Link>
+                            ) : (
+                              <button
+                                type="button"
+                                className="pc-icon"
+                                aria-label={`Introduce yourself to ${player.player_name}`}
+                                title="Introduce yourself"
+                                onClick={() => (auth?.token ? setIntroducePlayer(player) : openLoginModal())}
+                              >
+                                <Send className="h-4 w-4" aria-hidden="true" />
+                              </button>
+                            )) : null}
+                          </>
+                        )}
+                      />
+                    </li>
+                  )
+                })}
+              </ul>
+            ) : (
+              <p className="display px-3 py-16 text-center text-3xl text-chalk">No players match these filters.</p>
+            )
+          ) : (
           <div className="relative overflow-x-auto">
             <table className={`w-full border-collapse ${statColumns.length > 6 ? 'min-w-[920px]' : 'min-w-[760px]'}`}>
               <thead>
@@ -1116,6 +1265,7 @@ export function ScoutPage() {
               </tbody>
             </table>
           </div>
+          )}
 
           {/* Pagination */}
           {totalPages > 1 && (
@@ -1169,7 +1319,7 @@ export function ScoutPage() {
           source={source}
         />
         <IntroduceDialog
-          open={canIntroduce && !!introducePlayer}
+          open={canIntroduce && !!auth?.token && !!introducePlayer}
           onOpenChange={(next) => { if (!next) setIntroducePlayer(null) }}
           player={introducePlayer}
         />

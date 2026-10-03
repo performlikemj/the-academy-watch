@@ -926,6 +926,7 @@ class TestLocalPlayerVisibility:
             "affiliations",
             "verified_footage",
             "claim_status",
+            "contactable",
         }
         assert body == {
             "local_player_id": player_id,
@@ -935,6 +936,7 @@ class TestLocalPlayerVisibility:
             "affiliations": [],
             "verified_footage": [],
             "claim_status": "unclaimed",
+            "contactable": False,
         }
 
 

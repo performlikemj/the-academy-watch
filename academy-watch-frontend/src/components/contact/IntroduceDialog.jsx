@@ -5,10 +5,13 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Textarea } from '@/components/ui/textarea'
 import { Loader2, Send } from 'lucide-react'
-import { APIService } from '@/lib/api'
+import { useViewerLifetime } from '@/hooks/useViewerState'
 import { MESSAGE_MAX, ATTESTATION_TEXT, describeIntroduceError, canSend } from '@/lib/introduce'
 
 export function IntroduceDialog({ open, onOpenChange, player }) {
+  // Requests and side effects go through this viewer's lifetime (see lib/viewer-lifetime.js).
+  const life = useViewerLifetime()
+  const api = life.api
   const [message, setMessage] = useState('')
   const [attestationRequired, setAttestationRequired] = useState(false)
   const [attested, setAttested] = useState(false)
@@ -36,7 +39,7 @@ export function IntroduceDialog({ open, onOpenChange, player }) {
     setSending(true)
     setFeedback(null)
     try {
-      await APIService.createContactRequest({
+      await api.createContactRequest({
         player_api_id: player.player_id,
         message: message.trim(),
         permission_attestation: attestationRequired && attested,

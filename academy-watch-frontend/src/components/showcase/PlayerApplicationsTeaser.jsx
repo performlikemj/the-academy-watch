@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { APIService } from '@/lib/api'
+import { useViewerLifetime } from '@/hooks/useViewerState'
 import { useAuth } from '@/context/AuthContext'
 import { useOpportunities, errorMessage } from '@/pages/opportunities/useOpportunities'
 import { useApprovedPlayerState } from '@/hooks/useApprovedPlayer'
@@ -8,6 +8,9 @@ import { ComingSoon } from '@/components/interest/ComingSoon'
 import '@/styles/floodlight-player.css'
 
 function PlayerApplicationsSummary() {
+  // Requests and side effects go through this viewer's lifetime (see lib/viewer-lifetime.js).
+  const life = useViewerLifetime()
+  const api = life.api
   const flags = useOpportunities()
   const { token } = useAuth()
   const { claims, loading, error: claimError } = useApprovedPlayerState(flags, true)
@@ -17,9 +20,9 @@ function PlayerApplicationsSummary() {
   useEffect(() => {
     if (!token || !flags.applications || !eligible) return
     let active = true
-    APIService.request('/me/applications').then(data => { if (active) setRows(data.applications) }).catch(err => { if (active) setError(errorMessage(err)) })
+    api.request('/me/applications').then(data => { if (active) setRows(data.applications) }).catch(err => { if (active) setError(errorMessage(err)) })
     return () => { active = false }
-  }, [token, flags.applications, eligible])
+  }, [token, flags.applications, eligible, api])
   if (flags.error || claimError) return <p role="alert" className="py-8 text-danger">{flags.error || claimError}</p>
   if (!flags.loaded || loading) return <p role="status" className="py-8 text-muted">Checking your profiles…</p>
   if (flags.applications && token && eligible) return <section className="fl-applications border-t border-hairline py-8" aria-label="Your applications">
