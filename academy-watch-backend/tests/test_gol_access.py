@@ -32,6 +32,10 @@ def app(monkeypatch):
     from src.routes.gol import gol_bp
     from src.services import gol_service, pdf_renderer
 
+    monkeypatch.delenv("GOL_MAINTENANCE", raising=False)
+    monkeypatch.setenv("GOL_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-not-a-real-key")
+
     for name in (
         "BILLING_ENABLED",
         "SCOUT_PRO_LAUNCHED_AT",

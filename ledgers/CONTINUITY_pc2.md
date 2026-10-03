@@ -25,3 +25,5 @@
 
 - Cleanup: aw_pc2 dropped; port5247 has no listener; no simulator owned.
 - Delivery: PC1131 released on mainf18abf6b; refresh onto that main before final-head gates.
+
+- Main refresh: merged origin/mainf18abf6b; conflicting PC files are byte-identical to base3d4cf2b1 on main, kept tested PC2 versions; both ledger histories/GOL pattern retained. Browser product/spec blobs unchanged from the single81-PASS run.

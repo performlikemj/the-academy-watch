@@ -1,20 +1,4 @@
-import { useState, useEffect } from 'react'
-import { APIService } from '@/lib/api'
-
-export function GolSuggestions({ onSelect, disabled = false }) {
-  const [suggestions, setSuggestions] = useState([])
-
-  useEffect(() => {
-    APIService.getGolSuggestions()
-      .then(data => setSuggestions(data.suggestions || []))
-      .catch(() => setSuggestions([
-        "Which Big 6 academy is producing the most first-team players?",
-        "Show me all academy players from Arsenal",
-        "Who are the top-performing academy players this season?",
-        "Tell me about Chelsea\u2019s academy pipeline",
-      ]))
-  }, [])
-
+export function GolSuggestions({ onSelect, disabled = false, suggestions = [] }) {
   return (
     <div className="flex h-full flex-col justify-center gap-6 py-8">
       <div className="flex items-start gap-4">
