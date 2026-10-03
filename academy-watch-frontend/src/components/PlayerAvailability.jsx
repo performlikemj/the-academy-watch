@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { APIService } from '@/lib/api'
+import { useViewerLifetime } from '@/hooks/useViewerState'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { HeartPulse, CircleCheck, CircleHelp } from 'lucide-react'
@@ -19,6 +19,9 @@ function formatDate(iso) {
  * error so it never degrades the page.
  */
 export function PlayerAvailability({ playerId }) {
+  // Requests and side effects go through this viewer's lifetime (see lib/viewer-lifetime.js).
+  const life = useViewerLifetime()
+  const api = life.api
   const [data, setData] = useState(null)
   const [failed, setFailed] = useState(false)
 
@@ -27,11 +30,11 @@ export function PlayerAvailability({ playerId }) {
     let cancelled = false
     setData(null)
     setFailed(false)
-    APIService.getPlayerAvailability(playerId)
+    api.getPlayerAvailability(playerId)
       .then((res) => { if (!cancelled) setData(res) })
       .catch(() => { if (!cancelled) setFailed(true) })
     return () => { cancelled = true }
-  }, [playerId])
+  }, [api, playerId])
 
   if (failed || !data) return null
 

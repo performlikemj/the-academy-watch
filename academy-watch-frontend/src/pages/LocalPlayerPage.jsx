@@ -1,21 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
-import { ArrowRight, MapPin, ShieldAlert, UserPlus } from 'lucide-react'
-import { APIService } from '@/lib/api'
+import { ArrowRight, ShieldAlert, UserPlus } from 'lucide-react'
+import { useViewerLifetime } from '@/hooks/useViewerState'
 import { ContentReportDialog } from '@/components/ContentReportDialog'
 import { PlayerReachControls } from '@/components/PlayerReachControls'
 import { ShowcaseSection } from '@/components/ShowcaseSection'
-import { ProvenanceChip } from '@/components/SelfReportedBadge'
+import { PlayerHero } from '@/components/player-card/PlayerHero'
+import { MatchLines, PlayerFacts, PlayerSeason } from '@/components/player-card/PlayerSeason'
+import { usePlayerReadView, useScopedShowcase, useSeasonTotalsRead } from '@/components/player-card/usePlayerReadView'
 import { useAuth } from '@/context/AuthContext'
+import { useDataMode } from '@/hooks/useDataMode'
 import { Button } from '@/components/ui/button'
-import { SectionHeading, StatFigure } from '@/components/public/Floodlight'
 import { Skeleton } from '@/components/ui/skeleton'
+import { calendarSeason, isGoalkeeperPosition, readProblem, roleLabel, seasonKicker, seasonView, viewerKey } from '@/lib/player-card'
 import { formatSeasonLabel } from '@/lib/seasons'
 import { track } from '@/lib/track'
-
-function initialsOf(name) {
-  return String(name || '').trim().split(/\s+/).slice(0, 2).map((part) => part[0] || '').join('').toUpperCase() || '·'
-}
 
 function LoadingState() {
   return (
@@ -58,73 +57,50 @@ function MissingState() {
   )
 }
 
-function LocalSeasonStats({ stats, position }) {
-  if (!stats) return null
-  const goalkeeper = /(^|[^a-z])(g|gk|goalkeeper|keeper)(?=$|[^a-z])/.test(
-    String(position || '').trim().toLowerCase(),
-  )
-  const hasTotals = [
-    stats.appearances,
-    stats.minutes,
-    stats.goals,
-    stats.assists,
-    stats.saves,
-    stats.goals_conceded,
-  ].some((value) => Number(value || 0) > 0)
-  if (!hasTotals && !stats.provenance) return null
-
-  const totals = goalkeeper
-    ? [
-        ['Appearances', stats.appearances ?? 0],
-        ['Minutes', stats.minutes ?? 0],
-        ['Saves', stats.saves ?? 0],
-        ['Conceded', stats.goals_conceded ?? 0],
-      ]
-    : [
-        ['Appearances', stats.appearances ?? 0],
-        ['Minutes', stats.minutes ?? 0],
-        ['Goals', stats.goals ?? 0],
-        ['Assists', stats.assists ?? 0],
-      ]
-
-  return (
-    <section aria-labelledby="local-player-season-totals">
-      <SectionHeading
-        id="local-player-season-totals"
-        title={`${formatSeasonLabel(stats.season)} Totals`}
-      >
-        <ProvenanceChip provenance={stats.provenance} />
-      </SectionHeading>
-      <div className="grid grid-cols-2 sm:grid-cols-4">
-        {totals.map(([label, value]) => (
-          <StatFigure key={label} label={label}>
-            {label === 'Minutes' ? Number(value).toLocaleString() : value}
-          </StatFigure>
-        ))}
-      </div>
-    </section>
-  )
-}
-
 function LocalPlayerProfile({ numericPlayerId, onPublicConfirmed, onRetry }) {
-  const [searchParams] = useSearchParams()
+  // Requests and side effects go through this viewer's lifetime (see lib/viewer-lifetime.js).
+  const life = useViewerLifetime()
+  const api = life.api
+  const [searchParams, setSearchParams] = useSearchParams()
   const seasonParam = searchParams.get('season')
+  // The URL holds the ONE picked season: it drives the totals request, the
+  // heading, the lines and the picker. No pick = the server's default season.
   const season = /^\d{4}$/.test(seasonParam || '') ? Number(seasonParam) : undefined
   const [player, setPlayer] = useState(null)
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
   const [error, setError] = useState(null)
-  const [seasonStats, setSeasonStats] = useState(null)
   const [seasonStatsRevision, setSeasonStatsRevision] = useState(0)
+  // Held per player AND viewer (this component is also re-keyed on the token,
+  // so nothing of a previous viewer survives a logout or account switch).
+  const [showcase, setShowcase] = useScopedShowcase({ playerApiId: String(numericPlayerId), local: true })
+  const { api_football_frozen: frozen } = useDataMode()
   const signedPlayerApiId = `-${String(numericPlayerId)}`
   const canonicalPlayerApiId = player?.api_player_id == null
     ? null
     : String(player.api_player_id)
   const matchPlayerApiId = canonicalPlayerApiId ?? signedPlayerApiId
+  const read = usePlayerReadView({
+    // Nothing is requested until the profile itself has loaded as visible
+    // (the canonical id is only known then). The showcase comes from
+    // ShowcaseSection, which loads it once for the page.
+    matchPlayerApiId: player ? matchPlayerApiId : null,
+    showcase,
+    revision: seasonStatsRevision,
+  })
+  // Season totals are their own read: loading, failure (with retry) and the
+  // last good answer are tracked per player + viewer + season.
+  const seasonRead = useSeasonTotalsRead({
+    playerApiId: matchPlayerApiId,
+    season,
+    revision: seasonStatsRevision,
+    enabled: Boolean(player),
+  })
+  const seasonStats = seasonRead.stats
 
   useEffect(() => {
     let cancelled = false
-    APIService.getLocalPlayer(numericPlayerId)
+    api.getLocalPlayer(numericPlayerId)
       .then((response) => {
         if (cancelled) return
         if (!response?.player) {
@@ -146,20 +122,7 @@ function LocalPlayerProfile({ numericPlayerId, onPublicConfirmed, onRetry }) {
       })
 
     return () => { cancelled = true }
-  }, [numericPlayerId])
-
-  useEffect(() => {
-    if (!player) return undefined
-    let cancelled = false
-    APIService.getPublicPlayerSeasonStats(matchPlayerApiId, season)
-      .then((response) => {
-        if (!cancelled) setSeasonStats(response || null)
-      })
-      .catch(() => {
-        if (!cancelled) setSeasonStats(null)
-    })
-    return () => { cancelled = true }
-  }, [matchPlayerApiId, player, season, seasonStatsRevision])
+  }, [api, numericPlayerId])
 
   if (loading) return <LoadingState />
   if (notFound) return <MissingState />
@@ -179,68 +142,111 @@ function LocalPlayerProfile({ numericPlayerId, onPublicConfirmed, onRetry }) {
 
   const location = player.city
     ? [player.city, player.country].filter(Boolean).join(', ')
-    : null
-  const details = [
-    player.birth_year != null ? `Born ${player.birth_year}` : null,
+    : !player.city ? player.country || null : null
+  const clubName = read.confirmedBy || player.club_name || null
+  const line = [
     player.position || null,
-    player.club_name ? `Club: ${player.club_name}` : null,
-    !player.city ? player.country || null : null,
-  ].filter(Boolean)
+    clubName,
+    player.birth_year != null ? `Born ${player.birth_year}` : null,
+    location,
+  ].filter(Boolean).join(' · ') || null
+
+  // Totals are the provider's when it really has them, otherwise exactly the
+  // merged match lines for the season shown. The two are never added together.
+  const view = seasonView({ picked: season, stats: seasonStats, seasons: read.seasons })
+  const { season: viewSeason, provider, lines: seasonLines, totals: seasonLineTotals } = view
+  const seasonProblem = readProblem({
+    linesError: read.linesError,
+    linesStale: read.hasLines,
+    totalsError: seasonRead.totalsError,
+    totalsStale: seasonRead.hasTotals,
+    showing: Boolean(provider) || seasonLines.length > 0,
+  })
+  const retrySeason = () => {
+    if (read.linesError) read.retry()
+    if (seasonRead.totalsError) seasonRead.retry()
+  }
+  const pickSeason = (next) => {
+    setSearchParams((previous) => {
+      const params = new URLSearchParams(previous)
+      params.set('season', String(next))
+      return params
+    }, { replace: true })
+  }
+  const goalkeeper = isGoalkeeperPosition(player.position)
+  const seasonChoices = [...new Set([...read.seasons.map((entry) => entry.season), viewSeason])]
+    .filter((value) => Number.isInteger(value))
+    .sort((a, b) => b - a)
 
   return (
     <div className="min-h-screen bg-chalk">
-      <header className="dark bg-night text-chalk">
-        <div className="floodlight-container flex flex-col gap-8 py-12 sm:py-16 md:flex-row md:items-center md:gap-14">
-          <div className="relative flex h-32 w-32 shrink-0 items-center justify-center sm:h-44 sm:w-44" aria-hidden="true">
-            <span className="absolute inset-0 rounded-full border border-dashed border-gold/60" />
-            <span className="display flex h-[86%] w-[86%] items-center justify-center rounded-full bg-club text-[52px] text-gold sm:text-[72px]">
-              {initialsOf(player.display_name)}
-            </span>
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="eyebrow flex flex-wrap items-center gap-x-5 gap-y-1">
-                <span className="text-gold">Community player</span>
-                {player.status === 'pending' ? (
-                  <span className="text-warn">Pending review</span>
-                ) : null}
-              </div>
+      <div className="floodlight-container max-w-[1232px] space-y-12 pb-24 pt-5">
+        <PlayerHero
+          name={player.display_name}
+          photos={read.photos}
+          clubName={clubName}
+          role={roleLabel(read.profile?.positions, player.position)}
+          confirmedBy={read.confirmedBy}
+          quote={read.bio}
+          line={line}
+          eyebrow={(
+            <>
+              <span>Community player</span>
+              {player.status === 'pending' ? <span className="text-warn">Pending review</span> : null}
+            </>
+          )}
+          bar={(
+            <div className="ml-auto">
               {/* Web-only local:<canonical id> subject_id; backend accepts free text (≤200 chars), disambiguating the two ID spaces. */}
-              <ContentReportDialog subjectId={`local:${player.id}`} />
+              <ContentReportDialog subjectId={`local:${player.id}`} className="min-h-11 min-w-11" />
             </div>
-            <h1 className="display mt-3 break-words text-[48px] leading-[.92] [overflow-wrap:anywhere] sm:text-[80px] lg:text-[104px]">
-              {player.display_name}
-            </h1>
-            {details.length > 0 || location ? (
-              <div className="mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 text-base text-chalk/80 sm:text-[17px]">
-                {[...details, location].filter(Boolean).map((detail, index) => (
-                  <span key={detail} className="inline-flex items-center gap-2">
-                    {index > 0 ? <span aria-hidden="true" className="text-muted-dark">·</span> : null}
-                    {detail === location ? <MapPin className="h-4 w-4 text-muted-dark" /> : null}
-                    {detail}
-                  </span>
-                ))}
-              </div>
-            ) : null}
-            {canonicalPlayerApiId != null ? (
-              <PlayerReachControls
-                key={canonicalPlayerApiId}
-                signedId={canonicalPlayerApiId}
-                onPublicConfirmed={onPublicConfirmed}
-              />
-            ) : null}
-          </div>
-        </div>
-      </header>
+          )}
+        >
+          {canonicalPlayerApiId != null ? (
+            <PlayerReachControls
+              key={canonicalPlayerApiId}
+              signedId={canonicalPlayerApiId}
+              onPublicConfirmed={onPublicConfirmed}
+            />
+          ) : null}
+        </PlayerHero>
 
-      <div className="floodlight-container space-y-14 py-12 sm:py-16">
+        <PlayerFacts facts={read.facts} />
+
         <p className="flex items-start gap-3 border-y border-border py-4 text-[15px] leading-relaxed text-ink">
           <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-gold-text" aria-hidden="true" />
           <span>Community profile — self-reported. Not an official Academy Watch tracked player.</span>
         </p>
 
+        <PlayerSeason
+          season={viewSeason}
+          lines={seasonLines}
+          totals={seasonLineTotals}
+          provider={provider}
+          minutesKnown={seasonStats?.stats_coverage !== 'limited'}
+          goalkeeper={goalkeeper}
+          frozen={frozen}
+          playerName={player.display_name}
+          loading={read.linesLoading || seasonRead.totalsLoading}
+          problem={seasonProblem}
+          onRetry={retrySeason}
+          truncated={read.truncated}
+          kicker={seasonKicker(viewSeason, calendarSeason())}
+          control={seasonChoices.length > 1 ? (
+            <label className="pc-season-pick">
+              Season
+              <select value={viewSeason ?? ''} onChange={(event) => pickSeason(Number(event.target.value))}>
+                {seasonChoices.map((value) => <option key={value} value={value}>{formatSeasonLabel(value)}</option>)}
+              </select>
+            </label>
+          ) : null}
+        />
+        <MatchLines lines={seasonLines} goalkeeper={goalkeeper} />
+
         <ShowcaseSection
           local
+          readSectionsElsewhere
+          onShowcaseChange={setShowcase}
           playerApiId={String(numericPlayerId)}
           canonicalPlayerApiId={canonicalPlayerApiId}
           playerName={player.display_name}
@@ -251,8 +257,6 @@ function LocalPlayerProfile({ numericPlayerId, onPublicConfirmed, onRetry }) {
             setSeasonStatsRevision((revision) => revision + 1)
           }}
         />
-
-        <LocalSeasonStats stats={seasonStats} position={player.position} />
       </div>
     </div>
   )
@@ -277,7 +281,9 @@ export function LocalPlayerPage() {
 
   return (
     <LocalPlayerProfile
-      key={`${numericPlayerId}-${attempt}-${token || 'public'}`}
+      // Viewer change = fresh screen: keyed on player + viewer, so everything the
+      // profile holds for one viewer is discarded for the next.
+      key={`${numericPlayerId}-${attempt}-${viewerKey(token)}`}
       numericPlayerId={numericPlayerId}
       onPublicConfirmed={handlePublicConfirmed}
       onRetry={() => setAttempt((value) => value + 1)}

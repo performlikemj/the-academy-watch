@@ -2,7 +2,7 @@ import '@/styles/floodlight-player.css'
 import { DevelopmentActionSummary, DevelopmentProgress } from '@/components/showcase/DevelopmentAction'
 import { useEffect, useRef, useState } from 'react'
 import { Check, ChevronRight, LockKeyhole, RefreshCw } from 'lucide-react'
-import { APIService } from '@/lib/api'
+import { useViewerLifetime } from '@/hooks/useViewerState'
 import { track } from '@/lib/track'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -15,6 +15,9 @@ export default function PlayerFeedbackInbox({ signedId, token }) {
 }
 
 function Inbox({ signedId, token }) {
+  // Requests and side effects go through this viewer's lifetime (see lib/viewer-lifetime.js).
+  const life = useViewerLifetime()
+  const api = life.api
   const [rows, setRows] = useState([])
   const [feedback, setFeedback] = useState(null)
   const [nextBefore, setNextBefore] = useState(null)
@@ -33,7 +36,7 @@ function Inbox({ signedId, token }) {
     setFeedback(null)
     setRows([])
     setError('')
-    APIService.request(`/me/player-feedback?player_api_id=${signedId}`, { signal: controller.signal })
+    api.request(`/me/player-feedback?player_api_id=${signedId}`, { signal: controller.signal })
       .then((data) => {
         if (!controller.signal.aborted && sequence.current === current) {
           setRows(data.feedback || [])
@@ -45,7 +48,7 @@ function Inbox({ signedId, token }) {
       })
       .finally(() => { if (!controller.signal.aborted) setLoading(false) })
     return () => { controller.abort(); sequence.current += 1 }
-  }, [signedId, token, refresh])
+  }, [signedId, token, refresh, api])
 
   useEffect(() => {
     function directDetail() {
@@ -67,7 +70,7 @@ function Inbox({ signedId, token }) {
     setFeedback(null)
     setError('')
     try {
-      const data = await APIService.request(`/me/player-feedback/${id}`, { signal: controller.signal })
+      const data = await api.request(`/me/player-feedback/${id}`, { signal: controller.signal })
       if (controller.signal.aborted || current !== sequence.current) return
       if (data.feedback?.player_api_id !== signedId) { setError(unavailable); return }
       setFeedback(data.feedback)
@@ -89,7 +92,7 @@ function Inbox({ signedId, token }) {
     setBusy(true)
     setError('')
     try {
-      const data = await APIService.request(`/me/player-feedback/${feedback.id}/acknowledge`, { method: 'POST', body: '{}', signal: controller.signal })
+      const data = await api.request(`/me/player-feedback/${feedback.id}/acknowledge`, { method: 'POST', body: '{}', signal: controller.signal })
       if (controller.signal.aborted || current !== sequence.current) return
       setFeedback(data.feedback)
       setRows((previous) => previous.map((row) => row.id === data.feedback.id ? { ...row, acknowledged_at: data.feedback.acknowledged_at } : row))
@@ -107,7 +110,7 @@ function Inbox({ signedId, token }) {
     const controller = lifetime.current
     setBusy(true)
     try {
-      const data = await APIService.request(`/me/player-feedback?player_api_id=${signedId}&before=${nextBefore}`, { signal: controller.signal })
+      const data = await api.request(`/me/player-feedback?player_api_id=${signedId}&before=${nextBefore}`, { signal: controller.signal })
       if (controller.signal.aborted) return
       setRows((old) => [...old, ...data.feedback])
       setNextBefore(data.next_before)

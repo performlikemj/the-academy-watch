@@ -563,6 +563,27 @@ class TestAdminClaimReview:
 
         public = client.get("/api/players/5001/showcase")
         assert public.get_json()["claim_status"] == "claimed"
+        assert public.get_json()["contactable"] is True
+
+    @pytest.mark.parametrize("relationship", ["guardian", "agent"])
+    def test_a_representatives_claim_is_claimed_but_not_contactable(self, app, client, relationship):
+        """Only the player's own approved claim invites an introduction (the scout desk's rule)."""
+        headers = _user_headers(f"{relationship}@example.com")
+        create = client.post(
+            "/api/players/5001/claim",
+            json={"relationship_type": relationship, "contract_status": "free_agent"},
+            headers=headers,
+        )
+        claim_id = create.get_json()["claim"]["id"]
+        review = client.post(
+            f"/api/admin/showcase/claims/{claim_id}/review",
+            json={"action": "approve"},
+            headers=_admin_headers(),
+        )
+        assert review.status_code == 200
+
+        public = client.get("/api/players/5001/showcase").get_json()
+        assert (public["claim_status"], public["contactable"]) == ("claimed", False)
 
     def test_reject_pending_claim(self, app, client):
         headers = _user_headers("kobbie@example.com")
@@ -1036,7 +1057,9 @@ class TestPublicPayload:
             "affiliations",
             "verified_footage",
             "claim_status",
+            "contactable",
         }
+        assert data["contactable"] is False
         assert data["profile"] is None
         assert data["photos"] == []
         assert data["reel"] == []
