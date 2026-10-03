@@ -97,6 +97,13 @@ from src.services.highlights import register_notifications as register_highlight
 
 # --- p2-c2 end ---
 
+# isort: split
+# --- p2-c4 begin ---
+from src.routes.scout_attendance import scout_attendance_bp
+from src.services.scout_attendance import register_notifications as register_attendance_notifications
+
+# --- p2-c4 end ---
+
 dotenv.load_dotenv(dotenv.find_dotenv())
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -177,6 +184,10 @@ app.register_blueprint(club_directory_bp, url_prefix="/api")  # p2-b1
 app.register_blueprint(opportunities_bp, url_prefix="/api")
 register_notifications()
 # --- p2-b2 end ---
+# --- p2-c4 begin ---
+app.register_blueprint(scout_attendance_bp, url_prefix="/api")
+register_attendance_notifications()
+# --- p2-c4 end ---
 app.register_blueprint(feedback_bp, url_prefix="/api")
 app.register_blueprint(interest_bp, url_prefix="/api")
 app.register_blueprint(trust_bp, url_prefix="/api")

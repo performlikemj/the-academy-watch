@@ -1,0 +1,32 @@
+.c4-night {color:var(--color-chalk)}
+.c4-tabs {display:flex;gap:8px;flex-wrap:wrap;margin:24px 0}
+.c4-tabs a,.c4-button {display:inline-flex;align-items:center;justify-content:center;min-height:44px;border:1px solid var(--color-hairline-dark);border-radius:999px;padding:10px 20px;font:400 14px var(--font-sans);text-decoration:none;color:inherit;background:transparent}
+.c4-tabs a[aria-current=page],.c4-night .c4-button.primary,.c4-ask .c4-button.primary {background:var(--color-chalk);color:var(--color-night)}
+.c4-button:disabled {opacity:.6;cursor:default}
+.c4-row {padding:28px 0;border-bottom:1px solid var(--color-hairline-dark);display:flex;align-items:center;justify-content:space-between;gap:24px}
+.c4-row>div {min-width:0;overflow-wrap:anywhere}
+.c4-row>.c4-button {flex-shrink:0}
+.c4-meta {font-size:14px;line-height:1.6;color:var(--color-muted)}
+.c4-night .c4-meta,.c4-ask .c4-meta {color:var(--color-muted-dark)}
+.c4-search {display:flex;align-items:flex-end;gap:16px;max-width:760px}
+.c4-search label {flex:1}
+.c4-field {display:grid;gap:8px;font-size:14px;line-height:1.5;min-width:0}
+.c4-field input,.c4-field textarea,.c4-location select {border:1px solid var(--color-hairline);border-radius:10px;background:transparent;color:inherit;padding:12px;min-height:44px;min-width:0}
+.c4-night .c4-field input,.c4-night .c4-field textarea,.c4-location.c4-night select,.c4-ask textarea {border-color:var(--color-hairline-dark)}
+.c4-location {display:flex;flex-wrap:wrap;gap:16px;align-items:center;margin:24px 0}
+.c4-location>p {flex-basis:100%}
+.c4-location>button {border:1px solid var(--color-hairline);border-radius:999px;padding:10px 20px;min-height:44px}
+.c4-location.c4-night>button {border-color:var(--color-hairline-dark)}
+.c4-location label {display:flex;align-items:center;gap:12px}
+.c4-location select option {background:var(--color-chalk);color:var(--color-ink)}
+.c4-notice {padding:24px 0;line-height:1.6;color:var(--color-muted-dark)}
+.c4-error {color:#E9967A;margin:16px 0}
+.c4-ask input[type=checkbox] {width:20px;height:20px;flex-shrink:0}
+.c4-inbox {margin:0 0 40px}
+.c4-inbox-row {padding:24px 0;border-bottom:1px solid var(--color-hairline)}
+.c4-inbox-row h3 {font:400 28px var(--font-serif);margin:12px 0}
+.c4-inbox-row p {margin-bottom:16px;overflow-wrap:anywhere}
+.c4-inbox-row .c4-field {max-width:650px}
+.c4-tabs a:focus-visible,.c4-button:focus-visible,.c4-location button:focus-visible,.c4-field input:focus-visible,.c4-field textarea:focus-visible,.c4-location select:focus-visible {outline:2px solid var(--color-ink);outline-offset:3px}
+.c4-night :is(a,button,input,textarea,select):focus-visible,.c4-ask :is(button,input,textarea):focus-visible {outline-color:var(--color-gold)}
+@media(max-width:640px){.c4-row {align-items:flex-start;flex-direction:column;gap:16px}.c4-search {align-items:stretch;flex-direction:column}.c4-tabs a {padding:10px 16px}}
