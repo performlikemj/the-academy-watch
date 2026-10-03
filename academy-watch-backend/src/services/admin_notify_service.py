@@ -8,12 +8,13 @@ user-facing requests are never slowed down.
 All public functions are fire-and-forget: failures are logged, never propagated.
 """
 
-import logging
 import os
 import threading
 from datetime import UTC, datetime
 
-logger = logging.getLogger(__name__)
+from src.utils.log_privacy import get_logger, mask_email
+
+logger = get_logger(__name__)
 
 
 def _get_admin_email() -> str | None:
@@ -42,7 +43,7 @@ def _notify_in_background(subject: str, text: str, html: str) -> None:
         logger.info("Admin notification skipped: ADMIN_EMAILS not configured")
         return
 
-    logger.info("Queuing admin notification to %s: %s", admin_email, subject)
+    logger.info("Queuing admin notification to %s: %s", mask_email(admin_email), subject)
 
     from src.services.email_service import email_service
 
@@ -116,7 +117,7 @@ def notify_new_user(email: str, display_name: str | None = None) -> None:
         )
         _notify_in_background(subject, text, html)
     except Exception:
-        logger.exception("notify_new_user failed for %s", email)
+        logger.exception("notify_new_user failed for %s", mask_email(email))
 
 
 def notify_subscription_change(
@@ -162,7 +163,7 @@ def notify_subscription_change(
         )
         _notify_in_background(subject, text, html)
     except Exception:
-        logger.exception("notify_subscription_change failed for %s", email)
+        logger.exception("notify_subscription_change failed for %s", mask_email(email))
 
 
 def notify_tracking_request(team_name: str, email: str | None = None, reason: str | None = None) -> None:
@@ -233,4 +234,4 @@ def notify_unsubscribe(email: str, team_name: str | None = None) -> None:
         html = _simple_html(["<strong>User unsubscribed</strong>"] + lines)
         _notify_in_background(subject, text, html)
     except Exception:
-        logger.exception("notify_unsubscribe failed for %s", email)
+        logger.exception("notify_unsubscribe failed for %s", mask_email(email))

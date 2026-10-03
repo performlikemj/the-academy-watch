@@ -119,6 +119,7 @@ from src.utils.data_mode import api_enabled_route, api_football_frozen, newslett
 from src.utils.feature_flags import rollup_reads_enabled
 from src.utils.fixture_stats_mapper import map_player_stat_block
 from src.utils.legacy_pages import legacy_public_url
+from src.utils.log_privacy import get_logger, mask_email, protect_log_handlers
 from src.utils.newsletter_slug import compose_newsletter_public_slug
 from src.utils.player_names import resolve_player_name
 from src.utils.sanitize import (
@@ -131,7 +132,7 @@ from src.utils.slug import resolve_team_by_identifier
 from src.utils.team_season_stats import live_stats_by_player, missing_rollup_stats, rollup_stats_by_player
 from werkzeug.exceptions import HTTPException
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 api_bp = Blueprint("api", __name__)
 
@@ -416,7 +417,7 @@ def admin_issue_curator_token():
         db.session.commit()
 
         token_data = issue_user_token(email, role="user")
-        logger.info("Admin issued curator token for %s (user_id=%d)", email, user.id)
+        logger.info("Admin issued curator token for %s (user_id=%d)", mask_email(email), user.id)
         return jsonify(
             {
                 "token": token_data["token"],
@@ -472,7 +473,7 @@ def _send_email_via_webhook(
             "provider": result.provider,
         }
     except Exception as exc:
-        logger.exception("Failed to send email to %s", email)
+        logger.exception("Failed to send email to %s", mask_email(email))
         raise RuntimeError(f"Email delivery failed: {exc}") from exc
 
 
@@ -2347,7 +2348,7 @@ def _activate_subscriptions(email: str, team_ids: list[int], preferred_frequency
             team_names = [t["team_name"] for t in teams_without_newsletters]
             _send_waitlist_welcome_email(email, team_names)
         except Exception as e:
-            logger.warning("Failed to send waitlist email to %s: %s", email, e)
+            logger.warning("Failed to send waitlist email to %s: %s", mask_email(email), e)
 
     return {
         "message": "Subscriptions updated",
@@ -2440,7 +2441,7 @@ def _process_subscriptions(email: str, team_ids_raw: list[Any], preferred_freque
                 db.session.rollback()
             except Exception:
                 pass
-            logger.exception("Failed to queue subscription verification for %s", email)
+            logger.exception("Failed to queue subscription verification for %s", mask_email(email))
             return _safe_error_payload(exc, "Failed to send verification email"), 500
 
     result = _activate_subscriptions(email, valid_ids, preferred_frequency)
@@ -2512,7 +2513,7 @@ def _create_email_token(email: str, purpose: str, metadata: dict | None = None, 
         "Created email token id=%s purpose=%s email=%s expires_at=%s",
         row.id,
         purpose,
-        email,
+        mask_email(email),
         expires_at.isoformat(),
     )
     return row
@@ -4337,9 +4338,16 @@ def _deliver_newsletter_via_webhook(
                 queued = queue_newsletter_for_digest(user_account.id, n.id)
                 if queued:
                     digest_queued_count += 1
-                    logger.info(f"Queued newsletter {n.id} for digest delivery to {email}")
+                    logger.info(
+                        "Queued newsletter %s for digest delivery to %s user_id=%s",
+                        n.id,
+                        mask_email(email),
+                        user_account.id,
+                    )
                 else:
-                    logger.debug(f"Newsletter {n.id} already queued for {email}")
+                    logger.debug(
+                        "Newsletter %s already queued for %s user_id=%s", n.id, mask_email(email), user_account.id
+                    )
                 continue  # Skip sending individual email
             except Exception as queue_err:
                 logger.warning(f"Failed to queue for digest, falling back to individual: {queue_err}")
@@ -12440,6 +12448,8 @@ def _run_seed_team_process(job_id, team_id, max_age=30, sync_journeys=True, year
     )
     from src.main import app
 
+    protect_log_handlers()
+
     def _sigterm_handler(signum, frame):
         try:
             with app.app_context():
@@ -12538,6 +12548,8 @@ def _run_seed_teams_process(job_id, team_db_ids, max_age=30, sync_journeys=True,
         force=True,
     )
     from src.main import app
+
+    protect_log_handlers()
 
     def _sigterm_handler(signum, frame):
         try:
@@ -12678,6 +12690,8 @@ def _run_seed_all_tracked_process(job_id, max_age=30, sync_journeys=True, years=
         force=True,
     )
     from src.main import app
+
+    protect_log_handlers()
 
     def _sigterm_handler(signum, frame):
         try:

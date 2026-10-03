@@ -141,6 +141,9 @@ def run_rebuild_process(job_id, rebuild_type, kwargs):
     )
 
     from src.main import app
+    from src.utils.log_privacy import protect_log_handlers
+
+    protect_log_handlers()
 
     # Handle SIGTERM gracefully so container restarts / worker recycling
     # mark the job as failed instead of leaving it stuck in 'running'.

@@ -1,13 +1,13 @@
 """Best-effort applicant emails for Trust Desk decisions."""
 
-import logging
 import os
 from html import escape
 
 from src.models.showcase import ClubOfficialClaim, PlayerProfileClaim
 from src.models.trust import ScoutVerification
+from src.utils.log_privacy import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def _send_decision_email(*, recipient: str | None, subject: str, text: str, html: str, tag: str) -> bool:

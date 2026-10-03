@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 import os
 from datetime import UTC, datetime, timedelta
 
@@ -11,8 +10,9 @@ from src.models.league import UserAccount, db
 from src.services.public_player_subject import owned_public_adult_subjects
 from src.services.reach_metrics import fan_counts, profile_view_counts_since, watchlist_counts
 from src.services.user_blocks import blocked_user_ids
+from src.utils.log_privacy import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 MAX_PROFILE_ACTIVITY_USERS = 200
 DEFAULT_MAX_SENDS = 500

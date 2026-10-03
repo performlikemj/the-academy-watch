@@ -14,7 +14,6 @@ Two shapes share one delta engine:
 """
 
 import json
-import logging
 import os
 from datetime import UTC, datetime
 
@@ -27,8 +26,9 @@ from src.models.showcase import without_minor_local_bridge
 from src.models.tracked_player import TrackedPlayer
 from src.services.player_suppression import public_player_visible_filter
 from src.services.public_adult import cached_public_adult_ids
+from src.utils.log_privacy import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 MAX_DIGEST_USERS = 200
 # One run touches at most this many entries across all users — keeps a

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import calendar
 import hashlib
-import logging
 import os
 import re
 import time
@@ -38,8 +37,9 @@ from src.models.gol_credits import GolCreditLedger, GolPaymentSettlement
 from src.models.league import UserAccount, db
 from src.models.product_event import ProductEvent
 from src.services.gol_credits import apply_refund, grant_purchase
+from src.utils.log_privacy import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 ACTIVE_STATUSES = frozenset({"active", "trialing", "past_due"})
 TERMINAL_STATUSES = frozenset({"canceled", "incomplete_expired"})

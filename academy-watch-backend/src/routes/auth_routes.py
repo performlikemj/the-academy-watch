@@ -8,7 +8,6 @@ This blueprint handles:
 """
 
 import json
-import logging
 import os
 import re
 import secrets
@@ -45,8 +44,9 @@ from src.services.account_roles import derive_account_role
 from src.services.email_service import email_service
 from src.services.scout_entitlements import scout_entitlements
 from src.services.trust import is_verified_scout
+from src.utils.log_privacy import get_logger, mask_email
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 auth_bp = Blueprint("auth", __name__)
 
@@ -84,7 +84,7 @@ def _create_email_token(email: str, purpose: str, metadata: dict | None = None, 
         "Created email token id=%s purpose=%s email=%s expires_at=%s",
         row.id,
         purpose,
-        email,
+        mask_email(email),
         expires_at.isoformat(),
     )
     return row
@@ -121,15 +121,15 @@ def _send_login_code(email: str, code: str):
                 tags=["login_code"],
             )
             if result.success:
-                logger.info("Login code sent to %s via %s", email, result.provider)
+                logger.info("Login code sent to %s via %s", mask_email(email), result.provider)
             else:
-                logger.warning("Failed to send login code to %s: %s", email, result.error)
+                logger.warning("Failed to send login code to %s: %s", mask_email(email), result.error)
         except Exception:
-            logger.exception("Failed to send login code to %s", email)
+            logger.exception("Failed to send login code to %s", mask_email(email))
 
     # In development, also print to terminal for testing
     if not _is_production():
-        msg = f"[DEV] Login code for {email}: {code} (expires in 5 minutes)"
+        msg = f"[DEV] Login code for {mask_email(email)}: {code} (expires in 5 minutes)"
         try:
             print(msg)
         except Exception:
@@ -159,7 +159,7 @@ def request_login_code():
             logger.warning("Login code request missing email from %s", get_client_ip())
             return jsonify({"error": "email is required"}), 400
         client_ip = get_client_ip()
-        logger.info("Login code requested for %s from %s", email, client_ip)
+        logger.info("Login code requested for %s from %s", mask_email(email), client_ip)
         code = _generate_otp_code(11)
         # 5 minutes TTL
         tok = _create_email_token(email=email, purpose="login", metadata={"kind": "otp"}, ttl_minutes=5)
@@ -170,10 +170,10 @@ def request_login_code():
 
         # Deliver or print locally depending on environment
         _send_login_code(email, code)
-        logger.info("Login code issued for %s from %s (token_id=%s)", email, client_ip, tok.id)
+        logger.info("Login code issued for %s from %s (token_id=%s)", mask_email(email), client_ip, tok.id)
         return jsonify({"message": "Login code sent"})
     except Exception as e:
-        logger.exception("Failed to issue login code for email=%s", email)
+        logger.exception("Failed to issue login code for email=%s", mask_email(email))
         try:
             db.session.rollback()
         except Exception:
@@ -203,14 +203,19 @@ def verify_login_code():
 
         existing = UserAccount.query.filter_by(email=email).populate_existing().first()
         client_ip = get_client_ip()
-        logger.info("Verifying login code for %s from %s", email, client_ip)
+        logger.info(
+            "Verifying login code for %s from %s user_id=%s",
+            mask_email(email),
+            client_ip,
+            existing.id if existing else None,
+        )
         # Static review credentials require a byte-exact submitted code. Keep
         # the existing whitespace-tolerant normalization for one-time codes.
         is_review_login = _review_login_matches(email, submitted_code)
         if not is_review_login:
             row = EmailToken.query.filter_by(email=email, token=code, purpose="login").first()
             if not row or not row.is_valid():
-                logger.warning("Invalid/expired login code for %s from %s", email, client_ip)
+                logger.warning("Invalid/expired login code for %s from %s", mask_email(email), client_ip)
                 return jsonify({"error": "invalid or expired code"}), 400
             # Mark one-time email codes used. The env-gated review code is
             # intentionally reusable until operators revoke either env var.
@@ -231,7 +236,7 @@ def verify_login_code():
         if is_review_login:
             logger.warning(
                 "audit_event=review_login_used email=%s user_id=%s ip=%s",
-                email,
+                mask_email(email),
                 user.id if user else None,
                 client_ip,
             )
@@ -244,7 +249,13 @@ def verify_login_code():
         # A reusable App Review credential must never mint an elevated bearer,
         # even if deployment allowlists accidentally overlap.
         role = "user" if is_review_login else ("admin" if email in allowed else "user")
-        logger.info("Login verified for %s from %s role=%s", email, client_ip, role)
+        logger.info(
+            "Login verified for %s from %s role=%s user_id=%s",
+            mask_email(email),
+            client_ip,
+            role,
+            user.id if user else None,
+        )
         out = issue_user_token(email, role=role)
         return jsonify(
             {
@@ -258,7 +269,7 @@ def verify_login_code():
             }
         )
     except Exception as e:
-        logger.exception("Failed to verify login code for email=%s", email)
+        logger.exception("Failed to verify login code for email=%s", mask_email(email))
         try:
             db.session.rollback()
         except Exception:

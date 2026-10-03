@@ -1026,19 +1026,20 @@ def send_invite_email(invite, token, program_name) -> bool:
     yet) and forbids credentials in payloads, while the one-use token exists only here (stored hashed).
     Delivery is synchronous (no daemon thread); the invite row is authoritative and "resend" = re-invite.
     """
-    import logging
-
     from src.services.email_service import email_service
+    from src.utils.log_privacy import get_logger, mask_email
 
     subject, text, html = invite_email_content(program_name, invite.role, invite_link(token))
     from src.auth import _is_production
 
     if not _is_production() and os.getenv("FLASK_ENV", "").lower() not in ("stage", "staging"):
         # Same convention as the dev login code: local testing without a mail provider. Never in production.
-        logging.getLogger(__name__).info("[DEV] Staff invite link for %s: %s", invite.email, invite_link(token))
+        get_logger(__name__).info(
+            "[DEV] Staff invite id=%s link for %s: %s", invite.id, mask_email(invite.email), invite_link(token)
+        )
     try:
         result = email_service.send_email(to=invite.email, subject=subject, html=html, text=text, tags=["staff-invite"])
         return bool(getattr(result, "success", False))
     except Exception:
-        logging.getLogger(__name__).exception("Staff invite email failed")
+        get_logger(__name__).exception("Staff invite email failed invite_id=%s", invite.id)
         return False

@@ -25,7 +25,6 @@ Usage:
 """
 
 import json
-import logging
 import os
 import smtplib
 import threading
@@ -37,8 +36,9 @@ from email.mime.text import MIMEText
 from uuid import uuid4
 
 import requests
+from src.utils.log_privacy import get_logger, mask_email
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -169,9 +169,9 @@ class MailgunProvider(EmailProvider):
             else:
                 error_msg = response.text[:500] if response.text else f"HTTP {response.status_code}"
                 logger.warning(
-                    "Mailgun API error: status=%s body=%s",
+                    "Mailgun API error: status=%s to=%s",
                     response.status_code,
-                    error_msg,
+                    [mask_email(r) for r in recipients],
                 )
                 return EmailResult(
                     success=False,
@@ -375,7 +375,7 @@ class EmailService:
         recipients = [to] if isinstance(to, str) else list(to)
 
         # Mask email in logs for privacy
-        masked_recipients = [self._mask_email(r) for r in recipients]
+        masked_recipients = [mask_email(r) for r in recipients]
         logger.info(
             "Sending email: to=%s subject=%s",
             masked_recipients,
@@ -407,17 +407,18 @@ class EmailService:
                 # Don't retry on 4xx errors (client errors)
                 if result.http_status and 400 <= result.http_status < 500:
                     logger.warning(
-                        "Mailgun client error (no retry): status=%s error=%s",
+                        "Mailgun client error (no retry): status=%s to=%s",
                         result.http_status,
-                        result.error,
+                        masked_recipients,
                     )
                     break
 
                 if attempt < max_retries:
                     logger.warning(
-                        "Mailgun attempt %d failed, retrying: %s",
+                        "Mailgun attempt %d failed, retrying: to=%s status=%s",
                         attempt + 1,
-                        result.error,
+                        masked_recipients,
+                        result.http_status,
                     )
         else:
             logger.warning("Mailgun not configured, skipping primary provider")
@@ -447,9 +448,9 @@ class EmailService:
 
                 if attempt < max_retries:
                     logger.warning(
-                        "SMTP attempt %d failed, retrying: %s",
+                        "SMTP attempt %d failed, retrying: to=%s",
                         attempt + 1,
-                        result.error,
+                        masked_recipients,
                     )
 
             # Return last SMTP error
@@ -594,16 +595,6 @@ class EmailService:
                     db.session.commit()
             except Exception:
                 db.session.rollback()
-
-    @staticmethod
-    def _mask_email(email: str) -> str:
-        """Mask email for logging (e.g., u***@example.com)."""
-        if "@" not in email:
-            return "***"
-        local, domain = email.split("@", 1)
-        if len(local) <= 1:
-            return f"*@{domain}"
-        return f"{local[0]}***@{domain}"
 
     def send_claim_invitation(
         self,
