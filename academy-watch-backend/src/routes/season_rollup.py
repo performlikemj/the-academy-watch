@@ -43,6 +43,7 @@ from src.models.player_match_entry import PlayerMatchEntry
 from src.models.season_rollup import PlayerSeasonCell, PlayerSeasonTotal
 from src.models.weekly import Fixture, FixturePlayerStats
 from src.services import season_rollup_service
+from src.utils.log_privacy import log_metadata, safe_exc_info
 
 season_rollup_bp = Blueprint("season_rollup", __name__)
 logger = logging.getLogger(__name__)
@@ -483,7 +484,11 @@ def admin_rebuild_season_rollup():
             return jsonify({"processed": 1, "failed": [], "remaining": 0, "cursor": None})
         except Exception as exc:
             db.session.rollback()
-            logger.exception("season-rollup player rebuild failed for player=%s", player_api_id)
+            logger.exception(
+                "season-rollup player rebuild failed for player=%s",
+                log_metadata(player_api_id),
+                exc_info=safe_exc_info(),
+            )
             return jsonify(_safe_error_payload(exc, "Failed to rebuild season rollup")), 500
 
     season = None
@@ -531,7 +536,12 @@ def admin_rebuild_season_rollup():
                 processed += 1
             except Exception:
                 failed.append(player_api_id)
-                logger.exception("season-rollup %s rebuild failed for player=%s", scope, player_api_id)
+                logger.exception(
+                    "season-rollup %s rebuild failed for player=%s",
+                    log_metadata(scope),
+                    log_metadata(player_api_id),
+                    exc_info=safe_exc_info(),
+                )
         db.session.commit()
 
         # Forward-only cursor: null once no candidate id remains above the last
@@ -546,7 +556,7 @@ def admin_rebuild_season_rollup():
         return jsonify({"processed": processed, "failed": failed, "remaining": remaining, "cursor": next_cursor})
     except Exception as exc:
         db.session.rollback()
-        logger.exception("season-rollup %s rebuild failed", scope)
+        logger.exception("season-rollup %s rebuild failed", log_metadata(scope), exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(exc, "Failed to rebuild season rollup")), 500
 
 
@@ -595,5 +605,5 @@ def admin_season_rollup_status():
             body["stale_players"] = _count_ids(_stale_player_ids())
         return jsonify(body)
     except Exception as exc:
-        logger.exception("season-rollup status failed")
+        logger.exception("season-rollup status failed", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(exc, "Failed to read season rollup status")), 500

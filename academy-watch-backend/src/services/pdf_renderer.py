@@ -33,6 +33,7 @@ from datetime import date, datetime
 from typing import Any
 
 from src.utils.legacy_pages import legacy_public_url
+from src.utils.log_privacy import safe_exc_info
 
 logger = logging.getLogger(__name__)
 
@@ -500,7 +501,7 @@ def _normalize_gol_data_card(card: dict[str, Any]) -> dict[str, Any] | None:
             png_bytes = renderer(chart_columns, chart_rows, title=description or None)
             data_uri = "data:image/png;base64," + base64.b64encode(png_bytes).decode("ascii")
         except Exception:
-            logger.exception("Failed to render GOL chart; falling back to table")
+            logger.exception("Failed to render GOL chart; falling back to table", exc_info=safe_exc_info())
             visible_cols, rendered_rows = _build_linkified_table(columns, rows)
             return {
                 "kind": "table",

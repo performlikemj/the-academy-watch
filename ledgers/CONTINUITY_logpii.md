@@ -20,3 +20,7 @@
 - Head70c8ea9d full backend5600 PASS/1756 SKIP/2 FAIL: default-Gunicorn-format assumption and RuntimeError metadata contract. Corrected test to deployed format and retained safe exc_info type snapshot without raw exception/traceback objects. New final-head cached gates required.
 
 -75d63450 four gates PASS (5604 backend/1756 skipped;403 frontend;658 lint files;build),213 focused PASS and push verified. Final audit broadens guard to any email/recipient name/key and constrains helper-list allowlist; claim-mail warning retains level and writer ID with safe trace. Follow-up final-head gates/push/CI external.
+
+- LOGPIIF2 in progress: X1–X4 / O1–O6 union; fixed-message/safe-metadata source audit, whole-token Unicode-agnostic backstop, no text budgets, non-string/extra-key preservation, classifier stdout and raw traceback cleanup. Reviewer probes/property/10 MB/access-header tests, main merge, final cached gates, push and bounded CI pending.
+
+- LOGPIIF2 source audit: 1,825 output calls inventoried; 1,534 converted in132 files. AST comparison after removing output/logging/imports matches original application behavior (development log-message construction is the sole extra change). Targeted114 PASS covers real delivery/classifier and numeric job-summary preservation. Focused437 PASS caught one mapping-repr loss; corrected native positional mapping rendering and regression control. Complete final inventory and final-head receipts maintained externally.

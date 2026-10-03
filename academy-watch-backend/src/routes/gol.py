@@ -30,6 +30,7 @@ from src.services.gol_credits import (
     reserve_question,
 )
 from src.services.scout_entitlements import decoded_bearer_role
+from src.utils.log_privacy import log_metadata, safe_exc_info
 
 gol_bp = Blueprint("gol", __name__)
 logger = logging.getLogger(__name__)
@@ -107,7 +108,7 @@ def gol_chat():
     try:
         from src.services.gol_service import GolService
     except ImportError:
-        logger.exception("Failed to import GolService")
+        logger.exception("Failed to import GolService", exc_info=safe_exc_info())
         return jsonify({"error": "Chat service unavailable"}), 503
 
     metered = billing_enabled() and role != "admin"
@@ -190,7 +191,7 @@ def gol_chat():
             return _maintenance_response()
         except Exception:
             finish_execution(g.user, reservation, failed=True)
-            logger.exception("Failed to initialize GolService")
+            logger.exception("Failed to initialize GolService", exc_info=safe_exc_info())
             return jsonify({"error": "Chat service unavailable"}), 503
 
     def generate():
@@ -230,7 +231,7 @@ def gol_chat():
                 if refunded:
                     return {**usage, **balances(g.user), "refunded": True}
             except Exception:
-                logger.exception("Failed to compensate GOL question debit")
+                logger.exception("Failed to compensate GOL question debit", exc_info=safe_exc_info())
             return None
 
         try:
@@ -300,7 +301,7 @@ def gol_chat():
             compensate(disconnect=True)
             raise
         except Exception as exc:
-            logger.exception("SSE stream error")
+            logger.exception("SSE stream error", exc_info=safe_exc_info())
             refunded_usage = compensate()
             yield _sse("error", {"message": str(exc)})
             if refunded_usage is not None:
@@ -333,7 +334,7 @@ def gol_suggestions():
     except GolMaintenance:
         return _maintenance_suggestions()
     except Exception as e:
-        logger.warning(f"Failed to get suggestions: {e}")
+        logger.warning("Failed to get suggestions: %s", log_metadata(e))
         return jsonify(
             {
                 "suggestions": [
@@ -360,7 +361,7 @@ def gol_export_pdf():
     try:
         from src.services.pdf_renderer import render_gol_chat_pdf
     except ImportError:
-        logger.exception("WeasyPrint not available for GOL PDF export")
+        logger.exception("WeasyPrint not available for GOL PDF export", exc_info=safe_exc_info())
         return jsonify(
             {
                 "error": "pdf_renderer_unavailable",
@@ -382,7 +383,7 @@ def gol_export_pdf():
     try:
         pdf_bytes, filename = render_gol_chat_pdf(messages)
     except Exception as e:
-        logger.exception("Failed to render GOL chat PDF")
+        logger.exception("Failed to render GOL chat PDF", exc_info=safe_exc_info())
         return jsonify({"error": "pdf_render_failed", "message": str(e)}), 500
 
     return send_file(

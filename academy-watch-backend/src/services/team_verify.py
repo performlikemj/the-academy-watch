@@ -29,6 +29,7 @@ from typing import Any
 
 from src.models.league import Team, db
 from src.models.tracked_player import TrackedPlayer
+from src.utils.log_privacy import log_metadata, safe_exc_info
 
 logger = logging.getLogger(__name__)
 
@@ -211,7 +212,9 @@ def verify_and_repair_team(
                 cascade_fixtures=False,
             )
         except Exception as exc:  # noqa: BLE001
-            logger.exception("team_verify: refresh_and_heal failed for team %s", team_db_id)
+            logger.exception(
+                "team_verify: refresh_and_heal failed for team %s", log_metadata(team_db_id), exc_info=safe_exc_info()
+            )
             repair_result = {"error": str(exc)}
 
     post_audit = audit_team_consistency(team_db_id) if not dry_run else None

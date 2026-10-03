@@ -39,6 +39,7 @@ from src.models.tracked_player import TrackedPlayer
 from src.services.graph_service import GraphService
 from src.services.player_suppression import without_active_suppression
 from src.utils.fixture_stats_mapper import map_player_stat_block
+from src.utils.log_privacy import get_logger, log_metadata, safe_exc_info
 from src.utils.newsletter_slug import compose_newsletter_public_slug
 
 dotenv.load_dotenv(dotenv.find_dotenv())
@@ -1817,7 +1818,7 @@ def _sync_team_fixtures_for_week(
 
     team = Team.query.get(team_db_id)
     if not team:
-        _sync_log.warning("pre-sync: team db_id=%d not found", team_db_id)
+        _sync_log.warning("pre-sync: team db_id=%d not found", log_metadata(team_db_id))
         return {"synced": 0, "error": "team not found"}
 
     tracked = TrackedPlayer.query.filter(
@@ -1859,7 +1860,9 @@ def _sync_team_fixtures_for_week(
                 week_end_str,
             )
         except Exception as exc:
-            _sync_log.warning("pre-sync: fixture fetch failed for club %d: %s", club_api_id, exc)
+            _sync_log.warning(
+                "pre-sync: fixture fetch failed for club %d: %s", log_metadata(club_api_id), log_metadata(exc)
+            )
             continue
 
         # Filter to finished fixtures within the newsletter week
@@ -1922,7 +1925,9 @@ def _sync_team_fixtures_for_week(
             try:
                 team_blocks = api_client.get_fixture_players(fixture_id_api)
             except Exception as exc:
-                _sync_log.warning("pre-sync: fixture-players failed for %d: %s", fixture_id_api, exc)
+                _sync_log.warning(
+                    "pre-sync: fixture-players failed for %d: %s", log_metadata(fixture_id_api), log_metadata(exc)
+                )
                 continue
 
             if not team_blocks:
@@ -1975,7 +1980,12 @@ def _sync_team_fixtures_for_week(
         "teams_checked": len(club_players),
         "fixtures_checked": total_fixtures,
     }
-    _sync_log.info("pre-sync complete for team %s (db_id=%d): %s", team.name, team_db_id, result)
+    _sync_log.info(
+        "pre-sync complete for team %s (db_id=%d): %s",
+        log_metadata(team.name),
+        log_metadata(team_db_id),
+        log_metadata(result),
+    )
     return result
 
 
@@ -2006,10 +2016,7 @@ def fetch_pipeline_report_tool(
         )
         _nl_dbg("pipeline.pre_refresh", heal_result)
     except Exception as _heal_err:
-        logger.warning(
-            "newsletter: pre-generation status refresh failed (non-fatal): %s",
-            _heal_err,
-        )
+        logger.warning("newsletter: pre-generation status refresh failed (non-fatal): %s", log_metadata(_heal_err))
 
     api_client.set_season_year(season_start_year)
     api_client._prime_team_cache(season_start_year)
@@ -2074,24 +2081,21 @@ def fetch_pipeline_report_tool(
                 )
         if _stale_entries or _missing_journeys:
             logger.warning(
-                "newsletter pre-flight: team=%s (db_id=%d) has %d stale journey(s) "
-                "(>%dd) and %d player(s) missing a linked journey. "
-                "Consider running POST /admin/tracked-players/refresh-statuses "
-                "{team_id:%d} before publishing. stale=%s missing=%s",
-                team.name,
-                parent_team_db_id,
+                "newsletter pre-flight: team=%s (db_id=%d) has %d stale journey(s) (>%dd) and %d player(s) missing a linked journey. Consider running POST /admin/tracked-players/refresh-statuses {team_id:%d} before publishing. stale=%s missing=%s",
+                log_metadata(team.name),
+                log_metadata(parent_team_db_id),
                 len(_stale_entries),
-                NEWSLETTER_JOURNEY_STALE_DAYS,
+                log_metadata(NEWSLETTER_JOURNEY_STALE_DAYS),
                 len(_missing_journeys),
-                parent_team_db_id,
-                _stale_entries,
-                _missing_journeys,
+                log_metadata(parent_team_db_id),
+                log_metadata(_stale_entries),
+                log_metadata(_missing_journeys),
             )
     except Exception as _stale_check_err:
         logger.warning(
             "newsletter pre-flight staleness check failed for team=%s: %s",
-            team.name,
-            _stale_check_err,
+            log_metadata(team.name),
+            log_metadata(_stale_check_err),
         )
 
     groups: dict[str, list] = {"first_team": [], "on_loan": [], "academy": [], "returned": []}
@@ -2241,7 +2245,7 @@ def fetch_pipeline_report_tool(
                 },
             )
     except Exception as _ret_err:
-        logger.warning("newsletter: loan return detection failed (non-fatal): %s", _ret_err)
+        logger.warning("newsletter: loan return detection failed (non-fatal): %s", log_metadata(_ret_err))
 
     has_active = len(tracked) > 0
 
@@ -2294,8 +2298,7 @@ def _detect_recent_loan_returns(
     for pid in player_ids:
         if pid not in raw_map:
             logger.warning(
-                "newsletter: transfer batch omitted player %s; preserving failed lookup state",
-                pid,
+                "newsletter: transfer batch omitted player %s; preserving failed lookup state", log_metadata(pid)
             )
             continue
         resolution = resolve_transfer_state(
@@ -2361,14 +2364,22 @@ def _enrich_on_loan_stats(player_dict: dict, tp: "TrackedPlayer", start: date, e
     # Guard: skip if player_api_id is missing
     if not tp.player_api_id:
         _enrich_logger.warning(
-            f"[ENRICH-LOAN] player_api_id is null for tp.id={getattr(tp, 'id', '?')} ({tp.player_name})"
+            "[ENRICH-LOAN] player_api_id is null for tp.id=%s (%s)",
+            log_metadata(getattr(tp, "id", "?")),
+            log_metadata(tp.player_name),
         )
         player_dict["totals"] = {}
         player_dict["matches"] = []
         return
 
     try:
-        _enrich_logger.info(f"[ENRICH-LOAN] player={tp.player_api_id} ({tp.player_name}) range={start}..{end}")
+        _enrich_logger.info(
+            "[ENRICH-LOAN] player=%s (%s) range=%s..%s",
+            log_metadata(tp.player_api_id),
+            log_metadata(tp.player_name),
+            log_metadata(start),
+            log_metadata(end),
+        )
         stats_rows = (
             db.session.query(FixturePlayerStats, Fixture)
             .join(Fixture, FixturePlayerStats.fixture_id == Fixture.id)
@@ -2379,7 +2390,7 @@ def _enrich_on_loan_stats(player_dict: dict, tp: "TrackedPlayer", start: date, e
             )
             .all()
         )
-        _enrich_logger.info(f"[ENRICH-LOAN] player={tp.player_api_id} found {len(stats_rows)} rows")
+        _enrich_logger.info("[ENRICH-LOAN] player=%s found %s rows", log_metadata(tp.player_api_id), len(stats_rows))
 
         if not stats_rows:
             any_ever = (
@@ -2388,9 +2399,13 @@ def _enrich_on_loan_stats(player_dict: dict, tp: "TrackedPlayer", start: date, e
                 .scalar()
             )
             _enrich_logger.warning(
-                f"[ENRICH-LOAN] 0 weekly rows for {tp.player_name} (api_id={tp.player_api_id}) "
-                f"in {start}..{end}. Total rows in DB: {any_ever}. "
-                f"current_club_api_id={tp.current_club_api_id}"
+                "[ENRICH-LOAN] 0 weekly rows for %s (api_id=%s) in %s..%s. Total rows in DB: %s. current_club_api_id=%s",
+                log_metadata(tp.player_name),
+                log_metadata(tp.player_api_id),
+                log_metadata(start),
+                log_metadata(end),
+                log_metadata(any_ever),
+                log_metadata(tp.current_club_api_id),
             )
 
         totals = {"minutes": 0, "goals": 0, "assists": 0, "yellows": 0, "reds": 0, "saves": 0}
@@ -2495,7 +2510,12 @@ def _enrich_on_loan_stats(player_dict: dict, tp: "TrackedPlayer", start: date, e
     except Exception as e:
         import traceback
 
-        _enrich_logger.error(f"[ENRICH-LOAN] ERROR player={tp.player_api_id}: {e}\n{traceback.format_exc()}")
+        _enrich_logger.error(
+            "[ENRICH-LOAN] ERROR player=%s: %s\n%s",
+            log_metadata(tp.player_api_id),
+            log_metadata(e),
+            log_metadata(traceback.format_exc()),
+        )
         player_dict["totals"] = {}
         player_dict["matches"] = []
 
@@ -2513,7 +2533,9 @@ def _enrich_first_team_stats(
     # Guard: skip if player_api_id is missing
     if not tp.player_api_id:
         _enrich_logger.warning(
-            f"[ENRICH-FT] player_api_id is null for tp.id={getattr(tp, 'id', '?')} ({tp.player_name})"
+            "[ENRICH-FT] player_api_id is null for tp.id=%s (%s)",
+            log_metadata(getattr(tp, "id", "?")),
+            log_metadata(tp.player_name),
         )
         player_dict["totals"] = {}
         player_dict["matches"] = []
@@ -2521,7 +2543,12 @@ def _enrich_first_team_stats(
 
     try:
         _enrich_logger.info(
-            f"[ENRICH-FT] player={tp.player_api_id} ({tp.player_name}) team_api={team.team_id} range={start}..{end}"
+            "[ENRICH-FT] player=%s (%s) team_api=%s range=%s..%s",
+            log_metadata(tp.player_api_id),
+            log_metadata(tp.player_name),
+            log_metadata(team.team_id),
+            log_metadata(start),
+            log_metadata(end),
         )
         stats_rows = (
             db.session.query(FixturePlayerStats, Fixture)
@@ -2537,7 +2564,7 @@ def _enrich_first_team_stats(
             )
             .all()
         )
-        _enrich_logger.info(f"[ENRICH-FT] player={tp.player_api_id} found {len(stats_rows)} rows")
+        _enrich_logger.info("[ENRICH-FT] player=%s found %s rows", log_metadata(tp.player_api_id), len(stats_rows))
 
         if not stats_rows:
             any_ever = (
@@ -2546,8 +2573,12 @@ def _enrich_first_team_stats(
                 .scalar()
             )
             _enrich_logger.warning(
-                f"[ENRICH-FT] 0 weekly rows for {tp.player_name} (api_id={tp.player_api_id}) "
-                f"in {start}..{end}. Total rows in DB: {any_ever}."
+                "[ENRICH-FT] 0 weekly rows for %s (api_id=%s) in %s..%s. Total rows in DB: %s.",
+                log_metadata(tp.player_name),
+                log_metadata(tp.player_api_id),
+                log_metadata(start),
+                log_metadata(end),
+                log_metadata(any_ever),
             )
 
         totals = {"minutes": 0, "goals": 0, "assists": 0, "yellows": 0, "reds": 0, "saves": 0}
@@ -3458,9 +3489,8 @@ def persist_newsletter(
     except Exception as e:
         # Non-fatal; continue without rendered variants
         _nl_dbg("[persist_newsletter] render_variants_error", str(e))
-        import traceback
 
-        traceback.print_exc()
+        get_logger(__name__).error("Operation failed", exc_info=safe_exc_info())
         pass
 
     now = datetime.now(UTC)
@@ -3545,7 +3575,7 @@ def compose_team_weekly_newsletter(
             sync_result = _sync_team_fixtures_for_week(team_db_id, week_start, week_end, season_start_year)
             _nl_dbg("Pre-sync result:", sync_result)
         except Exception as sync_err:
-            logger.warning("newsletter pre-sync failed (non-fatal): %s", sync_err)
+            logger.warning("newsletter pre-sync failed (non-fatal): %s", log_metadata(sync_err))
 
     # Fetch report via pipeline tool
     _nl_dbg("Compose for team:", team_db_id, "week:", week_start, week_end, "season:", season_start_year)
@@ -3746,15 +3776,15 @@ def compose_team_weekly_newsletter(
     current_team = Team.query.get(team_db_id)
     api_team_id = current_team.team_id if current_team else None
 
-    print(f"\n{'=' * 60}")
+    print(f"\n{log_metadata('=' * 60)}")
     print("[COMMENTARY QUERY DEBUG - ROBUST MODE]")
-    print(f"{'=' * 60}")
+    print(f"{log_metadata('=' * 60)}")
     print("Searching for commentaries with:")
-    print(f"  API Team ID: {api_team_id} (derived from DB ID {team_db_id})")
-    print(f"  week_start_date: {week_start}")
-    print(f"  week_end_date: {week_end}")
+    print(f"  API Team ID: {log_metadata(api_team_id)} (derived from DB ID {log_metadata(team_db_id)})")
+    print(f"  week_start_date: {log_metadata(week_start)}")
+    print(f"  week_end_date: {log_metadata(week_end)}")
     print("  is_active: True")
-    print(f"{'=' * 60}\n")
+    print(f"{log_metadata('=' * 60)}\n")
 
     if api_team_id:
         commentaries = (
@@ -3792,7 +3822,7 @@ def compose_team_weekly_newsletter(
         t = Team.query.get(ac.team_id)
         t_info = f"API:{t.team_id}/S:{t.season}" if t else "Unknown"
         print(
-            f"  ID:{ac.id} | TeamDB:{ac.team_id}({t_info}) | Week:{ac.week_start_date} to {ac.week_end_date} | Title:{ac.title}"
+            f"  ID:{log_metadata(ac.id)} | TeamDB:{log_metadata(ac.team_id)}({log_metadata(t_info)}) | Week:{log_metadata(ac.week_start_date)} to {log_metadata(ac.week_end_date)} | Title:{log_metadata(ac.title)}"
         )
     print("")
 
@@ -3811,12 +3841,14 @@ def compose_team_weekly_newsletter(
                 player_commentary_map[c.player_id] = []
             player_commentary_map[c.player_id].append(c_dict)
 
-    print(f"[DEBUG] Found {len(commentaries)} active commentaries for team {team_db_id} week {week_start}-{week_end}")
     print(
-        f"[DEBUG] Intro: {len(intro_commentary)}, Summary: {len(summary_commentary)}, Player-specific: {sum(len(v) for v in player_commentary_map.values())}"
+        f"[DEBUG] Found {len(commentaries)} active commentaries for team {log_metadata(team_db_id)} week {log_metadata(week_start)}-{log_metadata(week_end)}"
+    )
+    print(
+        f"[DEBUG] Intro: {len(intro_commentary)}, Summary: {len(summary_commentary)}, Player-specific: {log_metadata(sum(len(v) for v in player_commentary_map.values()))}"
     )
     if player_commentary_map:
-        print(f"[DEBUG] Player IDs with commentary: {list(player_commentary_map.keys())}")
+        print(f"[DEBUG] Player IDs with commentary: {log_metadata(list(player_commentary_map.keys()))}")
 
         # Inject commentary into player items
         for item in player_items:
@@ -3830,7 +3862,9 @@ def compose_team_weekly_newsletter(
                     # This ensures it appears in the JSON output
                     item["commentary"] = coms[0].get("content")
                     item["commentary_title"] = coms[0].get("title")
-                    print(f"[DEBUG] Injected commentary for player {pid} ({item.get('player_name')})")
+                    print(
+                        f"[DEBUG] Injected commentary for player {log_metadata(pid)} ({log_metadata(item.get('player_name'))})"
+                    )
 
     # Build multi-section content grouped by pathway status, with sub-groups
     def _group_items_by(items: list[dict], key: str, fallback: str = "Other") -> list[dict[str, Any]]:

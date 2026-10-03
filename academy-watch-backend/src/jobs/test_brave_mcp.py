@@ -6,6 +6,8 @@ import os
 import sys
 from typing import Any
 
+from src.utils.log_privacy import log_metadata
+
 try:
     import dotenv  # type: ignore
 
@@ -137,7 +139,7 @@ async def main() -> int:
                 "brave_web_search", {"query": "site:uefa.com match report", "count": 1, "freshness": "pw"}
             )
         except Exception as e:
-            print(f"Ping failed: {e}", file=sys.stderr)
+            print(f"Ping failed: {log_metadata(e)}", file=sys.stderr)
             return 3
 
         if args.describe:
@@ -152,9 +154,9 @@ async def main() -> int:
                         names.append(name or str(t))
                 except Exception:
                     names = [str(tl)]
-                print(json.dumps({"tools": names}, ensure_ascii=False, indent=2))
+                print(json.dumps(log_metadata({"tools": names}), ensure_ascii=False, indent=2))
             except Exception as e:
-                print(f"Describe failed: {e}", file=sys.stderr)
+                print(f"Describe failed: {log_metadata(e)}", file=sys.stderr)
 
         common = {
             "query": args.query,
@@ -178,7 +180,11 @@ async def main() -> int:
         if args.tool in ("web", "both"):
             web_req = {**common, "result_filter": ["discussions", "web"]}
             if args.show_args:
-                print(json.dumps({"tool": "brave_web_search", "request": web_req}, ensure_ascii=False, indent=2))
+                print(
+                    json.dumps(
+                        log_metadata({"tool": "brave_web_search", "request": web_req}), ensure_ascii=False, indent=2
+                    )
+                )
             web_items = await _call_tool(server, "brave_web_search", web_req)
             out["web_total"] = len(web_items)
             out["web_samples"] = web_items if args.full else web_items[:3]
@@ -187,14 +193,20 @@ async def main() -> int:
                 preview = raw_web[:1] if isinstance(raw_web, list) else raw_web
                 print(
                     json.dumps(
-                        {"tool": "brave_web_search", "raw_preview": _to_jsonable(preview)}, ensure_ascii=False, indent=2
+                        log_metadata({"tool": "brave_web_search", "raw_preview": _to_jsonable(preview)}),
+                        ensure_ascii=False,
+                        indent=2,
                     )
                 )
 
         if args.tool in ("news", "both"):
             news_req = {**common, "result_filter": ["news"]}
             if args.show_args:
-                print(json.dumps({"tool": "brave_news_search", "request": news_req}, ensure_ascii=False, indent=2))
+                print(
+                    json.dumps(
+                        log_metadata({"tool": "brave_news_search", "request": news_req}), ensure_ascii=False, indent=2
+                    )
+                )
             news_items = await _call_tool(server, "brave_news_search", news_req)
             out["news_total"] = len(news_items)
             out["news_samples"] = news_items if args.full else news_items[:3]
@@ -203,13 +215,13 @@ async def main() -> int:
                 preview = raw_news[:1] if isinstance(raw_news, list) else raw_news
                 print(
                     json.dumps(
-                        {"tool": "brave_news_search", "raw_preview": _to_jsonable(preview)},
+                        log_metadata({"tool": "brave_news_search", "raw_preview": _to_jsonable(preview)}),
                         ensure_ascii=False,
                         indent=2,
                     )
                 )
 
-        print(json.dumps(out, ensure_ascii=False, indent=2))
+        print(json.dumps(log_metadata(out), ensure_ascii=False, indent=2))
         # non-zero exit if absolutely nothing returned
         totals = int(out.get("web_total", 0)) + int(out.get("news_total", 0))
         return 0 if totals > 0 else 1

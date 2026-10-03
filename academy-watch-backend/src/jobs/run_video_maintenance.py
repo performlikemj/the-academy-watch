@@ -13,6 +13,7 @@ import sys
 
 from src.main import app
 from src.services import video_queue, video_retention
+from src.utils.log_privacy import log_metadata
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -22,16 +23,18 @@ def run(dry_run=False) -> dict:
     """Run every maintenance step once. Returns counts so a caller (or a test) can see what happened."""
     if dry_run:
         retention = video_retention.expire_raw_footage(dry_run=True)
-        logger.info("video maintenance dry run: nothing changed (%d match(es) due for expiry)", retention["due"])
+        logger.info(
+            "video maintenance dry run: nothing changed (%d match(es) due for expiry)", log_metadata(retention["due"])
+        )
         return {"stale_failed": 0, "retention": retention, "dry_run": True}
     stale = video_queue.reap_stale_jobs()
     retention = video_retention.expire_raw_footage()
     logger.info(
         "video maintenance: stale-failed %d job(s); footage expired %d of %d due (%d failed)",
-        stale,
-        retention["expired"],
-        retention["due"],
-        retention["failed"],
+        log_metadata(stale),
+        log_metadata(retention["expired"]),
+        log_metadata(retention["due"]),
+        log_metadata(retention["failed"]),
     )
     return {"stale_failed": stale, "retention": retention, "dry_run": False}
 

@@ -30,6 +30,8 @@ from time import monotonic
 from urllib.parse import quote, unquote, urlparse
 from uuid import uuid4
 
+from src.utils.log_privacy import log_metadata
+
 logger = logging.getLogger(__name__)
 
 try:
@@ -68,7 +70,7 @@ def warn_once(key: str, message: str) -> None:
         if previous is not None and now - previous < WARNING_INTERVAL_SECONDS:
             return
         _logged_media_warnings[key] = now
-    logger.warning(message)
+    logger.warning("Log event: %s", log_metadata(message))
 
 
 _CONTENT_TYPE_EXTENSIONS = {
@@ -107,10 +109,16 @@ def max_photo_bytes() -> int:
     try:
         megabytes = float(raw_value)
     except (TypeError, ValueError):
-        logger.warning("invalid SHOWCASE_PHOTO_MAX_MB=%r; using %s", raw_value, DEFAULT_MAX_PHOTO_MB)
+        logger.warning(
+            "invalid SHOWCASE_PHOTO_MAX_MB=%r; using %s", log_metadata(raw_value), log_metadata(DEFAULT_MAX_PHOTO_MB)
+        )
         megabytes = DEFAULT_MAX_PHOTO_MB
     if not math.isfinite(megabytes) or megabytes <= 0:
-        logger.warning("invalid/non-positive SHOWCASE_PHOTO_MAX_MB=%r; using %s", raw_value, DEFAULT_MAX_PHOTO_MB)
+        logger.warning(
+            "invalid/non-positive SHOWCASE_PHOTO_MAX_MB=%r; using %s",
+            log_metadata(raw_value),
+            log_metadata(DEFAULT_MAX_PHOTO_MB),
+        )
         megabytes = DEFAULT_MAX_PHOTO_MB
     return int(megabytes * 1024**2)
 
@@ -181,9 +189,9 @@ def _check_container(client, name: str) -> None:
     try:
         client.get_container_client(name).get_container_properties()
     except ResourceNotFoundError:
-        logger.warning("Required media container %s is missing; provision it privately", name)
+        logger.warning("Required media container %s is missing; provision it privately", log_metadata(name))
     except Exception:
-        logger.warning("Could not verify required media container %s", name)
+        logger.warning("Could not verify required media container %s", log_metadata(name))
     _checked_containers.add(name)
 
 
@@ -374,7 +382,7 @@ def verify_pending(blob_path: str) -> dict:
                 return {"ok": False, "error": "pending upload not found"}
             size_bytes = path.stat().st_size
     except Exception as exc:  # missing blob, network, or auth all mean unverified
-        logger.warning("showcase pending blob verify failed for %s: %s", blob_path, exc)
+        logger.warning("showcase pending blob verify failed for %s: %s", log_metadata(blob_path), log_metadata(exc))
         return {"ok": False, "error": "pending upload not found or unreadable"}
 
     if size_bytes <= 0:

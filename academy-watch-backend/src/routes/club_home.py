@@ -14,6 +14,7 @@ from src.models.league import db
 from src.services import showcase_media_storage as storage
 from src.services.club_access import require_club_permission_by_method, scoped_squad_ids
 from src.services.photo_processing import process_photo
+from src.utils.log_privacy import log_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -370,7 +371,7 @@ def register(club_bp):
                 raise HomeError(f"{field}: text contrast must be at least 4.5:1 against {foreground}")
             setattr(program, f"brand_{field}", color.upper())
         db.session.commit()
-        logger.info("Club branding changed program=%s user=%s", program_id, g.user_id)
+        logger.info("Club branding changed program=%s user=%s", log_metadata(program_id), log_metadata(g.user_id))
         return jsonify(brand=program.brand_dict())
 
     @route("branding/banner", ["POST"], "branding")
@@ -411,5 +412,5 @@ def register(club_bp):
                 previous_path = ""  # Legacy/external URLs are never deletion targets.
             if previous_path.startswith(f"club-banners/{program_id}/"):
                 storage.delete_published(previous_url)
-        logger.info("Club banner published program=%s user=%s", program_id, g.user_id)
+        logger.info("Club banner published program=%s user=%s", log_metadata(program_id), log_metadata(g.user_id))
         return jsonify(brand=program.brand_dict())

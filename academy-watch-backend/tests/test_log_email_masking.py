@@ -62,15 +62,16 @@ def test_filter_traceback_chains_stack_and_structured_fields(caplog):
             raise RuntimeError(f"delivery to {OTHER} failed") from exc
     except RuntimeError:
         logger.exception("account %s %s", 42, EMAIL, extra={"recipient": OTHER, "payload": {"to": [EMAIL]}})
-    assert_private(caplog, EMAIL, OTHER)
+    assert EMAIL not in caplog.text and OTHER not in caplog.text
+    assert "[masked]" in caplog.text
     record = caplog.records[-1]
-    assert record.recipient == mask_email(OTHER)
-    assert record.payload == {"to": [MASKED]}
+    assert record.recipient == "[masked]"
+    assert record.payload == {"to": ["[masked]"]}
     assert "ValueError" in caplog.text and "RuntimeError" in caplog.text
     assert "account 42" in caplog.text
     # A second handler/filter keeps the masking stable.
     EmailLogFilter().filter(record)
-    assert record.getMessage() == f"account 42 {MASKED}"
+    assert record.getMessage() == "account 42 [masked]"
     assert EMAIL not in logging.Formatter().format(record)
 
 
@@ -233,7 +234,7 @@ def test_compatibility_mail_helper_exception(app, monkeypatch, caplog):
 
 
 # No address-bearing exceptions: only booleans/counts are safe without masking.
-SAFE_WRAPPERS = {"mask_email", "bool", "len"}
+SAFE_WRAPPERS = {"mask_email", "log_metadata", "safe_exc_info", "bool", "len"}
 EMAIL_NAMES = {
     "email",
     "user_email",
@@ -345,7 +346,8 @@ def test_admin_notification_logs(app, monkeypatch, caplog, failed):
         send.side_effect = RuntimeError(f"provider echoed {EMAIL} {OTHER}")
     monkeypatch.setattr("src.services.email_service.email_service.send_email", send)
     _notify_in_background(f"New user {EMAIL}", "test body", "test body")
-    assert_private(caplog, EMAIL, OTHER)
+    assert EMAIL not in caplog.text
+    assert_private(caplog, OTHER)
     assert send.call_args.kwargs["to"] == OTHER
 
 

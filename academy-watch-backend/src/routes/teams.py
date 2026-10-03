@@ -28,6 +28,7 @@ from src.utils.academy_classifier import _get_latest_season, classify_tracked_pl
 from src.utils.data_mode import api_football_frozen
 from src.utils.feature_flags import rollup_reads_enabled
 from src.utils.geocoding import get_team_coordinates
+from src.utils.log_privacy import log_metadata
 from src.utils.slug import resolve_team_by_identifier
 from src.utils.supported_leagues import get_league_region, get_supported_leagues
 from src.utils.team_season_stats import live_stats_by_player, missing_rollup_stats, rollup_stats_by_player
@@ -119,7 +120,7 @@ def get_gameweeks():
         weeks = get_season_gameweeks(season_start_year=season)
         return jsonify(weeks)
     except Exception as e:
-        logger.error(f"Error getting gameweeks: {e}")
+        logger.error("Error getting gameweeks: %s", log_metadata(e))
         return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
 
 
@@ -140,11 +141,11 @@ def get_teams():
     """
     try:
         logger.info("GET /teams endpoint called")
-        logger.info(f"Request args: {dict(request.args)}")
+        logger.info("Request args: %s", log_metadata(dict(request.args)))
 
         # Check database connection and teams table
         total_teams = Team.query.count()
-        logger.info(f"Total teams in database: {total_teams}")
+        logger.info("Total teams in database: %s", log_metadata(total_teams))
 
         # Start with base query for active teams
         query = Team.query.filter_by(is_active=True)
@@ -152,7 +153,7 @@ def get_teams():
         # Handle season filter
         season = request.args.get("season", type=int)
         if season:
-            logger.info(f"Filtering for season: {season}")
+            logger.info("Filtering for season: %s", log_metadata(season))
             query = query.filter_by(season=season)
 
         # Handle european_only filter (historical name — now "supported leagues only")
@@ -178,12 +179,12 @@ def get_teams():
         # Handle search filter (for global search)
         search = request.args.get("search", "").strip()
         if search:
-            logger.info(f"Searching teams for: {search}")
+            logger.info("Searching teams for: %s", log_metadata(search))
             query = query.filter(Team.name.ilike(f"%{search}%"))
 
         teams = query.all()
         active_teams_count = len(teams)
-        logger.info(f"Filtered teams found: {active_teams_count}")
+        logger.info("Filtered teams found: %s", log_metadata(active_teams_count))
 
         # Deduplicate teams by team_id, keeping the latest season
         deduped_teams = {}
@@ -208,7 +209,7 @@ def get_teams():
                     query = query.join(League).filter(League.league_id.in_(supported_league_ids))
                 teams = query.all()
             except Exception as sync_ex:
-                logger.error(f"Lazy sync failed: {sync_ex}")
+                logger.error("Lazy sync failed: %s", log_metadata(sync_ex))
 
         # Counts are filled by the suppression-aware aggregate below; passing a
         # value here avoids loading the unfiltered relationship in Team.to_dict.
@@ -237,14 +238,14 @@ def get_teams():
                 td["current_loaned_out_count"] = tp_counts.get(td["id"], 0)
 
         _inject_slugs(team_dicts, teams)
-        logger.info(f"Returning {len(team_dicts)} team records")
+        logger.info("Returning %s team records", len(team_dicts))
 
         return jsonify(team_dicts)
     except Exception as e:
-        logger.error(f"Error in get_teams: {str(e)}")
+        logger.error("Error in get_teams: %s", log_metadata(str(e)))
         import traceback
 
-        logger.error(f"Traceback: {traceback.format_exc()}")
+        logger.error("Traceback: %s", log_metadata(traceback.format_exc()))
         return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
 
 
@@ -255,7 +256,7 @@ def _lazy_sync_european_teams(season: int | None):
     require_api_enabled()
     real_client = _get_api_client()
     season = season or real_client.current_season_start_year
-    logger.info(f"Attempting lazy sync for European top leagues for season {season}")
+    logger.info("Attempting lazy sync for European top leagues for season %s", log_metadata(season))
 
     # Sync leagues (top-5)
     leagues_data = real_client.get_european_leagues(season)
@@ -628,7 +629,7 @@ def get_teams_for_season(season):
         team_mapping = real_client.get_teams_for_season(season)
         return jsonify({"season": season, "teams": team_mapping, "count": len(team_mapping)})
     except Exception as e:
-        logger.error(f"Error fetching teams for season {season}: {e}")
+        logger.error("Error fetching teams for season %s: %s", log_metadata(season), log_metadata(e))
         return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
 
 
@@ -1036,7 +1037,7 @@ def get_academy_network(team_identifier):
                 geocoded += 1
             if geocoded:
                 db.session.commit()
-                logger.info(f"Auto-geocoded {geocoded} club locations for academy network")
+                logger.info("Auto-geocoded %s club locations for academy network", log_metadata(geocoded))
 
         # Serialize nodes — convert sets to lists, add lat/lng
         nodes = []
@@ -1099,10 +1100,10 @@ def get_academy_network(team_identifier):
             }
         )
     except Exception as e:
-        logger.error(f"Error getting academy network for team {team_api_id}: {e}")
+        logger.error("Error getting academy network for team %s: %s", log_metadata(team_api_id), log_metadata(e))
         import traceback
 
-        logger.error(traceback.format_exc())
+        logger.error("Log event: %s", log_metadata(traceback.format_exc()))
         return jsonify(_safe_error_payload(e, "Failed to load academy network data.")), 500
 
 
@@ -1122,5 +1123,5 @@ def get_team_api_info(team_identifier):
     except NotFound:
         raise
     except Exception as e:
-        logger.error(f"Error fetching team {team_identifier} from API: {e}")
+        logger.error("Error fetching team %s from API: %s", log_metadata(team_identifier), log_metadata(e))
         return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500

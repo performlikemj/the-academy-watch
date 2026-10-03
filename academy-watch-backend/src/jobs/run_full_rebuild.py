@@ -23,6 +23,7 @@ from src.main import app
 from src.models.league import db
 from src.utils.background_jobs import create_background_job, update_job
 from src.utils.data_mode import job_entrypoint
+from src.utils.log_privacy import log_metadata
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -39,11 +40,11 @@ def run(skip_clean=False):
     except Exception:
         pass
 
-    logger.info("Full rebuild starting. skip_clean=%s", skip_clean)
+    logger.info("Full rebuild starting. skip_clean=%s", log_metadata(skip_clean))
 
     # Create a background job record for tracking
     job_id = create_background_job("full_rebuild")
-    logger.info("Job ID: %s", job_id)
+    logger.info("Job ID: %s", log_metadata(job_id))
 
     try:
         run_rebuild_process(
@@ -55,7 +56,7 @@ def run(skip_clean=False):
         )
         logger.info("Full rebuild completed successfully.")
     except Exception as e:
-        logger.error("Full rebuild failed: %s", e)
+        logger.error("Full rebuild failed: %s", log_metadata(e))
         update_job(job_id, status="failed", error=str(e))
         raise
 

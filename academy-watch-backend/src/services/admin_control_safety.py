@@ -15,6 +15,7 @@ from src.models.player_suppression import PlayerSuppression
 from src.models.trust import ContentReport
 from src.services.admin_audit import record_admin_event
 from src.services.notification_outbox import enqueue, register_template
+from src.utils.log_privacy import log_metadata, safe_exc_info
 
 
 def safety_enabled():
@@ -122,10 +123,12 @@ def notify(case, state):
     except ValueError:
         # Includes legacy versioned payloads using this key: never duplicate the notice.
         case.notification_state = "deduplicated"
-        logging.getLogger(__name__).warning("Safeguarding notification collision for case %s", case.id)
+        logging.getLogger(__name__).warning("Safeguarding notification collision for case %s", log_metadata(case.id))
     except Exception:
         case.notification_state = "failed"
-        logging.getLogger(__name__).exception("Safeguarding notification deferred for case %s", case.id)
+        logging.getLogger(__name__).exception(
+            "Safeguarding notification deferred for case %s", log_metadata(case.id), exc_info=safe_exc_info()
+        )
 
 
 def bounded_id(value):
@@ -624,4 +627,6 @@ def lazy_reconcile(app, which):
             record_business_boot(app)
     except Exception:
         db.session.rollback()
-        logging.getLogger(__name__).exception("Admin reconciliation deferred for %s", which)
+        logging.getLogger(__name__).exception(
+            "Admin reconciliation deferred for %s", log_metadata(which), exc_info=safe_exc_info()
+        )

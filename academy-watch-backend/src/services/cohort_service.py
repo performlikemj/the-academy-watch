@@ -15,6 +15,7 @@ from src.models.journey import PlayerJourney, PlayerJourneyEntry
 from src.models.league import db
 from src.services.journey_sync import JourneySyncService
 from src.utils.academy_classifier import classify_tracked_player, strip_youth_suffix
+from src.utils.log_privacy import log_metadata
 from src.utils.player_names import clean_name
 
 logger = logging.getLogger(__name__)
@@ -56,10 +57,10 @@ class CohortService:
         query_team_id = int(query_team_api_id or team_api_id)
         logger.info(
             "Discovering cohort: parent_team=%s query_team=%s league=%s season=%s",
-            team_api_id,
-            query_team_id,
-            league_api_id,
-            season,
+            log_metadata(team_api_id),
+            log_metadata(query_team_id),
+            log_metadata(league_api_id),
+            log_metadata(season),
         )
 
         # Check for existing cohort (idempotent)
@@ -73,9 +74,13 @@ class CohortService:
             # or transient errors).
             member_count = CohortMember.query.filter_by(cohort_id=existing.id).count()
             if member_count > 0:
-                logger.info(f"Cohort already exists (id={existing.id}, status={existing.sync_status})")
+                logger.info(
+                    "Cohort already exists (id=%s, status=%s)",
+                    log_metadata(existing.id),
+                    log_metadata(existing.sync_status),
+                )
                 return existing
-            logger.info(f"Re-seeding empty cohort id={existing.id}")
+            logger.info("Re-seeding empty cohort id=%s", log_metadata(existing.id))
 
         try:
             # Create or reset cohort
@@ -191,22 +196,22 @@ class CohortService:
                 db.session.commit()
                 logger.warning(
                     "Empty cohort discovered id=%s parent=%s query_team=%s league=%s season=%s",
-                    cohort.id,
-                    team_api_id,
-                    query_team_id,
-                    league_api_id,
-                    season,
+                    log_metadata(cohort.id),
+                    log_metadata(team_api_id),
+                    log_metadata(query_team_id),
+                    log_metadata(league_api_id),
+                    log_metadata(season),
                 )
                 return cohort
 
             cohort.sync_status = "seeded"
             db.session.commit()
 
-            logger.info(f"Discovered cohort id={cohort.id}: {players_added} players")
+            logger.info("Discovered cohort id=%s: %s players", log_metadata(cohort.id), log_metadata(players_added))
             return cohort
 
         except Exception as e:
-            logger.error(f"Failed to discover cohort: {e}")
+            logger.error("Failed to discover cohort: %s", log_metadata(e))
             db.session.rollback()
 
             try:
@@ -242,7 +247,12 @@ class CohortService:
         if not cohort:
             raise ValueError(f"Cohort {cohort_id} not found")
 
-        logger.info(f"Syncing journeys for cohort {cohort_id} ({cohort.team_name} {cohort.season})")
+        logger.info(
+            "Syncing journeys for cohort %s (%s %s)",
+            log_metadata(cohort_id),
+            log_metadata(cohort.team_name),
+            log_metadata(cohort.season),
+        )
 
         cohort.sync_status = "syncing_journeys"
         db.session.commit()
@@ -288,7 +298,9 @@ class CohortService:
                 db.session.commit()
 
             except Exception as e:
-                logger.warning(f"Failed to sync journey for player {member.player_api_id}: {e}")
+                logger.warning(
+                    "Failed to sync journey for player %s: %s", log_metadata(member.player_api_id), log_metadata(e)
+                )
                 member.journey_synced = False
                 member.journey_sync_error = str(e)
                 db.session.commit()
@@ -310,7 +322,7 @@ class CohortService:
             cohort.journeys_synced_at = datetime.now(UTC)
         db.session.commit()
 
-        logger.info(f"Journey sync complete for cohort {cohort_id}")
+        logger.info("Journey sync complete for cohort %s", log_metadata(cohort_id))
         return cohort
 
     def refresh_cohort_stats(self, cohort_id: int) -> None:
@@ -328,7 +340,9 @@ class CohortService:
         cohort.players_released = sum(1 for m in members if m.current_status in ("released", "sold", "left"))
 
         db.session.commit()
-        logger.info(f"Refreshed stats for cohort {cohort_id}: {cohort.total_players} players")
+        logger.info(
+            "Refreshed stats for cohort %s: %s players", log_metadata(cohort_id), log_metadata(cohort.total_players)
+        )
 
     @staticmethod
     def _derive_status(

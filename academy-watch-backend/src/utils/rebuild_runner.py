@@ -9,6 +9,8 @@ the DB connection pool.
 import logging
 from datetime import UTC, datetime
 
+from src.utils.log_privacy import log_metadata, safe_exc_info
+
 logger = logging.getLogger(__name__)
 
 
@@ -75,9 +77,7 @@ def _rebuild_transfer_evidence(
             transfer_cache[player_api_id] = flatten_transfers(api_client.get_player_transfers(player_api_id))
         except Exception as exc:
             logger.warning(
-                "Transfer fetch failed during rebuild for player %s: %s",
-                player_api_id,
-                exc,
+                "Transfer fetch failed during rebuild for player %s: %s", log_metadata(player_api_id), log_metadata(exc)
             )
             transfer_cache[player_api_id] = None
 
@@ -148,7 +148,7 @@ def run_rebuild_process(job_id, rebuild_type, kwargs):
     # Handle SIGTERM gracefully so container restarts / worker recycling
     # mark the job as failed instead of leaving it stuck in 'running'.
     def _sigterm_handler(signum, frame):
-        logger.warning("Rebuild subprocess %s received SIGTERM, marking job failed", job_id)
+        logger.warning("Rebuild subprocess %s received SIGTERM, marking job failed", log_metadata(job_id))
         try:
             with app.app_context():
                 from src.utils.background_jobs import update_job as _update
@@ -181,7 +181,7 @@ def run_rebuild_process(job_id, rebuild_type, kwargs):
             db.session.rollback()
             update_job(job_id, status="cancelled", error=str(e), completed_at=datetime.now(UTC).isoformat())
         except Exception as e:
-            logger.exception("Rebuild job %s failed", job_id)
+            logger.exception("Rebuild job %s failed", log_metadata(job_id), exc_info=safe_exc_info())
             db.session.rollback()
             update_job(job_id, status="failed", error=str(e), completed_at=datetime.now(UTC).isoformat())
 
@@ -365,13 +365,17 @@ def _run_full_rebuild(job_id, config):
                 results["cohorts_created"] = seed_result.get("cohorts_created", 0)
                 results["players_synced"] = seed_result.get("players_synced", 0)
             except Exception as stage3_err:
-                logger.warning("Stage 3 (cohort seed) failed, continuing to remaining stages: %s", stage3_err)
+                logger.warning(
+                    "Stage 3 (cohort seed) failed, continuing to remaining stages: %s", log_metadata(stage3_err)
+                )
                 results["errors"].append(f"Stage 3 partial failure: {stage3_err}")
 
             # Report how many cohorts still need journey sync
             seeded_only = AcademyCohort.query.filter_by(sync_status="seeded").count()
             if seeded_only:
-                logger.warning('%d cohorts still at "seeded" status (journey sync incomplete)', seeded_only)
+                logger.warning(
+                    '%d cohorts still at "seeded" status (journey sync incomplete)', log_metadata(seeded_only)
+                )
                 results["cohorts_pending_sync"] = seeded_only
 
             results["stages_completed"].append("cohorts")
@@ -420,7 +424,12 @@ def _run_full_rebuild(job_id, config):
                             pass  # just collecting data
                     squad_data.extend(season_squad)
                 except Exception as e:
-                    logger.warning("Squad fetch failed for %s season %d: %s", team_name, fetch_season, e)
+                    logger.warning(
+                        "Squad fetch failed for %s season %d: %s",
+                        log_metadata(team_name),
+                        log_metadata(fetch_season),
+                        log_metadata(e),
+                    )
 
             # Sync journeys for squad players
             for entry in squad_data:
@@ -507,8 +516,8 @@ def _run_full_rebuild(job_id, config):
                         skipped += 1
                         logger.warning(
                             "Skipping rebuild creation for player %s at %s because transfer evidence was not fetched",
-                            pid,
-                            team.name,
+                            log_metadata(pid),
+                            log_metadata(team.name),
                         )
                         continue
 
@@ -638,7 +647,7 @@ def _run_full_rebuild(job_id, config):
                 status_counts[tp.status] = status_counts.get(tp.status, 0) + 1
                 logger.warning(
                     "Skipping rebuild transfer refresh for player %s because transfer evidence was not fetched",
-                    tp.player_api_id,
+                    log_metadata(tp.player_api_id),
                 )
                 continue
             status, loan_api_id, loan_name = classify_tracked_player(
@@ -692,12 +701,17 @@ def _run_full_rebuild(job_id, config):
         update_job(job_id, status="completed", results=results, completed_at=datetime.now(UTC).isoformat())
 
     except InterruptedError as e:
-        logger.info("Full rebuild job %s cancelled at stage: %s", job_id, stage)
+        logger.info("Full rebuild job %s cancelled at stage: %s", log_metadata(job_id), log_metadata(stage))
         results["stages_completed"].append(f"{stage} (cancelled)")
         update_job(
             job_id, status="cancelled", results=results, error=str(e), completed_at=datetime.now(UTC).isoformat()
         )
     except Exception as e:
-        logger.exception("Full rebuild job %s failed at stage: %s", job_id, stage)
+        logger.exception(
+            "Full rebuild job %s failed at stage: %s",
+            log_metadata(job_id),
+            log_metadata(stage),
+            exc_info=safe_exc_info(),
+        )
         db.session.rollback()
         update_job(job_id, status="failed", error=f"Failed at {stage}: {e}", completed_at=datetime.now(UTC).isoformat())

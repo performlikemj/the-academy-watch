@@ -7,6 +7,8 @@ environment variables for local development.
 import logging
 import os
 
+from src.utils.log_privacy import log_metadata
+
 logger = logging.getLogger(__name__)
 
 # Module-level cache for loaded secrets
@@ -39,20 +41,20 @@ def load_secret(secret_name: str, vault_url: str | None = None) -> str | None:
             value = secret.value
             if value:
                 _secret_cache[secret_name] = value
-                logger.info("Loaded secret '%s' from Key Vault", secret_name)
+                logger.info("Loaded secret '%s' from Key Vault", log_metadata(secret_name))
                 return value
             else:
-                logger.warning("Secret '%s' exists in Key Vault but has no value", secret_name)
+                logger.warning("Secret '%s' exists in Key Vault but has no value", log_metadata(secret_name))
         except ImportError:
             logger.warning(
                 "azure-identity or azure-keyvault-secrets not installed; falling back to env var for '%s'",
-                secret_name,
+                log_metadata(secret_name),
             )
         except Exception as e:
             logger.warning(
                 "Failed to load secret '%s' from Key Vault: %s; falling back to env var",
-                secret_name,
-                e,
+                log_metadata(secret_name),
+                log_metadata(e),
             )
 
     # Fallback to environment variable
@@ -60,9 +62,9 @@ def load_secret(secret_name: str, vault_url: str | None = None) -> str | None:
     if value:
         value = value.strip()
         _secret_cache[secret_name] = value
-        logger.info("Loaded secret '%s' from environment variable", secret_name)
+        logger.info("Loaded secret '%s' from environment variable", log_metadata(secret_name))
     else:
-        logger.warning("Secret '%s' not found in Key Vault or environment", secret_name)
+        logger.warning("Secret '%s' not found in Key Vault or environment", log_metadata(secret_name))
 
     return value or None
 

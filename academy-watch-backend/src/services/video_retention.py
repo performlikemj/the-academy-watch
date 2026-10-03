@@ -12,6 +12,7 @@ from sqlalchemy import and_, exists, func, or_
 from src.models.league import db
 from src.models.video import VideoAnalysisJob, VideoMatch
 from src.services import video_storage
+from src.utils.log_privacy import log_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -145,5 +146,5 @@ def expire_raw_footage(now: datetime | None = None, *, dry_run: bool = False) ->
         match.blob_etag = None
         db.session.commit()
         expired += 1
-        logger.info("raw footage expired for video match %s", match.id)
+        logger.info("raw footage expired for video match %s", log_metadata(match.id))
     return {"due": len(due), "expired": expired, "failed": failed, "skipped": skipped, "dry_run": False}

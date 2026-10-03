@@ -3,6 +3,8 @@
 import argparse
 import json
 
+from src.utils.log_privacy import log_metadata
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -17,7 +19,7 @@ def main():
     with app.app_context():
         result = purge_invited_emails(limit=args.limit)
         db.session.commit()
-        print(json.dumps(result))
+        print(json.dumps(log_metadata(result)))
 
 
 if __name__ == "__main__":

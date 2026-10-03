@@ -16,6 +16,7 @@ from src.extensions import limiter
 from src.models.league import CommunityTake, Newsletter, QuickTakeSubmission, Team, db
 from src.routes.api import require_api_key
 from src.services.player_suppression import public_player_visible_filter
+from src.utils.log_privacy import log_metadata
 from src.utils.sanitize import sanitize_comment_body, sanitize_plain_text
 
 community_takes_bp = Blueprint("community_takes", __name__)
@@ -174,7 +175,7 @@ def submit_take():
             QuickTakeSubmission.ip_hash == ip_hash, QuickTakeSubmission.created_at >= one_hour_ago
         ).count()
         if recent_count >= 5:
-            logger.warning(f"Rate limit exceeded for IP hash {ip_hash[:16]}...")
+            logger.warning("Rate limit exceeded for IP hash %s...", log_metadata(ip_hash[:16]))
             return jsonify({"error": "Too many submissions. Please try again later."}), 429
 
     # Duplicate content detection: prevent exact duplicate submissions within 24 hours
@@ -183,7 +184,7 @@ def submit_take():
         QuickTakeSubmission.content == content, QuickTakeSubmission.created_at >= twenty_four_hours_ago
     ).first()
     if duplicate:
-        logger.warning(f"Duplicate content detected, original submission #{duplicate.id}")
+        logger.warning("Duplicate content detected, original submission #%s", log_metadata(duplicate.id))
         return jsonify({"error": "This take has already been submitted."}), 400
 
     submission = QuickTakeSubmission(
@@ -201,7 +202,9 @@ def submit_take():
     db.session.add(submission)
     db.session.commit()
 
-    logger.info(f"Quick take submission #{submission.id} created for player: {player_name}")
+    logger.info(
+        "Quick take submission #%s created for player: %s", log_metadata(submission.id), log_metadata(player_name)
+    )
 
     return jsonify(
         {
@@ -316,7 +319,7 @@ def admin_approve_take(take_id):
 
     db.session.commit()
 
-    logger.info(f"Community take #{take_id} approved")
+    logger.info("Community take #%s approved", log_metadata(take_id))
 
     return jsonify(
         {
@@ -350,7 +353,7 @@ def admin_reject_take(take_id):
 
     db.session.commit()
 
-    logger.info(f"Community take #{take_id} rejected")
+    logger.info("Community take #%s rejected", log_metadata(take_id))
 
     return jsonify(
         {
@@ -395,7 +398,7 @@ def admin_approve_submission(submission_id):
 
     db.session.commit()
 
-    logger.info(f"Submission #{submission_id} approved, created take #{take.id}")
+    logger.info("Submission #%s approved, created take #%s", log_metadata(submission_id), log_metadata(take.id))
 
     return jsonify(
         {
@@ -430,7 +433,7 @@ def admin_reject_submission(submission_id):
 
     db.session.commit()
 
-    logger.info(f"Submission #{submission_id} rejected")
+    logger.info("Submission #%s rejected", log_metadata(submission_id))
 
     return jsonify(
         {
@@ -516,7 +519,7 @@ def admin_create_take():
     db.session.add(take)
     db.session.commit()
 
-    logger.info(f"Community take #{take.id} created by admin")
+    logger.info("Community take #%s created by admin", log_metadata(take.id))
 
     return jsonify(
         {
@@ -537,7 +540,7 @@ def admin_delete_take(take_id):
     db.session.delete(take)
     db.session.commit()
 
-    logger.info(f"Community take #{take_id} deleted")
+    logger.info("Community take #%s deleted", log_metadata(take_id))
 
     return jsonify({"message": "Take deleted"})
 

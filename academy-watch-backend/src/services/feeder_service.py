@@ -14,6 +14,7 @@ from src.models.journey import PlayerJourney
 from src.models.league import Team, TeamProfile, db
 from src.services.journey_sync import JourneySyncService
 from src.utils.academy_classifier import is_national_team, strip_youth_suffix
+from src.utils.log_privacy import log_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -130,14 +131,19 @@ class FeederService:
         missing_ids = [pid for pid in player_api_ids if pid not in journeys_by_player]
         if auto_sync and missing_ids:
             sync_batch = missing_ids[:MAX_AUTO_SYNC]
-            logger.info(f"Auto-syncing {len(sync_batch)}/{len(missing_ids)} missing journeys for team {team_api_id}")
+            logger.info(
+                "Auto-syncing %s/%s missing journeys for team %s",
+                len(sync_batch),
+                len(missing_ids),
+                log_metadata(team_api_id),
+            )
             for pid in sync_batch:
                 try:
                     journey = self.journey_sync.sync_player(pid)
                     if journey:
                         journeys_by_player[pid] = journey
                 except Exception as e:
-                    logger.warning(f"Failed to sync journey for player {pid}: {e}")
+                    logger.warning("Failed to sync journey for player %s: %s", log_metadata(pid), log_metadata(e))
 
         # Filter to current squad: exclude players who left mid-season
         # (sold, loaned out, etc.) by checking journey's current_club

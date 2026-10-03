@@ -8,7 +8,7 @@ import requests
 from flask import render_template
 from src.models.league import Newsletter, NewsletterCommentary, NewsletterDigestQueue, UserAccount, UserSubscription, db
 from src.utils.legacy_pages import legacy_public_url
-from src.utils.log_privacy import get_logger, mask_email
+from src.utils.log_privacy import get_logger, log_metadata, mask_email, safe_exc_info
 
 logger = get_logger(__name__)
 
@@ -39,7 +39,7 @@ def queue_newsletter_for_digest(user_id: int, newsletter_id: int) -> bool:
         existing = NewsletterDigestQueue.query.filter_by(user_id=user_id, newsletter_id=newsletter_id).first()
 
         if existing:
-            logger.debug(f"Newsletter {newsletter_id} already queued for user {user_id}")
+            logger.debug("Newsletter %s already queued for user %s", log_metadata(newsletter_id), log_metadata(user_id))
             return False
 
         queue_entry = NewsletterDigestQueue(
@@ -48,11 +48,21 @@ def queue_newsletter_for_digest(user_id: int, newsletter_id: int) -> bool:
         db.session.add(queue_entry)
         db.session.commit()
 
-        logger.info(f"Queued newsletter {newsletter_id} for user {user_id} digest (week {week_key})")
+        logger.info(
+            "Queued newsletter %s for user %s digest (week %s)",
+            log_metadata(newsletter_id),
+            log_metadata(user_id),
+            log_metadata(week_key),
+        )
         return True
 
     except Exception as e:
-        logger.exception(f"Error queueing newsletter {newsletter_id} for user {user_id}")
+        logger.exception(
+            "Error queueing newsletter %s for user %s",
+            log_metadata(newsletter_id),
+            log_metadata(user_id),
+            exc_info=safe_exc_info(),
+        )
         db.session.rollback()
         return False
 
@@ -73,7 +83,7 @@ def send_digest_emails(week_key: str = None) -> dict:
         if not week_key:
             week_key = get_current_week_key()
 
-        logger.info(f"Processing digest emails for week {week_key}")
+        logger.info("Processing digest emails for week %s", log_metadata(week_key))
 
         # Get all unsent queued items for this week, grouped by user
 
@@ -88,7 +98,7 @@ def send_digest_emails(week_key: str = None) -> dict:
         user_ids = [u[0] for u in users_with_pending]
 
         if not user_ids:
-            logger.info(f"No pending digest items for week {week_key}")
+            logger.info("No pending digest items for week %s", log_metadata(week_key))
             return {"success": True, "digests_sent": 0, "message": "No pending digests"}
 
         results = {"success": True, "digests_sent": 0, "newsletters_included": 0, "errors": []}
@@ -102,14 +112,18 @@ def send_digest_emails(week_key: str = None) -> dict:
                 else:
                     results["errors"].append({"user_id": user_id, "error": result.get("error")})
             except Exception as e:
-                logger.exception(f"Error sending digest to user {user_id}")
+                logger.exception("Error sending digest to user %s", log_metadata(user_id), exc_info=safe_exc_info())
                 results["errors"].append({"user_id": user_id, "error": str(e)})
 
-        logger.info(f"Digest processing complete: {results['digests_sent']} sent, {len(results['errors'])} errors")
+        logger.info(
+            "Digest processing complete: %s sent, %s errors",
+            log_metadata(results["digests_sent"]),
+            len(results["errors"]),
+        )
         return results
 
     except Exception as e:
-        logger.exception("Error in send_digest_emails")
+        logger.exception("Error in send_digest_emails", exc_info=safe_exc_info())
         return {"success": False, "error": str(e)}
 
 
@@ -284,25 +298,30 @@ def _send_single_digest(user_id: int, week_key: str) -> dict:
                 logger.info(
                     "Sent digest to %s user_id=%s with %s newsletters",
                     mask_email(user.email),
-                    user.id,
+                    log_metadata(user.id),
                     len(newsletter_data),
                 )
                 return {"success": True, "newsletter_count": len(newsletter_data), "email": user.email}
             else:
                 logger.error(
                     "Digest webhook failed: status=%s to=%s user_id=%s",
-                    response.status_code,
+                    log_metadata(response.status_code),
                     mask_email(user.email),
-                    user.id,
+                    log_metadata(user.id),
                 )
                 return {"success": False, "error": f"Webhook returned {response.status_code}"}
 
         except requests.RequestException as e:
-            logger.exception("Error sending digest webhook to %s user_id=%s", mask_email(user.email), user.id)
+            logger.exception(
+                "Error sending digest webhook to %s user_id=%s",
+                mask_email(user.email),
+                log_metadata(user.id),
+                exc_info=safe_exc_info(),
+            )
             return {"success": False, "error": str(e)}
 
     except Exception as e:
-        logger.exception(f"Error in _send_single_digest for user {user_id}")
+        logger.exception("Error in _send_single_digest for user %s", log_metadata(user_id), exc_info=safe_exc_info())
         db.session.rollback()
         return {"success": False, "error": str(e)}
 
@@ -381,13 +400,13 @@ def process_newsletter_deadline(week_start_date=None):
             days_since_monday = now.weekday()
             target_date = (now - timedelta(days=days_since_monday)).date()
 
-        logger.info(f"Processing newsletter deadline for week starting {target_date}")
+        logger.info("Processing newsletter deadline for week starting %s", log_metadata(target_date))
 
         # Find all newsletters for this week that aren't published yet
         newsletters = Newsletter.query.filter(Newsletter.week_start_date == target_date, not Newsletter.published).all()
 
         if not newsletters:
-            logger.info(f"No unpublished newsletters found for week {target_date}")
+            logger.info("No unpublished newsletters found for week %s", log_metadata(target_date))
             return {"success": True, "message": "No newsletters to process", "newsletters_processed": 0}
 
         results = {"newsletters_processed": 0, "writers_contributed": 0, "details": []}
@@ -400,11 +419,11 @@ def process_newsletter_deadline(week_start_date=None):
                 {"newsletter_id": newsletter.id, "team_id": newsletter.team_id, **newsletter_result}
             )
 
-        logger.info(f"Deadline processing complete: {results}")
+        logger.info("Deadline processing complete: %s", log_metadata(results))
         return results
 
     except Exception as e:
-        logger.exception("Error processing newsletter deadline")
+        logger.exception("Error processing newsletter deadline", exc_info=safe_exc_info())
         return {"success": False, "error": str(e)}
 
 
@@ -439,7 +458,7 @@ def process_single_newsletter_deadline(newsletter: Newsletter) -> dict:
 
         # Only publish if at least one writer has content
         if not writers_with_content:
-            logger.info(f"Newsletter {newsletter.id} has no publishable content, skipping")
+            logger.info("Newsletter %s has no publishable content, skipping", log_metadata(newsletter.id))
             return {
                 "published": False,
                 "writers_charged": 0,
@@ -452,15 +471,25 @@ def process_single_newsletter_deadline(newsletter: Newsletter) -> dict:
         newsletter.published_date = datetime.now(UTC)
         db.session.commit()
 
-        logger.info(f"Published newsletter {newsletter.id} with content from {len(writers_with_content)} writers")
+        logger.info(
+            "Published newsletter %s with content from %s writers",
+            log_metadata(newsletter.id),
+            len(writers_with_content),
+        )
 
         # Log contributing writers
         for writer in writers_with_content:
-            logger.info(f"Writer {writer.display_name} contributed to newsletter {newsletter.id}")
+            logger.info(
+                "Writer %s contributed to newsletter %s", log_metadata(writer.display_name), log_metadata(newsletter.id)
+            )
 
         # Log writers who didn't submit
         for writer in writers_without_content:
-            logger.info(f"Writer {writer.display_name} did not submit content for newsletter {newsletter.id}")
+            logger.info(
+                "Writer %s did not submit content for newsletter %s",
+                log_metadata(writer.display_name),
+                log_metadata(newsletter.id),
+            )
 
         # TODO: Send emails to subscribers
         # This would integrate with your existing email system
@@ -473,7 +502,7 @@ def process_single_newsletter_deadline(newsletter: Newsletter) -> dict:
         }
 
     except Exception as e:
-        logger.exception(f"Error processing newsletter {newsletter.id}")
+        logger.exception("Error processing newsletter %s", log_metadata(newsletter.id), exc_info=safe_exc_info())
         return {"published": False, "error": str(e)}
 
 
@@ -595,5 +624,5 @@ def check_writer_submission_status(journalist_id: int, week_start_date=None) -> 
         }
 
     except Exception as e:
-        logger.exception("Error checking writer submission status")
+        logger.exception("Error checking writer submission status", exc_info=safe_exc_info())
         return {"error": str(e)}

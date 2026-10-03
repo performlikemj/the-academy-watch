@@ -1,25 +1,25 @@
-"""Bounded, fail-closed logging privacy; never alter delivery or stored values."""
+"""Logging-only privacy: controlled metadata and linear whole-token redaction."""
 
 import logging
 import re
+import sys
+import traceback
 from collections import OrderedDict, defaultdict
-from itertools import islice
-from urllib.parse import unquote
+from secrets import token_hex
 
+# This cap belongs only to the explicit address helper, never to log records.
 MAX_LOG_CHARS = 65536
-MAX_LOG_NODES = 512
-MAX_CONTAINER_ITEMS = 64
-_MAX_DEPTH = 8
-_OMITTED = "[log value withheld: privacy limit]"
-_FAILURE = "[log message withheld: privacy formatting failed]"
-_TOKEN_PREFIX = "__privacy_mask_"
-_DONE = object()
-_FORMAT_WIDTH = re.compile(r"%(?:\([^)%]*\))?[-+ #0]*(\d+|\*)(?:\.(\d+|\*))?")
 _DELIMITERS = frozenset("@<>\"',;:=()[]{}/?\\\x00")
+_TOKEN = re.compile(r"\S+")
+_IDENTIFIER = re.compile(r"[A-Za-z0-9_.:-]+\Z")
+_FORMAT_WIDTH = re.compile(r"%(?:\([^)%]*\))?[-+ #0]*(\d+|\*)(?:\.(\d+|\*))?")
+_FAILURE = "[log message withheld: privacy formatting failed]"
+_DONE = object()
+_STANDARD_FIELDS = frozenset(vars(logging.LogRecord("", 0, "", 0, "", (), None))) | {"message", "asctime"}
 
 
 class _LogException(Exception):
-    """Safe logging-only exception snapshot, with no application object/traceback."""
+    """A rendered exception snapshot without request objects or live frames."""
 
 
 class _MaskedEmail(str):
@@ -45,250 +45,283 @@ def mask_email(value) -> str:
         return _MaskedEmail("[masked]")
 
 
-def _scan_text(value):
-    """Each candidate's local/domain span is visited at most twice (O(n))."""
+def _redact_tokens(value):
     if "@" not in value:
         return value
-    pieces = []
-    copied = floor = index = 0
-    last_quote = previous_quote = -1
-    while index < len(value):
-        if value[index] != "@":
-            if value[index] == '"':
-                previous_quote, last_quote = last_quote, index
-            index += 1
-            continue
-        end = index + 1
-        while end < len(value) and (value[end].isalnum() or value[end] in "._-"):
-            end += 1
-        domain = value[index + 1 : end].rstrip(".")
-        end = index + 1 + len(domain)
-        start = index
-        if start > 0 and value[start - 1] == '"':
-            # Quoted local parts may contain spaces and escaped quotes.
-            if previous_quote >= 0:
-                start = max(copied, previous_quote)
-        else:
-            while start > floor and not value[start - 1].isspace() and value[start - 1] not in _DELIMITERS:
-                start -= 1
-        # Avoid @handles, asset scale suffixes and numeric package versions.
-        label = domain.rsplit(".", 1)[-1]
-        host = "." in domain and (label.isalpha() or label.startswith("xn--"))
-        scale = domain.split(".", 1)[0]
-        asset_scale = start > 0 and value[start - 1] == "/" and scale.endswith("x") and scale[:-1].isdigit()
-        chained_at = end < len(value) and value[end] == "@"
-        if chained_at or (start < index and host and not asset_scale):
-            replacement = "[masked]" if chained_at else str(mask_email(value[start:end]))
-            pieces.extend((value[copied:start], replacement))
-            copied = end
-        floor = end if end > index + 1 else index + 1
-        index = floor
-    pieces.append(value[copied:])
-    return "".join(pieces)
+
+    # Whitespace alone delimits tokens. No address grammar, backwards search,
+    # Unicode alphabet classification, input budget or recursive URL decoding.
+    def replace(match):
+        token = match.group()
+        return "[masked]" if token.find("@", 1, len(token) - 1) >= 0 else token
+
+    return _TOKEN.sub(replace, value)
 
 
-class _Budget:
-    def __init__(self):
-        self.chars = MAX_LOG_CHARS
-        self.nodes = MAX_LOG_NODES
-        self.active = set()
-        self.trusted = []
+def _scan_text(value):
+    """Replace entire non-space tokens with an interior @ in O(input length)."""
+    return _redact_tokens(value)
 
-    def text(self, value, *, rendered=False):
-        # Discard an entire oversized value: a truncated prefix might itself
-        # contain a complete local part whose @ lies beyond the limit.
-        if len(value) > self.chars:
-            return _OMITTED
-        self.chars -= len(value)
-        if not rendered:
-            value = value.replace("\x00", "?").replace(_TOKEN_PREFIX, "[reserved]")
-        masked = _scan_text(value)
-        # Access/request URLs can encode both @ and Unicode local parts.
-        # At most three bounded decoding passes; ordinary encoded text stays as-is.
-        decoded = value
-        for _ in range(3):
-            if "%" not in decoded:
-                break
-            decoded = unquote(decoded)
-            candidate = _scan_text(decoded)
-            if candidate != decoded:
-                return candidate
-        return masked
 
-    def field(self, value, depth=0, *, placeholders=False):
-        self.nodes -= 1
-        if self.nodes < 0 or depth > _MAX_DEPTH:
-            return _OMITTED
-        if type(value) is _MaskedEmail:
-            if len(value) > self.chars:
-                return _OMITTED
-            self.chars -= len(value)
-            if placeholders:
-                token = f"{_TOKEN_PREFIX}{len(self.trusted)}__"
-                self.trusted.append(str(value))
-                return token
-            return value
-        if isinstance(value, str):
-            if placeholders:
-                if len(value) > self.chars:
-                    return _OMITTED
-                self.chars -= len(value)
-                return value.replace("\x00", "?").replace(_TOKEN_PREFIX, "[reserved]")
-            return self.text(value)
-        if isinstance(value, bytes):
-            if len(value) > self.chars:
-                return _OMITTED.encode()
-            if b"@" not in value and b"%" not in value:
-                self.chars -= len(value)
-                return value
-            # Latin-1 is lossless, including invalid UTF-8. Ordinary bytes retain
-            # their exact representation; address spans alone are replaced.
-            return self.text(value.decode("latin-1")).encode("latin-1", errors="backslashreplace")
-        if value is None or type(value) in (bool, int, float):
+def _text(value):
+    try:
+        return _scan_text(value)
+    except Exception:
+        # Independent primitive fallback: preserve all other text and metadata.
+        return _redact_tokens(value)
+
+
+def log_metadata(value):
+    """Source boundary: IDs/counts/types/masked recipients, never free text.
+
+    Application call sites use fixed templates. Arbitrary names, request text,
+    subjects, provider bodies and errors are not diagnostic metadata.
+    """
+    try:
+        if type(value) is _MaskedEmail or value is None or isinstance(value, (bool, int, float)):
             return value
         if isinstance(value, BaseException):
-            return f"{self.text(type(value).__name__)}: {self.field(value.args, depth + 1, placeholders=placeholders)}"
-        if isinstance(value, (dict, tuple, list, set, frozenset)):
+            return _text(type(value).__name__)
+        if isinstance(value, str):
+            return value if _IDENTIFIER.fullmatch(value) else "[text omitted]"
+        if isinstance(value, dict):
+            safe = {}
+            collision = 0
+            for key, item in value.items():
+                safe_key = log_metadata(key)
+                if safe_key in safe:
+                    collision += 1
+                    while f"privacy_extra_{collision}" in safe:
+                        collision += 1
+                    safe_key = f"privacy_extra_{collision}"
+                safe[safe_key] = log_metadata(item)
+            return safe
+        if isinstance(value, (list, tuple)):
+            items = [log_metadata(item) for item in value]
+            return tuple(items) if isinstance(value, tuple) else items
+        return "[details omitted]"
+    except Exception:
+        return "[details omitted]"
+
+
+def safe_exc_info():
+    """Source boundary for request/provider errors: class and complete stack.
+
+    Do not attach original messages, chained provider responses or request
+    objects to records. The backstop still handles third-party exception text.
+    """
+    kind, error, tb = sys.exc_info()
+    if kind is None:
+        return None
+    name = _text(kind.__name__)
+    header = kind if kind.__module__ == "builtins" else _LogException
+    return header, _LogException(f"{name}: exception details omitted"), tb
+
+
+def _render(value):
+    try:
+        return str(value)
+    except Exception:
+        return f"[{_text(type(value).__name__)} could not be rendered]"
+
+
+class _Fields:
+    def __init__(self):
+        self.active = set()
+        self.trusted = {}
+        self.prefix = "__privacy_" + token_hex(16) + "_"
+
+    def field(self, value, *, placeholders=False):
+        if type(value) is _MaskedEmail:
+            if not placeholders:
+                return value
+            token = self.prefix + str(len(self.trusted)) + "__"
+            self.trusted[token] = str(value)
+            return token
+        if isinstance(value, str):
+            return _text(value)
+        if isinstance(value, bytes):
+            return _text(value.decode("latin-1")).encode("latin-1")
+        if value is None or isinstance(value, (bool, int, float)):
+            return value
+        if isinstance(value, (dict, list, tuple, set, frozenset)):
             ident = id(value)
             if ident in self.active:
-                return "[cyclic log value withheld]"
+                return "[cyclic log value]"
             self.active.add(ident)
             try:
                 if isinstance(value, dict):
-                    pairs = [
-                        (self.field(k, depth + 1), self.field(v, depth + 1, placeholders=placeholders))
-                        for k, v in islice(value.items(), MAX_CONTAINER_ITEMS)
-                    ]
-                    if len(value) > MAX_CONTAINER_ITEMS:
-                        pairs.append((_OMITTED, _OMITTED))
+                    pairs = []
+                    used = set()
+                    collision = 0
+                    for key, val in value.items():
+                        safe_key = self.field(key)
+                        if safe_key in used:
+                            collision += 1
+                            while f"privacy_extra_{collision}" in used:
+                                collision += 1
+                            safe_key = f"privacy_extra_{collision}"
+                        used.add(safe_key)
+                        pairs.append((safe_key, self.field(val, placeholders=placeholders)))
                     if type(value) is defaultdict:
                         return defaultdict(value.default_factory, pairs)
-                    if type(value) is OrderedDict:
-                        return OrderedDict(pairs)
-                    return dict(pairs)
-                items = [
-                    self.field(v, depth + 1, placeholders=placeholders) for v in islice(value, MAX_CONTAINER_ITEMS)
-                ]
-                if len(value) > MAX_CONTAINER_ITEMS:
-                    items.append(_OMITTED)
+                    return OrderedDict(pairs) if type(value) is OrderedDict else dict(pairs)
+                items = [self.field(v, placeholders=placeholders) for v in value]
                 if isinstance(value, tuple):
-                    return tuple(items)  # namedtuples need positional construction
+                    return type(value)(*items) if hasattr(value, "_fields") else tuple(items)
                 if isinstance(value, set):
                     return set(items)
                 if isinstance(value, frozenset):
                     return frozenset(items)
                 return items
+            except Exception:
+                return _text(_render(value))
             finally:
                 self.active.remove(ident)
-        # Do not invoke arbitrary __str__/__repr__ on untrusted objects.
-        return f"[{self.text(type(value).__name__)} log value withheld]"
+        return _text(_render(value))
 
-    def exception(self, exc, tb, depth=0):
-        if depth > _MAX_DEPTH or self.nodes <= 0:
-            return _OMITTED
-        self.nodes -= 1
-        parts = []
-        linked = exc.__cause__ or (exc.__context__ if not exc.__suppress_context__ else None)
-        if linked is not None:
-            parts.append(self.exception(linked, linked.__traceback__, depth + 1))
-            parts.append("The above exception caused the following exception:")
-        parts.append("Traceback (most recent call last):")
-        for _ in range(20):
-            if tb is None:
-                break
-            code = tb.tb_frame.f_code
-            parts.append(self.text(f'  File "{code.co_filename}", line {tb.tb_lineno}, in {code.co_name}'))
-            tb = tb.tb_next
-        if tb is not None:
-            parts.append(_OMITTED)
-        name = type(exc).__name__
-        name = _scan_text(name) if len(name) <= 128 else "Exception"
-        parts.append(f"{name}: {self.field(exc.args)}")
-        return "\n".join(parts)
+    def message(self, record):
+        # Exactly logging's normal message coercion, before %-formatting.
+        template = _render(record.msg)
+        if not record.args:
+            return _text(template)
+        try:
+            # Reject only absurd formatter allocations, not large real text.
+            # Templates at application sites are constants. This guards odd
+            # third-party records without imposing a character/container cap.
+            for match in _FORMAT_WIDTH.finditer(template):
+                if any(v and v != "*" and (len(v) > 8 or int(v) > 100_000_000) for v in match.groups()):
+                    raise ValueError("invalid log format expansion")
+                if "*" in match.groups() and any(isinstance(v, int) and abs(v) > 100_000_000 for v in record.args):
+                    raise ValueError("invalid log format expansion")
+            # Native numeric/scalar formatting is unchanged. Only helper values
+            # need placeholders; don't inspect unused Gunicorn header atoms.
+            if isinstance(record.args, dict) and "%(" in template:
+                args = _FormatMapping(record.args, self)
+            elif isinstance(record.args, dict):
+                args = self.argument(record.args)
+            else:
+                args = tuple(self.argument(v) for v in record.args)
+            rendered = _text(template % args)
+            if self.trusted:
+                # One replacement pass, not one scan per recipient.
+                pattern = re.compile(re.escape(self.prefix) + r"\d+__")
+                rendered = pattern.sub(lambda m: self.trusted.get(m.group(), "[masked]"), rendered)
+            return rendered
+        except Exception:
+            return f"{_FAILURE} template={_text(template)} arguments={_render(self.field(record.args))}"
+
+    def argument(self, value):
+        if type(value) is _MaskedEmail:
+            return self.field(value, placeholders=True)
+        # Preserve native repr/formatting for ordinary containers and objects;
+        # only genuine helper values need substitution before rendering.
+        if type(value) not in (dict, OrderedDict, defaultdict, list, tuple, set, frozenset):
+            return value
+        ident = id(value)
+        if ident in self.active:
+            return value
+        self.active.add(ident)
+        try:
+            if isinstance(value, dict):
+                pairs = [(self.argument(k), self.argument(v)) for k, v in value.items()]
+                if type(value) is defaultdict:
+                    return defaultdict(value.default_factory, pairs)
+                return OrderedDict(pairs) if type(value) is OrderedDict else dict(pairs)
+            items = [self.argument(v) for v in value]
+            if type(value) is tuple:
+                return tuple(items)
+            if type(value) is set:
+                return set(items)
+            if type(value) is frozenset:
+                return frozenset(items)
+            return items
+        finally:
+            self.active.remove(ident)
+
+
+class _FormatMapping(dict):
+    def __init__(self, original, fields):
+        self.original, self.fields = original, fields
+
+    def __getitem__(self, key):
+        return self.fields.argument(self.original[key])
 
 
 class EmailLogFilter(logging.Filter):
-    """Bound messages, exceptions and extras; logging can never fail the caller."""
+    """Every record survives; render normally, then redact entire @ tokens."""
 
     def filter(self, record):
         try:
-            if getattr(record, "_email_privacy_done", None) is _DONE:
-                return True
-            budget = _Budget()
-            template = budget.field(record.msg, placeholders=True)
-            args = budget.field(record.args, placeholders=True)
-            try:
-                # Bound aggregate padding and repeated mapping substitutions
-                # before Python's %-formatter can allocate a large output.
-                values = args.values() if isinstance(args, dict) else args
-                size = max((len(str(v)) for v in values), default=0)
-                padding = 0
-                for width in _FORMAT_WIDTH.finditer(template):
-                    if any(v == "*" or len(v) > 5 or int(v) > MAX_LOG_CHARS for v in width.groups() if v):
-                        raise ValueError("log format expansion limit")
-                    padding += sum(int(v) for v in width.groups() if v)
-                if len(template) + template.count("%") * size + padding > MAX_LOG_CHARS:
-                    raise ValueError("log format expansion limit")
-                message = template % args if args else str(template)
-                # Bound formatting expansion as well as input strings.
-                message = budget.text(message, rendered=True)
-                for index, trusted in enumerate(budget.trusted):
-                    message = message.replace(f"{_TOKEN_PREFIX}{index}__", trusted)
-            except Exception:
-                # Keep the level/context and a safe template even for bad %d/%s.
-                message = f"{_FAILURE} template={budget.text(template)}"
-            record.msg, record.args = message, ()
-            if record.exc_info:
-                original_type = record.exc_info[0]
-                record.exc_text = budget.exception(record.exc_info[1], record.exc_info[2])
-                # Preserve safe type metadata, without retaining raw error args,
-                # traceback frames or application objects on the LogRecord.
-                header = (
-                    original_type
-                    if original_type.__module__ == "builtins" and "@" not in original_type.__name__
-                    else _LogException
-                )
-                record.exc_info = (header, _LogException(record.exc_text), None)
-            elif record.exc_text:
-                record.exc_text = budget.text(record.exc_text)
+            return self._filter(record)
+        except Exception:
+            original = vars(record).copy()
             safe = {}
-            for key, value in islice(vars(record).items(), MAX_LOG_NODES):
-                if key in {"msg", "args", "exc_info", "exc_text"}:
-                    safe[key] = value
-                elif key != "_email_privacy_done":
-                    safe[key] = budget.field(value)
-            if len(vars(record)) > MAX_LOG_NODES:
-                safe["privacy_extra_overflow"] = _OMITTED
+            collision = 0
+            for key, value in original.items():
+                try:
+                    safe_key = _text(_render(key))
+                    if safe_key in safe:
+                        collision += 1
+                        safe_key = f"privacy_fallback_{collision}"
+                    safe[safe_key] = (
+                        _text(_render(value)) if value is not None and type(value) not in (bool, int, float) else value
+                    )
+                except Exception:
+                    collision += 1
+                    safe[f"privacy_fallback_{collision}"] = "[log field could not be rendered]"
+            safe["msg"] = _text(_render(original.get("msg", "Operation failed")))
+            safe["args"] = ()
+            safe["exc_info"] = None
+            safe["exc_text"] = _text(_render(original["exc_text"])) if original.get("exc_text") else None
+            safe["privacy_fallback"] = "[logging privacy fallback]"
             safe["_email_privacy_done"] = _DONE
             record.__dict__ = safe
+            return True
+
+    def _filter(self, record):
+        if getattr(record, "_email_privacy_done", None) is _DONE:
+            return True
+        fields = _Fields()
+        try:
+            record.msg = fields.message(record)
         except Exception:
-            # Never suppress an error record or let masking raise into app code.
+            record.msg = _text(_render(record.msg)) + " [log arguments could not be rendered]"
+        record.args = ()
+        try:
+            if record.exc_info and record.exc_info[0] is not None:
+                kind, error, tb = record.exc_info
+                rendered = _text("".join(traceback.format_exception(kind, error, tb)))
+                record.exc_text = rendered
+                header = kind if kind.__module__ == "builtins" and "@" not in kind.__name__ else _LogException
+                record.exc_info = (header, _LogException(rendered), None)
+            elif record.exc_text:
+                record.exc_text = _text(_render(record.exc_text))
+                record.exc_info = None
+            else:
+                record.exc_info = None
+        except Exception:
+            record.exc_text = "Exception: [exception could not be rendered]"
+            record.exc_info = None
+        # Includes top-level keys; collisions retain all values under neutral
+        # numbered keys, while standard field names remain intact.
+        safe = {}
+        collision = 0
+        for key, value in vars(record).copy().items():
+            if key == "_email_privacy_done":
+                continue
+            safe_key = key if key in _STANDARD_FIELDS else _text(_render(key))
+            if safe_key in safe:
+                collision += 1
+                while f"privacy_extra_{collision}" in safe:
+                    collision += 1
+                safe_key = f"privacy_extra_{collision}"
             try:
-                exc_type = type(record.exc_info[1]).__name__ if record.exc_info else ""
+                safe[safe_key] = value if key in {"msg", "args", "exc_info", "exc_text"} else fields.field(value)
             except Exception:
-                exc_type = "Exception"
-            if "@" in exc_type or "%" in exc_type or len(exc_type) > 128:
-                exc_type = "Exception"
-            original = vars(record)
-            level = original.get("levelno", logging.ERROR)
-            level = level if type(level) is int else logging.ERROR
-            safe = {
-                key: value
-                for key, value in islice(original.items(), MAX_LOG_NODES)
-                if type(value) in (int, float, bool) or value is None
-            }
-            for key in ("name", "pathname", "filename", "module", "funcName", "threadName", "processName"):
-                safe[key] = _FAILURE
-            safe.update(
-                msg=_FAILURE,
-                args=(),
-                exc_info=None,
-                exc_text=f"{exc_type}: {_FAILURE}" if exc_type else None,
-                levelno=level,
-                levelname={50: "CRITICAL", 40: "ERROR", 30: "WARNING", 20: "INFO", 10: "DEBUG"}.get(level, "LOG"),
-                _email_privacy_done=_DONE,
-            )
-            record.__dict__ = safe
+                safe[safe_key] = _text(_render(value))
+        safe["_email_privacy_done"] = _DONE
+        record.__dict__ = safe
         return True
 
 

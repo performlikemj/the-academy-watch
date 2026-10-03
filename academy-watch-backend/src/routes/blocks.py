@@ -15,6 +15,7 @@ from src.services.user_blocks import (
     is_user_blocks_undefined_table_error,
     log_user_blocks_table_unavailable_once,
 )
+from src.utils.log_privacy import safe_exc_info
 
 logger = logging.getLogger(__name__)
 
@@ -126,11 +127,11 @@ def create_user_block():
         if is_user_blocks_undefined_table_error(exc):
             log_user_blocks_table_unavailable_once()
             return _blocks_unavailable()
-        logger.exception("Failed to create user block")
+        logger.exception("Failed to create user block", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(exc, "Failed to block user")), 500
     except Exception as exc:
         db.session.rollback()
-        logger.exception("Failed to create user block")
+        logger.exception("Failed to create user block", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(exc, "Failed to block user")), 500
 
 
@@ -173,7 +174,7 @@ def list_user_blocks():
         if is_user_blocks_undefined_table_error(exc):
             log_user_blocks_table_unavailable_once()
             return _blocks_unavailable()
-        logger.exception("Failed to list user blocks")
+        logger.exception("Failed to list user blocks", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(exc, "Failed to list blocked users")), 500
 
 
@@ -194,7 +195,7 @@ def delete_user_block(blocked_user_id: int):
         if is_user_blocks_undefined_table_error(exc):
             log_user_blocks_table_unavailable_once()
             return _blocks_unavailable()
-        logger.exception("Failed to delete user block")
+        logger.exception("Failed to delete user block", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(exc, "Failed to unblock user")), 500
 
 

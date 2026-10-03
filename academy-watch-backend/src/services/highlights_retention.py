@@ -17,6 +17,7 @@ from src.models.league import UserAccount, db
 from src.models.showcase import LocalPlayer, PlayerProfileClaim
 from src.models.video import VideoMatch
 from src.services import highlights
+from src.utils.log_privacy import log_metadata
 
 AUDIT_DAYS = 90
 COUNT_KEYS = ("expired", "highlights", "events", "reviews", "jobs", "takedowns")
@@ -265,5 +266,5 @@ def sweep_highlights(*, limit=100, dry_run=False):
             "highlight_takedowns": [hid for hid, _ in holds],
         }
         plan["queue_cleanup"] = sorted(path for path in plan["queue_cleanup"] if is_output_path(path))
-        print(json.dumps({"dry_run": True, "would": plan}))
+        print(json.dumps(log_metadata({"dry_run": True, "would": plan})))
     return result

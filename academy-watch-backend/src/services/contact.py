@@ -21,6 +21,7 @@ from src.services.club_registry import (
     program_has_active_manager,
     program_is_operational,
 )
+from src.utils.log_privacy import log_metadata, safe_exc_info
 from src.utils.player_status import player_facing_status
 from src.utils.sanitize import sanitize_plain_text
 
@@ -381,10 +382,16 @@ def send_club_courtesy_notice(
             max_retries=0,
         )
     except Exception:
-        logger.exception("Club courtesy notice failed for contact request %s", contact_request.id)
+        logger.exception(
+            "Club courtesy notice failed for contact request %s",
+            log_metadata(contact_request.id),
+            exc_info=safe_exc_info(),
+        )
         return None
     if not getattr(result, "success", False):
-        logger.warning("Club courtesy notice was not delivered for contact request %s", contact_request.id)
+        logger.warning(
+            "Club courtesy notice was not delivered for contact request %s", log_metadata(contact_request.id)
+        )
         return None
     return {
         "club_program_id": int(target["id"]),
@@ -408,7 +415,7 @@ def send_club_consent_notice(contact_request: ContactRequest) -> bool:
     contacts = active_program_manager_contacts(contact_request.club_program_id)
     captured_recipients = _manager_recipient_snapshot(contacts)
     if not captured_recipients:
-        logger.warning("No active manager email for contact request %s", contact_request.id)
+        logger.warning("No active manager email for contact request %s", log_metadata(contact_request.id))
         return False
     recipients = [email for _, email in captured_recipients]
 
@@ -466,10 +473,14 @@ def send_club_consent_notice(contact_request: ContactRequest) -> bool:
             max_retries=0,
         )
     except Exception:
-        logger.exception("Club consent notice failed for contact request %s", contact_request.id)
+        logger.exception(
+            "Club consent notice failed for contact request %s",
+            log_metadata(contact_request.id),
+            exc_info=safe_exc_info(),
+        )
         return False
     if not getattr(result, "success", False):
-        logger.warning("Club consent notice was not delivered for contact request %s", contact_request.id)
+        logger.warning("Club consent notice was not delivered for contact request %s", log_metadata(contact_request.id))
         return False
     return True
 

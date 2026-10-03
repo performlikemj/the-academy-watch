@@ -20,7 +20,7 @@ from src.models.league import (
 )
 from src.models.tracked_player import TrackedPlayer
 from src.utils.data_mode import newsletters_enabled_route
-from src.utils.log_privacy import get_logger, mask_email
+from src.utils.log_privacy import get_logger, log_metadata, mask_email, safe_exc_info
 from src.utils.sanitize import sanitize_comment_body, sanitize_plain_text
 
 curator_bp = Blueprint("curator", __name__)
@@ -206,11 +206,11 @@ def curator_generate_newsletter():
             )
 
         logger.info(
-            "Curator %s generated newsletter %d for team %d user_id=%s",
+            "Curator %s generated newsletter %d for team %s user_id=%s",
             mask_email(g.user_email),
-            row.id,
-            team_id,
-            g.user_id,
+            log_metadata(row.id),
+            log_metadata(team_id),
+            log_metadata(g.user_id),
         )
         return jsonify(
             {
@@ -224,10 +224,11 @@ def curator_generate_newsletter():
         except Exception:
             pass
         logger.exception(
-            "Newsletter generation failed for curator %s, team %d user_id=%s",
+            "Newsletter generation failed for curator %s, team %s user_id=%s",
             mask_email(g.user_email),
-            team_id,
-            g.user_id,
+            log_metadata(team_id),
+            log_metadata(g.user_id),
+            exc_info=safe_exc_info(),
         )
         return jsonify({"error": str(e)}), 500
 
@@ -372,11 +373,11 @@ def curator_create_tweet():
     db.session.commit()
 
     logger.info(
-        "Curator %s created tweet take #%d for team %d user_id=%s",
+        "Curator %s created tweet take #%d for team %s user_id=%s",
         mask_email(g.user_email),
-        take.id,
-        team_id,
-        g.user_id,
+        log_metadata(take.id),
+        log_metadata(team_id),
+        log_metadata(g.user_id),
     )
 
     return jsonify(
@@ -434,7 +435,12 @@ def curator_update_tweet(tweet_id):
     take.updated_at = datetime.now(UTC)
     db.session.commit()
 
-    logger.info("Curator %s updated tweet take #%d user_id=%s", mask_email(g.user_email), tweet_id, g.user_id)
+    logger.info(
+        "Curator %s updated tweet take #%d user_id=%s",
+        mask_email(g.user_email),
+        log_metadata(tweet_id),
+        log_metadata(g.user_id),
+    )
 
     return jsonify(
         {
@@ -459,7 +465,12 @@ def curator_delete_tweet(tweet_id):
     db.session.delete(take)
     db.session.commit()
 
-    logger.info("Curator %s deleted tweet take #%d user_id=%s", mask_email(g.user_email), tweet_id, g.user_id)
+    logger.info(
+        "Curator %s deleted tweet take #%d user_id=%s",
+        mask_email(g.user_email),
+        log_metadata(tweet_id),
+        log_metadata(g.user_id),
+    )
 
     return jsonify({"message": "Tweet deleted"})
 
@@ -504,9 +515,9 @@ def curator_attach_tweet(tweet_id):
     logger.info(
         "Curator %s attached tweet #%d to newsletter #%d user_id=%s",
         mask_email(g.user_email),
-        tweet_id,
-        newsletter_id,
-        g.user_id,
+        log_metadata(tweet_id),
+        log_metadata(newsletter_id),
+        log_metadata(g.user_id),
     )
 
     return jsonify(
@@ -534,7 +545,10 @@ def curator_detach_tweet(tweet_id):
     db.session.commit()
 
     logger.info(
-        "Curator %s detached tweet #%d from newsletter user_id=%s", mask_email(g.user_email), tweet_id, g.user_id
+        "Curator %s detached tweet #%d from newsletter user_id=%s",
+        mask_email(g.user_email),
+        log_metadata(tweet_id),
+        log_metadata(g.user_id),
     )
 
     return jsonify(

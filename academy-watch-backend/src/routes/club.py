@@ -1316,7 +1316,9 @@ def _result_transaction(view):
                 return jsonify(error="retry_conflict"), 409
             if isinstance(error, IntegrityError):
                 return jsonify(error="result_identity_conflict"), 409
-            logger.exception("Club result operation failed (%s)", type(error).__name__)
+            logger.exception(
+                "Club result operation failed (%s)", log_metadata(type(error).__name__), exc_info=safe_exc_info()
+            )
             return jsonify(error="result_operation_failed"), 500
 
     return wrapped
@@ -2415,7 +2417,7 @@ def _invitation_operation(operation, *, share=False):
         if conflict:
             code, status = conflict
             return jsonify(error=code, code=code, retryable=True), status
-        logger.error("Invitation operation failed (%s)", type(error).__name__)
+        logger.error("Invitation operation failed (%s)", log_metadata(type(error).__name__))
         return jsonify({"error": "invitation_operation_failed"}), 500
 
 
@@ -2425,7 +2427,7 @@ def _invitation_database_error(error):
     if conflict:
         code, status = conflict
         return jsonify(error=code), status
-    logger.error("Invitation transaction failed (%s)", type(error).__name__)
+    logger.error("Invitation transaction failed (%s)", log_metadata(type(error).__name__))
     return jsonify({"error": "invitation_operation_failed"}), 500
 
 
@@ -2493,5 +2495,6 @@ from src.routes.club_home import register as register_club_home
 register_club_home(club_bp)
 
 from src.routes.club_players import register as register_club_players
+from src.utils.log_privacy import log_metadata, safe_exc_info
 
 register_club_players(club_bp)

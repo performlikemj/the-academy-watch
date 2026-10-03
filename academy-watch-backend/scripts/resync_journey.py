@@ -25,6 +25,7 @@ import sys
 
 # Add the src directory to the path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from src.utils.log_privacy import log_metadata
 
 
 def main():
@@ -57,21 +58,25 @@ def main():
         failed = 0
 
         for pid in player_ids:
-            print(f"\nSyncing player {pid} (force_full={force_full})...")
+            print(f"\nSyncing player {log_metadata(pid)} (force_full={log_metadata(force_full)})...")
             journey = service.sync_player(pid, force_full=force_full)
 
             if journey and not journey.sync_error:
-                print(f"  OK: {journey.player_name}")
-                print(f"  Current club: {journey.current_club_name} ({journey.current_level})")
-                print(f"  Entries: {journey.entries.count()}")
-                print(f"  First team apps: {journey.total_first_team_apps}, Loan apps: {journey.total_loan_apps}")
+                print(f"  OK: {log_metadata(journey.player_name)}")
+                print(
+                    f"  Current club: {log_metadata(journey.current_club_name)} ({log_metadata(journey.current_level)})"
+                )
+                print(f"  Entries: {log_metadata(journey.entries.count())}")
+                print(
+                    f"  First team apps: {log_metadata(journey.total_first_team_apps)}, Loan apps: {log_metadata(journey.total_loan_apps)}"
+                )
                 success += 1
             else:
                 error = journey.sync_error if journey else "sync returned None"
-                print(f"  FAILED: {error}")
+                print(f"  FAILED: {log_metadata(error)}")
                 failed += 1
 
-        print(f"\nDone: {success} synced, {failed} failed")
+        print(f"\nDone: {log_metadata(success)} synced, {log_metadata(failed)} failed")
 
 
 if __name__ == "__main__":

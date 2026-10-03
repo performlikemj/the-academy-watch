@@ -8,6 +8,7 @@ import logging
 
 from flask import abort
 from src.models.league import Team, TeamProfile, db
+from src.utils.log_privacy import log_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -90,9 +91,13 @@ def resolve_team_name_and_logo(team_api_id: int, season: int = None) -> tuple[st
                     )
                     db.session.add(new_profile)
                     db.session.commit()
-                    logger.info("Cached team profile for %s (id=%d)", team_name, team_api_id)
+                    logger.info(
+                        "Cached team profile for %s (id=%d)", log_metadata(team_name), log_metadata(team_api_id)
+                    )
             except Exception as cache_err:
-                logger.warning("Failed to cache team profile for %d: %s", team_api_id, cache_err)
+                logger.warning(
+                    "Failed to cache team profile for %d: %s", log_metadata(team_api_id), log_metadata(cache_err)
+                )
                 try:
                     db.session.rollback()
                 except Exception:
@@ -100,7 +105,9 @@ def resolve_team_name_and_logo(team_api_id: int, season: int = None) -> tuple[st
 
             return team_name, team_logo
     except Exception as e:
-        logger.warning("Failed to resolve team name from API for team_id=%d: %s", team_api_id, e)
+        logger.warning(
+            "Failed to resolve team name from API for team_id=%d: %s", log_metadata(team_api_id), log_metadata(e)
+        )
 
     # 4. Final fallback
     return f"Team {team_api_id}", None

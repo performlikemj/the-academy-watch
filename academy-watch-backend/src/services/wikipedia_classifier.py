@@ -8,6 +8,7 @@ from functools import lru_cache
 
 from pydantic import BaseModel, Field
 from pydantic.config import ConfigDict
+from src.utils.log_privacy import get_logger
 
 try:  # Optional Groq dependency (used when API key configured)
     from groq import Groq
@@ -93,7 +94,7 @@ def classify_loan_row(
 
     try:
         content = response.choices[0].message.content
-        print(f"classifier response: {content}")
+        get_logger(__name__).debug("Classifier response received")
     except (AttributeError, IndexError) as exc:
         raise RuntimeError(f"Unexpected Groq response format: {response}") from exc
 

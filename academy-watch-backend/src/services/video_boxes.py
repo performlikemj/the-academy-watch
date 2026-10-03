@@ -6,6 +6,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from src.services import video_storage
+from src.utils.log_privacy import log_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -142,5 +143,5 @@ def box_track_for(match, tracklet) -> list[list]:
         payload = _download_boxes_blob(blob_path)
         return sample_box_track(payload.get(str(int(tracklet_id))) or [])
     except Exception as exc:
-        logger.warning("could not load box track blob %s: %s", blob_path, exc)
+        logger.warning("could not load box track blob %s: %s", log_metadata(blob_path), log_metadata(exc))
         return []

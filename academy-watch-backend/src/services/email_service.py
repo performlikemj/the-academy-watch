@@ -36,7 +36,7 @@ from email.mime.text import MIMEText
 from uuid import uuid4
 
 import requests
-from src.utils.log_privacy import get_logger, mask_email
+from src.utils.log_privacy import get_logger, log_metadata, mask_email, safe_exc_info
 
 logger = get_logger(__name__)
 
@@ -170,8 +170,8 @@ class MailgunProvider(EmailProvider):
                 error_msg = response.text[:500] if response.text else f"HTTP {response.status_code}"
                 logger.warning(
                     "Mailgun API error: status=%s to=%s",
-                    response.status_code,
-                    [mask_email(r) for r in recipients],
+                    log_metadata(response.status_code),
+                    log_metadata([mask_email(r) for r in recipients]),
                 )
                 return EmailResult(
                     success=False,
@@ -188,7 +188,7 @@ class MailgunProvider(EmailProvider):
                 error="Request timeout",
             )
         except requests.exceptions.RequestException as e:
-            logger.exception("Mailgun API request failed")
+            logger.exception("Mailgun API request failed", exc_info=safe_exc_info())
             return EmailResult(
                 success=False,
                 provider=self.name,
@@ -276,21 +276,21 @@ class SMTPProvider(EmailProvider):
             )
 
         except smtplib.SMTPAuthenticationError as e:
-            logger.error("SMTP authentication failed: %s", e)
+            logger.error("SMTP authentication failed: %s", log_metadata(e))
             return EmailResult(
                 success=False,
                 provider=self.name,
                 error=f"Authentication failed: {e}",
             )
         except smtplib.SMTPException as e:
-            logger.exception("SMTP error")
+            logger.exception("SMTP error", exc_info=safe_exc_info())
             return EmailResult(
                 success=False,
                 provider=self.name,
                 error=str(e),
             )
         except Exception as e:
-            logger.exception("SMTP unexpected error")
+            logger.exception("SMTP unexpected error", exc_info=safe_exc_info())
             return EmailResult(
                 success=False,
                 provider=self.name,
@@ -376,11 +376,7 @@ class EmailService:
 
         # Mask email in logs for privacy
         masked_recipients = [mask_email(r) for r in recipients]
-        logger.info(
-            "Sending email: to=%s subject=%s",
-            masked_recipients,
-            subject[:50],
-        )
+        logger.info("Sending email: to=%s", masked_recipients)
 
         # Try primary provider (Mailgun)
         if self.mailgun.is_configured():
@@ -399,8 +395,8 @@ class EmailService:
                 if result.success:
                     logger.info(
                         "Email sent via Mailgun: to=%s message_id=%s",
-                        masked_recipients,
-                        result.message_id,
+                        log_metadata(masked_recipients),
+                        log_metadata(result.message_id),
                     )
                     return result
 
@@ -408,17 +404,17 @@ class EmailService:
                 if result.http_status and 400 <= result.http_status < 500:
                     logger.warning(
                         "Mailgun client error (no retry): status=%s to=%s",
-                        result.http_status,
-                        masked_recipients,
+                        log_metadata(result.http_status),
+                        log_metadata(masked_recipients),
                     )
                     break
 
                 if attempt < max_retries:
                     logger.warning(
                         "Mailgun attempt %d failed, retrying: to=%s status=%s",
-                        attempt + 1,
-                        masked_recipients,
-                        result.http_status,
+                        log_metadata(attempt + 1),
+                        log_metadata(masked_recipients),
+                        log_metadata(result.http_status),
                     )
         else:
             logger.warning("Mailgun not configured, skipping primary provider")
@@ -441,16 +437,16 @@ class EmailService:
                 if result.success:
                     logger.info(
                         "Email sent via SMTP fallback: to=%s message_id=%s",
-                        masked_recipients,
-                        result.message_id,
+                        log_metadata(masked_recipients),
+                        log_metadata(result.message_id),
                     )
                     return result
 
                 if attempt < max_retries:
                     logger.warning(
                         "SMTP attempt %d failed, retrying: to=%s",
-                        attempt + 1,
-                        masked_recipients,
+                        log_metadata(attempt + 1),
+                        log_metadata(masked_recipients),
                     )
 
             # Return last SMTP error
@@ -503,7 +499,7 @@ class EmailService:
             db.session.add(job)
             db.session.commit()
         except Exception as e:
-            logger.error("Failed to create email background job: %s", e)
+            logger.error("Failed to create email background job: %s", log_metadata(e))
             db.session.rollback()
 
         # Get app context for background thread
@@ -538,7 +534,7 @@ class EmailService:
                         tags=tags,
                     )
             except Exception as e:
-                logger.exception("Background email send failed: %s", e)
+                logger.exception("Background email send failed: %s", log_metadata(e), exc_info=safe_exc_info())
 
         thread = threading.Thread(target=send_in_background, daemon=True)
         thread.start()
@@ -585,7 +581,13 @@ class EmailService:
                 db.session.commit()
 
         except Exception as e:
-            logger.exception("Background email job %s failed: %s", job_id, e)
+            logger.exception(
+                "Background email job %s failed: %s to=%s",
+                log_metadata(job_id),
+                log_metadata(e),
+                [mask_email(r) for r in ([to] if isinstance(to, str) else to)],
+                exc_info=safe_exc_info(),
+            )
             try:
                 job = db.session.get(BackgroundJob, job_id)
                 if job:

@@ -19,15 +19,17 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+from src.utils.log_privacy import log_metadata
+
 from api_football_client import APIFootballClient, is_new_loan_transfer
 
 
 def check_transfers(team_id: int = 33):
     """Check raw transfers for a team and show January 2026 loans."""
 
-    print(f"\n{'=' * 60}")
-    print(f"🔍 Checking transfers for team ID: {team_id}")
-    print(f"{'=' * 60}\n")
+    print(f"\n{log_metadata('=' * 60)}")
+    print(f"🔍 Checking transfers for team ID: {log_metadata(team_id)}")
+    print(f"{log_metadata('=' * 60)}\n")
 
     client = APIFootballClient()
 
@@ -48,7 +50,9 @@ def check_transfers(team_id: int = 33):
     winter_start = date(2025, 12, 1)
     winter_end = date(2026, 2, 1)
 
-    print(f"📅 Looking for transfers in 2025-26 WINTER window: {winter_start} to {winter_end}\n")
+    print(
+        f"📅 Looking for transfers in 2025-26 WINTER window: {log_metadata(winter_start)} to {log_metadata(winter_end)}\n"
+    )
 
     january_loans = []
     all_recent_transfers = []
@@ -95,26 +99,28 @@ def check_transfers(team_id: int = 33):
 
     # Print results
     print(f"📋 All transfers in January 2026 window ({len(all_recent_transfers)}):")
-    print("-" * 60)
+    print(log_metadata("-" * 60))
 
     if not all_recent_transfers:
         print("   (none found)")
     else:
         for t in sorted(all_recent_transfers, key=lambda x: x["date"]):
             loan_marker = "🔄 LOAN" if t["is_new_loan"] else ""
-            print(f"   {t['date']} | {t['player_name']}")
-            print(f"            | {t['from_team']} → {t['to_team']}")
-            print(f"            | Type: '{t['type']}' {loan_marker}")
+            print(f"   {log_metadata(t['date'])} | {log_metadata(t['player_name'])}")
+            print(f"            | {log_metadata(t['from_team'])} → {log_metadata(t['to_team'])}")
+            print(f"            | Type: '{log_metadata(t['type'])}' {log_metadata(loan_marker)}")
             print()
 
-    print(f"\n{'=' * 60}")
+    print(f"\n{log_metadata('=' * 60)}")
     print(f"📊 SUMMARY: {len(january_loans)} new loans detected in January 2026 window")
-    print(f"{'=' * 60}\n")
+    print(f"{log_metadata('=' * 60)}\n")
 
     if january_loans:
         print("✅ New loans found:")
         for loan in january_loans:
-            print(f"   - {loan['player_name']} → {loan['to_team']} ({loan['date']})")
+            print(
+                f"   - {log_metadata(loan['player_name'])} → {log_metadata(loan['to_team'])} ({log_metadata(loan['date'])})"
+            )
     else:
         print("⚠️  No new loans found in API-Football data for this window.")
         print("    This could mean:")

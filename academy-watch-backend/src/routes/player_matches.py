@@ -22,6 +22,7 @@ from src.services.player_suppression import (
     neutral_player_not_found,
 )
 from src.utils.academy_window import current_stats_season
+from src.utils.log_privacy import log_metadata, safe_exc_info
 from src.utils.sanitize import display_plain_text, sanitize_plain_text
 
 player_matches_bp = Blueprint("player_matches", __name__)
@@ -406,7 +407,9 @@ def list_player_matches(player_api_id: int):
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
     except Exception:
-        logger.exception("Failed to list match entries for player %s", player_api_id)
+        logger.exception(
+            "Failed to list match entries for player %s", log_metadata(player_api_id), exc_info=safe_exc_info()
+        )
         return jsonify({"error": "Failed to load player matches"}), 500
 
 
@@ -484,7 +487,9 @@ def create_player_match(player_api_id: int):
         if conflict:
             code, status = conflict
             return jsonify(error=code, code=code, retryable=True), status
-        logger.exception("Failed to create match entry for player %s", player_api_id)
+        logger.exception(
+            "Failed to create match entry for player %s", log_metadata(player_api_id), exc_info=safe_exc_info()
+        )
         return jsonify({"error": "Failed to save player match"}), 500
 
 
@@ -544,7 +549,12 @@ def update_player_match(player_api_id: int, entry_id: int):
         if conflict:
             code, status = conflict
             return jsonify(error=code, code=code, retryable=True), status
-        logger.exception("Failed to update match entry %s for player %s", entry_id, player_api_id)
+        logger.exception(
+            "Failed to update match entry %s for player %s",
+            log_metadata(entry_id),
+            log_metadata(player_api_id),
+            exc_info=safe_exc_info(),
+        )
         return jsonify({"error": "Failed to update player match"}), 500
 
 
@@ -579,7 +589,12 @@ def delete_player_match(player_api_id: int, entry_id: int):
         if conflict:
             code, status = conflict
             return jsonify(error=code, code=code, retryable=True), status
-        logger.exception("Failed to delete match entry %s for player %s", entry_id, player_api_id)
+        logger.exception(
+            "Failed to delete match entry %s for player %s",
+            log_metadata(entry_id),
+            log_metadata(player_api_id),
+            exc_info=safe_exc_info(),
+        )
         return jsonify({"error": "Failed to delete player match"}), 500
 
 

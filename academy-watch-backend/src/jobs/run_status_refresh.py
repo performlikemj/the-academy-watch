@@ -16,6 +16,7 @@ from src.models.league import db
 from src.utils.background_jobs import has_running_job
 from src.utils.data_mode import job_entrypoint
 from src.utils.job_utils import is_job_paused, teams_with_active_tracked_players
+from src.utils.log_privacy import log_metadata
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -40,7 +41,7 @@ def run(dry_run=False):
         logger.info("Another status refresh job is already running. Exiting.")
         return [{"error": "already_running"}]
 
-    logger.info("Status refresh starting. resync_journeys=True, dry_run=%s", dry_run)
+    logger.info("Status refresh starting. resync_journeys=True, dry_run=%s", log_metadata(dry_run))
 
     team_ids = teams_with_active_tracked_players()
     logger.info("Processing %d teams", len(team_ids))
@@ -76,21 +77,23 @@ def run(dry_run=False):
             results.append({"team_id": team_db_id, **result})
             logger.info(
                 "Team %d: %d/%d updated, %d changed, %d fixture syncs",
-                team_db_id,
-                result["updated"],
-                result["total"],
-                changed,
-                result["fixture_syncs_triggered"],
+                log_metadata(team_db_id),
+                log_metadata(result["updated"]),
+                log_metadata(result["total"]),
+                log_metadata(changed),
+                log_metadata(result["fixture_syncs_triggered"]),
             )
         except Exception as e:
             try:
                 db.session.rollback()
             except Exception:
                 pass
-            logger.error("Team %d failed: %s", team_db_id, e)
+            logger.error("Team %d failed: %s", log_metadata(team_db_id), log_metadata(e))
             results.append({"team_id": team_db_id, "error": str(e)})
 
-    logger.info("Status refresh complete. %d players changed across %d teams.", total_changed, len(team_ids))
+    logger.info(
+        "Status refresh complete. %d players changed across %d teams.", log_metadata(total_changed), len(team_ids)
+    )
     return results
 
 

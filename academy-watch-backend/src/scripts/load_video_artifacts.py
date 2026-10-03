@@ -22,6 +22,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
+from src.utils.log_privacy import log_metadata
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 log = logging.getLogger(__name__)
@@ -57,7 +58,7 @@ def main() -> None:
         "loaded artifacts: %d fragments, %d vote rows, %s chains",
         len(artifacts["fragments"]),
         len(artifacts["votes"].get("entities", [])),
-        len(artifacts.get("chains", [])) if "chains" in artifacts else "rebuild",
+        log_metadata(len(artifacts.get("chains", [])) if "chains" in artifacts else "rebuild"),
     )
 
     from src.main import app
@@ -81,9 +82,9 @@ def main() -> None:
             db.session.add(job)
             db.session.commit()
             job_id = job.id
-            log.info("created concierge job %s", job_id)
+            log.info("created concierge job %s", log_metadata(job_id))
         result = complete_job_with_artifacts(job_id, artifacts, gpu_seconds=args.gpu_seconds)
-        log.info("persisted: %s — match now '%s'", result, match.status)
+        log.info("persisted: %s — match now '%s'", log_metadata(result), log_metadata(match.status))
 
 
 if __name__ == "__main__":

@@ -8,6 +8,7 @@ import logging
 from functools import lru_cache
 
 import requests
+from src.utils.log_privacy import log_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -197,7 +198,7 @@ def geocode_city(city: str, country: str | None = None) -> tuple[float, float] |
     try:
         return _nominatim_geocode(city, country)
     except Exception as e:
-        logger.warning(f"Geocoding failed for {city}, {country}: {e}")
+        logger.warning("Geocoding failed for %s, %s: %s", log_metadata(city), log_metadata(country), log_metadata(e))
         return None
 
 
@@ -225,11 +226,11 @@ def _nominatim_geocode(city: str, country: str | None = None) -> tuple[float, fl
         if data:
             lat = float(data[0]["lat"])
             lon = float(data[0]["lon"])
-            logger.info(f"Geocoded {query} -> ({lat}, {lon})")
+            logger.info("Geocoded %s -> (%s, %s)", log_metadata(query), log_metadata(lat), log_metadata(lon))
             return (lat, lon)
 
     except Exception as e:
-        logger.warning(f"Nominatim geocode failed for {query}: {e}")
+        logger.warning("Nominatim geocode failed for %s: %s", log_metadata(query), log_metadata(e))
 
     return None
 

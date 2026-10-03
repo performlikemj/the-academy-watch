@@ -17,6 +17,7 @@ from src.utils.formation_roles import (
     POSITION_GROUP_LABELS,
     POSITION_GROUPS,
 )
+from src.utils.log_privacy import log_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -192,7 +193,7 @@ def _team_league_from_api(team_api_id: int, season: int) -> tuple[int, str] | No
 
     api_key = os.getenv("API_FOOTBALL_KEY")
     if not api_key:
-        logger.debug("API_FOOTBALL_KEY not set — cannot resolve team %s league via API", team_api_id)
+        logger.debug("API_FOOTBALL_KEY not set — cannot resolve team %s league via API", log_metadata(team_api_id))
         return None
 
     try:
@@ -201,7 +202,9 @@ def _team_league_from_api(team_api_id: int, season: int) -> tuple[int, str] | No
         client = APIFootballClient(api_key=api_key)
         resp = client._make_request("leagues", {"team": team_api_id, "season": season})
     except Exception as e:  # noqa: BLE001
-        logger.warning("Failed to resolve team %s league via API-Football: %s", team_api_id, e)
+        logger.warning(
+            "Failed to resolve team %s league via API-Football: %s", log_metadata(team_api_id), log_metadata(e)
+        )
         # Don't cache failures — let the next call retry.
         return None
 
@@ -407,7 +410,12 @@ def fetch_league_position_averages(
                 },
             )
         except Exception as e:
-            logger.error(f"API error fetching league {league_api_id} page {page}: {e}")
+            logger.error(
+                "API error fetching league %s page %s: %s",
+                log_metadata(league_api_id),
+                log_metadata(page),
+                log_metadata(e),
+            )
             break
 
         players_data = resp.get("response", [])
@@ -454,7 +462,11 @@ def fetch_league_position_averages(
 
     _cache_set(cache_key, result)
     logger.info(
-        f"League {league_api_id} season {season}: " + ", ".join(f"{p}={d['player_count']}" for p, d in result.items())
+        "Log event: %s",
+        log_metadata(
+            f"League {league_api_id} season {season}: "
+            + ", ".join((f"{p}={d['player_count']}" for p, d in result.items()))
+        ),
     )
     return result
 

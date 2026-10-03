@@ -60,6 +60,7 @@ from src.services.user_blocks import (
     user_has_block_relationship_with_any,
     users_have_block_relationship,
 )
+from src.utils.log_privacy import log_metadata, safe_exc_info
 
 logger = logging.getLogger(__name__)
 contact_bp = Blueprint("contact", __name__)
@@ -638,13 +639,13 @@ def create_contact_request():
                 logger.warning(
                     "contact_status_contradiction",
                     extra={
-                        "contact_request_id": contact_request.id,
-                        "player_api_id": player_api_id,
-                        "claim_id": claim.id,
-                        "claim_contract_status": claim.contract_status,
-                        "platform_contract_belief": platform_belief,
-                        "platform_pathway_status": platform_pathway_status,
-                        "routing_mode": routing_mode,
+                        "contact_request_id": log_metadata(contact_request.id),
+                        "player_api_id": log_metadata(player_api_id),
+                        "claim_id": log_metadata(claim.id),
+                        "claim_contract_status": log_metadata(claim.contract_status),
+                        "platform_contract_belief": log_metadata(platform_belief),
+                        "platform_pathway_status": log_metadata(platform_pathway_status),
+                        "routing_mode": log_metadata(routing_mode),
                     },
                 )
             if routing_mode == ROUTING_CLUB_NOTIFIED:
@@ -685,7 +686,11 @@ def create_contact_request():
             except Exception:
                 db.session.rollback()
                 notice_metadata = None
-                logger.exception("Club notice dispatch failed for request %s", contact_request.id)
+                logger.exception(
+                    "Club notice dispatch failed for request %s",
+                    log_metadata(contact_request.id),
+                    exc_info=safe_exc_info(),
+                )
             if notice_metadata is not None:
                 try:
                     add_audit_event(
@@ -697,13 +702,21 @@ def create_contact_request():
                     db.session.commit()
                 except Exception:
                     db.session.rollback()
-                    logger.exception("Failed to record club notice audit for request %s", contact_request.id)
+                    logger.exception(
+                        "Failed to record club notice audit for request %s",
+                        log_metadata(contact_request.id),
+                        exc_info=safe_exc_info(),
+                    )
         elif routing_mode == ROUTING_CLUB_INCLUDED and not contact_request.club_first:
             try:
                 send_club_consent_notice(contact_request)
             except Exception:
                 db.session.rollback()
-                logger.exception("Club consent dispatch failed for request %s", contact_request.id)
+                logger.exception(
+                    "Club consent dispatch failed for request %s",
+                    log_metadata(contact_request.id),
+                    exc_info=safe_exc_info(),
+                )
         if routing_mode in {ROUTING_DIRECT, ROUTING_CLUB_NOTIFIED}:
             try:
                 from src.services.admin_notify_service import notify_contact_request
@@ -721,7 +734,11 @@ def create_contact_request():
                     club_notice_sent=notice_metadata is not None if routing_mode == ROUTING_CLUB_NOTIFIED else None,
                 )
             except Exception:
-                logger.exception("Failed to queue admin notice for contact request %s", contact_request.id)
+                logger.exception(
+                    "Failed to queue admin notice for contact request %s",
+                    log_metadata(contact_request.id),
+                    exc_info=safe_exc_info(),
+                )
         return jsonify({"contact_request": _contact_request_payload(contact_request, viewer_user_id=user.id)}), 201
     except ValueError as exc:
         db.session.rollback()
@@ -733,7 +750,7 @@ def create_contact_request():
         if conflict:
             code, status = conflict
             return jsonify(error=code), status
-        logger.exception("Failed to create contact request")
+        logger.exception("Failed to create contact request", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(exc, "Failed to create contact request")), 500
     except Exception as exc:
         db.session.rollback()
@@ -741,7 +758,7 @@ def create_contact_request():
         if conflict:
             code, status = conflict
             return jsonify(error=code, code=code, retryable=True), status
-        logger.exception("Failed to create contact request")
+        logger.exception("Failed to create contact request", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(exc, "Failed to create contact request")), 500
 
 
@@ -823,7 +840,7 @@ def admin_list_contact_requests():
         if conflict:
             code, status = conflict
             return jsonify(error=code, code=code, retryable=True), status
-        logger.exception("Failed to list contact requests for admin oversight")
+        logger.exception("Failed to list contact requests for admin oversight", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(exc, "Failed to list admin contact requests")), 500
 
 
@@ -869,7 +886,9 @@ def admin_get_contact_request(request_id: str):
         if conflict:
             code, status = conflict
             return jsonify(error=code, code=code, retryable=True), status
-        logger.exception("Failed to load contact request %s for admin oversight", request_id)
+        logger.exception(
+            "Failed to load contact request %s for admin oversight", log_metadata(request_id), exc_info=safe_exc_info()
+        )
         return jsonify(_safe_error_payload(exc, "Failed to load admin contact request")), 500
 
 
@@ -998,7 +1017,7 @@ def list_contact_requests():
         if conflict:
             code, status = conflict
             return jsonify(error=code, code=code, retryable=True), status
-        logger.exception("Failed to list contact requests")
+        logger.exception("Failed to list contact requests", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(exc, "Failed to list contact requests")), 500
 
 
@@ -1040,7 +1059,9 @@ def _respond_to_request(request_id: str, action: str):
         if conflict:
             code, status = conflict
             return jsonify(error=code, code=code, retryable=True), status
-        logger.exception("Failed to %s contact request %s", action, request_id)
+        logger.exception(
+            "Failed to %s contact request %s", log_metadata(action), log_metadata(request_id), exc_info=safe_exc_info()
+        )
         return jsonify(_safe_error_payload(exc, f"Failed to {action} contact request")), 500
 
 
@@ -1152,7 +1173,9 @@ def set_club_consent(request_id: str):
         if conflict:
             code, status = conflict
             return jsonify(error=code), status
-        logger.exception("Failed to set club consent for request %s", request_id)
+        logger.exception(
+            "Failed to set club consent for request %s", log_metadata(request_id), exc_info=safe_exc_info()
+        )
         return jsonify(_safe_error_payload(exc, "Failed to set club consent")), 500
     except Exception as exc:
         db.session.rollback()
@@ -1160,7 +1183,9 @@ def set_club_consent(request_id: str):
         if conflict:
             code, status = conflict
             return jsonify(error=code, code=code, retryable=True), status
-        logger.exception("Failed to set club consent for request %s", request_id)
+        logger.exception(
+            "Failed to set club consent for request %s", log_metadata(request_id), exc_info=safe_exc_info()
+        )
         return jsonify(_safe_error_payload(exc, "Failed to set club consent")), 500
 
 
@@ -1240,7 +1265,7 @@ def public_club_consent(token: str):
         if conflict:
             code, status = conflict
             return jsonify(error=code), status
-        logger.exception("Failed to process public club consent link")
+        logger.exception("Failed to process public club consent link", exc_info=safe_exc_info())
         return _invalid_consent_link()
     except Exception as exc:
         db.session.rollback()
@@ -1248,7 +1273,7 @@ def public_club_consent(token: str):
         if conflict:
             code, status = conflict
             return jsonify(error=code, code=code, retryable=True), status
-        logger.exception("Failed to process public club consent link")
+        logger.exception("Failed to process public club consent link", exc_info=safe_exc_info())
         return _invalid_consent_link()
 
 
@@ -1281,7 +1306,7 @@ def withdraw_contact_request(request_id: str):
         if conflict:
             code, status = conflict
             return jsonify(error=code, code=code, retryable=True), status
-        logger.exception("Failed to withdraw contact request %s", request_id)
+        logger.exception("Failed to withdraw contact request %s", log_metadata(request_id), exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(exc, "Failed to withdraw contact request")), 500
 
 
@@ -1320,7 +1345,9 @@ def list_contact_messages(request_id: str):
         if conflict:
             code, status = conflict
             return jsonify(error=code, code=code, retryable=True), status
-        logger.exception("Failed to list messages for contact request %s", request_id)
+        logger.exception(
+            "Failed to list messages for contact request %s", log_metadata(request_id), exc_info=safe_exc_info()
+        )
         return jsonify(_safe_error_payload(exc, "Failed to list contact messages")), 500
 
 
@@ -1398,7 +1425,9 @@ def create_contact_message(request_id: str):
         if conflict:
             code, status = conflict
             return jsonify(error=code, code=code, retryable=True), status
-        logger.exception("Failed to send message for contact request %s", request_id)
+        logger.exception(
+            "Failed to send message for contact request %s", log_metadata(request_id), exc_info=safe_exc_info()
+        )
         return jsonify(_safe_error_payload(exc, "Failed to send contact message")), 500
 
 
@@ -1472,7 +1501,9 @@ def report_contact_outcome(request_id: str):
         if conflict:
             code, status = conflict
             return jsonify(error=code, code=code, retryable=True), status
-        logger.exception("Failed to report outcome for contact request %s", request_id)
+        logger.exception(
+            "Failed to report outcome for contact request %s", log_metadata(request_id), exc_info=safe_exc_info()
+        )
         return jsonify(_safe_error_payload(exc, "Failed to report contact outcome")), 500
 
 
@@ -1511,7 +1542,7 @@ def revoke_club_origin_request(request_id):
         if conflict:
             code, status = conflict
             return jsonify(error=code), status
-        logger.exception("Failed to revoke contact request %s", request_id)
+        logger.exception("Failed to revoke contact request %s", log_metadata(request_id), exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(exc, "Failed to revoke contact request")), 500
     except Exception as exc:
         db.session.rollback()
@@ -1519,5 +1550,5 @@ def revoke_club_origin_request(request_id):
         if conflict:
             code, status = conflict
             return jsonify(error=code, code=code, retryable=True), status
-        logger.exception("Failed to revoke contact request %s", request_id)
+        logger.exception("Failed to revoke contact request %s", log_metadata(request_id), exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(exc, "Failed to revoke contact request")), 500

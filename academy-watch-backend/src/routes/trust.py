@@ -13,6 +13,7 @@ from src.extensions import limiter
 from src.models.contact import ContactMessage
 from src.models.league import UserAccount, db
 from src.models.trust import ContentReport, ScoutVerification
+from src.utils.log_privacy import log_metadata, safe_exc_info
 from src.utils.sanitize import is_safe_https_url, sanitize_comment_body, sanitize_plain_text
 
 logger = logging.getLogger(__name__)
@@ -242,7 +243,7 @@ def submit_scout_verification():
         return jsonify({"error": str(exc)}), 400
     except Exception as exc:
         db.session.rollback()
-        logger.exception("Failed to submit scout verification")
+        logger.exception("Failed to submit scout verification", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(exc, "Failed to submit scout verification")), 500
 
 
@@ -261,7 +262,7 @@ def get_scout_verification():
         )
         return jsonify({"verification": verification.to_dict() if verification else None})
     except Exception as exc:
-        logger.exception("Failed to load scout verification")
+        logger.exception("Failed to load scout verification", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(exc, "Failed to load scout verification")), 500
 
 
@@ -294,7 +295,7 @@ def admin_list_scout_verifications():
             }
         )
     except Exception as exc:
-        logger.exception("Failed to list scout verifications")
+        logger.exception("Failed to list scout verifications", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(exc, "Failed to list scout verifications")), 500
 
 
@@ -347,8 +348,9 @@ def _review_scout_verification(verification_id: int, action: str):
             except Exception:
                 logger.exception(
                     "Failed to dispatch %s email for scout verification %s",
-                    action,
-                    verification_id,
+                    log_metadata(action),
+                    log_metadata(verification_id),
+                    exc_info=safe_exc_info(),
                 )
         return jsonify({"verification": verification.admin_dict()})
     except ValueError as exc:
@@ -356,7 +358,12 @@ def _review_scout_verification(verification_id: int, action: str):
         return jsonify({"error": str(exc)}), 400
     except Exception as exc:
         db.session.rollback()
-        logger.exception("Failed to %s scout verification %s", action, verification_id)
+        logger.exception(
+            "Failed to %s scout verification %s",
+            log_metadata(action),
+            log_metadata(verification_id),
+            exc_info=safe_exc_info(),
+        )
         return jsonify(_safe_error_payload(exc, f"Failed to {action} scout verification")), 500
 
 
@@ -410,7 +417,7 @@ def submit_content_report():
         return jsonify({"error": str(exc)}), 400
     except Exception as exc:
         db.session.rollback()
-        logger.exception("Failed to submit content report")
+        logger.exception("Failed to submit content report", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(exc, "Failed to submit content report")), 500
 
 
@@ -448,7 +455,7 @@ def admin_list_content_reports():
             }
         )
     except Exception as exc:
-        logger.exception("Failed to list content reports")
+        logger.exception("Failed to list content reports", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(exc, "Failed to list content reports")), 500
 
 
@@ -490,7 +497,7 @@ def admin_resolve_content_report(report_id: int):
         return jsonify({"error": str(exc)}), 400
     except Exception as exc:
         db.session.rollback()
-        logger.exception("Failed to resolve content report %s", report_id)
+        logger.exception("Failed to resolve content report %s", log_metadata(report_id), exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(exc, "Failed to resolve content report")), 500
 
 

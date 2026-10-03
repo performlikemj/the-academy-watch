@@ -215,7 +215,7 @@ def admin_sandbox_home():
         logger.warning("[admin-sandbox] no teams found in database")
     else:
         sample = ", ".join(f"{team.name}#{team.team_id}" for team in teams[:5])
-        logger.debug("[admin-sandbox] sample teams: %s", sample)
+        logger.debug("[admin-sandbox] sample teams: %s", log_metadata(sample))
 
     team_options = [
         {
@@ -417,7 +417,7 @@ def admin_issue_curator_token():
         db.session.commit()
 
         token_data = issue_user_token(email, role="user")
-        logger.info("Admin issued curator token for %s (user_id=%d)", mask_email(email), user.id)
+        logger.info("Admin issued curator token for %s (user_id=%d)", mask_email(email), log_metadata(user.id))
         return jsonify(
             {
                 "token": token_data["token"],
@@ -473,7 +473,7 @@ def _send_email_via_webhook(
             "provider": result.provider,
         }
     except Exception as exc:
-        logger.exception("Failed to send email to %s", mask_email(email))
+        logger.exception("Failed to send email to %s", mask_email(email), exc_info=safe_exc_info())
         raise RuntimeError(f"Email delivery failed: {exc}") from exc
 
 
@@ -854,7 +854,7 @@ def generate_weekly_all():
             pass
         return jsonify({"ran_for": target_dt.isoformat(), "results": result})
     except Exception as e:
-        logger.exception("generate-weekly-all failed")
+        logger.exception("generate-weekly-all failed", exc_info=safe_exc_info())
         return jsonify({"error": str(e)}), 500
 
 
@@ -890,7 +890,7 @@ def generate_weekly_all_mcp():
             pass
         return jsonify({"ran_for": tdate.isoformat(), "results": result})
     except Exception as e:
-        logger.exception("generate-weekly-all-mcp failed")
+        logger.exception("generate-weekly-all-mcp failed", exc_info=safe_exc_info())
         return jsonify({"error": str(e)}), 500
 
 
@@ -1273,7 +1273,7 @@ def get_newsletter(newsletter_id):
         else:
             payload["commentaries"] = all_commentaries
 
-        logger.info(f"📰 [get_newsletter] Serving newsletter ID: {newsletter_id}")
+        logger.info("📰 [get_newsletter] Serving newsletter ID: %s", log_metadata(newsletter_id))
 
         # Extract embedded rendered variants if present
         try:
@@ -1282,7 +1282,8 @@ def get_newsletter(newsletter_id):
             if isinstance(rendered, dict):
                 payload["rendered"] = {k: (v if isinstance(v, str) else "") for k, v in rendered.items()}
                 logger.info(
-                    f"✅ [get_newsletter] Found rendered variants - web_html: {len(payload['rendered'].get('web_html', ''))} chars"
+                    "✅ [get_newsletter] Found rendered variants - web_html: %s chars",
+                    len(payload["rendered"].get("web_html", "")),
                 )
 
                 # Check if web_html has expanded stats
@@ -1303,14 +1304,14 @@ def get_newsletter(newsletter_id):
                     first_item = items[0]
                     stats = first_item.get("stats", {})
                     logger.info("📊 [get_newsletter] Sample item stats from JSON:")
-                    logger.info(f"   Player: {first_item.get('player_name')}")
-                    logger.info(f"   Stats keys: {list(stats.keys())}")
-                    logger.info(f"   Position: {stats.get('position')}")
-                    logger.info(f"   Rating: {stats.get('rating')}")
-                    logger.info(f"   Shots: {stats.get('shots_total')}")
-                    logger.info(f"   Passes: {stats.get('passes_total')}")
+                    logger.info("   Player: %s", log_metadata(first_item.get("player_name")))
+                    logger.info("   Stats keys: %s", log_metadata(list(stats.keys())))
+                    logger.info("   Position: %s", log_metadata(stats.get("position")))
+                    logger.info("   Rating: %s", log_metadata(stats.get("rating")))
+                    logger.info("   Shots: %s", log_metadata(stats.get("shots_total")))
+                    logger.info("   Passes: %s", log_metadata(stats.get("passes_total")))
         except Exception as e:
-            logger.error(f"❌ [get_newsletter] Error extracting rendered variants: {e}")
+            logger.error("❌ [get_newsletter] Error extracting rendered variants: %s", log_metadata(e))
             pass
 
         try:
@@ -1458,7 +1459,7 @@ def refresh_newsletter_fixtures(newsletter_id: int):
                                     fixture["loan_team_id"] = loan_team_id
                                     break
                         except Exception as e:
-                            logger.warning(f"Fallback fixture lookup failed: {e}")
+                            logger.warning("Fallback fixture lookup failed: %s", log_metadata(e))
                             continue
 
                     if not result_data:
@@ -1509,7 +1510,11 @@ def refresh_newsletter_fixtures(newsletter_id: int):
             newsletter.structured_content = content_json
             newsletter.content = content_json
             db.session.commit()
-            logger.info(f"Updated {fixtures_updated} fixture results for newsletter {newsletter_id}")
+            logger.info(
+                "Updated %s fixture results for newsletter %s",
+                log_metadata(fixtures_updated),
+                log_metadata(newsletter_id),
+            )
 
         # Return updated newsletter content
         return jsonify(
@@ -1522,10 +1527,9 @@ def refresh_newsletter_fixtures(newsletter_id: int):
         )
 
     except Exception as e:
-        logger.error(f"Error refreshing fixtures for newsletter {newsletter_id}: {e}")
-        import traceback
+        logger.error("Error refreshing fixtures for newsletter %s: %s", log_metadata(newsletter_id), log_metadata(e))
 
-        traceback.print_exc()
+        get_logger(__name__).error("Operation failed", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "Failed to refresh fixture results")), 500
 
 
@@ -1583,7 +1587,7 @@ def _sync_player_club_fixtures(
 
     require_api_enabled()
     if not is_external_player_id(player_id):
-        logger.info("Skipping upstream fixture sync for local player %s", player_id)
+        logger.info("Skipping upstream fixture sync for local player %s", log_metadata(player_id))
         return 0
 
     from src.api_football_client import APIFootballClient
@@ -1597,7 +1601,12 @@ def _sync_player_club_fixtures(
 
     fixtures = api_client.get_fixtures_for_team_cached(loan_team_api_id, season, season_start, today)
 
-    logger.info(f"Found {len(fixtures)} fixtures for team {loan_team_api_id} in season {season}")
+    logger.info(
+        "Found %s fixtures for team %s in season %s",
+        len(fixtures),
+        log_metadata(loan_team_api_id),
+        log_metadata(season),
+    )
 
     # 🔄 If we have a player name, verify ID via fixtures BEFORE syncing
     # This catches ID mismatches early (e.g., seeded before player played)
@@ -1612,8 +1621,10 @@ def _sync_player_club_fixtures(
         )
         if verified_id != player_id:
             logger.warning(
-                f"🔄 ID mismatch detected during stats sync for '{player_name}': "
-                f"stored={player_id}, correct={verified_id}. Auto-correcting..."
+                "🔄 ID mismatch detected during stats sync for '%s': stored=%s, correct=%s. Auto-correcting...",
+                log_metadata(player_name),
+                log_metadata(player_id),
+                log_metadata(verified_id),
             )
             # Also delete any ghost stats with the old ID
             ghost_deleted = FixturePlayerStats.query.filter(
@@ -1631,9 +1642,17 @@ def _sync_player_club_fixtures(
                     with db.session.begin_nested():
                         _refresh_rollup(player_id, season=season)
                 except Exception:
-                    logger.exception("season-rollup refresh after ghost-delete failed for player=%s", player_id)
+                    logger.exception(
+                        "season-rollup refresh after ghost-delete failed for player=%s",
+                        log_metadata(player_id),
+                        exc_info=safe_exc_info(),
+                    )
                 db.session.commit()
-                logger.info(f"🗑️ Deleted {ghost_deleted} ghost stat records with old ID {player_id}")
+                logger.info(
+                    "🗑️ Deleted %s ghost stat records with old ID %s",
+                    log_metadata(ghost_deleted),
+                    log_metadata(player_id),
+                )
 
             corrected_id = verified_id
             player_id = verified_id  # Use corrected ID for syncing
@@ -1719,9 +1738,13 @@ def _sync_player_club_fixtures(
                     from src.services.season_rollup_service import queue_player_refresh
 
                     queue_player_refresh(player_id, season)
-                    logger.debug(f"Added stats for fixture {fixture_id_api}: {minutes}' played")
+                    logger.debug(
+                        "Added stats for fixture %s: %s' played", log_metadata(fixture_id_api), log_metadata(minutes)
+                    )
         except Exception as e:
-            logger.warning(f"Failed to get player stats for fixture {fixture_id_api}: {e}")
+            logger.warning(
+                "Failed to get player stats for fixture %s: %s", log_metadata(fixture_id_api), log_metadata(e)
+            )
             continue
 
     if synced > 0:
@@ -1730,7 +1753,12 @@ def _sync_player_club_fixtures(
         from src.services.season_rollup_service import flush_player_refresh_queue
 
         flush_player_refresh_queue()
-        logger.info(f"Synced {synced} fixtures for player {player_id} at team {loan_team_api_id}")
+        logger.info(
+            "Synced %s fixtures for player %s at team %s",
+            log_metadata(synced),
+            log_metadata(player_id),
+            log_metadata(loan_team_api_id),
+        )
 
     return synced
 
@@ -2088,7 +2116,7 @@ def admin_update_player_link(link_id: int):
 def generate_newsletter():
     """Generate a newsletter for a specific team and date."""
     try:
-        logger.info("=" * 80)
+        logger.info("Log event: %s", log_metadata("=" * 80))
         logger.info("📰 NEWSLETTER GENERATION REQUEST STARTED")
 
         data = request.get_json()
@@ -2099,28 +2127,33 @@ def generate_newsletter():
         skip_sync = data.get("skip_sync", False)
 
         logger.info(
-            f"📝 Request data: team_id={team_id}, target_date={target_date}, type={newsletter_type}, force_refresh={force_refresh}, skip_sync={skip_sync}"
+            "📝 Request data: team_id=%s, target_date=%s, type=%s, force_refresh=%s, skip_sync=%s",
+            log_metadata(team_id),
+            log_metadata(target_date),
+            log_metadata(newsletter_type),
+            log_metadata(force_refresh),
+            log_metadata(skip_sync),
         )
 
         if not team_id:
             logger.warning("❌ Missing team_id in request")
             return jsonify({"error": "team_id is required"}), 400
 
-        logger.info(f"🔍 Fetching team with ID: {team_id}")
+        logger.info("🔍 Fetching team with ID: %s", log_metadata(team_id))
         team = Team.query.get_or_404(team_id)
-        logger.info(f"✅ Found team: {team.name} (ID: {team.id})")
+        logger.info("✅ Found team: %s (ID: %s)", log_metadata(team.name), log_metadata(team.id))
 
         # Parse target date
         if target_date:
             try:
                 target_date = datetime.strptime(target_date, "%Y-%m-%d").date()
-                logger.info(f"📅 Parsed target date: {target_date}")
+                logger.info("📅 Parsed target date: %s", log_metadata(target_date))
             except ValueError as ve:
-                logger.error(f"❌ Invalid date format: {target_date}, error: {ve}")
+                logger.error("❌ Invalid date format: %s, error: %s", log_metadata(target_date), log_metadata(ve))
                 return jsonify({"error": "Invalid date format. Use YYYY-MM-DD"}), 400
         else:
             target_date = datetime.now(UTC).date()
-            logger.info(f"📅 Using today's date: {target_date}")
+            logger.info("📅 Using today's date: %s", log_metadata(target_date))
 
         # Compute week window for weekly newsletters
         week_start = None
@@ -2128,11 +2161,14 @@ def generate_newsletter():
         if newsletter_type == "weekly" and target_date:
             week_start = target_date - timedelta(days=target_date.weekday())
             week_end = week_start + timedelta(days=6)
-            logger.info(f"📆 Computed week range: {week_start} to {week_end}")
+            logger.info("📆 Computed week range: %s to %s", log_metadata(week_start), log_metadata(week_end))
 
         # Check if newsletter already exists for this team and week/date
         logger.info(
-            f"🔍 Checking for existing newsletter: team_id={team_id}, type={newsletter_type}, date={target_date}"
+            "🔍 Checking for existing newsletter: team_id=%s, type=%s, date=%s",
+            log_metadata(team_id),
+            log_metadata(newsletter_type),
+            log_metadata(target_date),
         )
         if week_start and week_end:
             existing = Newsletter.query.filter_by(
@@ -2144,7 +2180,7 @@ def generate_newsletter():
             ).first()
 
         if existing and not force_refresh:
-            logger.info(f"ℹ️  Newsletter already exists with ID: {existing.id}")
+            logger.info("ℹ️  Newsletter already exists with ID: %s", log_metadata(existing.id))
             return jsonify({"message": "Newsletter already exists for this date", "newsletter": existing.to_dict()})
 
         # For weekly newsletters, use the OpenAI-powered generator which
@@ -2160,28 +2196,38 @@ def generate_newsletter():
 
                 logger.info("✅ Successfully imported newsletter agent functions")
             except ImportError as ie:
-                logger.error(f"❌ IMPORT ERROR: Failed to import newsletter agent: {ie}")
-                logger.exception("Full import traceback:")
+                logger.error("❌ IMPORT ERROR: Failed to import newsletter agent: %s", log_metadata(ie))
+                logger.exception("Full import traceback:", exc_info=safe_exc_info())
                 raise
 
             try:
                 logger.info(
-                    f"🚀 Calling compose_team_weekly_newsletter(team_id={team_id}, target_date={target_date}, force_refresh={force_refresh}, skip_sync={skip_sync})"
+                    "🚀 Calling compose_team_weekly_newsletter(team_id=%s, target_date=%s, force_refresh=%s, skip_sync=%s)",
+                    log_metadata(team_id),
+                    log_metadata(target_date),
+                    log_metadata(force_refresh),
+                    log_metadata(skip_sync),
                 )
                 composed = compose_team_weekly_newsletter(
                     team_id, target_date, force_refresh=force_refresh, skip_sync=skip_sync
                 )
                 logger.info("✅ Newsletter composed successfully")
-                logger.info(f"📊 Composed data keys: {list(composed.keys())}")
+                logger.info("📊 Composed data keys: %s", log_metadata(list(composed.keys())))
             except Exception as compose_error:
-                logger.error(f"❌ COMPOSITION ERROR: {type(compose_error).__name__}: {compose_error}")
-                logger.exception("Full composition traceback:")
+                logger.error(
+                    "❌ COMPOSITION ERROR: %s: %s",
+                    log_metadata(type(compose_error).__name__),
+                    log_metadata(compose_error),
+                )
+                logger.exception("Full composition traceback:", exc_info=safe_exc_info())
                 raise
 
             try:
                 logger.info("💾 Persisting newsletter to database...")
                 if existing and force_refresh:
-                    logger.info(f"♻️  Force refresh requested; updating existing newsletter ID: {existing.id}")
+                    logger.info(
+                        "♻️  Force refresh requested; updating existing newsletter ID: %s", log_metadata(existing.id)
+                    )
                     payload_obj = None
                     content_json_str = composed.get("content_json") or "{}"
                     try:
@@ -2216,7 +2262,7 @@ def generate_newsletter():
                     existing.generated_date = now
                     existing.updated_at = now
                     db.session.commit()
-                    logger.info(f"✅ Newsletter refreshed for ID: {existing.id}")
+                    logger.info("✅ Newsletter refreshed for ID: %s", log_metadata(existing.id))
                     row = existing
                 else:
                     # Persist using shared helper (sets generated_date/published_date)
@@ -2228,18 +2274,22 @@ def generate_newsletter():
                         issue_date=target_date,
                         newsletter_type="weekly",
                     )
-                    logger.info(f"✅ Newsletter persisted with ID: {row.id}")
+                    logger.info("✅ Newsletter persisted with ID: %s", log_metadata(row.id))
             except Exception as persist_error:
-                logger.error(f"❌ PERSISTENCE ERROR: {type(persist_error).__name__}: {persist_error}")
-                logger.exception("Full persistence traceback:")
+                logger.error(
+                    "❌ PERSISTENCE ERROR: %s: %s",
+                    log_metadata(type(persist_error).__name__),
+                    log_metadata(persist_error),
+                )
+                logger.exception("Full persistence traceback:", exc_info=safe_exc_info())
                 raise
 
             logger.info("🎉 Newsletter generation completed successfully!")
-            logger.info("=" * 80)
+            logger.info("Log event: %s", log_metadata("=" * 80))
             return jsonify({"message": "Newsletter generated successfully", "newsletter": row.to_dict()})
 
         # Fallback for other types (currently unsupported):
-        logger.warning(f"❌ Unsupported newsletter type: {newsletter_type}")
+        logger.warning("❌ Unsupported newsletter type: %s", log_metadata(newsletter_type))
         return jsonify({"error": f"Unsupported newsletter type: {newsletter_type}"}), 400
 
     except Exception as e:
@@ -2248,10 +2298,10 @@ def generate_newsletter():
             db.session.rollback()
         except Exception:
             pass
-        logger.error("=" * 80)
-        logger.error(f"💥 FATAL ERROR in generate_newsletter: {type(e).__name__}: {e}")
-        logger.exception("Full error traceback:")
-        logger.error("=" * 80)
+        logger.error("Log event: %s", log_metadata("=" * 80))
+        logger.error("💥 FATAL ERROR in generate_newsletter: %s: %s", log_metadata(type(e).__name__), log_metadata(e))
+        logger.exception("Full error traceback:", exc_info=safe_exc_info())
+        logger.error("Log event: %s", log_metadata("=" * 80))
         return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
 
 
@@ -2348,7 +2398,7 @@ def _activate_subscriptions(email: str, team_ids: list[int], preferred_frequency
             team_names = [t["team_name"] for t in teams_without_newsletters]
             _send_waitlist_welcome_email(email, team_names)
         except Exception as e:
-            logger.warning("Failed to send waitlist email to %s: %s", mask_email(email), e)
+            logger.warning("Failed to send waitlist email to %s: %s", mask_email(email), log_metadata(e))
 
     return {
         "message": "Subscriptions updated",
@@ -2441,7 +2491,9 @@ def _process_subscriptions(email: str, team_ids_raw: list[Any], preferred_freque
                 db.session.rollback()
             except Exception:
                 pass
-            logger.exception("Failed to queue subscription verification for %s", mask_email(email))
+            logger.exception(
+                "Failed to queue subscription verification for %s", mask_email(email), exc_info=safe_exc_info()
+            )
             return _safe_error_payload(exc, "Failed to send verification email"), 500
 
     result = _activate_subscriptions(email, valid_ids, preferred_frequency)
@@ -2511,10 +2563,10 @@ def _create_email_token(email: str, purpose: str, metadata: dict | None = None, 
     db.session.flush()
     logger.info(
         "Created email token id=%s purpose=%s email=%s expires_at=%s",
-        row.id,
-        purpose,
+        log_metadata(row.id),
+        log_metadata(purpose),
         mask_email(email),
-        expires_at.isoformat(),
+        log_metadata(expires_at.isoformat()),
     )
     return row
 
@@ -2699,7 +2751,7 @@ def token_unsubscribe(token: str):
         try:
             sub, status, code = _unsubscribe_subscription_by_token(token)
         except Exception as e:
-            logger.exception("Error unsubscribing via token (POST)")
+            logger.exception("Error unsubscribing via token (POST)", exc_info=safe_exc_info())
             return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
 
         if status == "missing_token":
@@ -2714,7 +2766,7 @@ def token_unsubscribe(token: str):
     try:
         sub, status, code = _unsubscribe_subscription_by_token(token)
     except Exception as e:
-        logger.exception("Error unsubscribing via token (GET)")
+        logger.exception("Error unsubscribing via token (GET)", exc_info=safe_exc_info())
         error_ctx = {
             "status": "error",
             "headline": "Something went wrong",
@@ -2783,9 +2835,9 @@ def one_click_unsubscribe(token: str):
 
         logger.info(
             "One-click unsubscribe request: token=%s content_type=%s body_preview=%s",
-            token[:8] + "..." if len(token) > 8 else token,
-            content_type,
-            body[:100] if body else "(empty)",
+            log_metadata(token[:8] + "..." if len(token) > 8 else token),
+            log_metadata(content_type),
+            log_metadata(body[:100] if body else "(empty)"),
         )
 
         sub, status, code = _unsubscribe_subscription_by_token(token)
@@ -2797,17 +2849,17 @@ def one_click_unsubscribe(token: str):
             return "", 200
 
         if status == "not_found":
-            logger.warning("One-click unsubscribe: token not found - %s", token[:8] + "...")
+            logger.warning("One-click unsubscribe: token not found - %s", log_metadata(token[:8] + "..."))
             return "", 200
 
         if status in ("unsubscribed", "already_unsubscribed"):
-            logger.info("One-click unsubscribe successful for token %s", token[:8] + "...")
+            logger.info("One-click unsubscribe successful for token %s", log_metadata(token[:8] + "..."))
             return "", 200
 
         return "", 200
 
     except Exception as e:
-        logger.exception("One-click unsubscribe failed for token")
+        logger.exception("One-click unsubscribe failed for token", exc_info=safe_exc_info())
         # Still return 200 to avoid retry loops from email clients
         return "", 200
 
@@ -2947,7 +2999,7 @@ def get_overview_stats():
 
             season_start_year = current_stats_season()
             current_season_slug = f"{season_start_year}-{season_start_year + 1}"
-            logger.warning("Overview season using local fallback: %s", upstream_error)
+            logger.warning("Overview season using local fallback: %s", log_metadata(upstream_error))
         if not current_season_slug and season_start_year:
             current_season_slug = f"{season_start_year}-{str(season_start_year + 1)[-2:]}"
 
@@ -3049,7 +3101,7 @@ def sync_leagues():
         )
 
     except Exception as e:
-        logger.error(f"Error syncing leagues: {e}")
+        logger.error("Error syncing leagues: %s", log_metadata(e))
         return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
 
 
@@ -3111,7 +3163,7 @@ def sync_teams(season):
         )
 
     except Exception as e:
-        logger.error(f"Error syncing teams: {e}")
+        logger.error("Error syncing teams: %s", log_metadata(e))
         return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
 
 
@@ -3174,7 +3226,7 @@ def _load_newsletter_json(n: Newsletter) -> dict | None:
                                                     existing_links.insert(0, youtube_link_obj)
                                                 item["links"] = existing_links
             except Exception as e:
-                logger.exception("Failed to inject YouTube links into newsletter")
+                logger.exception("Failed to inject YouTube links into newsletter", exc_info=safe_exc_info())
                 pass
 
             return data
@@ -3437,7 +3489,9 @@ def _load_logo_image(source: str | None):
                 with Image.open(path) as img:
                     return img.convert("RGBA")
     except Exception as exc:
-        logger.debug("Failed to load logo image from %s: %s", source, exc, exc_info=True)
+        logger.debug(
+            "Failed to load logo image from %s: %s", log_metadata(source), log_metadata(exc), exc_info=safe_exc_info()
+        )
     return None
 
 
@@ -3474,7 +3528,12 @@ def _ensure_newsletter_cover_image(n: Newsletter, *, team_logo: str | None) -> s
                 shutil.copyfile(candidate, target_path)
                 return os.path.join(rel_dir, filename)
             except Exception as exc:
-                logger.warning("Failed to copy fallback cover %s -> %s: %s", candidate, target_path, exc)
+                logger.warning(
+                    "Failed to copy fallback cover %s -> %s: %s",
+                    log_metadata(candidate),
+                    log_metadata(target_path),
+                    log_metadata(exc),
+                )
         return None
 
     canvas = Image.new("RGB", (1200, 630), "#050A1E")
@@ -3528,7 +3587,7 @@ def _ensure_newsletter_cover_image(n: Newsletter, *, team_logo: str | None) -> s
         canvas.save(target_path, format="JPEG", quality=92, optimize=True)
         return os.path.join(rel_dir, filename)
     except Exception as exc:
-        logger.warning("Failed to write newsletter cover %s: %s", target_path, exc)
+        logger.warning("Failed to write newsletter cover %s: %s", log_metadata(target_path), log_metadata(exc))
         return None
 
 
@@ -3607,7 +3666,7 @@ def _embed_image(path):
                     encoded = base64.b64encode(f.read()).decode("utf-8")
                     return f"data:image/png;base64,{encoded}"
         except Exception as e:
-            logging.error(f"Failed to embed image {path}: {e}")
+            logging.error("Failed to embed image %s: %s", log_metadata(path), log_metadata(e))
     return path
 
 
@@ -4024,7 +4083,7 @@ def _build_academy_watch(n: Newsletter) -> list[dict]:
             .all()
         )
     except Exception:
-        logger.warning("academy_watch query failed for newsletter %s", n.id, exc_info=True)
+        logger.warning("academy_watch query failed for newsletter %s", log_metadata(n.id), exc_info=safe_exc_info())
         return []
     if not rows:
         return []
@@ -4138,22 +4197,22 @@ def _newsletter_render_context(n: Newsletter) -> dict[str, Any]:
     try:
         featured_items, featured_overflow = _build_featured_items(flat_items)
     except Exception:
-        logger.warning("featured_items build failed for newsletter %s", n.id, exc_info=True)
+        logger.warning("featured_items build failed for newsletter %s", log_metadata(n.id), exc_info=safe_exc_info())
         featured_items, featured_overflow = [], []
     try:
         week_numbers = _build_week_numbers(flat_items)
     except Exception:
-        logger.warning("week_numbers build failed for newsletter %s", n.id, exc_info=True)
+        logger.warning("week_numbers build failed for newsletter %s", log_metadata(n.id), exc_info=safe_exc_info())
         week_numbers = {"minutes_leader": None, "ga_leader": None, "best_rating": None, "max_minutes": 0}
     try:
         squad_watch = _build_squad_watch(flat_items, n)
     except Exception:
-        logger.warning("squad_watch build failed for newsletter %s", n.id, exc_info=True)
+        logger.warning("squad_watch build failed for newsletter %s", log_metadata(n.id), exc_info=safe_exc_info())
         squad_watch = []
     try:
         academy_watch = _build_academy_watch(n)
     except Exception:
-        logger.warning("academy_watch build failed for newsletter %s", n.id, exc_info=True)
+        logger.warning("academy_watch build failed for newsletter %s", log_metadata(n.id), exc_info=safe_exc_info())
         academy_watch = []
 
     context: dict[str, Any] = {
@@ -4340,17 +4399,20 @@ def _deliver_newsletter_via_webhook(
                     digest_queued_count += 1
                     logger.info(
                         "Queued newsletter %s for digest delivery to %s user_id=%s",
-                        n.id,
+                        log_metadata(n.id),
                         mask_email(email),
-                        user_account.id,
+                        log_metadata(user_account.id),
                     )
                 else:
                     logger.debug(
-                        "Newsletter %s already queued for %s user_id=%s", n.id, mask_email(email), user_account.id
+                        "Newsletter %s already queued for %s user_id=%s",
+                        log_metadata(n.id),
+                        mask_email(email),
+                        log_metadata(user_account.id),
                     )
                 continue  # Skip sending individual email
             except Exception as queue_err:
-                logger.warning(f"Failed to queue for digest, falling back to individual: {queue_err}")
+                logger.warning("Failed to queue for digest, falling back to individual: %s", log_metadata(queue_err))
                 # Fall through to send individual email
 
         unsubscribe_url = None
@@ -4485,15 +4547,15 @@ def preview_newsletter_custom(newsletter_id: int):
                 if query is not None:
                     commentaries = query.all()
                     print(
-                        f"[PREVIEW DEBUG] Found {len(commentaries)} commentaries for team API ID {api_team_id}, week {newsletter.week_start_date} to {newsletter.week_end_date}"
+                        f"[PREVIEW DEBUG] Found {len(commentaries)} commentaries for team API ID {log_metadata(api_team_id)}, week {log_metadata(newsletter.week_start_date)} to {log_metadata(newsletter.week_end_date)}"
                     )
                     for c in commentaries:
                         print(
-                            f"  - Commentary ID {c.id}: type={c.commentary_type}, player_id={c.player_id}, author={c.author_name}"
+                            f"  - Commentary ID {log_metadata(c.id)}: type={log_metadata(c.commentary_type)}, player_id={log_metadata(c.player_id)}, author={log_metadata(c.author_name)}"
                         )
 
         print(
-            f"[PREVIEW DEBUG] Final commentary count after filtering: {len(commentaries)}, journalist_ids filter: {journalist_ids}"
+            f"[PREVIEW DEBUG] Final commentary count after filtering: {len(commentaries)}, journalist_ids filter: {log_metadata(journalist_ids)}"
         )
 
         # Render
@@ -4515,7 +4577,7 @@ def preview_newsletter_custom(newsletter_id: int):
         )
 
     except Exception as e:
-        logger.exception("Preview rendering failed")
+        logger.exception("Preview rendering failed", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "Preview generation failed")), 500
 
 
@@ -4541,7 +4603,7 @@ def render_newsletter(newsletter_id: int, fmt: str):
             return Response(text, mimetype="text/plain; charset=utf-8")
         return jsonify({"error": "Unsupported format. Use html, email, or text"}), 400
     except Exception as e:
-        logger.exception("Error rendering newsletter")
+        logger.exception("Error rendering newsletter", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
 
 
@@ -4558,7 +4620,7 @@ def download_newsletter_pdf(newsletter_id: int):
     try:
         from src.services.pdf_renderer import build_pdf_filename, html_to_pdf
     except ImportError:
-        logger.exception("WeasyPrint not available for PDF rendering")
+        logger.exception("WeasyPrint not available for PDF rendering", exc_info=safe_exc_info())
         return jsonify(
             {
                 "error": "pdf_renderer_unavailable",
@@ -4587,7 +4649,7 @@ def download_newsletter_pdf(newsletter_id: int):
             download_name=filename,
         )
     except Exception as e:
-        logger.exception("Error rendering newsletter PDF")
+        logger.exception("Error rendering newsletter PDF", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "Failed to generate PDF")), 500
 
 
@@ -4717,7 +4779,7 @@ def send_newsletter(newsletter_id: int):
             response_payload["admin_recipients"] = recipients
         return jsonify(response_payload)
     except Exception as e:
-        logger.exception("send_newsletter failed")
+        logger.exception("send_newsletter failed", exc_info=safe_exc_info())
         try:
             db.session.rollback()
         except Exception:
@@ -4754,7 +4816,7 @@ def delete_newsletter(newsletter_id: int):
 
         return jsonify({"status": "deleted", "newsletter_id": newsletter_id})
     except Exception as e:
-        logger.exception("delete_newsletter failed")
+        logger.exception("delete_newsletter failed", exc_info=safe_exc_info())
         try:
             db.session.rollback()
         except Exception:
@@ -4774,7 +4836,7 @@ def render_latest_newsletter(fmt: str):
             return jsonify({"error": "No newsletters found for team"}), 404
         return render_newsletter(n.id, fmt)
     except Exception as e:
-        logger.exception("Error rendering latest newsletter")
+        logger.exception("Error rendering latest newsletter", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
 
 
@@ -4819,7 +4881,7 @@ def generate_weekly_mcp_team():
             ), 200
         return jsonify({"team_db_id": team_db_id, "ran_for": tdate.isoformat(), "result": out})
     except Exception as e:
-        logger.exception("generate-weekly-mcp-team failed")
+        logger.exception("generate-weekly-mcp-team failed", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
 
 
@@ -4977,6 +5039,7 @@ def force_fail_all_jobs():
 
 
 # --- Admin: Missing names helpers (canonical source: utils/team_resolver.py) ---
+from src.utils.log_privacy import get_logger, log_metadata, safe_exc_info
 from src.utils.team_resolver import (
     update_team_name_if_missing as _update_team_name_if_missing,
 )
@@ -5065,7 +5128,7 @@ def admin_backfill_team_leagues(season: int):
             }
         )
     except Exception as e:
-        logger.exception("admin_backfill_team_leagues failed")
+        logger.exception("admin_backfill_team_leagues failed", exc_info=safe_exc_info())
         db.session.rollback()
         return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
 
@@ -5177,7 +5240,7 @@ def admin_backfill_team_leagues_all():
             }
         )
     except Exception as e:
-        logger.exception("admin_backfill_team_leagues_all failed")
+        logger.exception("admin_backfill_team_leagues_all failed", exc_info=safe_exc_info())
         db.session.rollback()
         return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
 
@@ -5232,7 +5295,13 @@ def admin_sync_player_fixtures(player_id: int):
         season_start = f"{season}-08-01"
         season_end = f"{season + 1}-06-30"
 
-        logger.info(f"Syncing fixtures for player {player_id} ({player_name}) at team {team_api_id} ({team_name})")
+        logger.info(
+            "Syncing fixtures for player %s (%s) at team %s (%s)",
+            log_metadata(player_id),
+            log_metadata(player_name),
+            log_metadata(team_api_id),
+            log_metadata(team_name),
+        )
 
         fixtures = api_client.get_fixtures_for_team_cached(team_api_id, season, season_start, season_end)
 
@@ -5354,10 +5423,9 @@ def admin_sync_player_fixtures(player_id: int):
         )
 
     except Exception as e:
-        logger.error(f"Error syncing fixtures for player {player_id}: {e}")
-        import traceback
+        logger.error("Error syncing fixtures for player %s: %s", log_metadata(player_id), log_metadata(e))
 
-        traceback.print_exc()
+        get_logger(__name__).error("Operation failed", exc_info=safe_exc_info())
         db.session.rollback()
         return jsonify(_safe_error_payload(e, "Failed to sync player fixtures")), 500
 
@@ -5392,7 +5460,9 @@ def admin_sync_team_fixtures(team_id: int):
                     result = _run_team_fixtures_sync(team_id, data, job_id)
                     _update_job(job_id, status="completed", results=result, completed_at=datetime.now(UTC).isoformat())
                 except Exception as e:
-                    logger.exception(f"Background team sync job {job_id} failed")
+                    logger.exception(
+                        "Background team sync job %s failed", log_metadata(job_id), exc_info=safe_exc_info()
+                    )
                     _update_job(job_id, status="failed", error=str(e), completed_at=datetime.now(UTC).isoformat())
 
             thread = threading.Thread(target=run_sync_in_background)
@@ -5403,7 +5473,7 @@ def admin_sync_team_fixtures(team_id: int):
             return jsonify(result), 200
 
     except Exception as e:
-        logger.exception(f"admin_sync_team_fixtures failed for team {team_id}")
+        logger.exception("admin_sync_team_fixtures failed for team %s", log_metadata(team_id), exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "Failed to sync team fixtures")), 500
 
 
@@ -5435,7 +5505,7 @@ def admin_sync_all_player_fixtures():
                 result = _run_batch_fixture_sync(data, job_id)
                 _update_job(job_id, status="completed", results=result, completed_at=datetime.now(UTC).isoformat())
             except Exception as e:
-                logger.exception(f"Batch fixture sync job {job_id} failed")
+                logger.exception("Batch fixture sync job %s failed", log_metadata(job_id), exc_info=safe_exc_info())
                 _update_job(job_id, status="failed", error=str(e), completed_at=datetime.now(UTC).isoformat())
 
         thread = threading.Thread(target=_run_batch_sync)
@@ -5449,7 +5519,7 @@ def admin_sync_all_player_fixtures():
         ), 202
 
     except Exception as e:
-        logger.exception("admin_sync_all_player_fixtures failed")
+        logger.exception("admin_sync_all_player_fixtures failed", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "Failed to start batch fixture sync")), 500
 
 
@@ -5728,8 +5798,8 @@ def _run_batch_fixture_sync(data: dict, job_id: str = None) -> dict:
             except Exception as exc:
                 logger.warning(
                     "Batch sync explicit transfer refresh failed for player %s: %s; using durable evidence",
-                    tp.player_api_id,
-                    exc,
+                    log_metadata(tp.player_api_id),
+                    log_metadata(exc),
                 )
 
         current_resolution = None
@@ -5897,7 +5967,12 @@ def _run_batch_fixture_sync(data: dict, job_id: str = None) -> dict:
                 db.session.commit()
             time.sleep(delay)  # Rate limit API calls
         except Exception as e:
-            logger.warning(f"Failed to discover team for player {tp.player_api_id} ({tp.player_name}): {e}")
+            logger.warning(
+                "Failed to discover team for player %s (%s): %s",
+                log_metadata(tp.player_api_id),
+                log_metadata(tp.player_name),
+                log_metadata(e),
+            )
             fallback_routing_team = routing_resolved_team or current_resolved_team
             if fallback_routing_team:
                 _queue_player(fallback_routing_team, tp)
@@ -5913,12 +5988,18 @@ def _run_batch_fixture_sync(data: dict, job_id: str = None) -> dict:
 
     total_teams = len(team_players)
     total_players = sum(len(v) for v in team_players.values())
-    logger.info(f"Batch sync: {total_players} players across {total_teams} teams, season={season}, dry_run={dry_run}")
+    logger.info(
+        "Batch sync: %s players across %s teams, season=%s, dry_run=%s",
+        log_metadata(total_players),
+        log_metadata(total_teams),
+        log_metadata(season),
+        log_metadata(dry_run),
+    )
     logger.info(
         "Team discovery: %s sold/released players resolved, %s fees repaired, %s explicit transfer refreshes",
-        discovery_count,
-        fee_count,
-        transfer_refresh_count,
+        log_metadata(discovery_count),
+        log_metadata(fee_count),
+        log_metadata(transfer_refresh_count),
     )
 
     if job_id:
@@ -5958,10 +6039,10 @@ def _run_batch_fixture_sync(data: dict, job_id: str = None) -> dict:
             if season_start > fixture_end:
                 logger.info(
                     "Batch sync: season %s has not started for team %s (%s > %s)",
-                    season,
-                    team_api_id,
-                    season_start,
-                    fixture_end,
+                    log_metadata(season),
+                    log_metadata(team_api_id),
+                    log_metadata(season_start),
+                    log_metadata(fixture_end),
                 )
                 fixtures = []
             else:
@@ -6092,7 +6173,7 @@ def _run_batch_fixture_sync(data: dict, job_id: str = None) -> dict:
                 flush_player_refresh_queue()
 
         except Exception as e:
-            logger.warning(f"Batch sync error for team {team_api_id}: {e}")
+            logger.warning("Batch sync error for team %s: %s", log_metadata(team_api_id), log_metadata(e))
             team_result["errors"].append(str(e))
             db.session.rollback()
 
@@ -6110,8 +6191,10 @@ def _run_batch_fixture_sync(data: dict, job_id: str = None) -> dict:
             )
 
     logger.info(
-        f"Batch sync complete: synced={summary['total_synced']}, "
-        f"skipped={summary['total_skipped']}, errors={summary['total_errors']}"
+        "Batch sync complete: synced=%s, skipped=%s, errors=%s",
+        log_metadata(summary["total_synced"]),
+        log_metadata(summary["total_skipped"]),
+        log_metadata(summary["total_errors"]),
     )
     return summary
 
@@ -6187,7 +6270,7 @@ def admin_backfill_fixture_raw_json():
                         db.session.add(fixture)
 
                     updated += 1
-                    logger.info(f"Backfilled raw_json for fixture {fixture.fixture_id_api}")
+                    logger.info("Backfilled raw_json for fixture %s", log_metadata(fixture.fixture_id_api))
                 else:
                     errors.append({"fixture_id_api": fixture.fixture_id_api, "error": "No data returned from API"})
             except Exception as e:
@@ -6207,7 +6290,7 @@ def admin_backfill_fixture_raw_json():
         )
 
     except Exception as e:
-        logger.exception("admin_backfill_fixture_raw_json failed")
+        logger.exception("admin_backfill_fixture_raw_json failed", exc_info=safe_exc_info())
         db.session.rollback()
         return jsonify(_safe_error_payload(e, "Failed to backfill fixture raw_json")), 500
 
@@ -6312,7 +6395,7 @@ def admin_backfill_ages():
                         tp.photo_url = player_data["photo"]
                 api_filled += 1
             except Exception as e:
-                logger.warning(f"Backfill age failed for player {tp.player_api_id}: {e}")
+                logger.warning("Backfill age failed for player %s: %s", log_metadata(tp.player_api_id), log_metadata(e))
                 api_errors += 1
 
             # Commit in batches
@@ -6334,7 +6417,7 @@ def admin_backfill_ages():
         )
 
     except Exception as e:
-        logger.exception("admin_backfill_ages failed")
+        logger.exception("admin_backfill_ages failed", exc_info=safe_exc_info())
         db.session.rollback()
         return jsonify(_safe_error_payload(e, "Failed to backfill ages")), 500
 
@@ -6385,7 +6468,11 @@ def admin_backfill_formations():
             try:
                 lineups = api_client_inst.get_fixture_lineups(fixture.fixture_id_api).get("response", [])
             except Exception as e:
-                logger.warning(f"Backfill formation: failed to fetch lineups for fixture {fixture.fixture_id_api}: {e}")
+                logger.warning(
+                    "Backfill formation: failed to fetch lineups for fixture %s: %s",
+                    log_metadata(fixture.fixture_id_api),
+                    log_metadata(e),
+                )
                 total_errors += 1
                 continue
 
@@ -6437,7 +6524,7 @@ def admin_backfill_formations():
         )
 
     except Exception as e:
-        logger.exception("admin_backfill_formations failed")
+        logger.exception("admin_backfill_formations failed", exc_info=safe_exc_info())
         db.session.rollback()
         return jsonify(_safe_error_payload(e, "Failed to backfill formations")), 500
 
@@ -6464,7 +6551,13 @@ def _resolve_youth_team_for_sync(api_client, team, current_level: str, season: i
         youth_id, youth_name = resolve_youth_team_for_parent(api_client, league_id, season, team.name, teams_cache)
         if youth_id:
             _youth_team_cache[cache_key] = youth_id
-            logger.info(f"[SYNC] Resolved youth team for {team.name} {current_level}: {youth_name} (ID={youth_id})")
+            logger.info(
+                "[SYNC] Resolved youth team for %s %s: %s (ID=%s)",
+                log_metadata(team.name),
+                log_metadata(current_level),
+                log_metadata(youth_name),
+                log_metadata(youth_id),
+            )
             return youth_id
 
     _youth_team_cache[cache_key] = None
@@ -6519,7 +6612,11 @@ def _run_team_fixtures_sync(team_id: int, data: dict, job_id: str = None) -> dic
                     )
                 )
             elif tp.status == "on_loan" and not tp.current_club_api_id:
-                logger.warning(f"[SYNC] Skipping on-loan {tp.player_name} (id={tp.id}): current_club_api_id is null")
+                logger.warning(
+                    "[SYNC] Skipping on-loan %s (id=%s): current_club_api_id is null",
+                    log_metadata(tp.player_name),
+                    log_metadata(tp.id),
+                )
             elif tp.status in ("first_team", "academy"):
                 # Sync parent first-team fixtures
                 players_to_sync.append(
@@ -6702,7 +6799,7 @@ def _run_team_fixtures_sync(team_id: int, data: dict, job_id: str = None) -> dic
         return final_result
 
     except Exception as e:
-        logger.exception(f"_run_team_fixtures_sync failed for team {team_id}")
+        logger.exception("_run_team_fixtures_sync failed for team %s", log_metadata(team_id), exc_info=safe_exc_info())
         db.session.rollback()
         return {"error": str(e)}
 
@@ -6869,7 +6966,7 @@ def admin_update_flag(flag_id: int):
         db.session.commit()
         return jsonify({"message": "updated", "flag": row.to_dict()})
     except Exception as e:
-        logger.exception("admin_update_flag failed")
+        logger.exception("admin_update_flag failed", exc_info=safe_exc_info())
         db.session.rollback()
         return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
 
@@ -6900,7 +6997,7 @@ def admin_bulk_flags():
         db.session.commit()
         return jsonify({"message": f"Updated {len(rows)} flags", "updated": len(rows)})
     except Exception as e:
-        logger.exception("admin_bulk_flags failed")
+        logger.exception("admin_bulk_flags failed", exc_info=safe_exc_info())
         db.session.rollback()
         return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
 
@@ -7122,7 +7219,7 @@ def admin_delete_team_data(team_id: int):
         return jsonify(summary)
 
     except Exception as e:
-        logger.exception("admin_delete_team_data failed")
+        logger.exception("admin_delete_team_data failed", exc_info=safe_exc_info())
         db.session.rollback()
         return jsonify(_safe_error_payload(e, "Failed to delete team data")), 500
 
@@ -7158,14 +7255,14 @@ def admin_update_team_tracking(team_id: int):
                 seed_job_id = _start_background_seed(team.id)
                 response["seed_job_id"] = seed_job_id
             except Exception as seed_err:
-                logger.warning("Auto-seed failed for team %s: %s", team.name, seed_err)
+                logger.warning("Auto-seed failed for team %s: %s", log_metadata(team.name), log_metadata(seed_err))
                 response["seed_error"] = str(seed_err)
 
         return jsonify(response)
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("admin_update_team_tracking failed")
+        logger.exception("admin_update_team_tracking failed", exc_info=safe_exc_info())
         db.session.rollback()
         return jsonify(_safe_error_payload(e, "Failed to update team tracking")), 500
 
@@ -7220,7 +7317,7 @@ def admin_verify_team(team_id: int):
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("admin_verify_team failed")
+        logger.exception("admin_verify_team failed", exc_info=safe_exc_info())
         db.session.rollback()
         return jsonify(_safe_error_payload(e, "Failed to verify team. Please try again later.")), 500
 
@@ -7256,7 +7353,7 @@ def admin_update_team_name(team_id: int):
             }
         )
     except Exception as e:
-        logger.exception("admin_update_team_name failed")
+        logger.exception("admin_update_team_name failed", exc_info=safe_exc_info())
         db.session.rollback()
         return jsonify(_safe_error_payload(e, "Failed to update team name")), 500
 
@@ -7297,7 +7394,7 @@ def admin_list_placeholder_team_names():
             ]
         )
     except Exception as e:
-        logger.exception("admin_list_placeholder_team_names failed")
+        logger.exception("admin_list_placeholder_team_names failed", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "Failed to list placeholder team names")), 500
 
 
@@ -7368,7 +7465,7 @@ def admin_bulk_fix_team_names():
             }
         )
     except Exception as e:
-        logger.exception("admin_bulk_fix_team_names failed")
+        logger.exception("admin_bulk_fix_team_names failed", exc_info=safe_exc_info())
         db.session.rollback()
         return jsonify(_safe_error_payload(e, "Failed to bulk fix team names")), 500
 
@@ -7448,14 +7545,14 @@ def admin_propagate_team_names():
                             results["newsletters_updated"] += 1
 
                 except Exception as e:
-                    logger.warning(f"Failed to update newsletter {nl.id}: {e}")
+                    logger.warning("Failed to update newsletter %s: %s", log_metadata(nl.id), log_metadata(e))
 
         if not dry_run:
             db.session.commit()
 
         return jsonify(results)
     except Exception as e:
-        logger.exception("admin_propagate_team_names failed")
+        logger.exception("admin_propagate_team_names failed", exc_info=safe_exc_info())
         db.session.rollback()
         return jsonify(_safe_error_payload(e, "Failed to propagate team names")), 500
 
@@ -7541,7 +7638,7 @@ def admin_bulk_update_team_tracking():
             response["message"] += f" (seeding {seed_info['teams_to_seed']} newly tracked teams)"
         return jsonify(response)
     except Exception as e:
-        logger.exception("admin_bulk_update_team_tracking failed")
+        logger.exception("admin_bulk_update_team_tracking failed", exc_info=safe_exc_info())
         db.session.rollback()
         return jsonify(_safe_error_payload(e, "Failed to bulk update team tracking")), 500
 
@@ -7561,7 +7658,7 @@ def admin_list_tracking_requests():
         rows = q.order_by(TeamTrackingRequest.created_at.desc()).all()
         return jsonify([r.to_dict() for r in rows])
     except Exception as e:
-        logger.exception("admin_list_tracking_requests failed")
+        logger.exception("admin_list_tracking_requests failed", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "Failed to list tracking requests")), 500
 
 
@@ -7602,7 +7699,7 @@ def admin_update_tracking_request(request_id: int):
         db.session.commit()
         return jsonify({"message": "updated", "request": req.to_dict()})
     except Exception as e:
-        logger.exception("admin_update_tracking_request failed")
+        logger.exception("admin_update_tracking_request failed", exc_info=safe_exc_info())
         db.session.rollback()
         return jsonify(_safe_error_payload(e, "Failed to update tracking request")), 500
 
@@ -7668,7 +7765,7 @@ def submit_tracking_request(team_identifier: str):
         ), 201
 
     except Exception as e:
-        logger.exception("submit_tracking_request failed")
+        logger.exception("submit_tracking_request failed", exc_info=safe_exc_info())
         db.session.rollback()
         return jsonify(_safe_error_payload(e, "Failed to submit tracking request")), 500
 
@@ -7697,7 +7794,7 @@ def get_team_tracking_status(team_identifier: str):
             }
         )
     except Exception as e:
-        logger.exception("get_team_tracking_status failed")
+        logger.exception("get_team_tracking_status failed", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "Failed to get tracking status")), 500
 
 
@@ -7896,7 +7993,7 @@ def admin_list_newsletters():
             }
         )
     except Exception as e:
-        logger.exception("admin_list_newsletters failed")
+        logger.exception("admin_list_newsletters failed", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
 
 
@@ -7994,7 +8091,7 @@ def admin_update_newsletter(nid: int):
 
         return jsonify({"message": "updated", "newsletter": n.to_dict()})
     except Exception as e:
-        logger.exception("admin_update_newsletter failed")
+        logger.exception("admin_update_newsletter failed", exc_info=safe_exc_info())
         db.session.rollback()
         return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
 
@@ -8105,12 +8202,12 @@ def admin_bulk_publish_newsletters():
         logger.info(
             "Admin bulk publish user=%s user_id=%s publish=%s updated=%s unchanged=%s selection=%s meta=%s",
             mask_email(getattr(g, "user_email", None)),
-            getattr(g, "log_actor_id", None),
-            publish_flag,
-            updated,
-            unchanged,
-            target_ids,
-            meta,
+            log_metadata(getattr(g, "log_actor_id", None)),
+            log_metadata(publish_flag),
+            log_metadata(updated),
+            log_metadata(unchanged),
+            log_metadata(target_ids),
+            log_metadata(meta),
         )
 
         if publish_flag and auto_send_targets:
@@ -8140,7 +8237,7 @@ def admin_bulk_publish_newsletters():
 
         return jsonify(response_data)
     except Exception as e:
-        logger.exception("admin_bulk_publish_newsletters failed")
+        logger.exception("admin_bulk_publish_newsletters failed", exc_info=safe_exc_info())
         db.session.rollback()
         return jsonify(_safe_error_payload(e, "Failed to update newsletter status. Please try again later.")), 500
 
@@ -8234,13 +8331,13 @@ def _maybe_post_to_reddit_on_publish(newsletters: list) -> list:
 
             logger.info(
                 "Auto-posted newsletter %s to Reddit: success=%s failed=%s",
-                newsletter.id,
-                newsletter_result["success_count"],
-                newsletter_result["failed_count"],
+                log_metadata(newsletter.id),
+                log_metadata(newsletter_result["success_count"]),
+                log_metadata(newsletter_result["failed_count"]),
             )
 
     except Exception as e:
-        logger.exception("_maybe_post_to_reddit_on_publish failed")
+        logger.exception("_maybe_post_to_reddit_on_publish failed", exc_info=safe_exc_info())
         return [{"newsletter_id": n.id, "error": str(e)} for n in newsletters]
 
     return results
@@ -8278,7 +8375,7 @@ def _append_run_history(event: dict):
         _save_run_history_list(items[:200])
     except Exception:
         db.session.rollback()
-        logger.exception("append_run_history failed")
+        logger.exception("append_run_history failed", exc_info=safe_exc_info())
 
 
 def _maybe_auto_send_on_publish(n: Newsletter, auto_send_trigger: bool):
@@ -8295,7 +8392,12 @@ def _maybe_auto_send_on_publish(n: Newsletter, auto_send_trigger: bool):
             return None
 
         out = _deliver_newsletter_via_webhook(n)
-        logger.info("Auto-send newsletter %s to team %s - status=%s", n.id, n.team_id, out.get("status"))
+        logger.info(
+            "Auto-send newsletter %s to team %s - status=%s",
+            log_metadata(n.id),
+            log_metadata(n.team_id),
+            log_metadata(out.get("status")),
+        )
 
         if out.get("status") == "ok":
             from datetime import datetime as _dt
@@ -8332,7 +8434,7 @@ def _maybe_auto_send_on_publish(n: Newsletter, auto_send_trigger: bool):
 
         return out
     except Exception:
-        logger.exception("auto-send on approval failed")
+        logger.exception("auto-send on approval failed", exc_info=safe_exc_info())
         try:
             db.session.rollback()
         except Exception:
@@ -8422,10 +8524,10 @@ def admin_bulk_delete_newsletters():
         logger.info(
             "Admin bulk delete user=%s user_id=%s deleted=%s selection=%s meta=%s",
             mask_email(getattr(g, "user_email", None)),
-            getattr(g, "log_actor_id", None),
-            deleted_count,
-            target_ids,
-            meta,
+            log_metadata(getattr(g, "log_actor_id", None)),
+            log_metadata(deleted_count),
+            log_metadata(target_ids),
+            log_metadata(meta),
         )
 
         return jsonify(
@@ -8436,7 +8538,7 @@ def admin_bulk_delete_newsletters():
             }
         )
     except Exception as e:
-        logger.exception("admin_bulk_delete_newsletters failed")
+        logger.exception("admin_bulk_delete_newsletters failed", exc_info=safe_exc_info())
         db.session.rollback()
         return jsonify(_safe_error_payload(e, "Failed to delete newsletters. Please try again later.")), 500
 
@@ -8579,7 +8681,7 @@ def admin_refresh_newsletter_radar_charts(newsletter_id: int):
             variants = _render_variants(parsed, team_name)
             parsed["rendered"] = variants
         except Exception as e:  # noqa: BLE001
-            logger.exception("refresh-radar-charts: re-render variants failed")
+            logger.exception("refresh-radar-charts: re-render variants failed", exc_info=safe_exc_info())
             return jsonify(
                 {
                     "error": f"failed to re-render Jinja variants: {e}",
@@ -8594,7 +8696,7 @@ def admin_refresh_newsletter_radar_charts(newsletter_id: int):
             db.session.commit()
         except Exception as e:  # noqa: BLE001
             db.session.rollback()
-            logger.exception("refresh-radar-charts: commit failed")
+            logger.exception("refresh-radar-charts: commit failed", exc_info=safe_exc_info())
             return jsonify({"error": f"commit failed: {e}"}), 500
 
         updated_count = sum(1 for r in results if r.get("updated"))
@@ -8612,7 +8714,7 @@ def admin_refresh_newsletter_radar_charts(newsletter_id: int):
         # we don't want to swallow it as a generic 500.
         raise
     except Exception as e:
-        logger.exception("admin_refresh_newsletter_radar_charts failed")
+        logger.exception("admin_refresh_newsletter_radar_charts failed", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "Failed to refresh radar charts. Please try again later.")), 500
 
 
@@ -8636,14 +8738,14 @@ def admin_send_digest_emails():
         logger.info(
             "Admin triggered digest send user=%s user_id=%s week=%s result=%s",
             mask_email(getattr(g, "user_email", None)),
-            getattr(g, "log_actor_id", None),
-            week_key,
-            result,
+            log_metadata(getattr(g, "log_actor_id", None)),
+            log_metadata(week_key),
+            log_metadata(result),
         )
 
         return jsonify({"week_key": week_key, **result})
     except Exception as e:
-        logger.exception("admin_send_digest_emails failed")
+        logger.exception("admin_send_digest_emails failed", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "Failed to send digest emails. Please try again later.")), 500
 
 
@@ -8692,7 +8794,7 @@ def admin_get_digest_queue():
             }
         )
     except Exception as e:
-        logger.exception("admin_get_digest_queue failed")
+        logger.exception("admin_get_digest_queue failed", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "Failed to get digest queue. Please try again later.")), 500
 
 
@@ -8723,7 +8825,7 @@ def admin_list_team_subreddits():
 
         return jsonify({"subreddits": [s.to_dict() for s in subreddits], "count": len(subreddits)})
     except Exception as e:
-        logger.exception("admin_list_team_subreddits failed")
+        logger.exception("admin_list_team_subreddits failed", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "Failed to list subreddits")), 500
 
 
@@ -8785,14 +8887,14 @@ def admin_add_team_subreddit():
         logger.info(
             "Admin added team subreddit user=%s user_id=%s team_id=%s subreddit=%s",
             mask_email(getattr(g, "user_email", None)),
-            getattr(g, "log_actor_id", None),
-            team_id,
-            subreddit_name,
+            log_metadata(getattr(g, "log_actor_id", None)),
+            log_metadata(team_id),
+            log_metadata(subreddit_name),
         )
 
         return jsonify({"subreddit": subreddit.to_dict(), "message": f"Added r/{subreddit_name} for {team.name}"}), 201
     except Exception as e:
-        logger.exception("admin_add_team_subreddit failed")
+        logger.exception("admin_add_team_subreddit failed", exc_info=safe_exc_info())
         db.session.rollback()
         return jsonify(_safe_error_payload(e, "Failed to add subreddit")), 500
 
@@ -8829,13 +8931,13 @@ def admin_update_team_subreddit(subreddit_id: int):
         logger.info(
             "Admin updated team subreddit user=%s user_id=%s subreddit_id=%s",
             mask_email(getattr(g, "user_email", None)),
-            getattr(g, "log_actor_id", None),
-            subreddit_id,
+            log_metadata(getattr(g, "log_actor_id", None)),
+            log_metadata(subreddit_id),
         )
 
         return jsonify({"subreddit": subreddit.to_dict(), "message": "Subreddit mapping updated"})
     except Exception as e:
-        logger.exception("admin_update_team_subreddit failed")
+        logger.exception("admin_update_team_subreddit failed", exc_info=safe_exc_info())
         db.session.rollback()
         return jsonify(_safe_error_payload(e, "Failed to update subreddit")), 500
 
@@ -8858,15 +8960,15 @@ def admin_delete_team_subreddit(subreddit_id: int):
         logger.info(
             "Admin deleted team subreddit user=%s user_id=%s subreddit_id=%s team_id=%s subreddit=%s",
             mask_email(getattr(g, "user_email", None)),
-            getattr(g, "log_actor_id", None),
-            subreddit_id,
-            team_id,
-            subreddit_name,
+            log_metadata(getattr(g, "log_actor_id", None)),
+            log_metadata(subreddit_id),
+            log_metadata(team_id),
+            log_metadata(subreddit_name),
         )
 
         return jsonify({"message": f"Deleted r/{subreddit_name} mapping", "deleted_id": subreddit_id})
     except Exception as e:
-        logger.exception("admin_delete_team_subreddit failed")
+        logger.exception("admin_delete_team_subreddit failed", exc_info=safe_exc_info())
         db.session.rollback()
         return jsonify(_safe_error_payload(e, "Failed to delete subreddit mapping")), 500
 
@@ -8884,7 +8986,7 @@ def admin_get_newsletter_reddit_posts(newsletter_id: int):
 
         return jsonify({"newsletter_id": newsletter_id, "posts": [p.to_dict() for p in posts], "count": len(posts)})
     except Exception as e:
-        logger.exception("admin_get_newsletter_reddit_posts failed")
+        logger.exception("admin_get_newsletter_reddit_posts failed", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "Failed to get Reddit posts")), 500
 
 
@@ -8985,11 +9087,11 @@ def admin_post_newsletter_to_reddit(newsletter_id: int):
         logger.info(
             "Admin posted newsletter to Reddit user=%s user_id=%s newsletter_id=%s success=%s already=%s failed=%s",
             mask_email(getattr(g, "user_email", None)),
-            getattr(g, "log_actor_id", None),
-            newsletter_id,
-            success_count,
-            already_posted,
-            failed_count,
+            log_metadata(getattr(g, "log_actor_id", None)),
+            log_metadata(newsletter_id),
+            log_metadata(success_count),
+            log_metadata(already_posted),
+            log_metadata(failed_count),
         )
 
         return jsonify(
@@ -9005,7 +9107,7 @@ def admin_post_newsletter_to_reddit(newsletter_id: int):
             }
         )
     except Exception as e:
-        logger.exception("admin_post_newsletter_to_reddit failed")
+        logger.exception("admin_post_newsletter_to_reddit failed", exc_info=safe_exc_info())
         db.session.rollback()
         return jsonify(_safe_error_payload(e, "Failed to post to Reddit")), 500
 
@@ -9031,7 +9133,7 @@ def admin_get_newsletter_youtube_links(newsletter_id: int):
         )
         return jsonify([link.to_dict() for link in links])
     except Exception as e:
-        logger.exception("admin_get_newsletter_youtube_links failed")
+        logger.exception("admin_get_newsletter_youtube_links failed", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
 
 
@@ -9069,7 +9171,7 @@ def admin_create_newsletter_youtube_link(newsletter_id: int):
 
         return jsonify({"message": "created", "link": link.to_dict()}), 201
     except Exception as e:
-        logger.exception("admin_create_newsletter_youtube_link failed")
+        logger.exception("admin_create_newsletter_youtube_link failed", exc_info=safe_exc_info())
         db.session.rollback()
         return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
 
@@ -9100,7 +9202,7 @@ def admin_update_newsletter_youtube_link(newsletter_id: int, link_id: int):
 
         return jsonify({"message": "updated", "link": link.to_dict()})
     except Exception as e:
-        logger.exception("admin_update_newsletter_youtube_link failed")
+        logger.exception("admin_update_newsletter_youtube_link failed", exc_info=safe_exc_info())
         db.session.rollback()
         return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
 
@@ -9116,7 +9218,7 @@ def admin_delete_newsletter_youtube_link(newsletter_id: int, link_id: int):
 
         return jsonify({"message": "deleted"})
     except Exception as e:
-        logger.exception("admin_delete_newsletter_youtube_link failed")
+        logger.exception("admin_delete_newsletter_youtube_link failed", exc_info=safe_exc_info())
         db.session.rollback()
         return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
 
@@ -9137,7 +9239,12 @@ def admin_check_pending_games(team_id: int):
         week_start = target_date - timedelta(days=target_date.weekday())
         week_end = week_start + timedelta(days=6)
 
-        logger.info(f"Checking pending games for team {team_id}, week {week_start} to {week_end}")
+        logger.info(
+            "Checking pending games for team %s, week %s to %s",
+            log_metadata(team_id),
+            log_metadata(week_start),
+            log_metadata(week_end),
+        )
 
         # 1. Find the parent team
         parent_team = Team.query.get(team_id)
@@ -9211,17 +9318,24 @@ def admin_check_pending_games(team_id: int):
                                 "fixture_id": (f.get("fixture") or {}).get("id"),
                             }
                         )
-                        logger.info(f"Found pending game for {player.player_name} on {fixture_date}: {opponent}")
+                        logger.info(
+                            "Found pending game for %s on %s: %s",
+                            log_metadata(player.player_name),
+                            log_metadata(fixture_date),
+                            log_metadata(opponent),
+                        )
 
         # Sort by date
         detailed_pending_games.sort(key=lambda x: x["date"])
 
-        logger.info(f"Total pending games found: {len(detailed_pending_games)}")
+        logger.info("Total pending games found: %s", len(detailed_pending_games))
 
         return jsonify({"pending": len(detailed_pending_games) > 0, "games": detailed_pending_games})
 
     except Exception as e:
-        logger.exception(f"admin_check_pending_games failed for team {team_id}")
+        logger.exception(
+            "admin_check_pending_games failed for team %s", log_metadata(team_id), exc_info=safe_exc_info()
+        )
         return jsonify(_safe_error_payload(e, "An unexpected error occurred.")), 500
 
 
@@ -9360,7 +9474,9 @@ def admin_check_newsletter_readiness():
                                     }
                                 )
                 except Exception as e:
-                    logger.warning(f"Failed to check fixtures for loan team {loan_api_id}: {e}")
+                    logger.warning(
+                        "Failed to check fixtures for loan team %s: %s", log_metadata(loan_api_id), log_metadata(e)
+                    )
 
             results.append(
                 {
@@ -9391,7 +9507,7 @@ def admin_check_newsletter_readiness():
         )
 
     except Exception as e:
-        logger.exception("admin_check_newsletter_readiness failed")
+        logger.exception("admin_check_newsletter_readiness failed", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "An unexpected error occurred.")), 500
 
 
@@ -9436,7 +9552,7 @@ def admin_list_newsletter_commentary(newsletter_id: int):
 
         return jsonify({"newsletter_id": newsletter_id, "commentaries": [c.to_dict() for c in commentaries]})
     except Exception as e:
-        logger.exception("admin_list_newsletter_commentary failed")
+        logger.exception("admin_list_newsletter_commentary failed", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "Failed to list commentary")), 500
 
 
@@ -9490,7 +9606,7 @@ def admin_create_newsletter_commentary(newsletter_id: int):
         return jsonify(commentary.to_dict()), 201
 
     except Exception as e:
-        logger.exception("admin_create_newsletter_commentary failed")
+        logger.exception("admin_create_newsletter_commentary failed", exc_info=safe_exc_info())
         db.session.rollback()
         return jsonify(_safe_error_payload(e, "Failed to create commentary")), 500
 
@@ -9533,7 +9649,7 @@ def admin_update_commentary(commentary_id: int):
         return jsonify(commentary.to_dict())
 
     except Exception as e:
-        logger.exception("admin_update_commentary failed")
+        logger.exception("admin_update_commentary failed", exc_info=safe_exc_info())
         db.session.rollback()
         return jsonify(_safe_error_payload(e, "Failed to update commentary")), 500
 
@@ -9559,7 +9675,7 @@ def admin_delete_commentary(commentary_id: int):
         return jsonify({"message": "deleted"})
 
     except Exception as e:
-        logger.exception("admin_delete_commentary failed")
+        logger.exception("admin_delete_commentary failed", exc_info=safe_exc_info())
         db.session.rollback()
         return jsonify(_safe_error_payload(e, "Failed to delete commentary")), 500
 
@@ -9582,7 +9698,7 @@ def admin_list_authors():
         return jsonify({"authors": result})
 
     except Exception as e:
-        logger.exception("admin_list_authors failed")
+        logger.exception("admin_list_authors failed", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "Failed to list authors")), 500
 
 
@@ -9616,7 +9732,7 @@ def admin_update_author_permission(user_id: int):
         )
 
     except Exception as e:
-        logger.exception("admin_update_author_permission failed")
+        logger.exception("admin_update_author_permission failed", exc_info=safe_exc_info())
         db.session.rollback()
         return jsonify(_safe_error_payload(e, "Failed to update author permission")), 500
 
@@ -9690,7 +9806,7 @@ def admin_list_players():
                 players = Player.query.filter(Player.player_id.in_(player_ids)).all()
                 player_records = {p.player_id: p for p in players}
             except Exception as player_error:
-                logger.warning(f"Could not fetch Player records: {player_error}")
+                logger.warning("Could not fetch Player records: %s", log_metadata(player_error))
                 # Continue without player records if table doesn't exist yet
                 player_records = {}
 
@@ -9748,7 +9864,7 @@ def admin_list_players():
             {"items": paginated_data, "page": page, "page_size": page_size, "total": total, "total_pages": total_pages}
         )
     except Exception as e:
-        logger.exception("admin_list_players failed")
+        logger.exception("admin_list_players failed", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
 
 
@@ -9793,7 +9909,7 @@ def admin_get_player(player_id):
 
         return jsonify(player_data)
     except Exception as e:
-        logger.exception("admin_get_player failed")
+        logger.exception("admin_get_player failed", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
 
 
@@ -9874,14 +9990,16 @@ def admin_update_player(player_id):
             )
             if updated_rows:
                 logger.info(
-                    "Propagated name update to %d TrackedPlayer rows for player_api_id=%s", updated_rows, player_id
+                    "Propagated name update to %d TrackedPlayer rows for player_api_id=%s",
+                    log_metadata(updated_rows),
+                    log_metadata(player_id),
                 )
 
         db.session.commit()
 
         return jsonify({"message": "updated", "player": player_record.to_dict()})
     except Exception as e:
-        logger.exception("admin_update_player failed")
+        logger.exception("admin_update_player failed", exc_info=safe_exc_info())
         db.session.rollback()
         return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
 
@@ -9946,7 +10064,7 @@ def admin_bulk_update_sofascore():
 
         return jsonify({"message": "bulk update completed", "results": results})
     except Exception as e:
-        logger.exception("admin_bulk_update_sofascore failed")
+        logger.exception("admin_bulk_update_sofascore failed", exc_info=safe_exc_info())
         db.session.rollback()
         return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
 
@@ -9979,7 +10097,7 @@ def admin_get_player_field_options():
 
         return jsonify({"positions": positions, "nationalities": nationalities})
     except Exception as e:
-        logger.exception("admin_get_player_field_options failed")
+        logger.exception("admin_get_player_field_options failed", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
 
 
@@ -10131,7 +10249,7 @@ def admin_create_player():
             {"message": message, "player": player_record.to_dict(), "tracked_player": tracked_player.to_dict()}
         ), 201
     except Exception as e:
-        logger.exception("admin_create_player failed")
+        logger.exception("admin_create_player failed", exc_info=safe_exc_info())
         db.session.rollback()
         return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
 
@@ -10191,7 +10309,7 @@ def admin_delete_player(player_id):
             }
         )
     except Exception as e:
-        logger.exception("admin_delete_player failed")
+        logger.exception("admin_delete_player failed", exc_info=safe_exc_info())
         db.session.rollback()
         return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
 
@@ -10259,7 +10377,7 @@ def admin_dashboard_stats():
             }
         )
     except Exception as e:
-        logger.exception("admin_dashboard_stats failed")
+        logger.exception("admin_dashboard_stats failed", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "Failed to fetch dashboard stats")), 500
 
 
@@ -10276,10 +10394,10 @@ def admin_subscriber_stats():
         sort_order = request.args.get("sort", "desc").lower()
         logger.info(
             "admin_subscriber_stats request request_id=%s search=%s min_subs=%s sort=%s",
-            request_id,
-            search or "",
-            min_subs,
-            sort_order,
+            log_metadata(request_id),
+            log_metadata(search or ""),
+            log_metadata(min_subs),
+            log_metadata(sort_order),
         )
 
         # Query for teams with their subscriber counts
@@ -10374,10 +10492,10 @@ def admin_subscriber_stats():
         duration_ms = (time.monotonic() - started_at) * 1000
         logger.info(
             "admin_subscriber_stats success request_id=%s team_count=%d total_subscribers=%d duration_ms=%.1f",
-            request_id,
+            log_metadata(request_id),
             len(teams_data),
-            total_subscribers,
-            duration_ms,
+            log_metadata(total_subscribers),
+            log_metadata(duration_ms),
         )
 
         payload = {
@@ -10390,7 +10508,12 @@ def admin_subscriber_stats():
         return response
     except Exception as e:
         duration_ms = (time.monotonic() - started_at) * 1000
-        logger.exception("admin_subscriber_stats failed request_id=%s duration_ms=%.1f", request_id, duration_ms)
+        logger.exception(
+            "admin_subscriber_stats failed request_id=%s duration_ms=%.1f",
+            log_metadata(request_id),
+            log_metadata(duration_ms),
+            exc_info=safe_exc_info(),
+        )
         payload = _safe_error_payload(e, "An unexpected error occurred. Please try again later.")
         payload["request_id"] = request_id
         response = jsonify(payload)
@@ -10415,7 +10538,7 @@ def admin_toggle_newsletter_status(team_id: int):
         else:
             return jsonify({"error": "newsletters_active field required"}), 400
     except Exception as e:
-        logger.exception("admin_toggle_newsletter_status failed")
+        logger.exception("admin_toggle_newsletter_status failed", exc_info=safe_exc_info())
         db.session.rollback()
         return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
 
@@ -10484,7 +10607,7 @@ def admin_backfill_unsubscribe_tokens():
         )
     except Exception as e:
         db.session.rollback()
-        logger.exception("Failed to backfill unsubscribe tokens")
+        logger.exception("Failed to backfill unsubscribe tokens", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "Failed to backfill tokens")), 500
 
 
@@ -10500,7 +10623,7 @@ def get_sponsors():
         sponsors = Sponsor.query.filter_by(is_active=True).order_by(Sponsor.display_order.asc()).all()
         return jsonify({"sponsors": [s.to_public_dict() for s in sponsors]})
     except Exception as e:
-        logger.exception("Failed to fetch sponsors")
+        logger.exception("Failed to fetch sponsors", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "Failed to fetch sponsors")), 500
 
 
@@ -10518,7 +10641,7 @@ def track_sponsor_click(sponsor_id):
         return jsonify({"message": "Click tracked"})
     except Exception as e:
         db.session.rollback()
-        logger.exception("Failed to track sponsor click")
+        logger.exception("Failed to track sponsor click", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "Failed to track click")), 500
 
 
@@ -10530,7 +10653,7 @@ def admin_get_sponsors():
         sponsors = Sponsor.query.order_by(Sponsor.display_order.asc()).all()
         return jsonify({"sponsors": [s.to_dict() for s in sponsors]})
     except Exception as e:
-        logger.exception("Failed to fetch sponsors")
+        logger.exception("Failed to fetch sponsors", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "Failed to fetch sponsors")), 500
 
 
@@ -10570,7 +10693,7 @@ def admin_create_sponsor():
         return jsonify({"message": "Sponsor created", "sponsor": sponsor.to_dict()}), 201
     except Exception as e:
         db.session.rollback()
-        logger.exception("Failed to create sponsor")
+        logger.exception("Failed to create sponsor", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "Failed to create sponsor")), 500
 
 
@@ -10617,7 +10740,7 @@ def admin_update_sponsor(sponsor_id):
         return jsonify({"message": "Sponsor updated", "sponsor": sponsor.to_dict()})
     except Exception as e:
         db.session.rollback()
-        logger.exception("Failed to update sponsor")
+        logger.exception("Failed to update sponsor", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "Failed to update sponsor")), 500
 
 
@@ -10636,7 +10759,7 @@ def admin_delete_sponsor(sponsor_id):
         return jsonify({"message": "Sponsor deleted"})
     except Exception as e:
         db.session.rollback()
-        logger.exception("Failed to delete sponsor")
+        logger.exception("Failed to delete sponsor", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "Failed to delete sponsor")), 500
 
 
@@ -10661,7 +10784,7 @@ def admin_reorder_sponsors():
         return jsonify({"message": "Sponsors reordered"})
     except Exception as e:
         db.session.rollback()
-        logger.exception("Failed to reorder sponsors")
+        logger.exception("Failed to reorder sponsors", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "Failed to reorder sponsors")), 500
 
 
@@ -10673,7 +10796,7 @@ def admin_list_team_aliases():
         aliases = TeamAlias.query.order_by(TeamAlias.canonical_name.asc(), TeamAlias.alias.asc()).all()
         return jsonify([a.to_dict() for a in aliases])
     except Exception as e:
-        logger.exception("Failed to list team aliases")
+        logger.exception("Failed to list team aliases", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "Failed to list team aliases")), 500
 
 
@@ -10705,7 +10828,7 @@ def admin_create_team_alias():
         return jsonify(alias.to_dict()), 201
     except Exception as e:
         db.session.rollback()
-        logger.exception("Failed to create team alias")
+        logger.exception("Failed to create team alias", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "Failed to create team alias")), 500
 
 
@@ -10724,7 +10847,7 @@ def admin_delete_team_alias(alias_id):
         return jsonify({"message": "Alias deleted"})
     except Exception as e:
         db.session.rollback()
-        logger.exception("Failed to delete team alias")
+        logger.exception("Failed to delete team alias", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "Failed to delete team alias")), 500
 
 
@@ -10742,7 +10865,7 @@ def admin_list_manual_players():
         submissions = query.order_by(ManualPlayerSubmission.created_at.desc()).all()
         return jsonify([s.to_dict() for s in submissions])
     except Exception as e:
-        logger.exception("Failed to list manual players")
+        logger.exception("Failed to list manual players", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "Failed to list manual players")), 500
 
 
@@ -10773,7 +10896,7 @@ def admin_review_manual_player(submission_id):
         return jsonify(submission.to_dict())
     except Exception as e:
         db.session.rollback()
-        logger.exception("Failed to review manual player")
+        logger.exception("Failed to review manual player", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "Failed to review manual player")), 500
 
 
@@ -10903,7 +11026,7 @@ def get_player_journey_map(player_id: int):
         return jsonify(map_data)
 
     except Exception as e:
-        logger.exception(f"Failed to get journey map for player {player_id}")
+        logger.exception("Failed to get journey map for player %s", log_metadata(player_id), exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "Failed to get player journey map")), 500
 
 
@@ -10932,7 +11055,7 @@ def admin_sync_player_journey(player_id: int):
         return jsonify({"success": True, "player_id": player_id, "journey": journey.to_dict(include_entries=True)})
 
     except Exception as e:
-        logger.exception(f"Failed to sync journey for player {player_id}")
+        logger.exception("Failed to sync journey for player %s", log_metadata(player_id), exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "Failed to sync player journey")), 500
 
 
@@ -10981,7 +11104,7 @@ def admin_bulk_sync_journeys():
         return jsonify(results)
 
     except Exception as e:
-        logger.exception("Failed to bulk sync journeys")
+        logger.exception("Failed to bulk sync journeys", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "Failed to bulk sync journeys")), 500
 
 
@@ -11042,7 +11165,7 @@ def admin_journey_diagnostics():
             }
         )
     except Exception as e:
-        logger.exception("Failed to get journey diagnostics")
+        logger.exception("Failed to get journey diagnostics", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "Failed to get journey diagnostics")), 500
 
 
@@ -11144,7 +11267,7 @@ def admin_repair_journeys():
         )
     except Exception as e:
         db.session.rollback()
-        logger.exception("Failed to repair journeys")
+        logger.exception("Failed to repair journeys", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "Failed to repair journeys")), 500
 
 
@@ -11160,7 +11283,7 @@ def admin_seed_club_locations():
         return jsonify({"success": True, "clubs_added": added})
 
     except Exception as e:
-        logger.exception("Failed to seed club locations")
+        logger.exception("Failed to seed club locations", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "Failed to seed club locations")), 500
 
 
@@ -11175,7 +11298,7 @@ def get_club_locations():
         return jsonify({"locations": [loc.to_dict() for loc in locations], "count": len(locations)})
 
     except Exception as e:
-        logger.exception("Failed to get club locations")
+        logger.exception("Failed to get club locations", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "Failed to get club locations")), 500
 
 
@@ -11193,7 +11316,7 @@ def get_club_location(club_api_id: int):
         return jsonify(location.to_dict())
 
     except Exception as e:
-        logger.exception(f"Failed to get location for club {club_api_id}")
+        logger.exception("Failed to get location for club %s", log_metadata(club_api_id), exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "Failed to get club location")), 500
 
 
@@ -11243,7 +11366,7 @@ def admin_add_club_location():
 
     except Exception as e:
         db.session.rollback()
-        logger.exception("Failed to add club location")
+        logger.exception("Failed to add club location", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "Failed to add club location")), 500
 
 
@@ -11263,7 +11386,7 @@ def admin_api_usage():
         summary = APIUsageDaily.usage_summary(days=days)
         return jsonify(summary)
     except Exception as e:
-        logger.exception("admin_api_usage failed")
+        logger.exception("admin_api_usage failed", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "Failed to retrieve API usage")), 500
 
 
@@ -11277,7 +11400,7 @@ def admin_api_cache_stats():
         stats = APICache.stats()
         return jsonify(stats)
     except Exception as e:
-        logger.exception("admin_api_cache_stats failed")
+        logger.exception("admin_api_cache_stats failed", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "Failed to retrieve cache stats")), 500
 
 
@@ -11292,7 +11415,7 @@ def admin_api_cache_cleanup():
         return jsonify({"deleted": deleted})
     except Exception as e:
         db.session.rollback()
-        logger.exception("admin_api_cache_cleanup failed")
+        logger.exception("admin_api_cache_cleanup failed", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "Cache cleanup failed")), 500
 
 
@@ -11333,7 +11456,7 @@ def admin_search_api_players():
             )
         return jsonify({"results": results})
     except Exception as e:
-        logger.exception("admin_search_api_players failed")
+        logger.exception("admin_search_api_players failed", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "Player search failed")), 500
 
 
@@ -11483,7 +11606,7 @@ def admin_test_classify():
             }
         )
     except Exception as e:
-        logger.exception("admin_test_classify failed")
+        logger.exception("admin_test_classify failed", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "Classification failed")), 500
 
 
@@ -11757,7 +11880,7 @@ def admin_explain_academy():
             }
         )
     except Exception as e:
-        logger.exception("admin_explain_academy failed")
+        logger.exception("admin_explain_academy failed", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "Explain academy failed")), 500
 
 
@@ -11878,7 +12001,7 @@ def admin_list_tracked_players():
             }
         )
     except Exception as e:
-        logger.exception("admin_list_tracked_players failed")
+        logger.exception("admin_list_tracked_players failed", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "Failed to list tracked players")), 500
 
 
@@ -11923,7 +12046,7 @@ def admin_create_tracked_player():
         return jsonify(player.to_dict()), 201
     except Exception as e:
         db.session.rollback()
-        logger.exception("admin_create_tracked_player failed")
+        logger.exception("admin_create_tracked_player failed", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "Failed to create tracked player")), 500
 
 
@@ -11957,7 +12080,7 @@ def admin_update_tracked_player(player_id):
         return jsonify(player.to_dict())
     except Exception as e:
         db.session.rollback()
-        logger.exception("admin_update_tracked_player failed")
+        logger.exception("admin_update_tracked_player failed", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "Failed to update tracked player")), 500
 
 
@@ -11975,7 +12098,7 @@ def admin_delete_tracked_player(player_id):
         return jsonify({"message": "Player deactivated", "id": player_id})
     except Exception as e:
         db.session.rollback()
-        logger.exception("admin_delete_tracked_player failed")
+        logger.exception("admin_delete_tracked_player failed", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "Failed to delete tracked player")), 500
 
 
@@ -12022,7 +12145,7 @@ def admin_refresh_tracked_player_statuses():
         return jsonify(response)
     except Exception as e:
         db.session.rollback()
-        logger.exception("admin_refresh_tracked_player_statuses failed")
+        logger.exception("admin_refresh_tracked_player_statuses failed", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "Failed to refresh statuses")), 500
 
 
@@ -12050,8 +12173,8 @@ def _academy_seed_transfer_fallback_eligible(
     except Exception as exc:
         logger.warning(
             "seed: transfer fallback skipped %d because lookup/resolution failed: %s",
-            player_api_id,
-            exc,
+            log_metadata(player_api_id),
+            log_metadata(exc),
         )
         return False
 
@@ -12059,8 +12182,7 @@ def _academy_seed_transfer_fallback_eligible(
     has_ambiguous_event = any(event.kind == "unknown" for event in resolution.events)
     if evidence_was_dropped or has_ambiguous_event:
         logger.info(
-            "seed: transfer fallback skipped %d because transfer history is ambiguous",
-            player_api_id,
+            "seed: transfer fallback skipped %d because transfer history is ambiguous", log_metadata(player_api_id)
         )
         return False
 
@@ -12103,11 +12225,11 @@ def _seed_single_team(team, max_age=30, sync_journeys=True, years=4, season=None
     team_id = team.id
     logger.info(
         "seed_tracked_players: starting for %s (api_id=%s, season=%s, max_age=%s, sync_journeys=%s)",
-        team.name,
-        parent_api_id,
-        season,
-        max_age,
-        sync_journeys,
+        log_metadata(team.name),
+        log_metadata(parent_api_id),
+        log_metadata(season),
+        log_metadata(max_age),
+        log_metadata(sync_journeys),
     )
 
     # ── Source 1: Players already identified as academy products ──
@@ -12118,7 +12240,7 @@ def _seed_single_team(team, max_age=30, sync_journeys=True, years=4, season=None
     logger.info(
         "seed_tracked_players: %d players already have academy_club_ids containing %s",
         len(candidate_ids),
-        parent_api_id,
+        log_metadata(parent_api_id),
     )
 
     # ── Source 2: Fetch squads for each season in the window ──
@@ -12131,8 +12253,8 @@ def _seed_single_team(team, max_age=30, sync_journeys=True, years=4, season=None
         logger.info(
             "seed_tracked_players: API squad returned %d entries for %s season %d",
             len(season_squad),
-            team.name,
-            fetch_season,
+            log_metadata(team.name),
+            log_metadata(fetch_season),
         )
         for entry in season_squad:
             player_info = (entry or {}).get("player") or {}
@@ -12145,7 +12267,7 @@ def _seed_single_team(team, max_age=30, sync_journeys=True, years=4, season=None
         "seed_tracked_players: %d unique players across %d seasons for %s",
         len(all_squad_player_ids),
         len(list(seasons_to_fetch)),
-        team.name,
+        log_metadata(team.name),
     )
 
     journey_svc = JourneySyncService(_api)
@@ -12193,17 +12315,17 @@ def _seed_single_team(team, max_age=30, sync_journeys=True, years=4, season=None
                             candidate_ids[pid] = journey
                             logger.info(
                                 "seed: transfer-fallback accepted %d (%s) age %s for %s",
-                                pid,
-                                player_info.get("name"),
-                                age,
-                                team.name,
+                                log_metadata(pid),
+                                log_metadata(player_info.get("name")),
+                                log_metadata(age),
+                                log_metadata(team.name),
                             )
                         else:
                             not_academy += 1
                     else:
                         not_academy += 1
             except Exception as sync_err:
-                logger.warning("seed: journey sync failed for %d: %s", pid, sync_err)
+                logger.warning("seed: journey sync failed for %d: %s", log_metadata(pid), log_metadata(sync_err))
         else:
             journey = PlayerJourney.query.filter_by(player_api_id=pid).first()
             if journey and parent_api_id in (journey.academy_club_ids or []):
@@ -12230,12 +12352,12 @@ def _seed_single_team(team, max_age=30, sync_journeys=True, years=4, season=None
                 "seed_tracked_players: %d cohort members across %d cohorts for api_id=%s",
                 len(cohort_members),
                 len(cohort_ids),
-                parent_api_id,
+                log_metadata(parent_api_id),
             )
         else:
-            logger.info("seed_tracked_players: no cohorts found for api_id=%s", parent_api_id)
+            logger.info("seed_tracked_players: no cohorts found for api_id=%s", log_metadata(parent_api_id))
     except Exception as cohort_err:
-        logger.warning("seed: cohort lookup failed: %s", cohort_err)
+        logger.warning("seed: cohort lookup failed: %s", log_metadata(cohort_err))
 
     # ── Build a lookup of squad player info for enrichment ──
     squad_by_id = {}
@@ -12272,8 +12394,8 @@ def _seed_single_team(team, max_age=30, sync_journeys=True, years=4, season=None
             except Exception as transfer_err:
                 logger.warning(
                     "seed: transfer fetch failed for player %d; preserving existing transfer state: %s",
-                    pid,
-                    transfer_err,
+                    log_metadata(pid),
+                    log_metadata(transfer_err),
                 )
             if existing:
                 if transfer_evidence_authoritative:
@@ -12362,9 +12484,9 @@ def _seed_single_team(team, max_age=30, sync_journeys=True, years=4, season=None
                 skipped += 1
                 logger.info(
                     "seed: window-skipped player %d for %s (last academy season %s)",
-                    pid,
-                    team.name,
-                    last_academy_season,
+                    log_metadata(pid),
+                    log_metadata(team.name),
+                    log_metadata(last_academy_season),
                 )
                 continue
 
@@ -12409,17 +12531,17 @@ def _seed_single_team(team, max_age=30, sync_journeys=True, years=4, season=None
             created += 1
         except Exception as entry_err:
             errors.append(f"Player {pid}: {entry_err}")
-            logger.warning("seed_tracked_players: error for player %d: %s", pid, entry_err)
+            logger.warning("seed_tracked_players: error for player %d: %s", log_metadata(pid), log_metadata(entry_err))
 
     db.session.commit()
     logger.info(
         "seed_tracked_players: done for %s — created=%d, skipped=%d, candidates=%d, journeys_synced=%d, not_academy=%d",
-        team.name,
-        created,
-        skipped,
+        log_metadata(team.name),
+        log_metadata(created),
+        log_metadata(skipped),
         len(candidate_ids),
-        synced,
-        not_academy,
+        log_metadata(synced),
+        log_metadata(not_academy),
     )
     return {
         "team_id": team_id,
@@ -12501,7 +12623,11 @@ def _run_seed_team_process(job_id, team_id, max_age=30, sync_journeys=True, year
                 current_season = current_stats_season()
                 run_big6_seed(job_id, seasons=[current_season], team_ids=[team.team_id])
             except Exception as cohort_err:
-                logger.warning("Cohort discovery for %s failed (continuing with squad seed): %s", team.name, cohort_err)
+                logger.warning(
+                    "Cohort discovery for %s failed (continuing with squad seed): %s",
+                    log_metadata(team.name),
+                    log_metadata(cohort_err),
+                )
 
             # Phase 2: TrackedPlayer seeding from cohorts + squads
             update_job(job_id, current_player=f"Seeding {team.name}...")
@@ -12520,7 +12646,9 @@ def _run_seed_team_process(job_id, team_id, max_age=30, sync_journeys=True, year
                 audit = audit_team_consistency(team.id)
                 result["audit"] = audit
             except Exception as audit_err:
-                logger.warning("Post-seed audit failed for team %s: %s", team.name, audit_err)
+                logger.warning(
+                    "Post-seed audit failed for team %s: %s", log_metadata(team.name), log_metadata(audit_err)
+                )
                 result["audit_error"] = str(audit_err)
 
             update_job(
@@ -12532,7 +12660,7 @@ def _run_seed_team_process(job_id, team_id, max_age=30, sync_journeys=True, year
                 completed_at=datetime.now(UTC).isoformat(),
             )
         except Exception as e:
-            logger.exception("Background seed for team %s failed", team_id)
+            logger.exception("Background seed for team %s failed", log_metadata(team_id), exc_info=safe_exc_info())
             db.session.rollback()
             update_job(job_id, status="failed", error=str(e), completed_at=datetime.now(UTC).isoformat())
 
@@ -12616,7 +12744,9 @@ def _run_seed_teams_process(job_id, team_db_ids, max_age=30, sync_journeys=True,
                 update_job(job_id, current_player="Discovering cohorts...")
                 run_big6_seed(job_id, seasons=[current_season], team_ids=team_api_ids)
             except Exception as cohort_err:
-                logger.warning("Bulk cohort discovery failed (continuing with squad seed): %s", cohort_err)
+                logger.warning(
+                    "Bulk cohort discovery failed (continuing with squad seed): %s", log_metadata(cohort_err)
+                )
 
             # Phase 2: TrackedPlayer seeding per team
             results = {"teams": {}, "errors": []}
@@ -12660,11 +12790,13 @@ def _run_seed_teams_process(job_id, team_db_ids, max_age=30, sync_journeys=True,
                             "parent_league_drift": audit.get("parent_league", {}).get("drift"),
                         }
                     except Exception as audit_err:
-                        logger.warning("Post-seed audit failed for team %s: %s", team.name, audit_err)
+                        logger.warning(
+                            "Post-seed audit failed for team %s: %s", log_metadata(team.name), log_metadata(audit_err)
+                        )
                         team_summary["audit_error"] = str(audit_err)
                     results["teams"][team.name] = team_summary
                 except Exception as team_err:
-                    logger.warning("seed_teams: failed for %s: %s", team.name, team_err)
+                    logger.warning("seed_teams: failed for %s: %s", log_metadata(team.name), log_metadata(team_err))
                     results["errors"].append(f"{team.name}: {team_err}")
             update_job(
                 job_id,
@@ -12675,7 +12807,7 @@ def _run_seed_teams_process(job_id, team_db_ids, max_age=30, sync_journeys=True,
                 completed_at=datetime.now(UTC).isoformat(),
             )
         except Exception as e:
-            logger.exception("Background seed-teams failed")
+            logger.exception("Background seed-teams failed", exc_info=safe_exc_info())
             db.session.rollback()
             update_job(job_id, status="failed", error=str(e), completed_at=datetime.now(UTC).isoformat())
 
@@ -12751,7 +12883,9 @@ def _run_seed_all_tracked_process(job_id, max_age=30, sync_journeys=True, years=
                 update_job(job_id, current_player="Discovering cohorts for all teams...")
                 run_big6_seed(job_id, seasons=[current_season], team_ids=team_api_ids)
             except Exception as cohort_err:
-                logger.warning("Bulk cohort discovery failed (continuing with squad seed): %s", cohort_err)
+                logger.warning(
+                    "Bulk cohort discovery failed (continuing with squad seed): %s", log_metadata(cohort_err)
+                )
 
             # Phase 2: TrackedPlayer seeding per team
             results = {"teams": {}, "errors": []}
@@ -12774,7 +12908,9 @@ def _run_seed_all_tracked_process(job_id, max_age=30, sync_journeys=True, years=
                         "candidates": team_result.get("candidates_found", 0),
                     }
                 except Exception as team_err:
-                    logger.warning("seed_all_tracked: failed for %s: %s", team.name, team_err)
+                    logger.warning(
+                        "seed_all_tracked: failed for %s: %s", log_metadata(team.name), log_metadata(team_err)
+                    )
                     results["errors"].append(f"{team.name}: {team_err}")
             update_job(
                 job_id,
@@ -12785,7 +12921,7 @@ def _run_seed_all_tracked_process(job_id, max_age=30, sync_journeys=True, years=
                 completed_at=datetime.now(UTC).isoformat(),
             )
         except Exception as e:
-            logger.exception("Background seed-all-tracked failed")
+            logger.exception("Background seed-all-tracked failed", exc_info=safe_exc_info())
             db.session.rollback()
             update_job(job_id, status="failed", error=str(e), completed_at=datetime.now(UTC).isoformat())
 
@@ -12843,7 +12979,7 @@ def admin_seed_tracked_players():
         return jsonify(result)
     except Exception as e:
         db.session.rollback()
-        logger.exception("admin_seed_tracked_players failed")
+        logger.exception("admin_seed_tracked_players failed", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "Failed to seed tracked players")), 500
 
 
@@ -12899,7 +13035,7 @@ def admin_seed_all_tracked():
             }
         )
     except Exception as e:
-        logger.exception("admin_seed_all_tracked failed")
+        logger.exception("admin_seed_all_tracked failed", exc_info=safe_exc_info())
         db.session.rollback()
         return jsonify(_safe_error_payload(e, "Failed to start seed-all-tracked")), 500
 
@@ -12965,7 +13101,12 @@ def admin_sync_tracked_player_journeys():
                 details.append(
                     {"player": tp.player_name, "api_id": tp.player_api_id, "action": "error", "error": str(sync_err)}
                 )
-                logger.warning("sync-journeys: failed for %s (%d): %s", tp.player_name, tp.player_api_id, sync_err)
+                logger.warning(
+                    "sync-journeys: failed for %s (%d): %s",
+                    log_metadata(tp.player_name),
+                    log_metadata(tp.player_api_id),
+                    log_metadata(sync_err),
+                )
 
         db.session.flush()
 
@@ -13018,7 +13159,10 @@ def admin_sync_tracked_player_journeys():
                     }
                 )
                 logger.warning(
-                    "sync-journeys: repair failed for %s (%d): %s", tp.player_name, tp.player_api_id, sync_err
+                    "sync-journeys: repair failed for %s (%d): %s",
+                    log_metadata(tp.player_name),
+                    log_metadata(tp.player_api_id),
+                    log_metadata(sync_err),
                 )
 
         db.session.commit()
@@ -13035,7 +13179,7 @@ def admin_sync_tracked_player_journeys():
         )
     except Exception as e:
         db.session.rollback()
-        logger.exception("admin_sync_tracked_player_journeys failed")
+        logger.exception("admin_sync_tracked_player_journeys failed", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "Failed to sync journeys")), 500
 
 
@@ -13313,7 +13457,7 @@ def get_team_players(team_identifier):
             response["season"] = resolved_season
         return jsonify(response)
     except Exception as e:
-        logger.exception("get_team_players failed")
+        logger.exception("get_team_players failed", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "Failed to fetch team players")), 500
 
 

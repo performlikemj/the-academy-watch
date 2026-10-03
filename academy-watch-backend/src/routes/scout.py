@@ -69,6 +69,7 @@ from src.services.scout_entitlements import decoded_bearer_role, scout_entitleme
 from src.services.stripe_billing import require_billing_rail
 from src.utils.data_mode import api_enabled_route, api_football_frozen, newsletters_enabled_route
 from src.utils.feature_flags import rollup_reads_enabled
+from src.utils.log_privacy import log_metadata, safe_exc_info
 from src.utils.player_names import clean_name
 from src.utils.sanitize import sanitize_plain_text
 from src.utils.scout_discovery import local_players_enabled as _community_local_players_enabled
@@ -1018,7 +1019,7 @@ def scout_players():
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
     except Exception as e:
-        logger.error(f"Error in scout_players: {e}")
+        logger.error("Error in scout_players: %s", log_metadata(e))
         return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
 
 
@@ -1142,7 +1143,7 @@ def scout_leaderboards():
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
     except Exception as e:
-        logger.error(f"Error in scout_leaderboards: {e}")
+        logger.error("Error in scout_leaderboards: %s", log_metadata(e))
         return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
 
 
@@ -1553,7 +1554,11 @@ def scout_compare():
                         "last_reason": reasons[0] if reasons else None,
                     }
                 except Exception as availability_error:
-                    logger.warning(f"Availability lookup failed for player {player_id}: {availability_error}")
+                    logger.warning(
+                        "Availability lookup failed for player %s: %s",
+                        log_metadata(player_id),
+                        log_metadata(availability_error),
+                    )
 
             profile = tracked_player.to_public_dict()
             # Same current-situation override as the list/profile surfaces.
@@ -1577,7 +1582,7 @@ def scout_compare():
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
     except Exception as e:
-        logger.error(f"Error in scout_compare: {e}")
+        logger.error("Error in scout_compare: %s", log_metadata(e))
         return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
 
 
@@ -1691,7 +1696,7 @@ def scout_watchlist():
             }
         )
     except Exception as e:
-        logger.error(f"Error in scout_watchlist: {e}")
+        logger.error("Error in scout_watchlist: %s", log_metadata(e))
         return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
 
 
@@ -1772,7 +1777,7 @@ def scout_watchlist_add():
         return jsonify({"entry": _entry_payload(entry, players.get(player_api_id))}), 201
     except Exception as e:
         db.session.rollback()
-        logger.error(f"Error in scout_watchlist_add: {e}")
+        logger.error("Error in scout_watchlist_add: %s", log_metadata(e))
         return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
 
 
@@ -1798,7 +1803,7 @@ def scout_watchlist_remove(player_api_id):
         return jsonify({"removed": True})
     except Exception as e:
         db.session.rollback()
-        logger.error(f"Error in scout_watchlist_remove: {e}")
+        logger.error("Error in scout_watchlist_remove: %s", log_metadata(e))
         return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
 
 
@@ -1846,7 +1851,7 @@ def scout_watchlist_note(player_api_id):
         )
     except Exception as e:
         db.session.rollback()
-        logger.error(f"Error in scout_watchlist_note: {e}")
+        logger.error("Error in scout_watchlist_note: %s", log_metadata(e))
         return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
 
 
@@ -1870,7 +1875,7 @@ def scout_watchlist_ids():
         adult_ids = public_adult_ids(row[0] for row in rows)
         return jsonify({"player_ids": [row[0] for row in rows if row[0] in adult_ids]})
     except Exception as e:
-        logger.error(f"Error in scout_watchlist_ids: {e}")
+        logger.error("Error in scout_watchlist_ids: %s", log_metadata(e))
         return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
 
 
@@ -1892,7 +1897,7 @@ def scout_watchlist_settings():
         return jsonify({"digest_opt_in": digest_opt_in})
     except Exception as e:
         db.session.rollback()
-        logger.error(f"Error in scout_watchlist_settings: {e}")
+        logger.error("Error in scout_watchlist_settings: %s", log_metadata(e))
         return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
 
 
@@ -1979,7 +1984,7 @@ def scout_export_csv():
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
     except Exception as e:
-        logger.error(f"Error in scout_export_csv: {e}")
+        logger.error("Error in scout_export_csv: %s", log_metadata(e))
         return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
 
 
@@ -2009,7 +2014,7 @@ def scout_admin_send_digests():
         return jsonify(result)
     except Exception as e:
         db.session.rollback()
-        logger.error(f"Error in scout_admin_send_digests: {e}")
+        logger.error("Error in scout_admin_send_digests: %s", log_metadata(e))
         return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
 
 
@@ -2077,7 +2082,9 @@ def _mirror_watchlist_add(user, player_api_id, note=None):
         db.session.commit()
     except Exception:
         db.session.rollback()
-        logger.exception("watchlist->list mirror (add) failed for player %s", player_api_id)
+        logger.exception(
+            "watchlist->list mirror (add) failed for player %s", log_metadata(player_api_id), exc_info=safe_exc_info()
+        )
 
 
 def _mirror_watchlist_remove(user, player_api_id):
@@ -2095,7 +2102,11 @@ def _mirror_watchlist_remove(user, player_api_id):
             db.session.commit()
     except Exception:
         db.session.rollback()
-        logger.exception("watchlist->list mirror (remove) failed for player %s", player_api_id)
+        logger.exception(
+            "watchlist->list mirror (remove) failed for player %s",
+            log_metadata(player_api_id),
+            exc_info=safe_exc_info(),
+        )
 
 
 def _user_already_follows_player(user_id, player_api_id):
@@ -2316,7 +2327,7 @@ def scout_lists():
             }
         )
     except Exception as e:
-        logger.error(f"Error in scout_lists: {e}")
+        logger.error("Error in scout_lists: %s", log_metadata(e))
         return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
 
 
@@ -2347,7 +2358,7 @@ def scout_lists_create():
         return jsonify({"list": _follow_list_payload(follow_list, follows=[])}), 201
     except Exception as e:
         db.session.rollback()
-        logger.error(f"Error in scout_lists_create: {e}")
+        logger.error("Error in scout_lists_create: %s", log_metadata(e))
         return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
 
 
@@ -2389,7 +2400,7 @@ def scout_list_update(list_id):
         return jsonify({"list": _follow_list_payload(follow_list)})
     except Exception as e:
         db.session.rollback()
-        logger.error(f"Error in scout_list_update: {e}")
+        logger.error("Error in scout_list_update: %s", log_metadata(e))
         return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
 
 
@@ -2412,7 +2423,7 @@ def scout_list_delete(list_id):
         return jsonify({"deleted": True})
     except Exception as e:
         db.session.rollback()
-        logger.error(f"Error in scout_list_delete: {e}")
+        logger.error("Error in scout_list_delete: %s", log_metadata(e))
         return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
 
 
@@ -2548,7 +2559,7 @@ def scout_list_add_follow(list_id):
         return neutral_player_not_found()
     except Exception as e:
         db.session.rollback()
-        logger.error(f"Error in scout_list_add_follow: {e}")
+        logger.error("Error in scout_list_add_follow: %s", log_metadata(e))
         return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
 
 
@@ -2572,7 +2583,7 @@ def scout_list_remove_follow(list_id, follow_id):
         return jsonify({"removed": True})
     except Exception as e:
         db.session.rollback()
-        logger.error(f"Error in scout_list_remove_follow: {e}")
+        logger.error("Error in scout_list_remove_follow: %s", log_metadata(e))
         return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
 
 
@@ -2635,7 +2646,7 @@ def scout_list_resolve(list_id):
                 )
         return jsonify({"players": players, "total": total})
     except Exception as e:
-        logger.error(f"Error in scout_list_resolve: {e}")
+        logger.error("Error in scout_list_resolve: %s", log_metadata(e))
         return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
 
 
@@ -2665,7 +2676,7 @@ def scout_player_search():
             }
         )
     except Exception as e:
-        logger.error(f"Error in scout_player_search: {e}")
+        logger.error("Error in scout_player_search: %s", log_metadata(e))
         return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
 
 
@@ -2686,7 +2697,7 @@ def scout_admin_shadow_refresh():
         return jsonify(result)
     except Exception as e:
         db.session.rollback()
-        logger.error(f"Error in scout_admin_shadow_refresh: {e}")
+        logger.error("Error in scout_admin_shadow_refresh: %s", log_metadata(e))
         return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
 
 
@@ -2794,7 +2805,7 @@ def scout_admin_backfill_follow_lists():
         return jsonify(result)
     except Exception as e:
         db.session.rollback()
-        logger.error(f"Error in scout_admin_backfill_follow_lists: {e}")
+        logger.error("Error in scout_admin_backfill_follow_lists: %s", log_metadata(e))
         return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
 
 
@@ -2846,7 +2857,7 @@ def scout_admin_pulse_compute():
         return jsonify(result)
     except Exception as e:
         db.session.rollback()
-        logger.error(f"Error in scout_admin_pulse_compute: {e}")
+        logger.error("Error in scout_admin_pulse_compute: %s", log_metadata(e))
         return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500
 
 
@@ -2893,5 +2904,5 @@ def scout_admin_pulse_generate_cards():
         return jsonify(result)
     except Exception as e:
         db.session.rollback()
-        logger.error(f"Error in scout_admin_pulse_generate_cards: {e}")
+        logger.error("Error in scout_admin_pulse_generate_cards: %s", log_metadata(e))
         return jsonify(_safe_error_payload(e, "An unexpected error occurred. Please try again later.")), 500

@@ -25,6 +25,7 @@ from src.main import app
 from src.models.league import db
 from src.utils.data_mode import job_entrypoint
 from src.utils.job_utils import is_job_paused
+from src.utils.log_privacy import log_metadata
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -35,7 +36,7 @@ PAUSE_KEY = "data_integrity_fix_paused"
 def _verify_count(label, sql):
     """Run a verification count query and log the result."""
     result = db.session.execute(text(sql)).scalar()
-    logger.info(f"  [VERIFY] {label}: {result}")
+    logger.info("  [VERIFY] %s: %s", log_metadata(label), log_metadata(result))
     return result
 
 
@@ -61,7 +62,7 @@ def phase_1_backfill_team_profiles(dry_run=False):
     """)
     ).fetchall()
     missing_ids = [row[0] for row in missing]
-    logger.info(f"Teams missing profiles: {len(missing_ids)}")
+    logger.info("Teams missing profiles: %s", len(missing_ids))
 
     if not missing_ids or dry_run:
         return len(missing_ids)
@@ -123,17 +124,28 @@ def phase_1_backfill_team_profiles(dry_run=False):
         except Exception as e:
             db.session.rollback()
             errors += 1
-            logger.warning(f"Team {team_id} failed: {e}")
+            logger.warning("Team %s failed: %s", log_metadata(team_id), log_metadata(e))
 
         if (i + 1) % 50 == 0:
-            logger.info(f"  Progress: {i + 1}/{len(missing_ids)}, filled={filled}, errors={errors}")
+            logger.info(
+                "  Progress: %s/%s, filled=%s, errors=%s",
+                log_metadata(i + 1),
+                len(missing_ids),
+                log_metadata(filled),
+                log_metadata(errors),
+            )
 
     remaining = _verify_count(
         "teams still missing",
         "SELECT COUNT(DISTINCT fs.team_api_id) FROM fixture_player_stats fs "
         "LEFT JOIN team_profiles tp ON fs.team_api_id = tp.team_id WHERE tp.team_id IS NULL",
     )
-    logger.info(f"Phase 1 complete: {filled} added, {errors} errors, {remaining} still missing")
+    logger.info(
+        "Phase 1 complete: %s added, %s errors, %s still missing",
+        log_metadata(filled),
+        log_metadata(errors),
+        log_metadata(remaining),
+    )
     return filled
 
 
@@ -158,7 +170,7 @@ def phase_2_backfill_players(dry_run=False):
     """)
     ).fetchall()
     missing_ids = [row[0] for row in missing]
-    logger.info(f"Players missing records: {len(missing_ids)}")
+    logger.info("Players missing records: %s", len(missing_ids))
 
     if not missing_ids or dry_run:
         return len(missing_ids)
@@ -205,18 +217,29 @@ def phase_2_backfill_players(dry_run=False):
             db.session.rollback()
             errors += 1
             if "quota" in str(e).lower() or "ratelimit" in str(e).lower().replace(" ", ""):
-                logger.warning(f"API rate limit at player {i + 1}. Filled: {filled}")
+                logger.warning("API rate limit at player %s. Filled: %s", log_metadata(i + 1), log_metadata(filled))
                 break
 
         if (i + 1) % 200 == 0:
-            logger.info(f"  Progress: {i + 1}/{len(missing_ids)}, filled={filled}, errors={errors}")
+            logger.info(
+                "  Progress: %s/%s, filled=%s, errors=%s",
+                log_metadata(i + 1),
+                len(missing_ids),
+                log_metadata(filled),
+                log_metadata(errors),
+            )
 
     remaining = _verify_count(
         "players still missing",
         "SELECT COUNT(DISTINCT fs.player_api_id) FROM fixture_player_stats fs "
         "LEFT JOIN players p ON fs.player_api_id = p.player_id WHERE p.player_id IS NULL",
     )
-    logger.info(f"Phase 2 complete: {filled} added, {errors} errors, {remaining} still missing")
+    logger.info(
+        "Phase 2 complete: %s added, %s errors, %s still missing",
+        log_metadata(filled),
+        log_metadata(errors),
+        log_metadata(remaining),
+    )
     return filled
 
 
@@ -236,7 +259,7 @@ def phase_3_recompute_academy_ids(dry_run=False):
             func.jsonb_array_length(PlayerJourney.academy_club_ids) == 0,
         )
     ).all()
-    logger.info(f"Journeys with missing academy_club_ids: {len(journeys)}")
+    logger.info("Journeys with missing academy_club_ids: %s", len(journeys))
 
     if not journeys or dry_run:
         return len(journeys)
@@ -260,17 +283,28 @@ def phase_3_recompute_academy_ids(dry_run=False):
             db.session.rollback()
             errors += 1
             if (i + 1) % 500 == 0:
-                logger.warning(f"Journey {journey.id} failed: {e}")
+                logger.warning("Journey %s failed: %s", log_metadata(journey.id), log_metadata(e))
 
         if (i + 1) % 500 == 0:
-            logger.info(f"  Progress: {i + 1}/{len(journeys)}, fixed={fixed}, errors={errors}")
+            logger.info(
+                "  Progress: %s/%s, fixed=%s, errors=%s",
+                log_metadata(i + 1),
+                len(journeys),
+                log_metadata(fixed),
+                log_metadata(errors),
+            )
 
     remaining = _verify_count(
         "journeys still missing IDs",
         "SELECT COUNT(*) FROM player_journeys "
         "WHERE academy_club_ids IS NULL OR jsonb_array_length(academy_club_ids) = 0",
     )
-    logger.info(f"Phase 3 complete: {fixed} updated, {errors} errors, {remaining} still missing")
+    logger.info(
+        "Phase 3 complete: %s updated, %s errors, %s still missing",
+        log_metadata(fixed),
+        log_metadata(errors),
+        log_metadata(remaining),
+    )
     return fixed
 
 
@@ -285,7 +319,7 @@ def phase_4_refresh_statuses(dry_run=False):
     logger.info("=== Phase 4: Refresh statuses ===")
 
     team_ids = teams_with_active_tracked_players()
-    logger.info(f"Teams to process: {len(team_ids)}")
+    logger.info("Teams to process: %s", len(team_ids))
 
     if dry_run:
         return len(team_ids)
@@ -310,7 +344,7 @@ def phase_4_refresh_statuses(dry_run=False):
             changed = len(result.get("players_changed", []))
             total_changed += changed
             if changed:
-                logger.info(f"  Team {team_db_id}: {changed} players changed")
+                logger.info("  Team %s: %s players changed", log_metadata(team_db_id), log_metadata(changed))
         except Exception as e:
             try:
                 db.session.rollback()
@@ -318,13 +352,22 @@ def phase_4_refresh_statuses(dry_run=False):
                 pass
             total_errors += 1
             if total_errors <= 5:
-                logger.warning(f"Team {team_db_id} failed: {e}")
+                logger.warning("Team %s failed: %s", log_metadata(team_db_id), log_metadata(e))
 
         if (i + 1) % 20 == 0:
-            logger.info(f"  Progress: {i + 1}/{len(team_ids)} teams, {total_changed} changes, {total_errors} errors")
+            logger.info(
+                "  Progress: %s/%s teams, %s changes, %s errors",
+                log_metadata(i + 1),
+                len(team_ids),
+                log_metadata(total_changed),
+                log_metadata(total_errors),
+            )
 
     logger.info(
-        f"Phase 4 complete: {total_changed} players changed, {total_errors} errors across {len(team_ids)} teams"
+        "Phase 4 complete: %s players changed, %s errors across %s teams",
+        log_metadata(total_changed),
+        log_metadata(total_errors),
+        len(team_ids),
     )
     return total_changed
 
@@ -344,7 +387,7 @@ def phase_5_backfill_formations(dry_run=False):
         db.session.query(FixturePlayerStats.fixture_id).filter(FixturePlayerStats.formation.is_(None)).distinct().all()
     )
     fixture_ids = [row[0] for row in fixture_ids]
-    logger.info(f"Fixtures missing formation: {len(fixture_ids)}")
+    logger.info("Fixtures missing formation: %s", len(fixture_ids))
 
     if not fixture_ids or dry_run:
         return len(fixture_ids)
@@ -394,12 +437,14 @@ def phase_5_backfill_formations(dry_run=False):
         db.session.commit()
 
         if (i + 1) % 100 == 0:
-            logger.info(f"  Progress: {i + 1}/{len(fixture_ids)}, updated={total_updated}")
+            logger.info(
+                "  Progress: %s/%s, updated=%s", log_metadata(i + 1), len(fixture_ids), log_metadata(total_updated)
+            )
 
     remaining = _verify_count(
         "fixture stats still missing formation", "SELECT COUNT(*) FROM fixture_player_stats WHERE formation IS NULL"
     )
-    logger.info(f"Phase 5 complete: {total_updated} updated, {remaining} still missing")
+    logger.info("Phase 5 complete: %s updated, %s still missing", log_metadata(total_updated), log_metadata(remaining))
     return total_updated
 
 
@@ -416,7 +461,9 @@ def run(dry_run=False, start_phase=1):
         logger.info("Data integrity fix is paused by admin. Exiting.")
         return
 
-    logger.info(f"Starting data integrity fix. dry_run={dry_run}, start_phase={start_phase}")
+    logger.info(
+        "Starting data integrity fix. dry_run=%s, start_phase=%s", log_metadata(dry_run), log_metadata(start_phase)
+    )
     start = datetime.now(UTC)
 
     results = {}
@@ -431,22 +478,24 @@ def run(dry_run=False, start_phase=1):
     api_heavy_phases = {"players", "statuses", "formations"}
     for num, name, phase_func in phases:
         if num < start_phase:
-            logger.info(f"Skipping phase {num} ({name})")
+            logger.info("Skipping phase %s (%s)", log_metadata(num), log_metadata(name))
             continue
         if is_job_paused(PAUSE_KEY):
             logger.info("Paused by admin, stopping.")
             break
         if name in api_heavy_phases and results:
-            logger.info(f"Cooling down 60s before phase {num}...")
+            logger.info("Cooling down 60s before phase %s...", log_metadata(num))
             time.sleep(60)
         try:
             results[name] = phase_func(dry_run=dry_run)
         except Exception as e:
-            logger.error(f"Phase {num} ({name}) failed: {e}")
+            logger.error("Phase %s (%s) failed: %s", log_metadata(num), log_metadata(name), log_metadata(e))
             results[name] = f"ERROR: {e}"
 
     elapsed = (datetime.now(UTC) - start).total_seconds()
-    logger.info(f"Data integrity fix complete in {elapsed / 60:.1f} minutes. Results: {results}")
+    logger.info(
+        "Data integrity fix complete in %s minutes. Results: %s", log_metadata(elapsed / 60), log_metadata(results)
+    )
     return results
 
 

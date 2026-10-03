@@ -29,6 +29,7 @@ from datetime import UTC, datetime
 
 from src.main import app
 from src.models.league import AcademyLeague, db
+from src.utils.log_privacy import log_metadata
 
 # Youth leagues to seed
 YOUTH_LEAGUES = [
@@ -127,24 +128,26 @@ def seed_leagues(dry_run: bool = False):
         if created:
             print(f"Created {len(created)} league(s):")
             for item in created:
-                print(f"  + {item}")
+                print(f"  + {log_metadata(item)}")
 
         if skipped:
             print(f"\nSkipped {len(skipped)} league(s):")
             for item in skipped:
-                print(f"  - {item}")
+                print(f"  - {log_metadata(item)}")
 
         # Show summary
         total = AcademyLeague.query.count()
         active = AcademyLeague.query.filter_by(is_active=True).count()
-        print(f"\nTotal leagues in database: {total} ({active} active)")
+        print(f"\nTotal leagues in database: {log_metadata(total)} ({log_metadata(active)} active)")
 
         # List all leagues
         print("\nAll configured leagues:")
         for league in AcademyLeague.query.order_by(AcademyLeague.level, AcademyLeague.name).all():
             sync_status = "sync on" if league.sync_enabled else "sync off"
             active_status = "active" if league.is_active else "inactive"
-            print(f"  [{league.level}] {league.name} (ID: {league.api_league_id}) - {active_status}, {sync_status}")
+            print(
+                f"  [{log_metadata(league.level)}] {log_metadata(league.name)} (ID: {log_metadata(league.api_league_id)}) - {log_metadata(active_status)}, {log_metadata(sync_status)}"
+            )
 
 
 def main():

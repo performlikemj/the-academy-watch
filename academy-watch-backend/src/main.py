@@ -70,7 +70,7 @@ from src.routes.showcase import showcase_bp
 from src.routes.teams import teams_bp
 from src.routes.trust import trust_bp
 from src.routes.video import video_bp
-from src.utils.log_privacy import protect_log_handlers
+from src.utils.log_privacy import log_metadata, protect_log_handlers
 
 # isort: split
 # --- p2-b2 begin ---
@@ -130,8 +130,8 @@ app.config.update(
     PROPAGATE_EXCEPTIONS=False,
 )
 
-logger.info(f"📁 Static folder: {app.static_folder}")
-logger.info(f"🔑 Secret key configured: {'Yes' if app.config['SECRET_KEY'] else 'No'}")
+logger.info("📁 Static folder: %s", log_metadata(app.static_folder))
+logger.info("🔑 Secret key configured: %s", log_metadata("Yes" if app.config["SECRET_KEY"] else "No"))
 
 # Suppress repetitive MCP notification validation logs but keep the first one
 _seen_mcp_validation = False
@@ -293,7 +293,7 @@ def _build_db_uri_from_components() -> str:
         try:
             port_value = int(port_raw)
         except ValueError:
-            logger.warning("⚠️ DB_PORT value '%s' is invalid; ignoring port", port_raw)
+            logger.warning("⚠️ DB_PORT value '%s' is invalid; ignoring port", log_metadata(port_raw))
     url = URL.create(
         drivername="postgresql+psycopg",
         username=_env_value("DB_USER"),
@@ -390,7 +390,7 @@ def debug_database():
         }
         return jsonify(stats)
     except Exception as e:
-        logger.error(f"Debug database check failed: {e}")
+        logger.error("Debug database check failed: %s", log_metadata(e))
         return jsonify({"error": "Database check failed"}), 500
 
 
@@ -428,7 +428,7 @@ def backfill_unsubscribe_tokens():
         count += 1
 
     db.session.commit()
-    print(f"✅ Backfilled {count} subscription(s) with unsubscribe tokens")
+    print(f"✅ Backfilled {log_metadata(count)} subscription(s) with unsubscribe tokens")
 
 
 @app.cli.command("seed-teams")
@@ -457,22 +457,24 @@ def seed_teams_cmd():
         .all()
     )
 
-    print(f"Seeding {len(teams_with_counts)} teams with < {min_threshold} players (max_age={max_age})", flush=True)
+    print(
+        f"Seeding {len(teams_with_counts)} teams with < {log_metadata(min_threshold)} players (max_age={log_metadata(max_age)})",
+        flush=True,
+    )
 
     for i, (team, current_count) in enumerate(teams_with_counts):
         print(
-            f"[{i + 1}/{len(teams_with_counts)}] {team.name} (api={team.team_id}, current={current_count})...",
+            f"[{log_metadata(i + 1)}/{len(teams_with_counts)}] {log_metadata(team.name)} (api={log_metadata(team.team_id)}, current={log_metadata(current_count)})...",
             flush=True,
         )
         try:
             result = _seed_single_team(team, sync_journeys=True, max_age=max_age, years=4)
             print(
-                f"  => created={result.get('created', 0)}, skipped={result.get('skipped', 0)}, "
-                f"candidates={result.get('candidates_found', 0)}, journeys_synced={result.get('journeys_synced', 0)}",
+                f"  => created={log_metadata(result.get('created', 0))}, skipped={log_metadata(result.get('skipped', 0))}, candidates={log_metadata(result.get('candidates_found', 0))}, journeys_synced={log_metadata(result.get('journeys_synced', 0))}",
                 flush=True,
             )
         except Exception as e:
-            print(f"  => FAILED: {e}", flush=True)
+            print(f"  => FAILED: {log_metadata(e)}", flush=True)
 
     print("Seed complete.", flush=True)
 
@@ -494,13 +496,13 @@ def reclass_journeys_cmd():
     svc = JourneySyncService()
     journeys = PlayerJourney.query.all()
     total = len(journeys)
-    print(f"Reclassifying {total} journeys ...", flush=True)
+    print(f"Reclassifying {log_metadata(total)} journeys ...", flush=True)
 
     changed = 0
     errors = 0
     for i, journey in enumerate(journeys):
         if (i + 1) % 100 == 0:
-            print(f"  [{i + 1}/{total}] ...", flush=True)
+            print(f"  [{log_metadata(i + 1)}/{log_metadata(total)}] ...", flush=True)
         try:
             entries = PlayerJourneyEntry.query.filter_by(journey_id=journey.id).all()
             if not entries:
@@ -547,11 +549,17 @@ def reclass_journeys_cmd():
             db.session.flush()
         except Exception as e:
             errors += 1
-            print(f"  FAILED journey {journey.id} (player {journey.player_api_id}): {e}", flush=True)
+            print(
+                f"  FAILED journey {log_metadata(journey.id)} (player {log_metadata(journey.player_api_id)}): {log_metadata(e)}",
+                flush=True,
+            )
             db.session.rollback()
 
     db.session.commit()
-    print(f"Done — {changed} journeys changed, {errors} errors out of {total} total.", flush=True)
+    print(
+        f"Done — {log_metadata(changed)} journeys changed, {log_metadata(errors)} errors out of {log_metadata(total)} total.",
+        flush=True,
+    )
 
 
 @app.cli.command("sync-fixtures")
@@ -564,7 +572,7 @@ def sync_fixtures_cmd():
 
     print("Starting batch fixture sync ...", flush=True)
     result = _run_batch_fixture_sync({})
-    print(f"Done — {result}", flush=True)
+    print(f"Done — {log_metadata(result)}", flush=True)
 
 
 if __name__ == "__main__":
@@ -576,7 +584,7 @@ if __name__ == "__main__":
         # Optional stats
         total_leagues = League.query.count()
         total_teams = Team.query.count()
-        logger.info(f"📊 DB has {total_teams} teams, {total_leagues} leagues")
+        logger.info("📊 DB has %s teams, %s leagues", log_metadata(total_teams), log_metadata(total_leagues))
 
     debug_env = os.getenv("FLASK_DEBUG")
     if debug_env is None:
@@ -584,7 +592,7 @@ if __name__ == "__main__":
     else:
         debug_enabled = debug_env.lower() in {"1", "true", "yes", "on"}
 
-    logger.info("Starting local Flask server (debug=%s)", debug_enabled)
+    logger.info("Starting local Flask server (debug=%s)", log_metadata(debug_enabled))
     # threaded=True so the dev server can stream footage (long Range responses) while
     # still serving concurrent /api calls — production runs under gunicorn, not this.
     app.run(host="0.0.0.0", port=5001, debug=debug_enabled, threaded=True)

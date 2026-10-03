@@ -22,7 +22,7 @@ BACKEND_ROOT = Path(__file__).resolve().parents[2]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from src.utils.log_privacy import mask_email
+from src.utils.log_privacy import log_metadata, mask_email
 
 os.environ.setdefault("SKIP_API_HANDSHAKE", "1")
 
@@ -479,12 +479,12 @@ def execute_bridge(
 
 def print_summary(summary: dict) -> None:
     print("\nFixture bridge summary")
-    print(f"Match ID: {summary['match_id']}")
-    print(f"Program: {summary['program_name']} (id={summary['program_id']})")
+    print(f"Match ID: {log_metadata(summary['match_id'])}")
+    print(f"Program: {log_metadata(summary['program_name'])} (id={log_metadata(summary['program_id'])})")
     print(f"Manager: {mask_email(summary['manager_email'])}")
     print()
-    print(f"{'Resource':<24} {'Created':>8} {'Existing':>9}")
-    print(f"{'-' * 24} {'-' * 8} {'-' * 9}")
+    print(f"{'Resource'} {'Created'} {'Existing'}")
+    print(f"{log_metadata('-' * 24)} {log_metadata('-' * 8)} {log_metadata('-' * 9)}")
     labels = {
         "funding_leagues": "Funding leagues",
         "club_programs": "Club programs",
@@ -496,15 +496,17 @@ def print_summary(summary: dict) -> None:
     }
     for key in COUNT_KEYS:
         values = summary["counts"][key]
-        print(f"{labels[key]:<24} {values['created']:>8} {values['existing']:>9}")
+        print(f"{log_metadata(labels[key])} {log_metadata(values['created'])} {log_metadata(values['existing'])}")
     print()
-    print(f"{'Jersey':>6} {'Roster entry':>13} {'Member ID':>10}")
-    print(f"{'-' * 6} {'-' * 13} {'-' * 10}")
+    print(f"{'Jersey'} {'Roster entry'} {'Member ID'}")
+    print(f"{log_metadata('-' * 6)} {log_metadata('-' * 13)} {log_metadata('-' * 10)}")
     for member in summary["members"]:
-        print(f"{member['jersey_number']:>6} {member['roster_entry_id']:>13} {member['club_roster_member_id']:>10}")
+        print(
+            f"{log_metadata(member['jersey_number'])} {log_metadata(member['roster_entry_id'])} {log_metadata(member['club_roster_member_id'])}"
+        )
     if summary["dry_run"]:
         print("\nDRY RUN: transaction rolled back; no fixture rows were committed.")
-    print(f"\nMyClub URL path: {summary['my_club_path']}")
+    print(f"\nMyClub URL path: {log_metadata(summary['my_club_path'])}")
 
 
 def _parse_args(argv=None):
@@ -531,8 +533,8 @@ def main(argv=None) -> int:
             dry_run=args.dry_run,
             allow_db_name=args.allow_db_name,
         )
-    except BridgeRefused as exc:
-        print(f"ERROR: {exc}", file=sys.stderr)
+    except BridgeRefused:
+        print(f"ERROR: fixture operation refused manager={mask_email(args.manager_email)}", file=sys.stderr)
         return 2
     print_summary(summary)
     return 0

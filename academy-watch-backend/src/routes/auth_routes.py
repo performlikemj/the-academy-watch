@@ -44,7 +44,7 @@ from src.services.account_roles import derive_account_role
 from src.services.email_service import email_service
 from src.services.scout_entitlements import scout_entitlements
 from src.services.trust import is_verified_scout
-from src.utils.log_privacy import get_logger, mask_email
+from src.utils.log_privacy import get_logger, log_metadata, mask_email, safe_exc_info
 
 logger = get_logger(__name__)
 
@@ -82,10 +82,10 @@ def _create_email_token(email: str, purpose: str, metadata: dict | None = None, 
     db.session.flush()
     logger.info(
         "Created email token id=%s purpose=%s email=%s expires_at=%s",
-        row.id,
-        purpose,
+        log_metadata(row.id),
+        log_metadata(purpose),
         mask_email(email),
-        expires_at.isoformat(),
+        log_metadata(expires_at.isoformat()),
     )
     return row
 
@@ -121,20 +121,25 @@ def _send_login_code(email: str, code: str):
                 tags=["login_code"],
             )
             if result.success:
-                logger.info("Login code sent to %s via %s", mask_email(email), result.provider)
+                logger.info("Login code sent to %s via %s", mask_email(email), log_metadata(result.provider))
             else:
-                logger.warning("Failed to send login code to %s: %s", mask_email(email), result.error)
+                logger.warning(
+                    "Failed to send login code to %s provider=%s status=%s",
+                    mask_email(email),
+                    log_metadata(result.provider),
+                    log_metadata(result.http_status),
+                )
         except Exception:
-            logger.exception("Failed to send login code to %s", mask_email(email))
+            logger.exception("Failed to send login code to %s", mask_email(email), exc_info=safe_exc_info())
 
     # In development, also print to terminal for testing
     if not _is_production():
-        msg = f"[DEV] Login code for {mask_email(email)}: {code} (expires in 5 minutes)"
+        msg = f"[DEV] Login code for {mask_email(email)}: {log_metadata(code)} (expires in 5 minutes)"
         try:
             print(msg)
         except Exception:
             pass
-        logger.info("[DEV] Login code for %s: %s (expires in 5 minutes)", mask_email(email), code)
+        logger.info("[DEV] Login code for %s: %s (expires in 5 minutes)", mask_email(email), log_metadata(code))
 
 
 def _user_rate_limit_key() -> str | None:
@@ -156,10 +161,10 @@ def request_login_code():
         data = request.get_json() or {}
         email = (data.get("email") or "").strip().lower()
         if not email:
-            logger.warning("Login code request missing email from %s", get_client_ip())
+            logger.warning("Login code request missing email from %s", log_metadata(get_client_ip()))
             return jsonify({"error": "email is required"}), 400
         client_ip = get_client_ip()
-        logger.info("Login code requested for %s from %s", mask_email(email), client_ip)
+        logger.info("Login code requested for %s from %s", mask_email(email), log_metadata(client_ip))
         code = _generate_otp_code(11)
         # 5 minutes TTL
         tok = _create_email_token(email=email, purpose="login", metadata={"kind": "otp"}, ttl_minutes=5)
@@ -170,10 +175,15 @@ def request_login_code():
 
         # Deliver or print locally depending on environment
         _send_login_code(email, code)
-        logger.info("Login code issued for %s from %s (token_id=%s)", mask_email(email), client_ip, tok.id)
+        logger.info(
+            "Login code issued for %s from %s (token_id=%s)",
+            mask_email(email),
+            log_metadata(client_ip),
+            log_metadata(tok.id),
+        )
         return jsonify({"message": "Login code sent"})
     except Exception as e:
-        logger.exception("Failed to issue login code for email=%s", mask_email(email))
+        logger.exception("Failed to issue login code for email=%s", mask_email(email), exc_info=safe_exc_info())
         try:
             db.session.rollback()
         except Exception:
@@ -196,7 +206,7 @@ def verify_login_code():
                 "Verify-login missing fields email_present=%s code_present=%s from %s",
                 bool(email),
                 bool(code),
-                get_client_ip(),
+                log_metadata(get_client_ip()),
             )
             return jsonify({"error": "email and code are required"}), 400
         from src.services.account_standing import account_can_act
@@ -206,8 +216,8 @@ def verify_login_code():
         logger.info(
             "Verifying login code for %s from %s user_id=%s",
             mask_email(email),
-            client_ip,
-            existing.id if existing else None,
+            log_metadata(client_ip),
+            log_metadata(existing.id if existing else None),
         )
         # Static review credentials require a byte-exact submitted code. Keep
         # the existing whitespace-tolerant normalization for one-time codes.
@@ -215,7 +225,7 @@ def verify_login_code():
         if not is_review_login:
             row = EmailToken.query.filter_by(email=email, token=code, purpose="login").first()
             if not row or not row.is_valid():
-                logger.warning("Invalid/expired login code for %s from %s", mask_email(email), client_ip)
+                logger.warning("Invalid/expired login code for %s from %s", mask_email(email), log_metadata(client_ip))
                 return jsonify({"error": "invalid or expired code"}), 400
             # Mark one-time email codes used. The env-gated review code is
             # intentionally reusable until operators revoke either env var.
@@ -237,8 +247,8 @@ def verify_login_code():
             logger.warning(
                 "audit_event=review_login_used email=%s user_id=%s ip=%s",
                 mask_email(email),
-                user.id if user else None,
-                client_ip,
+                log_metadata(user.id if user else None),
+                log_metadata(client_ip),
             )
         if is_new_user:
             from src.services.admin_notify_service import notify_new_user
@@ -252,9 +262,9 @@ def verify_login_code():
         logger.info(
             "Login verified for %s from %s role=%s user_id=%s",
             mask_email(email),
-            client_ip,
-            role,
-            user.id if user else None,
+            log_metadata(client_ip),
+            log_metadata(role),
+            log_metadata(user.id if user else None),
         )
         out = issue_user_token(email, role=role)
         return jsonify(
@@ -269,7 +279,7 @@ def verify_login_code():
             }
         )
     except Exception as e:
-        logger.exception("Failed to verify login code for email=%s", mask_email(email))
+        logger.exception("Failed to verify login code for email=%s", mask_email(email), exc_info=safe_exc_info())
         try:
             db.session.rollback()
         except Exception:
@@ -423,7 +433,7 @@ def seed_review_accounts():
         )
     except Exception as exc:
         db.session.rollback()
-        logger.exception("Failed to seed App Review accounts")
+        logger.exception("Failed to seed App Review accounts", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(exc, "Failed to seed App Review accounts")), 500
 
 

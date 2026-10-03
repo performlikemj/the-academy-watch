@@ -1,4 +1,7 @@
+from src.utils.log_privacy import log_metadata
+
 # Mock objects
+
 
 # Mock objects
 class MockTeam:
@@ -26,7 +29,7 @@ def test_deduplication():
 
     print(f"📥 Input teams: {len(teams)}")
     for t in teams:
-        print(f"  - {t.name} (ID: {t.team_id}, Season: {t.season})")
+        print(f"  - {log_metadata(t.name)} (ID: {log_metadata(t.team_id)}, Season: {log_metadata(t.season)})")
 
     # Apply deduplication logic (copied from api.py)
     deduped_teams = {}
@@ -40,7 +43,7 @@ def test_deduplication():
 
     print(f"\n📤 Output teams: {len(final_teams)}")
     for t in final_teams:
-        print(f"  - {t.name} (ID: {t.team_id}, Season: {t.season})")
+        print(f"  - {log_metadata(t.name)} (ID: {log_metadata(t.team_id)}, Season: {log_metadata(t.season)})")
 
     # Assertions
     assert len(final_teams) == 3, f"Expected 3 unique teams, got {len(final_teams)}"

@@ -25,6 +25,7 @@ from src.mcp import brave as brave_api
 from src.models.league import LeagueLocalization, Newsletter, Player, Team, TeamProfile, db
 from src.models.tracked_player import TrackedPlayer
 from src.utils.legacy_pages import legacy_public_url
+from src.utils.log_privacy import log_metadata, safe_exc_info
 from src.utils.newsletter_slug import compose_newsletter_public_slug
 
 from agents import (
@@ -59,22 +60,34 @@ def _log_sample(tag: str, pid: str, query: str, results: list[dict]):
         return
     log = logging.getLogger(__name__)
     try:
-        log.info("BRAVE %s | pid=%s | q=%r | total=%d", tag, pid, query, len(results or []))
+        log.info(
+            "BRAVE %s | pid=%s | q=%r | total=%d",
+            log_metadata(tag),
+            log_metadata(pid),
+            log_metadata(query),
+            len(results or []),
+        )
         for r in (results or [])[:MCP_LOG_SAMPLE_N]:
             title = (r.get("title") or "")[:140]
             url = (r.get("url") or "")[:160]
             pub = r.get("publisher")
             sent = r.get("sentiment")
-            log.info("  · %s | %s | pub=%s | sent=%s", title, url, pub, sent)
+            log.info(
+                "  · %s | %s | pub=%s | sent=%s",
+                log_metadata(title),
+                log_metadata(url),
+                log_metadata(pub),
+                log_metadata(sent),
+            )
         # also log raw JSON samples for debugging integration issues
         try:
             import json as _json
 
             log.info(
                 "BRAVE %s RAW | pid=%s | %s",
-                tag,
-                pid,
-                _json.dumps((results or [])[:MCP_LOG_SAMPLE_N], ensure_ascii=False)[:1000],
+                log_metadata(tag),
+                log_metadata(pid),
+                log_metadata(_json.dumps((results or [])[:MCP_LOG_SAMPLE_N], ensure_ascii=False)[:1000]),
             )
         except Exception:
             pass
@@ -568,7 +581,7 @@ _TEAM_LOGO_CACHE: dict[int, str | None] = {}
 # )
 aio_client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 set_default_openai_client(aio_client)
-print(f"weekly agent client: {aio_client}")
+print(f"weekly agent client: {log_metadata(aio_client)}")
 
 # ---------- JSON safety helpers ----------
 
@@ -977,7 +990,7 @@ async def persist_newsletter(ctx, args) -> dict[str, Any]:
         updated, injected, added = _inject_links_from_search_context(content_json, search_context, max_links=3)
         content_json = updated
         if injected:
-            logging.getLogger(__name__).info(f"Injected links from search_context: yes (+{added})")
+            logging.getLogger(__name__).info("Injected links from search_context: yes (+%s)", log_metadata(added))
         # Always append internet section if any web items exist
         content_json = _append_internet_section(content_json, search_context, max_items_per_player=2)
     except Exception:
@@ -1045,7 +1058,9 @@ async def persist_newsletter(ctx, args) -> dict[str, Any]:
     # Final sanitize before storage; guard against control chars
     content_json, removed_b = _sanitize_with_count(content_json)
     if (removed_a + removed_b) > 0:
-        logging.getLogger(__name__).info(f"Sanitized strings: yes ({removed_a + removed_b} chars removed)")
+        logging.getLogger(__name__).info(
+            "Sanitized strings: yes (%s chars removed)", log_metadata(removed_a + removed_b)
+        )
     if not _valid_content(content_json):
         # Coerce to minimal valid payload instead of raising
         content_json = {
@@ -1407,7 +1422,7 @@ async def generate_weekly_newsletter(team_db_id: int, target_date: date, force_r
         if DEBUG_MCP:
             logging.getLogger(__name__).info(
                 "BRAVE categorized | pid=%s | web=%d news=%d disc=%d vids=%d",
-                pid,
+                log_metadata(pid),
                 len(categorized_results["web"]),
                 len(categorized_results["news"]),
                 len(categorized_results["discussions"]),
@@ -1532,11 +1547,11 @@ async def generate_weekly_newsletter(team_db_id: int, target_date: date, force_r
                 if validation_warnings:
                     logger.warning("⚠️  Player stats validation warnings:")
                     for warning in validation_warnings:
-                        logger.warning(f"   {warning}")
+                        logger.warning("   %s", log_metadata(warning))
                 else:
                     logger.info("✅ Player stats validation passed - all stats match source data")
             except Exception as e:
-                logger.warning(f"Failed to validate player stats: {e}")
+                logger.warning("Failed to validate player stats: %s", log_metadata(e))
             args = {
                 "team_db_id": team_db_id,
                 "content_json": content_json,
@@ -2467,7 +2482,7 @@ def _render_variants_custom(
             return {"web_html": html}
 
     except Exception as e:
-        logging.getLogger(__name__).error(f"Render custom failed: {e}", exc_info=True)
+        logging.getLogger(__name__).error("Render custom failed: %s", log_metadata(e), exc_info=safe_exc_info())
         return {f"{render_mode}_html": ""}
 
 

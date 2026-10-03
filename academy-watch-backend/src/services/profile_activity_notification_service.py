@@ -10,7 +10,7 @@ from src.models.league import UserAccount, db
 from src.services.public_player_subject import owned_public_adult_subjects
 from src.services.reach_metrics import fan_counts, profile_view_counts_since, watchlist_counts
 from src.services.user_blocks import blocked_user_ids
-from src.utils.log_privacy import get_logger
+from src.utils.log_privacy import get_logger, log_metadata, safe_exc_info
 
 logger = get_logger(__name__)
 
@@ -232,7 +232,9 @@ def send_profile_activity_notifications(
                 )
             except Exception:
                 db.session.rollback()
-                logger.exception("Profile activity email failed for account %s", account_id)
+                logger.exception(
+                    "Profile activity email failed for account %s", log_metadata(account_id), exc_info=safe_exc_info()
+                )
                 result["errors"] += 1
             else:
                 if not getattr(delivery, "success", False):
@@ -243,7 +245,11 @@ def send_profile_activity_notifications(
                         db.session.commit()
                     except Exception:
                         db.session.rollback()
-                        logger.exception("Profile activity watermark commit failed for account %s", account_id)
+                        logger.exception(
+                            "Profile activity watermark commit failed for account %s",
+                            log_metadata(account_id),
+                            exc_info=safe_exc_info(),
+                        )
                         result["errors"] += 1
                     else:
                         result["sent"] += 1

@@ -19,6 +19,8 @@ League IDs are API-Football IDs.
 import logging
 import os
 
+from src.utils.log_privacy import log_metadata
+
 logger = logging.getLogger(__name__)
 
 REGION_EUROPE = "Europe"
@@ -64,7 +66,7 @@ def _parse_league_ids(raw: str) -> list[int]:
         try:
             ids.append(int(part))
         except ValueError:
-            logger.warning("Ignoring invalid league id %r in league env config", part)
+            logger.warning("Ignoring invalid league id %r in league env config", log_metadata(part))
     return ids
 
 
@@ -78,7 +80,7 @@ def get_supported_leagues() -> dict[int, dict[str, str | int]]:
     selected = {lid: SUPPORTED_LEAGUES[lid] for lid in ids if lid in SUPPORTED_LEAGUES}
     unknown = [lid for lid in ids if lid not in SUPPORTED_LEAGUES]
     if unknown:
-        logger.warning("SUPPORTED_LEAGUE_IDS contains unknown league ids %s — ignored", unknown)
+        logger.warning("SUPPORTED_LEAGUE_IDS contains unknown league ids %s — ignored", log_metadata(unknown))
     return selected or dict(SUPPORTED_LEAGUES)
 
 

@@ -12,6 +12,7 @@ from src.auth import _safe_error_payload, require_api_key
 from src.extensions import limiter
 from src.models.league import db
 from src.models.player_suppression import PlayerSuppression
+from src.utils.log_privacy import log_metadata, safe_exc_info
 from src.utils.sanitize import sanitize_plain_text
 
 logger = logging.getLogger(__name__)
@@ -126,7 +127,7 @@ def _submit_takedown_request(*, player_api_id: int | None = None, local_player_i
         return jsonify({"error": str(exc)}), 400
     except Exception as exc:
         db.session.rollback()
-        logger.exception("Failed to record player takedown request")
+        logger.exception("Failed to record player takedown request", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(exc, "Failed to submit takedown request")), 500
 
 
@@ -188,7 +189,7 @@ def admin_list_suppressions():
         )
     except Exception as exc:
         db.session.rollback()
-        logger.exception("Failed to load suppression queue")
+        logger.exception("Failed to load suppression queue", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(exc, "Failed to load suppressions")), 500
 
 
@@ -231,7 +232,9 @@ def _decide_suppression(suppression_id: int, action: str):
         return jsonify({"error": str(exc)}), 400
     except Exception as exc:
         db.session.rollback()
-        logger.exception("Failed to %s suppression %s", action, suppression_id)
+        logger.exception(
+            "Failed to %s suppression %s", log_metadata(action), log_metadata(suppression_id), exc_info=safe_exc_info()
+        )
         return jsonify(_safe_error_payload(exc, f"Failed to {action} suppression")), 500
 
 

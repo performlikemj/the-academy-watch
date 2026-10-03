@@ -25,6 +25,7 @@ from src.utils.academy_window import age_from_birth_date as _age_from_birth_date
 from src.utils.academy_window import is_within_academy_window
 from src.utils.data_mode import api_football_frozen
 from src.utils.geocoding import get_team_coordinates
+from src.utils.log_privacy import log_metadata, safe_exc_info
 from src.utils.player_names import is_placeholder_name, resolve_player_profile
 
 journey_bp = Blueprint("journey", __name__)
@@ -74,7 +75,7 @@ def get_player_journey(player_id):
             service = JourneySyncService()
             journey = service.sync_player(player_id, force_full=bool(journey))
         except Exception as e:
-            logger.warning(f"Journey sync failed for player {player_id}: {e}")
+            logger.warning("Journey sync failed for player %s: %s", log_metadata(player_id), log_metadata(e))
 
     if journey:
         journey_data = _build_journey_from_player_journey(journey)
@@ -165,7 +166,7 @@ def admin_record_manual_transfer():
         return jsonify({"error": str(exc)}), 422
     except Exception:
         db.session.rollback()
-        logger.exception("Manual transfer entry failed")
+        logger.exception("Manual transfer entry failed", exc_info=safe_exc_info())
         return jsonify({"error": "Failed to record manual transfer"}), 500
 
 
@@ -304,7 +305,7 @@ def admin_recompute_academy():
                 db.session.commit()
         except Exception as exc:
             errors += 1
-            logger.warning("recompute-academy failed for journey %s: %s", journey_id, exc)
+            logger.warning("recompute-academy failed for journey %s: %s", log_metadata(journey_id), log_metadata(exc))
             db.session.rollback()
             if len(error_examples) < 20:
                 error_examples.append({"journey_id": journey_id, "error": str(exc)})
@@ -435,7 +436,9 @@ def admin_backfill_current_status():
                 db.session.commit()
         except Exception as exc:
             errors += 1
-            logger.warning("backfill-current-status failed for journey %s: %s", journey.id, exc)
+            logger.warning(
+                "backfill-current-status failed for journey %s: %s", log_metadata(journey.id), log_metadata(exc)
+            )
             db.session.rollback()
         last_processed = journey.id
 

@@ -25,6 +25,7 @@ from src.utils.academy_classifier import (
     flatten_transfers,
     latest_parent_permanent_departure,
 )
+from src.utils.log_privacy import log_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -160,7 +161,7 @@ def refresh_and_heal(
             logger.info(
                 "transfer-heal: requeuing %d journey-attributed in-window orphan row(s) for reactivation (budget %d)",
                 len(orphans),
-                orphan_cap,
+                log_metadata(orphan_cap),
             )
             players = players + orphans
 
@@ -211,18 +212,16 @@ def refresh_and_heal(
         except Exception as exc:
             failed_squad_clubs.add(club_id)
             logger.warning(
-                "transfer-heal: squad fetch failed for club %d: %s — "
-                "classification will be SKIPPED for players at this club",
-                club_id,
-                exc,
+                "transfer-heal: squad fetch failed for club %d: %s — classification will be SKIPPED for players at this club",
+                log_metadata(club_id),
+                log_metadata(exc),
             )
 
     if failed_squad_clubs:
         logger.warning(
-            "transfer-heal: %d squad fetch(es) failed (clubs=%s); affected "
-            "players will have their status left untouched.",
+            "transfer-heal: %d squad fetch(es) failed (clubs=%s); affected players will have their status left untouched.",
             len(failed_squad_clubs),
-            sorted(failed_squad_clubs),
+            log_metadata(sorted(failed_squad_clubs)),
         )
 
     # Also track players whose transfer batch came back empty in a way that
@@ -236,11 +235,9 @@ def refresh_and_heal(
     }
     if transfer_fetch_missing:
         logger.warning(
-            "transfer-heal: %d player(s) missing from transfer batch response — "
-            "their classification will be SKIPPED to avoid basing it on partial data. "
-            "player_api_ids=%s",
+            "transfer-heal: %d player(s) missing from transfer batch response — their classification will be SKIPPED to avoid basing it on partial data. player_api_ids=%s",
             len(transfer_fetch_missing),
-            sorted(transfer_fetch_missing),
+            log_metadata(sorted(transfer_fetch_missing)),
         )
 
     # Process each player
@@ -260,8 +257,8 @@ def refresh_and_heal(
             except Exception as sync_err:
                 logger.warning(
                     "transfer-heal: journey resync failed for player %d: %s",
-                    tp.player_api_id,
-                    sync_err,
+                    log_metadata(tp.player_api_id),
+                    log_metadata(sync_err),
                 )
 
         # Orphan requeue that the re-sync could NOT reactivate (still inactive
@@ -307,13 +304,12 @@ def refresh_and_heal(
         ):
             skipped_by_failed_prefetch += 1
             logger.info(
-                "transfer-heal: skipping player %d (%s) — prefetch incomplete "
-                "(parent_squad_failed=%s loan_squad_failed=%s transfers_missing=%s)",
-                tp.player_api_id,
-                tp.player_name,
-                player_parent_id in failed_squad_clubs,
+                "transfer-heal: skipping player %d (%s) — prefetch incomplete (parent_squad_failed=%s loan_squad_failed=%s transfers_missing=%s)",
+                log_metadata(tp.player_api_id),
+                log_metadata(tp.player_name),
+                log_metadata(player_parent_id in failed_squad_clubs),
                 bool(player_loan_id and player_loan_id in failed_squad_clubs),
-                tp.player_api_id in transfer_fetch_missing,
+                log_metadata(tp.player_api_id in transfer_fetch_missing),
             )
             continue
 
@@ -363,8 +359,8 @@ def refresh_and_heal(
         if tp.pinned_parent:
             logger.info(
                 "transfer-heal: skipping status update for pinned player %d (%s)",
-                tp.player_api_id,
-                tp.player_name,
+                log_metadata(tp.player_api_id),
+                log_metadata(tp.player_name),
             )
             continue
 
@@ -443,20 +439,20 @@ def refresh_and_heal(
                 fixture_syncs_triggered += 1
                 logger.info(
                     "transfer-heal: synced %d fixtures for player %d (%s) at new club %s (api_id=%d)",
-                    synced,
-                    pc["player_api_id"],
-                    pc.get("player_name"),
-                    pc["new_loan_club"],
-                    pc["new_current_club_api_id"],
+                    log_metadata(synced),
+                    log_metadata(pc["player_api_id"]),
+                    log_metadata(pc.get("player_name")),
+                    log_metadata(pc["new_loan_club"]),
+                    log_metadata(pc["new_current_club_api_id"]),
                 )
             except APICallBudgetExceeded:
                 raise
             except Exception as exc:
                 logger.error(
                     "transfer-heal: fixture sync failed for player %d at club %d: %s",
-                    pc["player_api_id"],
-                    pc["new_current_club_api_id"],
-                    exc,
+                    log_metadata(pc["player_api_id"]),
+                    log_metadata(pc["new_current_club_api_id"]),
+                    log_metadata(exc),
                 )
 
     # Clean up deprecated owning-club duplicates. The academy-origin row is
@@ -482,9 +478,9 @@ def refresh_and_heal(
             stale_count = stale.rowcount
             if stale_count:
                 db.session.commit()
-                logger.info("transfer-heal: deactivated %d owning-club duplicate rows", stale_count)
+                logger.info("transfer-heal: deactivated %d owning-club duplicate rows", log_metadata(stale_count))
         except Exception as exc:
-            logger.warning("transfer-heal: stale row cleanup failed: %s", exc)
+            logger.warning("transfer-heal: stale row cleanup failed: %s", log_metadata(exc))
 
     return {
         "total": len(players),

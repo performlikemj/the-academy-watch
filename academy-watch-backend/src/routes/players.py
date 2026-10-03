@@ -34,6 +34,7 @@ from src.services.public_player_subject import resolve_public_adult_subject
 from src.services.reach_metrics import fan_counts, is_fan
 from src.utils.data_mode import api_football_frozen
 from src.utils.feature_flags import rollup_reads_enabled
+from src.utils.log_privacy import get_logger, log_metadata, safe_exc_info
 from src.utils.sanitize import display_plain_text
 
 logger = logging.getLogger(__name__)
@@ -552,7 +553,12 @@ def get_public_player_stats(player_id: int):
 
                 if api_appearances > local_count or force_sync or (local_count == 0 and api_totals_failed):
                     logger.info(
-                        f"Player {player_id} at team {loan_team_api_id}: API={api_appearances}, local={local_count}, force={force_sync}. Syncing..."
+                        "Player %s at team %s: API=%s, local=%s, force=%s. Syncing...",
+                        log_metadata(player_id),
+                        log_metadata(loan_team_api_id),
+                        log_metadata(api_appearances),
+                        log_metadata(local_count),
+                        log_metadata(force_sync),
                     )
                     from src.routes.api import _sync_player_club_fixtures
 
@@ -560,7 +566,12 @@ def get_public_player_stats(player_id: int):
                         player_id, loan_team_api_id, sync_season, player_name=player_name_for_sync
                     )
             except Exception as e:
-                logger.warning(f"Failed to sync for player {player_id} at team {loan_team_api_id}: {e}")
+                logger.warning(
+                    "Failed to sync for player %s at team %s: %s",
+                    log_metadata(player_id),
+                    log_metadata(loan_team_api_id),
+                    log_metadata(e),
+                )
 
         # Re-query after potential sync
         stats_query = (
@@ -631,10 +642,9 @@ def get_public_player_stats(player_id: int):
         )
 
     except Exception as e:
-        logger.error(f"Error fetching player stats for player_id={player_id}: {e}")
-        import traceback
+        logger.error("Error fetching player stats for player_id=%s: %s", log_metadata(player_id), log_metadata(e))
 
-        traceback.print_exc()
+        get_logger(__name__).error("Operation failed", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "Failed to fetch player stats")), 500
 
 
@@ -858,10 +868,9 @@ def get_public_player_profile(player_id: int):
         return jsonify(result)
 
     except Exception as e:
-        logger.error(f"Error fetching player profile for player_id={player_id}: {e}")
-        import traceback
+        logger.error("Error fetching player profile for player_id=%s: %s", log_metadata(player_id), log_metadata(e))
 
-        traceback.print_exc()
+        get_logger(__name__).error("Operation failed", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "Failed to fetch player profile")), 500
 
 
@@ -1211,7 +1220,10 @@ def get_public_player_season_stats(player_id: int):
                     result["source"] = "api-football"
             except Exception as api_err:
                 logger.warning(
-                    f"Failed to get API-Football stats for player {player_id} at {team_info['name']}: {api_err}"
+                    "Failed to get API-Football stats for player %s at %s: %s",
+                    log_metadata(player_id),
+                    log_metadata(team_info["name"]),
+                    log_metadata(api_err),
                 )
 
         result["appearances"] = total_appearances
@@ -1282,10 +1294,9 @@ def get_public_player_season_stats(player_id: int):
         return jsonify(separated_season_stats(player_id, season_start_year, result))
 
     except Exception as e:
-        logger.error(f"Error fetching season stats for player_id={player_id}: {e}")
-        import traceback
+        logger.error("Error fetching season stats for player_id=%s: %s", log_metadata(player_id), log_metadata(e))
 
-        traceback.print_exc()
+        get_logger(__name__).error("Operation failed", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "Failed to fetch season stats")), 500
 
 
@@ -1355,9 +1366,9 @@ def get_player_availability(player_id: int):
                 season = current_stats_season()
             logger.warning(
                 "Availability upstream unavailable for player_id=%s season=%s: %s",
-                player_id,
-                season,
-                upstream_error,
+                log_metadata(player_id),
+                log_metadata(season),
+                log_metadata(upstream_error),
             )
             return jsonify(_degraded_availability_payload(player_id, season)), 200
 
@@ -1399,7 +1410,7 @@ def get_player_availability(player_id: int):
             }
         )
     except Exception as e:
-        logger.error(f"Error fetching availability for player_id={player_id}: {e}")
+        logger.error("Error fetching availability for player_id=%s: %s", log_metadata(player_id), log_metadata(e))
         return jsonify(_safe_error_payload(e, "Failed to fetch availability")), 500
 
 
@@ -1482,10 +1493,9 @@ def get_player_commentaries(player_id: int):
         )
 
     except Exception as e:
-        logger.error(f"Error fetching commentaries for player_id={player_id}: {e}")
-        import traceback
+        logger.error("Error fetching commentaries for player_id=%s: %s", log_metadata(player_id), log_metadata(e))
 
-        traceback.print_exc()
+        get_logger(__name__).error("Operation failed", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "Failed to fetch player commentaries")), 500
 
 

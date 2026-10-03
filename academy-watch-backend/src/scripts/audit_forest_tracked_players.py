@@ -33,6 +33,7 @@ from src.models.journey import PlayerJourney, PlayerJourneyEntry  # noqa: E402
 from src.models.league import Team, db  # noqa: E402
 from src.models.tracked_player import TrackedPlayer  # noqa: E402
 from src.utils.academy_classifier import _get_latest_season  # noqa: E402
+from src.utils.log_privacy import log_metadata
 
 dotenv.load_dotenv(dotenv.find_dotenv())
 
@@ -149,22 +150,17 @@ def _print_row(tp: TrackedPlayer, journey: PlayerJourney | None, dup_n: int) -> 
     updated_age = _days_since(tp.updated_at)
 
     print(
-        f"  id={tp.id:<6} api={tp.player_api_id:<8} "
-        f"{(tp.player_name or '?')[:28]:<28} "
-        f"status={tp.status:<10} src={tp.data_source:<14} "
-        f"pinned={_fmt_bool(tp.pinned_parent)} active={_fmt_bool(tp.is_active)} "
-        f"dup={dup_n if dup_n else '-'}"
+        f"  id={log_metadata(tp.id)} api={log_metadata(tp.player_api_id)} {log_metadata((tp.player_name or '?')[:28])} status={log_metadata(tp.status)} src={log_metadata(tp.data_source)} pinned={log_metadata(_fmt_bool(tp.pinned_parent))} active={log_metadata(_fmt_bool(tp.is_active))} dup={log_metadata(dup_n if dup_n else '-')}"
     )
     print(
-        f"      tp.current_club={tp.current_club_api_id}|{(tp.current_club_name or '-')[:30]:<30} "
-        f"level={tp.current_level or '-':<6} updated={updated_age}"
+        f"      tp.current_club={log_metadata(tp.current_club_api_id)}|{log_metadata((tp.current_club_name or '-')[:30])} level={log_metadata(tp.current_level or '-')} updated={log_metadata(updated_age)}"
     )
     print(
-        f"      journey.last_synced={j_synced:<7} "
-        f"journey.current_club={j_current_id}|{(j_current_name or '-')[:30]:<30} "
-        f"level={j_level or '-':<6}"
+        f"      journey.last_synced={log_metadata(j_synced)} journey.current_club={log_metadata(j_current_id)}|{log_metadata((j_current_name or '-')[:30])} level={log_metadata(j_level or '-')}"
     )
-    print(f"      journey.academy_club_ids={j_academy_ids}  latest_entry_season={latest_season}")
+    print(
+        f"      journey.academy_club_ids={log_metadata(j_academy_ids)}  latest_entry_season={log_metadata(latest_season)}"
+    )
 
 
 def main() -> None:
@@ -183,9 +179,11 @@ def main() -> None:
     app = _make_app()
     with app.app_context():
         team = _resolve_team(args.team, args.team_api_id)
-        print("=" * 100)
-        print(f"AUDIT: {team.name}  (Team.id={team.id}, team_api_id={team.team_id}, season={team.season})")
-        print("=" * 100)
+        print(log_metadata("=" * 100))
+        print(
+            f"AUDIT: {log_metadata(team.name)}  (Team.id={log_metadata(team.id)}, team_api_id={log_metadata(team.team_id)}, season={log_metadata(team.season)})"
+        )
+        print(log_metadata("=" * 100))
 
         dups = _dup_counts()
 
@@ -202,7 +200,7 @@ def main() -> None:
 
         for status in sorted(by_status.keys()):
             rows = by_status[status]
-            print(f"\n--- status={status}  ({len(rows)}) ---")
+            print(f"\n--- status={log_metadata(status)}  ({len(rows)}) ---")
             for tp in rows:
                 journey = None
                 if tp.journey_id:
@@ -239,13 +237,15 @@ def main() -> None:
 
         print("\n[2] Journey staleness buckets:")
         for k, v in stale_buckets.items():
-            print(f"    {k:<8} {v}")
+            print(f"    {log_metadata(k)} {log_metadata(v)}")
 
         oldest.sort(reverse=True)
         if oldest:
             print("\n[3] Top 10 oldest journey syncs:")
             for age, tp in oldest[:10]:
-                print(f"    {age:>4}d  id={tp.id:<6} {tp.player_name} (status={tp.status})")
+                print(
+                    f"    {log_metadata(age)}d  id={log_metadata(tp.id)} {log_metadata(tp.player_name)} (status={log_metadata(tp.status)})"
+                )
 
         # 3. Duplicate rows for this team's players
         print("\n[4] Players with multiple active TrackedPlayer rows (across ALL teams):")
@@ -255,31 +255,30 @@ def main() -> None:
         else:
             for tp in seen_dups:
                 all_rows = TrackedPlayer.query.filter_by(player_api_id=tp.player_api_id, is_active=True).all()
-                print(f"    api={tp.player_api_id} {tp.player_name}")
+                print(f"    api={log_metadata(tp.player_api_id)} {log_metadata(tp.player_name)}")
                 for r in all_rows:
                     parent = Team.query.get(r.team_id)
                     pn = parent.name if parent else f"team_id={r.team_id}"
                     print(
-                        f"      - row id={r.id} team={pn!r:<28} status={r.status:<10} "
-                        f"src={r.data_source:<14} current_club={r.current_club_name!r}"
+                        f"      - row id={log_metadata(r.id)} team={log_metadata(pn)!r} status={log_metadata(r.status)} src={log_metadata(r.data_source)} current_club={log_metadata(r.current_club_name)!r}"
                     )
 
         # 4. Highlight
         needle = args.highlight.lower()
-        print(f"\n[5] Highlight '{needle}':")
+        print(f"\n[5] Highlight '{log_metadata(needle)}':")
         matches = [tp for tp in tracked if needle in (tp.player_name or "").lower()]
         if not matches:
             # search across the whole DB, not just this team, in case row is under a different team_id
             cross = TrackedPlayer.query.filter(TrackedPlayer.player_name.ilike(f"%{needle}%")).all()
             if cross:
-                print(f"    (no match under {team.name}; found {len(cross)} across all teams)")
+                print(f"    (no match under {log_metadata(team.name)}; found {len(cross)} across all teams)")
                 for tp in cross:
                     parent = Team.query.get(tp.team_id)
                     pn = parent.name if parent else f"team_id={tp.team_id}"
                     journey = None
                     if tp.journey_id:
                         journey = db.session.get(PlayerJourney, tp.journey_id)
-                    print(f"    - parent={pn}")
+                    print(f"    - parent={log_metadata(pn)}")
                     _print_row(tp, journey, dups.get(tp.player_api_id, 0))
             else:
                 print("    (no match anywhere)")
@@ -300,10 +299,7 @@ def main() -> None:
                     print("      recent journey entries:")
                     for e in entries:
                         print(
-                            f"        season={e.season}  club={e.club_api_id}|{e.club_name}  "
-                            f"level={getattr(e, 'level', None)}  "
-                            f"youth={getattr(e, 'is_youth', None)}  "
-                            f"priority={getattr(e, 'sort_priority', None)}"
+                            f"        season={log_metadata(e.season)}  club={log_metadata(e.club_api_id)}|{log_metadata(e.club_name)}  level={log_metadata(getattr(e, 'level', None))}  youth={log_metadata(getattr(e, 'is_youth', None))}  priority={log_metadata(getattr(e, 'sort_priority', None))}"
                         )
 
         print("\nDONE")

@@ -43,6 +43,7 @@ from src.models.scout_watchlist import ScoutWatchlistEntry
 from src.models.tracked_player import TrackedPlayer
 from src.models.weekly import Fixture, FixturePlayerStats
 from src.services.player_suppression import without_active_suppression
+from src.utils.log_privacy import log_metadata, safe_exc_info
 from src.utils.player_status import player_facing_status
 
 logger = logging.getLogger(__name__)
@@ -141,7 +142,9 @@ def _all_followed_player_ids() -> set[int]:
             for item in resolve_list(follow_list, limit=None):
                 ids.add(int(item["player_api_id"]))
         except Exception:
-            logger.exception("resolve_list failed for follow_list %s", follow_list.id)
+            logger.exception(
+                "resolve_list failed for follow_list %s", log_metadata(follow_list.id), exc_info=safe_exc_info()
+            )
     return ids
 
 
@@ -324,7 +327,7 @@ def _absence_count(api_client, player_api_id: int) -> int | None:
     try:
         return len(api_client.get_player_injuries(player_api_id) or [])
     except Exception as exc:
-        logger.warning("Absence lookup failed for player %s: %s", player_api_id, exc)
+        logger.warning("Absence lookup failed for player %s: %s", log_metadata(player_api_id), log_metadata(exc))
         return None
 
 

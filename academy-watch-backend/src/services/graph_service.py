@@ -5,6 +5,7 @@ import os
 
 from src.models.league import db
 from src.models.weekly import Fixture, FixturePlayerStats
+from src.utils.log_privacy import log_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +36,7 @@ class GraphService:
     def generate_player_rating_graph(self, player_id, player_name):
         """Generates a graph of player ratings over time."""
         if not HAS_MATPLOTLIB:
-            logger.info(f"Skipping rating graph for {player_name} (matplotlib missing)")
+            logger.info("Skipping rating graph for %s (matplotlib missing)", log_metadata(player_name))
             return None
 
         try:
@@ -81,13 +82,13 @@ class GraphService:
             encoded = base64.b64encode(buf.read()).decode("utf-8")
             return f"data:image/png;base64,{encoded}"
         except Exception as e:
-            print(f"Error generating rating graph for {player_id}: {e}")
+            print(f"Error generating rating graph for {log_metadata(player_id)}: {log_metadata(e)}")
             return None
 
     def generate_player_minutes_graph(self, player_id, player_name):
         """Generates a bar chart of minutes played."""
         if not HAS_MATPLOTLIB:
-            logger.info(f"Skipping minutes graph for {player_name} (matplotlib missing)")
+            logger.info("Skipping minutes graph for %s (matplotlib missing)", log_metadata(player_name))
             return None
 
         try:
@@ -139,5 +140,5 @@ class GraphService:
             encoded = base64.b64encode(buf.read()).decode("utf-8")
             return f"data:image/png;base64,{encoded}"
         except Exception as e:
-            print(f"Error generating minutes graph for {player_id}: {e}")
+            print(f"Error generating minutes graph for {log_metadata(player_id)}: {log_metadata(e)}")
             return None

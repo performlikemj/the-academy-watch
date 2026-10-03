@@ -8,6 +8,7 @@ Usage:
 from src.models.journey import PlayerJourney
 from src.models.league import db
 from src.services.journey_sync import JourneySyncService
+from src.utils.log_privacy import log_metadata
 
 sync_service = JourneySyncService()
 
@@ -22,7 +23,9 @@ for journey in journeys:
     sync_service._compute_academy_club_ids(journey)
     if journey.academy_club_ids:
         updated += 1
-        print(f"  {journey.player_name} (#{journey.player_api_id}): {journey.academy_club_ids}")
+        print(
+            f"  {log_metadata(journey.player_name)} (#{log_metadata(journey.player_api_id)}): {log_metadata(journey.academy_club_ids)}"
+        )
 
 db.session.commit()
-print(f"Done. Updated {updated}/{len(journeys)} journeys with academy club IDs.")
+print(f"Done. Updated {log_metadata(updated)}/{len(journeys)} journeys with academy club IDs.")

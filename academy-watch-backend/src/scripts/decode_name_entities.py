@@ -27,6 +27,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
+from src.utils.log_privacy import log_metadata
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 log = logging.getLogger(__name__)
@@ -72,7 +73,13 @@ def repair(apply: bool) -> int:
             decoded = html.unescape(encoded).strip()
             if decoded == encoded:
                 continue  # entity-looking substring that is already correct
-            log.info("  %s.%s: %r -> %r", table, column, encoded, decoded)
+            log.info(
+                "  %s.%s: %r -> %r",
+                log_metadata(table),
+                log_metadata(column),
+                log_metadata(encoded),
+                log_metadata(decoded),
+            )
             if apply:
                 result = db.session.execute(
                     text(f"UPDATE {table} SET {column} = :new WHERE {column} = :old"),  # noqa: S608
@@ -83,7 +90,12 @@ def repair(apply: bool) -> int:
                 table_rows += 1
 
         if table_rows:
-            log.info("[%s] %s rows %s", table, table_rows, "updated" if apply else "would update")
+            log.info(
+                "[%s] %s rows %s",
+                log_metadata(table),
+                log_metadata(table_rows),
+                log_metadata("updated" if apply else "would update"),
+            )
         total_rows += table_rows
 
     if apply:
@@ -98,9 +110,11 @@ def main() -> None:
 
     with get_app().app_context():
         mode = "APPLY" if args.apply else "DRY-RUN"
-        log.info("Decoding HTML entities in player names (%s)", mode)
+        log.info("Decoding HTML entities in player names (%s)", log_metadata(mode))
         total = repair(apply=args.apply)
-        log.info("Done. %s rows %s.", total, "updated" if args.apply else "would be updated")
+        log.info(
+            "Done. %s rows %s.", log_metadata(total), log_metadata("updated" if args.apply else "would be updated")
+        )
         if not args.apply and total:
             log.info("Re-run with --apply to commit.")
 

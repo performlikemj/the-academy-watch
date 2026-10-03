@@ -10,6 +10,7 @@ from src.services.newsletter_deadline_service import (
     process_newsletter_deadline,
 )
 from src.utils.data_mode import newsletters_enabled_route
+from src.utils.log_privacy import log_metadata, safe_exc_info
 
 newsletter_deadline_bp = Blueprint("newsletter_deadline", __name__)
 logger = logging.getLogger(__name__)
@@ -33,7 +34,7 @@ def process_deadline():
         return jsonify({"message": "Deadline processed", "result": result})
 
     except Exception as e:
-        logger.exception("Error in process_deadline")
+        logger.exception("Error in process_deadline", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "Failed to process deadline")), 500
 
 
@@ -51,7 +52,7 @@ def get_deadline_info():
         return jsonify(info)
 
     except Exception as e:
-        logger.exception("Error in get_deadline_info")
+        logger.exception("Error in get_deadline_info", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "Failed to get deadline info")), 500
 
 
@@ -76,7 +77,7 @@ def get_my_submission_status():
         return jsonify(status)
 
     except Exception as e:
-        logger.exception("Error in get_my_submission_status")
+        logger.exception("Error in get_my_submission_status", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "Failed to get submission status")), 500
 
 
@@ -92,7 +93,7 @@ def get_writer_submission_status(journalist_id):
         return jsonify(status)
 
     except Exception as e:
-        logger.exception("Error in get_writer_submission_status")
+        logger.exception("Error in get_writer_submission_status", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "Failed to get submission status")), 500
 
 
@@ -110,7 +111,7 @@ def test_deadline_processing():
         # Allow specifying a specific week to test
         week_start_date = data.get("week_start_date")
 
-        logger.info(f"Testing deadline processing for week: {week_start_date or 'current'}")
+        logger.info("Testing deadline processing for week: %s", log_metadata(week_start_date or "current"))
 
         result = process_newsletter_deadline(week_start_date)
 
@@ -123,5 +124,5 @@ def test_deadline_processing():
         )
 
     except Exception as e:
-        logger.exception("Error in test_deadline_processing")
+        logger.exception("Error in test_deadline_processing", exc_info=safe_exc_info())
         return jsonify(_safe_error_payload(e, "Failed to test deadline")), 500

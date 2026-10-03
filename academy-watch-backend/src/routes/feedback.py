@@ -41,6 +41,7 @@ from src.services.club_access import (
 )
 from src.services.contact_locks import database_conflict
 from src.services.public_player_subject import resolve_public_adult_subject, user_owns_subject
+from src.utils.log_privacy import log_metadata
 from werkzeug.exceptions import HTTPException
 
 feedback_bp = Blueprint("feedback", __name__)
@@ -92,7 +93,7 @@ def transaction(view):
             code = getattr(getattr(error, "orig", None), "sqlstate", None)
             if isinstance(error, IntegrityError) or code in {"40001", "40P01"}:
                 return jsonify(error="retry_conflict"), 409
-            logger.error("Feedback operation failed (%s)", type(error).__name__)
+            logger.error("Feedback operation failed (%s)", log_metadata(type(error).__name__))
             return jsonify(error="feedback_operation_failed"), 500
 
     return wrapped

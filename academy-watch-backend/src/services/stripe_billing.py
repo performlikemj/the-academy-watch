@@ -37,7 +37,7 @@ from src.models.gol_credits import GolCreditLedger, GolPaymentSettlement
 from src.models.league import UserAccount, db
 from src.models.product_event import ProductEvent
 from src.services.gol_credits import apply_refund, grant_purchase
-from src.utils.log_privacy import get_logger
+from src.utils.log_privacy import get_logger, log_metadata, safe_exc_info
 
 logger = get_logger(__name__)
 
@@ -576,7 +576,11 @@ def upsert_subscription(
             return row
 
     if row is None and scope_type == "user" and scope_user_id is None:
-        logger.info("Ignoring Stripe subscription %s for deleted user scope %s", subscription_id, scope_id)
+        logger.info(
+            "Ignoring Stripe subscription %s for deleted user scope %s",
+            log_metadata(subscription_id),
+            log_metadata(scope_id),
+        )
         return None
 
     if row is not None and purchaser_user_id is not None and db.session.get(UserAccount, purchaser_user_id) is None:
@@ -698,8 +702,8 @@ def _expire_other_open_checkouts(
             _cancel_duplicate_subscription(subscription_id)
             logger.warning(
                 "Canceled duplicate Stripe subscription %s; keeping subscription %s",
-                subscription_id,
-                kept_subscription_id,
+                log_metadata(subscription_id),
+                log_metadata(kept_subscription_id),
             )
             purchaser = db.session.get(UserAccount, completed.purchaser_user_id)
             db.session.add(
@@ -832,20 +836,20 @@ def _apply_gol_checkout(obj, event_id: str, *, require_paid: bool) -> bool:
                         },
                     )
                 )
-                logger.warning("Orphaned paid GOL purchase %s requires manual refund", session_id)
+                logger.warning("Orphaned paid GOL purchase %s requires manual refund", log_metadata(session_id))
         else:
-            logger.warning("Ignoring payment session without an owned GOL purchase: %s", session_id)
+            logger.warning("Ignoring payment session without an owned GOL purchase: %s", log_metadata(session_id))
         return False
     if terms is not None:
         credits, pack_id = terms.credits, terms.price_code
         if _get(obj, "amount_total") != terms.unit_amount_cents:
-            logger.warning("GOL checkout amount differs from purchase terms for session %s", session_id)
+            logger.warning("GOL checkout amount differs from purchase terms for session %s", log_metadata(session_id))
     else:
-        logger.warning("Legacy GOL session %s has no purchase terms; using current pack", session_id)
+        logger.warning("Legacy GOL session %s has no purchase terms; using current pack", log_metadata(session_id))
         pack_id = row.price_code
         pack = offered_packs().get(pack_id)
         if pack is None:
-            logger.warning("Unfulfillable legacy GOL purchase %s: pack no longer offered", session_id)
+            logger.warning("Unfulfillable legacy GOL purchase %s: pack no longer offered", log_metadata(session_id))
             # The user lock serializes the session-id dedupe for legacy purchases.
             existing_incident = ProductEvent.query.filter(
                 ProductEvent.event_name == "gol_unfulfillable_legacy_purchase",
@@ -991,9 +995,9 @@ def _send_email_intent(intent: dict) -> None:
             use_fallback=False,
         )
         if not getattr(delivery, "success", False):
-            logger.warning("Billing status email was not delivered: %s", kind)
+            logger.warning("Billing status email was not delivered: %s", log_metadata(kind))
     except Exception:
-        logger.exception("Billing status email dispatch failed: %s", kind)
+        logger.exception("Billing status email dispatch failed: %s", log_metadata(kind), exc_info=safe_exc_info())
 
 
 def _record_failed_event(event_id: str, event_type: str, payload_hash: str, error: Exception) -> None:
@@ -1011,7 +1015,11 @@ def _record_failed_event(event_id: str, event_type: str, payload_hash: str, erro
         row = StripeWebhookEvent(event_id=event_id, received_at=utcnow())
         db.session.add(row)
     elif row.status in {"processed", "ignored"}:
-        logger.info("Stripe webhook event %s was already %s; preserving terminal status", event_id, row.status)
+        logger.info(
+            "Stripe webhook event %s was already %s; preserving terminal status",
+            log_metadata(event_id),
+            log_metadata(row.status),
+        )
         db.session.commit()
         return
     row.event_type = event_type
@@ -1094,12 +1102,18 @@ def handle_webhook(raw_body: bytes, signature_header: str | None) -> tuple[dict,
         db.session.commit()
     except Exception as exc:
         db.session.rollback()
-        logger.exception("Stripe webhook application failed for event %s", event_id)
+        logger.exception(
+            "Stripe webhook application failed for event %s", log_metadata(event_id), exc_info=safe_exc_info()
+        )
         try:
             _record_failed_event(event_id, event_type, payload_hash, exc)
         except Exception:
             db.session.rollback()
-            logger.exception("Failed to persist Stripe webhook failure for event %s", event_id)
+            logger.exception(
+                "Failed to persist Stripe webhook failure for event %s",
+                log_metadata(event_id),
+                exc_info=safe_exc_info(),
+            )
         return {"error": "processing_failed"}, 500
     finally:
         _email_intents.reset(token)
@@ -1289,7 +1303,7 @@ def cancel_subscriptions_for_account_deletion(user) -> int:
                     if _get(snapshot, "payment_status") == "paid":
                         logger.info(
                             "Forfeiting completed GOL Checkout Session %s during account deletion before webhook grant",
-                            checkout.stripe_session_id,
+                            log_metadata(checkout.stripe_session_id),
                         )
                     continue
                 subscription_id = _stripe_id(_get(snapshot, "subscription"))

@@ -20,6 +20,7 @@ from sqlalchemy.exc import DataError, IntegrityError
 
 from src.data.transfer_windows import WINDOWS
 from src.utils.data_mode import api_football_frozen
+from src.utils.log_privacy import log_metadata, safe_exc_info
 
 dotenv.load_dotenv(dotenv.find_dotenv())
 
@@ -162,7 +163,7 @@ def _record_transfer_payload(
 
         session = Session(bind=db.engine)
     except Exception as exc:
-        logger.warning("Transfer event persistence is unavailable: %s", exc)
+        logger.warning("Transfer event persistence is unavailable: %s", log_metadata(exc))
         return
 
     try:
@@ -174,13 +175,13 @@ def _record_transfer_payload(
         try:
             session.rollback()
         except Exception as rollback_exc:
-            logger.debug("Transfer event persistence rollback also failed: %s", rollback_exc)
-        logger.warning("Transfer event persistence failed; API response is unchanged: %s", exc)
+            logger.debug("Transfer event persistence rollback also failed: %s", log_metadata(rollback_exc))
+        logger.warning("Transfer event persistence failed; API response is unchanged: %s", log_metadata(exc))
     finally:
         try:
             session.close()
         except Exception as close_exc:
-            logger.debug("Transfer event persistence session close failed: %s", close_exc)
+            logger.debug("Transfer event persistence session close failed: %s", log_metadata(close_exc))
 
 
 # ------------------------------------------------------------------
@@ -253,7 +254,9 @@ def _academy_watch_for_team(
         from src.models.tracked_player import TrackedPlayer
         from src.services.player_suppression import without_active_suppression
     except Exception as exc:
-        logger.warning(f"academy_watch: model import failed for team {parent_team_db_id}: {exc}")
+        logger.warning(
+            "academy_watch: model import failed for team %s: %s", log_metadata(parent_team_db_id), log_metadata(exc)
+        )
         return empty
 
     try:
@@ -353,7 +356,9 @@ def _academy_watch_for_team(
 
         return {"academy_watch": entries[:10], "academy_appearances_week": appearances_week}
     except Exception as exc:
-        logger.warning(f"academy_watch: assembly failed for team {parent_team_db_id}: {exc}")
+        logger.warning(
+            "academy_watch: assembly failed for team %s: %s", log_metadata(parent_team_db_id), log_metadata(exc)
+        )
         return empty
 
 
@@ -430,7 +435,10 @@ class APIFootballClient:
         self._set_default_season_from_date()
 
         logger.info(
-            f"Default football season: {self.current_season} ({self.season_start_date} to {self.season_end_date})"
+            "Default football season: %s (%s to %s)",
+            log_metadata(self.current_season),
+            log_metadata(self.season_start_date),
+            log_metadata(self.season_end_date),
         )
 
         # Check team filter from environment
@@ -438,7 +446,7 @@ class APIFootballClient:
         self.enable_team_filter = False
         # Log team filter status
         if self.enable_team_filter:
-            logger.warning(f"🧪 TEAM FILTER ACTIVE: Only processing teams {ONLY_TEST_TEAM_IDS}")
+            logger.warning("🧪 TEAM FILTER ACTIVE: Only processing teams %s", log_metadata(ONLY_TEST_TEAM_IDS))
         else:
             logger.info("🌍 Team filter disabled: Processing all teams")
 
@@ -482,7 +490,7 @@ class APIFootballClient:
                 logger.info("✅ API handshake successful")
             except Exception as e:
                 self.handshake_failed = True
-                logger.error(f"❌ API handshake failed: {e}")
+                logger.error("❌ API handshake failed: %s", log_metadata(e))
                 if self.use_stub:
                     logger.warning("🔄 Falling back to stub mode because API_USE_STUB_DATA=true")
                     self.mode = "stub"
@@ -512,9 +520,11 @@ class APIFootballClient:
             self.season_start_date = date(self.current_season_start_year, 8, 1)
             self.season_end_date = date(self.current_season_end_year, 6, 30)
 
-            logger.info(f"Updated season from window_key {window_key}: {self.current_season}")
+            logger.info(
+                "Updated season from window_key %s: %s", log_metadata(window_key), log_metadata(self.current_season)
+            )
         except (ValueError, IndexError) as e:
-            logger.warning(f"Failed to parse season from window_key '{window_key}': {e}")
+            logger.warning("Failed to parse season from window_key '%s': %s", log_metadata(window_key), log_metadata(e))
 
     def set_season_year(self, start_year: int):
         """Set current season based on start year."""
@@ -524,7 +534,10 @@ class APIFootballClient:
         self.season_start_date = date(start_year, 8, 1)
         self.season_end_date = date(start_year + 1, 6, 30)
         logger.info(
-            f"Updated season to {self.current_season} (start={self.season_start_date}, end={self.season_end_date})"
+            "Updated season to %s (start=%s, end=%s)",
+            log_metadata(self.current_season),
+            log_metadata(self.season_start_date),
+            log_metadata(self.season_end_date),
         )
         # Keep current default season
 
@@ -537,7 +550,7 @@ class APIFootballClient:
             return True
         is_allowed = team_id in ONLY_TEST_TEAM_IDS  # Filtered behaviour
         if not is_allowed:
-            logger.debug(f"🧪 Skipping team {team_id} (not in test filter)")
+            logger.debug("🧪 Skipping team %s (not in test filter)", log_metadata(team_id))
         return is_allowed
 
     def handshake(self):
@@ -576,13 +589,19 @@ class APIFootballClient:
                 raise RuntimeError(f"Handshake failed - subscription not active: {subscription}")
 
             logger.info(
-                f"✅ API handshake successful - Account: {account.get('firstname', 'Unknown')} {account.get('lastname', 'Unknown')}"
+                "✅ API handshake successful - Account: %s %s",
+                log_metadata(account.get("firstname", "Unknown")),
+                log_metadata(account.get("lastname", "Unknown")),
             )
-            logger.info(f"📊 Plan: {subscription.get('plan', 'Unknown')} - Active: {subscription.get('active', False)}")
+            logger.info(
+                "📊 Plan: %s - Active: %s",
+                log_metadata(subscription.get("plan", "Unknown")),
+                log_metadata(subscription.get("active", False)),
+            )
             return True
 
         except Exception as e:
-            logger.error(f"❌ API handshake failed: {e}")
+            logger.error("❌ API handshake failed: %s", log_metadata(e))
             raise
 
     # ------------------------------------------------------------------
@@ -686,7 +705,7 @@ class APIFootballClient:
                 if cached is not None:
                     return cached
             except Exception as exc:
-                logger.debug("Frozen cache unavailable for %s: %s", endpoint, exc)
+                logger.debug("Frozen cache unavailable for %s: %s", log_metadata(endpoint), log_metadata(exc))
             return {
                 "response": [],
                 "results": 0,
@@ -702,7 +721,7 @@ class APIFootballClient:
                     "Unexpected fallback to stub data. "
                     "Check API key, mode, or explicitly enable API_USE_STUB_DATA for offline tests."
                 )
-            logger.info("🔄 Returning sample data for endpoint '%s' (stub mode)", endpoint)
+            logger.info("🔄 Returning sample data for endpoint '%s' (stub mode)", log_metadata(endpoint))
             return self._get_sample_data(endpoint, params)
 
         # ------------------------------------------------------------------
@@ -715,11 +734,11 @@ class APIFootballClient:
 
                 cached = APICache.get_cached(endpoint, params)
                 if cached is not None:
-                    logger.debug("DB cache HIT for %s params=%s", endpoint, params)
+                    logger.debug("DB cache HIT for %s params=%s", log_metadata(endpoint), log_metadata(params))
                     return cached
             except Exception as exc:
                 # DB unavailable – fall through to live call
-                logger.debug("DB cache lookup failed for %s: %s", endpoint, exc)
+                logger.debug("DB cache lookup failed for %s: %s", log_metadata(endpoint), log_metadata(exc))
 
         # ------------------------------------------------------------------
         # Quota gate
@@ -765,7 +784,11 @@ class APIFootballClient:
             # Warn if no results (might indicate plan/season coverage issues)
             results_count = data.get("results", 0)
             if results_count == 0:
-                logger.warning(f"API returned 0 results for {url} params={params} - check plan coverage")
+                logger.warning(
+                    "API returned 0 results for %s params=%s - check plan coverage",
+                    log_metadata(url),
+                    log_metadata(params),
+                )
 
             # ------------------------------------------------------------------
             # Post-call: persist to DB cache + track usage
@@ -777,27 +800,27 @@ class APIFootballClient:
                     ttl = self._get_ttl_seconds(endpoint, params, data)
                     APICache.set_cached(endpoint, params, data, ttl)
                 except Exception as exc:
-                    logger.debug("DB cache write failed for %s: %s", endpoint, exc)
+                    logger.debug("DB cache write failed for %s: %s", log_metadata(endpoint), log_metadata(exc))
 
             try:
                 from src.models.api_cache import APIUsageDaily
 
                 APIUsageDaily.increment(endpoint)
             except Exception as exc:
-                logger.debug("Usage tracking failed for %s: %s", endpoint, exc)
+                logger.debug("Usage tracking failed for %s: %s", log_metadata(endpoint), log_metadata(exc))
 
             return data
 
         except requests.exceptions.RequestException as e:
-            logger.error(f"❌ API request failed: {e}")
+            logger.error("❌ API request failed: %s", log_metadata(e))
             raise RuntimeError(f"API request failed for {url}: {e}")
         except RuntimeError:
             raise
         except Exception as e:
-            logger.error(f"❌ Unexpected error: {e}")
+            logger.error("❌ Unexpected error: %s", log_metadata(e))
             import traceback
 
-            logger.error(f"❌ Traceback: {traceback.format_exc()}")
+            logger.error("❌ Traceback: %s", log_metadata(traceback.format_exc()))
             return {"response": [], "errors": [str(e)]}
 
     def _fetch_player_team_season_totals_api(
@@ -828,7 +851,11 @@ class APIFootballClient:
             response = payload.get("response", []) or []
         except Exception as exc:
             logger.warning(
-                f"Failed to fetch player totals from API for player={player_id}, team={team_id}, season={season}: {exc}"
+                "Failed to fetch player totals from API for player=%s, team=%s, season=%s: %s",
+                log_metadata(player_id),
+                log_metadata(team_id),
+                log_metadata(season),
+                log_metadata(exc),
             )
             return {}
 
@@ -1252,7 +1279,13 @@ class APIFootballClient:
             return date.fromisoformat(start), date.fromisoformat(end)
         else:
             raise ValueError("segment must be SUMMER, WINTER, or FULL")
-        logger.debug(f"🗓️ _parse_window_key → season='{season}', segment='{segment}', start={start}, end={end}")
+        logger.debug(
+            "🗓️ _parse_window_key → season='%s', segment='%s', start=%s, end=%s",
+            log_metadata(season),
+            log_metadata(segment),
+            log_metadata(start),
+            log_metadata(end),
+        )
 
     def _in_window(self, transfer_date: str, window_key: str) -> bool:
         """
@@ -1275,7 +1308,12 @@ class APIFootballClient:
             d = date.fromisoformat(transfer_date)
             return start <= d <= end
         except (ValueError, KeyError) as e:
-            logger.warning(f"Error checking window for date {transfer_date}, window {window_key}: {e}")
+            logger.warning(
+                "Error checking window for date %s, window %s: %s",
+                log_metadata(transfer_date),
+                log_metadata(window_key),
+                log_metadata(e),
+            )
             return False
 
     # ---------------------------------------------------------------------
@@ -1321,7 +1359,7 @@ class APIFootballClient:
         try:
             # Season parameter is now required to prevent drift with window_key
 
-            logger.info(f"🏆 Fetching European leagues for season {season}")
+            logger.info("🏆 Fetching European leagues for season %s", log_metadata(season))
             leagues_data = []
             for league_id in self.european_leagues.keys():
                 response = self._make_request("leagues", {"id": league_id, "season": season})
@@ -1329,7 +1367,7 @@ class APIFootballClient:
                     leagues_data.extend(response["response"])
             return leagues_data
         except Exception as e:
-            logger.error(f"Error fetching European leagues: {e}")
+            logger.error("Error fetching European leagues: %s", log_metadata(e))
             return []
 
     # ---------------------------------------------------------------------
@@ -1347,7 +1385,9 @@ class APIFootballClient:
             # Use current season
             season = self.current_season_start_year
 
-            print(f"[DEBUG] Checking pending games for team {team_id} from {start_date} to {end_date}")
+            print(
+                f"[DEBUG] Checking pending games for team {log_metadata(team_id)} from {log_metadata(start_date)} to {log_metadata(end_date)}"
+            )
 
             fixtures = self.get_fixtures_for_team(
                 team_id, season, start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d")
@@ -1356,7 +1396,9 @@ class APIFootballClient:
             pending_games = []
             for f in fixtures:
                 status = (f.get("fixture") or {}).get("status", {}).get("short")
-                print(f"[DEBUG] Found fixture: {(f.get('fixture') or {}).get('date')} - Status: {status}")
+                print(
+                    f"[DEBUG] Found fixture: {log_metadata((f.get('fixture') or {}).get('date'))} - Status: {log_metadata(status)}"
+                )
 
                 # NS = Not Started, TBD = Time To Be Defined
                 if status in ["NS", "TBD"]:
@@ -1376,7 +1418,7 @@ class APIFootballClient:
 
             return {"pending": is_pending, "games": pending_games}
         except Exception as e:
-            logger.error(f"Error checking pending games for team {team_id}: {e}")
+            logger.error("Error checking pending games for team %s: %s", log_metadata(team_id), log_metadata(e))
             return {"pending": False, "games": [], "error": str(e)}
 
     def get_fixtures_for_team(self, team_id: int, season: int, start: str, end: str) -> list[dict[str, Any]]:
@@ -1391,10 +1433,10 @@ class APIFootballClient:
         if normalized_team_id is None or normalized_team_id <= 0:
             logger.warning(
                 "Skipping fixtures fetch: invalid team_id=%s (season=%s, range=%s..%s)",
-                team_id,
-                season,
-                start,
-                end,
+                log_metadata(team_id),
+                log_metadata(season),
+                log_metadata(start),
+                log_metadata(end),
             )
             raise ValueError("team_id must be a positive integer when fetching fixtures")
 
@@ -1405,19 +1447,30 @@ class APIFootballClient:
             fixtures = resp.get("response", [])
             try:
                 logger.info(
-                    f"Fixtures fetched: team={team_id}, season={season}, range={start}..{end}, count={len(fixtures)}"
+                    "Fixtures fetched: team=%s, season=%s, range=%s..%s, count=%s",
+                    log_metadata(team_id),
+                    log_metadata(season),
+                    log_metadata(start),
+                    log_metadata(end),
+                    len(fixtures),
                 )
                 # Log first few fixture dates + league season to spot drift
                 for fx in fixtures[:3]:
                     fid = (fx.get("fixture") or {}).get("id")
                     fdt = (fx.get("fixture") or {}).get("date")
                     lseason = (fx.get("league") or {}).get("season")
-                    logger.debug(f"  fx id={fid}, date={fdt}, league.season={lseason} (requested={season})")
+                    logger.debug(
+                        "  fx id=%s, date=%s, league.season=%s (requested=%s)",
+                        log_metadata(fid),
+                        log_metadata(fdt),
+                        log_metadata(lseason),
+                        log_metadata(season),
+                    )
             except Exception:
                 pass
             return fixtures
         except Exception as e:
-            logger.error(f"Error fetching fixtures for team {team_id}: {e}")
+            logger.error("Error fetching fixtures for team %s: %s", log_metadata(team_id), log_metadata(e))
             return []
 
     def get_fixtures_for_team_cached(
@@ -1498,10 +1551,10 @@ class APIFootballClient:
                 logger.info(
                     "DB-first fixtures: found %d completed in DB for team=%s season=%s range=%s..%s",
                     len(db_results),
-                    team_id,
-                    season,
-                    start,
-                    end,
+                    log_metadata(team_id),
+                    log_metadata(season),
+                    log_metadata(start),
+                    log_metadata(end),
                 )
 
             # Still call the API so we pick up upcoming/live fixtures + any
@@ -1519,7 +1572,7 @@ class APIFootballClient:
             return api_fixtures
 
         except Exception as exc:
-            logger.debug("get_fixtures_for_team_cached fell back to API-only: %s", exc)
+            logger.debug("get_fixtures_for_team_cached fell back to API-only: %s", log_metadata(exc))
             return self.get_fixtures_for_team(team_id, season, start, end)
 
     def get_fixture_result(self, fixture_id: int) -> dict[str, Any]:
@@ -1536,7 +1589,7 @@ class APIFootballClient:
             resp = self._make_request("fixtures", {"id": fixture_id})
             fixtures = resp.get("response", [])
             if not fixtures:
-                logger.warning(f"No fixture found for id={fixture_id}")
+                logger.warning("No fixture found for id=%s", log_metadata(fixture_id))
                 return {}
 
             fx = fixtures[0]
@@ -1556,7 +1609,7 @@ class APIFootballClient:
                 "away_score": goals.get("away"),
             }
         except Exception as e:
-            logger.error(f"Error fetching fixture result for id={fixture_id}: {e}")
+            logger.error("Error fetching fixture result for id=%s: %s", log_metadata(fixture_id), log_metadata(e))
             return {}
 
     def get_player_stats_for_fixture(
@@ -1574,7 +1627,11 @@ class APIFootballClient:
         team_blocks = self.get_fixture_players(fixture_id)
         try:
             logger.debug(
-                f"get_player_stats_for_fixture: player={player_id}, fixture_id={fixture_id}, season={season}, team_blocks={len(team_blocks or [])}"
+                "get_player_stats_for_fixture: player=%s, fixture_id=%s, season=%s, team_blocks=%s",
+                log_metadata(player_id),
+                log_metadata(fixture_id),
+                log_metadata(season),
+                len(team_blocks or []),
             )
         except Exception:
             pass
@@ -1678,7 +1735,11 @@ class APIFootballClient:
                     competition = (fixture_obj.get("league") or {}).get("name")
 
                 if player_name and match_date:
-                    logger.info(f"⚠️ Triggering external stats fetch for {player_name} in {team_name}")
+                    logger.info(
+                        "⚠️ Triggering external stats fetch for %s in %s",
+                        log_metadata(player_name),
+                        log_metadata(team_name),
+                    )
                     # Lazy import to reduce cold start time
                     from src.utils.external_stats import fetch_external_stats
 
@@ -1725,10 +1786,10 @@ class APIFootballClient:
                         if external_stats.get("minutes") and (not st_entry["games"].get("minutes")):
                             st_entry["games"]["minutes"] = external_stats["minutes"]
 
-                        logger.info(f"✅ Merged external stats for {player_name}")
+                        logger.info("✅ Merged external stats for %s", log_metadata(player_name))
 
             except Exception as e:
-                logger.error(f"Error in external stats fallback: {e}")
+                logger.error("Error in external stats fallback: %s", log_metadata(e))
 
         return stats
 
@@ -1824,7 +1885,7 @@ class APIFootballClient:
             resp = self._make_request("fixtures/players", params)
             return resp.get("response", [])
         except Exception as e:
-            logger.error(f"Error fetching fixture players for fixture {fixture_id}: {e}")
+            logger.error("Error fetching fixture players for fixture %s: %s", log_metadata(fixture_id), log_metadata(e))
             return []
 
     def verify_player_id_via_fixtures(
@@ -1892,7 +1953,9 @@ class APIFootballClient:
 
             if not fixtures:
                 logger.debug(
-                    f"No finished fixtures found for team {loan_team_id}, using candidate ID {candidate_player_id}"
+                    "No finished fixtures found for team %s, using candidate ID %s",
+                    log_metadata(loan_team_id),
+                    log_metadata(candidate_player_id),
                 )
                 return candidate_player_id, "candidate_unchanged"
 
@@ -1914,10 +1977,11 @@ class APIFootballClient:
                         if api_player_id and _names_match(api_player_name, player_name):
                             if api_player_id != candidate_player_id:
                                 logger.warning(
-                                    f"🔄 Player ID mismatch detected during seeding! "
-                                    f"'{player_name}' has candidate ID {candidate_player_id} but "
-                                    f"fixture shows '{api_player_name}' with ID {api_player_id}. "
-                                    f"Using fixture ID."
+                                    "🔄 Player ID mismatch detected during seeding! '%s' has candidate ID %s but fixture shows '%s' with ID %s. Using fixture ID.",
+                                    log_metadata(player_name),
+                                    log_metadata(candidate_player_id),
+                                    log_metadata(api_player_name),
+                                    log_metadata(api_player_id),
                                 )
                                 return api_player_id, "fixture_match"
                             else:
@@ -1929,12 +1993,19 @@ class APIFootballClient:
 
             # Player not found in recent fixtures - they may not have played yet
             logger.debug(
-                f"Player '{player_name}' not found in recent fixtures for team {loan_team_id}, using candidate ID {candidate_player_id}"
+                "Player '%s' not found in recent fixtures for team %s, using candidate ID %s",
+                log_metadata(player_name),
+                log_metadata(loan_team_id),
+                log_metadata(candidate_player_id),
             )
             return candidate_player_id, "candidate_unchanged"
 
         except Exception as e:
-            logger.warning(f"Error verifying player ID via fixtures: {e}. Using candidate ID {candidate_player_id}")
+            logger.warning(
+                "Error verifying player ID via fixtures: %s. Using candidate ID %s",
+                log_metadata(e),
+                log_metadata(candidate_player_id),
+            )
             return candidate_player_id, None
 
     def get_fixture_statistics(self, fixture_id: int) -> dict[str, Any]:
@@ -1945,7 +2016,7 @@ class APIFootballClient:
             resp = self._make_request("fixtures/statistics", {"fixture": fixture_id})
             return {"response": resp.get("response", [])}
         except Exception as e:
-            logger.error(f"Error fetching statistics for fixture {fixture_id}: {e}")
+            logger.error("Error fetching statistics for fixture %s: %s", log_metadata(fixture_id), log_metadata(e))
             return {"response": []}
 
     def get_fixture_lineups(self, fixture_id: int) -> dict[str, Any]:
@@ -1957,7 +2028,7 @@ class APIFootballClient:
             resp = self._make_request("fixtures/lineups", {"fixture": fixture_id})
             return {"response": resp.get("response", [])}
         except Exception as e:
-            logger.error(f"Error fetching lineups for fixture {fixture_id}: {e}")
+            logger.error("Error fetching lineups for fixture %s: %s", log_metadata(fixture_id), log_metadata(e))
             return {"response": []}
 
     def get_fixture_events(self, fixture_id: int) -> dict[str, Any]:
@@ -1969,7 +2040,7 @@ class APIFootballClient:
             resp = self._make_request("fixtures/events", {"fixture": fixture_id})
             return {"response": resp.get("response", [])}
         except Exception as e:
-            logger.error(f"Error fetching events for fixture {fixture_id}: {e}")
+            logger.error("Error fetching events for fixture %s: %s", log_metadata(fixture_id), log_metadata(e))
             return {"response": []}
 
     # ------------------------------------------------------------------
@@ -1993,7 +2064,7 @@ class APIFootballClient:
             leagues = resp.get("response", [])
 
             if not leagues:
-                logger.warning(f"No league found with id {league_id}")
+                logger.warning("No league found with id %s", log_metadata(league_id))
                 return {"has_player_stats": False, "has_lineups": False, "has_events": False, "coverage_level": "none"}
 
             league_data = leagues[0]
@@ -2025,8 +2096,12 @@ class APIFootballClient:
                 coverage_level = "none"
 
             logger.debug(
-                f"League {league_id} coverage: player_stats={has_player_stats}, "
-                f"lineups={has_lineups}, events={has_events} → {coverage_level}"
+                "League %s coverage: player_stats=%s, lineups=%s, events=%s → %s",
+                log_metadata(league_id),
+                log_metadata(has_player_stats),
+                log_metadata(has_lineups),
+                log_metadata(has_events),
+                log_metadata(coverage_level),
             )
 
             return {
@@ -2037,7 +2112,7 @@ class APIFootballClient:
             }
 
         except Exception as e:
-            logger.error(f"Error checking league coverage for league {league_id}: {e}")
+            logger.error("Error checking league coverage for league %s: %s", log_metadata(league_id), log_metadata(e))
             return {"has_player_stats": False, "has_lineups": False, "has_events": False, "coverage_level": "none"}
 
     def get_team_league_id(self, team_api_id: int, season: int = 2025) -> int | None:
@@ -2063,7 +2138,7 @@ class APIFootballClient:
             return leagues[0].get("league", {}).get("id")
 
         except Exception as e:
-            logger.error(f"Error getting league ID for team {team_api_id}: {e}")
+            logger.error("Error getting league ID for team %s: %s", log_metadata(team_api_id), log_metadata(e))
             return None
 
     def get_player_limited_stats(
@@ -2099,7 +2174,9 @@ class APIFootballClient:
             fixtures = fixtures_resp.get("response", [])
 
             if not fixtures:
-                logger.debug(f"No fixtures found for team {team_api_id} in season {season}")
+                logger.debug(
+                    "No fixtures found for team %s in season %s", log_metadata(team_api_id), log_metadata(season)
+                )
                 return stats
 
             def _names_match(api_name: str, target_name: str) -> bool:
@@ -2230,13 +2307,18 @@ class APIFootballClient:
                 time.sleep(0.05)  # Rate limiting
 
             logger.info(
-                f"Limited stats for {player_name} (id={player_id}) at team {team_api_id}: "
-                f"{stats['appearances']} apps, {stats['goals']}G, {stats['assists']}A"
+                "Limited stats for %s (id=%s) at team %s: %s apps, %sG, %sA",
+                log_metadata(player_name),
+                log_metadata(player_id),
+                log_metadata(team_api_id),
+                log_metadata(stats["appearances"]),
+                log_metadata(stats["goals"]),
+                log_metadata(stats["assists"]),
             )
             return stats
 
         except Exception as e:
-            logger.error(f"Error getting limited stats for player {player_id}: {e}")
+            logger.error("Error getting limited stats for player %s: %s", log_metadata(player_id), log_metadata(e))
             return stats
 
     def check_team_stats_coverage(self, team_api_id: int, season: int = 2025) -> dict:
@@ -2346,10 +2428,10 @@ class APIFootballClient:
         if normalized_team_id is None or normalized_team_id <= 0:
             logger.warning(
                 "summarize_loanee_week: skipping player=%s because loan_team_id is missing/invalid (value=%s) for range %s..%s",
-                player_id,
-                loan_team_id,
-                start_str,
-                end_str,
+                log_metadata(player_id),
+                log_metadata(loan_team_id),
+                log_metadata(start_str),
+                log_metadata(end_str),
             )
             return {
                 "player_id": player_id,
@@ -2365,10 +2447,15 @@ class APIFootballClient:
         loan_team_id = normalized_team_id
 
         logger.info(
-            f"summarize_loanee_week: player={player_id}, loan_team={loan_team_id}, season={season}, range={start_str}..{end_str}"
+            "summarize_loanee_week: player=%s, loan_team=%s, season=%s, range=%s..%s",
+            log_metadata(player_id),
+            log_metadata(loan_team_id),
+            log_metadata(season),
+            log_metadata(start_str),
+            log_metadata(end_str),
         )
         fixtures = self.get_fixtures_for_team(loan_team_id, season, start_str, end_str)
-        logger.info(f"summarize_loanee_week: fixtures_count={len(fixtures)} for team={loan_team_id}")
+        logger.info("summarize_loanee_week: fixtures_count=%s for team=%s", len(fixtures), log_metadata(loan_team_id))
         loan_team_name = self.get_team_name(loan_team_id, season)
 
         # Initialize totals with comprehensive stats
@@ -2389,7 +2476,11 @@ class APIFootballClient:
                 # If API returns a league season that doesn't match the requested one, warn
                 if fx_league_season is not None and fx_league_season != season:
                     logger.warning(
-                        f"Fixture season drift: fixture_id={fixture_id}, league.season={fx_league_season}, requested={season}, date={fx_date}"
+                        "Fixture season drift: fixture_id=%s, league.season=%s, requested=%s, date=%s",
+                        log_metadata(fixture_id),
+                        log_metadata(fx_league_season),
+                        log_metadata(season),
+                        log_metadata(fx_date),
                     )
             except Exception:
                 pass
@@ -2402,9 +2493,10 @@ class APIFootballClient:
                 if db_fixture:
                     # 🔍 TROUBLESHOOTING: Log DB query parameters
                     logger.debug(
-                        f"🔍 [DB_QUERY] Querying FixturePlayerStats: "
-                        f"db_fixture_id={db_fixture.id}, player_api_id={player_id}, "
-                        f"fixture_api_id={fixture_id}"
+                        "🔍 [DB_QUERY] Querying FixturePlayerStats: db_fixture_id=%s, player_api_id=%s, fixture_api_id=%s",
+                        log_metadata(db_fixture.id),
+                        log_metadata(player_id),
+                        log_metadata(fixture_id),
                     )
 
                     player_stats_row = (
@@ -2414,7 +2506,7 @@ class APIFootballClient:
                     )
 
                     if player_stats_row:
-                        logger.debug(f"🔍 [DB_QUERY] Found DB row id={player_stats_row.id}")
+                        logger.debug("🔍 [DB_QUERY] Found DB row id=%s", log_metadata(player_stats_row.id))
                     else:
                         logger.debug("🔍 [DB_QUERY] No DB row found, will use API fallback")
 
@@ -2432,8 +2524,10 @@ class APIFootballClient:
                     # Store/update player stats with fresh API data
                     if db_fixture and pstats:
                         logger.info(
-                            f"{'Updating' if player_stats_row else 'Creating'} fixture stats: "
-                            f"fixture_id={fixture_id}, player_id={player_id}"
+                            "%s fixture stats: fixture_id=%s, player_id=%s",
+                            log_metadata("Updating" if player_stats_row else "Creating"),
+                            log_metadata(fixture_id),
+                            log_metadata(player_id),
                         )
                         self._upsert_player_fixture_stats(db_session, db_fixture.id, player_id, loan_team_id, pstats)
                         # FPS choke point: mark this (player, season) rollup dirty
@@ -2449,7 +2543,10 @@ class APIFootballClient:
                         )
                 except Exception as e:
                     logger.warning(
-                        f"Failed to store/update fixture/player stats for fixture {fixture_id}, player {player_id}: {e}"
+                        "Failed to store/update fixture/player stats for fixture %s, player %s: %s",
+                        log_metadata(fixture_id),
+                        log_metadata(player_id),
+                        log_metadata(e),
                     )
                     # Continue processing even if storage fails
 
@@ -2489,9 +2586,13 @@ class APIFootballClient:
             if player_stats_row:
                 # 🔍 TROUBLESHOOTING: Log DB stats before processing
                 logger.debug(
-                    f"🔍 [DB_SOURCE] fixture_id={fixture_id}, player_id={player_id}, "
-                    f"db_assists={player_stats_row.assists}, db_goals={player_stats_row.goals}, "
-                    f"db_minutes={player_stats_row.minutes}, db_row_id={player_stats_row.id}"
+                    "🔍 [DB_SOURCE] fixture_id=%s, player_id=%s, db_assists=%s, db_goals=%s, db_minutes=%s, db_row_id=%s",
+                    log_metadata(fixture_id),
+                    log_metadata(player_id),
+                    log_metadata(player_stats_row.assists),
+                    log_metadata(player_stats_row.goals),
+                    log_metadata(player_stats_row.minutes),
+                    log_metadata(player_stats_row.id),
                 )
 
                 minutes = player_stats_row.minutes or 0
@@ -2512,8 +2613,11 @@ class APIFootballClient:
                         # Assign estimated minutes for limited coverage
                         minutes = 45  # Assume ~45 mins for limited coverage matches
                         logger.info(
-                            f"📊 LIMITED STATS (DB): player_id={player_id}, fixture_id={fixture_id}, "
-                            f"goals={goals_from_db}, assists={assists_from_db} (no minutes data)"
+                            "📊 LIMITED STATS (DB): player_id=%s, fixture_id=%s, goals=%s, assists=%s (no minutes data)",
+                            log_metadata(player_id),
+                            log_metadata(fixture_id),
+                            log_metadata(goals_from_db),
+                            log_metadata(assists_from_db),
                         )
 
                     player_line = {
@@ -2559,7 +2663,7 @@ class APIFootballClient:
                             rating_sum += float(player_line["rating"])
                             rating_count += 1
                         except (TypeError, ValueError):
-                            logger.warning(f"Could not convert rating to float: {player_line['rating']}")
+                            logger.warning("Could not convert rating to float: %s", log_metadata(player_line["rating"]))
 
                     # Aggregate other stats
                     totals["saves"] += player_line["saves"]
@@ -2582,7 +2686,9 @@ class APIFootballClient:
             elif pstats:
                 # 🔍 TROUBLESHOOTING: Using API fallback (no DB data)
                 logger.debug(
-                    f"🔍 [API_FALLBACK] fixture_id={fixture_id}, player_id={player_id} - using API data (no DB entry)"
+                    "🔍 [API_FALLBACK] fixture_id=%s, player_id=%s - using API data (no DB entry)",
+                    log_metadata(fixture_id),
+                    log_metadata(player_id),
                 )
 
                 stats = pstats.get("statistics", [])
@@ -2606,8 +2712,11 @@ class APIFootballClient:
 
                     # 🔍 TROUBLESHOOTING: Log API stats before processing
                     logger.debug(
-                        f"🔍 [API_FALLBACK] API raw data: minutes={minutes}, "
-                        f"goals={goals_scored}, assists={assists_made}, played_flag={played}"
+                        "🔍 [API_FALLBACK] API raw data: minutes=%s, goals=%s, assists=%s, played_flag=%s",
+                        log_metadata(minutes),
+                        log_metadata(goals_scored),
+                        log_metadata(assists_made),
+                        log_metadata(played),
                     )
 
                     # For competitions without full stats (FA Cup, etc.),
@@ -2629,9 +2738,12 @@ class APIFootballClient:
                         else:
                             match_stats_coverage = "limited"
                             logger.info(
-                                f"📊 LIMITED STATS: player_id={player_id}, fixture_id={fixture_id}, "
-                                f"competition={fx.get('league', {}).get('name')}, "
-                                f"goals={goals_scored}, assists={assists_made} (from events only)"
+                                "📊 LIMITED STATS: player_id=%s, fixture_id=%s, competition=%s, goals=%s, assists=%s (from events only)",
+                                log_metadata(player_id),
+                                log_metadata(fixture_id),
+                                log_metadata(fx.get("league", {}).get("name")),
+                                log_metadata(goals_scored),
+                                log_metadata(assists_made),
                             )
 
                         player_line.update(
@@ -2680,7 +2792,9 @@ class APIFootballClient:
                                 rating_sum += float(player_line["rating"])
                                 rating_count += 1
                             except (TypeError, ValueError):
-                                logger.warning(f"Could not convert rating to float: {player_line['rating']}")
+                                logger.warning(
+                                    "Could not convert rating to float: %s", log_metadata(player_line["rating"])
+                                )
 
                         # Aggregate expanded stats
                         totals["saves"] += player_line["saves"]
@@ -2714,9 +2828,12 @@ class APIFootballClient:
 
             # 🔍 TROUBLESHOOTING: Log player_line data to trace phantom assists
             logger.debug(
-                f"🔍 [MATCH_NOTES] fixture_id={fixture_id}, player_id={player_id}, "
-                f"opponent={opponent}, player_line_assists={player_line.get('assists', 0)}, "
-                f"player_line_goals={player_line.get('goals', 0)}"
+                "🔍 [MATCH_NOTES] fixture_id=%s, player_id=%s, opponent=%s, player_line_assists=%s, player_line_goals=%s",
+                log_metadata(fixture_id),
+                log_metadata(player_id),
+                log_metadata(opponent),
+                log_metadata(player_line.get("assists", 0)),
+                log_metadata(player_line.get("goals", 0)),
             )
 
             # Core stats (goals/assists)
@@ -2725,15 +2842,23 @@ class APIFootballClient:
                 goal_str = f"{goal_count} goal{'s' if goal_count > 1 else ''}"
                 match_notes.append(f"{goal_str} vs {opponent}")
                 performance_details.append(f"{goal_count}G")
-                logger.debug(f"🔍 [MATCH_NOTES] Added goal note: '{goal_str} vs {opponent}'")
+                logger.debug(
+                    "🔍 [MATCH_NOTES] Added goal note: '%s vs %s'", log_metadata(goal_str), log_metadata(opponent)
+                )
             if player_line.get("assists", 0) > 0:
                 assist_count = player_line["assists"]
                 assist_str = f"{assist_count} assist{'s' if assist_count > 1 else ''}"
                 match_notes.append(f"{assist_str} vs {opponent}")
                 performance_details.append(f"{assist_count}A")
-                logger.debug(f"🔍 [MATCH_NOTES] Added assist note: '{assist_str} vs {opponent}'")
+                logger.debug(
+                    "🔍 [MATCH_NOTES] Added assist note: '%s vs %s'", log_metadata(assist_str), log_metadata(opponent)
+                )
             else:
-                logger.debug(f"🔍 [MATCH_NOTES] No assists for player_id={player_id} vs {opponent}")
+                logger.debug(
+                    "🔍 [MATCH_NOTES] No assists for player_id=%s vs %s",
+                    log_metadata(player_id),
+                    log_metadata(opponent),
+                )
 
             # Rating
             rating = player_line.get("rating")
@@ -2830,10 +2955,14 @@ class APIFootballClient:
 
         # 🔍 TROUBLESHOOTING: Log final totals after all matches processed
         logger.debug(
-            f"🔍 [FINAL_TOTALS] player_id={player_id}, loan_team_id={loan_team_id}, "
-            f"total_assists={totals['assists']}, total_goals={totals['goals']}, "
-            f"total_minutes={totals['minutes']}, games_played={totals['games_played']}, "
-            f"num_matches={len(matches)}"
+            "🔍 [FINAL_TOTALS] player_id=%s, loan_team_id=%s, total_assists=%s, total_goals=%s, total_minutes=%s, games_played=%s, num_matches=%s",
+            log_metadata(player_id),
+            log_metadata(loan_team_id),
+            log_metadata(totals["assists"]),
+            log_metadata(totals["goals"]),
+            log_metadata(totals["minutes"]),
+            log_metadata(totals["games_played"]),
+            len(matches),
         )
 
         # ------------------------------------------------------------------
@@ -2849,8 +2978,11 @@ class APIFootballClient:
             upcoming_end_str = upcoming_end.isoformat()
 
             logger.debug(
-                f"Fetching upcoming fixtures for player_id={player_id}, loan_team_id={loan_team_id}, "
-                f"range={upcoming_start_str}..{upcoming_end_str}"
+                "Fetching upcoming fixtures for player_id=%s, loan_team_id=%s, range=%s..%s",
+                log_metadata(player_id),
+                log_metadata(loan_team_id),
+                log_metadata(upcoming_start_str),
+                log_metadata(upcoming_end_str),
             )
 
             upcoming_raw = self.get_fixtures_for_team(loan_team_id, season, upcoming_start_str, upcoming_end_str)
@@ -2885,10 +3017,12 @@ class APIFootballClient:
                     }
                 )
 
-            logger.debug(f"Found {len(upcoming_fixtures)} upcoming fixtures for player_id={player_id}")
+            logger.debug("Found %s upcoming fixtures for player_id=%s", len(upcoming_fixtures), log_metadata(player_id))
 
         except Exception as e:
-            logger.warning(f"Failed to fetch upcoming fixtures for player_id={player_id}: {e}")
+            logger.warning(
+                "Failed to fetch upcoming fixtures for player_id=%s: %s", log_metadata(player_id), log_metadata(e)
+            )
             upcoming_fixtures = []
 
         # Check if any matches had limited stats coverage
@@ -2954,8 +3088,11 @@ class APIFootballClient:
         cutoff_dt = up_to_date if isinstance(up_to_date, datetime) else datetime.combine(up_to_date, dt_time.max)
 
         logger.debug(
-            f"get_player_season_context: player_id={player_id}, loan_team_id={loan_team_id}, "
-            f"season={season}, up_to_date={up_to_date}"
+            "get_player_season_context: player_id=%s, loan_team_id=%s, season=%s, up_to_date=%s",
+            log_metadata(player_id),
+            log_metadata(loan_team_id),
+            log_metadata(season),
+            log_metadata(up_to_date),
         )
 
         try:
@@ -2983,8 +3120,11 @@ class APIFootballClient:
                 )
 
                 logger.debug(
-                    f"get_player_season_context: Found {len(fixtures)} fixtures for player {player_id} "
-                    f"with loan team {loan_team_id} in season {season}"
+                    "get_player_season_context: Found %s fixtures for player %s with loan team %s in season %s",
+                    len(fixtures),
+                    log_metadata(player_id),
+                    log_metadata(loan_team_id),
+                    log_metadata(season),
                 )
 
                 for fixture in fixtures:
@@ -3044,7 +3184,11 @@ class APIFootballClient:
                     season=season,
                 )
             except Exception as api_exc:
-                logger.warning(f"Failed to overlay API season totals for player {player_id}: {api_exc}")
+                logger.warning(
+                    "Failed to overlay API season totals for player %s: %s",
+                    log_metadata(player_id),
+                    log_metadata(api_exc),
+                )
                 api_totals = {}
 
             if api_totals:
@@ -3084,9 +3228,12 @@ class APIFootballClient:
                 trends["duels_win_rate"] = round((season_stats["duels_won"] / season_stats["duels_total"]) * 100, 1)
 
             logger.debug(
-                f"get_player_season_context: Final stats for player {player_id} - "
-                f"games_played={season_stats['games_played']}, minutes={season_stats['minutes']}, "
-                f"goals={season_stats['goals']}, assists={season_stats['assists']}"
+                "get_player_season_context: Final stats for player %s - games_played=%s, minutes=%s, goals=%s, assists=%s",
+                log_metadata(player_id),
+                log_metadata(season_stats["games_played"]),
+                log_metadata(season_stats["minutes"]),
+                log_metadata(season_stats["goals"]),
+                log_metadata(season_stats["assists"]),
             )
 
             # Remove temporary fields
@@ -3100,7 +3247,7 @@ class APIFootballClient:
             }
 
         except Exception as e:
-            logger.warning(f"Failed to get season context for player {player_id}: {e}")
+            logger.warning("Failed to get season context for player %s: %s", log_metadata(player_id), log_metadata(e))
             return {"season_stats": season_stats, "recent_form": [], "trends": {}}
 
     def summarize_parent_loans_week(
@@ -3121,7 +3268,11 @@ class APIFootballClient:
 
         start_str, end_str = week_start.isoformat(), week_end.isoformat()
         logger.info(
-            f"summarize_parent_loans_week: parent_api_id={parent_team_api_id}, season={season}, range={start_str}..{end_str}"
+            "summarize_parent_loans_week: parent_api_id=%s, season=%s, range=%s..%s",
+            log_metadata(parent_team_api_id),
+            log_metadata(season),
+            log_metadata(start_str),
+            log_metadata(end_str),
         )
         parent_name = self.get_team_name(parent_team_api_id, season)
 
@@ -3198,7 +3349,11 @@ class APIFootballClient:
             if lp.current_club_db_id:
                 loan_team_row = db_session.query(Team).get(lp.current_club_db_id)
                 if not loan_team_row or not loan_team_row.team_id:
-                    logger.debug(f"Skipping {lp.player_name}: current_club_db_id={lp.current_club_db_id} not found")
+                    logger.debug(
+                        "Skipping %s: current_club_db_id=%s not found",
+                        log_metadata(lp.player_name),
+                        log_metadata(lp.current_club_db_id),
+                    )
                     skipped_missing_team += 1
                     continue
                 loan_team_api_id = loan_team_row.team_id
@@ -3210,7 +3365,7 @@ class APIFootballClient:
             else:
                 loan_team_name = lp.current_club_name
                 if not loan_team_name or not loan_team_name.strip():
-                    logger.debug(f"Skipping {lp.player_name}: no current club info")
+                    logger.debug("Skipping %s: no current club info", log_metadata(lp.player_name))
                     skipped_missing_team += 1
                     continue
 
@@ -3257,8 +3412,10 @@ class APIFootballClient:
             if is_manual:
                 # Manual player: create summary without API calls
                 logger.debug(
-                    f"Skipping API calls for manual player {info['player_name']} "
-                    f"(player_id={player_id}, can_fetch_stats={can_fetch})"
+                    "Skipping API calls for manual player %s (player_id=%s, can_fetch_stats=%s)",
+                    log_metadata(info["player_name"]),
+                    log_metadata(player_id),
+                    log_metadata(can_fetch),
                 )
                 s = {
                     "player_api_id": player_id,
@@ -3312,7 +3469,11 @@ class APIFootballClient:
 
                 if player_stats_coverage == "limited" and info["loan_team_api_id"]:
                     # 📊 LIMITED COVERAGE: Use lineup/events data instead of full player stats
-                    logger.info(f"Using limited stats for {info['player_name']} (coverage={player_stats_coverage})")
+                    logger.info(
+                        "Using limited stats for %s (coverage=%s)",
+                        log_metadata(info["player_name"]),
+                        log_metadata(player_stats_coverage),
+                    )
                     try:
                         limited_stats = self.get_player_limited_stats(
                             player_id=info["player_api_id"],
@@ -3363,10 +3524,15 @@ class APIFootballClient:
 
                         summaries.append(s)
                         logger.info(
-                            f"Limited stats summary: {info['player_name']} - {limited_stats['appearances']} apps, {limited_stats['goals']}G"
+                            "Limited stats summary: %s - %s apps, %sG",
+                            log_metadata(info["player_name"]),
+                            log_metadata(limited_stats["appearances"]),
+                            log_metadata(limited_stats["goals"]),
                         )
                     except Exception as e:
-                        logger.error(f"Failed to get limited stats for {info['player_name']}: {e}")
+                        logger.error(
+                            "Failed to get limited stats for %s: %s", log_metadata(info["player_name"]), log_metadata(e)
+                        )
                     continue
 
                 # Existing API-Football processing for tracked players with full coverage
@@ -3385,8 +3551,10 @@ class APIFootballClient:
                         )
                         if verified_id != info["player_api_id"]:
                             logger.warning(
-                                f"🔄 Newsletter ID correction for '{info['player_name']}': "
-                                f"{info['player_api_id']} → {verified_id}"
+                                "🔄 Newsletter ID correction for '%s': %s → %s",
+                                log_metadata(info["player_name"]),
+                                log_metadata(info["player_api_id"]),
+                                log_metadata(verified_id),
                             )
                             player_id_to_use = verified_id
                             # Update the database record so this is permanent
@@ -3434,12 +3602,13 @@ class APIFootballClient:
                                             except Exception:
                                                 logger.exception(
                                                     "season-rollup refresh after ghost-delete failed for player=%s",
-                                                    info["player_api_id"],
+                                                    log_metadata(info["player_api_id"]),
+                                                    exc_info=safe_exc_info(),
                                                 )
                                             db_session.commit()
-                                            logger.info(f"🗑️ Deleted {ghost_deleted} ghost stats")
+                                            logger.info("🗑️ Deleted %s ghost stats", log_metadata(ghost_deleted))
                                 except Exception as db_err:
-                                    logger.warning(f"Failed to update DB for ID correction: {db_err}")
+                                    logger.warning("Failed to update DB for ID correction: %s", log_metadata(db_err))
 
                     s = self.summarize_loanee_week(
                         player_id=player_id_to_use,
@@ -3466,11 +3635,17 @@ class APIFootballClient:
                         )
                         s["season_context"] = season_context
                         logger.debug(
-                            f"  season_context: {season_context['season_stats']['games_played']} games, "
-                            f"{season_context['season_stats']['goals']}G {season_context['season_stats']['assists']}A"
+                            "  season_context: %s games, %sG %sA",
+                            log_metadata(season_context["season_stats"]["games_played"]),
+                            log_metadata(season_context["season_stats"]["goals"]),
+                            log_metadata(season_context["season_stats"]["assists"]),
                         )
                     except Exception as e:
-                        logger.warning(f"Failed to add season context for {info['player_name']}: {e}")
+                        logger.warning(
+                            "Failed to add season context for %s: %s",
+                            log_metadata(info["player_name"]),
+                            log_metadata(e),
+                        )
                         s["season_context"] = {"season_stats": {}, "recent_form": [], "trends": {}}
 
                     # Mark this summary as having full stats coverage
@@ -3478,24 +3653,34 @@ class APIFootballClient:
 
                     try:
                         logger.info(
-                            f"Loanee weekly summary: player={s.get('player_name')} team={s.get('loan_team_name')} matches={len(s.get('matches') or [])} totals={s.get('totals')}"
+                            "Loanee weekly summary: player=%s team=%s matches=%s totals=%s",
+                            log_metadata(s.get("player_name")),
+                            log_metadata(s.get("loan_team_name")),
+                            len(s.get("matches") or []),
+                            log_metadata(s.get("totals")),
                         )
                         # Log first fixture date and league.season to spot season drift
                         if s.get("matches"):
                             m0 = s["matches"][0]
                             logger.debug(
-                                f"  first_match: fixture_id={m0.get('fixture_id')} date={m0.get('date')} comp={m0.get('competition')}"
+                                "  first_match: fixture_id=%s date=%s comp=%s",
+                                log_metadata(m0.get("fixture_id")),
+                                log_metadata(m0.get("date")),
+                                log_metadata(m0.get("competition")),
                             )
                     except Exception:
                         pass
                     summaries.append(s)
                 except Exception as exc:
-                    logger.warning(f"Loanee summary failed for {info}: {exc}")
+                    logger.warning("Loanee summary failed for %s: %s", log_metadata(info), log_metadata(exc))
 
         if not loanees:
             logger.info(
-                f"No active loanees for parent (DB {parent_team_db_id}, API {parent_team_api_id}). "
-                f"rows={len(loanee_rows)} skipped_missing_team={skipped_missing_team}"
+                "No active loanees for parent (DB %s, API %s). rows=%s skipped_missing_team=%s",
+                log_metadata(parent_team_db_id),
+                log_metadata(parent_team_api_id),
+                len(loanee_rows),
+                log_metadata(skipped_missing_team),
             )
 
         # ------------------------------------------------------------------
@@ -3509,7 +3694,7 @@ class APIFootballClient:
                 week_end=week_end,
             )
         except Exception as exc:
-            logger.warning(f"academy_watch failed for parent {parent_team_db_id}: {exc}")
+            logger.warning("academy_watch failed for parent %s: %s", log_metadata(parent_team_db_id), log_metadata(exc))
             academy = {"academy_watch": [], "academy_appearances_week": []}
 
         # ------------------------------------------------------------------
@@ -3536,17 +3721,17 @@ class APIFootballClient:
     def get_league_teams(self, league_id: int, season: int) -> list[dict[str, Any]]:
         """Get all teams from a specific league."""
         try:
-            logger.info(f"🏟️ Fetching teams for league {league_id}")
+            logger.info("🏟️ Fetching teams for league %s", log_metadata(league_id))
             response = self._make_request("teams", {"league": league_id, "season": season})
             return response.get("response", [])
         except Exception as e:
-            logger.error(f"Error fetching teams for league {league_id}: {e}")
+            logger.error("Error fetching teams for league %s: %s", log_metadata(league_id), log_metadata(e))
             return []
 
     def get_all_european_teams(self, season: int) -> list[dict[str, Any]]:
         """Get all teams from European top leagues."""
         try:
-            logger.info(f"🌍 Fetching all European teams for season {season}")
+            logger.info("🌍 Fetching all European teams for season %s", log_metadata(season))
             all_teams = []
             for league_id in self.european_leagues.keys():
                 teams = self.get_league_teams(league_id, season)
@@ -3560,7 +3745,7 @@ class APIFootballClient:
                 all_teams.extend(teams)
             return all_teams
         except Exception as e:
-            logger.error(f"Error fetching all European teams: {e}")
+            logger.error("Error fetching all European teams: %s", log_metadata(e))
             return []
 
     def get_player_injuries(self, player_id: int, season: int | None = None) -> list[dict[str, Any]]:
@@ -3603,7 +3788,7 @@ class APIFootballClient:
             normalized_team_id = None
 
         if normalized_team_id is None or normalized_team_id <= 0:
-            logger.warning("get_team_transfers: invalid team_id=%s", team_id)
+            logger.warning("get_team_transfers: invalid team_id=%s", log_metadata(team_id))
             raise ValueError("team_id must be a positive integer when fetching transfers")
 
         try:
@@ -3623,7 +3808,7 @@ class APIFootballClient:
         except APICallBudgetExceeded:
             raise
         except Exception as e:
-            logger.error(f"Error fetching transfers for team {team_id}: {e}")
+            logger.error("Error fetching transfers for team %s: %s", log_metadata(team_id), log_metadata(e))
             if raise_on_error:
                 raise
             return []
@@ -3646,7 +3831,10 @@ class APIFootballClient:
         debug_count = getattr(self, "_debug_loan_check_count", 0)
         if debug_count < 10:
             logger.debug(
-                f"🔍 DEBUG is_loan_transfer #{debug_count + 1}: window_key='{window_key}', transfers_count={len(transfer_block.get('transfers', []))}"
+                "🔍 DEBUG is_loan_transfer #%s: window_key='%s', transfers_count=%s",
+                log_metadata(debug_count + 1),
+                log_metadata(window_key),
+                len(transfer_block.get("transfers", [])),
             )
             self._debug_loan_check_count = debug_count + 1
 
@@ -3658,18 +3846,23 @@ class APIFootballClient:
             if debug_count < 10:
                 in_window_result = self._in_window(transfer_date, window_key) if transfer_date else False
                 logger.debug(
-                    f"   Transfer: date='{transfer_date}', type='{transfer_type}', in_window={in_window_result}"
+                    "   Transfer: date='%s', type='%s', in_window=%s",
+                    log_metadata(transfer_date),
+                    log_metadata(transfer_type),
+                    log_metadata(in_window_result),
                 )
 
             # Check if it's a NEW loan (not a loan return) and within the specified window
             # CRITICAL FIX: Use is_new_loan_transfer() to exclude "Back from Loan", "Return from loan" etc.
             if is_new_loan_transfer(transfer_type) and transfer_date and self._in_window(transfer_date, window_key):
                 if debug_count < 10:
-                    logger.debug(f"   ✅ LOAN FOUND: {transfer_date} in window {window_key}")
+                    logger.debug(
+                        "   ✅ LOAN FOUND: %s in window %s", log_metadata(transfer_date), log_metadata(window_key)
+                    )
                     return True
 
         if debug_count < 10:
-            logger.debug(f"   ❌ No loans found in window {window_key}")
+            logger.debug("   ❌ No loans found in window %s", log_metadata(window_key))
         return False
 
     def get_current_loans_for_team(self, team_id: int) -> list[dict[str, Any]]:
@@ -3691,7 +3884,7 @@ class APIFootballClient:
         except APICallBudgetExceeded:
             raise
         except Exception as e:
-            logger.error(f"Error fetching current loans for team {team_id}: {e}")
+            logger.error("Error fetching current loans for team %s: %s", log_metadata(team_id), log_metadata(e))
             return []
 
     def get_player_by_id(
@@ -3756,7 +3949,9 @@ class APIFootballClient:
                     r = self._make_request("players", {"id": player_id, "season": s})
                     r_data = r.get("response", [])
                     if r_data:
-                        logger.info(f"ℹ️ Fetched player {player_id} from fallback season {s}")
+                        logger.info(
+                            "ℹ️ Fetched player %s from fallback season %s", log_metadata(player_id), log_metadata(s)
+                        )
                         return _store(r_data[0])
                 except Exception:
                     continue
@@ -3781,8 +3976,8 @@ class APIFootballClient:
                         }
                         logger.info(
                             "ℹ️ Using transfers fallback name for player %s: %s",
-                            player_id,
-                            payload["player"]["name"],
+                            log_metadata(player_id),
+                            log_metadata(payload["player"]["name"]),
                         )
                         return _store(payload)
                 except Exception:
@@ -3792,7 +3987,7 @@ class APIFootballClient:
                 return _store(_minimal_profile())
             return _store(self._get_sample_player_data(player_id))
         except Exception as e:
-            logger.error(f"Error fetching player {player_id}: {e}")
+            logger.error("Error fetching player %s: %s", log_metadata(player_id), log_metadata(e))
             if not allow_transfer_fallback:
                 return _store(_minimal_profile())
             try:
@@ -3910,7 +4105,7 @@ class APIFootballClient:
             normalized_team_id = None
 
         if normalized_team_id is None or normalized_team_id <= 0:
-            logger.warning("get_team_by_id: invalid team_id=%s", team_id)
+            logger.warning("get_team_by_id: invalid team_id=%s", log_metadata(team_id))
             raise ValueError("team_id must be a positive integer when fetching team data")
 
         team_id = normalized_team_id
@@ -3947,13 +4142,17 @@ class APIFootballClient:
                         self._team_profile_cache[team_id] = team_info
                         return team_info
                 except Exception as ex_fallback:
-                    logger.debug(f"Fallback team lookup without season failed for team {team_id}: {ex_fallback}")
+                    logger.debug(
+                        "Fallback team lookup without season failed for team %s: %s",
+                        log_metadata(team_id),
+                        log_metadata(ex_fallback),
+                    )
 
                 # Return sample data if API call fails or no API key
                 return {}
 
         except Exception as e:
-            logger.error(f"Error fetching team {team_id}: {e}")
+            logger.error("Error fetching team %s: %s", log_metadata(team_id), log_metadata(e))
             return {}
 
     def get_team_seasons(self, team_id: int) -> dict[str, Any]:
@@ -3964,7 +4163,7 @@ class APIFootballClient:
             normalized_team_id = None
 
         if normalized_team_id is None or normalized_team_id <= 0:
-            logger.warning("get_team_seasons: invalid team_id=%s", team_id)
+            logger.warning("get_team_seasons: invalid team_id=%s", log_metadata(team_id))
             raise ValueError("team_id must be a positive integer when fetching team seasons")
 
         try:
@@ -3981,7 +4180,7 @@ class APIFootballClient:
                 return []
 
         except Exception as e:
-            logger.error(f"Error fetching team {team_id}: {e}")
+            logger.error("Error fetching team %s: %s", log_metadata(team_id), log_metadata(e))
             return []
 
     def get_teams_for_season(self, season: int = None) -> dict[int, str]:
@@ -3992,7 +4191,7 @@ class APIFootballClient:
         team_mapping = {}
 
         try:
-            logger.info(f"🌍 Fetching teams for season {season}")
+            logger.info("🌍 Fetching teams for season %s", log_metadata(season))
             # Get teams from all European leagues
             for league_id in self.european_leagues.keys():
                 league_teams = self.get_league_teams(league_id, season)
@@ -4003,11 +4202,11 @@ class APIFootballClient:
                     if team_id and team_name:
                         team_mapping[team_id] = team_name
 
-            logger.info(f"✅ Fetched {len(team_mapping)} teams for season {season}")
+            logger.info("✅ Fetched %s teams for season %s", len(team_mapping), log_metadata(season))
             return team_mapping
 
         except Exception as e:
-            logger.error(f"Error fetching teams for season {season}: {e}")
+            logger.error("Error fetching teams for season %s: %s", log_metadata(season), log_metadata(e))
             # Return sample team mapping if API fails
             return self._get_sample_team_mapping()
 
@@ -4036,11 +4235,11 @@ class APIFootballClient:
                             "country": league_info["country"],
                         }
 
-            logger.info(f"✅ Fetched {len(team_data)} teams with league info for season {season}")
+            logger.info("✅ Fetched %s teams with league info for season %s", len(team_data), log_metadata(season))
             return team_data
 
         except Exception as e:
-            logger.error(f"Error fetching teams with leagues for season {season}: {e}")
+            logger.error("Error fetching teams with leagues for season %s: %s", log_metadata(season), log_metadata(e))
             # Return sample team mapping if API fails
             return self._get_sample_team_mapping_with_leagues()
 
@@ -4165,7 +4364,7 @@ class APIFootballClient:
                             if self._team_filter(team_id):
                                 team_ids.append(team_id)
                 except Exception as e:
-                    logger.warning(f"Error fetching teams for league {league_id}: {e}")
+                    logger.warning("Error fetching teams for league %s: %s", log_metadata(league_id), log_metadata(e))
         return team_ids
 
     @lru_cache(maxsize=1)
@@ -4176,7 +4375,7 @@ class APIFootballClient:
         if season is None:
             season = self.current_season_start_year
 
-        logger.info(f"🔍 Building TOP5_TEAMS set for leagues: {league_ids_tuple}")
+        logger.info("🔍 Building TOP5_TEAMS set for leagues: %s", log_metadata(league_ids_tuple))
         team_ids = set()
 
         for league_id in league_ids_tuple:
@@ -4197,21 +4396,30 @@ class APIFootballClient:
                             [t for t in teams_data if "team" in t and self._team_filter(t["team"]["id"])]
                         )
                         logger.info(
-                            f"📊 League {league_id} ({self.european_leagues[league_id]['name']}): {filtered_count}/{league_team_count} teams (filtered)"
+                            "📊 League %s (%s): %s/%s teams (filtered)",
+                            log_metadata(league_id),
+                            log_metadata(self.european_leagues[league_id]["name"]),
+                            log_metadata(filtered_count),
+                            log_metadata(league_team_count),
                         )
                     else:
                         logger.info(
-                            f"📊 League {league_id} ({self.european_leagues[league_id]['name']}): {league_team_count} teams"
+                            "📊 League %s (%s): %s teams",
+                            log_metadata(league_id),
+                            log_metadata(self.european_leagues[league_id]["name"]),
+                            log_metadata(league_team_count),
                         )
                 except Exception as e:
-                    logger.warning(f"Error fetching teams for league {league_id}: {e}")
+                    logger.warning("Error fetching teams for league %s: %s", log_metadata(league_id), log_metadata(e))
 
         if self.enable_team_filter:
             logger.info(
-                f"✅ Built TOP5_TEAMS set with {len(team_ids)} teams total (filtered for: {ONLY_TEST_TEAM_IDS})"
+                "✅ Built TOP5_TEAMS set with %s teams total (filtered for: %s)",
+                len(team_ids),
+                log_metadata(ONLY_TEST_TEAM_IDS),
             )
         else:
-            logger.info(f"✅ Built TOP5_TEAMS set with {len(team_ids)} teams total")
+            logger.info("✅ Built TOP5_TEAMS set with %s teams total", len(team_ids))
 
         if len(team_ids) == 0:
             logger.warning("⚠️ TOP5_TEAMS set is empty! This will filter out all loans.")
@@ -4242,24 +4450,26 @@ class APIFootballClient:
 
         # Show sample of Top-5 teams for debugging
         sample_teams = list(top5_teams)[:5]
-        logger.info(f"🔍 Top-5 teams sample: {sample_teams} (total: {len(top5_teams)} teams)")
+        logger.info("🔍 Top-5 teams sample: %s (total: %s teams)", log_metadata(sample_teams), len(top5_teams))
 
         if self.enable_team_filter:
-            logger.info(f"🧪 Team filter active - only processing: {ONLY_TEST_TEAM_IDS}")
+            logger.info("🧪 Team filter active - only processing: %s", log_metadata(ONLY_TEST_TEAM_IDS))
 
         valid_loans = []
 
         transfer_count = len(player_block.get("transfers", []))
         if transfer_count > 0:
             logger.debug(
-                f"🔍 Player {player_block.get('player', {}).get('id', 'unknown')}: {transfer_count} transfers to check"
+                "🔍 Player %s: %s transfers to check",
+                log_metadata(player_block.get("player", {}).get("id", "unknown")),
+                log_metadata(transfer_count),
             )
             # Show structure of first transfer for debugging
             first_transfer = player_block.get("transfers", [])[0]
-            logger.debug(f"  📋 Sample transfer structure: {list(first_transfer.keys())}")
+            logger.debug("  📋 Sample transfer structure: %s", log_metadata(list(first_transfer.keys())))
             if "teams" in first_transfer:
                 teams_structure = first_transfer["teams"]
-                logger.debug(f"  📋 Teams structure keys: {list(teams_structure.keys())}")
+                logger.debug("  📋 Teams structure keys: %s", log_metadata(list(teams_structure.keys())))
 
         loans_in_window = 0
         loans_from_big5 = 0
@@ -4271,7 +4481,7 @@ class APIFootballClient:
             # CRITICAL FIX: Use is_new_loan_transfer() to properly identify NEW loans
             # This excludes "Back from Loan", "Return from loan" which would reverse the team direction!
             if not is_new_loan_transfer(transfer_type):
-                logger.debug(f"  Skipping non-loan or loan-return transfer: {transfer_type}")
+                logger.debug("  Skipping non-loan or loan-return transfer: %s", log_metadata(transfer_type))
                 continue
 
             if not transfer_date:
@@ -4279,17 +4489,21 @@ class APIFootballClient:
                 continue
 
             if not self._in_window(transfer_date, window_key):
-                logger.debug(f"  Skipping transfer outside window: {transfer_date} not in {window_key}")
+                logger.debug(
+                    "  Skipping transfer outside window: %s not in %s",
+                    log_metadata(transfer_date),
+                    log_metadata(window_key),
+                )
                 # Also log the window bounds for debugging
                 try:
                     start, end = self._parse_window_key(window_key)
-                    logger.debug(f"    Window bounds: {start} to {end}")
+                    logger.debug("    Window bounds: %s to %s", log_metadata(start), log_metadata(end))
                 except Exception as e:
-                    logger.debug(f"    Error parsing window: {e}")
+                    logger.debug("    Error parsing window: %s", log_metadata(e))
                 continue
 
             loans_in_window += 1
-            logger.debug(f"  ✅ Loan in window: {transfer_date} ({transfer_type})")
+            logger.debug("  ✅ Loan in window: %s (%s)", log_metadata(transfer_date), log_metadata(transfer_type))
 
             teams_data = t.get("teams", {})
             parent = teams_data.get("out", {})
@@ -4299,16 +4513,18 @@ class APIFootballClient:
             loanee_id = loanee.get("id")
 
             if not parent_id or not loanee_id:
-                logger.debug(f"  ❌ Missing team IDs: parent={parent_id}, loanee={loanee_id}")
+                logger.debug(
+                    "  ❌ Missing team IDs: parent=%s, loanee=%s", log_metadata(parent_id), log_metadata(loanee_id)
+                )
                 continue
 
             # Only include loans originating from Big-5 clubs
             if parent_id not in top5_teams:
-                logger.debug(f"  ❌ Non-Big5 parent club: {parent_id} not in Top-5 set")
+                logger.debug("  ❌ Non-Big5 parent club: %s not in Top-5 set", log_metadata(parent_id))
                 continue
 
             loans_from_big5 += 1
-            logger.debug(f"  ✅ Big-5 loan: {parent_id} → {loanee_id}")
+            logger.debug("  ✅ Big-5 loan: %s → %s", log_metadata(parent_id), log_metadata(loanee_id))
 
             # Store loan with date for latest filtering
             valid_loans.append(
@@ -4329,23 +4545,30 @@ class APIFootballClient:
         if valid_loans:
             latest_loan = max(valid_loans, key=lambda x: x["date"])
             logger.debug(
-                f"  🎯 Yielding loan: {latest_loan['primary_team_name']} → {latest_loan['loan_team_name']} on {latest_loan['date']}"
+                "  🎯 Yielding loan: %s → %s on %s",
+                log_metadata(latest_loan["primary_team_name"]),
+                log_metadata(latest_loan["loan_team_name"]),
+                log_metadata(latest_loan["date"]),
             )
             yield latest_loan
         elif transfer_count > 0:
-            logger.debug(f"  ❌ No valid loans found ({loans_in_window} in window, {loans_from_big5} from Big-5)")
+            logger.debug(
+                "  ❌ No valid loans found (%s in window, %s from Big-5)",
+                log_metadata(loans_in_window),
+                log_metadata(loans_from_big5),
+            )
 
     @lru_cache(maxsize=256)
     def _cached_transfers(self, team_id: int) -> list[dict[str, Any]]:
         """Get team transfers with LRU caching, keyed by (team_id, season)."""
         try:
             # Season parameter is now required to prevent drift with window_key
-            logger.debug(f"🔍 Fetching transfers for team {team_id} (cache miss)")
+            logger.debug("🔍 Fetching transfers for team %s (cache miss)", log_metadata(team_id))
             return self.get_team_transfers(team_id)
         except APICallBudgetExceeded:
             raise
         except Exception as e:
-            logger.warning(f"Error fetching transfers for team {team_id}: {e}")
+            logger.warning("Error fetching transfers for team %s: %s", log_metadata(team_id), log_metadata(e))
             return []
 
     # ------------------------------------------------------------------
@@ -4385,8 +4608,12 @@ class APIFootballClient:
         except (ValueError, AttributeError):
             season_year = self.current_season_start_year
 
-        logger.info(f"🔍 Collecting outbound loans from {len(parent_team_ids)} Top-5 clubs for window {window_key}")
-        logger.info(f"📋 Parent team IDs to check: {parent_team_ids}")
+        logger.info(
+            "🔍 Collecting outbound loans from %s Top-5 clubs for window %s",
+            len(parent_team_ids),
+            log_metadata(window_key),
+        )
+        logger.info("📋 Parent team IDs to check: %s", log_metadata(parent_team_ids))
 
         teams_checked = 0
         transfers_found = 0
@@ -4405,30 +4632,40 @@ class APIFootballClient:
 
                 if transfer_blocks:
                     transfers_found += len(transfer_blocks)
-                    logger.info(f"Team {parent_id}: {len(transfer_blocks)} transfer blocks")
+                    logger.info("Team %s: %s transfer blocks", log_metadata(parent_id), len(transfer_blocks))
 
                     # Log sample transfer data for debugging
                     if transfer_blocks:
                         sample_block = transfer_blocks[0]
-                        logger.info(f"📋 Sample transfer block keys: {list(sample_block.keys())}")
+                        logger.info("📋 Sample transfer block keys: %s", log_metadata(list(sample_block.keys())))
                         if "transfers" in sample_block and sample_block["transfers"]:
                             sample_transfer = sample_block["transfers"][0]
-                            logger.info(f"📋 Sample transfer keys: {list(sample_transfer.keys())}")
-                            logger.info(f"📋 Sample transfer type: {sample_transfer.get('type', 'MISSING')}")
-                            logger.info(f"📋 Sample transfer date: {sample_transfer.get('date', 'MISSING')}")
+                            logger.info("📋 Sample transfer keys: %s", log_metadata(list(sample_transfer.keys())))
+                            logger.info(
+                                "📋 Sample transfer type: %s", log_metadata(sample_transfer.get("type", "MISSING"))
+                            )
+                            logger.info(
+                                "📋 Sample transfer date: %s", log_metadata(sample_transfer.get("date", "MISSING"))
+                            )
                             # Show all transfers for this team to see what we have
-                            logger.info(f"📋 All transfers for team {parent_id}:")
+                            logger.info("📋 All transfers for team %s:", log_metadata(parent_id))
                             for i, tblock in enumerate(transfer_blocks[:3]):  # Show first 3
                                 if "transfers" in tblock:
                                     for j, t in enumerate(tblock["transfers"][:2]):  # Show first 2 transfers per block
                                         logger.info(
-                                            f"     Block {i}, Transfer {j}: type='{t.get('type', 'MISSING')}', date='{t.get('date', 'MISSING')}'"
+                                            "     Block %s, Transfer %s: type='%s', date='%s'",
+                                            log_metadata(i),
+                                            log_metadata(j),
+                                            log_metadata(t.get("type", "MISSING")),
+                                            log_metadata(t.get("date", "MISSING")),
                                         )
                                         if "teams" in t:
                                             teams = t.get("teams", {})
                                             out_team = teams.get("out", {}).get("id", "MISSING")
                                             in_team = teams.get("in", {}).get("id", "MISSING")
-                                            logger.info(f"         Teams: {out_team} → {in_team}")
+                                            logger.info(
+                                                "         Teams: %s → %s", log_metadata(out_team), log_metadata(in_team)
+                                            )
 
                     # Check each transfer block (player transfers)
                     for tblock in transfer_blocks:
@@ -4445,26 +4682,36 @@ class APIFootballClient:
                             ):
                                 out[player_id] = loan_data
                                 logger.info(
-                                    f"✅ DIRECT LOAN: Player {player_id} from {loan_data['primary_team_name']} → {loan_data['loan_team_name']} on {loan_data['transfer_date']}"
+                                    "✅ DIRECT LOAN: Player %s from %s → %s on %s",
+                                    log_metadata(player_id),
+                                    log_metadata(loan_data["primary_team_name"]),
+                                    log_metadata(loan_data["loan_team_name"]),
+                                    log_metadata(loan_data["transfer_date"]),
                                 )
                 else:
-                    logger.debug(f"Team {parent_id}: No transfers found")
+                    logger.debug("Team %s: No transfers found", log_metadata(parent_id))
 
                 # Rate limiting safeguards
                 if request_count % 10 == 0:
                     self._respect_ratelimit()
 
             except Exception as e:
-                logger.warning(f"Error processing outbound loans for team {parent_id}: {e}")
+                logger.warning(
+                    "Error processing outbound loans for team %s: %s", log_metadata(parent_id), log_metadata(e)
+                )
                 continue
 
         logger.info("📊 Direct loan collection summary:")
-        logger.info(f"   - Teams checked: {teams_checked}")
-        logger.info(f"   - Transfer blocks found: {transfers_found}")
-        logger.info(f"   - Loans detected: {loans_found}")
-        logger.info(f"   - Unique players with loans: {len(out)}")
+        logger.info("   - Teams checked: %s", log_metadata(teams_checked))
+        logger.info("   - Transfer blocks found: %s", log_metadata(transfers_found))
+        logger.info("   - Loans detected: %s", log_metadata(loans_found))
+        logger.info("   - Unique players with loans: %s", len(out))
 
-        logger.info(f"🔍 Found {len(out)} players with outbound loans from {request_count} team transfer requests")
+        logger.info(
+            "🔍 Found %s players with outbound loans from %s team transfer requests",
+            len(out),
+            log_metadata(request_count),
+        )
         return out
 
     def get_direct_loan_candidates(
@@ -4483,17 +4730,25 @@ class APIFootballClient:
                 season = int(season_slug.split("-")[0])
             except (ValueError, IndexError):
                 season = self.current_season_start_year
-                logger.warning(f"Failed to parse season from window_key '{window_key}', using default: {season}")
+                logger.warning(
+                    "Failed to parse season from window_key '%s', using default: %s",
+                    log_metadata(window_key),
+                    log_metadata(season),
+                )
         top5_team_ids = self._get_top5_team_ids(league_ids, season)
         # Collect outbound loans with corrected direction logic
         # PATCH: do not send season to transfers endpoint
         loan_candidates = self._collect_outbound_loans(window_key, top5_team_ids)
-        logger.info(f"✅ Found {len(loan_candidates)} direct loan candidates from transfer data")
+        logger.info("✅ Found %s direct loan candidates from transfer data", len(loan_candidates))
         return loan_candidates
 
     def _detect_from_player_stats(self, league_ids: list[int], window_key: str, season: int) -> dict[int, list[int]]:
         """Original detection logic using player statistics."""
-        logger.info(f"🔍 Detecting multi-team players using player stats for window {window_key} (season {season})")
+        logger.info(
+            "🔍 Detecting multi-team players using player stats for window %s (season %s)",
+            log_metadata(window_key),
+            log_metadata(season),
+        )
         player_teams = defaultdict(set)  # player_id -> set of team_ids
         if season is None:
             try:
@@ -4501,18 +4756,28 @@ class APIFootballClient:
                 season = int(season_slug.split("-")[0])
             except (ValueError, IndexError):
                 season = self.current_season_start_year
-                logger.warning(f"Failed to parse season from window_key '{window_key}', using default: {season}")
+                logger.warning(
+                    "Failed to parse season from window_key '%s', using default: %s",
+                    log_metadata(window_key),
+                    log_metadata(season),
+                )
         for league_id in league_ids:
             # Check coverage before crawling
             if not self._check_league_coverage(league_id, season):
-                logger.warning(f"⚠️ Skipping league {league_id} - no player coverage")
+                logger.warning("⚠️ Skipping league %s - no player coverage", log_metadata(league_id))
                 continue
 
-            logger.info(f"🏆 Crawling league {league_id}: {self.european_leagues[league_id]['name']}")
+            logger.info(
+                "🏆 Crawling league %s: %s",
+                log_metadata(league_id),
+                log_metadata(self.european_leagues[league_id]["name"]),
+            )
 
             # If team filter is active, only process teams in filter for this league
             if self.enable_team_filter:
-                logger.info(f"🧪 Team filter active: Will only process filtered teams from league {league_id}")
+                logger.info(
+                    "🧪 Team filter active: Will only process filtered teams from league %s", log_metadata(league_id)
+                )
 
             page = 1
 
@@ -4521,10 +4786,15 @@ class APIFootballClient:
                     resp = self._make_request("players", {"league": league_id, "season": season, "page": page})
 
                     players_data = resp.get("response", [])
-                    logger.info(f"📊 League {league_id} page {page}: Found {len(players_data)} players")
+                    logger.info(
+                        "📊 League %s page %s: Found %s players",
+                        log_metadata(league_id),
+                        log_metadata(page),
+                        len(players_data),
+                    )
 
                     if not players_data:
-                        logger.info(f"📄 No more players in league {league_id}, stopping pagination")
+                        logger.info("📄 No more players in league %s, stopping pagination", log_metadata(league_id))
                         break
 
                     for player_row in players_data:
@@ -4534,14 +4804,16 @@ class APIFootballClient:
 
                         # Check all statistics for this player in this season
                         player_stats = player_row.get("statistics", [])
-                        logger.debug(f"Player {player_id} has {len(player_stats)} statistics entries")
+                        logger.debug("Player %s has %s statistics entries", log_metadata(player_id), len(player_stats))
 
                         for stat in player_stats:
                             team_info = stat.get("team", {})
                             team_id = team_info.get("id")
                             if team_id and self._team_filter(team_id):
                                 player_teams[player_id].add(team_id)
-                                logger.debug(f"Added team {team_id} to player {player_id}")
+                                logger.debug(
+                                    "Added team %s to player %s", log_metadata(team_id), log_metadata(player_id)
+                                )
 
                     # Check pagination
                     paging = resp.get("paging", {})
@@ -4549,18 +4821,23 @@ class APIFootballClient:
                         break
 
                     page += 1
-                    logger.info(f"📄 Processed page {page - 1}, moving to page {page}")
+                    logger.info("📄 Processed page %s, moving to page %s", log_metadata(page - 1), log_metadata(page))
 
                     # Respect rate limits
                     self._respect_ratelimit(resp.get("headers", {}))
 
                 except Exception as e:
-                    logger.error(f"Error crawling league {league_id}, page {page}: {e}")
+                    logger.error(
+                        "Error crawling league %s, page %s: %s",
+                        log_metadata(league_id),
+                        log_metadata(page),
+                        log_metadata(e),
+                    )
                     break
 
         # Filter to only players with multiple teams
         multi_team_dict = {pid: list(teams) for pid, teams in player_teams.items() if len(teams) > 1}
-        logger.info(f"✅ Found {len(multi_team_dict)} players with multi-team appearances via stats")
+        logger.info("✅ Found %s players with multi-team appearances via stats", len(multi_team_dict))
         return multi_team_dict
 
     def detect_multi_team_players(
@@ -4597,13 +4874,13 @@ class APIFootballClient:
             season_slug, _ = window_key.split("::")
             season = int(season_slug.split("-")[0])
         except (ValueError, AttributeError):
-            logger.warning(f"Invalid window_key format: {window_key}, using default season")
+            logger.warning("Invalid window_key format: %s, using default season", log_metadata(window_key))
             season = self.current_season_start_year
 
         if league_ids is None:
             league_ids = list(self.crawl_league_ids)
 
-        logger.info(f"🔍 Detecting multi-team players for window {window_key} using merged approach")
+        logger.info("🔍 Detecting multi-team players for window %s using merged approach", log_metadata(window_key))
 
         # Method 1: Original player statistics detection
         multi = self._detect_from_player_stats(league_ids, window_key, season)
@@ -4639,10 +4916,10 @@ class APIFootballClient:
         # Filter to only players with multiple teams
         final_result = {pid: teams for pid, teams in combined.items() if len(teams) > 1}
 
-        logger.info(f"✅ Final merged results: {len(final_result)} players with multi-team appearances")
-        logger.info(f"   - From stats: {len(multi)} players")
-        logger.info(f"   - From transfers: {len(xfer)} players")
-        logger.info(f"   - Combined unique: {len(final_result)} players")
+        logger.info("✅ Final merged results: %s players with multi-team appearances", len(final_result))
+        logger.info("   - From stats: %s players", len(multi))
+        logger.info("   - From transfers: %s players", len(xfer))
+        logger.info("   - Combined unique: %s players", len(final_result))
 
         return final_result
 
@@ -4657,19 +4934,19 @@ class APIFootballClient:
                 coverage = league_info.get("coverage", {})
                 players_coverage = coverage.get("players", False)
 
-                logger.info(f"🏆 League {league_id} player coverage: {players_coverage}")
+                logger.info("🏆 League %s player coverage: %s", log_metadata(league_id), log_metadata(players_coverage))
 
                 # For now, let's proceed with all leagues since coverage might not be reliable
                 # We can always filter out empty results later
-                logger.info(f"🏆 Proceeding with league {league_id} regardless of coverage status")
+                logger.info("🏆 Proceeding with league %s regardless of coverage status", log_metadata(league_id))
                 return True
 
             # Default to True if coverage info not available (for backwards compatibility)
-            logger.warning(f"⚠️ Could not check coverage for league {league_id}, proceeding")
+            logger.warning("⚠️ Could not check coverage for league %s, proceeding", log_metadata(league_id))
             return True
 
         except Exception as e:
-            logger.error(f"Error checking coverage for league {league_id}: {e}")
+            logger.error("Error checking coverage for league %s: %s", log_metadata(league_id), log_metadata(e))
             # Default to True on error (for backwards compatibility)
             return True
 
@@ -4692,7 +4969,11 @@ class APIFootballClient:
                 season = int(season_slug.split("-")[0])
             except (ValueError, IndexError):
                 season = self.current_season_start_year
-                logger.warning(f"Failed to parse season from window_key '{window_key}', using default: {season}")
+                logger.warning(
+                    "Failed to parse season from window_key '%s', using default: %s",
+                    log_metadata(window_key),
+                    log_metadata(season),
+                )
 
         try:
             # Get player transfers
@@ -4757,7 +5038,7 @@ class APIFootballClient:
                             # Has both permanent transfers and loans - suggests temporary loan
                             loan_confidence -= 0.8  # Heavy penalty for temporary loans
                             loan_indicators.append("Temporary loan detected (has permanent transfers)")
-                            logger.info(f"Player {player_id}: Detected temporary loan pattern")
+                            logger.info("Player %s: Detected temporary loan pattern", log_metadata(player_id))
                         else:
                             # Only loans, no permanent transfers - likely currently on loan
                             loan_confidence += 0.7
@@ -4794,7 +5075,7 @@ class APIFootballClient:
         except APICallBudgetExceeded:
             raise
         except Exception as e:
-            logger.error(f"Error analyzing transfers for player {player_id}: {e}")
+            logger.error("Error analyzing transfers for player %s: %s", log_metadata(player_id), log_metadata(e))
             return {
                 "loan_confidence": 0.0,
                 "is_likely_loan": False,
@@ -4817,7 +5098,7 @@ class APIFootballClient:
         if season is None:
             season = self.current_season_start_year
 
-        logger.info(f"👥 Fetching all players for team {team_id}, season {season}")
+        logger.info("👥 Fetching all players for team %s, season %s", log_metadata(team_id), log_metadata(season))
 
         if self.mode == "stub" and not api_football_frozen():
             return self._get_sample_team_players(team_id, season)
@@ -4834,7 +5115,7 @@ class APIFootballClient:
             seen_names: set[str] = set()
 
             while True:
-                logger.info(f"📄 Fetching page {page} for team {team_id}")
+                logger.info("📄 Fetching page %s for team %s", log_metadata(page), log_metadata(team_id))
 
                 response = self._make_request("players", {"team": team_id, "season": season, "page": page})
 
@@ -4854,11 +5135,15 @@ class APIFootballClient:
                 total_pages = paging.get("total", 1)
 
                 logger.info(
-                    f"📊 Page {current_page} of {total_pages} - API results={results_count}, received={len(players_data)}"
+                    "📊 Page %s of %s - API results=%s, received=%s",
+                    log_metadata(current_page),
+                    log_metadata(total_pages),
+                    log_metadata(results_count),
+                    len(players_data),
                 )
 
                 if not players_data:
-                    logger.info(f"🚫 No player data returned on page {page}; stopping pagination.")
+                    logger.info("🚫 No player data returned on page %s; stopping pagination.", log_metadata(page))
                     break
 
                 all_players.extend(players_data)
@@ -4880,7 +5165,10 @@ class APIFootballClient:
 
                 # Check pagination info
                 logger.debug(
-                    f"🧮 Accumulated: total_items={len(all_players)}, unique_ids={len(seen_ids)}, unique_names={len(seen_names)}"
+                    "🧮 Accumulated: total_items=%s, unique_ids=%s, unique_names=%s",
+                    len(all_players),
+                    len(seen_ids),
+                    len(seen_names),
                 )
 
                 if current_page >= total_pages:
@@ -4893,17 +5181,31 @@ class APIFootballClient:
                 time.sleep(1)
 
             logger.info(
-                f"✅ Fetched {len(all_players)} total items for team {team_id}; unique_ids={len(seen_ids)} unique_names={len(seen_names)}"
+                "✅ Fetched %s total items for team %s; unique_ids=%s unique_names=%s",
+                len(all_players),
+                log_metadata(team_id),
+                len(seen_ids),
+                len(seen_names),
             )
             return all_players
 
         except APICallBudgetExceeded:
             raise
         except TeamPlayersFetchError:
-            logger.exception("Failed to fetch team players for team %s, season %s", team_id, season)
+            logger.exception(
+                "Failed to fetch team players for team %s, season %s",
+                log_metadata(team_id),
+                log_metadata(season),
+                exc_info=safe_exc_info(),
+            )
             raise
         except Exception as e:
-            logger.exception("Failed to fetch team players for team %s, season %s", team_id, season)
+            logger.exception(
+                "Failed to fetch team players for team %s, season %s",
+                log_metadata(team_id),
+                log_metadata(season),
+                exc_info=safe_exc_info(),
+            )
             raise TeamPlayersFetchError(f"Failed to fetch team players for team {team_id}, season {season}: {e}") from e
 
     def get_player_transfers(
@@ -4931,16 +5233,23 @@ class APIFootballClient:
 
             if cache_age < self._transfer_cache_ttl:
                 logger.info(
-                    f"✅ Cache HIT for player {player_id} transfers (age: {cache_age.seconds // 3600}h {(cache_age.seconds // 60) % 60}m)"
+                    "✅ Cache HIT for player %s transfers (age: %sh %sm)",
+                    log_metadata(player_id),
+                    log_metadata(cache_age.seconds // 3600),
+                    log_metadata(cache_age.seconds // 60 % 60),
                 )
                 if self.mode != "stub":
                     _record_transfer_payload(cached_data, fallback_player_api_id=player_id)
                 return cached_data
             else:
-                logger.info(f"🔄 Cache EXPIRED for player {player_id} (age: {cache_age.total_seconds() / 3600:.1f}h)")
+                logger.info(
+                    "🔄 Cache EXPIRED for player %s (age: %sh)",
+                    log_metadata(player_id),
+                    log_metadata(cache_age.total_seconds() / 3600),
+                )
 
         # Cache miss or expired - fetch from API
-        logger.info(f"🔄 Cache MISS - Fetching transfers for player {player_id} from API")
+        logger.info("🔄 Cache MISS - Fetching transfers for player %s from API", log_metadata(player_id))
 
         if self.mode == "stub" and not api_football_frozen():
             # Sample data is valid only when stub mode was explicitly enabled.
@@ -4973,16 +5282,24 @@ class APIFootballClient:
             # Cache the result with timestamp
             self._transfer_cache[player_id] = (transfers_data, datetime.now(UTC))
 
-            logger.info(f"✅ Found {len(transfers_data)} transfer records for player {player_id} - CACHED for 24h")
+            logger.info(
+                "✅ Found %s transfer records for player %s - CACHED for 24h",
+                len(transfers_data),
+                log_metadata(player_id),
+            )
             return transfers_data
 
         except APICallBudgetExceeded:
             raise
         except TransferFetchError:
-            logger.exception("Failed to fetch player transfers for player %s", player_id)
+            logger.exception(
+                "Failed to fetch player transfers for player %s", log_metadata(player_id), exc_info=safe_exc_info()
+            )
             raise
         except Exception as e:
-            logger.exception("Failed to fetch player transfers for player %s", player_id)
+            logger.exception(
+                "Failed to fetch player transfers for player %s", log_metadata(player_id), exc_info=safe_exc_info()
+            )
             raise TransferFetchError(f"Failed to fetch player transfers for player {player_id}: {e}") from e
 
     # Upsert helper functions
@@ -5009,7 +5326,11 @@ class APIFootballClient:
                 try:
                     date_utc = datetime.strptime(raw_date, "%Y-%m-%d %H:%M:%S")
                 except Exception:
-                    logger.warning("⚠️ Unable to parse fixture date '%s' for fixture_id=%s", raw_date, fixture_api_id)
+                    logger.warning(
+                        "⚠️ Unable to parse fixture date '%s' for fixture_id=%s",
+                        log_metadata(raw_date),
+                        log_metadata(fixture_api_id),
+                    )
                     date_utc = None
 
         row = Fixture(
@@ -5027,11 +5348,11 @@ class APIFootballClient:
         try:
             db_session.flush()
         except IntegrityError:
-            logger.debug("Fixture %s already exists, reusing", fixture_api_id)
+            logger.debug("Fixture %s already exists, reusing", log_metadata(fixture_api_id))
             db_session.rollback()
             row = db_session.query(Fixture).filter_by(fixture_id_api=fixture_api_id).first()
         except DataError as exc:
-            logger.warning("⚠️ Failed to persist fixture %s: %s", fixture_api_id, exc)
+            logger.warning("⚠️ Failed to persist fixture %s: %s", log_metadata(fixture_api_id), log_metadata(exc))
             db_session.rollback()
             row = db_session.query(Fixture).filter_by(fixture_id_api=fixture_api_id).first()
         return row
@@ -5391,7 +5712,9 @@ class APIFootballClient:
         if not player_ids:
             return results
 
-        logger.info(f"🚀 Batch fetching transfers for {len(player_ids)} players with {max_workers} workers")
+        logger.info(
+            "🚀 Batch fetching transfers for %s players with %s workers", len(player_ids), log_metadata(max_workers)
+        )
 
         def fetch_with_delay(player_id: int):
             """Fetch transfers with rate limiting."""
@@ -5415,7 +5738,7 @@ class APIFootballClient:
                     completed += 1
 
                     if completed % 10 == 0:
-                        logger.info(f"   Progress: {completed}/{len(player_ids)} players processed")
+                        logger.info("   Progress: %s/%s players processed", log_metadata(completed), len(player_ids))
 
                 except APICallBudgetExceeded:
                     for pending in futures:
@@ -5423,9 +5746,11 @@ class APIFootballClient:
                     raise
                 except Exception as e:
                     player_id = futures[future]
-                    logger.error(f"   Error fetching transfers for player {player_id}: {e}")
+                    logger.error(
+                        "   Error fetching transfers for player %s: %s", log_metadata(player_id), log_metadata(e)
+                    )
 
-        logger.info(f"✅ Batch complete: {len(results)}/{len(player_ids)} successful")
+        logger.info("✅ Batch complete: %s/%s successful", len(results), len(player_ids))
         return results
 
     def detect_incremental_loans(
@@ -5454,13 +5779,13 @@ class APIFootballClient:
         if league_ids is None:
             league_ids = list(self.crawl_league_ids)
 
-        logger.info(f"🔄 Incremental loan detection since {last_check.isoformat()}")
+        logger.info("🔄 Incremental loan detection since %s", log_metadata(last_check.isoformat()))
 
         # Get players with recent database updates
         recent_players = TrackedPlayer.query.filter(TrackedPlayer.updated_at > last_check).all()
 
         player_ids = list(set(p.player_api_id for p in recent_players))
-        logger.info(f"📊 Found {len(player_ids)} players with recent updates")
+        logger.info("📊 Found %s players with recent updates", len(player_ids))
 
         if not player_ids:
             logger.info("✅ No recent updates - nothing to check")
@@ -5509,7 +5834,7 @@ class APIFootballClient:
                         "confidence": 1.0,
                     }
 
-        logger.info(f"✅ Incremental detection: {len(loan_candidates)} active loans found")
+        logger.info("✅ Incremental detection: %s active loans found", len(loan_candidates))
         return loan_candidates
 
     # =========================================================================
@@ -5527,13 +5852,13 @@ class APIFootballClient:
         if player_id is not None:
             if player_id in self._transfer_cache:
                 del self._transfer_cache[player_id]
-                logger.info(f"🗑️ Cleared transfer cache for player {player_id}")
+                logger.info("🗑️ Cleared transfer cache for player %s", log_metadata(player_id))
             else:
-                logger.info(f"ℹ️ No cache entry for player {player_id}")
+                logger.info("ℹ️ No cache entry for player %s", log_metadata(player_id))
         else:
             cache_size = len(self._transfer_cache)
             self._transfer_cache.clear()
-            logger.info(f"🗑️ Cleared entire transfer cache ({cache_size} entries)")
+            logger.info("🗑️ Cleared entire transfer cache (%s entries)", log_metadata(cache_size))
 
     def clear_stats_cache(self, player_id: int | None = None, season: int | None = None):
         """
@@ -5548,19 +5873,23 @@ class APIFootballClient:
             cache_key = (player_id, season)
             if cache_key in self._stats_cache:
                 del self._stats_cache[cache_key]
-                logger.info(f"🗑️ Cleared stats cache for player {player_id}, season {season}")
+                logger.info(
+                    "🗑️ Cleared stats cache for player %s, season %s", log_metadata(player_id), log_metadata(season)
+                )
             else:
-                logger.info(f"ℹ️ No cache entry for player {player_id}, season {season}")
+                logger.info("ℹ️ No cache entry for player %s, season %s", log_metadata(player_id), log_metadata(season))
         elif player_id is not None:
             # Clear all seasons for this player
             keys_to_delete = [k for k in self._stats_cache.keys() if k[0] == player_id]
             for key in keys_to_delete:
                 del self._stats_cache[key]
-            logger.info(f"🗑️ Cleared stats cache for player {player_id} ({len(keys_to_delete)} seasons)")
+            logger.info(
+                "🗑️ Cleared stats cache for player %s (%s seasons)", log_metadata(player_id), len(keys_to_delete)
+            )
         else:
             cache_size = len(self._stats_cache)
             self._stats_cache.clear()
-            logger.info(f"🗑️ Cleared entire stats cache ({cache_size} entries)")
+            logger.info("🗑️ Cleared entire stats cache (%s entries)", log_metadata(cache_size))
 
     def clear_all_caches(self):
         """Clear all performance caches (transfers and stats)."""
@@ -5570,7 +5899,9 @@ class APIFootballClient:
         self._transfer_cache.clear()
         self._stats_cache.clear()
 
-        logger.info(f"🗑️ Cleared ALL caches ({transfer_count} transfers, {stats_count} stats)")
+        logger.info(
+            "🗑️ Cleared ALL caches (%s transfers, %s stats)", log_metadata(transfer_count), log_metadata(stats_count)
+        )
 
     def get_cache_stats(self) -> dict[str, Any]:
         """

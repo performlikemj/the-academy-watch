@@ -31,6 +31,7 @@ The Academy Watch — Football academy tracking platform with AI-powered newslet
   an unconditional development step.
 
 ## State
+- **Now (2026-10-03 LOGPIIF2):** PR #1140 second review fix round; independent X/O union read. Source-control audit and conservative whole-token redaction replace address grammar/budgets; preserve diagnostics and every access line. Final receipt: `~/codex-runs/aw-redesign/logs/LOGPIIF2.final.md`; see `ledgers/CONTINUITY_logpii.md`.
 - **Now (2026-10-03 LOGPIIF1):** PR #1140 review fix round on `fix/log-email-masking`; bounded/fail-closed filter, private/late handlers, CLI errors and admin actor correlation addressed. Focused204 PASS plus real startup PASS; main8696a4de integrated; final-head validation and delivery tracked externally. Delivery receipts: `~/codex-runs/aw-redesign/logs/LOGPIIF1.final.md`; ledger: `ledgers/CONTINUITY_logpii.md`.
 - **Now (2026-10-03 C2R3):** reviewed eed4b1c0 refreshed with origin/main3949cbac (contains PCf18abf6b and loader3949cbac). Sole CONTINUITY conflict keeps both histories; viewer-boundary10PASS, C2 line/blob identity unchanged. Final four cached gates/C2+UXBF1+PC browser/PG deletes-nothing/push/CI authoritative in external logs/C2R3.final.md; proof appended C2R.identity.md.
 - **Now (2026-10-03 C2F9):** suppress unknown/initial failed flag panels in all four embedded highlights consumers; dedicated approvals retains error/Retry. Restore main UXBF1 spec; exact final gates/browser/push/CI receipts external logs/C2F9.final.md.

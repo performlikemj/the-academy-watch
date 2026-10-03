@@ -16,6 +16,7 @@ from src.models.league import db
 from src.models.video import VideoMatch
 from src.services import highlights, highlights_storage, video_storage
 from src.services.highlights_retention import log_disabled, retention_enabled
+from src.utils.log_privacy import log_metadata
 
 MAX_ATTEMPTS = 3
 LEASE_SECONDS = 900  # greater than bounded download + cut + upload
@@ -374,10 +375,12 @@ def main():
             )
             print(
                 json.dumps(
-                    {
-                        "dry_run": True,
-                        "would_delete_blobs": [job.blob_path for job in jobs if owned_output(job.blob_path)],
-                    }
+                    log_metadata(
+                        {
+                            "dry_run": True,
+                            "would_delete_blobs": [job.blob_path for job in jobs if owned_output(job.blob_path)],
+                        }
+                    )
                 )
             )
             return
@@ -388,7 +391,9 @@ def main():
                 if claimed is None:
                     break
                 completed += int(run_one(*claimed, source_batch=batch))
-        print(json.dumps({"enabled": highlights.enabled(), "completed": completed, "retention": retention}))
+        print(
+            json.dumps(log_metadata({"enabled": highlights.enabled(), "completed": completed, "retention": retention}))
+        )
 
 
 if __name__ == "__main__":

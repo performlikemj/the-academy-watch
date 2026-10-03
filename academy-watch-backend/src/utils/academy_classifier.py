@@ -23,6 +23,7 @@ from src.services.transfer_resolver import (
     resolve_transfer_state,
 )
 from src.utils.academy_window import DEVELOPMENT_AGE_CUTOFF as _DEVELOPMENT_AGE_CUTOFF
+from src.utils.log_privacy import log_metadata
 
 # ── regex to strip youth suffixes from club names ──────────────────────
 YOUTH_SUFFIXES = re.compile(
@@ -1140,7 +1141,7 @@ def classify_tracked_player(
             raw = api_client.get_player_transfers(player_api_id)
             effective_transfers = flatten_transfers(raw)
         except Exception as exc:
-            logger.warning("Transfer fetch failed for player %s: %s", player_api_id, exc)
+            logger.warning("Transfer fetch failed for player %s: %s", log_metadata(player_api_id), log_metadata(exc))
             # Keep fetch failure distinct from a successful empty history.
             # Unknown evidence must not downgrade the conservative status.
             effective_transfers = None
